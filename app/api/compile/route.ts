@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/apiError";
-import { compileCcz } from "@/lib/commcare/compiler";
-import { expandDoc } from "@/lib/commcare/expander";
 import {
 	encodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { compileLocalArchive } from "@/lib/export/localArchive";
 import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
@@ -19,9 +18,9 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  * CCZ compile endpoint: the binary twin of `/api/compile/json`.
  *
  * Shares the auth + parse + boundary-gate + manifest preamble with the JSON twin
- * via `prepareCompileRequest`, then expands the doc to HQ JSON, packages it with
- * `compileCcz`, and returns the `.ccz` archive bytes directly as the response
- * body. Returning the bytes inline (rather than persisting them and handing back
+ * via `prepareCompileRequest`, then builds the archive with
+ * `compileLocalArchive` (the one `.ccz` assembly) and returns its bytes
+ * directly as the response body. Returning the bytes inline (rather than persisting them and handing back
  * a download URL) means there is no server-side artifact to store, secure, or
  * reap, and nothing that can go missing when a follow-up download request lands
  * on a different Cloud Run instance than the one that compiled it. Success comes
@@ -31,38 +30,18 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const {
-			runtimeTarget,
-			doc,
-			assets,
-			compiledAtSeq,
-			lookupNaming,
-			lookupWire,
-			attachmentTarget,
-			attachmentTargetState,
-		} = await prepareCompileRequest(req, {
+		const prepared = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "compile",
 			mode: "ccz",
 		});
+		const { doc, attachmentTargetState } = prepared;
 
 		// Compile is always media-ON: the archive bundles whatever the manifest
-		// resolved (an empty manifest simply emits no media artifacts). The
-		// blueprint's `mutation_seq` stamps the profile's `cc-content-version` so
-		// the archive names the exact document version it was built from. The
-		// prepared lookup wire carries the identity naming and budget-checked
-		// fixture blocks from the boundary's validated snapshot.
-		const hqJson = expandDoc(doc, {
-			runtimeTarget,
-			assets,
-			attachmentTarget,
-			...(lookupNaming && { lookupNaming }),
-		});
-		const buffer = compileCcz(hqJson, doc.appName, doc, {
-			runtimeTarget,
-			assets,
-			compiledAtSeq,
-			...(lookupWire && { lookup: lookupWire }),
-		});
+		// resolved (an empty manifest simply emits no media artifacts), embeds
+		// the prepared lookup fixtures, and stamps the blueprint's
+		// `mutation_seq` into the profile's `cc-content-version` so the archive
+		// names the exact document version it was built from.
+		const buffer = compileLocalArchive(prepared, prepared.runtimeTarget);
 
 		// Stream the freshly-built archive straight back to the caller. The
 		// download filename is sanitized because `appName` is user-controlled

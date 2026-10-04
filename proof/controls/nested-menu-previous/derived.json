@@ -1,0 +1,432 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "gold-fish-1",
+					"case_type": "gold-fish",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "gold-fish-2",
+					"case_type": "gold-fish",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "gold-fish-3",
+					"case_type": "gold-fish",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "guppy-1",
+					"case_type": "guppy",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"gold-fish",
+							"gold-fish-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "guppy-2",
+					"case_type": "guppy",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"gold-fish",
+							"gold-fish-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "guppy-3",
+					"case_type": "guppy",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"gold-fish",
+							"gold-fish-3",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Nested care",
+			"modules": [
+				[
+					"gold-fish",
+					[
+						{
+							"creates": [
+								"guppy"
+							],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "gold-fish",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "84604822-aa00-5cb6-a599-8bacc9dddb32",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"guppy",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "guppy",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "81604369-af00-5495-a299-86f3c6ddd679",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"84604822-aa00-5cb6-a599-8bacc9dddb32"
+					],
+					"uuid": "40cd7ca0-e733-562c-ac3c-17aea97d4610"
+				},
+				{
+					"forms": [
+						"81604369-af00-5495-a299-86f3c6ddd679"
+					],
+					"uuid": "43cd8159-ea33-5ae5-ab3c-161bac7d4ac9"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "gold-fish-1",
+					"case_type": "gold-fish",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "gold-fish-2",
+					"case_type": "gold-fish",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "gold-fish-3",
+					"case_type": "gold-fish",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "guppy-1",
+					"case_type": "guppy",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"gold-fish",
+							"gold-fish-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "guppy-2",
+					"case_type": "guppy",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"gold-fish",
+							"gold-fish-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "guppy-3",
+					"case_type": "guppy",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"gold-fish",
+							"gold-fish-3",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Nested care",
+			"modules": [
+				[
+					"gold-fish",
+					[
+						{
+							"creates": [
+								"guppy"
+							],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "gold-fish",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "84604822-aa00-5cb6-a599-8bacc9dddb32",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [
+								"gold-fish"
+							],
+							"fieldWrites": {},
+							"formType": "registration",
+							"moduleType": "gold-fish",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "6c6673f6-cacc-5c3c-93d2-62ddd4007a04",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"guppy",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "guppy",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "81604369-af00-5495-a299-86f3c6ddd679",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"84604822-aa00-5cb6-a599-8bacc9dddb32",
+						"6c6673f6-cacc-5c3c-93d2-62ddd4007a04"
+					],
+					"uuid": "40cd7ca0-e733-562c-ac3c-17aea97d4610"
+				},
+				{
+					"forms": [
+						"81604369-af00-5495-a299-86f3c6ddd679"
+					],
+					"uuid": "43cd8159-ea33-5ae5-ab3c-161bac7d4ac9"
+				}
+			]
+		}
+	}
+}

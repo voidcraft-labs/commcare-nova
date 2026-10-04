@@ -1,0 +1,37 @@
+{
+	"intent": [
+		{
+			"id": "weight-held",
+			"export": "local",
+			"form": "d41a94d1-0ede-59ad-a590-6af3c6daac41",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0",
+					"data": {
+						"case_id": "targeted-amina"
+					}
+				},
+				"answers": [
+					{
+						"path": "/data/weight",
+						"value": "70"
+					}
+				],
+				"expressions": [
+					"/data/weight"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "70"
+				}
+			]
+		}
+	]
+}

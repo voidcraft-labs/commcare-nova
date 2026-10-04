@@ -1,0 +1,90 @@
+{
+	"intent": [
+		{
+			"id": "six-characters-local",
+			"export": "local",
+			"form": "a44ed396-3ce4-59d2-a15f-6b14cf774986",
+			"request": {
+				"constraintChecks": [
+					{
+						"path": "/data/code",
+						"value": "abc"
+					},
+					{
+						"path": "/data/code",
+						"value": "abcdef"
+					},
+					{
+						"path": "/data/pin",
+						"value": "123"
+					},
+					{
+						"path": "/data/pin",
+						"value": "123456"
+					}
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/constraints/0/result",
+					"value": "constraint"
+				},
+				{
+					"pointer": "/constraints/1/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/constraints/2/result",
+					"value": "constraint"
+				},
+				{
+					"pointer": "/constraints/3/result",
+					"value": "ok"
+				}
+			]
+		},
+		{
+			"id": "six-characters-a",
+			"export": "A",
+			"form": "a44ed396-3ce4-59d2-a15f-6b14cf774986",
+			"request": {
+				"constraintChecks": [
+					{
+						"path": "/data/code",
+						"value": "abc"
+					},
+					{
+						"path": "/data/code",
+						"value": "abcdef"
+					},
+					{
+						"path": "/data/pin",
+						"value": "123"
+					},
+					{
+						"path": "/data/pin",
+						"value": "123456"
+					}
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/constraints/0/result",
+					"value": "constraint"
+				},
+				{
+					"pointer": "/constraints/1/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/constraints/2/result",
+					"value": "constraint"
+				},
+				{
+					"pointer": "/constraints/3/result",
+					"value": "ok"
+				}
+			]
+		}
+	]
+}

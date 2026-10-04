@@ -1,0 +1,57 @@
+{
+	"minimum": {
+		"flags": [
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": true,
+		"caseSearchEnabled": true
+	},
+	"maximum": {
+		"flags": [
+			"APP_BUILDER_ADVANCED",
+			"APP_BUILDER_SHADOW_MODULES",
+			"BIOMETRIC_INTEGRATION",
+			"CASE_LIST_CLICKABLE_ICON",
+			"CASE_LIST_LOOKUP",
+			"CASE_LIST_OPTIMIZATIONS",
+			"CASE_LIST_TILE",
+			"CASE_LIST_TILE_CUSTOM",
+			"CASE_SEARCH_ADVANCED",
+			"CASE_SEARCH_ENDPOINTS",
+			"CASE_SEARCH_RELATED_LOOKUPS",
+			"COMMCARE_CONNECT",
+			"CUSTOM_APP_BASE_URL",
+			"CUSTOM_ICON_BADGES",
+			"CUSTOM_INSTANCES",
+			"CUSTOM_PROPERTIES",
+			"DATA_DICTIONARY",
+			"DETAIL_LIST_TAB_NODESETS",
+			"EXTENSION_CASES_SYNC_ENABLED",
+			"FACE_CAPTURE",
+			"FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+			"FORM_LINK_WORKFLOW",
+			"GEOCODER_MY_LOCATION_BUTTON",
+			"GEOCODER_USER_PROXIMITY",
+			"MOBILE_RECOVERY_MEASURES",
+			"MOBILE_USER_DEMO_MODE",
+			"PHONE_HEARTBEAT",
+			"SAVE_ONLY_EDITED_FORM_FIELDS",
+			"SESSION_ENDPOINTS",
+			"SHOW_PERSIST_CASE_CONTEXT_SETTING",
+			"SORT_CALCULATION_IN_CASE_LIST",
+			"SYNC_SEARCH_CASE_CLAIM",
+			"USH_EMPTY_CASE_LIST_TEXT",
+			"VELLUM_SAVE_TO_CASE",
+			"WEB_APPS_ANCHORED_SUBMIT"
+		],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": true,
+		"caseSearchEnabled": true
+	},
+	"singleFlag": {}
+}

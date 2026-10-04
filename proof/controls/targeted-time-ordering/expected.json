@@ -1,0 +1,72 @@
+{
+	"intent": [
+		{
+			"id": "start-before-end-local",
+			"export": "local",
+			"form": "eb95b16c-4e84-5328-af89-8e023b82911c",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/start",
+						"value": "14:30:00"
+					},
+					{
+						"path": "/data/end",
+						"value": "15:00:00"
+					}
+				],
+				"expressions": [
+					"/data/order"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/answers/1/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "start before end"
+				}
+			]
+		},
+		{
+			"id": "start-before-end-a",
+			"export": "A",
+			"form": "eb95b16c-4e84-5328-af89-8e023b82911c",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/start",
+						"value": "14:30:00"
+					},
+					{
+						"path": "/data/end",
+						"value": "15:00:00"
+					}
+				],
+				"expressions": [
+					"/data/order"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/answers/1/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "start before end"
+				}
+			]
+		}
+	]
+}

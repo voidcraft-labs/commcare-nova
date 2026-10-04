@@ -1,0 +1,48 @@
+{
+	"intent": [
+		{
+			"id": "table-rows-local",
+			"export": "local",
+			"form": "69177e67-a9c4-55ab-a3ae-044951d74117",
+			"restore": "restore.xml",
+			"request": {
+				"expressions": [
+					"count(instance('clinic_casedb_codes')/clinic_casedb_codes_list/clinic_casedb_codes)",
+					"count(instance('stock_ledgerdb_codes')/stock_ledgerdb_codes_list/stock_ledgerdb_codes)"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "2"
+				},
+				{
+					"pointer": "/values/1/value",
+					"value": "2"
+				}
+			]
+		},
+		{
+			"id": "table-rows-a",
+			"export": "A",
+			"form": "69177e67-a9c4-55ab-a3ae-044951d74117",
+			"restore": "restore.xml",
+			"request": {
+				"expressions": [
+					"count(instance('clinic_casedb_codes')/clinic_casedb_codes_list/clinic_casedb_codes)",
+					"count(instance('stock_ledgerdb_codes')/stock_ledgerdb_codes_list/stock_ledgerdb_codes)"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "2"
+				},
+				{
+					"pointer": "/values/1/value",
+					"value": "2"
+				}
+			]
+		}
+	]
+}

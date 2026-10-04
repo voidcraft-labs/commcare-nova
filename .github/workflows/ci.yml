@@ -23,6 +23,16 @@ on:
         type: choice
         options: [default, '1', '2']
         default: default
+      proof_shards:
+        description: Proof jobs for a controlled comparison
+        type: choice
+        options: [default, '2', '3', '4', '6', '8', '12', '14', '16']
+        default: default
+      proof_claims:
+        description: How the proof jobs divide the queue's blocks (proof/ci/claim.mjs)
+        type: choice
+        options: [default, create, steal, static]
+        default: default
 
 # A newer push to the same branch/PR cancels the in-flight run for it.
 concurrency:
@@ -34,6 +44,19 @@ concurrency:
 # scope is narrowed to read-only across the whole workflow.
 permissions:
   contents: read
+
+# How the proof shards divide the queue's blocks between them (proof/ci/
+# claim.mjs): `steal` (the default) gives each block an owner that other
+# shards may take it from, resting only on a listing showing every finalized
+# artifact; `create` claims a block by creating its artifact, which holds only
+# where the artifact service refuses a name the run holds, and it does not:
+# shards creating one claim at once each get an artifact of it; `static`
+# splits the blocks into fixed bins by shard
+# (proof.checks.sharding.static_bins). A shard that claims takes its own
+# bin's blocks first (--bin), so shards start apart. The claim-race workflow
+# (proof-claim-race.yml), run by hand, races the first two on the service.
+env:
+  PROOF_CLAIMS: ${{ inputs.proof_claims != 'default' && inputs.proof_claims || 'steal' }}
 
 # `.nvmrc` is canonical for Node; package.json's `devEngines` is canonical for
 # npm and mirrors Node so npm can enforce both before commands run. Every setup
@@ -119,10 +142,137 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
+      # The proof lane's corpus (proof/corpus/emit.ts): every document the
+      # lane checks, with its exports, captures and input manifest, emitted
+      # once here from the commit, where Nova's node_modules already are, and
+      # handed to the proof shards (which run no Nova TypeScript) as one
+      # artifact. The entropy preload seeds every minted identity, so the same
+      # commit emits the same bytes. Beside it, the native proofs' products
+      # (python3 -m proof.native.produce: each family's producer and the
+      # publish capture, also Nova's TypeScript) go into the corpus as
+      # native/, which the shards read in place of producing them.
+      #
+      # The proof steps never fail this job: lint and type-check below run
+      # whatever they do, and a failed emission reaches the lane instead,
+      # through the failure marker (the shards stop waiting, and "Proofs"
+      # names the step that failed).
+      - name: Emit the proof corpus
+        id: emit
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/lane"
+          python3 -m proof.native.produce --out "$RUNNER_TEMP/native" > "$RUNNER_TEMP/lane/produce.log" 2>&1 &
+          produce=$!
+          trap 'kill "$produce" 2> /dev/null || true' EXIT
+          node --conditions=react-server --import ./proof/corpus/entropy.mts \
+            --import tsx proof/corpus/emit.ts --out "$RUNNER_TEMP/corpus" --jobs 4
+          produced=0
+          wait "$produce" || produced=$?
+          cat "$RUNNER_TEMP/lane/produce.log"
+          if [ "$produced" != 0 ]; then
+            echo "::error::The native proofs' products could not be written (python3 -m proof.native.produce exited $produced); its output is above."
+            exit 1
+          fi
+          # -T: a corpus document named native would be refused, not merged into.
+          mv -T "$RUNNER_TEMP/native" "$RUNNER_TEMP/corpus/native"
+      - name: Name the proof lane's store snapshots
+        id: store
+        if: ${{ steps.emit.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          PROOF_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node proof/ci/store-keys.mjs --arch arm64
+      - name: Restore main's evidence store
+        if: ${{ steps.store.outcome == 'success' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      - name: Restore this pull request's evidence store
+        if: ${{ steps.store.outcome == 'success' && steps.store.outputs.scope != '' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/scope
+          key: ${{ steps.store.outputs.scope }}none
+          restore-keys: ${{ steps.store.outputs.scope }}
+      # The main queue: every document's and control's groups and the
+      # packages whose tests read the corpus or its products
+      # (proof.lane.blocks.CORPUS_PACKAGES), packed into blocks, each group either
+      # queued fresh or read from the store when every one of its judgments is
+      # keyed there, and the audit sample recomputed. A store the restores
+      # did not find (a first run, or a miss) is read as empty.
+      - name: Build the proof queue
+        id: build
+        if: ${{ steps.store.outcome == 'success' }}
+        continue-on-error: true
+        run: >-
+          python3 -m proof.store.queue main
+          --corpus "$RUNNER_TEMP/corpus"
+          --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope"
+          --timings proof/timings.json --arch arm64
+          --audit-seed "$GITHUB_RUN_ID"
+          --out "$RUNNER_TEMP/lane/proof-queue-$GITHUB_RUN_ATTEMPT.json"
+      - name: Pack the proof corpus
+        id: pack
+        if: ${{ steps.build.outcome == 'success' }}
+        continue-on-error: true
+        run: >-
+          tar -C "$RUNNER_TEMP/corpus" -cf - . |
+          zstd -q -3 -T0 -o "$RUNNER_TEMP/lane/proof-corpus-$GITHUB_RUN_ATTEMPT.tar.zst"
+      # The corpus before the queue: a shard that sees the queue fetches the
+      # corpus with it (proof/ci/wait.mjs). Each is one file, uploaded as it
+      # is (no zip), under its file's name.
+      - name: Upload the proof corpus
+        id: corpus
+        if: ${{ steps.pack.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-corpus-${{ github.run_attempt }}.tar.zst
+          archive: false
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the proof queue
+        id: queue
+        if: ${{ steps.corpus.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-queue-${{ github.run_attempt }}.json
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      # A shard waiting for the queue stops at this marker (wait.mjs exits 3)
+      # instead of waiting out its deadline; the failed step above says why.
+      # It is written whenever the queue was not uploaded, including when a
+      # step before the proof steps failed this job. Should the marker itself
+      # not upload, the shards wait out their deadline instead, and "Proofs"
+      # names the missing queue.
+      - name: Mark the proof emission failed
+        if: ${{ !cancelled() && steps.queue.outcome != 'success' }}
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/lane"
+          echo '{"emission":"failed"}' > "$RUNNER_TEMP/lane/proof-emission-failed-$GITHUB_RUN_ATTEMPT"
+      - name: Upload the proof emission's failure marker
+        if: ${{ !cancelled() && steps.queue.outcome != 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-emission-failed-${{ github.run_attempt }}
+          archive: false
+          retention-days: 3
       - name: Lint (Biome)
         run: npm run lint
       - name: Type-check
         run: npm run typecheck
+      # The shards reach the artifact service through this generated bundle
+      # (proof/ci/vendor/build.mjs), so it must be what its lock builds: a
+      # lock bump without a rebuild, or a hand edit, fails here. It needs npm
+      # and the registry only, and runs last, off the shards' path.
+      - name: The vendored artifact client is what its lock builds
+        run: node proof/ci/vendor/build.mjs --check
 
   test:
     # Every test runs once, in isolated workers. Shared database templates avoid
@@ -404,70 +554,367 @@ jobs:
       - name: Session-cookie contract (Postgres testcontainer)
         run: node_modules/.bin/vitest run sessionCookie.postgres.test.ts
 
-  proof:
-    # The proof lane (proof/README.md): HQ's real build, Core's real runtime
-    # and HQ's real editors, in the pinned proof image beside a Postgres for
-    # HQ's state, over every package of the harness. One fork server
-    # (proof.lane.serve) boots HQ once and forks four workers, each running
-    # whole groups (a package's tests together); the native proofs' producers
-    # run inside the image from this checkout's node_modules, which on Linux
-    # the image reads in place (proof/run.mjs).
-    name: Proofs
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+  proof-plan:
+    # The proof lane's plan: the early queue (groups that need no corpus:
+    # the harness's packages that do not read it, the surface, HQ's
+    # self-checks; the lane's server refuses one holding a document's,
+    # a control's or a package of proof.lane.blocks.CORPUS_PACKAGES), built
+    # from the commit and the evidence store, and CI's proof matrix
+    # (proof/run.mjs --matrix). It waits for smoke-plan so the shards it
+    # creates queue behind every existing job.
+    name: Proof execution plan
+    needs: smoke-plan
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            proof
+            lib/commcare/surface
+      - name: Name the proof lane's store snapshots
+        id: store
+        env:
+          PROOF_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node proof/ci/store-keys.mjs --arch arm64
+      - name: Restore main's evidence store
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      - name: Restore this pull request's evidence store
+        if: ${{ steps.store.outputs.scope != '' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/scope
+          key: ${{ steps.store.outputs.scope }}none
+          restore-keys: ${{ steps.store.outputs.scope }}
+      - name: Build the early queue
+        run: |
+          mkdir -p "$RUNNER_TEMP/lane"
+          python3 -m proof.store.queue early \
+            --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope" \
+            --timings proof/timings.json --arch arm64 \
+            --out "$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json"
+      - name: Upload the early queue
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-early-queue-${{ github.run_attempt }}.json
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - id: matrix
+        env:
+          PROOF_SHARDS: ${{ inputs.proof_shards || 'default' }}
+        run: |
+          matrix="$(node proof/run.mjs --matrix "$PROOF_SHARDS")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  proof:
+    # One shard of the native-proof lane (proof/README.md): HQ's real build,
+    # Core's real runtime and HQ's real editors over Nova's exports, in the
+    # pinned proof image beside a Postgres for HQ's state. A shard installs
+    # nothing and emits nothing: it pulls the image and Postgres while it
+    # fetches the queues and, once quality has emitted it, the corpus; then
+    # one fork server (proof.lane.serve) boots HQ once, runs the early
+    # queue's blocks and the main queue's as it claims them (proof/ci), and
+    # its workers run each block's groups. A shard that starts after every
+    # block is claimed ends before it restores, fetches or waits for
+    # anything (the pulls it started are stopped with the job). Its job fails
+    # only when the shard itself cannot run; whether the proofs hold is the
+    # gate's.
+    name: Proof ${{ matrix.shard }}/${{ matrix.total }}
+    needs: proof-plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.proof-plan.outputs.matrix) }}
+    env:
+      ATTEMPT: ${{ github.run_attempt }}
+      SHARD: ${{ matrix.shard }}/${{ matrix.total }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            proof
+            lib/commcare/surface
+            .github/actions/proof-runtime
+      # In the background, so they overlap every step up to the lane's start;
+      # each writes its exit status when it ends, and holds none of the
+      # step's output open, so the step ends at once.
+      - name: Start pulling the proof image and Postgres
+        run: |
+          mkdir -p "$RUNNER_TEMP/pull"
+          image="$(jq -r .image proof/image.lock)"
+          (docker pull --quiet "$image" > "$RUNNER_TEMP/pull/image.log" 2>&1
+           echo $? > "$RUNNER_TEMP/pull/image.code") > /dev/null 2>&1 &
+          (PROOF_IMAGE="$image" docker compose -f proof/compose.yaml pull --quiet postgres \
+             > "$RUNNER_TEMP/pull/postgres.log" 2>&1
+           echo $? > "$RUNNER_TEMP/pull/postgres.code") > /dev/null 2>&1 &
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - name: Install pinned npm
-        run: |
-          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
-          cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
-      - name: Cache npm downloads
-        uses: actions/cache@v6
+      - uses: ./.github/actions/proof-runtime
+      # Before anything else a shard would restore or fetch: a shard that
+      # starts after every block is claimed ends here.
+      - name: Download the early queue
+        uses: actions/download-artifact@v8
         with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-      # As the lane installs Nova's dependencies where it fills its own
-      # volume: the producers need the packages, not their install scripts.
-      - run: npm ci --ignore-scripts
-      - name: Proof lane
+          name: proof-early-queue-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/lane
+      - name: Find whether any block is left
+        id: left
+        run: |
+          # Static bins are this shard's alone, so they are always left to it.
+          if [ "$PROOF_CLAIMS" = static ]; then
+            echo "left=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mode=create
+          if [ "$PROOF_CLAIMS" = steal ]; then mode=steal; fi
+          set +e
+          node proof/ci/drained.mjs --queue "proof-queue-$ATTEMPT.json" \
+            --failed "proof-emission-failed-$ATTEMPT" --prefix "proof-claim-$ATTEMPT-" --mode "$mode" \
+            "$RUNNER_TEMP/lane/proof-early-queue-$ATTEMPT.json" > "$RUNNER_TEMP/lane/left.json"
+          cat "$RUNNER_TEMP/lane/left.json"
+          # Only a definite "nothing left" ends the shard early.
+          left="$(jq -r .left "$RUNNER_TEMP/lane/left.json" 2>/dev/null)"
+          if [ "$left" != false ]; then left=true; fi
+          echo "left=$left" >> "$GITHUB_OUTPUT"
+      - name: Name the proof lane's store snapshots
+        id: store
+        if: ${{ steps.left.outputs.left == 'true' }}
         env:
+          PROOF_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node proof/ci/store-keys.mjs --arch arm64
+      - name: Restore main's evidence store
+        if: ${{ steps.left.outputs.left == 'true' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      - name: Restore this pull request's evidence store
+        if: ${{ steps.left.outputs.left == 'true' && steps.store.outputs.scope != '' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/scope
+          key: ${{ steps.store.outputs.scope }}none
+          restore-keys: ${{ steps.store.outputs.scope }}
+      # When quality has already uploaded them, the main queue and the corpus
+      # are fetched here, while the pulls run; otherwise the lane's server
+      # waits for them (--wait-for) while it runs the early queue.
+      - name: Fetch the main queue and the corpus if they are ready
+        if: ${{ steps.left.outputs.left == 'true' }}
+        run: |
+          set +e
+          node proof/ci/wait.mjs --once --queue "proof-queue-$ATTEMPT.json" \
+            --corpus "proof-corpus-$ATTEMPT.tar.zst" --failed "proof-emission-failed-$ATTEMPT" \
+            --queue-to "$RUNNER_TEMP/lane/queue/queue.json" --corpus-to "$RUNNER_TEMP/corpus"
+          code=$?
+          case $code in 0|3|5) exit 0 ;; *) exit $code ;; esac
+      # The lane reads one store: main's snapshot with this pull request's
+      # newer records over it (proof/store), mounted read-only (PROOF_STORE).
+      - name: Merge the restored stores
+        if: ${{ steps.left.outputs.left == 'true' }}
+        run: |
+          python3 -m proof.store.pack merge --into "$RUNNER_TEMP/store/read" \
+            "$RUNNER_TEMP/store/main" "$RUNNER_TEMP/store/scope"
+      - name: Wait for the pulls
+        if: ${{ steps.left.outputs.left == 'true' }}
+        timeout-minutes: 5
+        run: |
+          for pull in image postgres; do
+            while [ ! -s "$RUNNER_TEMP/pull/$pull.code" ]; do sleep 0.2; done
+            if [ "$(cat "$RUNNER_TEMP/pull/$pull.code")" != 0 ]; then
+              cat "$RUNNER_TEMP/pull/$pull.log"
+              echo "::error::Pulling the proof lane's $pull failed; its output is above."
+              exit 1
+            fi
+          done
+      - name: Proof lane
+        if: ${{ steps.left.outputs.left == 'true' }}
+        env:
+          PROOF_CORPUS: ${{ runner.temp }}/corpus
+          PROOF_STORE: ${{ runner.temp }}/store/read
           PROOF_OUT_DIR: ${{ runner.temp }}/proof-out
-        run: node proof/run.mjs --workers 4
-      - name: Upload the lane's output
-        if: ${{ !cancelled() }}
+          PROOF_EDITOR_AUDIT: '0.03'
+          WORKERS: ${{ matrix.workers }}
+        run: |
+          set +e
+          case "$PROOF_CLAIMS" in
+            static) claim=(--claim static --bin "$SHARD") ;;
+            steal) claim=(--claim "node proof/ci/claim.mjs --mode steal --shard $SHARD --by shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$ATTEMPT-{block}" --bin "$SHARD") ;;
+            *) claim=(--claim "node proof/ci/claim.mjs --by shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$ATTEMPT-{block}" --bin "$SHARD") ;;
+          esac
+          node proof/run.mjs --lane --label "shard-${SHARD%/*}" --workers "$WORKERS" \
+            --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/lane/queue/queue.json" \
+            "${claim[@]}" \
+            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$ATTEMPT.json --corpus proof-corpus-$ATTEMPT.tar.zst --failed proof-emission-failed-$ATTEMPT" \
+            --command-env ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL
+          code=$?
+          # 0: every item passed; 1: an item failed, which the gate reports
+          # with every other shard's. Anything else is the shard's own failure.
+          case $code in 0|1) exit 0 ;; *) exit $code ;; esac
+      - name: Upload the shard's output
+        if: ${{ !cancelled() && steps.left.outputs.left == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: proof-out-${{ github.run_attempt }}
+          name: proof-out-${{ github.run_attempt }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/proof-out/
           retention-days: 14
 
-  surface:
-    # The surface manifest's generated half, lib/commcare/surface/surface.json,
-    # is what the extractor reads from the upstream checkouts at the pins,
-    # inside the pinned proof image with no network (proof/run.mjs
-    # --surface): a hand edit or a stale regeneration fails here.
-    name: Surface
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+  proofs-gate:
+    # One check for the whole proof lane, whatever its shard count. It runs
+    # on the runner's own Python with no image (proof.lane.gate): every block
+    # of both queues ran exactly once, every item passed, every difference,
+    # fresh or read from the store, falls in a class of the known-defect
+    # register whose every entry some block saw, and the surface extracted at
+    # the pins (the surface block's, or the store's for this image and
+    # extractor) is the committed lib/commcare/surface/surface.json.
+    # `always()` keeps it from being skipped when a shard fails.
+    name: Proofs
+    runs-on: ubuntu-latest
+    needs: [proof-plan, proof]
+    if: ${{ always() }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-      - name: Regenerate the surface at the pins
-        run: node proof/run.mjs --surface
-      - name: The committed surface is the extraction at the pins
+      - name: Every proof shard ran
+        env:
+          RESULT: ${{ needs.proof.result }}
         run: |
-          if ! git diff --quiet -- lib/commcare/surface/surface.json; then
-            git diff --stat -- lib/commcare/surface/surface.json
-            echo "::error::lib/commcare/surface/surface.json is not what the extractor reads at the pins. Run npm run surface and commit the regenerated file with the change that moved it."
+          if [ "$RESULT" != "success" ]; then
+            echo "::error::Proof shards finished with result '$RESULT': a shard could not run its blocks. Open the failing shard job; the verdict below still lists every block that ran."
             exit 1
           fi
-          echo "The committed surface is the extraction at the pins."
+          echo "Every proof shard ran."
+      - uses: actions/checkout@v7
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        with:
+          sparse-checkout: |
+            proof
+            lib/commcare/surface
+      - name: Download every shard's output
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-out-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/proof-shards
+      - name: Download the queues
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-*queue-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/queues
+          merge-multiple: true
+      - name: Name the proof lane's store snapshots
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        id: store
+        env:
+          PROOF_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node proof/ci/store-keys.mjs --arch arm64
+      - name: Restore main's evidence store
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      - name: Restore this pull request's evidence store
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' && steps.store.outputs.scope != '' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/scope
+          key: ${{ steps.store.outputs.scope }}none
+          restore-keys: ${{ steps.store.outputs.scope }}
+      - name: The shards ran every block once and held every difference to the register
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        run: |
+          if [ ! -f "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" ]; then
+            echo "::error::The run holds no main queue: \"Lint & type-check\" did not emit the proof corpus or build the queue, so no corpus document ran. Its proof steps (from \"Emit the proof corpus\" on) say which one failed and why."
+            exit 1
+          fi
+          python3 -m proof.store.pack merge --into "$RUNNER_TEMP/store/read" \
+            "$RUNNER_TEMP/store/main" "$RUNNER_TEMP/store/scope"
+          shopt -s nullglob
+          outputs=("$RUNNER_TEMP"/proof-shards/proof-out-*)
+          if [ ${#outputs[@]} -eq 0 ]; then
+            echo "::error::No proof shard uploaded an output, so no block ran."
+            exit 1
+          fi
+          python3 -m proof.lane.gate "${outputs[@]}" \
+            --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$GITHUB_RUN_ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" \
+            --store "$RUNNER_TEMP/store/read" --summary "$RUNNER_TEMP/verdict/verdict.json"
+      - name: Upload the verdict
+        if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: proof-verdict-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verdict/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  proof-store:
+    # Beside the gate, so the save is not on the lane's critical path: this
+    # pull request's evidence store becomes what it held and what this run
+    # observed that main's does not hold, saved whatever the verdict, so a fix
+    # pushed next reruns only what it changes.
+    name: Proof store
+    runs-on: ubuntu-latest
+    needs: [proof-plan, proof]
+    # Not in a cancelled run: a newer push cancels this one (concurrency),
+    # and a partial store saved then would only take a runner from the run
+    # that replaced it.
+    if: ${{ !cancelled() && needs.proof-plan.result == 'success' && github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - name: Name the proof lane's store snapshots
+        id: store
+        env:
+          PROOF_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node proof/ci/store-keys.mjs --arch arm64
+      - name: Download every shard's output
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-out-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/proof-shards
+      # The queues name the key each package group's and the surface block's
+      # outcome is kept under (proof/store/pack.py).
+      - name: Download the queues
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-*queue-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/queues
+          merge-multiple: true
+      - name: Restore main's evidence store
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      - name: Restore this pull request's evidence store
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/scope
+          key: ${{ steps.store.outputs.scope }}none
+          restore-keys: ${{ steps.store.outputs.scope }}
+      - name: Gather this pull request's evidence store
+        run: |
+          shopt -s nullglob
+          python3 -m proof.store.pack delta --base "$RUNNER_TEMP/store/main" \
+            --scope "$RUNNER_TEMP/store/scope" --out "$RUNNER_TEMP/store/next" \
+            --queue "$RUNNER_TEMP/queues/proof-early-queue-$GITHUB_RUN_ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" \
+            "$RUNNER_TEMP"/proof-shards/proof-out-*
+      - name: Save this pull request's evidence store
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/store/next
+          key: ${{ steps.store.outputs.key }}

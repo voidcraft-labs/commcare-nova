@@ -1,0 +1,22 @@
+{
+	"intent": [
+		{
+			"id": "sorted-by-phone",
+			"export": "local",
+			"form": "e3d59b20-5e29-56a4-a5a0-8586bd785170",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0"
+				},
+				"caseList": {}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-amina"
+				}
+			]
+		}
+	]
+}

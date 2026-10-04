@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "note-held",
+			"export": "local",
+			"form": "38532ecc-dc9b-5298-a157-f8f2a647f95c",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/note",
+						"value": "seen"
+					}
+				],
+				"expressions": [
+					"/data/note"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "seen"
+				}
+			]
+		}
+	]
+}

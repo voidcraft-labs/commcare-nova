@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { afterAll, expect } from "vitest";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import type { HqApplication } from "../types";
@@ -10,10 +11,16 @@ import type { HqApplication } from "../types";
 const destination = process.env.NOVA_EXPANDER_EVIDENCE_DIR;
 const records = new Map<
 	string,
-	{ id: string; tests: string[]; localForms: string[] }
+	{ id: string; tests: string[]; localForms: string[]; document: string }
 >();
 
-/** Optional producer: only the caller's already-admitted documents reach here. */
+/**
+ * Optional producer: only the caller's already-admitted documents reach here.
+ * Beside the expansion it writes the document itself in its stored form
+ * (`<id>.document.json`), which the proof corpus publishes and edits
+ * (`proof/corpus/documents.ts::readExpanderCapture`); the manifest names each
+ * document's file and the tests that expand it, first one first.
+ */
 export function captureExpanderEvidence(
 	doc: BlueprintDoc,
 	hq: HqApplication,
@@ -31,6 +38,11 @@ export function captureExpanderEvidence(
 		return;
 	}
 	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const document = `${id}.document.json`;
+	writeFileSync(
+		resolve(destination, document),
+		JSON.stringify({ doc: toPersistableDoc(doc) }),
+	);
 	writeFileSync(resolve(destination, `${id}.json`), JSON.stringify(hq));
 	writeFileSync(
 		resolve(destination, `${id}.suite.xml`),
@@ -56,7 +68,7 @@ export function captureExpanderEvidence(
 		localForms.push(filename);
 		writeFileSync(resolve(destination, filename), entry.getData());
 	}
-	records.set(id, { id, tests: [test], localForms });
+	records.set(id, { id, tests: [test], localForms, document });
 }
 
 afterAll(() => {

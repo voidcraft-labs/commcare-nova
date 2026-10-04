@@ -1,0 +1,11 @@
+name: Proof runtime
+description: >-
+  Exports the job's artifact-service credentials (ACTIONS_RUNTIME_TOKEN and
+  ACTIONS_RESULTS_URL), which the runner gives to actions and never to `run`
+  steps, to the steps after this one, for the proof lane's claim and wait
+  commands (proof/ci). The script is the repository's own
+  (proof/ci/runtime.mjs), so nothing from outside the repository handles the
+  token.
+runs:
+  using: node24
+  main: index.mjs

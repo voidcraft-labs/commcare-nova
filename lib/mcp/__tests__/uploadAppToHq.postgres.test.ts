@@ -19,6 +19,11 @@ import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	clinicVisitsDocument as document,
+	TARGET_OWNED_PROFILE,
+	TARGET_PROFILE_WITH_DERIVED_KEY,
+} from "@/lib/deployment/__tests__/publishFixtures";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
 import { readDeployment } from "@/lib/deployment/store";
 import {
@@ -81,23 +86,6 @@ function body(result: Awaited<ReturnType<typeof call>>, error = false) {
 	if (error) expect(result.isError, JSON.stringify(result)).toBe(true);
 	else expect(result.isError, JSON.stringify(result)).not.toBe(true);
 	return JSON.parse(resultText({ ...result, isError: undefined }));
-}
-function document() {
-	return buildDoc({
-		appName: "Clinic visits",
-		modules: [
-			{
-				name: "Visits",
-				forms: [
-					{
-						name: "Visit",
-						type: "survey",
-						fields: [{ id: "note", kind: "text" }],
-					},
-				],
-			},
-		],
-	});
 }
 
 it.each(["parent-multiple", "same-smaller"] as const)(
@@ -204,18 +192,8 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 				};
 			});
 		accept(1);
-		const profile = {
-			features: { custom: true },
-			properties: { restore: "daily" },
-			custom_properties: { unrelated: { keep: [1, "two"] } },
-		};
-		source(peer, {
-			...profile,
-			custom_properties: {
-				...profile.custom_properties,
-				"cc-index-case-search-results": "yes",
-			},
-		});
+		const profile = TARGET_OWNED_PROFILE;
+		source(peer, TARGET_PROFILE_WITH_DERIVED_KEY);
 		accept(2);
 		await asUser(async (client) => {
 			const created = body(await call(client));

@@ -19,6 +19,11 @@ probe mechanics live in `lib/commcare/projectSpaceCompatibility.ts` and the
 public semantic report lives in `lib/publish/projectSpaceCompatibility.ts`, not
 in this boundary.
 
+Every local `.ccz` (the compile route, MCP `compile_app`, the proof harness's
+capture of a download) is assembled by
+`lib/export/localArchive.ts::compileLocalArchive` from a `ccz`-mode prepared
+export; change what an archive holds there.
+
 The boundary structurally extracts the complete lookup target set and reads
 one snapshot even when that set is empty, on every mode:
 `getLookupFixtureData` — definitions plus every referenced table's complete

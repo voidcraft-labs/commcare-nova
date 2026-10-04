@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "head-held",
+			"export": "A",
+			"form": "1ac3ed1b-6f1c-5b3f-a8aa-85c19dd5042b",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/head",
+						"value": "Achieng"
+					}
+				],
+				"expressions": [
+					"/data/head"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "Achieng"
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,46 @@
+{
+	"intent": [
+		{
+			"id": "submission-nodes-local",
+			"export": "local",
+			"form": "e6b748cf-1a49-54b3-a697-a50951c371ff",
+			"request": {
+				"expressions": [
+					"count(/data/*)",
+					"count(/data/visits)"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "4"
+				},
+				{
+					"pointer": "/values/1/value",
+					"value": "2"
+				}
+			]
+		},
+		{
+			"id": "submission-nodes-a",
+			"export": "A",
+			"form": "e6b748cf-1a49-54b3-a697-a50951c371ff",
+			"request": {
+				"expressions": [
+					"count(/data/*)",
+					"count(/data/visits)"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "4"
+				},
+				{
+					"pointer": "/values/1/value",
+					"value": "2"
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,27 @@
+{
+	"intent": [
+		{
+			"id": "outcome-held-0",
+			"export": "local",
+			"form": "fbcdc85b-49b8-52df-a903-60bd8a5a864b",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0",
+					"data": {
+						"case_id": "targeted-visit"
+					}
+				},
+				"expressions": [
+					"/data/outcome"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "it's done"
+				}
+			]
+		}
+	]
+}

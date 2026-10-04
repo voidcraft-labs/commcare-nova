@@ -404,6 +404,12 @@ is. The browser route and MCP's `upload_app_to_hq` both go through it. A
 second path would be a second lifecycle, and the two would drift on the
 first bug fix.
 
+The application JSON a publish imports is assembled only by
+`importApplication.ts::hqImportApplication`, which `publishAppToHq` and the
+proof harness's publish capture (`proof/corpus/publish.ts`) both call, so the
+bodies the harness applies to HQ are the ones Nova sends. Change what a
+publish sends there.
+
 A refused publish answers **200 with the refusal and whatever record the
 target has**, not a 4xx: the request succeeded and the answer names where
 to retry from. A refused FIRST publish carries `deployment: null` — there

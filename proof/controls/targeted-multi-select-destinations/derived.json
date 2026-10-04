@@ -1,0 +1,168 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "sample-1",
+					"case_type": "sample",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "sample-2",
+					"case_type": "sample",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "sample-3",
+					"case_type": "sample",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Batch reviews",
+			"modules": [
+				[
+					"sample",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "sample",
+							"multiple": true,
+							"operationWrites": {},
+							"uuid": "6328425f-f277-5dc3-a39d-c38944b0deef",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"sample",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "sample",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "71758067-5fb8-5433-aab4-e621619e2937",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"sample",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "sample",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "84afd5f8-3ab4-5ae4-a9ec-c24e94c487a8",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"sample",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "sample",
+							"multiple": true,
+							"operationWrites": {},
+							"uuid": "76468f4a-b34b-560e-a19a-39e0371c79da",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"6328425f-f277-5dc3-a39d-c38944b0deef"
+					],
+					"uuid": "1749f35c-6375-5a08-a7ef-4b1e499c902c"
+				},
+				{
+					"forms": [
+						"71758067-5fb8-5433-aab4-e621619e2937"
+					],
+					"uuid": "847b6cea-ed53-566e-a02e-9314736e717a"
+				},
+				{
+					"forms": [
+						"84afd5f8-3ab4-5ae4-a9ec-c24e94c487a8"
+					],
+					"uuid": "a476cee3-04c0-58a7-afa3-f5d91687b913"
+				},
+				{
+					"forms": [
+						"76468f4a-b34b-560e-a19a-39e0371c79da"
+					],
+					"uuid": "32c5f391-6178-5c4d-a1da-ff57d47e34e1"
+				}
+			]
+		}
+	}
+}

@@ -2056,6 +2056,9 @@ names every app and entity it changes in a notice on each affected app, shown
 to its members until they dismiss it, and publish shows each change to HQ data
 continuity before it reaches HQ.
 
+The defects the proof harness found, numbered from 31, and the claims here it
+corrected are in [the harness's findings](harness-findings.md).
+
 ### Fixed inside today's model (step 2)
 
 1. **Identity changes on every republish.** `lib/commcare/expander.ts::expandDoc`

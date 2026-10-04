@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "address-held",
+			"export": "local",
+			"form": "00276861-106f-5b75-a9c0-7407fc271f31",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/household/address",
+						"value": "Plot 7"
+					}
+				],
+				"expressions": [
+					"/data/household/address"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "Plot 7"
+				}
+			]
+		}
+	]
+}

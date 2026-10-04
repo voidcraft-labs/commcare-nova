@@ -1,0 +1,203 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "wound-1",
+					"case_type": "wound",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"photo",
+							"proof text"
+						],
+						[
+							"scan_url",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "wound-2",
+					"case_type": "wound",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"photo",
+							"10"
+						],
+						[
+							"scan_url",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "wound-3",
+					"case_type": "wound",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"photo",
+							"2"
+						],
+						[
+							"scan_url",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Case capture evidence",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [
+								"wound"
+							],
+							"fieldWrites": {
+								"wound": {
+									"photo": "attachment",
+									"scan_url": "url"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "f28df93b-1077-5a37-a743-9cb53948c0cb",
+							"validations": {},
+							"writes": {
+								"wound": {
+									"photo": "attachment",
+									"scan_url": "url"
+								}
+							}
+						}
+					]
+				],
+				[
+					"wound",
+					[]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"f28df93b-1077-5a37-a743-9cb53948c0cb"
+					],
+					"uuid": "5b58e2e9-1b00-5c9d-a35e-a5bfc545e0d9"
+				},
+				{
+					"forms": [],
+					"uuid": "6365bb74-9af8-5758-a74d-62ea4d51efe4"
+				}
+			]
+		}
+	}
+}
