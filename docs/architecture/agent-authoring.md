@@ -104,6 +104,21 @@ route, selected records and ancestor selections. Submission evidence names the
 isolated case transaction separately from serialized submission and retained
 report evidence, which this surface does not observe.
 
+The workflow reference separates independent report collection from record
+workflows. Preview persists record effects and submission identity, rather than
+an archive of each form's answers. Submitted forms belong to the configured
+CommCare collection destination; reporting discovery and reviewer access need
+their own evidence. Retained worker sessions make competing Preview actions
+observable without presenting those checks as native offline conflict proof.
+
+The reference explains typed clock capture separately from a recorded-time
+display. Existing `now()` and `format-date` expressions can save the writer's
+calendar date, clock and numeric offset as text, then display it without parsing
+it again. Pinned Core checks cover year and leap-day boundaries, fractional
+offsets and daylight-saving transitions across writer and reader zones. This
+proves capture-as-recorded text; it does not establish viewer-local conversion
+or an absolute chronology scalar from stored datetime parsing.
+
 `continueAppTest` accepts one to eight ordered `actions`, each optionally paired
 with a screen/module/form/submission expectation. The legacy singular `action`
 uses the same executor. Each action retains its own step and observation. A

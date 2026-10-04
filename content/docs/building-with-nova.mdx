@@ -76,11 +76,13 @@ of the running form. Their calculations still run, and any configured record
 changes happen when you submit. Titles, media and visible questions remain
 available, and entries that workers add keep their Add and Remove controls.
 
-A repeating section can let workers add entries, follow a count from an integer question or formula, or show one
-entry per matching record. For the latter two, Preview fixes the entries when the
-form loads, or when the enclosing repeated entry is added for a nested section.
-Changing an answer or opening a later page does not rebuild that list. The
-information used to choose entries needs to be available when they are created.
+A repeating section can let workers add entries, follow a count from an integer
+question or formula, or show one entry per matching record. Counts stay live:
+increasing the count adds entries; decreasing it retains entries already created,
+their answers and their record changes. A list of matching records is captured
+when the form opens, or when the enclosing entry is created for a nested section.
+Returning to a page keeps those entries. A section creates its entries on first
+entry, so their starting information can come from earlier pages.
 
 Preview checks each answer before submitting the form. Whole-number questions
 accept integers; decimal questions also accept fractions. If an answer is
@@ -89,6 +91,12 @@ can correct it. Optional questions can be left empty.
 When a form opens an existing record, its questions become available after that
 record finishes loading. This keeps early answers from being replaced as the
 form starts.
+
+Preview saves changes to your case records. It does not provide an archive of
+each submitted form's answers. Independent visit reports collected through
+CommCare HQ use its form reporting and export tools. That workflow also needs a
+configured collection destination and reviewer access to the reports. A
+successful Preview submission does not verify those connections.
 
 Changing the Preview worker returns to app entry and clears the previous
 worker’s form and record selection. You can then follow the new worker’s menus.

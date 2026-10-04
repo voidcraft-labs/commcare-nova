@@ -24,6 +24,15 @@ orientation separately, shared by editor turns, retries, and MCP `get_app`.
 Detailed questions and configuration belong to scoped reads. The plugin only
 bootstraps current server guidance; it does not keep another authoring manual.
 
+Workflow guidance distinguishes record persistence, standalone report collection,
+and retrieval at the configured CommCare destination. Preview submission receipts
+do not establish an answer-document archive or reporting permissions. Retained
+worker-session checks distinguish entry snapshots from current-store reads;
+their Postgres observations cannot establish offline conflict behavior.
+Clock guidance preserves typed capture and a separately saved recorded-time
+display with its numeric offset. It does not promise viewer-local conversion or
+absolute chronology from the device runtime's stored timestamp parsing.
+
 Write results report completed operations with `ok: true`, created identities,
 and any consequential side effects. Confirmation and rejection remain explicit.
 `ok` does not distinguish a canonical save from private staging, or a change from
