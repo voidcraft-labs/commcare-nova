@@ -64,7 +64,7 @@ export type CorpusSource =
 	  }
 	| {
 			readonly kind: "targeted";
-			/** The register rows whose symptom the document is built to show. */
+			/** The register rows or harness contracts the document is built to show. */
 			readonly rows: readonly string[];
 	  };
 

@@ -2834,7 +2834,7 @@
 		"check": "proof4",
 		"artifact": "app.json@case list@*",
 		"path": "/modules/*/search_config/search_button_label/*",
-		"document": "case-operation-query",
+		"document": "targeted-search-button-label",
 		"control": "case-operation-query"
 	},
 	{
@@ -2844,7 +2844,7 @@
 		"check": "proof4",
 		"artifact": "app_strings:*@case list@*",
 		"path": "/case_search.m*",
-		"document": "case-operation-query",
+		"document": "targeted-search-button-label",
 		"control": "case-operation-query"
 	},
 	{
@@ -2884,7 +2884,7 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/actions/*",
-		"document": "case-operation-query",
+		"document": "targeted-search-button-label",
 		"control": "case-operation-query"
 	},
 	{

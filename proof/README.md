@@ -604,9 +604,24 @@ changes no other document. Where its symptom needs it, it names what a person
 saves in HQ over A (`hqSide`, written as `hq-side.json`) and project
 settings every configuration holds (`projectSettings`).
 
+The harness's own tests also use targeted documents when their contract
+needs a precise edit. `stableWitnesses.ts` keeps the two parent-registration
+edits that reorder a child menu's frame, and a purpose edit whose republish
+and update have identical bytes with a real case-writing form. The intent
+self-check independently observes B and B-edit with matching complete keys,
+requires a parsed form and its authored data-dictionary property, and retains
+both records under the block's `witnesses/wire-equal-intent/` directory.
+`targeted-search-button-label` owns the three unchanged search-label defect
+classes; their retained `case-operation-query` control stays byte-identical.
+These documents join the emitted corpus without joining balanced edit
+assignment. The focused `stableWitnesses.test.ts` holds every emitted byte
+to an emission after an unrelated document advances the fixture counter and
+changes that balance.
+
 To add one: write `proof/targeted/documents/<name>.ts` returning
 `targetedDocument({id, rows, doc, expected, ...})`, with its id
-`targeted-<what it shows>`, the work item 12 rows or finding numbers it shows
+`targeted-<what it shows>`, the work item 12 rows, finding numbers or harness
+contracts it shows
 in `rows`, `singleFlags` where its symptom needs a flag beyond the
 minimum, and `edit`, `hqSide` or `projectSettings` where it needs them;
 list its maker in `TARGETED_DOCUMENTS` (`proof/targeted/index.ts`).
@@ -950,7 +965,7 @@ unknown-question clause is not observed (also there).
 | 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update | proof 4, then 3 | a follow-up form that writes nothing |
 | 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | `targeted-close-conditions`, `targeted-close-condition-unparsable` |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
-| 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | a labelled search, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
+| 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name | proof 4, then 3 | any form |

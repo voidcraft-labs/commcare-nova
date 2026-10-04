@@ -31,6 +31,12 @@
  *   as the properties they name
  *   (`case_search/models.py::extract_search_request_config`,
  *   `case_search/utils.py::_apply_filter`).
+ * - `targeted-search-button-label` (defect 14, search settings): a written
+ *   edit enables search with Nova's Search label. HQ's Case List save
+ *   reconstructs `CaseSearch` without `search_button_label`
+ *   (`views/modules.py::_gather_and_update_search_properties`), restoring
+ *   the model's Search All Cases default, which app strings and Core's
+ *   search action read. Its frozen control remains `case-operation-query`.
  * - `targeted-search-related-lookups` (defect 12, related lookups): a default
  *   filter on a property of the parent case, which HQ's CSQL compiler refuses
  *   in a case search unless the project space has
@@ -164,6 +170,25 @@ export function searchDefaultFilterName() {
 		id,
 		rows: ["14, search settings (an input named like a default filter)"],
 		doc,
+		expected: noteHeld(form),
+	});
+}
+
+export function searchButtonLabel() {
+	const id = "targeted-search-button-label";
+	const { doc, form } = searchApp(id, "Search visits", (uuid) => ({
+		properties: [],
+		list: caseListOf([plainColumn(uuid("name"), "case_name", "Name")]),
+	}));
+	const edit = structuredClone(doc);
+	edit.modules[targetedUuid(id, "module")].caseSearchConfig = {
+		searchButtonLabel: "Search",
+	};
+	return targetedDocument({
+		id,
+		rows: ["14, search settings (the search button label)"],
+		doc,
+		edit,
 		expected: noteHeld(form),
 	});
 }
