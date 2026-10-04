@@ -191,8 +191,8 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					flatBottomOnSelect={!collapsed}
 				>
 					<div
-						className={`rounded-t-lg border border-b-0 border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
-							collapsed ? "rounded-b-lg border-b" : ""
+						className={`rounded-t-lg border border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
+							collapsed ? "rounded-b-lg" : "border-b-0"
 						} ${showIntoGroupRing ? "ring-2 ring-nova-violet" : ""}`}
 					>
 						{/* Group label media: banner above the header row, matching
