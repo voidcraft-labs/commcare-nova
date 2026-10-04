@@ -75,8 +75,12 @@ input and location-picker formatter with the real UI. Malformed supplied locatio
 are test-input refusals, not observations of worker validation; map services and
 GPS capture remain outside this surface. Submission uses the production operation planner and atomic
 envelope. Its receipt overlays the entry case database, including just-closed
-records, before evaluating the next task. Sync applies the production restore
-closure. A next-task failure preserves an already successful test submission.
+records, before evaluating the next task. It separately overlays the session's
+latest record catalog, preserving unrelated rows learned by Sync while the
+submitting form was open. A direct linked form keeps the entry-plus-effects
+snapshot; an ordinary new entry uses the updated session catalog.
+Sync applies the production restore closure. A next-task failure preserves an
+already successful test submission.
 An action rejected before submission leaves no partial effects.
 
 Retained sessions expose held-open interleavings: open a form in A, submit in B,
@@ -167,7 +171,9 @@ and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
 explicit bounded paths and offsets. The start/source/runtime provenance travels
 with every page. Builder pages these same rows rather than loading all history.
 
-Runtime version 9 pins retained worker sessions, the shared presentation
+Runtime version 10 preserves the synced session catalog across submission while
+direct form links retain the submitting entry plus its committed effects.
+It also pins retained worker sessions, the shared presentation
 hierarchy and distinct page/route controls, alongside portable case-list metadata reads: Results/Details,
 calculated columns and calculated ordering expose built-in dates at native
 calendar precision, while custom datetime values keep their clocks. Retained

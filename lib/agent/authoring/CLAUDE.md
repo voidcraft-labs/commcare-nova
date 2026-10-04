@@ -28,7 +28,9 @@ Workflow guidance distinguishes record persistence, standalone report collection
 and retrieval at the configured CommCare destination. Preview submission receipts
 do not establish an answer-document archive or reporting permissions. Retained
 worker-session checks distinguish entry snapshots from current-store reads;
-their Postgres observations cannot establish offline conflict behavior.
+their Postgres observations cannot establish offline conflict behavior. Operation
+conditions read current Preview records but retain submitted form-answer bindings;
+skipped effects need an understandable outcome on the worker's next task.
 Clock guidance preserves typed capture and a separately saved recorded-time
 display with its numeric offset. It does not promise viewer-local conversion or
 absolute chronology from the device runtime's stored timestamp parsing.

@@ -88,6 +88,12 @@ export async function submitAppTest(
 		screen.entryCases,
 		result.caseDatabasePatch,
 	);
+	// A linked task sees the submitting entry plus its own committed effects.
+	// The session catalog also retains unrelated records learned by later Sync.
+	const deviceCases = overlayCaseDatabasePatch(
+		state.deviceCases,
+		result.caseDatabasePatch,
+	);
 	const identity = {
 		...context.identity,
 		usercase: submissionWorkerValues(
@@ -105,7 +111,7 @@ export async function submitAppTest(
 			return {
 				state: {
 					...state,
-					deviceCases: cases,
+					deviceCases,
 					history: [],
 					screen:
 						registrationReturn === "app_home"
@@ -135,7 +141,7 @@ export async function submitAppTest(
 		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
-			deviceCases: cases,
+			deviceCases,
 		};
 		switch (next.route.kind) {
 			case "unresolvable":
@@ -216,7 +222,7 @@ export async function submitAppTest(
 		return {
 			state: {
 				...state,
-				deviceCases: cases,
+				deviceCases,
 				screen: {
 					kind: "after-submit" as const,
 					moduleUuid: screen.moduleUuid,

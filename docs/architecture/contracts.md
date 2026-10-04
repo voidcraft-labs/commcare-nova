@@ -580,8 +580,11 @@ No interval leaves an accepted lookup dependency unprotected.
 
 ### Case operations and submissions
 
-- All expressions for one submission evaluate against a single pre-submission
-  snapshot. Effects then apply atomically in declared order.
+- Record-operation expressions for one Preview submission evaluate against one
+  pre-effect transaction snapshot. Form-answer bindings retain the submitted
+  entry's values; this does not rerun question defaults or form validation against
+  current records. Effects then apply atomically in declared order. Native
+  expressions read the device's available records, not this server snapshot.
 - Repeated creates have iteration-correlated outputs. A singular operation
   reference cannot escape its repeat or ambiguously name multiple created cases.
 - Runtime-resolved targets are tenant-bound and must match the declared case

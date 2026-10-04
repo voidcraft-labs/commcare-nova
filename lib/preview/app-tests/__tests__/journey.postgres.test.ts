@@ -2649,6 +2649,200 @@ it.each([false, true])(
 	},
 );
 
+it("preserves synced records for fresh entries while linked forms keep the submitting entry world", {
+	timeout: 20_000,
+}, async () => {
+	const doc = await createEvaluationApp(
+		[
+			{
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [
+					{ name: "Register", type: "registration" },
+					{ name: "Review", type: "followup" },
+				],
+			},
+		],
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					fields: [
+						{ id: "name", kind: "text", label: "Name", required: true },
+						{
+							id: "entry_count",
+							kind: "text",
+							label: "Known equipment",
+							default_value:
+								"count(instance('casedb')/casedb/case[@case_type = 'equipment'])",
+						},
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Review",
+					fields: [
+						{
+							id: "name",
+							kind: "text",
+							label: "Equipment name",
+							default_value: "#case/case_name",
+						},
+						{
+							id: "entry_count",
+							kind: "text",
+							label: "Known equipment",
+							default_value:
+								"count(instance('casedb')/casedb/case[@case_type = 'equipment'])",
+						},
+					],
+				},
+			},
+			...(["Register", "Review"] as const).map((formUuid) => ({
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid,
+					fieldUuid: "fixture_placeholder",
+				},
+			})),
+			{
+				toolName: "addFormLinks",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					links: [
+						{
+							link: {
+								target: {
+									type: "form",
+									moduleUuid: "Equipment",
+									formUuid: "Review",
+								},
+							},
+						},
+					],
+				},
+			},
+		],
+	);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Sync another registration while an unrelated form stays open",
+			sessions: [{ id: "held" }, { id: "other" }],
+		}),
+	);
+	const advance = async (sessionId: string, action: unknown) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				actions: [{ sessionId, action }],
+			}),
+		);
+		expect(current.observation.error).toBeUndefined();
+		return current.observation;
+	};
+	try {
+		for (const [sessionId, name] of [
+			["held", "Held registration"],
+			["other", "Learned by Sync"],
+		]) {
+			await advance(sessionId, { kind: "menu", moduleUuid: "Equipment" });
+			await advance(sessionId, { kind: "form", formUuid: "Register" });
+			await advance(sessionId, {
+				kind: "answer",
+				answers: [{ path: "name", value: name }],
+			});
+		}
+		const created = z
+			.object({
+				savedInTest: z.literal(true),
+				effects: z.object({ primaryCaseIds: z.array(z.string()).length(1) }),
+			})
+			.parse(await advance("other", { kind: "submit" }));
+		const learnedId = created.effects.primaryCaseIds[0];
+		expect(await advance("held", { kind: "sync" })).toMatchObject({
+			availableRecords: expect.arrayContaining([
+				expect.objectContaining({ id: learnedId, type: "equipment" }),
+			]),
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "0" }),
+				expect.objectContaining({ path: "name", value: "Held registration" }),
+			]),
+		});
+		// A direct link uses the submitting entry plus its own exact patch. It
+		// must not borrow the unrelated row learned after this entry opened.
+		expect(await advance("held", { kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			screen: "form",
+			name: "Review",
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "1" }),
+				expect.objectContaining({ path: "name", value: "Held registration" }),
+			]),
+		});
+		const stored = await sql<{
+			case_name: string;
+		}>`SELECT case_name FROM ${sql.id(appTestNamespace(current.testId), "cases")} WHERE case_type = 'equipment' ORDER BY case_name`.execute(
+			h.db(),
+		);
+		expect(stored.rows).toEqual([
+			{ case_name: "Held registration" },
+			{ case_name: "Learned by Sync" },
+		]);
+		await advance("held", { kind: "home" });
+		await advance("held", { kind: "menu", moduleUuid: "Equipment" });
+		await advance("held", { kind: "form", formUuid: "Review" });
+		expect(
+			await advance("held", { kind: "select", caseIds: [learnedId] }),
+		).toMatchObject({ screen: "details", canContinue: true });
+		// An ordinary new entry uses the catalog's Sync plus both commits. No
+		// additional Sync may be needed to recover the already learned identity.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			screen: "form",
+			name: "Review",
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "name", value: "Learned by Sync" }),
+				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+	} finally {
+		await call("continueAppTest", {
+			testId: current.testId,
+			expectedStep: current.step,
+			action: { kind: "finish" },
+		});
+	}
+	expect(
+		(
+			await sql`SELECT 1 FROM public.cases WHERE app_id = ${scope.appId}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+});
+
 it("refuses duplicate session IDs and invented Preview identities before retaining a test namespace", async () => {
 	const doc = sectionEntryDoc();
 	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
