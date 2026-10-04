@@ -7,6 +7,15 @@ import {
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
+import { toolViews } from "../compositions/shared";
+
+// This availability contract is independent of the definition factory: these
+// journey controls must survive compaction without another hosted discovery.
+const EAGER_JOURNEY_TOOLS = new Set([
+	"startAppTest",
+	"continueAppTest",
+	"readAppTest",
+]);
 
 /** The chat wire projection is an SDK `Schema`, whose `jsonSchema` may
  * resolve lazily; the definition type widens it to `FlexibleSchema`. */
@@ -39,14 +48,22 @@ describe("Solutions Architect tool definitions", () => {
 		}
 	});
 
-	it("carry each shared tool's description and chat wire projection", async () => {
+	it("carry shared descriptions, authored schemas and stable journey availability into anatomy", async () => {
 		const definitions = solutionsArchitectToolDefinitions();
+		const views = await toolViews(definitions);
+		expect(views.map((view) => view.name)).toEqual(Object.keys(definitions));
+		const byName = new Map(views.map((view) => [view.name, view]));
 		for (const entry of SHARED_TOOL_REGISTRY) {
 			const definition = definitions[entry.saName];
 			expect(definition, entry.saName).toBeDefined();
-			expect(definition?.providerOptions).toEqual({
-				openai: { deferLoading: true },
-			});
+			expect(definition?.description, entry.saName).toBe(
+				entry.tool.description,
+			);
+			expect(definition?.providerOptions, entry.saName).toEqual(
+				EAGER_JOURNEY_TOOLS.has(entry.saName)
+					? undefined
+					: { openai: { deferLoading: true } },
+			);
 			const expected = authoringToolSchema(
 				entry.saName,
 				entry.tool.inputSchema,
@@ -55,7 +72,20 @@ describe("Solutions Architect tool definitions", () => {
 				await wireJsonSchema(definition?.inputSchema),
 				entry.saName,
 			).toEqual(expected);
+			expect(byName.get(entry.saName), entry.saName).toMatchObject({
+				description: entry.tool.description,
+				inputSchema: expected,
+				strict: false,
+				deferred: !EAGER_JOURNEY_TOOLS.has(entry.saName),
+			});
 		}
+		expect(
+			SHARED_TOOL_REGISTRY.filter(
+				(entry) => byName.get(entry.saName)?.deferred === false,
+			)
+				.map((entry) => entry.saName)
+				.sort(),
+		).toEqual([...EAGER_JOURNEY_TOOLS].sort());
 	});
 
 	it("reach OpenAI exactly as authored, with nothing removed by the provider", async () => {
@@ -83,18 +113,37 @@ describe("Solutions Architect tool definitions", () => {
 		);
 
 		expect(warnings).toEqual([]);
-		const sent = new Map<string, unknown>(
-			(
-				JSON.parse(received) as {
-					tools: { type: string; name?: string; parameters?: unknown }[];
-				}
-			).tools
-				.filter((tool) => tool.type === "function")
-				.map((tool) => [tool.name ?? "", tool.parameters]),
-		);
+		const sentFunctions = (
+			JSON.parse(received) as {
+				tools: {
+					type: string;
+					name?: string;
+					description?: string;
+					parameters?: unknown;
+					strict?: boolean;
+					defer_loading?: boolean;
+				}[];
+			}
+		).tools.filter((tool) => tool.type === "function");
+		expect(sentFunctions.map((tool) => tool.name)).toEqual([
+			"getWork",
+			"saveWork",
+			"discardWork",
+			"askQuestions",
+			...SHARED_TOOL_REGISTRY.map((entry) => entry.saName),
+		]);
+		const sent = new Map(sentFunctions.map((tool) => [tool.name ?? "", tool]));
 		for (const entry of SHARED_TOOL_REGISTRY) {
-			expect(sent.get(entry.saName), entry.saName).toEqual(
+			const tool = sent.get(entry.saName);
+			expect(tool, entry.saName).toMatchObject({
+				description: entry.tool.description,
+				strict: false,
+			});
+			expect(tool?.parameters, entry.saName).toEqual(
 				authoringToolSchema(entry.saName, entry.tool.inputSchema).json,
+			);
+			expect(tool?.defer_loading, entry.saName).toBe(
+				EAGER_JOURNEY_TOOLS.has(entry.saName) ? undefined : true,
 			);
 		}
 	});

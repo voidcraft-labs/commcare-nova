@@ -251,7 +251,7 @@ export const solutionsArchitectComposition: RoleComposition = {
 				file: "lib/agent/solutionsArchitect.ts",
 				symbol: "solutionsArchitectToolDefinitions",
 			},
-			note: "Tool search and askQuestions are available initially. OpenAI loads shared tools when the agent needs them. Function inputs use Nova's authored grammar with strict: false.",
+			note: "Tool search, askQuestions, startAppTest, continueAppTest and readAppTest are available initially. OpenAI loads the other shared tools when the agent needs them. Function inputs use Nova's authored grammar with strict: false.",
 		});
 		switch (spec.id) {
 			case "next-turn":
