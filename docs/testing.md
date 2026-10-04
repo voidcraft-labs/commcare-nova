@@ -155,9 +155,26 @@ applies finalized submissions through Core's `CaseXmlParser` to indexed
 in-memory storage. It checks stored records, repeat correlation, snapshot reads,
 conditional dependencies, link rejection and scalar/identity bounds. A disabled
 link guard makes the negative control fail by accepting a missing target.
+Its recorded-clock matrix controls only `now()` through Core's function-handler
+seam and runs Nova's emitted form on both export paths. Native typed clock
+capture and typed-question formatting produce plain text with the writer's
+date, clock and uppercase `%Z` offset; independent `java.time` expectations
+cover calendar and daylight-saving boundaries across writer and reader zones.
+Plain and Markdown prompts display that captured text unchanged. This proves
+capture-as-recorded display, not viewer-local conversion of stored datetime
+strings.
 Evaluating an emitted XPath with Nova's own evaluator does not establish device
 parity. Native in-memory application is also not a transaction rollback test;
 Postgres atomicity and HQ server processing require their own evidence.
+
+Standalone report retention uses HQ's actual SQL processor and attachment
+writer in a fresh database with real commits. Read a new domain-scoped
+`XFormInstance`, reparse its stored XML, and feed that document to HQ's
+`TableConfiguration` and workbook writer. The parser's unsaved object and
+cached answers cannot prove retention. Two visits retain separate answers
+and create zero cases; rollback units still refuse commit callbacks. This
+boundary proves storage and export rows from known form ids. Indexed form
+discovery and report-view/export permissions need separate evidence.
 
 Case-write admission tests start with a fully accepted document and prove that
 a refusal reaches no persistence host. The shared tool body is tested once;

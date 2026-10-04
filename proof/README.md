@@ -706,8 +706,11 @@ app, restore and trace) are blobs named by their sha256.
   temporary filesystem blob store, and the change feed is recorded. A unit's
   state has a key: each operation moves it to `sha256(key | label | digest)`,
   a mark takes a savepoint, every sequence, Couch's documents, the blobs and
-  the key, and a restore puts them all back. A new connection, an `on_commit`
-  or an aborted transaction inside a unit ends the check.
+  the key, and a restore puts them all back. A new connection or an aborted
+  transaction inside a unit ends the check. An `on_commit` callback is also
+  refused in a rollback unit, whose transaction never commits. The existing
+  fresh-database mode (`open_unit(transactional=False)`) commits HQ's actual
+  transactions and runs their real callbacks; its database is dropped at exit.
 - **Seams** (`seams.py`, `elasticsearch.py`) answer what HQ reads from outside
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
@@ -725,8 +728,19 @@ app, restore and trace) are blobs named by their sha256.
   child, and the build's pure computations kept once computed. Each computes
   exactly what HQ computes; `PROOF_HQ_SPEED=0` leaves them all out to compare.
 - **Operations** (`operations.py`): publish, the media upload, app source,
-  build, HQ's case processing of a submission, the case search compiler and
-  request reading, and the lookup workbook upload, each HQ's own code.
+  build, HQ's case processing of a submission, standalone form retention,
+  the case search compiler and request reading, and the lookup workbook
+  upload, each HQ's own code.
+
+`proof/hq/test_report_retention.py` saves two case-free submissions through
+HQ's SQL processor and attachment writer in a fresh database, then reads new
+domain-scoped form models. It checks their stored XML and answers, distinct
+rows from HQ's `TableConfiguration`, a workbook from its export writer, and
+zero cases. The paired rollback-unit test refuses the real attachment commit
+callback. This proves storage and row generation from known saved forms;
+indexed export discovery and actor permissions remain outside it, with the
+Elasticsearch seam unchanged. Run it with
+`npm run proof -- proof/hq/test_report_retention.py`.
 
 ### The Core runner
 
@@ -1324,7 +1338,7 @@ omitting both case writes, an active blank URL clearing one property,
 untouched neighboring rows keeping their URL, capture fields starting empty on
 followup, and child indices naming the selected parent; the multiple-parent
 document writes shared file names to both ids, and all-blank shared answers
-omit the whole ordinary update. `CaseOperationRuntimeTest` (24 cases, both
+omit the whole ordinary update. `CaseOperationRuntimeTest` (26 cases, both
 paths) seeds native `Case` records in Core's indexed in-memory storage, reads
 them through `CaseInstanceTreeElement`, finalizes with `postProcessInstance`
 and applies the submission through `XmlFormRecordProcessor` and
@@ -1334,7 +1348,17 @@ final writes and closure, link creation and removal, scalar normalization and
 bounds, nested-menu child selection, parent updates through the child's saved
 relationship, and repeat-local relation conditions. Datetime writes keep the
 instant `now()` gives; active blank answers clear a saved value and excluded
-answers leave it. A two-row query reuses an authored key and confirms the
+answers leave it. The sequence form also captures recorded-time text with
+`format-date(now(), '%Y-%m-%d %H:%M:%S %Z')` and formats a typed datetime answer
+after `coalesce` unpacks it. Core's supported function-handler seam controls
+only `now()`; Nova's emitted types, calculations, defaults and plain/Markdown
+prompts run unchanged. Independent `java.time` expectations cover eight
+instants across four writer zones and four reader zones, including year and
+leap-day rollover, fractional offsets and both sides of daylight-saving
+transitions. The text retains the writer's clock and offset when displayed
+directly. This does not establish viewer-local conversion of stored datetime
+strings or an absolute chronology scalar from them.
+A two-row query reuses an authored key and confirms the
 accepted same-type merge. Invalid keys, names, owners, external ids and
 dynamic link targets raise `InvalidStructureException`, and the accepted
 counterparts run in the same harness. `OperationRelevanceRuntimeTest` reads

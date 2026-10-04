@@ -356,6 +356,11 @@ def unit_database() -> str:
     return worker_database().name
 
 
+def is_fresh_database(name: str) -> bool:
+    """Whether ``name`` is the fresh clone whose owner will drop it at this scope's exit."""
+    return bool(_FRESH) and _FRESH[-1] == name
+
+
 @contextmanager
 def fresh_database():
     """A database of its own, cloned from the template for this block and dropped at exit.
