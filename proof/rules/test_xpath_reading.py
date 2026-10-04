@@ -5,7 +5,8 @@ which run in the judges without the Core runner: a text it reads as a plain
 path (``plain_path``) Core parses as one path from the root of named child
 steps and a named attribute step, a text it reads as reading no node
 (``node_free``) Core parses as a string or number literal, negated or not,
-or a call of ``now()``, ``today()`` or ``uuid()`` with no argument, and the
+a call of ``now()``, ``today()`` or ``uuid()`` with no argument, or
+``format-date`` of ``now()`` or ``today()`` and a string literal, and the
 calls it finds (``calls``) of the functions that draw a random value
 (``random``, ``uuid``) are the calls of them Core parses. The plausible
 failures: the port reading a text as one of those shapes that Core parses
@@ -33,7 +34,7 @@ import zipfile
 
 from lxml import etree
 
-from proof.rules._xpath import calls, node_free, plain_path
+from proof.rules._xpath import calls, node_free, plain_path, tokens
 from proof.rules.conftest import DOCUMENTS
 
 XF = "{http://www.w3.org/2002/xforms}"
@@ -72,6 +73,18 @@ CROSSING = {
     "today()": (False, True),
     "uuid()": (False, True),
     "now ( )": (False, True),
+    "format-date(now(), '%Y-%m-%d %H:%M:%S %Z')": (False, True),
+    'format-date ( today ( ) , "%Y-%m-%d" )': (False, True),
+    "format-date(/data/clock, '%Y')": (False, False),
+    "format-date(now(), /data/pattern)": (False, False),
+    "format-date(format-date(now(), '%Y'), '%Y')": (False, False),
+    "format-date(now(), format-date(now(), '%Y'))": (False, False),
+    "format-date(format-date(now(), '%Y'), now())": (False, False),
+    "concat(format-date(now(), '%Y'), '')": (False, False),
+    "format-date(random(), '%Y')": (False, False),
+    "format-date(uuid(), '%Y')": (False, False),
+    "format-date(now(1), '%Y')": (False, False),
+    "format-date(now(), '%Y', '%m')": (False, False),
     "'a'": (False, True),
     '"b c"': (False, True),
     "'é'": (False, True),
@@ -131,10 +144,12 @@ def _core_plain_path(text, parsed):
     )
 
 
-def _core_node_free(parsed):
+def _core_node_free(parsed, formatted_clock):
     if "error" in parsed or parsed["roots"]:
         return False
     if parsed["functions"]:
+        if set(parsed["functions"]) in ({"format-date", "now"}, {"format-date", "today"}):
+            return formatted_clock
         return set(parsed["functions"]) <= NODE_FREE_CALLS and parsed["expressions"] == []
     return parsed["expressions"] in (
         ["XPathStringLiteral"],
@@ -148,20 +163,45 @@ def _drawn(names):
     return sorted({name for name in names if name in DRAWING})
 
 
+def _core_formatted_clocks(texts, parsed, core_runner):
+    """The texts Core reads as exactly one formatted clock. xpathParse's summary sets erase duplicates and
+    nesting, so only Core's structural equality with a flat call proves this shape. The port supplies candidate
+    literal spellings; Core parses both whole texts, so any literal or call the port misreads fails equality."""
+    pairs, owners = [], []
+    for text in texts:
+        if "error" in parsed[text] or set(parsed[text]["functions"]) not in (
+            {"format-date", "now"},
+            {"format-date", "today"},
+        ):
+            continue
+        for token in tokens(text) or ():
+            if token.kind != "STR":
+                continue
+            for clock in ("now", "today"):
+                pairs.append([text, f"format-date({clock}(), {token.text})"])
+                owners.append(text)
+    results = core_runner.request("xpathSame", deadline=120.0, pairs=pairs)["results"]
+    return {text for text, result in zip(owners, results, strict=True) if result["same"]}
+
+
 def test_the_port_reads_each_shape_as_cores_parser_builds_it(rule_documents, core_runner):
     corpus = set().union(*(_texts(rule_documents[document_id]) for document_id in DOCUMENTS))
     texts = sorted(corpus | set(CROSSING) | set(CALLING))
     results = core_runner.request("xpathParse", deadline=120.0, expressions=texts)["results"]
     parsed = dict(zip(texts, results, strict=True))
+    formatted_clocks = _core_formatted_clocks(texts, parsed, core_runner)
 
     misread = [
         (text, parsed[text])
         for text in texts
         if (plain_path(text) and not _core_plain_path(text, parsed[text]))
-        or (node_free(text) and not _core_node_free(parsed[text]))
+        or (node_free(text) and not _core_node_free(parsed[text], text in formatted_clocks))
     ]
     assert misread == [], misread
     assert {text: (plain_path(text), node_free(text)) for text in CROSSING} == CROSSING
+    assert {text: _core_node_free(parsed[text], text in formatted_clocks) for text in CROSSING} == {
+        text: shapes[1] for text, shapes in CROSSING.items()
+    }
     refused = [
         text
         for text in corpus
@@ -171,7 +211,7 @@ def test_the_port_reads_each_shape_as_cores_parser_builds_it(rule_documents, cor
             and ":" not in text
             and not plain_path(text)
         )
-        or (_core_node_free(parsed[text]) and not node_free(text))
+        or (_core_node_free(parsed[text], text in formatted_clocks) and not node_free(text))
     ]
     assert refused == [], refused
     assert any(plain_path(text) for text in corpus) and any(node_free(text) for text in corpus)

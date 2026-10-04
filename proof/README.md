@@ -1027,6 +1027,13 @@ calls) only through `proof/rules/_xpath.py`, a port of Core's XPath lexer that
 `proof/rules/test_xpath_reading.py` holds to Core's own parser, and leaves an
 expression the port does not read as it stands.
 
+The `setvalue-order` rule also reads the exact
+`format-date(now() or today(), string literal)` shape as reading no node.
+Core's `XPathFormatDateFunc` only formats its evaluated arguments. The
+rule's proof runs both clock spellings before and after the other actions;
+field reads, nested calls, wrappers and random or uuid date arguments stay
+outside that shape and retain their order.
+
 Each rule has its own proof test, `proof/rules/test_<rule>.py`, run in the
 lane as the `proof/rules` package. It publishes a corpus document into HQ as
 Nova's publish leaves it, writes the app document or a form's source both ways

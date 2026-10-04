@@ -10,6 +10,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
+import { restoreXml } from "../restore";
 import { answerHeld } from "./echo";
 
 function parentFrame(previous: boolean) {
@@ -17,6 +18,7 @@ function parentFrame(previous: boolean) {
 		? "targeted-parent-form-previous-frame"
 		: "targeted-parent-form-selection-frame";
 	const uuid = (name: string) => targetedUuid(id, name);
+	const parentCase = "targeted-parent";
 	const make = (registration: boolean) => {
 		const doc = buildDoc({
 			appId: id,
@@ -127,14 +129,44 @@ function parentFrame(previous: boolean) {
 		edit: make(true),
 		expected: {
 			intent: [
-				answerHeld(
-					"parent-answer-held",
-					uuid("parent-visit"),
-					previous ? "/data/child_name" : "/data/parent_note",
-					"seen",
-				),
+				{
+					...answerHeld(
+						"parent-answer-held",
+						uuid("parent-visit"),
+						previous ? "/data/child_name" : "/data/parent_note",
+						"seen",
+					),
+					...(previous && {
+						restore: "restore.xml",
+						request: {
+							session: {
+								command: "m0-f0",
+								data: {
+									case_id: parentCase,
+									case_id_new_guppy_0: "targeted-new-guppy",
+								},
+							},
+							answers: [{ path: "/data/child_name", value: "seen" }],
+							expressions: ["/data/child_name"],
+						},
+					}),
+				},
 			],
 		},
+		...(previous && {
+			files: {
+				"restore.xml": restoreXml({
+					cases: [
+						{
+							id: parentCase,
+							type: "gold-fish",
+							name: "Parent",
+							properties: { care_status: "active" },
+						},
+					],
+				}),
+			},
+		}),
 	});
 }
 
@@ -150,6 +182,7 @@ export function parentFormPreviousFrame() {
 export function wireEqualRepublish() {
 	const id = "targeted-wire-equal-republish";
 	const uuid = (name: string) => targetedUuid(id, name);
+	const patientCase = "targeted-patient";
 	const doc = buildDoc({
 		appId: id,
 		appName: "Visit notes",
@@ -194,7 +227,29 @@ export function wireEqualRepublish() {
 		doc,
 		edit,
 		expected: {
-			intent: [answerHeld("note-held", uuid("form"), "/data/note", "seen")],
+			intent: [
+				{
+					...answerHeld("note-held", uuid("form"), "/data/note", "seen"),
+					restore: "restore.xml",
+					request: {
+						session: { command: "m0-f0", data: { case_id: patientCase } },
+						answers: [{ path: "/data/note", value: "seen" }],
+						expressions: ["/data/note"],
+					},
+				},
+			],
+		},
+		files: {
+			"restore.xml": restoreXml({
+				cases: [
+					{
+						id: patientCase,
+						type: "patient",
+						name: "Patient",
+						properties: { note: "earlier" },
+					},
+				],
+			}),
 		},
 	});
 }

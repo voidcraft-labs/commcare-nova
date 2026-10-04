@@ -3,7 +3,8 @@ values read no node, alike in any order within their run.
 
 Contract: the rule erases the order within a run of one event's
 consecutive setvalues that each set a node of their own to ``now()``,
-``today()``, ``uuid()`` or a literal, as Vellum's save writes setvalues in
+``today()``, ``uuid()``, a literal, or ``format-date`` of ``now()`` or
+``today()`` and a literal pattern, as Vellum's save writes setvalues in
 its own order. HQ's build carries the order, so the proof is Core's. The
 conditions are the rule's: a setvalue whose value reads a node, two that
 set one node, a calculate that sets a node the run sets, a triggerable the
@@ -14,8 +15,8 @@ for its order (so a save would change the values a form starts with), and
 the rule moving a setvalue where one of those conditions makes its place
 tell.
 
-A corpus document whose form defaults two date-times to ``now()`` and mints
-a case id with ``uuid()`` at load is published as Nova writes it and with
+A corpus document whose form defaults two date-times to ``now()``, records
+the formatted clock and mints a case id with ``uuid()`` at load is published as Nova writes it and with
 those setvalues reversed: HQ's builds differ by their order alone, which
 the rule erases, and Core's sessions compare equal. A setvalue copying one
 of those date-times into a node of its own, written after the setvalue it
@@ -24,7 +25,10 @@ second, and the rule keeps its place. Two node-free setvalues of the
 form's ``xforms-revalidate`` event, one setting a node a calculate sets
 from the other's node, submit the calculate's value written in one order
 and the setvalue's in the other, and the rule keeps their order. The
-other conditions are held on the parsed form, the rule leaving each.
+other conditions are held on the parsed form, the rule leaving each. The
+same form records a formatted ``today()`` clock in both orders too. Field
+reads, nested calls, arbitrary wrappers and random or uuid arguments keep
+their places on the parsed form.
 """
 
 from __future__ import annotations
@@ -123,6 +127,32 @@ def test_core_runs_a_run_of_node_free_setvalues_alike_in_any_order(rule_document
     assert build_differences(calculated_first.build, read_first.build, rules=(RULE,))
 
 
+def _formatted_today(root):
+    model = root.find(HEAD).find(f"{XF}model")
+    clocks = [action for action in model.findall(f"{XF}setvalue") if action.get("ref") == "/data/recorded_clock"]
+    assert len(clocks) == 1, "the form must record its formatted clock"
+    assert clocks[0].get("value") == "format-date(now(), '%Y-%m-%d %H:%M:%S %Z')", clocks[0].attrib
+    clocks[0].set("value", "format-date(today(), '%Y-%m-%d %H:%M:%S %Z')")
+
+
+def _reversed_formatted_today(root):
+    _formatted_today(root)
+    _reversed_setvalues(root)
+
+
+def test_core_runs_a_formatted_today_clock_alike_before_or_after_the_other_node_free_actions(
+    rule_documents, hq, core_runner
+):
+    with published(rule_documents[DOCUMENT], core_runner) as app:
+        first = app.spell(sources={"0.0": rewritten(_formatted_today)})
+        second = app.spell(sources={"0.0": rewritten(_reversed_formatted_today)})
+        _, _, alike = runs_alike(app, core_runner, first.build, second.build)
+
+    assert build_differences(first.build, second.build), "reversing the formatted clock's run changed no built order"
+    assert build_differences(first.build, second.build, rules=(RULE,)) == []
+    assert alike == [], shown(alike)
+
+
 def _form(model):
     return etree.fromstring(
         '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model>'
@@ -150,6 +180,29 @@ RUN = _setvalue("/data/b", "now()") + _setvalue("/data/a", "1")
     [
         # A run of node-free setvalues of distinct nodes takes the order of its refs.
         (RUN, ["/data/a", "/data/b"]),
+        (
+            _setvalue("/data/b", "format-date(now(), '%Y-%m-%d %H:%M:%S %Z')") + _setvalue("/data/a", "1"),
+            ["/data/a", "/data/b"],
+        ),
+        (
+            _setvalue("/data/b", "format-date(today(), '%Y-%m-%d')") + _setvalue("/data/a", "1"),
+            ["/data/a", "/data/b"],
+        ),
+        *[
+            (_setvalue("/data/b", value) + _setvalue("/data/a", "1"), ["/data/b", "/data/a"])
+            for value in (
+                "format-date(/data/clock, '%Y')",
+                "format-date(now(), /data/pattern)",
+                "format-date(format-date(now(), '%Y'), '%Y')",
+                "format-date(now(), format-date(now(), '%Y'))",
+                "format-date(format-date(now(), '%Y'), now())",
+                "concat(format-date(now(), '%Y'), '')",
+                "format-date(random(), '%Y')",
+                "format-date(uuid(), '%Y')",
+                "format-date(now(1), '%Y')",
+                "format-date(now(), '%Y', '%m')",
+            )
+        ],
         # A calculate that reads no node is never set off by a setvalue: HQ's delayed case id.
         ('<bind nodeset="/data/c" calculate="uuid()"/>' + RUN, ["/data/a", "/data/b"]),
         # A setvalue whose value reads another's node.

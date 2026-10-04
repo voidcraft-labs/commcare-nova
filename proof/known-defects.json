@@ -6206,26 +6206,6 @@
 		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
 	},
 	{
-		"id": "d52-output-in-validation-form-alert",
-		"defect": 52,
-		"part": "validation message with an output",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/body[*]/input[*]/alert[*]",
-		"document": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0",
-		"control": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0"
-	},
-	{
-		"id": "d52-output-in-validation-source-alert",
-		"defect": 52,
-		"part": "validation message with an output",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/body[*]/input[*]/alert[*]",
-		"document": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0",
-		"control": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0"
-	},
-	{
 		"id": "d53-zero-input-sentinel-trace-params",
 		"defect": 53,
 		"part": "zero-input search sentinel",

@@ -24,7 +24,9 @@ guessed from the text:
 - ``node_free``: a value that reads no node: a string literal, a number
   literal (negated or not), or a call of ``now()``, ``today()`` or
   ``uuid()`` with no argument, which Core builds as ``XPathNowFunc``,
-  ``XPathTodayFunc`` and ``XPathUuidFunc``.
+  ``XPathTodayFunc`` and ``XPathUuidFunc``; also ``format-date`` of
+  ``now()`` or ``today()`` and a string literal, whose
+  ``XPathFormatDateFunc.evalBody`` only formats the evaluated arguments.
 - ``calls``: the functions an expression calls: each name followed by
   ``(``, which Core's parser always builds as that function's call
   (``Parser.parseFuncCalls``), and whether an argument follows the ``(``.
@@ -204,7 +206,13 @@ def node_free(text):
     kinds = [token.kind for token in found]
     if kinds in (["STR"], ["NUM"], ["UMINUS", "NUM"]):
         return True
-    return kinds == ["QNAME", "LPAREN", "RPAREN"] and found[0].text in NODE_FREE_CALLS
+    if kinds == ["QNAME", "LPAREN", "RPAREN"]:
+        return found[0].text in NODE_FREE_CALLS
+    return (
+        kinds == ["QNAME", "LPAREN", "QNAME", "LPAREN", "RPAREN", "COMMA", "STR", "RPAREN"]
+        and found[0].text == "format-date"
+        and found[2].text in {"now", "today"}
+    )
 
 
 def calls(text):
