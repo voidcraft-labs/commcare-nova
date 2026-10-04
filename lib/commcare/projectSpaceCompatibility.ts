@@ -6,7 +6,6 @@
  * the exact HQ settings/runtime probes that establish them.
  */
 
-import manifest from "@/config/commcare-hq-feature-flags.json";
 import {
 	type BlueprintDoc,
 	CONNECT_TYPE_LABELS,
@@ -25,6 +24,7 @@ import {
 	projectSpaceCompatibilityForUnknownTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
 import { hostLowersNoMatchesForm } from "./emissionPlan";
+import { domainFeatureFlag } from "./surface/gates";
 
 export * from "@/lib/publish/projectSpaceCompatibility";
 
@@ -44,6 +44,36 @@ export interface HqPrivateFeatureFlagRequirement {
 	readonly slug: string;
 	readonly namespace: "domain";
 }
+
+/**
+ * The HQ toggle (`corehq/toggles/__init__.py`) behind each flag the probe
+ * checks. Each flag's slug and namespace come from that toggle's gate entry.
+ */
+export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
+	"deep-links": "SESSION_ENDPOINTS",
+	"case-search-base": "SYNC_SEARCH_CASE_CLAIM",
+	"advanced-case-search": "CASE_SEARCH_ADVANCED",
+	"commcare-connect": "COMMCARE_CONNECT",
+	"case-attachments": "MM_CASE_PROPERTIES",
+	"attachment-links": "VIEW_FORM_ATTACHMENT",
+	"no-matches-registration": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+	"large-search-performance": "CUSTOM_PROPERTIES",
+} as const satisfies Record<HqPrivateFeatureFlagId, string>;
+
+/* Resolved when the module loads, so a flag whose gate entry is missing or
+ * cannot be probed fails every importer (and its tests) at once, rather than
+ * only the compile or publish route whose document happens to need it. */
+const HQ_PRIVATE_FEATURE_FLAGS = Object.fromEntries(
+	(
+		Object.entries(HQ_PRIVATE_FEATURE_FLAG_SYMBOLS) as [
+			HqPrivateFeatureFlagId,
+			string,
+		][]
+	).map(([id, symbol]) => {
+		const flag = domainFeatureFlag(symbol);
+		return [id, { id, slug: flag.slug, namespace: flag.namespace }];
+	}),
+) as Readonly<Record<HqPrivateFeatureFlagId, HqPrivateFeatureFlagRequirement>>;
 
 export type HqProjectSpaceRuntimeProbe = "case-search";
 
@@ -206,7 +236,7 @@ export function projectSpaceCompatibilityProbePlan(
 			capability: projectSpaceCapabilityUse("deep-links", [
 				"The app has named entry points for authenticated links.",
 			]),
-			featureFlags: [privateFeatureFlag("deep-links")],
+			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["deep-links"]],
 			runtimeProbes: [],
 		});
 	}
@@ -215,25 +245,25 @@ export function projectSpaceCompatibilityProbePlan(
 		capabilities.push({
 			capability: projectSpaceCapabilityUse("case-search", [...searchReasons]),
 			featureFlags: [
-				privateFeatureFlag("case-search-base"),
+				HQ_PRIVATE_FEATURE_FLAGS["case-search-base"],
 				...(advancedSearchRequired
-					? [privateFeatureFlag("advanced-case-search")]
+					? [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]]
 					: []),
 			],
 			runtimeProbes: ["case-search"],
 		});
 	}
 
-	for (const id of [
-		"commcare-connect",
-		"case-attachments",
-		"attachment-links",
+	for (const [capability, flag] of [
+		["commcare-connect", "commcare-connect"],
+		["case-attachments", "case-attachments"],
+		["attachment-links", "attachment-links"],
 	] as const) {
-		const reasons = reasonsByCapability.get(id);
+		const reasons = reasonsByCapability.get(capability);
 		if (!reasons) continue;
 		capabilities.push({
-			capability: projectSpaceCapabilityUse(id, [...reasons]),
-			featureFlags: [privateFeatureFlag(id)],
+			capability: projectSpaceCapabilityUse(capability, [...reasons]),
+			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS[flag]],
 			runtimeProbes: [],
 		});
 	}
@@ -245,7 +275,7 @@ export function projectSpaceCompatibilityProbePlan(
 			capability: projectSpaceCapabilityUse("registration-after-empty-search", [
 				...noMatchesReasons,
 			]),
-			featureFlags: [privateFeatureFlag("no-matches-registration")],
+			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["no-matches-registration"]],
 			runtimeProbes: [],
 		});
 	}
@@ -256,7 +286,7 @@ export function projectSpaceCompatibilityProbePlan(
 					advisory: projectSpaceAdvisoryUse("large-search-performance", [
 						...searchReasons,
 					]),
-					featureFlags: [privateFeatureFlag("large-search-performance")],
+					featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["large-search-performance"]],
 					runtimeProbes: [],
 				},
 			]
@@ -293,27 +323,4 @@ export function projectSpaceCompatibilityForPrepublish(
 		plan.advisories.map((item) => item.advisory),
 		"prepublish",
 	);
-}
-
-function privateFeatureFlag(
-	id: HqPrivateFeatureFlagId,
-): HqPrivateFeatureFlagRequirement {
-	const flag = manifest.flags.find((candidate) => candidate.id === id);
-	if (!flag) {
-		throw new Error(`Missing private HQ compatibility probe: ${id}`);
-	}
-	if (
-		flag.expectedNamespaces.length !== 1 ||
-		flag.expectedNamespaces[0] !== "NAMESPACE_DOMAIN"
-	) {
-		throw new Error(`Unsafe private HQ compatibility probe namespace: ${id}`);
-	}
-	return {
-		id,
-		slug: flag.slug,
-		/* The lifecycle audit proves this manifest row remains domain-scoped in
-		 * upstream HQ. The runtime probe consumes the semantic namespace instead
-		 * of leaking the upstream registry constant into its decision. */
-		namespace: "domain",
-	};
 }

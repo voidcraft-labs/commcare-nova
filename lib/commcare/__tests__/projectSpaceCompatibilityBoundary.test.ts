@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import manifest from "@/config/commcare-hq-feature-flags.json";
+import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceCompatibility";
+import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 
 const PUBLIC_ROOTS = [
 	"components",
@@ -56,7 +57,10 @@ function privateTokenPattern(value: string): RegExp {
 describe("project-space compatibility public boundary", () => {
 	it("keeps private HQ settings and retired report names out of public surfaces", () => {
 		const privateTokens = [
-			...manifest.flags.flatMap((flag) => [flag.slug, flag.symbol]),
+			...Object.values(HQ_PRIVATE_FEATURE_FLAG_SYMBOLS).flatMap((symbol) => {
+				const flag = domainFeatureFlag(symbol);
+				return [flag.slug, flag.symbol];
+			}),
 			"cc-index-case-search-results",
 			"CASE_UPDATES_UCR_FILTERS",
 			"RUN_AUTO_CASE_UPDATES_ON_SAVE",

@@ -1,0 +1,885 @@
+{
+	"documentation": {
+		"android-supported-formats": {
+			"reading": "The decoder columns at Android 6.0 (API level 23), CommCare's minimum (commcare-android/app/build.gradle, minSdkVersion 23), since CommCare plays media with Android's own MediaPlayer and VideoView (commcare-android/app/src/org/commcare/views/media/).",
+			"title": "Supported media formats (Android Developers)",
+			"url": "https://developer.android.com/media/platform/supported-formats"
+		},
+		"apple-safari-html5-audio-video": {
+			"reading": "Archived; MDN's current compatibility data takes precedence over it.",
+			"title": "Using HTML5 Audio and Video (Apple Developer Documentation Archive)",
+			"url": "https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/Using_HTML5_Audio_Video/Introduction/Introduction.html"
+		},
+		"chromium-audio-video": {
+			"reading": "The codecs and containers Chrome plays.",
+			"title": "Audio/Video (The Chromium Projects)",
+			"url": "https://www.chromium.org/audio-video/"
+		},
+		"mdn-audio-codecs": {
+			"reading": "Browser support for each audio codec.",
+			"title": "Web audio codec guide (MDN)",
+			"url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Audio_codecs"
+		},
+		"mdn-containers": {
+			"reading": "Browser support for each media container.",
+			"title": "Media container formats (MDN)",
+			"url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Containers"
+		},
+		"mdn-image-types": {
+			"reading": "Browser support for each image file type.",
+			"title": "Image file type and format guide (MDN)",
+			"url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Image_types"
+		},
+		"mdn-video-codecs": {
+			"reading": "Browser support for each video codec.",
+			"title": "Web video codec guide (MDN)",
+			"url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Video_codecs"
+		}
+	},
+	"hqClassification": {
+		"method": "Executed: HQ booted in the proof image, and get_class_by_data called on a file of each format under its usual extension.",
+		"mimeTable": "libmagic 5.44, the compiled magic database of Debian bookworm's libmagic1, which commcare-hq/Dockerfile installs at the pin, read through python-magic 0.4.27 (commcare-hq/uv.lock); Python's mimetypes is consulted only for an application/* result, which no format here gives.",
+		"reader": "commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+		"rule": "The base MIME type image, audio or video gives CommCareImage, CommCareAudio or CommCareVideo; any other gives no class, and the multimedia upload skips the file (commcare-hq/corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip)."
+	},
+	"items": {
+		"media-format:audio/3gp": {
+			"android": {
+				"note": "The inventory refuses this format on the kind HQ assigns it alone and does not assess playback.",
+				"reading": "not-assessed"
+			},
+			"documentation": [],
+			"format": "Audio in a 3GP container",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/3gpp"],
+				"note": "Executed for AMR-NB and for AAC in 3GP. HQ types it as video, so an audio reference never receives the bytes."
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "The inventory refuses this format on the kind HQ assigns it alone and does not assess playback.",
+				"reading": "not-assessed"
+			}
+		},
+		"media-format:audio/aac-adts": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "Raw AAC in ADTS (`.aac`)",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/x-hx-aac-adts"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Chrome plays AAC only inside MP4.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:audio/amr": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "AMR",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/amr"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Chrome, Firefox and Opera play no AMR; MDN leaves Edge and Safari unconfirmed.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:audio/flac": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "FLAC",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/flac"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:audio/m4a": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "AAC-LC in an MPEG-4 container whose major brand is `M4A ` or `M4B `",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/x-m4a", "audio/mp4"],
+				"note": "`audio/x-m4a` for the brand `M4A `, `audio/mp4` for `M4B `."
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:audio/m4a-other-brand": {
+			"android": {
+				"note": "The inventory refuses this format on the kind HQ assigns it alone and does not assess playback.",
+				"reading": "not-assessed"
+			},
+			"documentation": [],
+			"format": "AAC in an MPEG-4 container whose major brand is `isom`, `mp41`, `mp42` or `dash`",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4"],
+				"note": "HQ types it as video, so an audio reference never receives the bytes: the multimedia upload matches a file only against the app's paths of the kind it assigns (commcare-hq/corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip)."
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "The inventory refuses this format on the kind HQ assigns it alone and does not assess playback.",
+				"reading": "not-assessed"
+			}
+		},
+		"media-format:audio/midi": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MIDI",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/midi"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "MDN lists MIDI support for no browser.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:audio/mp3": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MP3",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/mpeg"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:audio/ogg-opus": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "Opus in Ogg",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/ogg"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Safari since 18.4, per MDN's container guide (its Ogg note); MDN's audio codec table still lists Safari as unsupported.",
+				"reading": "runs"
+			}
+		},
+		"media-format:audio/ogg-vorbis": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "Vorbis in Ogg",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/ogg"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Safari since 18.4, per MDN's container guide (its Ogg note); MDN's audio codec table still lists Safari as unsupported.",
+				"reading": "runs"
+			}
+		},
+		"media-format:audio/wav-non-pcm": {
+			"android": {
+				"note": "Android plays only 8- and 16-bit linear PCM WAV.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "WAV holding a codec other than PCM (mu-law, A-law, ADPCM, GSM 06.10, MP3 and the rest of the WAVE codec registry)",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/x-wav"],
+				"note": "Executed for mu-law, A-law, IMA ADPCM, Microsoft ADPCM and MP3 in WAV."
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "MDN's WAVE codec table lists ADPCM, GSM 06.10, MP3 and mu-law in WAV as played by none of the four browsers and support for the other codecs as sparse, and its audio codec guide says G.711 (mu-law and A-law) is supported only for WebRTC connections.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:audio/wav-pcm-8-or-16-bit": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "WAV holding 8- or 16-bit integer PCM",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/x-wav"]
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:audio/wav-pcm-other": {
+			"android": {
+				"note": "Android plays only 8- and 16-bit linear PCM WAV.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-audio-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "WAV holding PCM other than 8- or 16-bit integer samples (24- or 32-bit integer, or 32- or 64-bit floating point)",
+			"hq": {
+				"class": "CommCareAudio",
+				"mimeTypes": ["audio/x-wav"],
+				"note": "Executed for 24- and 32-bit integer and 32- and 64-bit floating-point samples."
+			},
+			"kind": "audio",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "MDN's WAVE codec table lists linear PCM as played by all four browsers but names no sample format, and the inventory refuses this format on Android's reading alone.",
+				"reading": "not-assessed"
+			}
+		},
+		"media-format:image/avif": {
+			"android": {
+				"note": "Android decodes AVIF only from Android 14.",
+				"reading": "unavailable"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "AVIF",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/avif"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:image/bmp": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "BMP",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/bmp"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:image/gif": {
+			"android": {
+				"note": "Animates only through Glide, which CommCare uses for a file whose name ends `.gif` (commcare-android/app/src/org/commcare/views/media/MediaLayout.java::MediaLayout).",
+				"reading": "runs"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "GIF",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/gif"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:image/heif": {
+			"android": {
+				"note": "Android decodes HEIF only from Android 8.0.",
+				"reading": "unavailable"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "HEIF",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/heic"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "MDN does not list HEIF.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:image/ico": {
+			"android": {
+				"note": "Android 6.0 does not decode ICO.",
+				"reading": "unavailable"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "ICO",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/vnd.microsoft.icon"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:image/jpeg": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "JPEG",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/jpeg"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:image/png": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "PNG",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/png"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:image/svg": {
+			"android": {
+				"note": "Android 6.0 does not decode SVG.",
+				"reading": "unavailable"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "SVG",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/svg+xml"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Shown only as an image, where a browser runs none of its script.",
+				"reading": "runs"
+			}
+		},
+		"media-format:image/tiff": {
+			"android": {
+				"note": "Android 6.0 does not decode TIFF.",
+				"reading": "unavailable"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "TIFF",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/tiff"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "MDN documents TIFF for Safari alone.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:image/webp": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": ["android-supported-formats", "mdn-image-types"],
+			"format": "WebP",
+			"hq": {
+				"class": "CommCareImage",
+				"mimeTypes": ["image/webp"]
+			},
+			"kind": "image",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:video/3gp-h263": {
+			"android": {
+				"note": "Android makes H.263 optional from Android 7.0, so a device may not play it.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "H.263 in 3GP",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/3gpp"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "No current browser plays H.263.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/av1": {
+			"android": {
+				"note": "Android plays AV1 only from Android 10.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "AV1",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4", "video/webm"],
+				"note": "`video/mp4` in MP4, `video/webm` in WebM."
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Safari plays AV1 only with hardware support.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/avi": {
+			"android": {
+				"note": "Android plays no AVI.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "AVI",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/x-msvideo"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "The inventory refuses AVI on Android's reading alone.",
+				"reading": "not-assessed"
+			}
+		},
+		"media-format:video/mkv": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "Matroska holding a codec Android plays",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/x-matroska"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Chrome alone plays MKV.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/mov": {
+			"android": {
+				"note": "Android plays no MOV.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "QuickTime (MOV)",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/quicktime"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Firefox plays no MOV.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/mp4-h264-baseline": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MP4 with H.264 Baseline video and AAC-LC or no audio",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:video/mp4-h264-high": {
+			"android": {
+				"note": "Android 6.0 guarantees only the Baseline and Main profiles.",
+				"reading": "unavailable"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MP4 with H.264 High video",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:video/mp4-h264-main": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MP4 with H.264 Main video and AAC-LC or no audio",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:video/mp4-hevc": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MP4 with HEVC video",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "Chrome plays HEVC on Windows, Linux and ChromeOS only with hardware support, and Firefox on Windows only with hardware support or a paid extension.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/mp4-mpeg4-part2": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "MP4 with MPEG-4 Part 2 video",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/mp4"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "No browser plays MPEG-4 Part 2 in MP4; Firefox plays it only in 3GP.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/ogg-theora": {
+			"android": {
+				"note": "The inventory refuses Theora on the browsers' reading alone.",
+				"reading": "not-assessed"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "Theora in Ogg",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/ogg"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"note": "No current browser plays Theora.",
+				"reading": "unavailable"
+			}
+		},
+		"media-format:video/webm-vp8": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "WebM with VP8 video and Vorbis, Opus or no audio",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/webm"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		},
+		"media-format:video/webm-vp9": {
+			"android": {
+				"reading": "runs"
+			},
+			"documentation": [
+				"android-supported-formats",
+				"chromium-audio-video",
+				"mdn-video-codecs",
+				"mdn-containers",
+				"apple-safari-html5-audio-video"
+			],
+			"format": "WebM with VP9 video and Vorbis, Opus or no audio",
+			"hq": {
+				"class": "CommCareVideo",
+				"mimeTypes": ["video/webm"]
+			},
+			"kind": "video",
+			"source": [
+				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
+			],
+			"webApps": {
+				"reading": "runs"
+			}
+		}
+	},
+	"platforms": {
+		"android": "CommCare on Android 6.0 (API level 23) and later.",
+		"webApps": "Web Apps in the current releases of Chrome, Edge, Firefox and Safari."
+	}
+}
