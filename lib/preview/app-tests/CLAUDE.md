@@ -62,8 +62,8 @@ ordinary browser Preview uses the browser timezone. Neither asserts a supplied
 place has that timezone. `RUNTIME_VERSION` in `lib/db/appTests.ts` fences
 execution semantics (section-entry checkpoints and page turns, scoped
 initialization order, transient leaf versus persistent parent-menu selection,
-Details with Continue/Back, the shared clock); bump it when those semantics
-change. Older journeys remain readable but require a fresh test to execute. Search,
+Details with Continue/Back, the shared clock, resolved-language presentation);
+bump it when those semantics change. Older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
 between calls. Form and journey observations share the question participation

@@ -163,6 +163,11 @@ media controls, other accessibility labels and diagnostics remain outside this
 catalog; authored labels and custom validation continue through the app's
 translation projection.
 
+Read-only form and retained journey presentations use the same catalog for
+repeat-instance headings and unnamed-question fallbacks. Pass the resolved
+engine language to the presentation projection; an omitted or unconfigured
+selection follows the engine's existing language resolution.
+
 Custom validation wording uses the existing localized invalid-answer message
 when its resolved wording is empty or a typed reference names several live
 answers. Only the dedicated scalar-cardinality error or the worker's exact

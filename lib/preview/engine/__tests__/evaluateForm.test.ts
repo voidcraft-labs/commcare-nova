@@ -14,6 +14,118 @@ import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
 
+it("observes repeat headings and unnamed questions in the resolved worker language", async () => {
+	const doc = await createEvaluationApp(
+		[{ name: "Visits", forms: [{ name: "Checklist", type: "survey" }] }],
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Visits",
+					formUuid: "Checklist",
+					fields: [
+						{ kind: "hidden", id: "blank", calculate: "''" },
+						{
+							kind: "repeat",
+							id: "visits",
+							label: "Visits",
+							repeat: { mode: "user_controlled" },
+						},
+						{
+							kind: "text",
+							id: "note",
+							parentUuid: "visits",
+							label: "{{blank}}",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Visits",
+					formUuid: "Checklist",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "addLanguage",
+				input: { language: { language: "spa", region: "MX" } },
+			},
+			{ toolName: "addLanguage", input: { language: { language: "fra" } } },
+		],
+	);
+	const formUuid = Object.values(doc.forms).find(
+		(form) => form.name === "Checklist",
+	)?.uuid;
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!formUuid || !identity)
+		throw new Error("Evaluation fixture is incomplete.");
+	const before = structuredClone(doc);
+	for (const [language, heading, question] of [
+		[undefined, "Instance", "Question"],
+		["eng", "Instance", "Question"],
+		["spa-MX", "Repetición", "Pregunta"],
+		["fra", "Instance", "Question"],
+		["spa", "Instance", "Question"],
+	] as const) {
+		const result = await evaluateForm(
+			doc,
+			{
+				formUuid,
+				language,
+				repeats: [{ path: "visits", count: 2 }],
+				answers: [
+					{ path: "visits[0]/note", value: "first" },
+					{ path: "visits[1]/note", value: "second" },
+				],
+			},
+			{
+				identity,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+		expect(result.valid).toBe(true);
+		expect(result.presentation.nodes).toMatchObject([
+			{
+				path: "visits",
+				children: [
+					{
+						kind: "repeat-instance",
+						path: "visits[0]",
+						label: `${heading} 1`,
+						children: [
+							{ path: "visits[0]/note", fallbackLabel: `${question} 1.` },
+						],
+					},
+					{
+						kind: "repeat-instance",
+						path: "visits[1]",
+						label: `${heading} 2`,
+						children: [
+							{ path: "visits[1]/note", fallbackLabel: `${question} 1.` },
+						],
+					},
+				],
+			},
+		]);
+		expect(
+			result.fields
+				.filter((field) => field.kind === "text")
+				.map(({ path, value }) => ({ path, value })),
+		).toEqual([
+			{ path: "visits[0]/note", value: "first" },
+			{ path: "visits[1]/note", value: "second" },
+		]);
+	}
+	expect(doc).toEqual(before);
+});
+
 it("reports a bounded runtime cause when an expression expects one record but receives several", async () => {
 	const doc = await createEvaluationApp(
 		[

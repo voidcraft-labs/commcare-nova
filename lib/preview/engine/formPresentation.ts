@@ -1,10 +1,12 @@
 import type {
 	Field,
 	FieldKind,
+	LanguageTag,
 	Media,
 	ProseTemplate,
 	Uuid,
 } from "@/lib/domain";
+import { runtimeMessage } from "../runtimeMessages";
 import type { FieldTreeNode } from "./fieldTree";
 import type { FieldState } from "./types";
 
@@ -147,6 +149,7 @@ export function projectFormPresentation(
 	tree: readonly FieldTreeNode[],
 	source: FormPresentationSource,
 	options: {
+		language?: LanguageTag;
 		currentSectionUuid?: Uuid;
 		availableSectionUuids?: ReadonlySet<Uuid>;
 		text(prose: ProseTemplate): string;
@@ -234,7 +237,9 @@ export function projectFormPresentation(
 							kind: "repeat-instance",
 							path: instancePath.replace(/^\/data\//, ""),
 							index,
-							label: `Instance ${index + 1}`,
+							label: runtimeMessage(options.language, "instancePosition", {
+								position: index + 1,
+							}),
 							onCurrentPage,
 							controls: {
 								remove: field.repeat_mode === "user_controlled" && count > 1,
@@ -269,7 +274,13 @@ export function projectFormPresentation(
 				field.kind !== "repeat" &&
 				field.kind !== "label" &&
 				!label?.trim()
-					? { fallbackLabel: `Question ${position}.` }
+					? {
+							fallbackLabel: runtimeMessage(
+								options.language,
+								"questionPosition",
+								{ position },
+							),
+						}
 					: {}),
 				hint,
 				help,

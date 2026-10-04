@@ -252,6 +252,7 @@ export async function evaluateFormSnapshot(
 			engine.getFieldTree(),
 			{ stateAt: (_field, path) => engine.getState(path) },
 			{
+				language: engineInput.language,
 				currentSectionUuid: engine.currentSectionUuid(),
 				availableSectionUuids: new Set(
 					visibleSections.map((section) => section.uuid),
