@@ -8,11 +8,16 @@ import {
 	translationSourceFingerprint,
 	uuidSchema,
 } from "@/lib/domain";
+import { TranslationMemory } from "../translationMemory";
 import {
 	boundedGlossary,
 	decodeTranslatedValue,
+	encodeTranslatedValue,
 	encodeTranslationUnit,
+	glossaryEntriesFromAcceptedBatch,
 	planTranslationBatches,
+	translationLanguage,
+	translationPromptPayload,
 	validateTranslationBatchOutput,
 } from "../translator";
 
@@ -297,5 +302,254 @@ describe("translation protocol", () => {
 			target: `target-${index}`,
 		}));
 		expect(boundedGlossary(numbered)).toEqual(numbered.slice(-40));
+	});
+
+	it("retains protected template wording as context and projects moved references into each entry's token alphabet", () => {
+		const source: ProseTemplate = {
+			parts: [
+				{ kind: "text", text: "Item: " },
+				{ kind: "case-ref", caseType: "item", property: "case_name" },
+				{ kind: "text", text: "\n\nRecorded by: " },
+				{ kind: "user-ref", property: "username" },
+			],
+		};
+		const first: TranslationUnit = {
+			...textUnit("history-one", "unused", { role: "field-help" }),
+			valueKind: "prose",
+			source,
+			sourceFingerprint: translationSourceFingerprint("prose", source),
+		};
+		const encoded = encodeTranslationUnit(first);
+		const [item, worker] = encoded.protectedTokens;
+		const output = {
+			translations: [
+				{
+					unitId: first.id,
+					translatedText: `Objeto: ${item}\\n\\nRegistrado por: ${worker}`,
+				},
+			],
+		};
+		const value = validateTranslationBatchOutput([encoded], output).get(
+			first.id,
+		);
+		if (value === undefined || typeof value === "string")
+			throw new Error("Missing accepted prose value");
+		expect(value).toEqual({
+			parts: [
+				{ kind: "text", text: "Objeto: " },
+				{ kind: "case-ref", caseType: "item", property: "case_name" },
+				{ kind: "text", text: "\n\nRegistrado por: " },
+				{ kind: "user-ref", property: "username" },
+			],
+		});
+		const glossary = glossaryEntriesFromAcceptedBatch([encoded], output);
+		expect(glossary).toMatchObject([
+			{
+				source: encoded.sourceText,
+				target: `Objeto: ${item}\n\nRegistrado por: ${worker}`,
+				role: "field-help",
+				protectedTokens: [item, worker],
+			},
+		]);
+		const memory = new TranslationMemory([]);
+		memory.accept(first, value);
+		const second = {
+			...first,
+			id: makeTranslationUnitId("history-two"),
+			owner: {
+				kind: "field" as const,
+				moduleUuid: MODULE,
+				formUuid: uuidSchema.parse("55555555-5555-4555-8555-555555555555"),
+				fieldUuid: FIELD,
+			},
+		};
+		const remapped = encodeTranslatedValue(
+			encodeTranslationUnit(second),
+			value,
+		);
+		expect(remapped).toContain(
+			encodeTranslationUnit(second).protectedTokens[0],
+		);
+		expect(remapped).not.toContain(item);
+		memory.accept(second, {
+			parts: [{ kind: "text", text: "Artículo: " }, ...value.parts.slice(1)],
+		});
+		expect(memory.glossary([encodeTranslationUnit(second)])).toMatchObject([
+			{
+				target: expect.stringContaining("Objeto:"),
+				protectedTokens: [item, worker],
+			},
+			{
+				target: expect.stringContaining("Artículo:"),
+				protectedTokens: encodeTranslationUnit(second).protectedTokens,
+			},
+		]);
+	});
+
+	it("preserves literal escape instructions and refuses loss of source line breaks", () => {
+		const literal = encodeTranslationUnit(
+			textUnit("literal-newline", "Type \\n literally\nThen continue"),
+		);
+		expect(
+			decodeTranslatedValue(
+				literal,
+				"Escriba \\n literalmente\nLuego continúe",
+			),
+		).toBe("Escriba \\n literalmente\nLuego continúe");
+		const multiline = encodeTranslationUnit(
+			textUnit("multiline", "First line\nSecond line"),
+		);
+		expect(() =>
+			decodeTranslatedValue(multiline, "Primera línea. Segunda línea."),
+		).toThrow("line breaks");
+		const paragraphs = encodeTranslationUnit(
+			textUnit("paragraphs", "First paragraph\n\nSecond paragraph"),
+		);
+		expect(() =>
+			decodeTranslatedValue(paragraphs, "Primer párrafo\nSegundo párrafo"),
+		).toThrow("paragraph breaks");
+		const memory = new TranslationMemory([]);
+		memory.accept(paragraphs.unit, "Primer párrafo\\n\\nSegundo párrafo");
+		expect(memory.glossary([paragraphs])).toEqual([]);
+	});
+
+	it("sends Bank and Other with their own workflow/question context alongside distinct accepted wording", () => {
+		const option = (id: string, question: string): TranslationUnit => {
+			const source: ProseTemplate = {
+				parts: [{ kind: "text", text: "Other" }],
+			};
+			return textUnit(id, "unused", {
+				valueKind: "prose",
+				source,
+				sourceFingerprint: translationSourceFingerprint("prose", source),
+				role: "select-option-label",
+				breadcrumb: ["Intake", question, "other"],
+				context: {
+					fieldId: id,
+					fieldKind: "single_select",
+					optionValue: "other",
+				},
+				owner: {
+					kind: "select-option",
+					moduleUuid: MODULE,
+					formUuid: FORM,
+					fieldUuid: FIELD,
+					optionUuid: uuidSchema.parse("66666666-6666-4666-8666-666666666666"),
+				},
+			});
+		};
+		const vaccine = option("vaccine", "Which vaccine?");
+		const medicine = option("medicine", "Which medicine?");
+		const memory = new TranslationMemory([]);
+		memory.accept(vaccine, { parts: [{ kind: "text", text: "Otra" }] });
+		const finance = textUnit("finance-bank", "Bank", {
+			breadcrumb: ["Household finances", "Bank"],
+			context: {
+				formName: "Household finances",
+				fieldKind: "text",
+				fieldId: "bank",
+			},
+		});
+		const river = textUnit("river-bank", "Bank", {
+			breadcrumb: ["River inspection", "Bank"],
+			context: {
+				formName: "River inspection",
+				fieldKind: "text",
+				fieldId: "bank",
+			},
+		});
+		memory.accept(finance, "Banco");
+		const units = [
+			encodeTranslationUnit(river),
+			encodeTranslationUnit(medicine),
+		];
+		const payload = translationPromptPayload({
+			sourceLanguage: translationLanguage({ language: "eng" }),
+			targetLanguage: translationLanguage({ language: "spa" }),
+			appObjective: "Field collection",
+			units,
+			glossary: memory.glossary(units),
+		});
+		// Banco/Otra are prior context; Orilla/Otro require contextual judgment.
+		expect(payload.units).toMatchObject([
+			{
+				unitId: river.id,
+				sourceText: "Bank",
+				breadcrumb: ["River inspection", "Bank"],
+				context: { formName: "River inspection" },
+			},
+			{
+				unitId: medicine.id,
+				sourceText: "Other",
+				breadcrumb: ["Intake", "Which medicine?", "other"],
+				context: { fieldKind: "single_select", optionValue: "other" },
+			},
+		]);
+		expect(payload.glossary).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					source: "Other",
+					target: "Otra",
+					breadcrumb: ["Intake", "Which vaccine?", "other"],
+				}),
+				expect.objectContaining({
+					source: "Bank",
+					target: "Banco",
+					breadcrumb: ["Household finances", "Bank"],
+				}),
+			]),
+		);
+	});
+
+	it("seeds only current accepted translations and keeps saved navigation names within bounded context", () => {
+		const menu = textUnit("saved-menu", "Find an item", {
+			role: "module-name",
+			owner: { kind: "module", moduleUuid: MODULE },
+		});
+		const current = (
+			status: "ready" | "needs-review" | "out-of-date",
+			origin: "ai" | "copied",
+		) => ({
+			...menu,
+			status,
+			language: "spa" as const,
+			effective: "Buscar un objeto",
+			explicit: {
+				value: "Buscar un objeto",
+				sourceFingerprint: menu.sourceFingerprint,
+				origin,
+				review: "needs-review" as const,
+				translatedFrom: "eng" as const,
+			},
+		});
+		for (const unit of [
+			current("out-of-date", "ai"),
+			current("needs-review", "copied"),
+		]) {
+			expect(
+				new TranslationMemory([unit]).glossary([encodeTranslationUnit(menu)]),
+			).toEqual([]);
+		}
+		const memory = new TranslationMemory([current("needs-review", "ai")]);
+		for (let index = 0; index < 50; index++) {
+			memory.accept(
+				textUnit(`unrelated-${index}`, `Source ${index}`),
+				`Target ${index}`,
+			);
+		}
+		const context = memory.glossary([
+			encodeTranslationUnit(textUnit("directions", "Go to Find an item")),
+		]);
+		expect(context).toContainEqual(
+			expect.objectContaining({
+				source: "Find an item",
+				target: "Buscar un objeto",
+				role: "module-name",
+			}),
+		);
+		expect(context.length).toBeLessThanOrEqual(40);
+		expect(
+			context.reduce((size, entry) => size + JSON.stringify(entry).length, 0),
+		).toBeLessThanOrEqual(6000);
 	});
 });
