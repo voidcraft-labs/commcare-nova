@@ -62,7 +62,8 @@ ordinary browser Preview uses the browser timezone. Neither asserts a supplied
 place has that timezone. `RUNTIME_VERSION` in `lib/db/appTests.ts` fences
 execution semantics (section-entry checkpoints and page turns, scoped
 initialization order, transient leaf versus persistent parent-menu selection,
-Details with Continue/Back, the shared clock, resolved-language presentation);
+Details with Continue/Back, the shared clock, resolved-language presentation and
+custom-constraint wording fallback);
 bump it when those semantics change. Older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
@@ -171,7 +172,14 @@ and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
 explicit bounded paths and offsets. The start/source/runtime provenance travels
 with every page. Builder pages these same rows rather than loading all history.
 
-Runtime version 10 preserves the synced session catalog across submission while
+Runtime version 12 also applies Preview's custom-constraint wording policy
+through the actual observation worker: empty wording or a typed reference to
+several live answers leaves the form invalid with its localized warning and
+retained answers, without a proposed submission. Rules, ordinary prose and other
+XPath failures remain bounded test-input refusals. User-controlled row removal
+can restore exact custom wording on the next observation.
+
+The runtime preserves the synced session catalog across submission while
 direct form links retain the submitting entry plus its committed effects.
 It also pins retained worker sessions, the shared presentation
 hierarchy and distinct page/route controls, alongside portable case-list metadata reads: Results/Details,

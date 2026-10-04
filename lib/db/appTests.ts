@@ -16,7 +16,7 @@ import { AppAccessError, resolveAppScopeInTransaction } from "./appAccess";
 import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
 
-const RUNTIME_VERSION = 11;
+const RUNTIME_VERSION = 12;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;

@@ -1145,6 +1145,13 @@ The build script emits its server asset beside the separately bundled browser
 XPath worker; neither server execution nor form-engine code enters the browser
 XPath asset.
 
+The observation worker retains typed XPath failures until FormEngine has applied
+the same custom-constraint wording policy as interactive Preview. Ambiguous or
+empty wording yields the localized invalid warning and a retained invalid entry,
+without a submission. Uncaught failures from rules, ordinary prose and other
+expressions keep the existing authoring-input fault with its path, expression,
+code and bounded reason.
+
 Request authentication and Preview worker resolution live in
 `engine/previewAuthorization.ts`. The production I/O and submission helpers in
 `engine/caseDataBindingHelpers.ts` accept authorized stores and do not import

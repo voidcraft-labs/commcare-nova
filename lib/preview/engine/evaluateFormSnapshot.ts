@@ -14,14 +14,17 @@ import {
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
+import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
+import type { XPathRuntimeError } from "../xpath/workerProtocol";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import { buildEngineInput } from "./engineInput";
 import { evaluationAnswerValue } from "./formAnswerValue";
 import { FormEngine, type FormEngineAsyncEvaluator } from "./formEngine";
 import type {
 	FormEvaluationContext,
+	FormEvaluationFault,
 	FormEvaluationInput,
 } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
@@ -29,6 +32,17 @@ import { projectFormPresentation } from "./formPresentation";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
+
+/** Let FormEngine apply its narrowly scoped wording policy before an uncaught
+ * XPath failure becomes the public authoring-input fault. */
+class FormEvaluationXPathError extends PreviewXPathRuntimeError {
+	constructor(
+		failure: XPathRuntimeError,
+		readonly fault: FormEvaluationFault,
+	) {
+		super(failure);
+	}
+}
 
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
@@ -122,15 +136,12 @@ export async function evaluateFormSnapshot(
 			{ signal },
 		);
 		if (!result.ok)
-			throw new FormEvaluationInputError(
-				"An expression could not be evaluated.",
-				{
-					path,
-					expression: source,
-					code: result.error.code,
-					...(result.error.reason ? { reason: result.error.reason } : {}),
-				},
-			);
+			throw new FormEvaluationXPathError(result.error, {
+				path,
+				expression: source,
+				code: result.error.code,
+				...(result.error.reason ? { reason: result.error.reason } : {}),
+			});
 		return result.nodesetValues === undefined
 			? deserializeXPathWorkerValue(result.value)
 			: { kind: "nodeset-values", values: result.nodesetValues };
@@ -357,6 +368,13 @@ export async function evaluateFormSnapshot(
 					}
 				: {}),
 		};
+	} catch (error) {
+		if (error instanceof FormEvaluationXPathError)
+			throw new FormEvaluationInputError(
+				"An expression could not be evaluated.",
+				error.fault,
+			);
+		throw error;
 	} finally {
 		runtime.dispose();
 	}
