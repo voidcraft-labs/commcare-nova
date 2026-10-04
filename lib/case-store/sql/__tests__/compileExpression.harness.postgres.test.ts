@@ -20,6 +20,7 @@ import {
 	eq,
 	formatDate,
 	formField,
+	gt,
 	ifExpr,
 	input,
 	isBlank,
@@ -30,6 +31,7 @@ import {
 	qualifiedLiteral,
 	relationStep,
 	selfPath,
+	subcasePath,
 	switchCase,
 	switchExpr,
 	term,
@@ -48,6 +50,7 @@ import {
 	type ExpressionCompileContext,
 } from "../compileExpression";
 import { compilePredicate } from "../compilePredicate";
+import { buildRestoreScope } from "../compileRestoreScope";
 import { expect, makeCaseRow, test } from "./setup";
 
 // ---------------------------------------------------------------
@@ -1162,6 +1165,316 @@ describe("compileExpression — round-trip — date-add arm", () => {
 // ---------------------------------------------------------------
 
 describe("compileExpression — round-trip — count arm", () => {
+	test("related counts correlate each row, including filtered and nested counts", async ({
+		db,
+	}) => {
+		const [empty, one, two, childOne, childTwo, childThree] = Array.from(
+			{ length: 6 },
+			() => crypto.randomUUID(),
+		);
+		await db
+			.insertInto("cases")
+			.values([
+				...[
+					[empty, 0],
+					[one, 4],
+					[two, 7],
+				].map(([id, size]) =>
+					makeCaseRow({
+						case_id: String(id),
+						case_type: "household",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+						properties: JSON.stringify({ size }),
+					}),
+				),
+				...[
+					[childOne, 10],
+					[childTwo, 5],
+					[childThree, 20],
+				].map(([id, age]) =>
+					makeCaseRow({
+						case_id: String(id),
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+						properties: JSON.stringify({ age }),
+					}),
+				),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values(
+				[
+					[childOne, one],
+					[childTwo, two],
+					[childThree, two],
+				].map(([child, parent]) => ({
+					case_id: child,
+					ancestor_id: parent,
+					target_case_type: "household",
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				})),
+			)
+			.execute();
+		const ctx = makeCtx(db, { currentCaseType: "household" });
+		const children = subcasePath("parent", "patient");
+		const all = compileExpression(count(children), ctx);
+		const older = compileExpression(
+			count(children, gt(prop("patient", "age"), literal(9))),
+			ctx,
+		);
+		const nested = compileExpression(
+			count(
+				children,
+				gt(
+					count(
+						ancestorPath(relationStep("parent", "household")),
+						eq(prop("household", "size"), literal(4)),
+					),
+					literal(0),
+				),
+			),
+			ctx,
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "in", [empty, one, two])
+			.select([
+				"c.case_id",
+				all.as("all"),
+				older.as("older"),
+				nested.as("nested"),
+			])
+			.execute();
+		expect(
+			Object.fromEntries(
+				rows.map((row) => [
+					row.case_id,
+					[Number(row.all), Number(row.older), Number(row.nested)],
+				]),
+			),
+		).toEqual({ [empty]: [0, 0, 0], [one]: [1, 1, 1], [two]: [2, 1, 0] });
+
+		// Reverse the same graph: an unrelated patient's parent must not
+		// increase another patient's ancestor count.
+		const ancestors = compileExpression(
+			count(ancestorPath(relationStep("parent", "household"))),
+			makeCtx(db),
+		);
+		const parentCounts = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "in", [childOne, childTwo, childThree])
+			.select(ancestors.as("n"))
+			.execute();
+		expect(parentCounts.map((row) => Number(row.n))).toEqual([1, 1, 1]);
+
+		const [guardianOne, guardianTwo] = [
+			crypto.randomUUID(),
+			crypto.randomUUID(),
+		];
+		await db
+			.insertInto("cases")
+			.values(
+				[guardianOne, guardianTwo].map((id) =>
+					makeCaseRow({
+						case_id: id,
+						case_type: "guardian",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+					}),
+				),
+			)
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values(
+				[
+					{
+						case_id: childOne,
+						ancestor_id: guardianOne,
+						target_case_type: "guardian",
+					},
+					{
+						case_id: guardianTwo,
+						ancestor_id: childOne,
+						target_case_type: "patient",
+					},
+					{
+						case_id: one,
+						ancestor_id: guardianOne,
+						target_case_type: "guardian",
+					},
+				].map((edge) => ({
+					...edge,
+					identifier: "guardian_link",
+					relationship: "child",
+					depth: 1,
+				})),
+			)
+			.execute();
+		const bothDirections = compileExpression(
+			count(anyRelationPath("guardian_link", "guardian")),
+			makeCtx(db),
+		);
+		const twoHops = compileExpression(
+			count(
+				ancestorPath(
+					relationStep("parent", "household"),
+					relationStep("guardian_link", "guardian"),
+				),
+			),
+			makeCtx(db),
+		);
+		const walked = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "in", [childOne, childTwo])
+			.select([
+				"c.case_id",
+				bothDirections.as("either"),
+				twoHops.as("two_hops"),
+			])
+			.execute();
+		expect(
+			Object.fromEntries(
+				walked.map((row) => [
+					row.case_id,
+					[Number(row.either), Number(row.two_hops)],
+				]),
+			),
+		).toEqual({ [childOne]: [2, 1], [childTwo]: [0, 0] });
+	});
+
+	test("correlated counts retain tenant, hold, relation and device visibility", async ({
+		db,
+		pgClient,
+	}) => {
+		const [
+			parent,
+			otherParent,
+			visible,
+			sibling,
+			held,
+			foreignProject,
+			foreignApp,
+			wrongType,
+			wrongIndex,
+			transitive,
+		] = Array.from({ length: 10 }, () => crypto.randomUUID());
+		// These two rows intentionally violate the composite tenant FK to
+		// prove each compiler filter independently. They never commit.
+		await pgClient.query(
+			"SET CONSTRAINTS cases_project_app_tenant_fk DEFERRED",
+		);
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: parent,
+					case_type: "household",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+				}),
+				makeCaseRow({
+					case_id: otherParent,
+					case_type: "household",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+				}),
+				...[visible, sibling, held, wrongIndex, transitive].map((id) =>
+					makeCaseRow({
+						case_id: id,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+						owner_id: id === sibling ? "other-worker" : "worker-count",
+					}),
+				),
+				makeCaseRow({
+					case_id: foreignProject,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: "foreign-project",
+				}),
+				makeCaseRow({
+					case_id: foreignApp,
+					case_type: "patient",
+					app_id: "foreign-app",
+					project_id: OWNER_ID,
+				}),
+				makeCaseRow({
+					case_id: wrongType,
+					case_type: "guardian",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values(
+				[
+					visible,
+					sibling,
+					held,
+					foreignProject,
+					foreignApp,
+					wrongType,
+					wrongIndex,
+					transitive,
+				].map((id) => ({
+					case_id: id,
+					ancestor_id: parent,
+					target_case_type: "household",
+					identifier: id === wrongIndex ? "guardian" : "parent",
+					relationship: "child",
+					depth: id === transitive ? 2 : 1,
+				})),
+			)
+			.execute();
+		await pgClient.query(
+			`INSERT INTO parked_case_values
+			(app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
+			VALUES ($1, $2, 'patient', 'age', '"unknown"', 'retype', 'text', 'integer')`,
+			[APP_ID, held],
+		);
+		const children = subcasePath("parent", "patient");
+		const countAll = compileExpression(
+			count(children),
+			makeCtx(db, { currentCaseType: "household" }),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "in", [parent, otherParent])
+			.select(["c.case_id", countAll.as("n")])
+			.execute();
+		expect(
+			Object.fromEntries(rows.map((row) => [row.case_id, Number(row.n)])),
+		).toEqual({ [parent]: 2, [otherParent]: 0 });
+
+		const restore = buildRestoreScope(db, {
+			appId: APP_ID,
+			projectId: OWNER_ID,
+			ownerIds: ["worker-count"],
+		});
+		const deviceCount = compileExpression(
+			count(children),
+			makeCtx(restore.creator, {
+				currentCaseType: "household",
+				restrictToRestoreScope: restore.restrict,
+			}),
+		);
+		const deviceRows = await restore.creator
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", parent)
+			.select(deviceCount.as("n"))
+			.execute();
+		expect(Number(deviceRows[0].n)).toBe(1);
+	});
+
 	test("count(self) is one and its where clause gates that one row", async ({
 		db,
 	}) => {

@@ -693,8 +693,10 @@ function compileSwitch(
 }
 
 /**
- * `count(via, where?)` → `(SELECT COUNT(*) FROM <rp_leaf> [WHERE
- * <where-pred>])`. Tenant filtering lives in `compileRelationPath`;
+ * `count(via, where?)` → `(SELECT COUNT(*) FROM <rp_leaf> WHERE
+ * <leaf>.anchor_case_id = <anchor>.case_id [AND <where-pred>])`.
+ * The relation-path leaf contains walks for every anchor, so scalar counts
+ * must correlate it to the current row. Tenant filtering lives in `compileRelationPath`;
  * the outer `COUNT(*)` doesn't need a separate filter because
  * every row reaching it is already tenant-scoped. `count(self)` is the
  * cardinality of the current row: `1` without a filter, or `CASE WHEN where
@@ -742,9 +744,15 @@ function compileCount(
 	}
 	// Type-erased via `DynamicCountQuery` — runtime leaf alias.
 	const leafSubquery = compiledPath.buildLeafSubquery();
-	const baseQuery = ctx.db.selectFrom(
-		leafSubquery as unknown as never,
-	) as unknown as DynamicCountQuery;
+	const baseQuery = (
+		ctx.db.selectFrom(
+			leafSubquery as unknown as never,
+		) as unknown as DynamicCountQuery
+	).whereRef(
+		`${compiledPath.leafAlias}.anchor_case_id`,
+		"=",
+		`${ctx.anchorAlias}.case_id`,
+	);
 	if (where === undefined) {
 		return baseQuery.select(
 			eb.fn.countAll().as("n"),
@@ -1006,6 +1014,7 @@ function sqlTextValue(value: string): AliasableExpression<unknown> {
 /** Builder shape for the counting subquery in `compileCount`. */
 interface DynamicCountQuery {
 	where: (predicate: Expression<unknown>) => DynamicCountQuery;
+	whereRef: (left: string, op: "=", right: string) => DynamicCountQuery;
 	select: (
 		selection: AliasedExpression<unknown, string>,
 	) => AliasableExpression<unknown>;
