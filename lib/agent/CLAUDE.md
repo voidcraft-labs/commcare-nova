@@ -41,6 +41,24 @@ compiler briefs, and slice executors are retired. Historical database artifacts
 are retained for inspection; serving code does not translate or execute them.
 The one-time transition is in `docs/architecture/design-format-cutover.md`.
 
+## Document source fidelity and privacy
+
+The extractor produces the architect's working requirements extract, not a
+lossless copy of the original document. A complete `readSource` page sequence
+means the complete stored working extract, not every original byte or row.
+`EXTRACT_SYSTEM` preserves necessary distinct name-to-role or responsibility
+bindings only when the source explicitly defines intended app users, Preview
+actors, or operational stakeholders whose stated responsibilities matter to the
+app. A roster, incidental contact, attribution, or example alone does not define
+an actor, and names do not grant permissions, accounts, assignments, or duties.
+Collected fieldwork and example-row private values, contacts, account identifiers,
+and credentials remain excluded; title and summary exclude personal information.
+This is model guidance for minimizing personal data in the working extract, not
+comprehensive PII redaction. The original source still reaches the extraction
+model and remains in the Project's file library. Prompt changes bump
+`EXTRACTOR_VERSION` in `lib/domain/multimedia.ts`; historical extracts remain at
+their recorded versions, and the next reference re-extracts at the new version.
+
 ## The authoring boundary
 
 Read `authoring/CLAUDE.md` before changing model input or read projections.

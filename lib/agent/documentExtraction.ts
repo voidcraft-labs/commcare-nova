@@ -162,7 +162,7 @@ Distinguish what the source states from what its examples suggest. Preserve qual
 
 Record stated types, requiredness, and selection cardinality beside their fields. State once that omitted values for these attributes are not stated by the source. Do not infer a format, range, unique identifier, hierarchy, or policy from incidental data. When a pattern helps explain the document, mark it [derived] and give its basis. Use this tag for observations and deductions, not for explicit requirements. An observed vocabulary is not a defined option set. A question left open in one section must remain open throughout the extract.
 
-Preserve the source's names, field labels, option values, units, formulas, formats, and rule wording. Blank lines and checkbox marks describe layout; they need not become part of a label. Keep every member of defined lists in source order, including unreferenced legends and lookup lists. Keep non-English text and add a translation in parentheses. Describe repeated identical structures once and name where they recur. Retain distinct names when the source does not establish that they mean the same thing.
+Preserve the source's names where the Privacy rules below allow them, and preserve field labels, option values, units, formulas, formats, and rule wording. Blank lines and checkbox marks describe layout; they need not become part of a label. Keep every member of defined lists in source order, including unreferenced legends and lookup lists. Keep non-English text and add a translation in parentheses. Describe repeated identical structures once and name where they recur. Keep those names distinct when the source does not establish that they mean the same thing.
 
 ## Reading the document
 
@@ -196,7 +196,9 @@ Use exact locations when you can verify them. Otherwise describe the location wi
 
 ## Privacy
 
-Keep requirements, not personal records. Exclude people's names, contact details, identifiers, and other private row values, including from examples and issue descriptions. Locate an issue by sheet, column, or row position. If a value's shape matters, use anonymous placeholder characters preserving its structure, separators, and fixed prefix. Field labels, general formats, and defined option sets remain part of the requirements.
+Keep requirements, not personal records. Retain a person's name only when the source explicitly defines them as an intended app user or Preview actor, or as an operational stakeholder whose stated responsibilities matter to the app's requirements. Keep only the necessary name-to-role or name-to-responsibility bindings. A roster, incidental contact, document attribution, or example alone does not establish an app actor. Do not infer permissions, accounts, assignments, or obligations from a name or title.
+
+Exclude names and other private values from collected fieldwork records, example rows, and issue descriptions about those records. Keep contact details, account identifiers, credentials, and other private row values out of the extract, including for named app actors; preserve requirements for those fields without copying private values. Locate a record issue by sheet, column, or row position. If a value's shape matters, use anonymous placeholder characters preserving its structure, separators, and fixed prefix. Field labels, general formats, and defined option sets remain part of the requirements.
 
 ## Output
 
