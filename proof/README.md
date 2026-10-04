@@ -126,6 +126,31 @@ part a use is after its class (`/<key>/refused/<value class>/<part>`,
 `manifest_value_classes.py::VARIANTS`): Nova's scaffolding nodes by their
 name, apart from the ids a person authors.
 
+Protected custom validation messages are one derived wire class, read from the
+artifact after its recorded Core parse and HQ XPath structure are installed.
+The classifier requires the expression's outer media choice to name the same
+base itext group as an exact empty, irrelevant, readonly sibling input's sole
+label. Every translation must carry the finite identity, locale, mode and
+ASCII JSON piece forms with their expected payloads and output-form suffixes.
+Piece ordinals can be noncontiguous, localized pieces can be blank, media forms
+can be absent, and the typed composition can contain any supported XPath.
+Its functions and grammar are still classified from the recorded Core parse.
+Only owned helper forms lose their unknown-form use; their ordinary generic
+`value@form` use remains. A prefix alone, an unrelated group, a raw message,
+or any other readonly bind receives the existing refusal. Missing readings
+cannot establish ownership.
+
+The export-use rows cite the accepting owners: Core's
+`XFormParser.parseTextHandle` registers named forms, `Constraint` evaluates the
+message, `FormDef.initEvalContext` selects output-form keys, and
+`XPathJsonPropertyFunc` decodes pieces. Vellum's `javaRosa/plugin.js` loads and
+writes arbitrary forms, preserves the raw message, and retains the group through
+the technical label; `parser.js::parseBindElement` and `writer.js::getBindList`
+preserve readonly. HQ's `ItextNodeGroup` equality includes the identity form,
+preventing `XForm.normalize_itext` from merging groups while rewriting only
+direct base references. The generated inventory, upstream pins and known-defect
+register do not change for this classification.
+
 ### Configuration sensitivity
 
 Each document's A is built again once for each gate HQ read while building it,

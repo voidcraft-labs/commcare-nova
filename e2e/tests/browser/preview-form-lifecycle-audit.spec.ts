@@ -390,16 +390,24 @@ for (const sectioned of [false, true]) {
 		});
 		try {
 			await page.goto(`${peer.origin}/${sectioned ? "?sections" : ""}`);
-			const answer = page.getByRole("textbox", {
-				name: sectioned ? /Area/ : /Question 1.*Name/,
-			});
+			const label = sectioned ? "Area" : "Name";
+			const path = sectioned ? "/data/first/zone" : "/data/name";
+			const answer = page
+				.locator(`[data-instance-path="${path}"]`)
+				.getByRole("textbox");
 			await expect(answer).toBeVisible();
+			await expect(answer).toHaveAccessibleName(
+				`Question 1. ${label} Required.`,
+			);
 			await page
 				.getByRole("button", { name: "Worker language: English" })
 				.click();
 			await page
 				.getByRole("menuitemradio", { name: "Español", exact: true })
 				.click();
+			await expect(answer).toHaveAccessibleName(
+				`Pregunta 1. ${label} Obligatoria.`,
+			);
 			await answer.fill("");
 			await page
 				.getByRole("button", {
@@ -422,6 +430,9 @@ for (const sectioned of [false, true]) {
 			await page
 				.getByRole("menuitemradio", { name: "English", exact: true })
 				.click();
+			await expect(answer).toHaveAccessibleName(
+				`Question 1. ${label} Required.`,
+			);
 			await expect(answer).toHaveValue("Retained answer");
 			await answer.fill("");
 			await page

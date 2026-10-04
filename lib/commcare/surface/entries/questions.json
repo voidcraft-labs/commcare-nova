@@ -4201,7 +4201,7 @@
 		"id": "questions/literal-jr-constraintmsg-text-no-itext",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "literal `jr:constraintMsg=\"text\"` (no itext)",
+		"item": "literal or unowned computed `jr:constraintMsg` (outside a protected message’s expression/itext/carrier graph)",
 		"surfaceKeys": ["xform:model/bind@jr:constraintMsg"],
 		"valueClass": "literal-message",
 		"disposition": "REFUSED",
@@ -4276,9 +4276,10 @@
 	},
 	{
 		"id": "questions/bind-readonly",
+		"valueClass": "authored-readonly",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "bind `readonly`",
+		"item": "bind `readonly` outside a protected constraint message’s exact technical carrier",
 		"surfaceKeys": ["xform:model/bind@readonly"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: no Vellum property (kept only as a raw attribute)",
@@ -7651,7 +7652,7 @@
 		"surfaceKeys": ["xform:model/itext/translation/text/value@form"],
 		"valueClass": "custom-form-name",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: no runtime reads them",
+		"dispositionCell": "**INERT**: unreferenced custom forms have no runtime reader; a name alone does not classify a dynamically referenced protected message form",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -8547,6 +8548,107 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/protected-constraint-message-expression",
+		"origin": "export-use",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "computed constraint message owned by its finite helper forms and exact technical sibling label",
+		"surfaceKeys": ["xform:model/bind@jr:constraintMsg"],
+		"valueClass": "protected-message-expression",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova lowers typed custom validation wording into this derived expression. Core Constraint evaluates it; Vellum retains constraintMsgAttr verbatim (javaRosa/plugin.js::populateControlMug, writer.js::getBindList). The recorded Core parse and HQ XPath structure must link its outer media choice to the same base itext group and carrier; ordinary raw messages remain refused.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "protected computed jr:constraintMsg",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/protected-constraint-message-carrier-readonly",
+		"origin": "export-use",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "readonly=true() on the exact empty irrelevant xsd:string sibling input whose sole label owns a protected message group",
+		"surfaceKeys": ["xform:model/bind@readonly"],
+		"valueClass": "protected-message-carrier",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Core XFormParser.processStandardBindAttributes reads readonly and attachBind sets enabled=false. Vellum preserves this raw bind attribute through parser.js::parseBindElement and writer.js::getBindList. This is derived technical ownership, not authored readonly; every other readonly stays refused.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "exact protected-message technical carrier",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/protected-constraint-message-forms",
+		"origin": "export-use",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "owned __nova_mode, __nova_locale and __nova_piece_N forms and their finite output-form suffixes",
+		"surfaceKeys": ["xform:model/itext/translation/text/value@form"],
+		"valueClass": "protected-message-forms",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Core XFormParser.parseTextHandle registers arbitrary nonempty form names under id;form, FormDef.initEvalContext appends the requested output form, and XPathJsonPropertyFunc decodes ASCII JSON literal pieces. Vellum loadXML/contributeToModelXML preserve their names; the technical label preserves the base group. Classification requires matching locale/mode/JSON payloads across every translation and the owning recorded expression, never a prefix exemption.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "finite protected-message forms, including noncontiguous piece ordinals",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/protected-constraint-message-identity",
+		"origin": "export-use",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "owned __nova_identity form whose value is the protected message’s exact base id in every translation",
+		"surfaceKeys": ["xform:model/itext/translation/text/value@form"],
+		"valueClass": "protected-message-identity",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no runtime reads this helper. HQ ItextNodeGroup equality includes all forms, so the exact identity payload prevents XForm.normalize_itext from merging groups while rewriting only direct base references. It is classified only within the complete protected expression/itext/carrier graph.",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "owned protected-message identity metadata",
 			"markers": []
 		},
 		"gates": []
