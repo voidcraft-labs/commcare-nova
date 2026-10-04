@@ -15,6 +15,7 @@ const isolatedTables = {
 	case_indices: true,
 	parked_case_values: true,
 	lookup_rows: true,
+	lookup_tables: true,
 	form_attachments: true,
 	form_submission_intents: true,
 } satisfies Record<keyof Database, true>;

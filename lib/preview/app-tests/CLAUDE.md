@@ -45,7 +45,10 @@ still requires those edits to be saved.
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach
 must resolve there, with the current production column contract. No live case
-rows are copied. Start observations retain supplied record counts by type,
+rows are copied. No live lookup-table locks are taken by the isolated store.
+Lookup definitions and rows are seeded from the same authorized snapshot. Runtime version 13 refuses
+execution of older namespaces that lack the definition table.
+Start observations retain supplied record counts by type,
 including an empty list when no business records were supplied. This is input
 provenance, not a readiness verdict or a count of current worker-visible rows. Supplied records and fictional places exist only in this
 namespace; saved lookup rows and actual place context are authorized read inputs.

@@ -121,6 +121,23 @@ export async function seedAppTest(
 				appId: scope.appId,
 				candidateDoc: doc,
 			});
+			for (const definition of snapshot.lookup.definitions) {
+				await isolated
+					.insertInto("lookup_tables")
+					.values({
+						project_id: scope.projectId,
+						id: definition.id,
+						name: definition.name,
+						tag: definition.tag,
+						definition_revision: definition.definitionRevision,
+						rows_revision:
+							definition.rowsRevision ?? definition.definitionRevision,
+						column_count: definition.columns.length,
+						created_by: scope.actorUserId,
+						updated_by: scope.actorUserId,
+					})
+					.execute();
+			}
 			for (const [tableId, rows] of snapshot.lookup.rows) {
 				const rowOrder = balancedKeysBetween(null, null, rows.length);
 				for (let offset = 0; offset < rows.length; offset += 500) {
@@ -139,6 +156,14 @@ export async function seedAppTest(
 						)
 						.execute();
 				}
+				// Counters describe only captured rows, using the clone's exact
+				// PostgreSQL byte accounting rather than live table metadata.
+				await sql`UPDATE lookup_tables SET row_count = ${rows.length},
+					data_bytes = (SELECT coalesce(sum(value_bytes), 0) FROM lookup_rows
+						WHERE project_id = ${scope.projectId} AND table_id = ${tableId})
+					WHERE project_id = ${scope.projectId} AND id = ${tableId}`.execute(
+					isolated,
+				);
 			}
 		},
 	);

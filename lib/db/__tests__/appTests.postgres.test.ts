@@ -449,7 +449,7 @@ it("keeps paged evidence on one upper bound and preserves access to oversized Un
 		64 * 1024,
 	);
 	expect(first).toMatchObject({
-		runtime_version: 12,
+		runtime_version: 13,
 		throughStep: 0,
 		provenance: { value: { suppliedRecords: [] } },
 		steps: [{ step: 0, observation: null, inspection: { step: 0 } }],
