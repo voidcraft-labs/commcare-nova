@@ -284,6 +284,33 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 		context,
 	);
 	expect(result.valid).toBe(true);
+	expect(result.fields.map(({ path }) => path)).toEqual([
+		"delivering",
+		"visits",
+		"visits[0]/rating",
+		"visits[1]/rating",
+		"total",
+	]);
+	expect(result.presentation.nodes).toMatchObject([
+		{ path: "delivering", label: "Delivering", onCurrentPage: true },
+		{
+			path: "visits",
+			label: "Visits",
+			children: [
+				{
+					kind: "repeat-instance",
+					index: 0,
+					children: [{ path: "visits[0]/rating", label: "Rating" }],
+				},
+				{
+					kind: "repeat-instance",
+					index: 1,
+					children: [{ path: "visits[1]/rating", label: "Rating" }],
+				},
+			],
+		},
+	]);
+	expect(result.presentation.nodes).toHaveLength(2);
 	expect(result.fields).toEqual(
 		expect.arrayContaining([
 			expect.objectContaining({ path: "visits[0]/rating", value: "2" }),

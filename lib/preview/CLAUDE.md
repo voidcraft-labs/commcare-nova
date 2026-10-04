@@ -1105,10 +1105,22 @@ Form checks and isolated journey answers share `engine/formAnswerValue.ts`: type
 ## Spoken field positions
 
 Interactive Preview numbers rendered siblings within each container.
-`useVisibleFieldOrder` excludes hidden kinds and reads effective runtime visibility
-using the same concrete repeat paths as field controls. Its shallow UUID projection
-does not publish value-only updates. Retained field and repeat-instance keys keep
-input identity stable as conditional siblings appear or disappear.
+`engine/formPresentation.ts` walks the authored field tree in order and expands
+concrete repeat instances. Its worker hierarchy retains headings, resolved prose,
+media, page membership and manual repeat controls. Its complete field projection
+also retains hidden calculations and excluded answers, separately from worker
+visibility. `evaluateFormSnapshot` uses this projection rather than runtime-store
+insertion order, including after restoring an entry checkpoint.
+
+`useVisibleFieldOrder` and `useVisibleRepeatInstances` use the same presentation
+rules with the controller's concrete runtime paths. An automatic repeat with no
+title, media or visible content adds no shell; its hidden calculations still run.
+Automatic iterations with no visible content add no instance dividers. Worker-added
+repeats retain their controls even with no visible questions. The hooks' shallow
+UUID/index projections do not publish value-only updates. Retained field and
+repeat-instance keys keep input identity stable as conditional siblings appear
+or disappear. Browser acceptance still owns layout, focus and physical control
+behavior; an ordered hierarchy is a structural observation.
 
 The running home screen shows authored module names. Internal case-type badges
 belong only to edit mode; they are not worker instructions or record labels.

@@ -39,6 +39,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -163,6 +164,7 @@ export function RepeatField({
 	const instanceLabelBaseId = useId();
 
 	const hasChildren = useHasFieldsInForm(field.uuid);
+	const visibleInstances = useVisibleRepeatInstances(field, path);
 
 	// Reactive count: read from `state.repeatCount` (via
 	// `useEngineStateAt`), not `controller.getRepeatCount(uuid)`.
@@ -181,11 +183,9 @@ export function RepeatField({
 		state.resolvedLabel ?? (field.label ? projectProse(field.label) : "entry");
 
 	// Add/Remove affordances are only meaningful for `user_controlled`
-	// repeats. `count_bound` and `query_bound` repeats freeze their
-	// cardinality at form load (JavaRosa spec), so the runtime suppresses
-	// these affordances: Nova's preview must mirror that. The instance
-	// dividers themselves still render so the user can see each iteration's
-	// content.
+	// repeats. Counted and record-query repeats derive their own rows. Show
+	// instance dividers only for iterations with worker-facing content;
+	// hidden calculations still run for every concrete instance.
 	const isUserControlled = field.repeat_mode === "user_controlled";
 
 	const removeInstance = useCallback(
@@ -327,28 +327,28 @@ export function RepeatField({
 							}}
 						/>
 
-						{hasChildren &&
-							Array.from({ length: count }, (_, idx) => {
-								const instanceKey = controller.getRepeatInstanceKey(
-									field.uuid,
-									idx,
-									path,
-								);
-								return (
-									<div key={instanceKey}>
-										<InstanceDivider
-											idx={idx}
-											depth={depth + 1}
-											onRemove={
-												isUserControlled && count > 1
-													? () => removeInstance(idx, instanceKey)
-													: undefined
-											}
-											removeDisabled={writeAuthority === undefined}
-											instanceLabelId={`${instanceLabelBaseId}-${idx}`}
-											accessibleContext={accessibleContext}
-											repeatHeaderId={`${headerId} ${titleId}`}
-										/>
+						{visibleInstances.map((idx) => {
+							const instanceKey = controller.getRepeatInstanceKey(
+								field.uuid,
+								idx,
+								path,
+							);
+							return (
+								<div key={instanceKey}>
+									<InstanceDivider
+										idx={idx}
+										depth={depth + 1}
+										onRemove={
+											isUserControlled && count > 1
+												? () => removeInstance(idx, instanceKey)
+												: undefined
+										}
+										removeDisabled={writeAuthority === undefined}
+										instanceLabelId={`${instanceLabelBaseId}-${idx}`}
+										accessibleContext={accessibleContext}
+										repeatHeaderId={`${headerId} ${titleId}`}
+									/>
+									{hasChildren ? (
 										<InteractiveFormRenderer
 											parentEntityId={field.uuid}
 											prefix={`${path}[${idx}]`}
@@ -365,22 +365,19 @@ export function RepeatField({
 												.filter(Boolean)
 												.join(" ")}
 										/>
-									</div>
-								);
-							})}
-
-						{!hasChildren && <div className="h-[72px]" />}
+									) : (
+										<div className="h-[72px]" />
+									)}
+								</div>
+							);
+						})}
 
 						{/* Add button: depth+1 to align with instance content.
 						 *  `mb-6` gives 24px before the close cap, matching the
 						 *  edit-mode insertion(N+1) that precedes `GroupCloseRow`.
 						 *  Suppressed entirely for non-`user_controlled` modes:
-						 *  count_bound and query_bound repeats derive their
-						 *  cardinality from XPath / case query and JavaRosa
-						 *  freezes it at form load: there's no Add affordance
-						 *  in the actual CommCare runtime, and exposing one
-						 *  here would mislead the user about the form's
-						 *  behavior. */}
+						 *  counted and record-query repeats derive their own
+						 *  rows, so they never offer manual Add/Remove. */}
 						{isUserControlled && (
 							<div
 								className="mb-6"

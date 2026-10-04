@@ -24,7 +24,79 @@ import { createBuilderSessionStore } from "@/lib/session/store";
 const initialization = new URLSearchParams(window.location.search).has(
 	"initialization",
 );
-const doc = admittedControllerDoc(
+function presentationDoc() {
+	const doc = buildDoc({
+		appId: "native-worker-presentation",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							{
+								kind: "label",
+								id: "intro",
+								label: "Review this visit before continuing",
+							},
+							{
+								kind: "repeat",
+								id: "processing",
+								repeat_mode: "count_bound",
+								repeat_count: "2",
+								children: [{ kind: "hidden", id: "computed", calculate: "7" }],
+							},
+							{
+								kind: "repeat",
+								id: "query_processing",
+								repeat_mode: "query_bound",
+								data_source: { ids_query: "'first second'" },
+								children: [
+									{
+										kind: "hidden",
+										id: "row_id",
+										calculate: "current()/../@id",
+									},
+								],
+							},
+							{
+								kind: "repeat",
+								id: "manual",
+								repeat_mode: "user_controlled",
+								children: [{ kind: "hidden", id: "computed", calculate: "3" }],
+							},
+							{ kind: "text", id: "show_details", label: "Show entry details" },
+							{
+								kind: "repeat",
+								id: "details",
+								repeat_mode: "count_bound",
+								repeat_count: "2",
+								children: [
+									{
+										kind: "label",
+										id: "prompt",
+										label: "Visible entry detail",
+										relevant: "#form/show_details = 'yes' and position(..) = 0",
+									},
+								],
+							},
+							{
+								kind: "label",
+								id: "review",
+								label: "Your visit is ready to review",
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	for (const field of Object.values(doc.fields))
+		if (field.kind === "repeat") delete field.label;
+	return doc;
+}
+const defaultDoc = admittedControllerDoc(
 	initialization
 		? buildDoc({
 				appId: "native-repeat-initialization",
@@ -110,7 +182,11 @@ const doc = admittedControllerDoc(
 										repeat_mode: "user_controlled",
 										label: proseText("Visits"),
 										children: [
-											f({ kind: "hidden", id: "computed", calculate: xp("1") }),
+											f({
+												kind: "hidden",
+												id: "computed",
+												calculate: xp("1"),
+											}),
 											f({
 												kind: "text",
 												id: "extra",
@@ -173,6 +249,9 @@ const doc = admittedControllerDoc(
 				],
 			}),
 );
+const doc = new URLSearchParams(window.location.search).has("presentation")
+	? admittedControllerDoc(presentationDoc())
+	: defaultDoc;
 const moduleUuid = doc.moduleOrder[0];
 const formUuid = doc.formOrder[moduleUuid][0];
 const docStore = createBlueprintDocStore();
@@ -237,6 +316,16 @@ root.render(
 	</BlueprintDocContext>,
 );
 window.previewRepeatsAudit = {
+	calculationValues() {
+		const states = activeController?.store.getState() ?? {};
+		return Object.fromEntries(
+			Object.entries(states)
+				.filter(([path]) =>
+					/^\/data\/(processing|query_processing)\[/.test(path),
+				)
+				.map(([path, state]) => [path, state.value]),
+		);
+	},
 	async dispose() {
 		root.unmount();
 		await activeController?.awaitSettled();
@@ -245,6 +334,9 @@ window.previewRepeatsAudit = {
 };
 declare global {
 	interface Window {
-		previewRepeatsAudit: { dispose(): Promise<void> };
+		previewRepeatsAudit: {
+			calculationValues(): Record<string, string>;
+			dispose(): Promise<void>;
+		};
 	}
 }

@@ -218,3 +218,76 @@ test("adding a repeat initializes its bound rows without replacing earlier answe
 		await peer.close();
 	}
 });
+
+test("phone Preview omits automatic calculation shells and keeps meaningful repeat controls", async ({
+	page,
+}, testInfo) => {
+	await page.setViewportSize({ width: 320, height: 720 });
+	const peer = await componentPeer("e2e/lib/preview-repeats-client.tsx");
+	await page.route(`${peer.origin}/api/auth/get-session`, (route) =>
+		route.fulfill({ json: null }),
+	);
+	try {
+		await page.goto(`${peer.origin}/?presentation`);
+		const details = page.getByRole("textbox", { name: /Show entry details/ });
+		await expect(details).toBeVisible();
+		await expect(page.getByText("Instance 1", { exact: true })).toHaveCount(1);
+		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(0);
+		const add = page.getByRole("button", { name: /^Add/ });
+		await expect(add).toHaveCount(1);
+		await expect(add).toHaveAccessibleName(/Add.*Repeat/);
+		const addBox = await add.boundingBox();
+		if (!addBox) throw new Error("Repeat control has no bounds.");
+		expect(Math.round(addBox.height)).toBeGreaterThanOrEqual(44);
+		await expect
+			.poll(() =>
+				page.evaluate(() => window.previewRepeatsAudit.calculationValues()),
+			)
+			.toEqual({
+				"/data/processing[0]/computed": "7",
+				"/data/processing[1]/computed": "7",
+				"/data/query_processing[0]/row_id": "first",
+				"/data/query_processing[1]/row_id": "second",
+			});
+		await add.click();
+		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(1);
+		await page.getByRole("button", { name: /Remove.*Instance 2/ }).click();
+		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(0);
+		await details.fill("yes");
+		await expect(
+			page.getByText("Visible entry detail", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByText("Instance 1", { exact: true })).toHaveCount(2);
+		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(0);
+		await details.fill("no");
+		await expect(
+			page.getByText("Visible entry detail", { exact: true }),
+		).toHaveCount(0);
+		await expect(page.getByText("Instance 1", { exact: true })).toHaveCount(1);
+		const intro = await page
+			.getByText("Review this visit before continuing", { exact: true })
+			.boundingBox();
+		const review = await page
+			.getByText("Your visit is ready to review", { exact: true })
+			.boundingBox();
+		if (!intro || !review) throw new Error("Review copy has no bounds.");
+		expect(intro.y).toBeLessThan(review.y);
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth),
+		).toBeLessThanOrEqual(320);
+		await testInfo.attach("phone-worker-presentation", {
+			body: await page.screenshot({ fullPage: true }),
+			contentType: "image/png",
+		});
+	} finally {
+		try {
+			await page.evaluate(() => window.previewRepeatsAudit?.dispose());
+		} finally {
+			try {
+				await page.close();
+			} finally {
+				await peer.close();
+			}
+		}
+	}
+});

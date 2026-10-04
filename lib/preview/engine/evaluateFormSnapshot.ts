@@ -25,6 +25,7 @@ import type {
 	FormEvaluationInput,
 } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
+import { projectFormPresentation } from "./formPresentation";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
@@ -247,35 +248,36 @@ export async function evaluateFormSnapshot(
 			visibleSections.at(-1)?.current === true;
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
-		const fields = Object.entries(engine.store.getState()).map(
-			([path, state]) => {
+		const presentation = projectFormPresentation(
+			engine.getFieldTree(),
+			{ stateAt: (_field, path) => engine.getState(path) },
+			{
+				currentSectionUuid: engine.currentSectionUuid(),
+				availableSectionUuids: new Set(
+					visibleSections.map((section) => section.uuid),
+				),
+				text: (prose) => projectProseTemplate(prose, doc).text,
+			},
+		);
+		const fields = presentation.fields.map(
+			({
+				path,
+				state,
+				field,
+				parentPath,
+				depth,
+				sectionUuid,
+				onCurrentPage,
+				visible,
+				position,
+				label,
+				hint,
+				help,
+			}) => {
 				const relevant = relevantPaths.has(path);
-				const field = fieldAt(path);
-				const kind = field?.kind;
-				const {
-					value,
-					required,
-					valid,
-					errorMessage,
-					resolvedLabel,
-					resolvedHint,
-					resolvedHelp,
-					choices,
-					repeatCount,
-				} = state;
-				const text = (
-					slot: "label" | "hint" | "help",
-					resolved: string | undefined,
-				) => {
-					if (resolved !== undefined) return resolved;
-					const prose =
-						field && slot in field
-							? field[slot as keyof typeof field]
-							: undefined;
-					return typeof prose === "object" && prose !== null && "parts" in prose
-						? projectProseTemplate(prose, doc).text
-						: undefined;
-				};
+				const kind = field.kind;
+				const { value, required, valid, errorMessage, choices, repeatCount } =
+					state;
 				const options =
 					choices ??
 					(field &&
@@ -295,21 +297,24 @@ export async function evaluateFormSnapshot(
 				} = relevant ? { value } : { retainedValue: value };
 				return {
 					path: path.replace(/^\/data\//, ""),
-					onCurrentPage:
-						sectionForPath(path)?.uuid === engine.currentSectionUuid(),
+					parentPath: parentPath.replace(/^\/data\/?/, ""),
+					depth,
+					...(position === undefined ? {} : { position }),
+					...(sectionUuid === undefined ? {} : { sectionUuid }),
+					onCurrentPage,
 					kind,
 					// A retained answer on an excluded question is not a usable
 					// expression/submission value. Hidden calculated fields, unlike
 					// non-relevant questions, still participate in the form.
 					participates: relevant,
 					...observedAnswer,
-					visible: relevant && kind !== "hidden",
+					visible: relevant && visible,
 					required: relevant && required,
 					valid: !relevant || valid,
 					...(relevant && errorMessage ? { error: errorMessage } : {}),
-					label: text("label", resolvedLabel),
-					hint: text("hint", resolvedHint),
-					help: text("help", resolvedHelp),
+					label,
+					hint,
+					help,
 					...(options === undefined ? {} : { choices: options }),
 					...(repeatCount === undefined ? {} : { repeatCount }),
 					...(kind === "geopoint"
@@ -334,6 +339,12 @@ export async function evaluateFormSnapshot(
 				: {}),
 			valid,
 			fields,
+			presentation: {
+				...(presentation.currentSectionUuid === undefined
+					? {}
+					: { currentSectionUuid: presentation.currentSectionUuid }),
+				nodes: presentation.nodes,
+			},
 			sections,
 			canSubmit,
 			...(valid && canSubmit
