@@ -71,6 +71,53 @@ internal compiler calls use a neutral `__COMMCARE_HOST__` placeholder, never an
 implicit US server. These portable placeholders require HQ import/build before
 runtime use.
 
+### The surface manifest
+
+`surface/` records everything CommCare's upstreams accept in an app and what
+Nova does with each, in two layers:
+
+- **The surface**, `surface.json`, generated: every item HQ, Core and Android
+  accept at the commits `proof/pins.json` names, keyed `<family>:<name>`
+  (`schema:Detail.display`, `toggle:SESSION_ENDPOINTS`, `jr-fn:count`,
+  `parser:DetailFieldParser/field@sort`, `hq-api:import_app_api`), each with the
+  facts whose change matters and the source it was read from.
+  `npm run surface` regenerates it in the proof image (`proof/surface`, which
+  reads code by parsing it, never by matching text); never edit it by hand. The
+  proof lane's gate fails while the committed file is not byte for byte the
+  extraction at the pins. One family is authored instead:
+  `media-formats.json` (`media-format:`), whose facts come from the vendors'
+  documentation; a change to it is a reviewed edit.
+- **The entries**, authored, parsed by `schema.ts`. `entries/<area>.json`
+  holds one inventory entry per counted row of the research's inventory area
+  files: the surface keys it covers (or `noSurfaceKey`, why no surface item
+  can hold it), a value class where the inventory splits one item by value,
+  its disposition (HELD, HELD-NEW, TARGET-OWNED, INERT or REFUSED), the slot
+  change or the refusal's reason, the Web Apps and Android behavior, the gates
+  it needs, and its emission. An entry marked `origin: "export-use"` covers an
+  item Nova's exports use that no row covers. `entries/gates.json` holds one
+  gate entry per gate (a toggle, a removed toggle with document residue, a
+  plan privilege, a build version, a project-space setting): its class, the
+  entries whose content it gates, its target preflight, and its `effects`,
+  the build differences flipping it makes, which the proof lane's sensitivity
+  runs write (`proof/README.md`, "Configuration sensitivity").
+
+A surface item no entry names is refused wherever an app uses it: a schema
+field at any value other than HQ's default, and any other item wherever it
+occurs. The manifest is the living record of every disposition; the
+inventory under `docs/research/2026-09-26-hq-round-trip/` stays the
+research's evidence and is not kept in step with it.
+
+`surface/__tests__/manifest.test.ts`, in ordinary CI, holds the entries to the
+schema and to the surface (every key and gate an entry names exists, no two
+entries claim one key at one value class, a REFUSED entry without a value
+class shares its key with no other entry unless only HQ's build refuses it)
+and prints the coverage, "N of M entries held". The proof lane's manifest
+check holds Nova's own exports to the entries: every item an export uses must
+be held by the entry whose value class takes it, and every flag HQ reads
+while building it must have a gate entry (`proof/README.md`, "Manifest
+checks"). Server code reads gate entries through `surface/gates.ts`, never
+`surface.json`, so a server bundle carries the gate entries alone.
+
 ### CommCare HQ project-space compatibility
 
 Deployment readiness uses the bounded `readBuildXml` path for an exact released
@@ -117,11 +164,18 @@ requested id. A lost or malformed acknowledgement carries uncertainty.
 Public surfaces speak only semantic capabilities from
 `lib/publish/projectSpaceCompatibility.ts`: Case search, CommCare Connect,
 attachments saved to cases, and links to captured files. Literal HQ setting
-names, namespaces, and raw probe arrays live only in
-`config/commcare-hq-feature-flags.json`, `projectSpaceCompatibility.ts`, and the
+names, namespaces, and raw probe arrays live only inside this boundary: the
+surface manifest (`surface/`), `projectSpaceCompatibility.ts`, and the
 server-side HQ client. They are implementation details, never settings a person
-or an agent chooses. Add a private catalog entry only with an actual Nova
-emitter and exact current HQ source evidence. Remove or update it when the
+or an agent chooses. The flags the probe checks, and for which content, are
+written in `projectSpaceCompatibilityProbePlan`, with each Nova flag id's HQ
+toggle in `HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`. A flag's slug and namespace come
+from that toggle's gate entry in the manifest (`surface/entries/gates.json`),
+read through `surface/gates.ts::domainFeatureFlag`, which refuses a
+FrozenPrivilegeToggle (HQ's feature-flag filter never lists its slug) and a
+toggle not keyed by project space alone. Server code reads gate entries through
+`surface/gates.ts`, never the generated `surface.json`. Add a probed flag only
+with an actual Nova emitter and its gate entry; remove or update it when the
 upstream setting graduates or changes; never retain retired settings as history.
 
 Direct publish preflight checks the selected project space before any remote
@@ -150,11 +204,17 @@ can add its derived Search optimization and never blocks publishing or removes
 Search.
 
 JSON and CCZ have no target project space, so compatibility is `not_checked`.
-The weekly `commcare-hq-feature-flags` workflow runs
-`scripts/audit-commcare-hq-feature-flags.mjs` against current upstream HQ and
-fails when private symbols, names, namespaces, tags, runtime gates, or probe
-behavior drift. That failure is the retirement/GA or probe-compatibility review
-signal.
+Upstream drift reaches the probe through the weekly pin pull request
+(`.github/workflows/upstream-pins.yml`), which moves the pins to each
+upstream's default-branch head, regenerates the surface there, and classifies
+every item added, removed or changed: a toggle's class, slug, tag, namespaces
+or parents, and the routes, decorators, request reads, module constants (the
+refusal message the probe compares) and resource meta (the paginator) of the HQ
+views and resources the probe calls (the `hq-api` family: `UserDomainsResource`,
+`search`, `app_aware_search`). Every toggle gate entry's slug, namespaces and
+class must equal its surface item (`surface/__tests__/gates.test.ts`), so a
+changed flag fails CI on that pull request. It is the retirement/GA or
+probe-compatibility review signal.
 
 Nova derives profile properties from app behavior; they are not authored
 settings and never enter `BlueprintDoc`. Effective remote Search derives
@@ -497,7 +557,7 @@ case catalogs and translation values before every commit, including dormant
 translations and typed expression literals. Purpose notes and preview-only
 metadata are outside that wire inventory. External lookup rows are checked at
 export with `LOOKUP_CELL_TEXT_UNREPRESENTABLE` before either carrier is built.
-The native proof under `scripts/fixtures/hq/` checks the actual HQ parser,
+The native proof under `proof/native/` checks the actual HQ parser,
 compiled form values and malformed counterexamples; `XmlTextRuntimeTest` also
 initializes the exported forms in Core and checks the resulting answer and label.
 
@@ -513,7 +573,7 @@ The wire oracles encode selected platform parse/import contracts. The two seeded
 - `validator/bindingResolutionOracle.ts::validateBindingResolution` mirrors JavaRosa's install-time XPath-resolution contract — the layer between parse-time validity (which `xformOracle` proves) and form-init runtime evaluation. Three rules: every `instance('commcaresession')/session/data/<X>` references a declared session datum on the form's entry; every `instance('commcaresession')/session/context/<X>` is in the closed CommCare-populated set (`SessionInstanceBuilder.addMetadata`); every `instance('<id>')` matches a `<model><instance id="...">` declaration. Form-path refs inside expression bodies are intentionally not checked here. Native Core initialization proves that a missing structural session leaf can throw `XPathTypeMismatchException` in scalar calculations, while an undeclared session instance throws `XPathMissingInstanceException`; missing paths have no universal harmless-empty guarantee. Dangling bind nodesets are caught upstream by `XFORM_DANGLING_BIND`. The oracle is a **test-time regression check**, never a user-facing emit gate — `compileCcz` does not call it. Both fuzz corpora invoke it per form through `__tests__/compilerEvidence.ts` after compilation; the user-visible authoring gate is `validator/rules/form.ts::caseHashtagOnCreateForm`, which narrows typed case refs on registration forms to the created type's `case_id`, using the same reachable-type accept set as the builder (`caseTypes.ts::caseRefAcceptMap`).
 
 The compiler navigation corpus in `__tests__/compilerNavigationFixture.ts` is
-shared with the native proofs under `scripts/fixtures/`. Native HQ regenerates
+shared with the native proofs under `proof/native/`. Native HQ regenerates
 its forms; Core verifies saved-value/default precedence, normalized ordinary
 registration external IDs, owner availability, condition scopes and link frames.
 Core's exact Search payloads then pass through HQ's CSQL compiler with expected
@@ -536,7 +596,7 @@ or rewriting emitted XPath strings.
 
 ### Case-management scaffolding emission
 
-`xform/caseBlocks.ts::addCaseBlocks` emits the local case scaffolding for HQ's basic `FormActions`. Sharing an action input does not itself establish parity: HQ accepts fields its basic builder does not consume. In particular, it ignores `OpenSubCaseAction.relationship`. `subcaseWire.ts::hqCaseActions` therefore marks extension actions `never` while `xform/caseOps.ts` carries their active transactions in the source XForm, under a reserved `__nova_subcases` container at the exact parent/repeat scope. The retained action positions and types are necessary navigation metadata: HQ allocates non-repeat subcase ID datums even for `never` actions and matches form links by those types. Source extension creates use those same IDs; repeated creates use `uuid()` calculations. HQ emits an inactive redundant block (`relevant="false()"`), which the local splicer omits. The native proof in `scripts/fixtures/hq/` executes HQ's import, case builder, datum allocator, and navigation matcher; the six export regressions check mixed relationships, repeat scopes, required names, guarded property writes, and exact ID joins. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:
+`xform/caseBlocks.ts::addCaseBlocks` emits the local case scaffolding for HQ's basic `FormActions`. Sharing an action input does not itself establish parity: HQ accepts fields its basic builder does not consume. In particular, it ignores `OpenSubCaseAction.relationship`. `subcaseWire.ts::hqCaseActions` therefore marks extension actions `never` while `xform/caseOps.ts` carries their active transactions in the source XForm, under a reserved `__nova_subcases` container at the exact parent/repeat scope. The retained action positions and types are necessary navigation metadata: HQ allocates non-repeat subcase ID datums even for `never` actions and matches form links by those types. Source extension creates use those same IDs; repeated creates use `uuid()` calculations. HQ emits an inactive redundant block (`relevant="false()"`), which the local splicer omits. The native proof in `proof/native/` executes HQ's import, case builder, datum allocator, and navigation matcher; the six export regressions check mixed relationships, repeat scopes, required names, guarded property writes, and exact ID joins. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:
 - **case-create**: `case_id` setvalues at `xforms-ready` from the per-entry session datum `case_id_new_<casetype>_0` (a `function="uuid()"` datum `session.ts::deriveSessionDatums` emits). `date_modified` / `user_id` calculate off the meta block at `/data/meta/timeEnd` / `/data/meta/userID` (the compiler injects the meta block on the same `.ccz` path, after the case block, so both resolve). The case-name source question's bind also gains `required="true()"` (merged onto the field's existing bind, not a duplicate) — CommCare forces it so a case can't be created nameless, mirroring `XFormCaseBlock.add_create_block`.
 - **case-update**: `case_id` calculates from the projected own-case session datum (`case_id` for a flat form, potentially `case_id_<type>` for a child). Same meta-block bindings for the two timestamp attributes. Every per-property update bind also carries `relevant="count(<qPath>) > 0"` — the JavaRosa semantic when a field's `relevant` evaluates false is that the data node is absent, and an unguarded update would overwrite the existing case property with empty. The guard mirrors CCHQ's `XFormCaseBlock.add_case_updates`. Removing it silently destroys preserved case data on every conditionally-hidden field.
 - **case-preload**: capture writers are excluded because stored links and case attachments are not upload filenames for the new submission. Scalar writers emit one `<setvalue event="xforms-ready">` per `case_preload` entry, reading the loaded case's property from `casedb`, anchored by the same projected own-case session datum. HQ's private `name` and `owner_id` preload keys read `case_name` and `@owner_id` respectively. Mirrors `XForm.add_case_preloads`. Spliced in after `buildXForm`'s instance scan, so `addCaseBlocks` declares the `casedb` instance itself (idempotently — skipped when a field-level case reference (`#<type>/…`) already pulled it in), mirroring `add_case_preloads`'s `add_casedb()`. Preload is the structural source of a case-loading form's initial field values — the agent layer stamps no `default_value` for this (`lib/agent/contentProcessing.ts::applyDefaults`). Gotcha: the preload setvalue lands after the field's own `default_value` setvalue in document order, so the loaded case value wins at `xforms-ready`. This matches a CCHQ-uploaded app (CCHQ emits preload regardless of any authored default) — an explicit `default_value` on a case-loading form's case property does not change what the user sees.
@@ -570,13 +630,13 @@ Inside `<case>`, child order is canonical and pinned against current Vellum/Core
 
 Location owners add two exact leaves to that vocabulary. `fixed-location` lowers its app-scoped place UUID as a literal. `owner-location-at-level` lowers to `instance('locations')/locations/location[@type='<destination-level-code>'][@<nearest-case-owning-ancestor-code>_id = <owner-case-expression>]/@id` and pulls both `locations` and `casedb`. Either leaf must occupy the complete owner expression; the validator refuses name, rename, and nested carriers and proves the destination level owns cases before this boundary can print it. The export boundary rejects `fixed-location` for `.ccz`, HQ JSON, and HQ upload because its Nova UUID is not translated to the target domain's location identity. Reverse hops carry level codes and the case's runtime owner identity, so they export. The expander requests `location_fixture_restore: "both_fixtures"`; HQ produces the per-worker fixture from its own location rows. Target level codes, privileges and unambiguous destinations remain deployment preconditions owned by `lib/deployment`.
 
-Location compatibility evidence uses the real HQ `FlatLocationSerializer.get_xml_nodes`, including its native index schema and lineage attributes, and Core's actual restore parser, indexed fixture storage, form initialization and case submission. The native scripts are `scripts/fixtures/hq/location-emission-proof.py` and `scripts/fixtures/javarosa/LocationOwnerRuntimeTest.java`. The same schema- and validator-admitted app corpus drives local CCZ and HQ-regenerated forms. Native cases cover immediate and multi-rung hops, branch identity and an omitted intermediate place. The Postgres companion uses organization service writes and verifies exact owner destinations and atomic refusal of ambiguity. ORM rows and worker session data are supplied explicitly; these checks do not claim to execute HQ's footprint SQL or a remote restore. Nova emits no copy of this per-worker fixture. Its XForm instance declaration is automatic through the owner AST accumulator, and the fixture never belongs in the app's suite.
+Location compatibility evidence uses the real HQ `FlatLocationSerializer.get_xml_nodes`, including its native index schema and lineage attributes, and Core's actual restore parser, indexed fixture storage, form initialization and case submission. The native proofs are `proof/native/test_location_emission.py` and `proof/native/core/LocationOwnerRuntimeTest.java`. The same schema- and validator-admitted app corpus drives local CCZ and HQ-regenerated forms. Native cases cover immediate and multi-rung hops, branch identity and an omitted intermediate place. The Postgres companion uses organization service writes and verifies exact owner destinations and atomic refusal of ambiguity. HQ's own location models hold the places in the check's database; worker session data is supplied explicitly; these checks do not claim to execute HQ's footprint SQL or a remote restore. Nova emits no copy of this per-worker fixture. Its XForm instance declaration is automatic through the owner AST accumulator, and the fixture never belongs in the app's suite.
 
 A form can save an answer into the worker's own record, and the emission is gated exactly as HQ gates it. `deriveCaseWriteInventory`'s `usercase` bucket populates `usercase_update` (`usercase_preload` stays empty — `#user/<prop>` already compiles to the identical `casedb` join), which makes `util.py::actions_use_usercase` true, which is what turns on the `commcare_usercase` block in the XForm, the computed `usercase_id` datum, and the `<assertions>` entry child. HQ's `_add_usercase` has NO `<create>` arm, so neither does Nova. The datum rides `module_form` only (`EntriesHelper.get_extra_case_id_datums`), so Nova's case-list-only browse entry carries neither datum nor assertion. `<assertions>` sits between `<session>` and `<stack>`, pinned by the whole-suite `case-list-form-suite-usercase.xml`, and its locale id needs a matching app_strings entry or the suite dies at `NoLocalizedTextException` — Nova supplies its own message there rather than HQ's, because HQ's names a supervisor and an id an author never sees.
 
 Every expression sees one pre-submission snapshot. Form answers and earlier create ids bind explicitly; repeat-local identity paths start at `current()` so they remain anchored on the operation bind even while a nested relation predicate temporarily evaluates a `casedb` candidate. Root case-property reads anchor on the projected own-case session datum in `casedb`, including root relation predicates and counts, while related-case candidate properties remain candidate-relative. Those case-reading expression paths add `commcaresession` with `casedb`. A runtime expression target is lowered through `casedb/case[@case_id=(...) and @case_type='snapshot-type']/@case_id`, never emitted as an unchecked id. The shared order analysis keeps that immutable lookup type separate from the rolling semantic type, so A→B retype followed by a B operation on the exact same target still finds the pre-submission A row. Different ASTs can nevertheless resolve to one concrete id; the static gate therefore rejects a later differently-typed target/link after a potentially aliasing transition unless the ids are provably distinct. Repeated retype is restricted to an exact correlated generated create because duplicate repeat values otherwise make the second iteration consume the first iteration's result type. The authoritative submission envelope (`lib/case-store/postgres/submissionEnvelope.ts`) repeats this proof over expanded, server-resolved ids with `validateResolvedCaseOperationTypeSequence`. Dynamic link targets get the same selector plus a trailing empty-update guard block whose id is the operation case only when the typed link selector resolved to a different id. On absent/wrong type/self-link the blank guard id raises the clean transaction error before an empty index value could be mistaken for an unlink; on success the guard no-ops the case the operation already touches, never the linked case. Server-side preview separately reauthorizes Project/type facts; neither path trusts a client type descriptor.
 
-The operation export corpus starts from strictly admitted documents and emits actual HQ source and CCZ forms. `scripts/fixtures/javarosa/CaseOperationRuntimeTest.java` opens both those CCZ forms and the native HQ-regenerated counterparts, evaluates them over native case instances, and applies finalized submissions through `CaseXmlParser`. Stored-record assertions cover ordering, pre-submission reads, conditional dependencies, repeat correlation, authored-key merges, scalar bounds, dynamic-link refusal and nested-menu child selection. This proves these examples against Core's indexed in-memory storage; it does not prove rollback or HQ server case processing. Reproduction commands live in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
+The operation export corpus starts from strictly admitted documents and emits actual HQ source and CCZ forms. `proof/native/core/CaseOperationRuntimeTest.java` opens both those CCZ forms and the native HQ-regenerated counterparts, evaluates them over native case instances, and applies finalized submissions through `CaseXmlParser`. Stored-record assertions cover ordering, pre-submission reads, conditional dependencies, repeat correlation, authored-key merges, scalar bounds, dynamic-link refusal and nested-menu child selection. This proves these examples against Core's indexed in-memory storage; it does not prove rollback or HQ server case processing. It runs in the proof lane; `proof/README.md` ("Native proofs") describes it.
 
 Conditions become wrapper relevance and write conditions become child relevance. A consumer of an earlier conditional create automatically inherits that create's relevance (transitively): if the producer does not execute, no target/link/value may leak its preallocated UUID into an update-only block or dangling index. Conditional retypes participate in the same shared guard analysis: a later operation/link that requires the destination type inherits the transition condition, while a source-type consumer after the transition is rejected. The preview's operation-program fold (`lib/preview/engine/caseDataBindingHelpers.ts`) must use `caseOperationConditionalGuardUuids`, not treat an allocated id or declared retype as proof that the producer effect ran. The validator dry-runs these same emitters after type checking so a schema-valid but nonportable expression cannot reach compilation.
 
@@ -648,7 +708,7 @@ Computed-datum functions declare every external instance read by their final pro
 
 `__tests__/tileEmissionParity.test.ts` uses strict admissible documents and
 checks the actual archive, HQ JSON and programmatic preview projection. The
-native proof under `scripts/fixtures/hq/` imports those same documents and runs
+native proof under `proof/native/` imports those same documents and runs
 HQ's real `DetailContributor`; Core's `SuiteParser` then reads both artifacts.
 It covers ordinary and Search details, hidden sort carriers, explicit and
 inherited presentation, grouping and persistent selection details.
@@ -1058,8 +1118,9 @@ partial emission.
   (`HQJSON_BAD_CASE_LIST_FORM`).
 - **Compatibility.** HQ emits the action's `relevant` only under
   `FOLLOWUP_FORMS_AS_CASE_LIST_FORM` (`details.py::get_case_list_form_action`);
-  without it the action is UNCONDITIONAL. The flag row is
-  `no-matches-registration` in `config/commcare-hq-feature-flags.json`, the
+  without it the action is UNCONDITIONAL. The probe's flag is
+  `no-matches-registration` in
+  `projectSpaceCompatibility.ts::HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`, the
   public capability `registration-after-empty-search` ("Registration offered
   after an empty search", required), derived by
   `projectSpaceCompatibility.ts::moduleRequiresNoMatchesRegistration`.

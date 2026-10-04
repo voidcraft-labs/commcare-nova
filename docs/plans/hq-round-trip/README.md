@@ -11,23 +11,58 @@ changes" table.
 
 | Step | Plan | Depth |
 |---|---|---|
-| 1 | [The manifest and the harness](1-manifest-and-harness.md) | full |
-| 2 | [Emission and publish fixes](2-emission-and-publish.md) | work items, planned in full when step 1 exits |
+| 1 | The manifest and the harness | done but for one clause (below): [`proof/README.md`](../../../proof/README.md) |
+| 2 | [Emission and publish fixes](2-emission-and-publish.md) | work items, planned in full next |
 | 3 | [Expressions](3-expressions.md) | outline |
 | 4 | [Platforms](4-platforms.md) | outline |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
 | 6 | [Import](6-import.md) | outline |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline |
 
-## Why only step 1 is planned in full
+## Step 1 is done but for one clause
 
-Step 1's exit is a harness that reproduces the symptom of every defect visible
-in HQ's build, HQ's search, HQ's lookup upload, HQ's submission processing,
-Core's runtime or an HQ editor save. That reproduction checks the premises of
-step 2: each defect step 2 fixes is observed in the system it harms before its
-fix is designed in detail, and step 2's proofs are written against the harness
-step 1 builds rather than one imagined in advance. Each later step is planned
-in full when the step before it exits, against the code as it then stands.
+Step 1 built the evidence every later step stands on, and its plan has left
+this directory. What endures lives where it is read:
+
+- **The surface manifest**, `lib/commcare/surface/`: the generated surface of
+  everything HQ, Core and Android accept in an app, and the authored entries
+  that give each inventory row and each gate its disposition
+  (`lib/commcare/CLAUDE.md`, "The surface manifest"). The project-space check
+  reads its flags' identities from the gate entries, and the weekly pin pull
+  request (`.github/workflows/upstream-pins.yml`) brings upstream changes in
+  as one reviewed pull request.
+- **The proof lane**, `proof/`: HQ's own import, build, case processing and
+  editors, and CommCare Core's runtime, at the pinned commits, over a
+  reproducible corpus, on every pull request. `proof/README.md` holds what it
+  proves (the bar, the intent, manifest and sensitivity checks, proofs 1 to
+  5), the corpus, the registers, the spelling rules, the defect rows of the
+  plan's work item 12, and step 1's decisions; `proof/CLAUDE.md` holds the
+  rules that bind changes to it; `docs/architecture/contracts.md` the delivery
+  contract it enforces.
+- **The known-defect register**, `proof/known-defects.json`: one entry per
+  symptom the lane reproduces, each with its document and its retained
+  control. Its `defect` is the research's number or one of the harness's own
+  findings, numbered from 31 in
+  [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
+  which also records the research claims the harness corrected.
+
+`proof/README.md` ("What the lane does not observe") names every part of a
+defect the lane does not reproduce, and why. A part whose harm is in no system
+the lane runs was never one of step 1's rows: the step that fixes it proves it
+with tests of its own. Two rows' inputs cannot come from a Nova document, and
+step 1's decisions drop them ("12, same-type child", "20, CommTrack"). Every
+other row of its defect table has register entries that reproduce on their
+controls, and one clause of a row shows nowhere: defect 3's unknown-question
+warnings, which no corpus document draws. Step 2's work item H takes it up
+before defect 3's fix is planned in full.
+
+## Why each later step is planned when the one before it exits
+
+Each defect part step 2 fixes that the lane reproduces is observed in the
+system it harms, by a register entry, before its fix is designed in detail,
+and step 2's proofs are written against the harness step 1 built rather than
+one imagined in advance. Each later step is planned in full when the step
+before it exits, against the code as it then stands.
 
 ## Rules every plan follows
 

@@ -827,7 +827,7 @@ and navigation matching, and emits the active extension under `__nova_subcases`
 at its exact root or repeat scope. The native redundant block is irrelevant;
 local CCZ compilation omits it. Non-repeat source creates consume the retained
 session IDs, and repeat creates mint one ID per iteration. Several-case forms
-continue using the shared selected-parent iteration. `scripts/fixtures/hq/`
+continue using the shared selected-parent iteration. `proof/native/`
 records the reproducible native import/build and navigation evidence.
 
 Authored case ids follow Vellum's repeat-context split: creates outside a repeat
@@ -1593,7 +1593,7 @@ on `detail_type.endswith('short')` — plus a companion
 `<datum id="<caseDatumId>_parent_ids">` on every FORM entry that loads a case
 (`suite_xml/sections/entries.py::EntriesHelper.get_case_datums_basic_module`
 adds it only under `if form:`). HQ JSON writes the same thing as
-`case_tile_group`. The native proof in `scripts/fixtures/hq/` imports Nova's
+`case_tile_group`. The native proof in `proof/native/` imports Nova's
 actual export and regenerates its details with HQ's `DetailContributor`;
 Core's `SuiteParser` reads both paths. Child order is not a runtime constraint:
 Nova appends the group last, while HQ can put the Search action after it.
@@ -2240,10 +2240,16 @@ remote write. Confirmed missing support and support Nova cannot verify both stop
 the attempt with a concrete next step; the large-Search optimization is an
 advisory and never blocks. JSON and CCZ describe the capabilities a destination
 needs without claiming one has been checked. Builder and MCP share that semantic
-contract, while a private manifest retains the downstream names and source
-evidence that establish it. A weekly source audit turns upstream drift into a
-failing check without exposing those implementation details to an author or
-agent. `content/docs/publishing.mdx` and
+contract. The downstream names that establish it stay inside the CommCare
+boundary: the surface manifest (`lib/commcare/surface/`) holds a gate entry for
+each HQ flag, privilege, build version and project-space setting that gates app
+content, and the project-space check reads each probed flag's slug and
+namespace from its gate entry. The weekly pin pull request
+(`.github/workflows/upstream-pins.yml`) regenerates the surface from HQ's
+latest code, so upstream drift in a flag or in the HQ resources the check calls
+shows there as a classified difference and, where a gate entry no longer
+matches, as a failing check, without exposing those implementation details to
+an author or agent. `content/docs/publishing.mdx` and
 `content/docs/project-space-compatibility.mdx` are the user-facing guides.
 
 ### Projects, moves, and multiplayer

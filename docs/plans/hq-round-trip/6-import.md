@@ -28,8 +28,9 @@ Planned in full when step 5 exits. The design is the research's "The reader",
 6. **Grammar widenings.** Every `widen:` change a HELD row of the manifest names
    that no earlier step builds.
 7. **Feature-matrix apps.** At least one HQ app per manifest entry, built through
-   HQ's own models, plus generated combinations; step 1 moves this corpus
-   source here, because the reader is the first consumer of HQ-authored apps.
+   HQ's own models, plus generated combinations. This step builds them,
+   because the reader is the first consumer of HQ-authored apps; the proof
+   lane's corpus holds none before it.
 
 ## Cutover and migration
 

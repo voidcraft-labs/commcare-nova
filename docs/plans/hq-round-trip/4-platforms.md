@@ -11,10 +11,10 @@ defects 11 (its second half), 18, 19 and 20.
    app declares both.
 2. **Platform behavior per feature.** Each held feature carries, per platform,
    runs, ignored without harm, unavailable, or different, taken from the
-   manifest step 1 builds. The validator refuses any feature unavailable on a
-   declared platform, and the builder, SA and MCP offer a feature only where it
-   is available on every declared platform and show its stated difference where
-   the author works.
+   manifest (`lib/commcare/surface/`). The validator refuses any feature
+   unavailable on a declared platform, and the builder, SA and MCP offer a
+   feature only where it is available on every declared platform and show its
+   stated difference where the author works.
 3. **Media by platform** (defect 11, second half). A file is accepted only when
    every declared platform plays it and HQ types it as the same kind; a change
    of declaration is refused until each reference to a file the new platform
@@ -24,7 +24,9 @@ defects 11 (its second half), 18, 19 and 20.
 5. **Publish.** The `cloudcare` privilege joins the per-privilege confirmation
    for an app that declares Web Apps. Publish asks before changing a target's
    `cloudcare_enabled`. The sync-on-form-entry and CommTrack confirmations of
-   defect 20 are recorded beside the privileges.
+   defect 20 are recorded beside the privileges. The lane reproduces defect
+   20's session (`targeted-sync-on-form-entry`, `proof/README.md`, "The defect
+   rows"), and this step's fix removes its register entries.
 6. **Defect 18.** The date-and-time question is offered only in an app that does
    not declare Web Apps.
 7. **Defect 19.** Inline search, multi-select case lists, entry points and the
