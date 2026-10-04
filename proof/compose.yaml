@@ -1,0 +1,45 @@
+# The proof lane's containers (proof/README.md): the harness image and the
+# Postgres that holds HQ's state. `npm run proof` (proof/run.mjs) starts them
+# under a project of its own and removes both when the run ends, adding the
+# mounts (the checkout, read-only; Linux node_modules; the output directory);
+# CI runs the same file through the same script.
+name: nova-proof
+
+services:
+  postgres:
+    # HQ's own Postgres major (commcare-hq scripts/docker, pg_version=14),
+    # through Google's mirror of Docker Hub.
+    image: mirror.gcr.io/library/postgres:14@sha256:c2427de38f998489d36de7ca3553db2134872c400f2b08be4b824e5c50e4d619
+    environment:
+      POSTGRES_USER: commcarehq
+      POSTGRES_PASSWORD: commcarehq
+      POSTGRES_DB: commcarehq
+    # HQ's state lives in one rolled-back transaction per unit on each
+    # worker's clone of the template, so nothing needs to survive the run; a
+    # memory-backed data directory keeps the restore and the clones fast.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commcarehq -d commcarehq"]
+      interval: 1s
+      timeout: 5s
+      retries: 60
+
+  harness:
+    image: ${PROOF_IMAGE:?proof/run.mjs sets PROOF_IMAGE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The harness's whole environment is the image's, these, and the few
+    # variables proof/run.mjs names (each passed with -e): nothing else of the
+    # machine running the lane reaches it.
+    environment:
+      PROOF_POSTGRES_HOST: postgres
+      PROOF_OUT: /out
+      # One string hash in every process, so HQ orders its sets and dicts of
+      # strings alike in each (proof/hq/boot.py reports it); the fork server's
+      # workers inherit it.
+      PYTHONHASHSEED: "0"
+      # One zone, whatever the machine's.
+      TZ: UTC
+    working_dir: /work

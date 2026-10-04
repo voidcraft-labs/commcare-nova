@@ -1,0 +1,59 @@
+// Adds Nova's native Core proofs (the JUnit classes beside this file) to
+// CommCare Core's own test build, as proof/native's session fixture runs it
+// (proof/native/core_suite.py):
+//
+//   gradle --offline --no-daemon -I <this file> \
+//     -PnovaProofSources=<proof/native/core> \
+//     -PnovaProofNative=<the harness's native output directory> \
+//     -PnovaProofReports=<where the JUnit XML goes> \
+//     test --tests '<selection>'
+//
+// The classes compile into Core's test source set, because they use Core's
+// test helpers (FormParseInit, ExprEvalUtils, TestInstanceInitializer) and its
+// cli mocks (MockDataUtils, MockUserDataSandbox). Their resources are not
+// copied into Core's build: the test JVM's classpath gains two directories,
+// the checked-in controls (resources/) and the harness's native output, each
+// holding one subdirectory per family, which the tests load from
+// (`/<family>/<file>`). Families never share a namespace, so two families'
+// scenarios of the same name never meet.
+//
+// Every selected class runs in one test JVM, as Core's own tests do, so the
+// classes share Core's static state (the global localizer, which some set
+// without clearing, and the reference manager's roots). None of them reads
+// what another leaves there: the suite passes in one JVM with its classes in
+// alphabetical, reversed or shuffled order, and with a JVM per class.
+gradle.projectsEvaluated {
+    def properties = gradle.startParameter.projectProperties
+    def required = { String name ->
+        def value = properties.get(name)
+        if (!value) {
+            throw new GradleException(
+                "The native Core proofs need -P${name}. Run them through the proof harness " +
+                "(npm run proof -- proof/native), which passes it.")
+        }
+        new File(value)
+    }
+    def sources = required('novaProofSources')
+    def generated = required('novaProofNative')
+    def reports = required('novaProofReports')
+
+    rootProject.sourceSets.test.java.srcDir(sources)
+    rootProject.tasks.named('test', Test).configure { Test test ->
+        test.classpath += rootProject.files(new File(sources, 'resources'), generated)
+        test.systemProperty('nova.proof.native', generated.absolutePath)
+        test.filter.includeTestsMatching('nova.compatibility.*')
+        test.reports.junitXml.outputLocation.set(reports)
+        test.reports.html.required.set(false)
+        // A failing proof is reported from the JUnit XML; Gradle's own exit
+        // status then speaks only for the build itself (compilation, the JVM).
+        test.ignoreFailures = true
+        // The generated artifacts change on every run, and a skipped test task
+        // would report the previous run's results.
+        test.outputs.upToDateWhen { false }
+        test.maxHeapSize = '1g'
+        // The serial collector and the client compiler alone, as the Gradle
+        // client runs (core_suite.py's GRADLE_JVM_ARGS): the proofs run for
+        // seconds, and neither changes what they compute.
+        test.jvmArgs('-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1')
+    }
+}

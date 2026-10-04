@@ -1,0 +1,10 @@
+# The proof image's build context is the repository root, but the image holds
+# no Nova source: only the recipe's own files reach it, plus the harness's HQ
+# boot and the modules it installs, which the image build runs once to migrate
+# the schema it ships.
+*
+!proof/image/
+!proof/__init__.py
+!proof/hq/*.py
+proof/hq/test_*.py
+proof/hq/conftest.py

@@ -6,7 +6,7 @@ import { csqlQuoteFixture } from "./csqlQuoteFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 // Artifact assembly only. CsqlQuoteRuntimeTest owns real input/guard execution;
-// quote-payload-proof.py checks the resulting complete queries with native HQ.
+// proof/native/test_quote_payload.py checks the resulting complete queries with native HQ.
 it("carries all six guarded queries and their two error prompts into both export paths", () => {
 	const doc = csqlQuoteFixture();
 	const hq = expandDoc(doc);

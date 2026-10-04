@@ -57,7 +57,7 @@ function exported(doc: BlueprintDoc) {
 
 // Independent native HQ contract: XForm._add_usercase and EntriesHelper's
 // extra datum/assertion builders. Native execution uses these same exported
-// fixtures in scripts/fixtures/hq, never a conditional local-checkout unit test.
+// fixtures in proof/native, never a conditional local-checkout unit test.
 const selector =
 	"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]";
 it.each(["survey", "followup"] as const)(

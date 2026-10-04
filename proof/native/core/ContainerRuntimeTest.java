@@ -1,0 +1,335 @@
+package nova.compatibility;
+
+import org.javarosa.core.model.*;
+import org.javarosa.core.model.data.StringData;
+import org.javarosa.core.model.instance.*;
+import org.javarosa.core.model.instance.utils.InstanceUtils;
+import org.javarosa.core.test.FormParseInit;
+import org.javarosa.form.api.FormEntryController;
+import org.javarosa.test_utils.ExprEvalUtils;
+import org.junit.Test;
+import static org.junit.Assert.*;
+
+/** Native parser metadata and form entry, using exact admitted Nova artifacts. */
+public class ContainerRuntimeTest {
+ private static TreeElement node(String name,String value) {
+  TreeElement n = new TreeElement(name,0);
+  if(value != null)n.setValue(new StringData(value));
+  return n;
+ }
+ private static InstanceInitializationFactory environment() {
+  return new InstanceInitializationFactory() {
+   @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
+    if(!"commcaresession".equals(instance.getInstanceId()))throw new AssertionError(instance.getInstanceId());
+    TreeElement root=node("session",null), context=node("context",null), data=node("data",null);
+    for(String key:new String[]{"deviceid","username","userid","appversion"})context.addChild(node(key,"fixture-"+key));
+    context.addChild(node("drift","0"));data.addChild(node("case_id_new_patient_0","new-patient"));
+    root.addChild(context);root.addChild(data);
+    InstanceUtils.setUpInstanceRoot(root,instance.getInstanceId(),new InstanceBase(instance.getInstanceId()));
+    return new ConcreteInstanceRoot(root);
+   }
+  };
+ }
+ private static Object eval(FormDef form,String expression)throws Exception{return ExprEvalUtils.xpathEval(form.getEvaluationContext(),expression);}
+ private static void referenceCount(FormDef form,String id,double expected)throws Exception{
+  for(String spelling:new String[]{"hashtag","path"})assertEquals(id+" "+spelling,expected,eval(form,"number(/data/"+id+"_"+spelling+"_count)"));
+ }
+ private static void referenceValues(FormDef form,String id,String expected)throws Exception{
+  for(String spelling:new String[]{"hashtag","path"})assertEquals(id+" "+spelling,expected,eval(form,"string(/data/"+id+"_"+spelling+"_values)"));
+ }
+ private static FormParseInit load(String scenario,boolean source)throws Exception{
+  FormParseInit parsed=new FormParseInit("/container/container-"+scenario+(source?".hq.xml":".xml"));
+  parsed.getFormDef().initialize(true,environment());return parsed;
+ }
+ private static void enter(FormParseInit parsed,boolean user)throws Exception {
+  FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+  int steps=0,event;boolean created=false;
+  while((event=controller.stepToNextEvent())!=FormEntryController.EVENT_END_OF_FORM){
+   if(++steps>200)throw new AssertionError("Entry did not terminate");
+   if(event==FormEntryController.EVENT_PROMPT_NEW_REPEAT&&user&&!created){controller.newRepeat();created=true;}
+  }
+ }
+ private static org.javarosa.core.model.instance.TreeReference ref(FormDef form,String path)throws Exception {
+  return ((org.javarosa.xpath.XPathNodeset)org.javarosa.xpath.XPathParseTool.parseXPath(path).eval(form.getMainInstance(),form.getEvaluationContext())).getRefAt(0);
+ }
+ private static void answer(FormDef form,String path,String value)throws Exception {form.setValue(new StringData(value),ref(form,path));}
+ private static int confirm(FormParseInit parsed,String path,String value)throws Exception {
+  FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());int event,steps=0;
+  while((event=controller.stepToNextEvent())!=FormEntryController.EVENT_END_OF_FORM){
+   if(++steps>200)throw new AssertionError("Confirmation question not reached");
+   if(event==FormEntryController.EVENT_QUESTION && controller.getModel().getFormIndex().getReference().equals(ref(parsed.getFormDef(),path)))return controller.answerQuestion(new StringData(value));
+  }
+  throw new AssertionError("Missing confirmation question "+path);
+ }
+ @Test public void conditionalQueriesAndCandidateValidationUseTheActualSelectedRows()throws Exception {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"query-conditional","query-conditional-parent","query-conditional-relative"}){
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();String parent=scenario.endsWith("parent")?"/data/page":"/data",items=parent+"/items/item",check=parent+"/confirm";
+   enter(parsed,false);
+   answer(form,"/data/show","yes");enter(parsed,false);
+   assertEquals(2.0,eval(form,"count("+items+")"));assertEquals("a b",eval(form,"join(' ', "+items+"/item_id)"));
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,check,"yes"));
+   answer(form,items+"[1]/choice","yes");
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,check,"no"));
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,check,"yes"));
+   answer(form,items+"[2]/choice","yes");
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,check,"yes"));
+   answer(form,items+"[2]/choice","no");
+   answer(form,"/data/show","no");enter(parsed,false);answer(form,"/data/show","yes");enter(parsed,false);
+   assertEquals(2.0,eval(form,"count("+items+")"));assertEquals("yes",eval(form,"string("+items+"[1]/choice)"));
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,check,"yes"));
+   // A count of the answer being validated must still see its uncommitted
+   // candidate, rather than a calculated value from the previous answer.
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,"/data/self_check","yes"));
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,"/data/self_check","no"));
+  }
+ }
+ @Test public void initializationActionsApplyRelevanceBeforeSnapshots()throws Exception {
+  FormParseInit parsed=load("init-relevance",false);FormDef form=parsed.getFormDef();enter(parsed,false);
+  assertEquals(0.0,eval(form,"count(/data/assets/item)"));
+  parsed=load("init-relevance-add",false);form=parsed.getFormDef();enter(parsed,true);
+  assertEquals(0.0,eval(form,"count(/data/visits[1]/assets/item)"));
+  answer(form,"/data/enabled","yes");enter(parsed,true);
+  assertEquals(0.0,eval(form,"count(/data/visits[1]/assets/item)"));
+  assertEquals(2.0,eval(form,"count(/data/visits[2]/assets/item)"));
+  assertEquals("",eval(form,"string(/data/visits[1]/derived)"));
+  assertEquals("north",eval(form,"string(/data/visits[2]/derived)"));
+ }
+ @Test public void initializationSnapshotsRetainTheirEnclosingRow()throws Exception {
+  for(String scenario:new String[]{"init-named","init-raw"}) {
+   FormParseInit parsed=load(scenario,false);FormDef form=parsed.getFormDef();enter(parsed,false);
+   assertEquals("pump tap",eval(form,"join(' ', /data/assets/item/row_id)"));
+   assertEquals("pump_task",eval(form,"string(/data/assets/item[1]/tasks/item/task_id)"));
+   assertEquals(0.0,eval(form,"count(/data/assets/item[2]/tasks/item)"));
+   assertEquals(2.0,eval(form,"count(/data/assets/item[1]/details/checks)"));
+   assertEquals(0.0,eval(form,"count(/data/assets/item[2]/details/checks)"));
+  }
+ }
+ @Test public void addingAnOuterRowKeepsOldSnapshotsAndAnswers()throws Exception {
+  FormParseInit parsed=load("init-add",false);FormDef form=parsed.getFormDef();enter(parsed,true);
+  assertEquals("pump tap",eval(form,"join(' ', /data/visits[1]/assets/item/row_id)"));
+  answer(form,"/data/visits[1]/assets/item[2]/note","Retain this answer");
+  answer(form,"/data/zone","south");enter(parsed,true);
+  assertEquals(2.0,eval(form,"count(/data/visits)"));
+  assertEquals("pump tap",eval(form,"join(' ', /data/visits[1]/assets/item/row_id)"));
+  assertEquals("Retain this answer",eval(form,"string(/data/visits[1]/assets/item[2]/note)"));
+  assertEquals("tank",eval(form,"string(/data/visits[2]/assets/item/row_id)"));
+ }
+ @Test public void groupMetadataAndDescendantsSurviveNativeParsing()throws Exception{
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"titled","untitled","empty","transparent","labelled","nested","registration"}){
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();
+   GroupDef page=(GroupDef)form.getChildren().get(0);
+   assertEquals(scenario,!"transparent".equals(scenario)?"field-list":null,page.getAppearanceAttr());
+   assertEquals(scenario,!("untitled".equals(scenario)||"empty".equals(scenario)||"transparent".equals(scenario)),page.getTextID()!=null);
+   assertFalse(page.isRepeat());
+   if("nested".equals(scenario)){
+    assertEquals("field-list",((GroupDef)page.getChildren().get(0)).getAppearanceAttr());
+    assertNull(((GroupDef)page.getChildren().get(1)).getAppearanceAttr());
+    assertEquals(1.0,eval(form,"count(/data/page/named/answer)"));
+    assertEquals(1.0,eval(form,"count(/data/page/plain/answer)"));
+   } else assertEquals(1.0,eval(form,"count(/data/page/answer)"));
+   if("empty".equals(scenario)){
+    GroupDef empty=(GroupDef)form.getChildren().get(1);
+    assertEquals("field-list",empty.getAppearanceAttr());assertEquals(0,empty.getChildren().size());
+   }
+   enter(parsed,false);
+  }
+ }
+ @Test public void actualEntryCreatesIndependentCountsAndQueryIdentities()throws Exception{
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"user","path","literal","expression","cousins","query","nested-query","path-late","nested-count","count-collision"}){
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,"user".equals(scenario));
+   switch(scenario){
+    case "user":assertEquals(1.0,eval(form,"count(/data/items)"));break;
+    case "path-late":
+    case "path":assertEquals(2.0,eval(form,"count(/data/items)"));break;
+    case "literal":
+     assertEquals(3.0,eval(form,"count(/data/items)"));
+     referenceCount(form,"items",3.0);break;
+    case "count-collision":assertEquals(3.0,eval(form,"count(/data/items)"));assertEquals("authored",eval(form,"string(/data/nova_count_items)"));break;
+    case "expression":assertEquals(4.0,eval(form,"count(/data/items)"));break;
+    case "cousins":assertEquals(3.0,eval(form,"count(/data/one/items)"));assertEquals(5.0,eval(form,"count(/data/two/items)"));break;
+    case "query":
+     assertEquals(3.0,eval(form,"count(/data/items/item)"));assertEquals("a b c",eval(form,"join(' ', /data/items/item/item_id)"));
+     referenceCount(form,"items",3.0);referenceCount(form,"empty_items",0.0);
+     referenceValues(form,"ids","a b c");referenceValues(form,"authored_items","authored authored authored");break;
+    case "nested-count":
+     assertEquals(2.0,eval(form,"count(/data/parents/item[1]/items)"));
+     assertEquals(3.0,eval(form,"count(/data/parents/item[2]/items)"));break;
+    case "nested-query":
+     assertEquals(2.0,eval(form,"count(/data/items/item)"));
+     assertEquals(2.0,eval(form,"count(/data/items/item[1]/children/item)"));
+     assertEquals(1.0,eval(form,"count(/data/items/item[2]/children/item)"));
+     assertEquals("a1 a2",eval(form,"join(' ', /data/items/item[1]/children/item/item_id)"));
+     assertEquals("b1",eval(form,"join(' ', /data/items/item[2]/children/item/item_id)"));
+     referenceCount(form,"items",2.0);referenceCount(form,"children",3.0);
+     referenceValues(form,"child_ids","a1 a2 b1");break;
+   }
+  }
+ }
+
+ @Test public void liveCountsGrowButKeepCreatedRowsAndAnswers()throws Exception {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"path","expression","hidden-count"}) {
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   answer(form,"/data/items[1]/answer","retained");
+   form.setValue(new org.javarosa.core.model.data.IntegerData(5),ref(form,"/data/size"));enter(parsed,false);
+   double count="path".equals(scenario)?5.0:7.0;
+   assertEquals(count,eval(form,"count(/data/items)"));
+   form.setValue(new org.javarosa.core.model.data.IntegerData(1),ref(form,"/data/size"));enter(parsed,false);
+   assertEquals(count,eval(form,"count(/data/items)"));assertEquals("retained",eval(form,"string(/data/items[1]/answer)"));
+  }
+ }
+
+ @Test public void earlierPageAnswerCreatesLiveRowsWithIndependentNestedCounts()throws Exception {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"live-count-entry","live-count-effects"}) {
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();
+   FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+   var prompts=controller.getQuestionPrompts();assertEquals(1,prompts.length);
+   assertEquals(0.0,eval(form,"count(/data/second/items)"));
+   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(prompts[0].getIndex(),new org.javarosa.core.model.data.IntegerData(2)));
+   controller.jumpToIndex(prompts[0].getIndex());assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());controller.getQuestionPrompts();
+   assertEquals(2.0,eval(form,"count(/data/second/items)"));
+   for(int i=1;i<=2;i++) form.setValue(new org.javarosa.core.model.data.IntegerData(i+1),ref(form,"/data/second/items["+i+"]/size"));
+   enter(parsed,false);
+   for(String child:new String[]{"direct","computed"}) {
+    assertEquals(2.0,eval(form,"count(/data/second/items[1]/"+child+")"));
+    assertEquals(3.0,eval(form,"count(/data/second/items[2]/"+child+")"));
+   }
+   answer(form,"/data/second/items[2]/answer","retained after decrease");
+   form.setValue(new org.javarosa.core.model.data.IntegerData(4),ref(form,"/data/first/size"));enter(parsed,false);
+   form.setValue(new org.javarosa.core.model.data.IntegerData(1),ref(form,"/data/first/size"));enter(parsed,false);
+   assertEquals(4.0,eval(form,"count(/data/second/items)"));
+   String xml=new String(new org.javarosa.model.xform.XFormSerializingVisitor().serializeInstance(form.getMainInstance()),java.nio.charset.StandardCharsets.UTF_8);
+   assertTrue(xml.contains("retained after decrease"));
+   javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+   org.w3c.dom.Document submitted=factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+   assertEquals(scenario.equals("live-count-effects")?4:0,submitted.getElementsByTagNameNS("http://commcarehq.org/case/transaction/v2","create").getLength());
+  }
+ }
+
+ @Test public void fieldListPromptCollectionFlattensNestedGroupsAndCannotOfferNewRepeat()throws Exception {
+  for(boolean source:new boolean[]{false,true}) {
+   FormParseInit parsed=load("nested",source);
+   FormEntryController controller=parsed.getFormEntryController();
+   controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+   assertTrue(controller.isFieldListHost(controller.getModel().getFormIndex()));
+   assertEquals(2,controller.getQuestionPrompts().length);
+   // Deliberately invalid Nova layout isolates the native prompt collector:
+   // field-list collection exposes questions, with no way to create the first row.
+   FormParseInit invalid=load("user",source);
+   GroupDef host=new GroupDef();host.setBind(new org.javarosa.model.xform.XPathReference("/data"));host.setAppearanceAttr("field-list");
+   host.addChild(invalid.getFormDef().getChildren().get(0));
+   java.util.Vector<IFormElement> children=new java.util.Vector<>();children.add(host);invalid.getFormDef().setChildren(children);
+   FormEntryController invalidController=new FormParseInit(invalid.getFormDef()).getFormEntryController();
+   invalidController.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   assertEquals(FormEntryController.EVENT_GROUP,invalidController.stepToNextEvent());
+   assertEquals(0,invalidController.getQuestionPrompts().length);
+   assertEquals(0.0,eval(invalid.getFormDef(),"count(/data/items)"));
+  }
+ }
+
+ /** Deliberate wire probes isolate native typing; decimal/text direct counts
+  * are refused by Nova's admission rule, so these are not admitted apps. */
+ @Test public void nativeCountTypesAndCalculatedNarrowing()throws Exception {
+  String[][] cases={{"int","","0.0"},{"int","2","2.0"},{"decimal","","0.0"},{"decimal","2","invalid"},{"decimal","2.7","invalid"},{"string","","0.0"},{"string","2","2.0"},{"string","2.0","invalid"},{"string"," 2 ","invalid"}};
+  for(String[] item:cases) {
+   javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+   org.w3c.dom.Document document;
+   try(java.io.InputStream stream=getClass().getResourceAsStream("/container/container-path.xml")){document=factory.newDocumentBuilder().parse(stream);}
+   org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");
+   for(int n=0;n<nodes.getLength();n++) {
+    org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
+    if("bind".equals(element.getLocalName())&&"/data/size".equals(element.getAttribute("nodeset")))element.setAttribute("type","xsd:"+item[0]);
+    if("setvalue".equals(element.getLocalName())&&"/data/size".equals(element.getAttribute("ref")))element.setAttribute("value","'"+item[1]+"'");
+   }
+   java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+   javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
+   String actual;
+   try(java.io.InputStream input=new java.io.ByteArrayInputStream(bytes.toByteArray())) {
+    FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
+    enter(new FormParseInit(form),false);actual=eval(form,"count(/data/items)").toString();
+   }catch(org.javarosa.xpath.XPathTypeMismatchException error){actual="invalid";}
+   assertEquals(item[0]+" lexical="+item[1],item[2],actual);
+  }
+ }
+
+ /** Deliberately invalid Nova count: Core parses it but every new row raises
+  * the target again. Admission must reject this cardinality feedback. */
+ @Test public void countFeedbackKeepsCreatingRowsDuringEntry()throws Exception {
+  javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+  org.w3c.dom.Document document;
+  try(java.io.InputStream stream=getClass().getResourceAsStream("/container/container-literal.xml")){document=factory.newDocumentBuilder().parse(stream);}
+  org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");boolean changed=false;
+  for(int n=0;n<nodes.getLength();n++) {
+   org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
+   if("bind".equals(element.getLocalName())&&"/data/nova_count_items".equals(element.getAttribute("nodeset"))) {
+    element.setAttribute("calculate","count(/data/items) + 1");changed=true;
+   }
+  }
+  assertTrue(changed);
+  java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+  javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
+  try(java.io.InputStream input=new java.io.ByteArrayInputStream(bytes.toByteArray())) {
+   FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
+   FormEntryController controller=new FormParseInit(form).getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   for(int step=0;step<12;step++) assertNotEquals(FormEntryController.EVENT_END_OF_FORM,controller.stepToNextEvent());
+   assertEquals(6.0,eval(form,"count(/data/items)"));
+   assertEquals(7.0,eval(form,"number(/data/nova_count_items)"));
+  }
+ }
+
+ @Test public void laterAuthoredDefaultsExistBeforeCountEntry()throws Exception {
+  FormParseInit parsed=load("path-late",false);enter(parsed,false);
+  assertEquals(2.0,eval(parsed.getFormDef(),"count(/data/items)"));
+ }
+ @Test public void countCalculationsUseEachEnclosingRepeatRow()throws Exception {
+  FormParseInit parsed=load("nested-count",false);enter(parsed,false);
+  assertEquals(2.0,eval(parsed.getFormDef(),"count(/data/parents/item[1]/items)"));
+  assertEquals(3.0,eval(parsed.getFormDef(),"count(/data/parents/item[2]/items)"));
+ }
+
+
+ @Test public void laterFieldListInsertsRowsAfterEarlierAnswers()throws Exception {
+  FormParseInit parsed=load("section-entry",false);FormDef form=parsed.getFormDef();
+  FormEntryController controller=parsed.getFormEntryController();
+  controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+  assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+  org.javarosa.form.api.FormEntryPrompt[] first=controller.getQuestionPrompts();
+  assertEquals(1,first.length);
+  assertEquals(0.0,eval(form,"count(/data/second/rounds)"));
+  assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("south")));
+  controller.jumpToIndex(first[0].getIndex());
+  assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+  FormIndex secondPage=controller.getModel().getFormIndex();
+  org.javarosa.form.api.FormEntryPrompt[] second=controller.getQuestionPrompts();
+  assertEquals(1,second.length);assertEquals("tank",second[0].getAnswerText());
+  assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(second[0].getIndex(),new StringData("retained")));
+  assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("north")));
+  controller.jumpToIndex(secondPage);
+  second=controller.getQuestionPrompts();
+  assertEquals(1,second.length);assertEquals("retained",second[0].getAnswerText());
+ }
+ @Test public void hiddenCalculationCountTypes()throws Exception {
+  String[][] cases={{"2.7","2.0"},{"true()","1.0"},{"false()","0.0"},{"'2.7'","invalid"},{"'2'","2.0"},{"''","0.0"},{"number('')","0.0"}};
+  for(String[] item:cases) {
+   String calculate=item[0];
+   javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+   org.w3c.dom.Document document;
+   try(java.io.InputStream stream=getClass().getResourceAsStream("/container/container-hidden-count.xml")){document=factory.newDocumentBuilder().parse(stream);}
+   org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");
+   for(int n=0;n<nodes.getLength();n++) {
+    org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
+    if("bind".equals(element.getLocalName())&&"/data/desired".equals(element.getAttribute("nodeset")))element.setAttribute("calculate",calculate);
+   }
+   java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+   javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
+   try(java.io.InputStream input=new java.io.ByteArrayInputStream(bytes.toByteArray())) {
+    FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
+    String actual;
+    try {enter(new FormParseInit(form),false);actual=eval(form,"count(/data/items)").toString();}
+    catch(org.javarosa.xpath.XPathTypeMismatchException error){actual="invalid";}
+    assertEquals(calculate,item[1],actual);
+   }
+  }
+ }
+}

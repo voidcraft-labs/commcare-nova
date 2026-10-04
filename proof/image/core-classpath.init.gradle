@@ -1,0 +1,15 @@
+// Records CommCare Core's resolved test runtime classpath, so the harness's
+// Core runner compiles and runs against exactly what Core's own tests use.
+gradle.projectsEvaluated {
+    def classpathFile = gradle.startParameter.projectProperties.get('novaClasspathFile')
+    if (classpathFile == null) {
+        throw new GradleException('Pass -PnovaClasspathFile=<path> to record the Core test classpath')
+    }
+    rootProject.tasks.register('writeNovaTestClasspath') {
+        dependsOn rootProject.tasks.named('testClasses')
+        doLast {
+            def entries = rootProject.sourceSets.test.runtimeClasspath.files.collect { it.absolutePath }
+            new File(classpathFile).text = entries.join(File.pathSeparator) + '\n'
+        }
+    }
+}
