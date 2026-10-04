@@ -48,6 +48,7 @@
 		"eval:translations": "tsx --conditions=react-server scripts/evaluate-translations.ts",
 		"audit:hq-feature-flags": "node scripts/audit-commcare-hq-feature-flags.mjs",
 		"test:smoke": "bash scripts/smoke.sh",
+		"proof": "node proof/run.mjs",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
 		"test:smoke:url": "playwright test --project=public",
 		"profile:react": "bash scripts/react-profile.sh",

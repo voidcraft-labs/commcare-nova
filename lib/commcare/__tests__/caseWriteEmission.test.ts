@@ -59,7 +59,7 @@ function exported(doc: BlueprintDoc) {
 }
 
 // Export facts are asserted against actual nodes and complete bind attributes.
-// This is not native HQ execution: that evidence belongs in scripts/fixtures/hq.
+// This is not native HQ execution: that evidence belongs in proof/native.
 it.each(["registration", "followup"] as const)(
 	"keeps the case destination through a real question rename and group move (%s)",
 	(type) => {

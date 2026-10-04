@@ -1,7 +1,7 @@
 /**
  * Tests for the four search-first refusals in `searchFirst.ts`, each
  * enforcing Nova entry shape plus actual HQ workflow and instance-name
- * refusals. Selected native HQ methods run in search-validation-proof.py.
+ * refusals. Selected native HQ methods run in proof/native/test_search_validation.py.
  */
 
 import { describe, expect, it } from "vitest";

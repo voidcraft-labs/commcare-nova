@@ -81,3 +81,8 @@ __pycache__/
 /test-results/
 
 /public/form-evaluation/
+
+# The proof harness writes its output (traces, difference sets, timings)
+# under /.proof (proof/README.md); ruff leaves caches where it runs.
+/.proof/
+.ruff_cache/

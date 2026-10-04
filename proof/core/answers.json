@@ -1,0 +1,53 @@
+{
+	"description": "The fixed values a Core runner session answers questions with. Every value is a string in the encoding Web Apps sends Formplayer (formplayer api/json/JsonActionUtils::getAnswerData): a select takes the 1-based index of an option, a multi-select a space-separated list of indices, a geopoint 'lat lon altitude accuracy'; any other value is cast from its text by Core's AnswerDataFactory template for the question's control and data type. '@clock:today' and '@clock:now' stand for the run's clock (its date, and its instant), which the request fixes. A question takes its values from the first of: novaKinds, for the Nova kind the request names for its data path; controls, for the control Core reports; dataTypes, for the data type Core reports. Values are tried in order, at most three; an empty list leaves the question unanswered. A label (a trigger) is answered 'OK', which is what Web Apps submits for every label (cloudcare form_entry/web_form_session.js, accumulateAnswers). A text is first one with whitespace at both ends, which Core keeps as answered (Formplayer casts the text it is sent as it is, formplayer api/json/JsonActionUtils::getAnswerData), so a form that trims it, or one that does not, shows which; then plain text. A date or date-time is first the clock's own, which a constraint that an answer be recent and not in the future accepts, then one far in the past and one far in the future, for constraints that ask for either.",
+	"repeats": {
+		"add": 1
+	},
+	"controls": {
+		"trigger": ["OK"]
+	},
+	"dataTypes": {
+		"text": ["  proof  ", "proof", "proof text"],
+		"null": ["  proof  ", "proof", "proof text"],
+		"unsupported": ["  proof  ", "proof", "proof text"],
+		"integer": ["7", "25", "0"],
+		"long": ["7", "25", "0"],
+		"decimal": ["7.25", "25.5", "0"],
+		"date": ["@clock:today", "2001-02-03", "2099-06-15"],
+		"time": ["14:30:00", "09:15:00", "23:45:00"],
+		"dateTime": [
+			"@clock:now",
+			"2001-02-03T04:05:06.000Z",
+			"2099-06-15T14:30:00.000Z"
+		],
+		"choice": ["1", "2", "3"],
+		"choiceList": ["1", "2", "3"],
+		"boolean": ["true", "false"],
+		"geopoint": ["12.5 -8.25 0 0", "0 0 0 0", "-33.9 18.4 10 5"],
+		"barcode": ["proof-barcode-7", "7", "b"],
+		"binary": ["proof-file.jpg"]
+	},
+	"novaKinds": {
+		"text": ["  proof  ", "proof", "proof text"],
+		"secret": ["proof secret 7", "7", "b"],
+		"barcode": ["proof-barcode-7", "7", "b"],
+		"int": ["7", "25", "0"],
+		"decimal": ["7.25", "25.5", "0"],
+		"date": ["@clock:today", "2001-02-03", "2099-06-15"],
+		"time": ["14:30:00", "09:15:00", "23:45:00"],
+		"datetime": [
+			"@clock:now",
+			"2001-02-03T04:05:06.000Z",
+			"2099-06-15T14:30:00.000Z"
+		],
+		"single_select": ["1", "2", "3"],
+		"multi_select": ["1", "2", "3"],
+		"geopoint": ["12.5 -8.25 0 0", "0 0 0 0", "-33.9 18.4 10 5"],
+		"image": ["proof-image.jpg"],
+		"audio": ["proof-audio.mp3"],
+		"video": ["proof-video.mp4"],
+		"signature": ["proof-signature.png"],
+		"file": ["proof-file.pdf"],
+		"label": ["OK"]
+	}
+}

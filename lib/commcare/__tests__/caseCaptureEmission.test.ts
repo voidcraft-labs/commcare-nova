@@ -1,5 +1,5 @@
 /** Actual exported artifacts. Native execution of the same accepted documents
- * lives in scripts/fixtures/{hq,javarosa}; these checks cover wire routing. */
+ * lives in proof/native; these checks cover wire routing. */
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { findAll } from "domutils";

@@ -46,7 +46,7 @@ const corpus = z
 		JSON.parse(
 			readFileSync(
 				new URL(
-					"../../../scripts/fixtures/xml/well-formedness.json",
+					"../../../proof/native/xml/well-formedness.json",
 					import.meta.url,
 				),
 				"utf8",

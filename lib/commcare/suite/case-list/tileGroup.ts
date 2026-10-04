@@ -24,7 +24,7 @@
 // depending on which side reads the app.
 //
 // The native HQ proof regenerates these details from actual Nova exports,
-// and Core's SuiteParser reads both paths (scripts/fixtures/{hq,javarosa}).
+// and Core's SuiteParser reads both paths (proof/native).
 //
 // The `function` value is the only thing the device validates, and it
 // validates it loosely: `DetailGroupParser::parse` runs

@@ -1,0 +1,73 @@
+{
+	"source": "Every expression HQ's XPath validator (corehq/apps/app_manager/xpath_validator/wrapper.py::validate_xpath) was sent while the proof lane ran its 24-document baseline sample of the emitted corpus (recorded at the validator), then every module filter, form filter and case search expression the whole emitted corpus's uploads carry, which HQ's build and case list save send it; each once, with the flag it is sent with (caseHashtags: allow_case_hashtags).",
+	"expressions": [
+		{
+			"xpath": "replace(replace(instance('commcaresession')/session/user/data/excluded_owners, '[ \\t\\r\\n]+', ' '), '^ | $', '')",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "false()",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "#case/status_code = 'a'",
+			"caseHashtags": true
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/role = 'supervisor'",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/role = 'supervisor'",
+			"caseHashtags": true
+		},
+		{
+			"xpath": "replace(replace('owner-1 owner-2', '[ \\t\\r\\n]+', ' '), '^ | $', '')",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "instance('item-list:regions')/regions_list/regions[1]/label = 'Northland'",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "#case/@status = 'open'",
+			"caseHashtags": true
+		},
+		{
+			"xpath": "replace(replace('excluded', '[ \\t\\r\\n]+', ' '), '^ | $', '')",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "replace(replace('excluded-owner-id', '[ \\t\\r\\n]+', ' '), '^ | $', '')",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/user_type = 'standard'",
+			"caseHashtags": true
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/role = 'Alice'",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/user_type = 'standard'",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "#case/care_status = 'active'",
+			"caseHashtags": true
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/district-code = 'n'",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/is_supervisor = 'n'",
+			"caseHashtags": false
+		},
+		{
+			"xpath": "instance('commcaresession')/session/user/data/supervision_status = 'n'",
+			"caseHashtags": false
+		}
+	]
+}

@@ -21,7 +21,7 @@ import {
 import { runValidation } from "../validator/runner";
 
 // These tests exercise Nova's complete validator verdict. Wire execution is
-// covered by the native suites in scripts/fixtures; a clean verdict here is
+// covered by the native suites in proof/native; a clean verdict here is
 // authoring admission, not independent evidence that HQ or Core accepted XML.
 const m = testUuid("rules-module");
 const a = testUuid("rules-form-a");
