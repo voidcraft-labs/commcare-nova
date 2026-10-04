@@ -22,7 +22,7 @@ import {
 } from "../menuProjection";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
-import type { AppTestScreen, AppTestState } from "./types";
+import type { AppTestScreen, AppTestSessionState } from "./types";
 
 export function appTestMenus(context: AppTestContext, parent: Uuid | null) {
 	const { doc, identity, lookup } = context;
@@ -42,7 +42,7 @@ export function appTestMenus(context: AppTestContext, parent: Uuid | null) {
  * Only parent-menu selections survive a form entry and module navigation. */
 export function appTestMenuSelection(
 	context: AppTestContext,
-	state: AppTestState,
+	state: AppTestSessionState,
 	moduleUuid: Uuid,
 ) {
 	return state.screen.kind === "menu" &&
@@ -55,7 +55,7 @@ export function appTestMenuSelection(
 
 export function appTestForms(
 	context: AppTestContext,
-	state: AppTestState,
+	state: AppTestSessionState,
 	moduleUuid: Uuid,
 	loadingOnly = false,
 ) {
@@ -95,7 +95,7 @@ export function appTestForms(
  * selector must itself be eligible; a requested child never bypasses its gate. */
 export function enterAppTestMenu(
 	context: AppTestContext,
-	state: AppTestState,
+	state: AppTestSessionState,
 	moduleUuid: Uuid,
 	returnModules: readonly Uuid[] = [],
 ): AppTestScreen {
@@ -139,7 +139,7 @@ export function enterAppTestMenu(
 
 export function enterAppTestForm(
 	context: AppTestContext,
-	state: AppTestState,
+	state: AppTestSessionState,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): AppTestScreen {
@@ -168,9 +168,9 @@ export function enterAppTestForm(
 
 export function selectAppTestRecords(
 	context: AppTestContext,
-	state: AppTestState,
+	state: AppTestSessionState,
 	rows: readonly CaseRowWithCalculated[],
-): AppTestState {
+): AppTestSessionState {
 	const screen = state.screen;
 	if (screen.kind !== "records")
 		throw new AppTestActionError(
@@ -206,7 +206,7 @@ export function selectAppTestRecords(
 		])
 			delete selections[uuid];
 	}
-	const next: AppTestState = {
+	const next: AppTestSessionState = {
 		...state,
 		selections,
 		screen: { kind: "menu", moduleUuid: screen.moduleUuid, selection },

@@ -18,6 +18,7 @@ import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
+import { availablePages } from "../engine/sectionPaging";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
@@ -34,7 +35,7 @@ import {
 } from "./navigation";
 import { appTestRecords } from "./records";
 import { submitAppTest } from "./submission";
-import type { AppTestAction, AppTestState } from "./types";
+import type { AppTestAction, AppTestSessionState } from "./types";
 
 type Scope = AppTestScope & {
 	role: string;
@@ -46,8 +47,8 @@ type Observation = Record<string, unknown>;
 async function observeScreen(
 	context: AppTestContext,
 	scope: AppTestScope,
-	state: AppTestState,
-): Promise<{ state: AppTestState; observation: Observation }> {
+	state: AppTestSessionState,
+): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	const screen = state.screen;
 	const persona =
 		state.personaUuid === null
@@ -224,6 +225,10 @@ async function observeScreen(
 					captureEntry: true,
 				},
 			);
+			const pages = availablePages(evaluated.sections);
+			const currentPage = pages.findIndex(
+				(page) => page.uuid === evaluated.presentation.currentSectionUuid,
+			);
 			return {
 				state: { ...state, screen: { ...screen, entry: evaluated.entry } },
 				observation: {
@@ -235,7 +240,17 @@ async function observeScreen(
 						screen.formUuid,
 					)?.name,
 					questions: evaluated.fields.filter((field) => field.onCurrentPage),
+					presentation: {
+						...evaluated.presentation,
+						nodes: evaluated.presentation.nodes.filter(
+							(node) => node.onCurrentPage,
+						),
+					},
 					sections: evaluated.sections,
+					pageNavigation: {
+						canNext: currentPage >= 0 && currentPage + 1 < pages.length,
+						canPrevious: currentPage > 0,
+					},
 					canSubmit: evaluated.canSubmit,
 					valid: evaluated.valid,
 					submission: "Not submitted",
@@ -249,8 +264,8 @@ async function observeScreen(
 export async function observeAppTest(
 	context: AppTestContext,
 	scope: AppTestScope,
-	state: AppTestState,
-): Promise<{ state: AppTestState; observation: Observation }> {
+	state: AppTestSessionState,
+): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	const result = await observeScreen(context, scope, state);
 	const screen = result.state.screen;
 	const identity = parseLanguageTag(context.language);
@@ -261,7 +276,7 @@ export async function observeAppTest(
 		"sync",
 		"finish",
 		...(screen.kind !== "home" ? ["home"] : []),
-		...(result.state.history.length ? ["back"] : []),
+		...(result.state.history.length ? ["back", "routeBack"] : []),
 	];
 	if (screen.kind === "home" || screen.kind === "menu") actions.push("menu");
 	if (screen.kind === "menu") {
@@ -279,9 +294,15 @@ export async function observeAppTest(
 		if (result.observation.registration) actions.push("form");
 	}
 	if (screen.kind === "details" && result.observation.canContinue)
-		actions.push("continue");
+		actions.push("continue", "routeContinue");
 	if (screen.kind === "form") {
 		actions.push("answer", "section");
+		const pageNavigation = result.observation.pageNavigation as {
+			canNext: boolean;
+			canPrevious: boolean;
+		};
+		if (pageNavigation.canNext) actions.push("pageNext");
+		if (pageNavigation.canPrevious) actions.push("pagePrevious");
 		if (result.observation.canSubmit) actions.push("submit");
 	}
 
@@ -291,14 +312,23 @@ export async function observeAppTest(
 			...result.observation,
 			actions,
 			controls: Object.fromEntries(
-				actions.flatMap((action) =>
-					action === "back" ||
-					action === "continue" ||
-					action === "submit" ||
-					action === "search"
-						? [[action, runtimeMessage(context.language, action)]]
-						: [],
-				),
+				actions.flatMap((action) => {
+					const label =
+						action === "routeBack" || action === "pagePrevious"
+							? "back"
+							: action === "routeContinue"
+								? "continue"
+								: action === "pageNext"
+									? "next"
+									: action;
+					return label === "back" ||
+						label === "continue" ||
+						label === "next" ||
+						label === "submit" ||
+						label === "search"
+						? [[action, runtimeMessage(context.language, label)]]
+						: [];
+				}),
 			),
 			language: {
 				selected: identity,
@@ -337,9 +367,9 @@ export async function observeAppTest(
 export async function advanceAppTest(
 	context: AppTestContext,
 	scope: Scope,
-	state: AppTestState,
+	state: AppTestSessionState,
 	action: AppTestAction,
-): Promise<{ state: AppTestState; observation: Observation }> {
+): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	let next = state;
 	let extra: Observation = {};
 	const screen = state.screen;
@@ -347,6 +377,7 @@ export async function advanceAppTest(
 		case "language":
 		case "observe":
 			break;
+		case "routeBack":
 		case "back": {
 			const prior = state.history.at(-1);
 			if (!prior) throw new AppTestActionError("There is no previous screen.");
@@ -360,6 +391,7 @@ export async function advanceAppTest(
 			};
 			break;
 		}
+		case "routeContinue":
 		case "continue": {
 			if (
 				screen.kind !== "details" ||
@@ -468,7 +500,7 @@ export async function advanceAppTest(
 				const read = await appTestRecords(context, scope, state);
 				if (read.registration?.uuid !== action.formUuid)
 					throw new AppTestActionError(
-						"This registration is available only after a search finds no matches.",
+						"This form is not offered by the current record list.",
 					);
 				next = {
 					...read.state,
@@ -548,6 +580,46 @@ export async function advanceAppTest(
 			extra = { completed: Object.keys(read.search.errors).length === 0 };
 			break;
 		}
+		case "pageNext":
+		case "pagePrevious": {
+			if (screen.kind !== "form")
+				throw new AppTestActionError("Open a form before turning its pages.");
+			const evaluated = await evaluateForm(
+				context.doc,
+				{
+					formUuid: screen.formUuid,
+					language: context.language,
+					caseIds: screen.caseIds,
+					answers: [],
+					searchAnswers: screen.searchAnswers,
+				},
+				{
+					identity: context.identity,
+					cases: screen.entryCases,
+					lookup: context.lookup,
+					entry: screen.entry,
+					captureEntry: true,
+				},
+			);
+			const pages = availablePages(evaluated.sections);
+			const current = pages.findIndex(
+				(page) => page.uuid === evaluated.presentation.currentSectionUuid,
+			);
+			const target =
+				current < 0
+					? undefined
+					: pages[current + (action.kind === "pageNext" ? 1 : -1)];
+			if (!target)
+				throw new AppTestActionError(
+					"That page turn is not available on this form.",
+				);
+			return advanceAppTest(
+				context,
+				scope,
+				{ ...state, screen: { ...screen, entry: evaluated.entry } },
+				{ kind: "section", sectionUuid: target.uuid },
+			);
+		}
 		case "section":
 		case "answer": {
 			if (screen.kind !== "form")
@@ -589,8 +661,17 @@ export async function advanceAppTest(
 				savedInTest: saved.effects !== undefined,
 				effects: saved.effects,
 				evidence: {
+					collectionScope: "disposable-case-store",
 					caseTransaction:
 						saved.effects === undefined ? "not-committed" : "committed",
+					submissionReceipt:
+						saved.effects === undefined ? "not-created" : "persisted",
+					casePatch:
+						(saved.effects?.caseDatabasePatch?.rows.length ?? 0) > 0 ||
+						(saved.effects?.caseDatabasePatch?.indices.length ?? 0) > 0
+							? "persisted"
+							: "none",
+					answerDocumentArchive: "not-created",
 					serializedSubmission: "not-observed",
 					retainedReport: "not-observed",
 				},

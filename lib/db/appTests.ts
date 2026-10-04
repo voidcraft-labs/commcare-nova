@@ -16,7 +16,7 @@ import { AppAccessError, resolveAppScopeInTransaction } from "./appAccess";
 import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
 
-const RUNTIME_VERSION = 8;
+const RUNTIME_VERSION = 9;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;
@@ -224,11 +224,15 @@ export async function advanceAppTestSession(
 		expectedStep: number;
 		/** Legacy singular callers share this executor and receipt owner. */
 		action?: JsonRecord;
-		actions?: readonly { action: JsonRecord; expect?: JsonRecord }[];
+		actions?: readonly {
+			sessionId?: string;
+			action: JsonRecord;
+			expect?: JsonRecord;
+		}[];
 		advance: (
 			tx: Transaction<AppDatabase>,
 			context: AdvanceSource,
-			item: { action: JsonRecord; expect?: JsonRecord },
+			item: { sessionId?: string; action: JsonRecord; expect?: JsonRecord },
 		) => Promise<{
 			state: JsonRecord;
 			observation: JsonRecord;
@@ -237,7 +241,9 @@ export async function advanceAppTestSession(
 		}>;
 	},
 ): Promise<AppTestRequestResult> {
-	const items = args.actions ?? (args.action ? [{ action: args.action }] : []);
+	const items =
+		args.actions ??
+		(args.action ? [{ sessionId: undefined, action: args.action }] : []);
 	if (items.length < 1 || items.length > 8 || (args.action && args.actions))
 		throw new AppTestUnavailableError(
 			"Supply one action or one to eight ordered actions.",
@@ -341,7 +347,7 @@ export async function advanceAppTestSession(
 					break;
 				}
 				const next =
-					item.action.kind === "finish"
+					item.action.kind === "finish" && item.sessionId === undefined
 						? {
 								state: {},
 								observation: { ended: true },
@@ -372,7 +378,12 @@ export async function advanceAppTestSession(
 							step,
 							request_id: args.requestId,
 							request_digest: args.requestDigest,
-							action: JSON.stringify(item.action),
+							action: JSON.stringify({
+								...item.action,
+								...(item.sessionId === undefined
+									? {}
+									: { sessionId: item.sessionId }),
+							}),
 							observation: JSON.stringify(next.observation),
 						})
 						.execute();
@@ -475,6 +486,9 @@ export async function readAppTestSteps(
 				"testPlaces",
 				"testAssignments",
 				"boundary",
+				"primarySessionId",
+				"sessions",
+				"recordSources",
 			]
 				.filter((key) => initial.observation[key] !== undefined)
 				.map((key) => [key, initial.observation[key]]),

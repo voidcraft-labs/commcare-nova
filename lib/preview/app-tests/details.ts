@@ -19,13 +19,13 @@ import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
-import type { AppTestState } from "./types";
+import type { AppTestSessionState } from "./types";
 
 /** Details addresses the selected identity, not its old Results page/filter. */
 export async function appTestDetails(
 	context: AppTestContext,
 	scope: AppTestScope,
-	state: AppTestState,
+	state: AppTestSessionState,
 ) {
 	const screen = state.screen;
 	if (screen.kind !== "details")

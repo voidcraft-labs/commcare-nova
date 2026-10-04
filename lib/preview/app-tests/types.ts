@@ -28,8 +28,36 @@ const testOwner = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("persona"), personaUuid: uuidSchema }),
 	z.strictObject({ kind: z.literal("place"), locationUuid: uuidSchema }),
 ]);
+export const appTestSessionIdSchema = z
+	.string()
+	.regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/)
+	.describe(
+		"A test-local session label, one to forty letters, digits, underscores or hyphens, starting with a letter or digit. This is not an app entity address.",
+	);
 
 export const appTestStartSchema = z.strictObject({
+	sessions: z
+		.array(
+			z.strictObject({
+				id: appTestSessionIdSchema,
+				personaUuid: z
+					.string()
+					.min(1)
+					.max(1024)
+					.nullable()
+					.optional()
+					.describe(
+						"A saved Preview identity's name or stable ID; null or omitted means yourself.",
+					),
+				language: appLanguageIdentitySchema.optional(),
+			}),
+		)
+		.min(1)
+		.max(4)
+		.optional()
+		.describe(
+			"Up to four retained worker sessions sharing this test's isolated records. IDs must be unique. The first is primary; omitting sessions creates one default session. Each retains its own identity, language, navigation, answers and open-form record snapshot.",
+		),
 	language: appLanguageIdentitySchema
 		.optional()
 		.describe(
@@ -107,6 +135,10 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 		z.strictObject({ kind: z.literal("observe") }),
 		z.strictObject({ kind: z.literal("continue") }),
 		z.strictObject({ kind: z.literal("back") }),
+		z.strictObject({ kind: z.literal("routeContinue") }),
+		z.strictObject({ kind: z.literal("routeBack") }),
+		z.strictObject({ kind: z.literal("pageNext") }),
+		z.strictObject({ kind: z.literal("pagePrevious") }),
 		z.strictObject({
 			kind: z.literal("identity"),
 			personaUuid: reference
@@ -202,6 +234,11 @@ export const appTestExpectationSchema = z.strictObject({
 		),
 });
 export const appTestActionItemSchema = z.strictObject({
+	sessionId: appTestSessionIdSchema
+		.optional()
+		.describe(
+			"Session to advance. Omit to use the primary session. Other sessions keep their open forms and answers.",
+		),
 	action: appTestAuthoredActionSchema,
 	expect: appTestExpectationSchema.optional(),
 });
@@ -263,7 +300,7 @@ export type AppTestScreen =
 			entryCases: CaseDatabaseSnapshot;
 			searchAnswers?: readonly { name: string; value: string }[];
 	  };
-export interface AppTestState {
+export interface AppTestSessionState {
 	language: LanguageTag;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
@@ -272,4 +309,12 @@ export interface AppTestState {
 	/** The worker's device holds this snapshot until sync or identity switch;
 	 * submissions overlay their transaction-captured patch, including closed rows. */
 	deviceCases: CaseDatabaseSnapshot;
+}
+
+/** One bounded journey and record namespace, with independent retained workers. */
+export interface AppTestState {
+	primarySessionId: string;
+	/** JSONB object-key order is not the authored session order. */
+	sessionOrder: readonly string[];
+	sessions: Readonly<Record<string, AppTestSessionState>>;
 }

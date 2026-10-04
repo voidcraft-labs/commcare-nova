@@ -9,12 +9,12 @@ import { noMatchesFormAdmission } from "../noMatchesForm";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
-import type { AppTestState } from "./types";
+import type { AppTestSessionState } from "./types";
 
 export async function appTestRecords(
 	context: AppTestContext,
 	scope: AppTestScope,
-	state: AppTestState,
+	state: AppTestSessionState,
 	answers?: readonly { name: string; value: string }[],
 ) {
 	const screen = state.screen;

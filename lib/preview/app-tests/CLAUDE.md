@@ -2,7 +2,7 @@
 
 This is a separate, explicitly labeled disposable-record surface. Ordinary
 Preview still uses the user's real records. Shared tools start at app entry as
-the authorized actor, then choose only saved Preview identities and available
+the authorized actor or an explicitly selected saved Preview identity, then choose only saved Preview identities and available
 menus, records and forms. Do not accept a privileged replacement worker context.
 
 `service.ts` pins the saved blueprint and authorized lookup/place snapshots.
@@ -12,6 +12,21 @@ the source app and rechecks real-actor membership and the exact app revision.
 versions, and commits state, observations and idempotency receipts together.
 Only the creating actor can continue a test; current app members can read its
 observations. Simulated worker identity never grants Project authority.
+
+A journey may retain one to four worker sessions in the same isolated namespace.
+`startAppTest.sessions` supplies unique bounded test-local IDs and optional saved
+identity/language choices; omission creates `default`. The first session is
+primary. Each ordered action may address `sessionId`; omission uses primary.
+An unknown ID refuses before identity materialization, navigation or submission,
+and a duplicate ID refuses before namespace admission. Session IDs are opaque
+labels, not entity names or invented Preview workers. Identity, language,
+navigation, ancestor selections, record catalog and open-form entry/checkpoint
+belong to that session. Advancing another session never retires them. The step,
+record and combined-state budgets belong to the whole journey. Persist the
+supplied session order separately from the JSONB object so every directory keeps
+its primary-first order across checkpoints. Finish disposes
+all sessions and their shared namespace; omitting a session ID also permits
+cleanup of an older runtime's journey.
 
 After app authorization succeeds, an unavailable test identity is an
 `AppTestUnavailableError`, including a test belonging to another app or a
@@ -64,6 +79,16 @@ records, before evaluating the next task. Sync applies the production restore
 closure. A next-task failure preserves an already successful test submission.
 An action rejected before submission leaves no partial effects.
 
+Retained sessions expose held-open interleavings: open a form in A, submit in B,
+then observe or submit A. Explicit sync refreshes only the addressed session's
+record catalog and preserves its open form's entry snapshot, defaults, answers
+and repeat identities. Every active observation labels its session and compact
+session directory. `recordSources` distinguishes current isolated-store
+Results/Details and submission evaluation from retained open-form data. A
+current-store condition can protect Preview's serialized Postgres submission;
+these receipts do not prove offline native conflict resolution or fresh native
+case reads.
+
 Limits are eight active tests per app, 200 steps, 2,000 accumulated records and
 16 MiB of state per test. Continuation expires after 24 hours. Explicit finish
 drops the namespace; another start reclaims expired namespaces for that app;
@@ -96,7 +121,11 @@ to its module, ordinary case-first routing reopens Results; Back from the form
 returns to the original Results/Details destination, not the transient chooser.
 
 Form observations return only the current page’s questions, available sections,
-and whether Submit is offered. A `section` action validates forward pages before
+the canonical presentation hierarchy and whether Submit is offered. Presentation
+nodes preserve containers and repeat-instance boundaries in worker order.
+`pageNext`/`pagePrevious` follow the production available-page projection;
+`routeBack`/`routeContinue` navigate screens and Details. Existing `back` and
+`continue` remain route aliases. A `section` action validates forward pages before
 entering the target; Back retains existing rows and answers. Future-page answers
 and early submissions cannot bypass this progression. These use the browser’s
 FormEngine insertion and paging projections, not a separate simulation.
@@ -126,13 +155,20 @@ Results and Details share formatted cell projection, including the browser's
 localized record-choice labels. Route context exposes
 retained ancestor/record selections. Submission evidence proves isolated case
 commit only; serialized submissions and retained reports stay `not-observed`.
+`savedInTest` means the isolated submission transaction and idempotency receipt
+committed. `evidence.collectionScope` is `disposable-case-store`; `casePatch`
+distinguishes a persisted case patch from `none`. A plain survey can therefore
+be accepted with no case effects. This path creates no submitted-answer document
+archive. Earlier journey observations retain inspected answers as test evidence,
+not as an independently retrievable collection report.
 
 Evidence reads have a fixed upper step, ten-step default/twenty-step maximum
 and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
 explicit bounded paths and offsets. The start/source/runtime provenance travels
 with every page. Builder pages these same rows rather than loading all history.
 
-Runtime version 8 also pins portable case-list metadata reads: Results/Details,
+Runtime version 9 pins retained worker sessions, the shared presentation
+hierarchy and distinct page/route controls, alongside portable case-list metadata reads: Results/Details,
 calculated columns and calculated ordering expose built-in dates at native
 calendar precision, while custom datetime values keep their clocks. Retained
 older observations remain readable, but a fresh journey is needed to execute

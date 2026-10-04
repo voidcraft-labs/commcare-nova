@@ -13,7 +13,7 @@ import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
-import type { AppTestState } from "./types";
+import type { AppTestSessionState } from "./types";
 
 export async function submitAppTest(
 	context: AppTestContext,
@@ -22,7 +22,7 @@ export async function submitAppTest(
 		blueprintDigest: string;
 		role: string;
 	},
-	state: AppTestState,
+	state: AppTestSessionState,
 ) {
 	const screen = state.screen;
 	if (screen.kind !== "form" || !screen.entry)
@@ -132,7 +132,7 @@ export async function submitAppTest(
 			},
 			{ identity, cases, lookup: context.lookup },
 		);
-		let nextState: AppTestState = {
+		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
 			deviceCases: cases,

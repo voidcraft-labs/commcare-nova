@@ -12,7 +12,7 @@ import { AppTestActionError } from "./errors";
 import {
 	type AppTestAuthoredAction,
 	type AppTestExpectation,
-	type AppTestState,
+	type AppTestSessionState,
 	appTestActionSchema,
 } from "./types";
 
@@ -80,7 +80,7 @@ function form(
  * Earlier actions in the same request may have changed the current form. */
 export function bindAppTestAction(
 	doc: BlueprintDoc,
-	state: AppTestState,
+	state: AppTestSessionState,
 	action: AppTestAuthoredAction,
 ) {
 	let bound = action;
@@ -161,7 +161,7 @@ export function bindAppTestAction(
 
 export function appTestExpectationMismatch(
 	doc: BlueprintDoc,
-	state: AppTestState,
+	state: AppTestSessionState,
 	observation: Record<string, unknown>,
 	expect?: AppTestExpectation,
 ): string | undefined {

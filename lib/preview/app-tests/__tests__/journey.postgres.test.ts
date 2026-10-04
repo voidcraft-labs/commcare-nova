@@ -1681,7 +1681,7 @@ it("visits form pages using retained entry state before allowing submission", {
 		completed: false,
 		error: "Open that section before answering its questions.",
 	});
-	const opened = await step({ kind: "section", sectionUuid: second.uuid });
+	const opened = await step({ kind: "pageNext" });
 	expect(opened).toMatchObject({
 		canSubmit: true,
 		questions: expect.arrayContaining([
@@ -1699,14 +1699,15 @@ it("visits form pages using retained entry state before allowing submission", {
 		kind: "answer",
 		answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
 	});
-	await step({ kind: "section", sectionUuid: first.uuid });
+	expect(await step({ kind: "pagePrevious" })).toMatchObject({
+		pageNavigation: { canNext: true, canPrevious: false },
+		actions: expect.arrayContaining(["pageNext", "routeBack"]),
+	});
 	await step({
 		kind: "answer",
 		answers: [{ path: "first/zone", value: "north" }],
 	});
-	expect(
-		await step({ kind: "section", sectionUuid: second.uuid }),
-	).toMatchObject({
+	expect(await step({ kind: "pageNext" })).toMatchObject({
 		questions: expect.arrayContaining([
 			expect.objectContaining({
 				path: "second/rounds[0]/assets",
@@ -1718,7 +1719,33 @@ it("visits form pages using retained entry state before allowing submission", {
 			}),
 		]),
 	});
-	expect((await step({ kind: "submit" })).savedInTest).toBe(true);
+	expect(await step({ kind: "submit" })).toMatchObject({
+		savedInTest: true,
+		effects: {
+			primaryCaseIds: [],
+			operations: [],
+			caseDatabasePatch: { rows: [], indices: [] },
+		},
+		evidence: {
+			collectionScope: "disposable-case-store",
+			caseTransaction: "committed",
+			submissionReceipt: "persisted",
+			casePatch: "none",
+			answerDocumentArchive: "not-created",
+		},
+	});
+	const receipts = await sql<{
+		result: Record<string, unknown>;
+	}>`SELECT result FROM ${sql.id(appTestNamespace(current.testId), "form_submission_intents")} WHERE form_uuid = ${formUuid}`.execute(
+		h.db(),
+	);
+	expect(receipts.rows).toHaveLength(1);
+	expect(receipts.rows[0].result).toMatchObject({
+		primaryCaseIds: [],
+		caseDatabasePatch: { rows: [], indices: [] },
+	});
+	expect(receipts.rows[0].result).not.toHaveProperty("answers");
+	expect(JSON.stringify(receipts.rows)).not.toContain("retained");
 });
 
 it("binds ordered public section aliases after navigation, stops at failed forward validation, and replays the whole call", async () => {
@@ -2276,4 +2303,513 @@ it("projects translated choice labels in Results and Details while preserving st
 		]),
 	});
 	await step({ kind: "finish" });
+});
+
+it.each([false, true])(
+	"retains two open worker forms across a competing submission and explicit sync (current-store guard: %s)",
+	{
+		timeout: 20_000,
+	},
+	async (guarded) => {
+		const doc = await createEvaluationApp(
+			[
+				{
+					name: "Jobs",
+					caseType: "job",
+					forms: [
+						{ name: "Complete", type: "followup" },
+						{ name: "Cancel", type: "followup" },
+					],
+				},
+			],
+			[
+				{
+					toolName: "addFields",
+					input: {
+						moduleUuid: "Jobs",
+						formUuid: "Complete",
+						fields: [
+							{
+								id: "job_state",
+								kind: "hidden",
+								calculate: "'completed'",
+								caseWrite: { caseType: "job", property: "job_state" },
+							},
+							{
+								id: "note",
+								kind: "text",
+								label: "Completion note",
+								required: true,
+								caseWrite: { caseType: "job", property: "completion_note" },
+							},
+						],
+					},
+				},
+				{
+					toolName: "addFields",
+					input: {
+						moduleUuid: "Jobs",
+						formUuid: "Cancel",
+						fields: [
+							{
+								id: "status_at_entry",
+								kind: "text",
+								label: "Status at entry",
+								default_value: "#case/job_state",
+							},
+							{
+								id: "note",
+								kind: "text",
+								label: "Cancellation note",
+								required: true,
+								caseWrite: { caseType: "job", property: "cancellation_note" },
+							},
+							{
+								id: "pending_jobs",
+								kind: "repeat",
+								label: "Pending jobs",
+								repeat: {
+									mode: "query_bound",
+									ids_query:
+										"instance('casedb')/casedb/case[@case_type = 'job'][job_state = 'pending']/@case_id",
+								},
+							},
+							{
+								id: "job_id",
+								parentUuid: "pending_jobs",
+								kind: "text",
+								label: "Pending job",
+								default_value: "current()/../@id",
+							},
+						],
+					},
+				},
+				{
+					toolName: "addCaseOperations",
+					input: {
+						moduleUuid: "Jobs",
+						formUuid: "Cancel",
+						operations: [
+							{
+								operation: {
+									id: "cancel",
+									action: "update",
+									caseType: "job",
+									target: { kind: "session" },
+									...(guarded
+										? { condition: "#case/job_state = 'pending'" }
+										: {}),
+									writes: [{ property: "job_state", value: "'cancelled'" }],
+								},
+							},
+						],
+					},
+				},
+				...(["Complete", "Cancel"] as const).flatMap((formUuid) => [
+					{
+						toolName: "removeField",
+						input: {
+							moduleUuid: "Jobs",
+							formUuid,
+							fieldUuid: "fixture_placeholder",
+						},
+					},
+					{
+						toolName: "updateForm",
+						input: { moduleUuid: "Jobs", formUuid, post_submit: "app_home" },
+					},
+				]),
+			],
+		);
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		const call = sharedJourneyCalls(doc);
+		const startInput = {
+			purpose:
+				"Hold a cancellation open while another worker completes the same job",
+			sessions: [{ id: "coordinator" }, { id: "worker" }],
+			scenario: {
+				records: [
+					{
+						id: "job-1",
+						caseType: "job",
+						name: "Inspect pump",
+						properties: { job_state: "pending" },
+					},
+				],
+			},
+		};
+		const started = stepSchema.parse(await call("startAppTest", startInput));
+		expect(started.observation).toMatchObject({
+			sessionId: "coordinator",
+			sessions: [
+				{ id: "coordinator", screen: "home" },
+				{ id: "worker", screen: "home" },
+			],
+			recordSources: { submission: "Preview/Postgres-current-isolated-store" },
+		});
+		let current = started;
+		let request = 0;
+		const advance = async (actions: unknown[]) => {
+			const result = await call(
+				"continueAppTest",
+				{ testId: current.testId, expectedStep: current.step, actions },
+				`interleave-${++request}`,
+			);
+			current = stepSchema.parse(result);
+			return result;
+		};
+		const open = (sessionId: string, formUuid: string) => [
+			{ sessionId, action: { kind: "menu", moduleUuid: "Jobs" } },
+			{ sessionId, action: { kind: "select", caseIds: ["job-1"] } },
+			{ sessionId, action: { kind: "routeContinue" } },
+			{
+				sessionId,
+				action: { kind: "form", formUuid },
+				expect: { screen: "form" },
+			},
+		];
+		// Case-first entry offers record selection, not a search prerequisite or
+		// a direct followup launch. The same saved form opens after selection.
+		expect(
+			await advance([
+				{ action: { kind: "menu", moduleUuid: "Jobs" } },
+				{ action: { kind: "form", formUuid: "Cancel" } },
+			]),
+		).toMatchObject({
+			stopped: { index: 1 },
+			observation: {
+				completed: false,
+				error: "This form is not offered by the current record list.",
+			},
+		});
+		const held = await advance([
+			...open("coordinator", "Cancel").slice(1),
+			{
+				action: {
+					kind: "answer",
+					answers: [{ path: "note", value: "Retained coordinator answer" }],
+				},
+			},
+		]);
+		expect(held).toMatchObject({
+			observation: {
+				sessionId: "coordinator",
+				recordSources: { openForm: "retained-entry-snapshot" },
+				questions: expect.arrayContaining([
+					expect.objectContaining({
+						path: "status_at_entry",
+						value: "pending",
+					}),
+				]),
+			},
+		});
+		const refused = await advance([
+			{ sessionId: "missing", action: { kind: "submit" } },
+			{ sessionId: "worker", action: { kind: "home" } },
+		]);
+		expect(refused).toMatchObject({
+			stopped: { index: 0 },
+			observation: { sessionId: "missing", completed: false },
+		});
+		const competed = await advance([
+			...open("worker", "Complete"),
+			{
+				sessionId: "worker",
+				action: {
+					kind: "answer",
+					answers: [
+						{ path: "note", value: "Completed while cancellation was open" },
+					],
+				},
+			},
+			{
+				sessionId: "worker",
+				action: { kind: "submit" },
+				expect: { submitted: true, screen: "home" },
+			},
+		]);
+		expect(competed).toMatchObject({
+			observation: {
+				sessionId: "worker",
+				sessions: [
+					{ id: "coordinator", screen: "form" },
+					{ id: "worker", screen: "home" },
+				],
+			},
+		});
+		const caseRows = async () =>
+			(
+				await sql<{
+					properties: Record<string, unknown>;
+				}>`SELECT properties FROM ${sql.id(appTestNamespace(started.testId), "cases")} WHERE case_id = 'job-1'`.execute(
+					h.db(),
+				)
+			).rows;
+		expect(await caseRows()).toEqual([
+			{
+				properties: {
+					job_state: "completed",
+					completion_note: "Completed while cancellation was open",
+				},
+			},
+		]);
+		const synced = await advance([{ action: { kind: "sync" } }]);
+		expect(synced).toMatchObject({
+			observation: {
+				sessionId: "coordinator",
+				synced: true,
+				screen: "form",
+				recordSources: { openForm: "retained-entry-snapshot" },
+				questions: expect.arrayContaining([
+					expect.objectContaining({
+						path: "status_at_entry",
+						value: "pending",
+					}),
+					expect.objectContaining({
+						path: "note",
+						value: "Retained coordinator answer",
+					}),
+					expect.objectContaining({ path: "pending_jobs", repeatCount: 1 }),
+					expect.objectContaining({
+						path: "pending_jobs[0]/job_id",
+						value: "job-1",
+					}),
+				]),
+			},
+		});
+		const submitInput = {
+			testId: current.testId,
+			expectedStep: current.step,
+			actions: [{ action: { kind: "submit" }, expect: { submitted: true } }],
+		};
+		const submitted = await call(
+			"continueAppTest",
+			submitInput,
+			"held-form-submission",
+		);
+		current = stepSchema.parse(submitted);
+		expect(submitted).toMatchObject({
+			observation: {
+				sessionId: "coordinator",
+				savedInTest: true,
+				evidence: {
+					caseTransaction: "committed",
+					serializedSubmission: "not-observed",
+				},
+			},
+		});
+		expect(await caseRows()).toEqual([
+			{
+				properties: {
+					job_state: guarded ? "completed" : "cancelled",
+					completion_note: "Completed while cancellation was open",
+					cancellation_note: "Retained coordinator answer",
+				},
+			},
+		]);
+		expect(
+			await call("continueAppTest", submitInput, "held-form-submission"),
+		).toEqual(submitted);
+		const badFinish = await advance([
+			{ sessionId: "missing", action: { kind: "finish" } },
+		]);
+		expect(badFinish).toMatchObject({
+			observation: { completed: false, sessionId: "missing" },
+			stopped: { index: 0 },
+		});
+		expect(await caseRows()).toHaveLength(1);
+		await advance([{ action: { kind: "finish" } }]);
+		expect(
+			(
+				await sql`SELECT 1 FROM pg_namespace WHERE nspname = ${appTestNamespace(started.testId)}`.execute(
+					h.db(),
+				)
+			).rows,
+		).toEqual([]);
+		expect(
+			(
+				await sql`SELECT 1 FROM public.cases WHERE app_id = ${scope.appId}`.execute(
+					h.db(),
+				)
+			).rows,
+		).toEqual([]);
+		const evidence = await readAppTestSteps({
+			...scope,
+			testId: started.testId,
+			limit: 20,
+		});
+		expect(
+			evidence.steps.filter((step) => step.action?.sessionId === "worker"),
+		).toHaveLength(6);
+	},
+);
+
+it("refuses duplicate session IDs and invented Preview identities before retaining a test namespace", async () => {
+	const doc = sectionEntryDoc();
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const sessions of [
+		[{ id: "same" }, { id: "same" }],
+		[{ id: "worker", personaUuid: "Invented worker" }],
+	]) {
+		await expect(
+			startAppTest(scope, {
+				requestId: "invalid-start",
+				expectedBlueprintSeq: 0,
+				input: { purpose: "Refuse unavailable sessions", sessions },
+			}),
+		).rejects.toThrow();
+	}
+	expect(
+		await h.db().selectFrom("app_test_sessions").select("id").execute(),
+	).toEqual([]);
+	expect(
+		(
+			await sql`SELECT 1 FROM pg_namespace WHERE nspname LIKE 'nova_app_test_%'`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+});
+
+it("keeps saved identities, language, pages and answers local to four retained sessions", {
+	timeout: 15_000,
+}, async () => {
+	const author = makeAuthoringHarness({}, sectionEntryDoc());
+	expect(
+		await author.call("addLanguage", { language: { language: "spa" } }),
+	).not.toHaveProperty("error");
+	expect(
+		await author.call("addPersonas", {
+			personas: [{ name: "Alice" }, { name: "Bob" }],
+		}),
+	).not.toHaveProperty("error");
+	const doc = author.currentDoc();
+	const alice = Object.values(doc.personas ?? {}).find(
+		(persona) => persona.name === "Alice",
+	);
+	const bob = Object.values(doc.personas ?? {}).find(
+		(persona) => persona.name === "Bob",
+	);
+	if (!alice || !bob) throw new Error("Missing saved workers.");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Retain separate worker forms and settings",
+			sessions: [
+				{ id: "first", personaUuid: "Alice" },
+				{ id: "second", personaUuid: "Bob", language: { language: "spa" } },
+				{ id: "third" },
+				{ id: "fourth", personaUuid: alice.uuid },
+			],
+		}),
+	);
+	expect(current.observation).toMatchObject({
+		worker: { personaUuid: alice.uuid, name: "Alice" },
+		sessions: [
+			{ id: "first", personaUuid: alice.uuid },
+			{ id: "second", personaUuid: bob.uuid },
+			{ id: "third", personaUuid: null },
+			{ id: "fourth", personaUuid: alice.uuid },
+		],
+	});
+	let request = 0;
+	const advance = async (actions: unknown[]) => {
+		current = stepSchema.parse(
+			await call(
+				"continueAppTest",
+				{ testId: current.testId, expectedStep: current.step, actions },
+				`workers-${++request}`,
+			),
+		);
+		return current.observation;
+	};
+	await advance([
+		{ action: { kind: "menu", moduleUuid: "Visits" } },
+		{ action: { kind: "form", formUuid: "Inspect" } },
+		{
+			action: {
+				kind: "answer",
+				answers: [{ path: "first/zone", value: "north" }],
+			},
+		},
+		{ sessionId: "second", action: { kind: "menu", moduleUuid: "Visits" } },
+		{ sessionId: "second", action: { kind: "form", formUuid: "Inspect" } },
+		{
+			sessionId: "second",
+			action: {
+				kind: "answer",
+				answers: [{ path: "first/zone", value: "south" }],
+			},
+		},
+		{ sessionId: "second", action: { kind: "pageNext" } },
+	]);
+	expect(current.observation).toMatchObject({
+		sessionId: "second",
+		worker: { personaUuid: bob.uuid },
+		language: { selected: { language: "spa" } },
+		pageNavigation: { canNext: false, canPrevious: true },
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "second/rounds[0]/assets[0]/note",
+				value: "tank",
+			}),
+		]),
+	});
+	expect(await advance([{ action: { kind: "observe" } }])).toMatchObject({
+		sessionId: "first",
+		worker: { personaUuid: alice.uuid },
+		language: { selected: { language: "eng" } },
+		pageNavigation: { canNext: true, canPrevious: false },
+		questions: expect.arrayContaining([
+			expect.objectContaining({ path: "first/zone", value: "north" }),
+		]),
+	});
+	await advance([
+		{
+			sessionId: "second",
+			action: { kind: "language", language: { language: "eng" } },
+		},
+		{ sessionId: "second", action: { kind: "identity", personaUuid: null } },
+		{ sessionId: "third", action: { kind: "menu", moduleUuid: "Visits" } },
+		{ action: { kind: "observe" } },
+	]);
+	expect(current.observation).toMatchObject({
+		sessionId: "first",
+		worker: { personaUuid: alice.uuid },
+		screen: "form",
+		sessions: [
+			{ id: "first", personaUuid: alice.uuid, screen: "form" },
+			{ id: "second", personaUuid: null, screen: "home" },
+			{ id: "third", screen: "menu" },
+			{ id: "fourth", personaUuid: alice.uuid, screen: "home" },
+		],
+		questions: expect.arrayContaining([
+			expect.objectContaining({ path: "first/zone", value: "north" }),
+		]),
+	});
+	await advance([{ sessionId: "fourth", action: { kind: "finish" } }]);
+	expect(current.observation).toEqual({ ended: true, sessionId: "fourth" });
+	expect(
+		(
+			await sql`SELECT 1 FROM pg_namespace WHERE nspname = ${appTestNamespace(current.testId)}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
 });
