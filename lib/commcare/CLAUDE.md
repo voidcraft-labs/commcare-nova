@@ -324,11 +324,24 @@ Form-wide hashtag metadata rides HEAD elements after `</model>` — `<vellum:has
 
 ### Bare hashtags in prose
 
-Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to `<output>`, while hashtag-looking text remains literal. `lib/domain/hashtagSegments.ts` still owns the friendly projection's segment vocabulary for editor chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps that projection in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens.
+Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` still owns the friendly projection's segment vocabulary for editor chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps that projection in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens.
 
 ### Markdown itext
 
 All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. Safe for plain text: identical rendering when no markdown syntax is present.
+
+`xform/builder.ts::buildLabelNodes` emits a decoded text run consisting only of
+code units <= U+0020 as a literal `<output value="'...'"/>`, with no Vellum
+shadow. Core's `XFormParser::getXMLDocument` drops text nodes whose Java
+`String.trim()` result is empty before `getLabel` substitutes output fragments;
+literal outputs preserve separators between adjacent references, including
+paragraph breaks, in both text variants. Non-whitespace runs retain their text
+nodes and XML decoding, and Unicode spacing such as NBSP stays text rather
+than being classified by JavaScript's broader `trim()`. The shared admitted
+prose fixture runs through local CCZ, HQ source and HQ regeneration, and
+`XmlTextRuntimeTest` reads exact plain and Markdown prompts after changing an
+answer and switching languages. This proves Core text values, not Android or
+browser typography.
 
 ### Secondary instances
 

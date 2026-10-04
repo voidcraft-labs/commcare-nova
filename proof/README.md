@@ -1370,6 +1370,18 @@ return; the profile carries the app's name. `XmlTextRuntimeTest` then
 initializes both forms in Core, asserts that default and reads the prompt with
 accents, combining marks, non-Latin scripts, emoji and C1 characters.
 
+That admitted document also contains adjacent reference outputs separated by
+paragraph breaks, spaces, tabs and carriage returns, plus boundary whitespace,
+Unicode spacing and escaped literal markup. The same fixture feeds ordinary
+exported-structure tests and the proof corpus. HQ source, local CCZ and
+HQ-regenerated XML must retain literal separator outputs without converting
+Unicode spacing or markup into outputs. Core reads exact plain and Markdown
+labels, hints, help and option text with one and three meals in English and
+Spanish. Validation-message separators are checked in the XML artifacts;
+Core's legacy `jr:constraintMsg` getter returns the itext template without
+output substitution, so that getter cannot prove a rendered message. These
+are native text-value checks, not browser or Android typography checks.
+
 #### Case tiles (`tile`)
 
 Eight admitted documents cover row and tile layouts, visible borders and

@@ -79,6 +79,7 @@ import {
 	noMatchesWireFixture,
 	noMatchesWireScenarios,
 } from "@/lib/commcare/__tests__/noMatchesWireFixture";
+import { proseWhitespaceFixture } from "@/lib/commcare/__tests__/proseWhitespaceFixture";
 import {
 	relationInstanceFixture,
 	relationInstanceScenarios,
@@ -225,33 +226,10 @@ function readBackSnapshot(
 }
 
 /**
- * The XML family's one admitted document (`emit-xml-evidence.ts`, scenario
- * `unicode`): the producer builds it inline rather than from a fixture
- * module, so it is built here from the same spec.
+ * The XML family's admitted Unicode and reference-separated prose document.
  */
 function xmlUnicodeDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Café 雪 😀",
-		modules: [
-			{
-				name: "Surveys",
-				forms: [
-					{
-						name: "Interview",
-						type: "survey",
-						fields: [
-							f({
-								kind: "text",
-								id: "answer",
-								label: proseText("é é العربية 汉字 😀 \u007f\u0085\u009f"),
-								default_value: xp("'A\tB\nC\rD'"),
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
+	return proseWhitespaceFixture();
 }
 
 /**

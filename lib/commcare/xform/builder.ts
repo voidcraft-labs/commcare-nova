@@ -128,6 +128,13 @@ import {
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
 
+function isJavaTrimEmpty(value: string): boolean {
+	for (let index = 0; index < value.length; index++) {
+		if (value.charCodeAt(index) > 0x20) return false;
+	}
+	return true;
+}
+
 /**
  * Build the ordered itext-value node list for one typed prose template, letting
  * `serializeXml` (at final assembly) own ALL escaping.
@@ -137,16 +144,20 @@ import {
  *
  * Instead we CONSTRUCT a DOM directly and never parse the label as markup:
  *
- *   - Prose runs become a `Text` node
+ *   - Non-whitespace prose runs become a `Text` node
  *     whose data is `decodeXML(run)`. Decoding normalizes any pre-escaped
  *     entity the author may have typed (the historical `&lt;` workaround → `<`)
  *     so the serializer re-escapes it exactly once — `&lt;`, never the
  *     double-escaped `&amp;lt;` that would show a literal `&lt;` on device.
+ *   - Whitespace-only runs become literal `<output value="'...'">` nodes.
+ *     Core's `XFormParser.getXMLDocument` discards text nodes whose Java
+ *     `String.trim()` result is empty before it parses label outputs. A
+ *     literal output preserves those separators, including paragraph breaks.
+ *     Only code units at or below U+0020 qualify; Unicode spacing stays text.
  *   - Each typed reference atom becomes a constructed self-closing `<output>`
  *     element: `value` holds the expanded instance XPath, and the parallel
  *     `vellum:value` holds the original shorthand — but only when expansion
  *     changed the string (a non-expanding ref needs no round-trip shadow).
- *     This is the only source of `<output>` elements in prose.
  *
  * Author-written `<output ...>` markup or hashtag-looking literal text is
  * deliberately not recognized. Both serialize as ordinary escaped text.
@@ -166,7 +177,15 @@ function buildLabelNodes(
 	const nodes: ChildNode[] = [];
 	for (const part of template.parts) {
 		if (part.kind === "text") {
-			nodes.push(text(decodeXML(part.text)));
+			const literal = decodeXML(part.text);
+			// Java String.trim(), unlike JavaScript trim(), removes only <= U+0020.
+			// Such a run cannot contain a quote, so its XPath literal needs no
+			// quoting transform. The XML serializer still owns attribute escaping.
+			nodes.push(
+				isJavaTrimEmpty(literal)
+					? el("output", { value: `'${literal}'` })
+					: text(literal),
+			);
 			continue;
 		}
 		const original = printProseTemplate({ parts: [part] }, doc);

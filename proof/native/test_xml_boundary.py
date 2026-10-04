@@ -8,8 +8,10 @@ import refuses to parse each pre-fix source Nova's audit found
 (``before-audit-*``) and parses the Unicode scenario; and in HQ's parse and
 the CCZ form alike the label reads its exact decoded text and the default
 keeps its tab, newline and carriage return (``'A\\tB\\nC\\rD'``), while the
-profile carries the app's name. ``XmlTextRuntimeTest`` then reads both forms'
-text in Core. The plausible failures: a character Nova's gate admits that
+profile carries the app's name. Reference-separated prose retains whitespace
+literal outputs through both the local and HQ-regenerated forms in each
+language and text variant. ``XmlTextRuntimeTest`` then reads exact substituted
+plain and Markdown prompts in Core. The plausible failures: a character Nova's gate admits that
 libxml refuses (or the reverse), a pre-fix source HQ starts to accept, and
 whitespace or text HQ's parse changes. DTDs and XML 1.1 are Nova policy, not
 malformedness, so the corpus's ``policyOnly`` cases are not claimed here.
@@ -68,9 +70,10 @@ def test_hq_refuses_the_pre_fix_sources_and_reads_novas_text_exactly(native):
         if accepted:
             local = etree.fromstring((exports / f"{scenario['name']}.xml").read_bytes())
             profile = etree.fromstring((exports / f"{scenario['name']}.ccpr").read_bytes())
-            for artifact in [etree.fromstring(record["source"]), local]:
+            regenerated = etree.fromstring((exports / f"{scenario['name']}.hq.xml").read_bytes())
+            for artifact in [etree.fromstring(record["source"]), local, regenerated]:
                 labels = artifact.xpath(
-                    '//x:itext/x:translation/x:text[@id="answer-label"]/x:value[not(@form)]/text()',
+                    '//x:itext/x:translation[@lang="en"]/x:text[@id="answer-label"]/x:value[not(@form)]/text()',
                     namespaces=NAMESPACES,
                 )
                 assert labels == [scenario["text"]], labels
@@ -97,4 +100,54 @@ def test_hq_refuses_the_pre_fix_sources_and_reads_novas_text_exactly(native):
             "and decoded text from actual CCZ artifacts. No database writes, remote calls, HQ build or Android "
             "installation. DTD and XML 1.1 refusal is Nova policy, excluded from native malformedness claims.",
         },
+    )
+
+
+def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_or_markup(native):
+    exports = native.family("xml")
+    record = next(record for record in native.step("xml") if record["scenario"]["name"] == "unicode")
+    separators = {
+        "delivery_context-label": ["/data/meals", "'\n\n'", "/data/address"],
+        "space-label": ["/data/meals", "' '", "/data/address"],
+        "xml_whitespace-label": ["/data/meals", "'\t \r\n'", "/data/address"],
+        "edge_whitespace-label": ["' \t'", "/data/meals", "'\n '", "/data/address", "'\t '"],
+        "checked-hint": ["/data/meals", "'\n\n'", "/data/address"],
+        "checked-help": ["/data/meals", "' '", "/data/address"],
+        "checked-constraintMsg": ["/data/meals", "'\t'", "/data/address"],
+        "choose-opt0-label": ["/data/meals", "'\n\n'", "/data/address"],
+    }
+    artifacts = {
+        "hq-source": record["source"],
+        "local": (exports / "unicode.xml").read_bytes(),
+        "hq-regenerated": (exports / "unicode.hq.xml").read_bytes(),
+    }
+    for path, data in artifacts.items():
+        root = etree.fromstring(data)
+        translations = root.xpath("//x:itext/x:translation", namespaces=NAMESPACES)
+        assert [translation.attrib["lang"] for translation in translations] == ["en", "es"], path
+        for translation in translations:
+            for text_id, expected in separators.items():
+                values = translation.xpath("x:text[@id=$id]/x:value", id=text_id, namespaces=NAMESPACES)
+                assert [value.attrib.get("form") for value in values] == [None, "markdown"], (path, text_id)
+                for value in values:
+                    outputs = value.xpath("x:output/@value", namespaces=NAMESPACES)
+                    assert outputs == expected, (path, text_id, outputs)
+                    assert len(value) == len(expected), (path, text_id)
+                    prefix = ""
+                    if text_id == "delivery_context-label":
+                        prefix = "Comidas: " if translation.attrib["lang"] == "es" else "Meals: "
+                    assert "".join(value.itertext()) == prefix, (path, text_id)
+                    for output in value:
+                        if output.attrib["value"].startswith("'"):
+                            assert dict(output.attrib) == {"value": output.attrib["value"]}, (path, text_id)
+            for value in translation.xpath('x:text[@id="unicode_spacing-label"]/x:value', namespaces=NAMESPACES):
+                assert "".join(value.itertext()) == "\u00a0\u2003\u2028", path
+                assert value.xpath("x:output/@value", namespaces=NAMESPACES) == ["/data/meals", "/data/address"], path
+            for value in translation.xpath('x:text[@id="escaped_markup-label"]/x:value', namespaces=NAMESPACES):
+                assert len(value) == 0, path
+                assert value.text == "Literal <output value=\"'x'\"/> & #form/meals", path
+    write_evidence(
+        exports,
+        "prose-separators",
+        {"hqCommit": hq_commit(), "artifacts": {path: sha256(data) for path, data in artifacts.items()}},
     )
