@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	BuilderLocalizationProvider,
+	useBuilderLanguage,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { FormLayoutProvider } from "@/components/preview/form/FormLayoutContext";
 import {
 	__resetAttachmentCoordinatorForTests,
@@ -24,6 +27,62 @@ import { createBuilderSessionStore } from "@/lib/session/store";
 const initialization = new URLSearchParams(window.location.search).has(
 	"initialization",
 );
+const languageJourney = new URLSearchParams(window.location.search).has(
+	"language",
+);
+function languageDoc() {
+	const doc = buildDoc({
+		appId: "native-worker-language",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							{
+								kind: "group",
+								id: "visit",
+								label: "Visit details",
+								children: [
+									{
+										kind: "date",
+										id: "date",
+										label: "Visit date",
+										required: "true()",
+									},
+									{
+										kind: "datetime",
+										id: "recorded_at",
+										label: "Recorded at",
+										default_value: "'2024-01-15T14:30:00.000-05:00'",
+									},
+									{ kind: "geopoint", id: "location", label: "Visit location" },
+									{ kind: "text", id: "notes", label: "" },
+								],
+							},
+							{
+								kind: "repeat",
+								id: "visits",
+								label: "Visits",
+								repeat_mode: "user_controlled",
+								children: [{ kind: "text", id: "notes", label: "Visit note" }],
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		translations: { spa: {} },
+	};
+	return doc;
+}
 function presentationDoc() {
 	const doc = buildDoc({
 		appId: "native-worker-presentation",
@@ -249,9 +308,11 @@ const defaultDoc = admittedControllerDoc(
 				],
 			}),
 );
-const doc = new URLSearchParams(window.location.search).has("presentation")
-	? admittedControllerDoc(presentationDoc())
-	: defaultDoc;
+const doc = languageJourney
+	? admittedControllerDoc(languageDoc())
+	: new URLSearchParams(window.location.search).has("presentation")
+		? admittedControllerDoc(presentationDoc())
+		: defaultDoc;
 const moduleUuid = doc.moduleOrder[0];
 const formUuid = doc.formOrder[moduleUuid][0];
 const docStore = createBlueprintDocStore();
@@ -264,6 +325,19 @@ const session = createBuilderSessionStore({
 });
 session.getState().setPreviewing(true);
 let activeController: EngineController | undefined;
+function LanguageChoices() {
+	const { selectLanguage } = useBuilderLanguage();
+	return (
+		<>
+			<button type="button" onClick={() => selectLanguage("eng")}>
+				English
+			</button>
+			<button type="button" onClick={() => selectLanguage("spa")}>
+				Español
+			</button>
+		</>
+	);
+}
 function RunningForm() {
 	const controller = useBuilderFormEngine();
 	const [ready, setReady] = useState(false);
@@ -308,6 +382,7 @@ root.render(
 	<BlueprintDocContext value={docStore}>
 		<BuilderSessionContext value={session}>
 			<BuilderLocalizationProvider>
+				{languageJourney && <LanguageChoices />}
 				<BuilderFormEngineProvider>
 					<RunningForm />
 				</BuilderFormEngineProvider>
@@ -316,6 +391,14 @@ root.render(
 	</BlueprintDocContext>,
 );
 window.previewRepeatsAudit = {
+	answerValues() {
+		return Object.fromEntries(
+			Object.values(activeController?.store.getState() ?? {}).map((state) => [
+				state.path,
+				state.value,
+			]),
+		);
+	},
 	calculationValues() {
 		const states = activeController?.store.getState() ?? {};
 		return Object.fromEntries(
@@ -335,6 +418,7 @@ window.previewRepeatsAudit = {
 declare global {
 	interface Window {
 		previewRepeatsAudit: {
+			answerValues(): Record<string, string>;
 			calculationValues(): Record<string, string>;
 			dispose(): Promise<void>;
 		};

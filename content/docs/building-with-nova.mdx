@@ -286,6 +286,12 @@ search by name or reference path, then choose a result to insert a chip. Typing
 `#` also opens reference suggestions. The chip shows the value when the form runs
 and preserves its target when you rename or move the referenced question.
 
+Validation wording follows the same rule: typed or pasted text stays literal,
+including `${0}`, and inserted references read their answers or saved values.
+If the wording is empty or a reference points to several repeated answers, the
+form shows its standard validation warning. The answer still needs to meet
+the rule.
+
 Typing or pasting `#household/case_name` alone keeps it as literal text. To use
 it as a value, select the exact reference text, choose **Convert to reference**,
 and select the matching result. If it isn't available in this form, you can

@@ -116,11 +116,16 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
         "checked-constraintMsg": ["/data/meals", "'\t'", "/data/address"],
         "choose-opt0-label": ["/data/meals", "'\n\n'", "/data/address"],
         "unicode_spacing-label": [
-            "/data/meals", "json-property('{\"v\":\"\\u00a0\\u2003\\u2028\"}', 'v')", "/data/address"
+            "/data/meals",
+            "json-property('{\"v\":\"\\u00a0\\u2003\\u2028\"}', 'v')",
+            "/data/address",
         ],
         "consumer_spacing-label": [
             "/data/meals",
-            "json-property('{\"v\":\"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\"}', 'v')",
+            (
+                "json-property('{\"v\":\"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003"
+                "\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\"}', 'v')"
+            ),
             "/data/address",
         ],
     }
@@ -131,14 +136,40 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
     }
     for path, data in artifacts.items():
         root = etree.fromstring(data)
-        assert root.xpath('//x:alert/@ref', namespaces=NAMESPACES) == ["jr:itext('checked-constraintMsg')"], path
-        assert root.xpath('//x:bind[@nodeset="/data/checked"]/@jr:constraintMsg',
-            namespaces={**NAMESPACES, "jr": "http://openrosa.org/javarosa"}) == ["jr:itext('checked-constraintMsg')"], path
+        assert root.xpath("//x:alert/@ref", namespaces=NAMESPACES) == [], path
+        protected = root.xpath(
+            '//x:bind[@nodeset="/data/checked"]/@jr:constraintMsg',
+            namespaces={**NAMESPACES, "jr": "http://openrosa.org/javarosa"},
+        )
+        assert len(protected) == 1, path
+        assert protected[0] == (
+            "if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), "
+            "if(jr:itext('checked-constraintMsg;__nova_locale') = 'en', "
+            "if(count(/data/meals) > 1 or count(/data/address) > 1, '', "
+            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address)), "
+            "if(count(/data/meals) > 1 or count(/data/address) > 1, '', "
+            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address))))"
+        ), (path, protected)
+        for field_id in ("checked", "literal_checked", "reference_checked"):
+            carrier_path = f"/data/nova_constraint_message_{field_id}"
+            owner = root.xpath("//x:bind[@nodeset=$path]", path=carrier_path, namespaces=NAMESPACES)
+            assert len(owner) == 1, (path, carrier_path)
+            assert dict(owner[0].attrib) == {
+                "nodeset": carrier_path,
+                "type": "xsd:string",
+                "relevant": "false()",
+                "readonly": "true()",
+            }, path
+            assert root.xpath("//x:input[@ref=$path]/x:label/@ref", path=carrier_path, namespaces=NAMESPACES) == [
+                f"jr:itext('{field_id}-constraintMsg')"
+            ], path
         translations = root.xpath("//x:itext/x:translation", namespaces=NAMESPACES)
         assert [translation.attrib["lang"] for translation in translations] == ["en", "es"], path
         for translation in translations:
             for text_id, expected in separators.items():
-                values = translation.xpath("x:text[@id=$id]/x:value", id=text_id, namespaces=NAMESPACES)
+                values = translation.xpath(
+                    "x:text[@id=$id]/x:value[not(@form) or @form='markdown']", id=text_id, namespaces=NAMESPACES
+                )
                 assert [value.attrib.get("form") for value in values] == [None, "markdown"], (path, text_id)
                 for value in values:
                     outputs = value.xpath("x:output/@value", namespaces=NAMESPACES)

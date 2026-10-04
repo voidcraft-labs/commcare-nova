@@ -26,12 +26,21 @@ describe("exported prose whitespace", () => {
 			const root = readXmlEvidence(xml);
 			expect(
 				descendants(root, "alert").map((alert) => alert.attributes),
-			).toEqual([{ ref: "jr:itext('checked-constraintMsg')" }]);
+			).toEqual([]);
 			expect(
 				descendants(root, "bind").find(
 					(bind) => bind.attributes.nodeset === "/data/checked",
 				)?.attributes["jr:constraintMsg"],
-			).toBe("jr:itext('checked-constraintMsg')");
+			).toContain("/data/meals");
+			expect(
+				descendants(root, "input")
+					.find(
+						(control) =>
+							control.attributes.ref ===
+							"/data/nova_constraint_message_checked",
+					)
+					?.children.map((child) => child.attributes),
+			).toEqual([{ ref: "jr:itext('checked-constraintMsg')" }]);
 			const translations = descendants(root, "translation");
 			expect(translations.map((entry) => entry.attributes.lang)).toEqual([
 				"en",
@@ -76,11 +85,14 @@ describe("exported prose whitespace", () => {
 					const entry = onlyXml(
 						translation.children.filter((node) => node.attributes.id === id),
 					);
-					expect(entry.children.map((value) => value.attributes.form)).toEqual([
+					const standardValues = entry.children.filter(
+						(value) => !value.attributes.form?.startsWith("__nova_"),
+					);
+					expect(standardValues.map((value) => value.attributes.form)).toEqual([
 						undefined,
 						"markdown",
 					]);
-					for (const value of entry.children) {
+					for (const value of standardValues) {
 						expect(value.children.map((output) => output.name)).toEqual(
 							values.map(() => "output"),
 						);

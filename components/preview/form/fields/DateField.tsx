@@ -1,5 +1,6 @@
 "use client";
-import { DatePicker } from "@/components/shadcn/date-picker";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { TimeField as ClockTimeField } from "@/components/shadcn/time-field";
 import type {
 	DateField as DateFieldEntity,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/domain/temporalValues";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
 
@@ -105,6 +107,7 @@ export function DateField({
 	onChange,
 	onBlur,
 }: DateFieldProps) {
+	const { language } = useBuilderLanguage();
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
 	const errorSlot = showError && state.errorMessage && (
@@ -119,7 +122,7 @@ export function DateField({
 	if (field.kind === "date") {
 		return (
 			<div>
-				<DatePicker
+				<WorkerDatePicker
 					value={stored}
 					onValueChange={(next) => {
 						onChange(next);
@@ -208,14 +211,14 @@ export function DateField({
 				aria-labelledby={labelledBy}
 				className="flex min-w-0 flex-wrap gap-2"
 			>
-				<DatePicker
+				<WorkerDatePicker
 					value={datePart}
 					onValueChange={(next) => {
 						commit(next, timePart);
 						onBlur();
 					}}
 					onBlur={onBlur}
-					aria-label="Date"
+					aria-label={runtimeMessage(language, "dateLabel")}
 					aria-invalid={showError || undefined}
 					className={`min-w-0 flex-1 ${PV_TRIGGER}`}
 				/>
@@ -233,7 +236,7 @@ export function DateField({
 						commit(datePart, text);
 						onBlur();
 					}}
-					aria-label="Time"
+					aria-label={runtimeMessage(language, "timeLabel")}
 					aria-invalid={showError || undefined}
 					className={PV_INPUT}
 				/>

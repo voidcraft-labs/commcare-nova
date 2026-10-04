@@ -340,10 +340,40 @@ replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
 that protected spelling too. Other prose retains its decoded text nodes.
 The character classifier mirrors these consumers, not JavaScript `trim()`.
 
-Validation messages emit both the compatible bind `jr:constraintMsg` reference
-and a body `<alert>` referencing the same registered itext entry. Core fills
-the alert's output template; the bind fallback alone returns raw placeholders.
-The shared entry gate covers text, media-only content and media-off exports.
+Plain literal validation messages emit the compatible bind `jr:constraintMsg`
+reference and a body `<alert>` pointing at the same itext entry. Empty and
+media-only messages retain that path and its shared entry gate.
+
+If any effective locale has a typed reference or decoded `${` literal,
+`xform/constraintMessage.ts` instead composes the raw constraint expression.
+Core's alert template filler would substitute marker-like authored or returned
+data. ASCII JSON literal forms under the original itext id preserve exact
+characters through HQ and Vellum. Typed values reuse the existing identity
+projection, form-context expansion and JavaRosa lowering. One reference stays
+a direct term; `concat(singleNodeset)` would silently join multiple nodes.
+Internal locale/mode forms select the effective wording; media modes delegate
+to the unchanged standard itext/media forms.
+Each protected group carries its base id in an inert `__nova_identity` form
+in every locale, preventing HQ from merging equal groups while leaving the
+suffix-based internal references pointed at a removed id.
+
+An irrelevant, readonly sibling input owns the original itext id without an
+alert on the real question. It carries no value source or case action, is
+excluded from native traversal and normal submission, and retains media
+ownership through HQ and Vellum. Its letter-leading name reserves all authored
+siblings (including later ones), earlier allocations and root Connect ids in
+the actual group/repeat item scope. Count's `nova_count_` and the reserved
+`__nova_` URL/datetime/constraint-collection prefixes are disjoint. These are
+wire artifacts only; the blueprint and its authored identities do not change.
+
+Core catches raw-message evaluation failures and returns expression text.
+Plain/Markdown composition therefore checks each typed reference's actual
+nodeset count first. A count above one returns no custom wording, so the native
+client shows its existing localized validation warning, while zero/singleton
+references retain normal scalar coercion. The answer is still rejected and no
+row is selected or joined. A completely empty resolved message also uses that
+warning. This deliberately improves old exception/empty behavior rather than
+claiming identical error handling; media remains on its unchanged branch.
 The admitted fixture runs through local CCZ, HQ source and HQ regeneration;
 the ordinary proof also builds it through HQ and saves it twice through Vellum.
 `XmlTextRuntimeTest` reads exact plain and Markdown prompts and validation

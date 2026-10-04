@@ -46,9 +46,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { choiceKeysForAnswer } from "@/components/preview/shared/multiSelectChoiceKeys";
+import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { Button } from "@/components/shadcn/button";
-import { DatePicker } from "@/components/shadcn/date-picker";
 import {
 	Dialog,
 	DialogBody,
@@ -95,6 +96,7 @@ import {
 	searchInputRequiredMarks,
 	searchInputRequiredMarksOnDevice,
 } from "@/lib/preview/engine/searchInputConstraints";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	LookupChoicesEmpty,
 	LookupChoicesLoading,
@@ -675,6 +677,7 @@ function PromptLabelText({
 	label,
 	required,
 }: Pick<PromptChrome, "label" | "required">) {
+	const { language } = useBuilderLanguage();
 	return (
 		<>
 			{label}
@@ -683,7 +686,10 @@ function PromptLabelText({
 					<span aria-hidden="true" className="shrink-0 text-xs text-nova-rose">
 						*
 					</span>
-					<span className="sr-only"> Required.</span>
+					<span className="sr-only">
+						{" "}
+						{runtimeMessage(language, "requiredLabel")}
+					</span>
 				</>
 			) : null}
 		</>
@@ -1450,7 +1456,7 @@ function DatePopoverField({
 				<PromptLabelText label={label} required={required} />
 			</FieldLabel>
 			<PromptHint id={hintId} hint={hint} />
-			<DatePicker
+			<WorkerDatePicker
 				id={id}
 				value={value}
 				onValueChange={onChange}

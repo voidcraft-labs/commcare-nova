@@ -385,6 +385,22 @@ always produce text, and the `#` suggestion menu is the one path that inserts
 a reference), and a value that does not survive the template ⇄ editor round
 trip is a validator finding rather than an assumption.
 
+Constraint wording uses the same typed prose identity. At the CommCare boundary,
+messages containing a typed reference or decoded `${` literal compose their
+text through a raw constraint expression, so Core's alert filler cannot replace
+marker-like authored text or referenced data. Standard itext and media retain
+an irrelevant, readonly sibling owner in the question's actual scope; that
+owner adds no authored field, visible question, normal submitted answer or
+case write. Plain literal and media-only messages keep the ordinary alert path.
+Normal scalar coercion remains intact without joining a single nodeset. The
+plain/Markdown branch counts each typed reference before coercion; if any
+reference names several answers, it supplies no custom wording and the native
+client shows its existing localized validation warning. A completely empty
+resolved message uses the same warning. These are deliberate improvements to
+old exception/empty behavior, not identical error handling. Validation still
+rejects the answer, chooses no repeated row, and leaves authored answers and
+the original media branch unchanged.
+
 Search-input references are identity too: Predicate and ValueExpression store
 `{ kind: "input", searchInputUuid }` (`lib/domain/predicate/types.ts`),
 resolved to the input's current saved wire name only at projection. Which

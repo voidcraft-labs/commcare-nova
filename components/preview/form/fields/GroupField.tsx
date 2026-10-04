@@ -28,11 +28,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback, useId } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
+import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -55,6 +58,7 @@ interface GroupFieldProps {
 	depth: number;
 	/** Stable identities of every enclosing repeat instance. */
 	instanceScopeKey: string;
+	repeatInstances: readonly RepeatInstanceIdentity[];
 	accessibleContext: string;
 	position: number;
 }
@@ -74,9 +78,11 @@ export function GroupField({
 	fieldPath,
 	depth,
 	instanceScopeKey,
+	repeatInstances,
 	accessibleContext,
 	position,
 }: GroupFieldProps) {
+	const { language } = useBuilderLanguage();
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
 	// the engine state for resolved label/hint rendering: path-keyed so
@@ -91,7 +97,7 @@ export function GroupField({
 
 	// Subscribe to children presence: drives the empty-state placeholder
 	// block when the group has no template children yet.
-	const hasChildren = useHasFieldsInForm(field.uuid);
+	const hasChildren = usePresentationHasFields(field.uuid);
 
 	const onToggle = useCallback(() => {
 		toggleCollapse(field.uuid);
@@ -125,7 +131,7 @@ export function GroupField({
 								.join(" ")}
 						>
 							<span id={toggleActionId} className="sr-only">
-								{collapsed ? "Expand" : "Collapse"}
+								{runtimeMessage(language, collapsed ? "expand" : "collapse")}
 							</span>
 							<Icon
 								icon={collapsed ? tablerChevronRight : tablerChevronDown}
@@ -135,7 +141,9 @@ export function GroupField({
 							/>
 						</button>
 						<div id={headerId} className="min-w-0 flex-1">
-							<span className="sr-only">Section {position}. </span>
+							<span className="sr-only">
+								{runtimeMessage(language, "sectionPosition", { position })}{" "}
+							</span>
 							{field.label ? (
 								/* `px-[5px] py-[5px]` matches TextEditable's
 								 *  idle/read-only wrapper in edit mode: without
@@ -152,7 +160,7 @@ export function GroupField({
 								</div>
 							) : (
 								<span className="text-xs italic text-nova-text-muted">
-									Untitled group
+									{runtimeMessage(language, "untitledGroup")}
 								</span>
 							)}
 						</div>
@@ -185,6 +193,7 @@ export function GroupField({
 								parentPath={fieldPath}
 								depth={depth + 1}
 								instanceScopeKey={instanceScopeKey}
+								repeatInstances={repeatInstances}
 								accessibleContext={childContext}
 							/>
 						) : (

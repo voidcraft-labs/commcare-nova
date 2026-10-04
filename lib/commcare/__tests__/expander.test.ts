@@ -2271,11 +2271,9 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("declares the casedb instance for a per-type ref whose ONLY home is a validate_msg", () => {
-		// `validate_msg` is lowered by `buildLabelNodes` just like `label`/`hint`,
-		// so a reachable `#mother/...` ref there must force the `casedb` `<instance>`
-		// even when the field has no case-ref calculate/relevant. Driving the prose
-		// instance scan from `addItext` (the single lowering funnel) is what makes
-		// this hold for every prose surface, not just label + hint.
+		// Both the standard prose values and protected raw message composition
+		// must register a reachable case reference, even when no other field
+		// expression reads that instance.
 		const doc = buildDoc({
 			appName: "ValidateMsgRef",
 			modules: [
@@ -2323,13 +2321,21 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		expectProse(xform, "code-constraintMsg", [
+		const parts = [
 			"Must match ",
 			{
 				element: "output",
 				attributes: { value: expandCaseToWire(1, "household_code") },
 			},
-		]);
+		];
+		expect(
+			itextValues(xform, "code-constraintMsg").filter((value) =>
+				["plain", "markdown"].includes(value.form),
+			),
+		).toEqual(["plain", "markdown"].map((form) => ({ form, parts })));
+		expect(
+			one(xform, "bind", { nodeset: "/data/code" }).attribs["jr:constraintMsg"],
+		).toContain(expandCaseToWire(1, "household_code"));
 		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
 			"jr://instance/casedb",
 		);

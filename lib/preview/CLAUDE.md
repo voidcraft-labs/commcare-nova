@@ -127,12 +127,51 @@ same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared
 value. Never defer the ownership mark until the validation Promise settles.
 
-The small `runtimeMessages.ts` platform catalog owns English/Spanish generic
-required/type/constraint fallback messages and core worker navigation. Invalid
-Submit and section Next/jump feedback both read `reviewHighlightedQuestion`
-from the selected worker language. Field widgets, record metadata, other
-accessibility labels and diagnostics remain outside this catalog; authored
-labels and custom validation continue through the app's translation projection.
+While a same-entry replacement initializes, the controller retains the last
+settled runtime publication, its naming document, path/page queries and repeat
+render identities. Runtime field, membership and tree hooks select narrowly
+from that document with field/tree equality; an unrelated edit must not
+invalidate every field. Releasing the hold selects the current document on
+the runtime publication even when no further document mutation occurs.
+The paging decision and page/step field projections read this same retained
+document, so an admitted section wrap or unwrap cannot retire controls before
+the replacement publishes its new topology.
+FormScreen keeps those controls mounted and inert until the replacement has
+reconciled document edits and can publish its complete state. Overlapping
+replacements retain the original settled presentation; they cannot restore an
+unfinished candidate checkpoint. Mutation commands refuse during that window.
+Deactivation, a different entry, explicit reset and runtime faults clear the
+retained presentation, and retired initialization cannot revive it.
+
+The `runtimeMessages.ts` platform catalog owns English/Spanish generic
+required/type/constraint fallback messages, core worker navigation, live spoken
+question/section/repeat positions and required markers, group/repeat controls,
+datetime Date/Time names, and manual GPS labels, Clear location and unavailable-map
+copy. `WorkerDatePicker` shares selected-language calendar text and accessible
+labels, placeholder and Clear across live forms and Search. The generic
+`DatePicker` keeps English authoring defaults. Its display formatter receives the
+canonical worker tag, retaining regional suffixes; DayPicker uses generic
+English/Spanish labels and week layout. A language rerender adds no answer or
+draft reset. Restored entries refresh existing invalid-state messages in the
+new presentation language without touching previously clean questions; ordinary
+input blur still commits and normalizes values. Other worker
+languages
+use English platform copy. Invalid Submit and section Next/jump feedback both
+read `reviewHighlightedQuestion` from the selected worker language. Configured
+Google Maps/Places labels and errors, clock formatting, record metadata,
+media controls, other accessibility labels and diagnostics remain outside this
+catalog; authored labels and custom validation continue through the app's
+translation projection.
+
+Custom validation wording uses the existing localized invalid-answer message
+when its resolved wording is empty or a typed reference names several live
+answers. Only the dedicated scalar-cardinality error or the worker's exact
+evaluation/nodeset-cardinality reason enters this constraint-message policy.
+Validation rules, ordinary labels/hints/help/choices, invalid paths, unsupported
+functions, cancellation and all other runtime failures retain their normal
+containment. This chooses no repeated row and joins no values; native
+plain/Markdown constraint emission applies the same precise count guard, while
+original media remains unchanged.
 
 `useFormEngine` compares case-preload maps by their type/property/value content
 before rebuilding. A list row and the later full case read may be separate Map
@@ -437,6 +476,16 @@ derivation. The preparation transaction and entry-locked store reauthorize at
 their own mutation boundaries and adjudicate the receipt before effects, so an
 exact retry after the form or capture question is deleted still replays and a
 changed digest rejects before effects.
+
+Confirmed capture completion joins the controller's readiness work, never its
+own attachment queue, before staging the answer. It resolves the current path
+from the captured field UUID/kind and each enclosing repeat's typed UUID and
+stable instance key. A removed row, changed capture kind, hidden slot, retired
+entry, canceled task or runtime fault cannot accept the answer. Ownership
+adoption runs synchronously after actual answer staging is acknowledged;
+confirmation alone is insufficient. Confirmed rows that never reach adoption
+are cleaned even when acceptance throws. Answer Clear uses this same boundary
+before releasing ownership or scheduling byte cleanup.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same stable

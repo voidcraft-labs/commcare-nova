@@ -4,7 +4,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerX from "@iconify-icons/tabler/x";
 import { format, isValid, parseISO } from "date-fns";
-import { useState } from "react";
+import { type ComponentProps, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Calendar } from "@/components/shadcn/calendar";
 import {
@@ -38,6 +38,11 @@ interface DatePickerProps {
 	/** Trigger button id: wire a `<label htmlFor>` to it. */
 	id?: string;
 	placeholder?: string;
+	/** Calendar text and accessible labels. Omitted for English authoring. */
+	locale?: ComponentProps<typeof Calendar>["locale"];
+	/** Intl locale for the selected date's display; value remains ISO. */
+	formatLocale?: string;
+	clearLabel?: string;
 	disabled?: boolean;
 	/** Show the Clear footer while a date is selected (default true). */
 	clearable?: boolean;
@@ -80,6 +85,9 @@ function DatePicker({
 	onValueChange,
 	id,
 	placeholder = "Pick a date",
+	locale,
+	formatLocale,
+	clearLabel = "Clear",
 	disabled,
 	clearable = true,
 	onBlur,
@@ -91,6 +99,17 @@ function DatePicker({
 }: DatePickerProps) {
 	const parsed = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
 	const selected = parsed !== undefined && isValid(parsed) ? parsed : undefined;
+	const readableDateFormatter = useMemo(
+		() =>
+			formatLocale === undefined
+				? READABLE_DATE_FORMATTER
+				: new Intl.DateTimeFormat(formatLocale, {
+						day: "numeric",
+						month: "long",
+						year: "numeric",
+					}),
+		[formatLocale],
+	);
 	// `open` is lifted into local state so a day-pick or Clear can close the
 	// popover programmatically. Base UI's Popover dismisses on outside-press /
 	// escape / close-press / focus-out only: none fire when a descendant
@@ -125,7 +144,7 @@ function DatePicker({
 				<span className="min-w-0 break-words">
 					{selected === undefined
 						? placeholder
-						: READABLE_DATE_FORMATTER.format(selected)}
+						: readableDateFormatter.format(selected)}
 				</span>
 				<Icon
 					icon={tablerCalendar}
@@ -140,6 +159,7 @@ function DatePicker({
 			>
 				<Calendar
 					mode="single"
+					locale={locale}
 					selected={selected}
 					onSelect={(next) => {
 						onValueChange(
@@ -160,7 +180,7 @@ function DatePicker({
 							}}
 						>
 							<Icon icon={tablerX} aria-hidden="true" />
-							Clear
+							{clearLabel}
 						</Button>
 					</div>
 				)}

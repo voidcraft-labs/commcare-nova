@@ -4,7 +4,6 @@ import { useContext } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
-import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -16,7 +15,7 @@ import {
 } from "@/lib/domain";
 import type { RuntimeStoreState } from "../engine/engineController";
 import { DEFAULT_RUNTIME_STATE } from "../engine/engineController";
-import { buildFieldTree } from "../engine/fieldTree";
+import { buildFieldTree, type FieldTreeNode } from "../engine/fieldTree";
 import {
 	type FormPresentationSource,
 	fieldHasWorkerPresentation,
@@ -24,6 +23,7 @@ import {
 	visibleRepeatInstances,
 } from "../engine/formPresentation";
 import { useEngineController } from "./useEngineController";
+import { usePresentationSelector } from "./usePresentationDocument";
 
 // Document snapshots are immutable. Sibling/instance selectors share one
 // language projection per snapshot instead of rebuilding its translation
@@ -31,6 +31,10 @@ import { useEngineController } from "./useEngineController";
 const localizedFieldsByDoc = new WeakMap<
 	BlueprintDoc,
 	Map<LanguageTag, Record<string, Field>>
+>();
+const fieldTreesByDoc = new WeakMap<
+	BlueprintDoc,
+	Map<LanguageTag | null, Map<Uuid, FieldTreeNode[]>>
 >();
 
 function presentationFields(doc: BlueprintDoc, language: LanguageTag | null) {
@@ -48,10 +52,6 @@ function presentationFields(doc: BlueprintDoc, language: LanguageTag | null) {
 	return fields;
 }
 
-function samePresentationField(left: Field, right: Field) {
-	return left === right || JSON.stringify(left) === JSON.stringify(right);
-}
-
 function presentationSource(state: RuntimeStoreState): FormPresentationSource {
 	return {
 		stateAt: (field, path) =>
@@ -59,16 +59,56 @@ function presentationSource(state: RuntimeStoreState): FormPresentationSource {
 	};
 }
 
+function samePresentationField(
+	left: Field | undefined,
+	right: Field | undefined,
+) {
+	return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
+
+function presentationTree(
+	doc: BlueprintDoc,
+	language: LanguageTag | null,
+	parentUuid: Uuid,
+) {
+	const resolved =
+		language === null ? null : resolveAppLanguage(doc.localization, language);
+	let byLanguage = fieldTreesByDoc.get(doc);
+	if (byLanguage === undefined) {
+		byLanguage = new Map();
+		fieldTreesByDoc.set(doc, byLanguage);
+	}
+	let byParent = byLanguage.get(resolved);
+	if (byParent === undefined) {
+		byParent = new Map();
+		byLanguage.set(resolved, byParent);
+	}
+	let tree = byParent.get(parentUuid);
+	if (tree === undefined) {
+		tree = buildFieldTree(
+			parentUuid,
+			presentationFields(doc, resolved),
+			doc.fieldOrder,
+		);
+		byParent.set(parentUuid, tree);
+	}
+	return tree;
+}
+
 function useFieldTree(parentUuid: Uuid) {
 	const language = useContext(BlueprintAuthoringLanguageContext);
-	return useBlueprintDocEq(
-		(doc) =>
-			buildFieldTree(
-				parentUuid,
-				presentationFields(doc, language),
-				doc.fieldOrder,
-			),
+	return usePresentationSelector(
+		(doc) => presentationTree(doc, language, parentUuid),
 		(left, right) => fieldTreesEqual(left, right, samePresentationField),
+	);
+}
+
+/** Field IDs and prose come from the document owning the published runtime. */
+export function usePresentationField(uuid: Uuid): Field | undefined {
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return usePresentationSelector(
+		(doc) => presentationFields(doc, language)[uuid],
+		samePresentationField,
 	);
 }
 

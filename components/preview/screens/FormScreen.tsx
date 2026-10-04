@@ -33,7 +33,6 @@ import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
-import { useFormIsSectioned } from "@/lib/doc/hooks/useFormSections";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import {
@@ -101,6 +100,10 @@ import {
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import {
+	usePresentationFormIsSectioned,
+	usePresentationHasFields,
+} from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
@@ -478,6 +481,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
 	const hasFields = useHasFieldsInForm(formUuid);
+	const presentationHasFields = usePresentationHasFields(formUuid);
 
 	/* Direct preview of a case-loading form with no case in hand (jumped here
 	 * from the structure tree, not walked through the case list): auto-bind
@@ -687,7 +691,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		engineEntry.formUuid === formUuid &&
 		engineEntry.ready &&
 		entryKey !== undefined;
-	const engineInitializing = mode === "preview" && !engineReady;
+	const engineRebuilding =
+		engineEntry.formUuid === formUuid && engineEntry.rebuilding;
+	const engineInitializing =
+		mode === "preview" && !engineReady && !engineRebuilding;
 	let attachmentEntryReady = false;
 	if (entryKey !== undefined) {
 		setAttachmentEntryAuthority({
@@ -1532,7 +1539,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	/* A sectioned form previews one page at a time (`useSectionPaging`). The
 	 * hook is inert for a single-page form and in edit mode, where the
 	 * canvas shows every page at once. */
-	const formIsSectioned = useFormIsSectioned(formUuid);
+	const formIsSectioned = usePresentationFormIsSectioned(formUuid);
 	const paging = useSectionPaging({
 		formUuid,
 		enabled: mode === "preview" && formIsSectioned,
@@ -1576,7 +1583,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	const handleSubmit = async (): Promise<void> => {
-		if (clearInFlightRef.current) return;
+		if (clearInFlightRef.current || controller.entryStore.getState().rebuilding)
+			return;
 
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
@@ -2002,6 +2010,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		submitStatus.kind === "running" ||
 		clearRunning ||
 		engineInitializing ||
+		engineRebuilding ||
 		selectedCaseLoading ||
 		caseDatabaseWait !== undefined ||
 		repeatTopologySettling;
@@ -2328,7 +2337,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					disabled={formFrozen}
 					className="contents"
 				>
-					{hasFields ? (
+					{(mode === "preview" ? presentationHasFields : hasFields) ? (
 						engineInitializing ? (
 							<div
 								role="status"
@@ -2435,6 +2444,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 										disabled={
 											submitStatus.kind === "running" ||
 											clearRunning ||
+											engineRebuilding ||
 											!caseBindingReady ||
 											(appId !== undefined && !attachmentEntryReady) ||
 											!mayWriteCaseData

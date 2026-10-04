@@ -34,6 +34,28 @@ const english = {
 	results: "Results",
 	sections: "Sections",
 	section: "Section {position} of {count}",
+	questionPosition: "Question {position}.",
+	sectionPosition: "Section {position}.",
+	requiredLabel: "Required.",
+	expand: "Expand",
+	collapse: "Collapse",
+	untitledGroup: "Untitled group",
+	repeatPosition: "Repeat {position}.",
+	repeat: "Repeat",
+	instances: "{count} instances",
+	instancePosition: "Instance {position}",
+	remove: "Remove",
+	entry: "entry",
+	addEntry: "Add {label}",
+	pickDate: "Pick a date",
+	dateLabel: "Date",
+	timeLabel: "Time",
+	mapUnavailable:
+		"The map isn't available here. You can enter coordinates manually below.",
+	manualCoordinates: "Enter coordinates manually",
+	latitude: "Latitude",
+	longitude: "Longitude",
+	clearLocation: "Clear location",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -68,12 +90,40 @@ const spanish: Record<RuntimeMessage, string> = {
 	results: "Resultados",
 	sections: "Secciones",
 	section: "Sección {position} de {count}",
+	questionPosition: "Pregunta {position}.",
+	sectionPosition: "Sección {position}.",
+	requiredLabel: "Obligatoria.",
+	expand: "Expandir",
+	collapse: "Contraer",
+	untitledGroup: "Grupo sin título",
+	repeatPosition: "Repetición {position}.",
+	repeat: "Repetición",
+	instances: "{count} repeticiones",
+	instancePosition: "Repetición {position}",
+	remove: "Quitar",
+	entry: "entrada",
+	addEntry: "Añadir {label}",
+	pickDate: "Elegir una fecha",
+	dateLabel: "Fecha",
+	timeLabel: "Hora",
+	mapUnavailable:
+		"El mapa no está disponible aquí. Puede introducir las coordenadas manualmente abajo.",
+	manualCoordinates: "Introducir coordenadas manualmente",
+	latitude: "Latitud",
+	longitude: "Longitud",
+	clearLocation: "Borrar ubicación",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {
 	const base = language?.split("-")[0] ?? "eng";
 	const catalogLanguage = base === "spa" ? "spa" : "eng";
 	return { catalogLanguage, fallback: base !== catalogLanguage } as const;
+}
+
+/** Intl accepts the canonical language tag, including its regional suffix.
+ * Calendar text uses the same bounded catalog as the other worker controls. */
+export function runtimeDateLocale(language: LanguageTag | null | undefined) {
+	return runtimeLanguage(language).fallback ? "eng" : (language ?? "eng");
 }
 
 export function runtimeMessage(

@@ -123,10 +123,26 @@ import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { xpathPrintContext } from "@/lib/domain/xpath/print";
 import {
+	ConstraintMessageNames,
+	protectConstraintMessage,
+} from "./constraintMessage";
+import {
 	datetimeCaseValueCalculate,
 	datetimeCaseValueName,
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
+
+interface ItextRegistration {
+	readonly registered: boolean;
+	readonly protectedConstraint?: string;
+}
+type AddItext = (
+	id: string,
+	label: ProseTemplate | undefined,
+	media?: Media,
+	force?: boolean,
+	protectConstraint?: boolean,
+) => ItextRegistration;
 
 function isConsumerWhitespace(value: string): boolean {
 	for (let index = 0; index < value.length; index++) {
@@ -778,12 +794,13 @@ export function buildXForm(
 	// help / constraintMsg / options) and container labels stay skip-on-empty
 	// — their body ref is itself conditional, so a skipped entry leaves no
 	// dangling reference.
-	const addItext = (
+	const addItext: AddItext = (
 		id: string,
 		label: ProseTemplate | undefined,
 		media?: Media,
 		force = false,
-	): boolean => {
+		protectConstraint = false,
+	): ItextRegistration => {
 		// addItext is the SINGLE funnel for prose lowering — every label / hint /
 		// help / constraintMsg / option label routes through here into
 		// `buildLabelNodes`. Scanning for casedb refs HERE (rather than from a
@@ -809,7 +826,18 @@ export function buildXForm(
 			localizedTemplates.every((template) => template.parts.length === 0) &&
 			sourceMediaValues.length === 0
 		)
-			return false;
+			return { registered: false };
+		const protectedMessage = protectConstraint
+			? protectConstraintMessage(
+					id,
+					localization.languages.map((language, index) => ({
+						language,
+						template: localizedTemplates[index] ?? sourceTemplate,
+					})),
+					doc,
+					expand,
+				)
+			: undefined;
 		for (const [index, language] of localization.languages.entries()) {
 			const languageEntries = itextEntries.get(language);
 			if (languageEntries === undefined) {
@@ -829,11 +857,26 @@ export function buildXForm(
 						buildLabelNodes(labelTemplate, doc, expand, shorthand),
 					),
 					...itextMediaValues(media, opts.assets, "buildXForm"),
+					...(protectedMessage?.forms.get(language) ?? []),
 				]),
 			);
 		}
-		return true;
+		return {
+			registered: true,
+			protectedConstraint: protectedMessage?.expression,
+		};
 	};
+	const constraintMessageNames = new ConstraintMessageNames(
+		doc,
+		new Set(
+			[
+				opts.connect?.learn_module?.id,
+				opts.connect?.assessment?.id,
+				opts.connect?.deliver_unit?.id,
+				opts.connect?.task?.id,
+			].filter((id): id is string => id !== undefined),
+		),
+	);
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
 		buildFieldParts(
@@ -855,6 +898,7 @@ export function buildXForm(
 			opts.assets,
 			lookupSelects,
 			opts.attachmentTarget,
+			constraintMessageNames,
 		);
 	}
 
@@ -1064,18 +1108,14 @@ function buildFieldParts(
 	setvalues: Element[],
 	bodyElements: Element[],
 	insideRepeat: boolean,
-	addItext: (
-		id: string,
-		label: ProseTemplate | undefined,
-		media?: Media,
-		force?: boolean,
-	) => boolean,
+	addItext: AddItext,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
+	constraintMessageNames: ConstraintMessageNames,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1123,14 +1163,24 @@ function buildFieldParts(
 	const isContainerKind = isContainer(field);
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
+		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind)
+			.registered;
 	const hasHint =
-		field.kind !== "hidden" && addItext(`${itextKey}-hint`, hint, hintMedia);
+		field.kind !== "hidden" &&
+		addItext(`${itextKey}-hint`, hint, hintMedia).registered;
 	const hasHelp =
-		field.kind !== "hidden" && addItext(`${itextKey}-help`, help, helpMedia);
-	const hasValidationMessage =
-		canValidate &&
-		addItext(`${itextKey}-constraintMsg`, validateMsg, validateMsgMedia);
+		field.kind !== "hidden" &&
+		addItext(`${itextKey}-help`, help, helpMedia).registered;
+	const validationMessage = canValidate
+		? addItext(
+				`${itextKey}-constraintMsg`,
+				validateMsg,
+				validateMsgMedia,
+				false,
+				true,
+			)
+		: { registered: false };
+	const hasValidationMessage = validationMessage.registered;
 
 	// Secondary-instance requirements: any XPath that mentions `#user/`, a
 	// typed readable case namespace, or a raw casedb/session `instance()`
@@ -1208,16 +1258,20 @@ function buildFieldParts(
 		}
 	}
 
-	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
-	// reads the attribute when it points at an itext id via `jr:itext(...)`, so
-	// inline text would vanish on upload. The bind-attribute gate uses the
+	// Standard messages use an itext reference. Protected messages compose
+	// literal pieces and typed values in the raw expression: Core's alert
+	// filler otherwise substitutes `${n}` in literal or referenced data. A
+	// never-relevant label owner below retains the original itext/media in
+	// HQ and Vellum even though the real question carries no alert. The gate uses the
 	// same predicate `addItext` uses to register the entry, so the attribute
 	// emits IFF an entry exists to back it. Media-OFF (no manifest) with only
 	// media set produces no entry — the gate skips the attribute in lockstep
 	// (a `jr:constraintMsg` ref against a non-registered entry is parse-fatal
 	// at JavaRosa install).
 	if (hasValidationMessage) {
-		bindAttribs["jr:constraintMsg"] = `jr:itext('${itextKey}-constraintMsg')`;
+		bindAttribs["jr:constraintMsg"] =
+			validationMessage.protectedConstraint ??
+			`jr:itext('${itextKey}-constraintMsg')`;
 	}
 
 	if (relevant) {
@@ -1359,6 +1413,7 @@ function buildFieldParts(
 			assets,
 			lookupSelects,
 			attachmentTarget,
+			constraintMessageNames,
 		);
 		return;
 	}
@@ -1378,10 +1433,29 @@ function buildFieldParts(
 			itextKey,
 			hasHint,
 			hasHelp,
-			hasValidationMessage,
+			hasValidationMessage &&
+				validationMessage.protectedConstraint === undefined,
 			itemset,
 		),
 	);
+	if (validationMessage.protectedConstraint !== undefined) {
+		const name = constraintMessageNames.allocate(fieldUuid, parentPath);
+		const path = parentPath.child(name).toXPath();
+		dataElements.push(el(name, {}));
+		binds.push(
+			el("bind", {
+				nodeset: path,
+				type: "xsd:string",
+				relevant: "false()",
+				readonly: "true()",
+			}),
+		);
+		bodyElements.push(
+			el("input", { ref: path }, [
+				el("label", { ref: `jr:itext('${itextKey}-constraintMsg')` }),
+			]),
+		);
+	}
 }
 
 /**
@@ -1606,18 +1680,14 @@ function buildContainer(
 	binds: Element[],
 	setvalues: Element[],
 	bodyElements: Element[],
-	addItext: (
-		id: string,
-		label: ProseTemplate | undefined,
-		media?: Media,
-		force?: boolean,
-	) => boolean,
+	addItext: AddItext,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
+	constraintMessageNames: ConstraintMessageNames,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -1662,6 +1732,7 @@ function buildContainer(
 			assets,
 			lookupSelects,
 			attachmentTarget,
+			constraintMessageNames,
 		);
 	}
 

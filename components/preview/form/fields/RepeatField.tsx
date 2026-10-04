@@ -32,14 +32,17 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
+import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -61,6 +64,7 @@ interface RepeatFieldProps {
 	/** Stable identities of enclosing repeats, before this repeat adds its
 	 * own instance identity. */
 	instanceScopeKey: string;
+	repeatInstances: readonly RepeatInstanceIdentity[];
 	accessibleContext: string;
 	position: number;
 }
@@ -93,6 +97,7 @@ function InstanceDivider({
 	accessibleContext,
 	repeatHeaderId,
 }: InstanceDividerProps) {
+	const { language } = useBuilderLanguage();
 	const removeActionId = useId();
 	return (
 		<div
@@ -106,7 +111,7 @@ function InstanceDivider({
 				id={instanceLabelId}
 				className="text-xs font-medium text-nova-text-muted"
 			>
-				Instance {idx + 1}
+				{runtimeMessage(language, "instancePosition", { position: idx + 1 })}
 			</span>
 			{onRemove && (
 				<button
@@ -124,7 +129,7 @@ function InstanceDivider({
 						.join(" ")}
 				>
 					<span id={removeActionId} className="sr-only">
-						Remove
+						{runtimeMessage(language, "remove")}
 					</span>
 					<Icon icon={tablerTrash} width="14" height="14" aria-hidden="true" />
 				</button>
@@ -141,9 +146,11 @@ export function RepeatField({
 	fieldPath,
 	depth,
 	instanceScopeKey,
+	repeatInstances,
 	accessibleContext,
 	position,
 }: RepeatFieldProps) {
+	const { language } = useBuilderLanguage();
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
@@ -163,7 +170,7 @@ export function RepeatField({
 	const addActionId = useId();
 	const instanceLabelBaseId = useId();
 
-	const hasChildren = useHasFieldsInForm(field.uuid);
+	const hasChildren = usePresentationHasFields(field.uuid);
 	const visibleInstances = useVisibleRepeatInstances(field, path);
 
 	// Reactive count: read from `state.repeatCount` (via
@@ -180,7 +187,10 @@ export function RepeatField({
 	}, [toggleCollapse, field.uuid]);
 
 	const addLabel =
-		state.resolvedLabel ?? (field.label ? projectProse(field.label) : "entry");
+		state.resolvedLabel ??
+		(field.label
+			? projectProse(field.label)
+			: runtimeMessage(language, "entry"));
 
 	// Add/Remove affordances are only meaningful for `user_controlled`
 	// repeats. Counted and record-query repeats derive their own rows. Show
@@ -250,7 +260,7 @@ export function RepeatField({
 								.join(" ")}
 						>
 							<span id={toggleActionId} className="sr-only">
-								{collapsed ? "Expand" : "Collapse"}
+								{runtimeMessage(language, collapsed ? "expand" : "collapse")}
 							</span>
 							<Icon
 								icon={collapsed ? tablerChevronRight : tablerChevronDown}
@@ -264,17 +274,19 @@ export function RepeatField({
 							id={headerId}
 							className="flex shrink-0 items-center gap-1 text-xs font-medium text-nova-text-muted"
 						>
-							<span className="sr-only">Repeat {position}. </span>
+							<span className="sr-only">
+								{runtimeMessage(language, "repeatPosition", { position })}{" "}
+							</span>
 							<Icon
 								icon={tablerRepeat}
 								width="11"
 								height="11"
 								aria-hidden="true"
 							/>
-							Repeat
+							{runtimeMessage(language, "repeat")}
 							{count > 1 && (
 								<span className="font-normal normal-case tracking-normal">
-									· {count} instances
+									· {runtimeMessage(language, "instances", { count })}
 								</span>
 							)}
 						</span>
@@ -356,6 +368,10 @@ export function RepeatField({
 											depth={depth + 1}
 											leadingGap={false}
 											instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
+											repeatInstances={[
+												...repeatInstances,
+												{ fieldUuid: field.uuid, instanceKey },
+											]}
 											accessibleContext={[
 												accessibleContext,
 												headerId,
@@ -405,7 +421,9 @@ export function RepeatField({
 										height="14"
 										aria-hidden="true"
 									/>
-									<span id={addActionId}>Add {addLabel}</span>
+									<span id={addActionId}>
+										{runtimeMessage(language, "addEntry", { label: addLabel })}
+									</span>
 								</button>
 							</div>
 						)}

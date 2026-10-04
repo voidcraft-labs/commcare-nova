@@ -18,6 +18,7 @@ import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
@@ -28,6 +29,7 @@ import {
 	isValidLon,
 	parseGeopoint,
 } from "@/lib/preview/engine/geopointValue";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useAccessPhase } from "@/lib/session/hooks";
 import { ValidationError } from "../ValidationError";
 import { AddressSearch, type PlacePick } from "./AddressSearch";
@@ -59,6 +61,7 @@ export function GeopointPicker({
 	showError,
 	errorMessage,
 }: GeopointPickerProps) {
+	const { language } = useBuilderLanguage();
 	const point = parseGeopoint(value);
 	const configured = googleMapsConfigured();
 	const reconciler = useReconcilerContext();
@@ -264,9 +267,7 @@ export function GeopointPicker({
 				</>
 			) : (
 				<div className="rounded-lg border border-dashed border-pv-input-border bg-pv-surface px-4 py-3 text-sm text-nova-text-muted">
-					Map unavailable. Set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> and{" "}
-					<code>NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID</code> to enable it. You can
-					still enter coordinates manually below.
+					{runtimeMessage(language, "mapUnavailable")}
 				</div>
 			)}
 
@@ -292,7 +293,7 @@ export function GeopointPicker({
 					<button
 						type="button"
 						onClick={handleClear}
-						aria-label="Clear location"
+						aria-label={runtimeMessage(language, "clearLocation")}
 						className="shrink-0 rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
 					>
 						<Icon icon={tablerX} width="15" height="15" aria-hidden="true" />
@@ -327,6 +328,7 @@ interface ManualEntryProps {
 }
 
 function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
+	const { language } = useBuilderLanguage();
 	const [lat, setLat] = useState(point ? String(point.lat) : "");
 	const [lon, setLon] = useState(point ? String(point.lon) : "");
 
@@ -367,13 +369,13 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 					aria-hidden="true"
 					className={`transition-transform ${open ? "" : "-rotate-90"}`}
 				/>
-				Enter coordinates manually
+				{runtimeMessage(language, "manualCoordinates")}
 			</button>
 
 			{open && (
 				<div className="mt-2 grid grid-cols-2 gap-2">
 					<label className="flex flex-col gap-1 text-xs text-nova-text-muted">
-						Latitude
+						{runtimeMessage(language, "latitude")}
 						<input
 							type="number"
 							inputMode="decimal"
@@ -382,7 +384,7 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 							onChange={(e) => setLat(e.target.value)}
 							onBlur={tryCommit}
 							onKeyDown={(e) => e.key === "Enter" && tryCommit()}
-							aria-label="Latitude"
+							aria-label={runtimeMessage(language, "latitude")}
 							className={`w-full rounded-md border bg-pv-input-bg px-2 py-1.5 text-sm text-nova-text outline-none transition-colors focus:border-pv-input-focus ${
 								lat.trim() !== "" && !latOk
 									? "border-nova-rose/60"
@@ -391,7 +393,7 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 						/>
 					</label>
 					<label className="flex flex-col gap-1 text-xs text-nova-text-muted">
-						Longitude
+						{runtimeMessage(language, "longitude")}
 						<input
 							type="number"
 							inputMode="decimal"
@@ -400,7 +402,7 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 							onChange={(e) => setLon(e.target.value)}
 							onBlur={tryCommit}
 							onKeyDown={(e) => e.key === "Enter" && tryCommit()}
-							aria-label="Longitude"
+							aria-label={runtimeMessage(language, "longitude")}
 							className={`w-full rounded-md border bg-pv-input-bg px-2 py-1.5 text-sm text-nova-text outline-none transition-colors focus:border-pv-input-focus ${
 								lon.trim() !== "" && !lonOk
 									? "border-nova-rose/60"

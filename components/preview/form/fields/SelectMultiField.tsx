@@ -5,6 +5,7 @@ import type { MultiSelectField, SelectOption } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
+import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
 import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
 
@@ -21,8 +22,8 @@ interface SelectMultiFieldProps {
 /**
  * Multi-select checkbox field for form preview. Each option renders a real
  * `<input type="checkbox">` (visually hidden via sr-only) inside a `<label>`,
- * so native click-to-toggle and keyboard interaction work without custom
- * onClick handlers. The outer `<fieldset>` groups the checkboxes semantically
+ * so native click-to-toggle and keyboard interaction own the answer change.
+ * The outer `<fieldset>` groups the checkboxes semantically
  * and captures `onBlur` for touch tracking.
  */
 export function SelectMultiField({
@@ -87,6 +88,8 @@ export function SelectMultiField({
 						<label
 							key={opt.key}
 							htmlFor={inputId}
+							onMouseDown={isEditMode ? undefined : retainChoiceFocus}
+							onClickCapture={isEditMode ? undefined : focusChosenChoice}
 							className={`pv-choice-row flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								checked
 									? "bg-pv-accent/10 border border-pv-accent/30 hover:bg-pv-accent/15 hover:border-pv-accent/50"

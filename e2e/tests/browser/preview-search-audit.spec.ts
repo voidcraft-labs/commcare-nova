@@ -1,6 +1,95 @@
+import { writeFile } from "node:fs/promises";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-search-client";
+
+test("Search calendars follow the worker language while authoring defaults and date answers remain intact", async ({
+	page,
+}, testInfo) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.clock.setFixedTime(new Date(2024, 0, 15, 12));
+		await page.goto(`${peer.origin}/?language`);
+		await page.getByLabel("Patient name").fill("Ada");
+		const from = page.getByLabel("Registered from");
+		const to = page.getByLabel("Registered to");
+		await from.click();
+		await page.getByRole("button", { name: /January 2nd, 2024/ }).click();
+		await page.getByRole("button", { name: "Español", exact: true }).click();
+		await expect(from).toHaveText("2 de enero de 2024");
+		await expect(to).toHaveText("Elegir una fecha");
+		await expect(page.getByLabel("Authoring date")).toHaveText(
+			"January 15, 2024",
+		);
+		await from.click();
+		await expect(page.getByRole("grid")).toHaveAccessibleName(/enero.*2024/);
+		await expect(
+			page.getByRole("button", { name: "Ir al mes anterior" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Ir al mes siguiente" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", {
+				name: "martes, 2 de enero de 2024, seleccionado",
+				exact: true,
+			}),
+		).toHaveAccessibleName(/seleccionado/);
+		await page.keyboard.press("Escape");
+		await to.click();
+		await page.getByRole("button", { name: /31 de enero de 2024/ }).click();
+		await page.getByRole("button", { name: "English UK", exact: true }).click();
+		await expect(from).toHaveText("2 January 2024");
+		await expect(to).toHaveText("31 January 2024");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({
+				case_name: "Ada",
+				"period:from": "2024-01-02",
+				"period:to": "2024-01-31",
+			});
+		await page.getByRole("button", { name: "Español", exact: true }).click();
+		await from.click();
+		await page.getByRole("button", { name: "Borrar", exact: true }).click();
+		await expect(from).toHaveText("Elegir una fecha");
+		await expect(to).toHaveText("31 de enero de 2024");
+		await page.getByLabel("Authoring date").click();
+		await expect(
+			page.getByRole("button", { name: "Go to the Next Month" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Clear", exact: true }),
+		).toBeVisible();
+	} catch (error) {
+		const snapshot = testInfo.outputPath("worker-search-language-aria.txt");
+		await writeFile(snapshot, await page.locator("body").ariaSnapshot());
+		await testInfo.attach("worker-search-language-accessibility", {
+			path: snapshot,
+			contentType: "text/plain",
+		});
+		const screenshot = testInfo.outputPath("worker-search-language.png");
+		await page.screenshot({ path: screenshot, fullPage: true });
+		await testInfo.attach("worker-search-language-failure", {
+			path: screenshot,
+			contentType: "image/png",
+		});
+		throw error;
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewSearchAudit?.dispose());
+		} finally {
+			try {
+				await page.close();
+			} finally {
+				await peer.close();
+			}
+		}
+	}
+});
 
 test("Search date ranges remain usable on a narrow screen and submit the actual calendar selections", async ({
 	page,

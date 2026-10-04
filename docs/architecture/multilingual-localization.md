@@ -457,6 +457,21 @@ answers. Portaled controls provide the worker direction to Base UI's positioning
 context as well as the popup DOM, so logical start/end alignment is correct for
 RTL content.
 
+Preview's platform catalog supplies English/Spanish navigation and generic
+validation, live question/section/repeat positions and required announcements,
+group/repeat controls, datetime Date/Time names, and manual GPS labels, Clear
+location and unavailable-map copy. Live forms and Search share `WorkerDatePicker`
+for calendar text and accessible labels, placeholder and Clear. Date display
+passes the canonical selected tag to Intl, retaining its regional suffix; the
+calendar uses generic English/Spanish labels and week layout. The generic
+authoring picker keeps its English defaults. Language rerenders retain answers
+and drafts and refresh existing validation messages after rebuilding; ordinary
+input blur still commits and normalizes values. Other worker
+languages use
+English platform copy. Configured Google Maps/Places labels and errors, clock
+formatting, record metadata, media controls and other accessibility labels and
+diagnostics remain outside this catalog.
+
 ## Solutions Architect and MCP experience
 
 The shared SA/MCP surface has one coherent language family:

@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: Native constraint markers must remain literal test data.
 /** Admitted prose whose adjacent references need separators in native Core. */
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
@@ -15,6 +16,8 @@ import { runValidation } from "../validator/runner";
 const MEALS = testUuid("prose-meals");
 const ADDRESS = testUuid("prose-address");
 const CONTEXT = testUuid("prose-delivery-context");
+const LITERAL_CHECKED = testUuid("prose-literal-checked");
+const REFERENCE_CHECKED = testUuid("prose-reference-checked");
 
 function separated(separator: string, prefix = ""): ProseTemplate {
 	return {
@@ -115,6 +118,33 @@ export function proseWhitespaceFixture() {
 								validate_msg: separated("\t"),
 							}),
 							f({
+								kind: "int",
+								uuid: LITERAL_CHECKED,
+								id: "literal_checked",
+								label: "Literal constraint",
+								default_value: xp("4"),
+								validate: xp(". < 10"),
+								validate_msg: proseText(
+									'Literal ${0} / ${00}; It\'s "early"\u00a0today',
+								),
+							}),
+							f({
+								kind: "int",
+								uuid: REFERENCE_CHECKED,
+								id: "reference_checked",
+								label: "Referenced constraint",
+								default_value: xp("4"),
+								validate: xp(". < 10"),
+								validate_msg: {
+									parts: [
+										{ kind: "text", text: "Literal ${0} / ${00}: " },
+										{ kind: "field-ref", uuid: ADDRESS },
+										{ kind: "text", text: " | Self: " },
+										{ kind: "field-ref", uuid: REFERENCE_CHECKED },
+									],
+								},
+							}),
+							f({
 								kind: "single_select",
 								id: "choose",
 								label: "Choose",
@@ -132,12 +162,46 @@ export function proseWhitespaceFixture() {
 	const unitId = makeTranslationUnitId("field", CONTEXT, "label");
 	const unit = translationUnitsById(doc).get(unitId);
 	if (!unit) throw new Error("Missing delivery-context translation unit.");
+	const literalUnitId = makeTranslationUnitId(
+		"field",
+		LITERAL_CHECKED,
+		"validate_msg",
+	);
+	const referenceUnitId = makeTranslationUnitId(
+		"field",
+		REFERENCE_CHECKED,
+		"validate_msg",
+	);
+	const literalUnit = translationUnitsById(doc).get(literalUnitId);
+	const referenceUnit = translationUnitsById(doc).get(referenceUnitId);
+	if (!literalUnit || !referenceUnit)
+		throw new Error("Missing constraint translation unit.");
 	doc.localization = {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
 		translations: {
 			spa: {
+				[literalUnitId]: {
+					value: proseText("Español ${00} / ${0}"),
+					sourceFingerprint: literalUnit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+				[referenceUnitId]: {
+					value: {
+						parts: [
+							{ kind: "field-ref", uuid: REFERENCE_CHECKED },
+							{ kind: "text", text: " Español ${00} / ${0}: " },
+							{ kind: "field-ref", uuid: ADDRESS },
+						],
+					},
+					sourceFingerprint: referenceUnit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
 				[unitId]: {
 					value: separated("\n\n", "Comidas: "),
 					sourceFingerprint: unit.sourceFingerprint,

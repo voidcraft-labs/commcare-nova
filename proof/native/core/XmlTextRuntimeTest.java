@@ -2,6 +2,8 @@ package nova.compatibility;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.nio.charset.StandardCharsets;
+import org.javarosa.model.xform.XFormSerializingVisitor;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.data.IntegerData;
 import org.javarosa.core.model.data.StringData;
@@ -118,7 +120,7 @@ public class XmlTextRuntimeTest {
                 assertEquals(meals + "\t14 Example Lane", checked.getConstraintText());
                 assertEquals(meals + "\t14 Example Lane", checked.getConstraintText(new StringData("bad")));
                 assertEquals(meals + "\t14 Example Lane",
-                    checked.getSpecialFormQuestionText("checked-constraintMsg", FormEntryCaption.TEXT_FORM_MARKDOWN));
+                    checked.getConstraintText(FormEntryCaption.TEXT_FORM_MARKDOWN, null));
                 FormEntryPrompt choose = at(form, "choose").getQuestionPrompt();
                 assertEquals(meals + "\n\n14 Example Lane",
                     choose.getSelectChoiceText(choose.getSelectChoices().get(0)));
@@ -126,5 +128,58 @@ public class XmlTextRuntimeTest {
                     choose.getSelectItemMarkdownText(choose.getSelectChoices().get(0)));
             }
         }
+    }
+
+    @Test public void preservesLiteralAndReturnedMarkersWithLiveReferencesAndAttemptedSelf() throws Exception {
+        FormDef form = open().getFormDef();
+        for (String address : new String[]{"Address ${0} / ${00}", "Changed ${12} / ${not-a-number} ${"}) {
+            assertEquals(FormEntryController.ANSWER_OK,
+                new FormEntryController(at(form, "address")).answerQuestion(new StringData(address)));
+            for (String locale : new String[]{"en", "es"}) {
+                form.getLocalizer().setLocale(locale);
+                FormEntryModel literalEntry = at(form, "literal_checked");
+                assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,
+                    new FormEntryController(literalEntry).answerQuestion(new IntegerData(99)));
+                String literal = "es".equals(locale) ? "Español ${00} / ${0}" : "Literal ${0} / ${00}; It's \"early\"\u00a0today";
+                assertEquals(literal, literalEntry.getQuestionPrompt().getConstraintText());
+                assertEquals(literal, literalEntry.getQuestionPrompt().getConstraintText(FormEntryCaption.TEXT_FORM_MARKDOWN, null));
+                FormEntryModel referenceEntry = at(form, "reference_checked");
+                FormEntryPrompt reference = referenceEntry.getQuestionPrompt();
+                assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,
+                    new FormEntryController(referenceEntry).answerQuestion(new IntegerData(99)));
+                for (boolean attempted : new boolean[]{false, true}) {
+                    int self = attempted ? 99 : 4;
+                    String expected = "es".equals(locale) ? self + " Español ${00} / ${0}: " + address
+                        : "Literal ${0} / ${00}: " + address + " | Self: " + self;
+                    assertEquals(expected, reference.getConstraintText(attempted ? new IntegerData(99) : null));
+                    assertEquals(expected, reference.getConstraintText(FormEntryCaption.TEXT_FORM_MARKDOWN, attempted ? new IntegerData(99) : null));
+                }
+                assertEquals("4", ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/reference_checked)"));
+            }
+        }
+        int asked = 0;
+        FormEntryModel model = new FormEntryModel(form);
+        FormEntryController controller = new FormEntryController(model);
+        int events = 0;
+        while (controller.stepToNextEvent() != FormEntryController.EVENT_END_OF_FORM) {
+            assertTrue(++events < 100);
+            if (model.getEvent() == FormEntryController.EVENT_QUESTION) {
+                asked++;
+                assertFalse(model.getFormIndex().getReference().toString().contains("nova_constraint_message_"));
+            }
+        }
+        assertEquals("Every authored question, no technical owner", 15, asked);
+        for (String name : new String[]{"checked", "literal_checked", "reference_checked"}) {
+            TreeElement owner = form.getMainInstance().getRoot().getChild("nova_constraint_message_" + name, 0);
+            assertNotNull(owner); assertFalse(owner.isRelevant()); assertFalse(owner.isEnabled()); assertNull(owner.getValue());
+            XPathNodeset visible = (XPathNodeset) XPathParseTool.parseXPath("/data/nova_constraint_message_" + name)
+                .eval(form.getMainInstance(), form.getEvaluationContext());
+            assertEquals(0, visible.size());
+        }
+        String submitted = new String(new XFormSerializingVisitor().serializeInstance(form.getMainInstance()), StandardCharsets.UTF_8);
+        String raw = new String(new XFormSerializingVisitor(false).serializeInstance(form.getMainInstance()), StandardCharsets.UTF_8);
+        assertFalse(submitted.contains("nova_constraint_message_"));
+        for (String name : new String[]{"checked", "literal_checked", "reference_checked"})
+            assertTrue(raw.contains("nova_constraint_message_" + name));
     }
 }

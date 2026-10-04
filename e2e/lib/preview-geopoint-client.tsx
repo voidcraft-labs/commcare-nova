@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { useStore } from "zustand";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { GeopointPicker } from "@/components/preview/form/fields/geopoint/GeopointPicker";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import {
@@ -8,6 +9,7 @@ import {
 	type ReconcilerContextValue,
 } from "@/lib/collab/context";
 import { createProjectScopeResetRegistry } from "@/lib/collab/projectScopeReset";
+import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { proseText } from "@/lib/domain";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
@@ -88,13 +90,17 @@ const element = document.getElementById("root");
 if (!element) throw new Error("Missing root");
 const root = createRoot(element);
 root.render(
-	<BuilderSessionContext value={session}>
-		<ReconcilerContext value={context}>
-			<PortaledContentDirectionProvider direction="rtl">
-				<Control />
-			</PortaledContentDirectionProvider>
-		</ReconcilerContext>
-	</BuilderSessionContext>,
+	<BlueprintDocContext value={docStore}>
+		<BuilderLocalizationProvider>
+			<BuilderSessionContext value={session}>
+				<ReconcilerContext value={context}>
+					<PortaledContentDirectionProvider direction="rtl">
+						<Control />
+					</PortaledContentDirectionProvider>
+				</ReconcilerContext>
+			</BuilderSessionContext>
+		</BuilderLocalizationProvider>
+	</BlueprintDocContext>,
 );
 let mounted = true;
 window.previewGeopointAudit = {
