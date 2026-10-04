@@ -775,6 +775,31 @@ each repeat iteration. Multiple-selection submissions run form-level operations
 once, then session-targeted operations per selected case; choosing only one row
 does not change that mode. Both evaluate expressions before applying effects.
 
+Pre-effect ordering does not establish current-at-submit reads. Preview operation
+record expressions use the current submission transaction while form-answer
+bindings retain the submitted entry's values. Native expressions can retain an
+open form's initialized record view across another submission to the same local
+store (`CaseInstanceTreeElement`'s single-snapshot lifecycle and
+`CaseChildElement.cache`'s materialized property tree). A read condition is not a
+compare-and-set against current stored properties.
+
+The shared add/update results and form/operation reads return one non-gating
+`operationSemantics` projection derived from canonical references and inherited
+guards. It distinguishes selected, related, created and runtime record targets;
+reports condition/value property reads and writes; and names same-record or
+possible-alias overlaps. Generated creates remain distinct from existing rows,
+even of the same type; authored keys can merge an existing identity. Form-answer
+dependencies preserve their stable field identities and entry provenance.
+Quantified rows, runtime targets and unclassified XPath text are not promoted to
+proven record identity or a complete read inventory. Ordinary answer writes
+remain visible separately, including when advanced operations are empty.
+
+Irreversible true-only facts or append-only child events can express monotonic
+progress with calculated Results columns, filters and form expressions. Every
+writer must preserve those facts/events, and unfinished actions must not clear
+terminal facts. This does not supply current-at-submit phase, first-event-only
+actor/timestamp writes, or fresh checks of mutable values.
+
 Relation operators carry their own case-instance dependency. An unfiltered
 count, exists or missing condition still reads related rows, even when its AST
 contains no property leaf. The shared instance collector includes these nodes

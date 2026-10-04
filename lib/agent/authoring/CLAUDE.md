@@ -28,9 +28,18 @@ Workflow guidance distinguishes record persistence, standalone report collection
 and retrieval at the configured CommCare destination. Preview submission receipts
 do not establish an answer-document archive or reporting permissions. Retained
 worker-session checks distinguish entry snapshots from current-store reads;
-their Postgres observations cannot establish offline conflict behavior. Operation
+their Postgres observations cannot establish native held-form or offline conflict
+behavior. Operation
 conditions read current Preview records but retain submitted form-answer bindings;
 skipped effects need an understandable outcome on the worker's next task.
+Native conditions and values can retain an initialized form's record view across
+another submission to the same local store; they do not compare-and-set current
+records. `operationSemantics.ts` derives one non-gating projection for operation
+add/update results and form/operation reads. It distinguishes record identities,
+condition/value reads, writes and same-record/possible-alias overlaps. It follows
+canonical form-answer dependencies with cycle guards and reports unclassified
+XPath text. It never parses text, rejects an operation or promises concurrency
+protection. The existing plugin bootstraps this server-owned reference only.
 Clock guidance preserves typed capture and a separately saved recorded-time
 display with its numeric offset. It does not promise viewer-local conversion or
 absolute chronology from the device runtime's stored timestamp parsing.

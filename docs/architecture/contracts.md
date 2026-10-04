@@ -584,7 +584,14 @@ No interval leaves an accepted lookup dependency unprotected.
   pre-effect transaction snapshot. Form-answer bindings retain the submitted
   entry's values; this does not rerun question defaults or form validation against
   current records. Effects then apply atomically in declared order. Native
-  expressions read the device's available records, not this server snapshot.
+  expressions can retain the record view initialized with an open form, even
+  after another form updates the same local store. This is not the server
+  snapshot or compare-and-set against current records at submission.
+- Shared operation writes and scoped form/operation reads return non-gating
+  semantic feedback derived from the canonical AST: target identity and scope,
+  condition/value property reads, writes and matching read/write identities.
+  Same case type is not same record. Unknown runtime addresses remain possible
+  aliases, and unclassified XPath/answer dependencies are reported explicitly.
 - Repeated creates have iteration-correlated outputs. A singular operation
   reference cannot escape its repeat or ambiguously name multiple created cases.
 - Runtime-resolved targets are tenant-bound and must match the declared case

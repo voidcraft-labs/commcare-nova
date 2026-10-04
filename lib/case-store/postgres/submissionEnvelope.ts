@@ -24,8 +24,11 @@
 //      evaluates against the pre-submission snapshot: the app's
 //      relationship advisory lock serializes every actor writer, and
 //      no envelope DML runs until evaluation completes, so the rows
-//      the SELECTs see are exactly the casedb snapshot the device's
-//      calculates see.
+//      the SELECTs see are the current pre-effect Preview transaction.
+//      Native calculates can retain an initialized form's casedb view
+//      across other submissions to the same local store; this is not a
+//      native current-at-submit or compare-and-set guarantee. Form-answer
+//      bindings retain submitted entry values in either path.
 //   4. **Resolve + reauthorize** targets: `session` is the loaded
 //      case; `op` reads the allocation record; `expression` results
 //      load tenant-bound and revalidate through

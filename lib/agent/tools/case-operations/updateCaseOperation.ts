@@ -1,6 +1,10 @@
 import type { z } from "zod";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { asUuid, type Uuid, uuidSchema } from "@/lib/domain";
+import {
+	type OperationSemantics,
+	operationSemantics,
+} from "../../authoring/operationSemantics";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
@@ -31,6 +35,7 @@ export type UpdateCaseOperationInput = z.infer<
 export interface UpdateCaseOperationSuccess extends MutationSuccess {
 	readonly operationUuid: Uuid;
 	readonly operationId: string;
+	readonly operationSemantics: OperationSemantics;
 }
 
 export type UpdateCaseOperationResult =
@@ -115,6 +120,10 @@ export const updateCaseOperationTool = {
 					ok: true,
 					operationUuid: existing.uuid,
 					operationId: input.operation.id,
+					operationSemantics: operationSemantics(
+						commit.newDoc,
+						address.formUuid,
+					),
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
 						subject: input.operation.id,
