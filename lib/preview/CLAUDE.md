@@ -146,8 +146,9 @@ retained presentation, and retired initialization cannot revive it.
 The `runtimeMessages.ts` platform catalog owns English/Spanish generic
 required/type/constraint fallback messages, core worker navigation, live spoken
 question/section/repeat positions and required markers, group/repeat controls,
-datetime Date/Time names, and manual GPS labels, Clear location and unavailable-map
-copy. `WorkerDatePicker` shares selected-language calendar text and accessible
+datetime Date/Time names, and Nova-owned GPS address-search, wait/empty-state,
+location guidance, browser-location failure and manual-coordinate copy.
+`WorkerDatePicker` shares selected-language calendar text and accessible
 labels, placeholder and Clear across live forms and Search. The generic
 `DatePicker` keeps English authoring defaults. Its display formatter receives the
 canonical worker tag, retaining regional suffixes; DayPicker uses generic
@@ -162,8 +163,12 @@ languages
 use English platform copy. Invalid Submit and section Next/jump feedback both
 retain the `reviewHighlightedQuestion` intent and render it in the selected worker
 language, including after a same-entry language change. Authored and server error
-text remains literal. Configured
-Google Maps/Places labels and errors, clock formatting, record metadata,
+text remains literal. Browser geolocation failures carry typed reasons; the picker
+resolves their catalog wording in the committed worker language at delivery,
+after its existing Project and continuation fences. A language change does not
+restart the request or change coordinate values. Google's map tiles, controls,
+gestures, place names and resolved addresses retain Google's own language.
+Clock formatting, record metadata,
 media controls, other accessibility labels and diagnostics remain outside this
 catalog; authored labels and custom validation continue through the app's
 translation projection.
@@ -639,6 +644,14 @@ A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews
 - **The engine owns the page model**: `FormEngine.sectionPages()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `validateSection(uuid)` (`validateAll` restricted to the paths under that section, marking them touched) and `firstInvalidFieldTarget({ withinSection })` (the same target, with the section leading `ancestorUuids`). The controller mirrors all three; `hooks/useSectionPages.ts` subscribes through a one-string key so a keystroke does not re-render the pager.
 - **The open page is session state**, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page. `components/preview/form/sections/useSectionPaging.ts` arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties; `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` turns with no check, which is what Submit routing (the earliest invalid page, `ancestorUuids[0]`) and Clear form (the first page) use. Enter never advances.
 - **`FormScreen` renders `SectionPage`** (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page) in place of `FormRenderer` while paging, and the bottom bar carries the `SectionStepper` (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
+
+Page announcements and pending heading focus belong to the actual controller
+entry and visible page, not the retained FormScreen. `showPage`, `showFirst`,
+automatic re-anchoring and entry retirement clear the old turn intent. Navigation
+checks entry ownership after every asynchronous entry/validation step; a retired
+or superseded continuation cannot move the page, announce or focus a question in
+the new entry. Ordinary turns still focus and announce each time, and a same-entry
+language change retains the current announcement in its new presentation language.
 
 ## Repeat instances are first-class
 

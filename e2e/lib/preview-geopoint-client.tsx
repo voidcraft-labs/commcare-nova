@@ -1,14 +1,21 @@
 import { createRoot } from "react-dom/client";
 import { useStore } from "zustand";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	BuilderLocalizationProvider,
+	useBuilderLanguage,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
+import { LanguageSelector } from "@/components/builder/localization/LanguageSelector";
 import { GeopointPicker } from "@/components/preview/form/fields/geopoint/GeopointPicker";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
+import { TooltipProvider } from "@/components/shadcn/tooltip";
+import { ToastContainer } from "@/components/ui/ToastContainer";
 import {
 	ReconcilerContext,
 	type ReconcilerContextValue,
 } from "@/lib/collab/context";
 import { createProjectScopeResetRegistry } from "@/lib/collab/projectScopeReset";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { proseText } from "@/lib/domain";
@@ -40,6 +47,12 @@ const doc = admittedControllerDoc({
 	moduleOrder: [MODULE],
 	formOrder: { [MODULE]: [FORM] },
 	fieldOrder: { [FORM]: [FIELD] },
+	localization: {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		translations: { spa: {} },
+	},
 });
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
@@ -86,26 +99,52 @@ function Control() {
 		/>
 	);
 }
+function AuditSurface() {
+	const { direction } = useBuilderLanguage();
+	const languageAudit = new URL(window.location.href).searchParams.has(
+		"language-audit",
+	);
+	return (
+		<PortaledContentDirectionProvider
+			direction={languageAudit ? direction : "rtl"}
+		>
+			{languageAudit && (
+				<div className="pb-4">
+					<LanguageSelector />
+				</div>
+			)}
+			<Control />
+			{languageAudit && <ToastContainer />}
+		</PortaledContentDirectionProvider>
+	);
+}
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing root");
 const root = createRoot(element);
 root.render(
-	<BlueprintDocContext value={docStore}>
-		<BuilderLocalizationProvider>
-			<BuilderSessionContext value={session}>
-				<ReconcilerContext value={context}>
-					<PortaledContentDirectionProvider direction="rtl">
-						<Control />
-					</PortaledContentDirectionProvider>
-				</ReconcilerContext>
-			</BuilderSessionContext>
-		</BuilderLocalizationProvider>
-	</BlueprintDocContext>,
+	<TooltipProvider>
+		<BlueprintDocContext value={docStore}>
+			<BuilderLocalizationProvider>
+				<BuilderSessionContext value={session}>
+					<ReconcilerContext value={context}>
+						<AuditSurface />
+					</ReconcilerContext>
+				</BuilderSessionContext>
+			</BuilderLocalizationProvider>
+		</BlueprintDocContext>
+	</TooltipProvider>,
 );
 let mounted = true;
 window.previewGeopointAudit = {
 	answer: () => controller.store.getState()[FIELD]?.value,
 	toasts: () => toastStore.toasts.map((toast) => toast.title),
+	observation: () => ({
+		answer: controller.store.getState()[FIELD]?.value,
+		entryKey: controller.entryKey,
+		language: new URL(window.location.href).searchParams.get("lang") ?? "eng",
+		toasts: toastStore.toasts.map(({ title, message }) => ({ title, message })),
+		document: JSON.stringify(toPersistableDoc(docStore.getState())),
+	}),
 	refresh() {
 		const epoch = session.getState().beginAccessRefresh();
 		registry.reset(epoch);
@@ -138,6 +177,13 @@ declare global {
 		previewGeopointAudit: {
 			answer(): string | undefined;
 			toasts(): string[];
+			observation(): {
+				answer: string | undefined;
+				entryKey: string | undefined;
+				language: string;
+				toasts: { title: string; message: string | undefined }[];
+				document: string;
+			};
 			refresh(): void;
 			authorize(): void;
 			settle(): Promise<void>;

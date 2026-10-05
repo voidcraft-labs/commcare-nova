@@ -128,7 +128,7 @@ geopoint(
 			};
 		});
 		await page
-			.getByRole("button", { name: "My location", exact: true })
+			.getByRole("button", { name: "Your location", exact: true })
 			.click();
 		await expect
 			.poll(() => page.evaluate(() => window.nativeGeolocationDelivery.held()))
@@ -138,7 +138,7 @@ geopoint(
 		).toBeDisabled();
 		await page.evaluate(() => window.previewGeopointAudit.refresh());
 		await expect(
-			page.getByRole("button", { name: "My location", exact: true }),
+			page.getByRole("button", { name: "Your location", exact: true }),
 		).toBeEnabled();
 		await page.evaluate(() => window.previewGeopointAudit.authorize());
 		await committedFrame(page);
@@ -151,7 +151,7 @@ geopoint(
 		).toBe("");
 		await context.setGeolocation({ latitude: 41, longitude: -75, accuracy: 3 });
 		await page
-			.getByRole("button", { name: "My location", exact: true })
+			.getByRole("button", { name: "Your location", exact: true })
 			.click();
 		await expect
 			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))

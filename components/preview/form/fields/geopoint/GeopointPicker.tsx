@@ -17,7 +17,13 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerX from "@iconify-icons/tabler/x";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
@@ -29,16 +35,30 @@ import {
 	isValidLon,
 	parseGeopoint,
 } from "@/lib/preview/engine/geopointValue";
-import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import {
+	type RuntimeMessage,
+	runtimeMessage,
+} from "@/lib/preview/runtimeMessages";
 import { useAccessPhase } from "@/lib/session/hooks";
 import { ValidationError } from "../ValidationError";
 import { AddressSearch, type PlacePick } from "./AddressSearch";
-import { GeolocationError, requestGeolocation } from "./geolocation";
+import {
+	GeolocationError,
+	type GeolocationFailureReason,
+	requestGeolocation,
+} from "./geolocation";
 import { googleMapsConfigured, loadGeocoding } from "./googleMaps";
 import { type MapHandle, MapView } from "./MapView";
 import { useInView } from "./useInView";
 
 const REVERSE_DEBOUNCE_MS = 400;
+
+const locationFailureMessages = {
+	"permission-denied": "locationPermissionDenied",
+	unavailable: "locationPositionUnavailable",
+	timeout: "locationTimeout",
+	unsupported: "locationUnsupported",
+} satisfies Record<GeolocationFailureReason, RuntimeMessage>;
 
 interface GeopointPickerProps {
 	/** Committed wire value ("lat lon alt acc" or ""). */
@@ -62,6 +82,10 @@ export function GeopointPicker({
 	errorMessage,
 }: GeopointPickerProps) {
 	const { language } = useBuilderLanguage();
+	const languageRef = useRef(language);
+	useLayoutEffect(() => {
+		languageRef.current = language;
+	}, [language]);
 	const point = parseGeopoint(value);
 	const configured = googleMapsConfigured();
 	const reconciler = useReconcilerContext();
@@ -190,11 +214,17 @@ export function GeopointPicker({
 		} catch (err) {
 			if (!ownsContinuationRef.current || reqId !== locateReqRef.current)
 				return;
-			const message =
+			const messageKey =
 				err instanceof GeolocationError
-					? err.message
-					: "Couldn't get your location.";
-			projectToast("error", "Location unavailable", message);
+					? locationFailureMessages[err.reason]
+					: "locationUnexpected";
+			/* A browser callback may arrive after a language change. Resolve copy
+			 * from the committed presentation at delivery, after the owner fence. */
+			projectToast(
+				"error",
+				runtimeMessage(languageRef.current, "locationUnavailable"),
+				runtimeMessage(languageRef.current, messageKey),
+			);
 		} finally {
 			if (ownsContinuationRef.current && reqId === locateReqRef.current) {
 				setLocating(false);
@@ -254,13 +284,12 @@ export function GeopointPicker({
 								aria-hidden="true"
 								className={locating ? "animate-pulse" : ""}
 							/>
-							{locating ? "Locating" : "My location"}
+							{runtimeMessage(language, locating ? "locating" : "yourLocation")}
 						</button>
 
 						{!point && (
 							<div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-pv-bg/90 to-transparent px-3 py-2 text-center text-xs text-nova-text-muted">
-								Search an address, click the map to drop a pin, or use your
-								location
+								{runtimeMessage(language, "locationGuidance")}
 							</div>
 						)}
 					</div>

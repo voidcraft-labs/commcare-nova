@@ -56,6 +56,27 @@ const english = {
 	latitude: "Latitude",
 	longitude: "Longitude",
 	clearLocation: "Clear location",
+	addressSearch: "Search for an address",
+	addressSearchPlaceholder: "Search for an address or place",
+	addressSearching: "Searching",
+	addressSearchMinimum:
+		"You can type at least {count} characters to see places",
+	addressNoResults: "No matching places",
+	yourLocation: "Your location",
+	locating: "Locating",
+	locationGuidance:
+		"You can search for an address, click the map to drop a pin, or use your location",
+	locationUnavailable: "Location unavailable",
+	locationPermissionDenied:
+		"Your browser hasn't allowed location access. You can allow it in its settings or enter coordinates manually.",
+	locationPositionUnavailable:
+		"Your location is currently unavailable. You can try again or enter coordinates manually.",
+	locationTimeout:
+		"Getting your location timed out. You can try again or enter coordinates manually.",
+	locationUnsupported:
+		"This browser can't share your location. You can enter coordinates manually.",
+	locationUnexpected:
+		"Couldn't get your location. You can try again or enter coordinates manually.",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -112,6 +133,26 @@ const spanish: Record<RuntimeMessage, string> = {
 	latitude: "Latitud",
 	longitude: "Longitud",
 	clearLocation: "Borrar ubicación",
+	addressSearch: "Buscar una dirección",
+	addressSearchPlaceholder: "Buscar una dirección o un lugar",
+	addressSearching: "Buscando",
+	addressSearchMinimum: "Puedes buscar con al menos {count} caracteres",
+	addressNoResults: "No hay lugares que coincidan",
+	yourLocation: "Tu ubicación",
+	locating: "Buscando ubicación",
+	locationGuidance:
+		"Puedes buscar una dirección, tocar el mapa para marcar un punto o usar tu ubicación",
+	locationUnavailable: "Ubicación no disponible",
+	locationPermissionDenied:
+		"El navegador no dio permiso para compartir tu ubicación. Puedes permitirlo en su configuración o introducir las coordenadas manualmente.",
+	locationPositionUnavailable:
+		"Tu ubicación no está disponible ahora. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
+	locationTimeout:
+		"Se agotó el tiempo para obtener tu ubicación. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
+	locationUnsupported:
+		"Este navegador no puede compartir tu ubicación. Puedes introducir las coordenadas manualmente.",
+	locationUnexpected:
+		"No pude obtener tu ubicación. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {

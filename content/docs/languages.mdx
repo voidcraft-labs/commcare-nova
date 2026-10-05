@@ -117,9 +117,13 @@ section navigation, generic required/type/constraint fallback messages, and
 “Review the highlighted question” feedback are available in English and Spanish.
 So are live question, section and repeat positions, required announcements,
 group and repeat controls, calendar labels and navigation, the date placeholder
-and Clear button, datetime Date and Time names, and manual GPS controls. When
-the map is unavailable, the explanation and manual latitude, longitude and Clear
-location controls follow the selected language. Live forms and Search use the
+and Clear button, datetime Date and Time names, and GPS controls. Address search,
+its waiting and empty results, location guidance, **Your location**, and browser
+location failure messages follow the selected English or Spanish language.
+A location request that finishes after a language change uses the language
+selected when its result arrives. When the map is unavailable, the explanation
+and manual latitude, longitude and Clear location controls follow the selected
+language. Live forms and Search use the
 same calendar. Date display keeps your selected regional conventions; the
 calendar's labels and week layout use its general English or Spanish locale.
 Other worker languages currently use English for that platform text; your
@@ -127,11 +131,12 @@ authored labels and custom validation still use the app's translations.
 Changing language keeps entered answers and repeat rows and updates existing
 validation messages, including required warnings already shown. Spoken feedback
 about reviewing a highlighted question also follows the selected language.
-Finishing an input can
-still apply its usual formatting. Configured Google
-Maps and address-search labels and errors, clock formatting, other field-widget
-text, record metadata, other accessibility labels, browser diagnostics, media
-capture controls and some Search error messages remain outside this catalog.
+Finishing an input can still apply its usual formatting. Google provides map
+tiles, map controls and gestures, place names, and resolved addresses in its own
+language; those do not
+change with Nova's language selector. Clock formatting, other field-widget text,
+record metadata, other accessibility labels, browser diagnostics, media capture
+controls and some Search error messages remain outside this catalog.
 
 ## What is not counted as translated
 

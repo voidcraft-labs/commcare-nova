@@ -459,8 +459,9 @@ RTL content.
 
 Preview's platform catalog supplies English/Spanish navigation and generic
 validation, live question/section/repeat positions and required announcements,
-group/repeat controls, datetime Date/Time names, and manual GPS labels, Clear
-location and unavailable-map copy. Live forms and Search share `WorkerDatePicker`
+group/repeat controls, datetime Date/Time names, and Nova-owned GPS address-search,
+wait/empty-state, location guidance, browser-location failure and manual-coordinate
+copy. Live forms and Search share `WorkerDatePicker`
 for calendar text and accessible labels, placeholder and Clear. Date display
 passes the canonical selected tag to Intl, retaining its regional suffix; the
 calendar uses generic English/Spanish labels and week layout. The generic
@@ -471,7 +472,10 @@ questions remain clean. Retained platform review announcements resolve in the
 current language; authored and server messages keep their own wording. Ordinary
 input blur still commits and normalizes values. Other worker
 languages use
-English platform copy. Configured Google Maps/Places labels and errors, clock
+English platform copy. Browser location failures retain typed reasons and resolve
+their catalog wording in the committed worker language when delivered. Language
+changes retain the request and exact coordinates. Google's map tiles, controls,
+gestures, place names and resolved addresses keep Google's own language. Clock
 formatting, record metadata, media controls and other accessibility labels and
 diagnostics remain outside this catalog.
 
