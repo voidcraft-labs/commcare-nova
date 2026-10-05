@@ -22,9 +22,9 @@ import {
 	type XPathWorkerEvaluateRequest,
 } from "@/lib/preview/xpath/workerProtocol";
 
-const caseDatabaseScenario = new URLSearchParams(location.search).has(
-	"case-database",
-);
+const caseDatabaseScenario =
+	typeof location !== "undefined" &&
+	new URLSearchParams(location.search).has("case-database");
 // Browser evidence controls only the remote transport. The actual screen
 // constructs the submission, digest and attachment barrier.
 export const submitFormAction: typeof Actions.submitFormAction = async (
