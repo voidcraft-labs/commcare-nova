@@ -286,6 +286,17 @@ revocation remains terminal and discards the old entry. A rebuilt runtime may
 remount question controls; this does not claim preservation of focus or an open
 native picker through a whole-database refresh.
 
+The controller's asynchronous form and section validation return a completed
+answer judgment or an unavailable/retired result. A completed judgment owns the
+initiating engine, entry, lifecycle generation, device-resource state, document,
+rebuild queue and worker revision. Consumers recheck that exact completion at
+their continuation boundary; they never infer an invalid answer from readiness
+or a later field snapshot. Only a current completed invalid judgment announces
+and focuses its captured question. A refresh or replacement retires the original
+Submit/Next/jump press without a write or automatic replay. Answers survive a
+same-entry refresh, and a fresh press starts a fresh validation. The pure
+FormEngine and non-writing form evaluator retain their boolean validation APIs.
+
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
 those selectors in case-type order, then replaces the selector with that exact

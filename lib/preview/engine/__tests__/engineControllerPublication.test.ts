@@ -12,7 +12,10 @@ import {
 	type XPathWorkerPort,
 } from "../../xpath/workerClient";
 import type { XPathWorkerEvaluateRequest } from "../../xpath/workerProtocol";
-import { EngineController } from "../engineController";
+import {
+	EngineController,
+	type EngineValidationCompletion,
+} from "../engineController";
 import { previewAsMe } from "../identity";
 import {
 	admittedControllerDoc,
@@ -278,6 +281,157 @@ async function cleanup(subject: ReturnType<typeof fixture>) {
 	await subject.ctrl.awaitSettled();
 }
 
+function validationFixture() {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "section",
+								id: "answers",
+								children: [
+									f({
+										kind: "text",
+										id: "name",
+										label: "Name",
+										validate: ". = 'Ready'",
+										validate_msg: "This answer needs to be Ready.",
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const form = doc.formOrder[doc.moduleOrder[0]][0];
+	const section = doc.fieldOrder[form][0];
+	const name = doc.fieldOrder[section][0];
+	const store = createBlueprintDocStore();
+	store.getState().load(admittedControllerDoc(doc));
+	const barrier = workerBarrier();
+	const ctrl = new EngineController(
+		new XPathRuntime({ workerFactory: barrier.factory }),
+	);
+	ctrl.setDocStore(store);
+	ctrl.setCaseDatabaseState({
+		required: true,
+		status: "ready",
+		snapshot: { rows: [], indices: [] },
+	});
+	return { ctrl, barrier, form, section, name };
+}
+
+describe("validation completion ownership", () => {
+	it.each(["form", "section"] as const)(
+		"distinguishes a completed invalid %s from work retired by refresh, rebuild, or a newer answer",
+		async (surface) => {
+			const { ctrl, barrier, form, section, name } = validationFixture();
+			let validation: Promise<EngineValidationCompletion> | undefined;
+			let successor: Promise<boolean> | undefined;
+			const validate = () =>
+				surface === "form"
+					? ctrl.validateAllAsync()
+					: ctrl.validateSectionAsync(section);
+			try {
+				expect(await ctrl.activateFormAsync(form)).toBe(true);
+				await ctrl.onValueChangeAsync(name, "Wrong");
+				const heldInvalid = barrier.holdNext();
+				validation = validate();
+				expect(await heldInvalid).toBeDefined();
+				barrier.release();
+				const invalid = await validation;
+				expect(invalid).toMatchObject({
+					kind: "invalid",
+					target: {
+						fieldUuid: name,
+						instancePath: "/data/answers/name",
+					},
+				});
+				expect(ctrl.isValidationCurrent(invalid)).toBe(true);
+				await ctrl.onValueChangeAsync(name, "Ready");
+				expect(ctrl.isValidationCurrent(invalid)).toBe(false);
+				const entryKey = ctrl.entryKey;
+				if (!entryKey) throw new Error("Expected an active form entry");
+
+				for (const interruption of ["refresh", "rebuild", "answer"] as const) {
+					const held = barrier.holdNext();
+					validation = validate();
+					expect(await held).toBeDefined();
+					if (interruption === "refresh")
+						ctrl.setCaseDatabaseState({ required: true, status: "loading" });
+					else if (interruption === "rebuild")
+						successor = ctrl.rebuildActiveFormAsync(form);
+					else successor = ctrl.onValueChangeAsync(name, "Ready");
+					barrier.release();
+					const retired = await validation;
+					expect(retired).toEqual({ kind: "retired" });
+					expect(ctrl.isValidationCurrent(retired)).toBe(false);
+					if (interruption === "refresh") {
+						expect(await validate()).toEqual({ kind: "unavailable" });
+						ctrl.setCaseDatabaseState({
+							required: true,
+							status: "ready",
+							snapshot: { rows: [], indices: [] },
+						});
+					} else await successor;
+					await ctrl.awaitSettled(entryKey);
+					expect(ctrl.entryKey).toBe(entryKey);
+					expect(ctrl.store.getState()[name]).toMatchObject({
+						value: "Ready",
+						valid: true,
+					});
+					expect(ctrl.firstInvalidFieldTarget()).toBeUndefined();
+					expect(ctrl.isValidationCurrent(retired)).toBe(false);
+					const fresh = await validate();
+					expect(fresh).toEqual({ kind: "valid" });
+					expect(ctrl.isValidationCurrent(fresh)).toBe(true);
+				}
+
+				const completed = await validate();
+				ctrl.setCaseDatabaseState({ required: true, status: "loading" });
+				ctrl.setCaseDatabaseState({
+					required: true,
+					status: "ready",
+					snapshot: { rows: [], indices: [] },
+				});
+				await ctrl.awaitSettled(entryKey);
+				expect(ctrl.isValidationCurrent(completed)).toBe(false);
+				await expect(
+					ctrl.computeSubmissionMutationAsync({}, entryKey, completed),
+				).resolves.toBeUndefined();
+				const fresh = await validate();
+				const snapshot = await ctrl.computeSubmissionMutationAsync(
+					{},
+					entryKey,
+					fresh,
+				);
+				expect(snapshot?.mutation).toMatchObject({ kind: "survey", entryKey });
+
+				const held = barrier.holdNext();
+				validation = validate();
+				expect(await held).toBeDefined();
+				ctrl.deactivate();
+				barrier.release();
+				expect(await validation).toEqual({ kind: "retired" });
+				expect(ctrl.entryKey).toBeUndefined();
+				expect(ctrl.entryStore.getState().fault).toBeUndefined();
+			} finally {
+				ctrl.dispose();
+				barrier.close();
+				await Promise.allSettled([validation, successor]);
+				await ctrl.awaitSettled();
+			}
+		},
+	);
+});
+
 describe("same-entry runtime publication", () => {
 	it.each(["synchronous", "worker"] as const)(
 		"retains required and authored errors through language rebuilds with %s execution",
@@ -369,7 +523,9 @@ describe("same-entry runtime publication", () => {
 			try {
 				expect(await ctrl.activateFormAsync(form)).toBe(true);
 				expect(await ctrl.onValueChangeAsync(spaces, "   ")).toBe(true);
-				expect(await ctrl.validateSectionAsync(answers)).toBe(false);
+				expect(await ctrl.validateSectionAsync(answers)).toMatchObject({
+					kind: "invalid",
+				});
 				const blank = ctrl.store.getState()[name];
 				const authored = ctrl.store.getState()[spaces];
 				const clean = ctrl.store.getState()[untouched];
@@ -922,8 +1078,10 @@ describe("same-entry runtime publication", () => {
 				),
 			).toBe(false);
 			expect(await ctrl.enterSectionAsync(fields.visit.uuid)).toBe(false);
-			expect(await ctrl.validateAllAsync()).toBe(false);
-			expect(await ctrl.validateSectionAsync(fields.visit.uuid)).toBe(false);
+			expect(await ctrl.validateAllAsync()).toEqual({ kind: "unavailable" });
+			expect(await ctrl.validateSectionAsync(fields.visit.uuid)).toEqual({
+				kind: "unavailable",
+			});
 			expect(await ctrl.resetAsync()).toBe(false);
 			ctrl.resetValidation();
 			expect(() => ctrl.computeSubmissionMutation({})).toThrow(

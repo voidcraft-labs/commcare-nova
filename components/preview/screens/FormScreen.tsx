@@ -78,6 +78,7 @@ import {
 	overlayCaseDatabasePatch,
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
+import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
 	type CarriedSubmission,
@@ -1645,12 +1646,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 		[],
 	);
 
-	const revealAndFocusFirstInvalid = useCallback((): void => {
-		const target = controller.firstInvalidFieldTarget();
-		if (target === undefined) return;
-		revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true);
-	}, [controller, revealAndFocusTarget]);
-
 	const revealInvalidOnPage = useCallback(
 		(target: InvalidFieldTarget): void =>
 			revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true),
@@ -1703,7 +1698,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 	);
 
 	const handleSubmit = async (): Promise<void> => {
-		if (clearInFlightRef.current || controller.entryStore.getState().rebuilding)
+		const currentEntry = controller.entryStore.getState();
+		if (
+			clearInFlightRef.current ||
+			currentEntry.rebuilding ||
+			currentEntry.caseDatabaseWait !== undefined
+		)
 			return;
 
 		const start = session.getState();
@@ -1870,13 +1870,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * links need the case types of the children it created, which the
 		 * result reports only by id. */
 		let landedMutation: SubmissionMutation | undefined;
+		let validation: EngineValidationCompletion | undefined;
 		try {
 			const submitStableAnswers = async (): Promise<
 				SubmissionResult | "invalid" | "save-failed" | "stale"
 			> => {
 				if (!isCurrent()) return "stale";
-				const valid = await controller.validateAllAsync();
-				if (!valid) return "invalid";
+				validation = await controller.validateAllAsync();
+				if (!controller.isValidationCurrent(validation)) return "stale";
+				if (validation.kind === "invalid") return "invalid";
+				if (validation.kind !== "valid") return "stale";
 				const submission = await controller.computeSubmissionMutationAsync(
 					{
 						caseIds: submitted.caseIds,
@@ -1886,6 +1889,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 						viewerTimeZone: viewerTimeZone(),
 					},
 					submittedEntryKey,
+					validation,
 				);
 				if (submission === undefined) return "stale";
 				const { mutation, documentState: finalDocState } = submission;
@@ -1909,9 +1913,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 				) {
 					return "save-failed";
 				}
-				if (docApi.getState() !== finalDocState) return "stale";
+				if (
+					docApi.getState() !== finalDocState ||
+					!controller.isValidationCurrent(validation)
+				)
+					return "stale";
 				const finalBlueprintDigest = await blueprintRevisionDigest(finalDoc);
-				if (docApi.getState() !== finalDocState) return "stale";
+				if (
+					docApi.getState() !== finalDocState ||
+					!controller.isValidationCurrent(validation)
+				)
+					return "stale";
 				submittedDocState = finalDocState;
 				submitted = finalSubmitted;
 				submissionRevisionFinal = true;
@@ -1974,11 +1986,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 			}
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
+				if (
+					validation?.kind !== "invalid" ||
+					!controller.isValidationCurrent(validation) ||
+					validation.target === undefined
+				)
+					return;
 				// The focused question supplies the specific correction.
 				announceReview();
-				const firstInvalid = controller.firstInvalidFieldTarget();
-				if (firstInvalid !== undefined) showPageOf(firstInvalid);
-				revealAndFocusFirstInvalid();
+				showPageOf(validation.target);
+				revealInvalidOnPage(validation.target);
 				return;
 			}
 			if (
@@ -2563,6 +2580,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 											submitStatus.kind === "running" ||
 											clearRunning ||
 											engineRebuilding ||
+											caseDatabaseWait !== undefined ||
 											!caseBindingReady ||
 											(appId !== undefined && !attachmentEntryReady) ||
 											!mayWriteCaseData
@@ -2645,9 +2663,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 										: "Case data is refreshing. Your answers are still here."
 									: selectedCaseLoading
 										? "The selected record is loading. Answers will be available shortly."
-										: repeatTopologySettling
-											? "Answers are paused while this repeat updates."
-											: "Answers are locked while this submission finishes."}
+										: engineRebuilding
+											? "Nova is preparing this form. Your answers are still here."
+											: repeatTopologySettling
+												? "Answers are paused while this repeat updates."
+												: "Answers are locked while this submission finishes."}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

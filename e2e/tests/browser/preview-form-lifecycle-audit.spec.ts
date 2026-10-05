@@ -3,6 +3,125 @@ import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-form-lifecycle-client";
 
+test("a case-data refresh retires Submit without blaming answers or replaying the press", async ({
+	page,
+}, testInfo) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+			"@/lib/preview/xpath/browserWorkerClient": boundary,
+		},
+	);
+	const refresh = Promise.withResolvers<void>();
+	const submissions: unknown[][] = [];
+	let reads = 0;
+	try {
+		await page.route(`${peer.origin}/case-database`, async (route) => {
+			if (++reads > 1) {
+				await refresh.promise;
+			}
+			await route.fulfill({
+				json: { kind: "data", snapshot: { rows: [], indices: [] } },
+			});
+		});
+		await page.route(`${peer.origin}/submission`, async (route) => {
+			submissions.push(route.request().postDataJSON());
+			await route.fulfill({
+				json: { kind: "error", message: "Transport unavailable. Try again." },
+			});
+		});
+		await page.goto(`${peer.origin}/?case-database`);
+		const resource = page.locator('[data-builder-resource="case-database"]');
+		const name = page.getByRole("textbox", { name: /Question 1.*Name/ });
+		const submit = page.getByRole("button", { name: "Submit", exact: true });
+		await expect(resource).toHaveAttribute("data-state", "ready");
+		await expect(name).toBeEnabled();
+		await name.fill("Retained answer");
+		const entry = await page.evaluate(() =>
+			window.previewFormLifecycleAudit.entry(),
+		);
+		await submit.focus();
+		await page.evaluate(() => window.previewFormLifecycleAudit.armValidation());
+		await submit.press("Enter");
+		await expect
+			.poll(() =>
+				page.evaluate(() => window.previewFormLifecycleAudit.validationHeld()),
+			)
+			.toBe(true);
+		await expect(
+			page.getByRole("button", { name: "Submitting", exact: true }),
+		).toBeDisabled();
+		await page.evaluate(() =>
+			window.previewFormLifecycleAudit.refreshCaseData(),
+		);
+		await expect.poll(() => reads).toBe(2);
+		await expect(resource).toHaveAttribute("data-state", "loading");
+		await expect(
+			page.getByRole("status").filter({ hasText: "Case data is refreshing" }),
+		).toBeVisible();
+		await page.evaluate(() =>
+			window.previewFormLifecycleAudit.releaseValidation(),
+		);
+		await page.evaluate(() => window.previewFormLifecycleAudit.settled());
+		await expect(submit).toBeDisabled();
+		await expect(name).toHaveValue("Retained answer");
+		await expect(page.locator('[aria-invalid="true"]')).toHaveCount(0);
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		expect(submissions).toHaveLength(0);
+
+		refresh.resolve();
+		await expect(resource).toHaveAttribute("data-state", "ready");
+		await page.evaluate(() => window.previewFormLifecycleAudit.settled());
+		await expect(name).toBeEnabled();
+		await expect(name).toHaveValue("Retained answer");
+		await expect(submit).toBeEnabled();
+		expect(
+			await page.evaluate(() => window.previewFormLifecycleAudit.entry()),
+		).toBe(entry);
+		await expect(page.locator('[aria-invalid="true"]')).toHaveCount(0);
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		expect(submissions).toHaveLength(0);
+
+		await submit.click();
+		await expect(page.getByRole("alert")).toHaveText(
+			"Transport unavailable. Try again.",
+		);
+		expect(submissions).toHaveLength(1);
+		await testInfo.attach("captured-submission-arguments", {
+			body: JSON.stringify(submissions[0], null, 2),
+			contentType: "application/json",
+		});
+		expect(submissions[0]?.[0]).toMatchObject({
+			kind: "registration",
+			entryKey: entry,
+			primary: { caseName: "Retained answer" },
+		});
+	} finally {
+		refresh.resolve();
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
+		} finally {
+			try {
+				await page.unrouteAll({ behavior: "wait" });
+			} finally {
+				try {
+					await page.close();
+				} finally {
+					await peer.close();
+				}
+			}
+		}
+	}
+});
+
 test("Submit commits the coordinate and clock currently being edited", async ({
 	page,
 }) => {

@@ -258,15 +258,18 @@ export function useSectionPaging({
 				!ownsNavigation(entryKey, version)
 			)
 				return false;
-			const valid = await controller.validateSectionAsync(page.uuid);
-			if (!ownsNavigation(entryKey, version)) return false;
-			if (valid) return true;
-			const target = controller.firstInvalidFieldTarget({
-				withinSection: page.uuid,
-			});
+			const validation = await controller.validateSectionAsync(page.uuid);
+			if (
+				!ownsNavigation(entryKey, version) ||
+				!controller.isValidationCurrent(validation)
+			)
+				return false;
+			if (validation.kind === "valid") return true;
+			if (validation.kind !== "invalid" || validation.target === undefined)
+				return false;
 			refuse();
 			showPage(page.uuid);
-			if (target !== undefined) revealInvalid(target);
+			revealInvalid(validation.target);
 			return false;
 		},
 		[controller, ownsNavigation, refuse, revealInvalid, showPage],

@@ -111,6 +111,32 @@ export interface EngineSubmissionSnapshot {
 	readonly documentState: BlueprintDocState;
 }
 
+/** Only a completed validation can judge answers. Resource preparation and
+ * superseded work never mean that a question needs correcting. */
+export type EngineValidationCompletion =
+	| { readonly kind: "valid" }
+	| {
+			readonly kind: "invalid";
+			readonly target: InvalidFieldTarget | undefined;
+	  }
+	| { readonly kind: "unavailable" }
+	| { readonly kind: "retired" };
+
+interface EngineValidationScope {
+	readonly engine: FormEngine;
+	readonly formUuid: Uuid;
+	readonly entryKey: string;
+	readonly generation: number;
+	readonly documentState: BlueprintDocState | undefined;
+	readonly caseDatabaseState: CaseDatabaseControllerState | undefined;
+	readonly rebuildWork: Promise<void>;
+}
+
+interface EngineValidationFence extends EngineValidationScope {
+	readonly revision: number;
+	readonly runtimeState: RuntimeStoreState;
+}
+
 /** Reactive form-entry identity. Unlike `entryKey`'s imperative getter, this
  * store notifies FormScreen when a materially changed worker rotates the
  * controller without first causing a parent React render. */
@@ -681,6 +707,12 @@ export class EngineController {
 				readonly document: BlueprintDocState;
 		  }
 		| undefined;
+	/** Completion identity is private to this controller. Callers cannot turn a
+	 * later ready state or a guessed field error into an accepted validation. */
+	private validationCompletions = new WeakMap<
+		EngineValidationCompletion,
+		EngineValidationFence
+	>();
 
 	constructor(xpathRuntime?: XPathRuntime, searchXPathRuntime?: XPathRuntime) {
 		this.xpathRuntime = xpathRuntime;
@@ -2226,29 +2258,141 @@ export class EngineController {
 		});
 	}
 
-	async validateAllAsync(): Promise<boolean> {
-		if (this.rebuilding) return false;
-		await this.pendingWork;
-		if (this.rebuilding) return false;
+	async validateAllAsync(): Promise<EngineValidationCompletion> {
+		return this.validateAsync();
+	}
+
+	private validationScopeIsCurrent(scope: EngineValidationScope): boolean {
+		return (
+			scope.engine === this.engine &&
+			scope.formUuid === this.activeFormUuid &&
+			scope.entryKey === this.currentEntryKey &&
+			scope.generation === this.lifecycleGeneration &&
+			scope.documentState === this.docStore?.getState() &&
+			scope.rebuildWork === this.pendingRebuildWork &&
+			(scope.caseDatabaseState === undefined ||
+				scope.caseDatabaseState === this.caseDatabaseState) &&
+			this.runtimeFault === undefined &&
+			this.caseDatabaseWait() === undefined &&
+			this.entryReady &&
+			!this.rebuilding
+		);
+	}
+
+	/** Recheck the exact validation completion after another owned boundary,
+	 * such as an attachment/save barrier. Readiness alone cannot revive it. */
+	isValidationCurrent(completion: EngineValidationCompletion): boolean {
+		const fence = this.validationCompletions.get(completion);
+		return (
+			fence !== undefined &&
+			this.validationScopeIsCurrent(fence) &&
+			fence.revision === this.runtimeRevision &&
+			fence.runtimeState === this.store.getState()
+		);
+	}
+
+	private async validateAsync(
+		sectionUuid?: Uuid,
+	): Promise<EngineValidationCompletion> {
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
-		if (!engine || !formUuid || !entryKey || this.xpathRuntime === undefined) {
-			return this.validateAll();
+		if (
+			!engine ||
+			!formUuid ||
+			!entryKey ||
+			!this.entryReady ||
+			this.rebuilding ||
+			this.runtimeFault !== undefined ||
+			this.caseDatabaseWait() !== undefined
+		) {
+			return { kind: "unavailable" };
 		}
-		return this.runAsyncRevision(
+		const initialRevision = this.runtimeRevision;
+		const initialRuntimeState = this.store.getState();
+		const scope: EngineValidationScope = {
+			engine,
+			formUuid,
+			entryKey,
+			generation: this.lifecycleGeneration,
+			documentState: this.docStore?.getState(),
+			// A linked task owns its explicit device world. Refreshing the provider's
+			// base cache does not replace that captured world.
+			caseDatabaseState:
+				this.requestedActivation?.caseDatabase === undefined
+					? this.caseDatabaseState
+					: undefined,
+			rebuildWork: this.pendingRebuildWork,
+		};
+		await Promise.all([this.pendingWork, scope.rebuildWork]);
+		if (
+			!this.validationScopeIsCurrent(scope) ||
+			initialRevision !== this.runtimeRevision ||
+			(this.xpathRuntime === undefined &&
+				initialRuntimeState !== this.store.getState())
+		)
+			return { kind: "retired" };
+		const complete = (
+			valid: boolean,
+			revision: number,
+		): EngineValidationCompletion => {
+			if (
+				!this.validationScopeIsCurrent(scope) ||
+				revision !== this.runtimeRevision
+			)
+				return { kind: "retired" };
+			this.syncAllPathsSelectively();
+			const completion: EngineValidationCompletion = valid
+				? { kind: "valid" }
+				: {
+						kind: "invalid",
+						target: engine.firstInvalidFieldTarget(
+							sectionUuid === undefined
+								? undefined
+								: { withinSection: sectionUuid },
+						),
+					};
+			this.validationCompletions.set(completion, {
+				...scope,
+				revision,
+				runtimeState: this.store.getState(),
+			});
+			return completion;
+		};
+		if (this.xpathRuntime === undefined) {
+			return this.contain<EngineValidationCompletion>(
+				"validation",
+				formUuid,
+				{ kind: "retired" },
+				() =>
+					complete(
+						sectionUuid === undefined
+							? engine.validateAll()
+							: engine.validateSection(sectionUuid),
+						this.runtimeRevision,
+					),
+			);
+		}
+		return this.runAsyncRevision<EngineValidationCompletion>(
 			"validation",
 			formUuid,
 			async (revision, generation, signal) => {
-				const valid = await engine.validateAllAsync(
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				if (!this.validationScopeIsCurrent(scope))
+					return { kind: "retired" } as const;
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
-				if (engine !== this.engine || entryKey !== this.currentEntryKey)
-					return false;
-				this.syncAllPathsSelectively();
-				return valid;
+				const valid =
+					sectionUuid === undefined
+						? await engine.validateAllAsync(evaluate)
+						: await engine.validateSectionAsync(sectionUuid, evaluate);
+				return complete(valid, revision);
 			},
-			false,
+			{ kind: "retired" },
 		);
 	}
 
@@ -2325,31 +2469,10 @@ export class EngineController {
 		});
 	}
 
-	async validateSectionAsync(sectionUuid: Uuid): Promise<boolean> {
-		if (this.rebuilding) return false;
-		await this.pendingWork;
-		if (this.rebuilding) return false;
-		const engine = this.engine;
-		const formUuid = this.activeFormUuid;
-		const entryKey = this.currentEntryKey;
-		if (!engine || !formUuid || !entryKey || this.xpathRuntime === undefined) {
-			return this.validateSection(sectionUuid);
-		}
-		return this.runAsyncRevision(
-			"validation",
-			formUuid,
-			async (revision, generation, signal) => {
-				const valid = await engine.validateSectionAsync(
-					sectionUuid,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
-				);
-				if (engine !== this.engine || entryKey !== this.currentEntryKey)
-					return false;
-				this.syncAllPathsSelectively();
-				return valid;
-			},
-			false,
-		);
+	async validateSectionAsync(
+		sectionUuid: Uuid,
+	): Promise<EngineValidationCompletion> {
+		return this.validateAsync(sectionUuid);
 	}
 
 	/** Resolve a concrete question to the collapsed containers that hide it. */
@@ -2656,7 +2779,13 @@ export class EngineController {
 	async computeSubmissionMutationAsync(
 		args: { caseIds?: readonly string[]; viewerTimeZone?: string },
 		expectedEntryKey: string,
+		validation?: EngineValidationCompletion,
 	): Promise<EngineSubmissionSnapshot | undefined> {
+		if (
+			validation !== undefined &&
+			(validation.kind !== "valid" || !this.isValidationCurrent(validation))
+		)
+			return undefined;
 		if (!(await this.awaitSettled(expectedEntryKey))) return undefined;
 		const engine = this.engine;
 		const documentState = this.reconciledDocumentState;
@@ -2666,7 +2795,10 @@ export class EngineController {
 			documentState === undefined ||
 			this.docStore?.getState() !== documentState ||
 			this.currentEntryKey !== expectedEntryKey ||
-			this.settling
+			this.settling ||
+			this.rebuilding ||
+			this.caseDatabaseWait() !== undefined ||
+			(validation !== undefined && !this.isValidationCurrent(validation))
 		) {
 			return undefined;
 		}
