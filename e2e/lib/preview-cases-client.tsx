@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	BuilderLocalizationProvider,
+	useBuilderLanguage,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { CaseListScreen } from "@/components/preview/screens/CaseListScreen";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
@@ -40,51 +43,69 @@ function fixture(count: number) {
 			),
 		),
 	];
-	return admittedControllerDoc(
-		buildDoc({
-			appId: "native-cases",
-			appName: "Case layout",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "phone", label: proseText("Phone"), data_type: "text" },
-						...Array.from({ length: 4 }, (_, index) => ({
-							name: `field_${index + 4}`,
-							label: proseText(`Field ${index + 4}`),
-							data_type: "text" as const,
-						})),
-					],
+	const doc = buildDoc({
+		appId: "native-cases",
+		appName: "Case layout",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "phone", label: proseText("Phone"), data_type: "text" },
+					...Array.from({ length: 5 }, (_, index) => ({
+						name: `field_${index + 4}`,
+						label: proseText(`Field ${index + 4}`),
+						data_type: "text" as const,
+					})),
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: moduleUuid,
+				name: longModuleName,
+				caseType: "patient",
+				caseListConfig: {
+					columns,
+					searchInputs: [],
+					...(count < 0
+						? { selection: { kind: "multiple" as const, maximum: 3 } }
+						: {}),
 				},
-			],
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: longModuleName,
-					caseType: "patient",
-					caseListConfig: {
-						columns,
-						searchInputs: [],
-						...(count < 0
-							? { selection: { kind: "multiple" as const, maximum: 3 } }
-							: {}),
+				forms: [
+					{
+						name: longFormName,
+						type: "followup",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
 					},
-					forms: [
-						{
-							name: longFormName,
-							type: "followup",
-							fields: [{ kind: "text", id: "notes", label: "Notes" }],
-						},
-						{
-							name: "Close case",
-							type: "close",
-							fields: [{ kind: "text", id: "notes", label: "Notes" }],
-						},
-					],
-				},
-			],
-		}),
+					{
+						name: "Close case",
+						type: "close",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
+			},
+		],
+	});
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		translations: { spa: {} },
+	};
+	return admittedControllerDoc(doc);
+}
+function LanguageButtons() {
+	const { selectLanguage } = useBuilderLanguage();
+	return (
+		<div>
+			<button type="button" onClick={() => selectLanguage("eng")}>
+				English
+			</button>
+			<button type="button" onClick={() => selectLanguage("spa")}>
+				Español
+			</button>
+		</div>
 	);
 }
 const session = createBuilderSessionStore({
@@ -108,6 +129,7 @@ function Surface() {
 				initialDoc={fixture(count)}
 			>
 				<BuilderLocalizationProvider>
+					<LanguageButtons />
 					<BuilderFormEngineProvider>
 						<CaseListScreen screen={{ type: "caseList", moduleUuid }} />
 					</BuilderFormEngineProvider>

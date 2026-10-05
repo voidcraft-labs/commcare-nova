@@ -62,6 +62,7 @@ import {
 	useSetPreviewParentCaseRequest,
 	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
+import { useWorkerMessage } from "../shared/WorkerText";
 import { openModuleLanding } from "./moduleLanding";
 
 interface ModuleScreenProps {
@@ -96,6 +97,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	 * from Results after an empty search, never from here. */
 	const forms = useOrderedMenuForms(moduleUuid);
 	const language = useBuilderLanguage();
+	const message = useWorkerMessage();
 	const localizedValues = useLocalizedValues();
 	const moduleNameUnitId = makeTranslationUnitId(
 		"module",
@@ -349,12 +351,19 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
 						/>
 						<div className="flex-1 min-w-0">
-							<div className="text-sm font-medium text-nova-text">Cases</div>
+							<div className="text-sm font-medium text-nova-text">
+								{message("cases")}
+							</div>
 							{selectedMenuCase && (
 								<div className="text-xs text-nova-text-muted truncate">
 									{selectedMenuChoices.length === 1
-										? `Selected: ${selectedMenuChoices[0]?.caseName ?? "Case"}`
-										: `${selectedMenuChoices.length} cases selected`}
+										? message("selectedCase", {
+												name:
+													selectedMenuChoices[0]?.caseName || message("case"),
+											})
+										: message("selectedCountMany", {
+												count: selectedMenuChoices.length,
+											})}
 								</div>
 							)}
 						</div>

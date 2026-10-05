@@ -2483,7 +2483,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 									width="18"
 									className="animate-spin"
 								/>
-								This form is getting ready.
+								{runtimeMessage(language.language, "formGettingReady")}
 							</div>
 						) : /* Clear form intentionally remounts uncontrolled browser controls.
 						 * A transient access refresh only suspends authority: keeping this
@@ -2656,18 +2656,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 					{formFrozen && !engineInitializing ? (
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
-								? "A fresh form entry is ready."
+								? runtimeMessage(language.language, "freshFormReady")
 								: caseDatabaseWait !== undefined
 									? caseDatabaseWait.status === "error"
 										? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
-										: "Case data is refreshing. Your answers are still here."
+										: runtimeMessage(language.language, "caseDataRefreshing")
 									: selectedCaseLoading
-										? "The selected record is loading. Answers will be available shortly."
+										? runtimeMessage(language.language, "selectedRecordLoading")
 										: engineRebuilding
-											? "Nova is preparing this form. Your answers are still here."
+											? runtimeMessage(language.language, "formPreparing")
 											: repeatTopologySettling
-												? "Answers are paused while this repeat updates."
-												: "Answers are locked while this submission finishes."}
+												? runtimeMessage(language.language, "repeatUpdating")
+												: runtimeMessage(language.language, "answersLocked")}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

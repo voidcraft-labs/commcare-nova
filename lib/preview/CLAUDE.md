@@ -148,6 +148,11 @@ required/type/constraint fallback messages, core worker navigation, live spoken
 question/section/repeat positions and required markers, group/repeat controls,
 datetime Date/Time names, and Nova-owned GPS address-search, wait/empty-state,
 location guidance, browser-location failure and manual-coordinate copy.
+Running-app menus, breadcrumb navigation, record lists and details also follow
+the selected English/Spanish language. This includes filters, counts, selection,
+paging, blank-value labels, loading and empty/error states. Authoring setup and
+diagnostic guidance stay in English.
+
 `WorkerDatePicker` shares selected-language calendar text and accessible
 labels, placeholder and Clear across live forms and Search. The generic
 `DatePicker` keeps English authoring defaults. Its display formatter receives the

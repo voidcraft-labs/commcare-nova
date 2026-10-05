@@ -37,6 +37,7 @@ import {
 	previewMenuModuleUuids,
 	previewModuleVisibility,
 } from "@/lib/preview/menuProjection";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
@@ -245,7 +246,13 @@ export function HomeScreen() {
 								)}
 							</div>
 							<span className="text-xs text-nova-text-muted shrink-0">
-								{formCount} form{formCount !== 1 ? "s" : ""}
+								{runtimeMessage(
+									mode === "edit" ? undefined : language.language,
+									formCount === 1 ? "formCountOne" : "formCountMany",
+									{
+										count: formCount,
+									},
+								)}
 							</span>
 						</motion.button>
 					);

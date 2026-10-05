@@ -460,8 +460,14 @@ RTL content.
 Preview's platform catalog supplies English/Spanish navigation and generic
 validation, live question/section/repeat positions and required announcements,
 group/repeat controls, datetime Date/Time names, and Nova-owned GPS address-search,
-wait/empty-state, location guidance, browser-location failure and manual-coordinate
-copy. Live forms and Search share `WorkerDatePicker`
+wait/empty-state, location guidance, browser-location failure and manual-coordinate copy.
+
+Running-app menus, breadcrumb navigation, record lists and details also follow
+the selected English/Spanish language. This includes filters, counts, selection,
+paging, blank-value labels, loading and empty/error states. Authoring setup and
+diagnostic guidance stay in English.
+
+Live forms and Search share `WorkerDatePicker`
 for calendar text and accessible labels, placeholder and Clear. Date display
 passes the canonical selected tag to Intl, retaining its regional suffix; the
 calendar uses generic English/Spanish labels and week layout. The generic

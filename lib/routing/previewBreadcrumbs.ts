@@ -14,7 +14,9 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES, type FormType } from "@/lib/domain";
+import type { LanguageTag } from "@/lib/domain/localization";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import type { Location } from "@/lib/routing/types";
 import type {
 	PreviewCaseTarget,
@@ -68,6 +70,7 @@ export function previewCaseTargetBindsLocation(
 /** Inputs to `previewBreadcrumbTrail` — all plain data, no hooks, so the
  *  derivation is pure and directly testable. */
 export interface PreviewTrailInput {
+	language?: LanguageTag;
 	loc: Location;
 	/** The URL-derived trail (home + module + …) from `useBreadcrumbs`. Only
 	 *  its home and module crumbs are reused; the rest is rebuilt to follow the
@@ -98,13 +101,19 @@ export function previewBreadcrumbTrail(
 ): PreviewBreadcrumbItem[] {
 	const {
 		loc,
-		baseBreadcrumbs,
+		baseBreadcrumbs: sourceBreadcrumbs,
+		language,
 		moduleUuid,
 		moduleForms,
 		previewCaseTarget,
 		previewSelectedCase,
 		renderedScreen,
 	} = input;
+	const baseBreadcrumbs = sourceBreadcrumbs.map((crumb) =>
+		crumb.key === "home"
+			? { ...crumb, label: runtimeMessage(language, "home") }
+			: crumb,
+	);
 
 	if (renderedScreen?.type === "home") {
 		return baseBreadcrumbs.filter((crumb) => crumb.location.kind === "home");
@@ -165,8 +174,11 @@ export function previewBreadcrumbTrail(
 		if (boundCases !== undefined && boundCases.length > 0) {
 			const only = boundCases.length === 1 ? boundCases[0] : undefined;
 			const label = only
-				? (only.caseName ?? "1 case")
-				: `${boundCases.length} cases`;
+				? only.caseName ||
+					runtimeMessage(language, "caseCountOne", { count: 1 })
+				: runtimeMessage(language, "caseCountMany", {
+						count: boundCases.length,
+					});
 			items.push({
 				key: `cases:${boundCases.map((choice) => choice.caseId).join(",")}`,
 				label,
@@ -205,10 +217,12 @@ export function previewBreadcrumbTrail(
 				location: { kind: "cases", moduleUuid },
 			});
 		}
-		if (previewSelectedCase?.caseName) {
+		if (previewSelectedCase) {
 			items.push({
 				key: `case:${previewSelectedCase.caseId}`,
-				label: previewSelectedCase.caseName,
+				label:
+					previewSelectedCase.caseName ||
+					runtimeMessage(language, "caseCountOne", { count: 1 }),
 				location: { kind: "cases", moduleUuid },
 			});
 		}
