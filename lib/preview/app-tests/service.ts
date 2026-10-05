@@ -41,12 +41,27 @@ function restoreSession(state: AppTestSessionState): AppTestSessionState {
 			closed_on: row.closed_on === null ? null : new Date(row.closed_on),
 		})),
 	});
+	const restoreTask = <
+		T extends Extract<
+			AppTestSessionState["screen"],
+			{ kind: "menu" | "records" }
+		>,
+	>(
+		entry: T,
+	): T =>
+		entry.taskCases === undefined
+			? entry
+			: { ...entry, taskCases: restore(entry.taskCases) };
 	const screen = (
 		entry: AppTestSessionState["screen"],
 	): AppTestSessionState["screen"] =>
 		entry.kind === "form"
 			? { ...entry, entryCases: restore(entry.entryCases) }
-			: entry;
+			: entry.kind === "details"
+				? { ...entry, source: restoreTask(entry.source) }
+				: entry.kind === "menu" || entry.kind === "records"
+					? restoreTask(entry)
+					: entry;
 	return {
 		...state,
 		deviceCases: restore(state.deviceCases),

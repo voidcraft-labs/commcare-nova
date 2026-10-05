@@ -539,6 +539,19 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   through the same projection, so the local suite matches HQ's build. A child
   previous frame begins with root command then child command before its aligned
   datums, matching HQ's `include_root_module=True` branch.
+  `previousEntryFrameChildren` exposes this same raw result before matching;
+  its stable command and selection provenance feeds `previousTaskProjection.ts`
+  for Preview, App Tests and authoring reads. That bridge publishes no wire
+  names and never parses command or datum spelling to recover identity.
+  `projectTaskFormSelections` reads the chosen form's actual entry datums
+  for admission on its current menu. External entry-point frames may prepend
+  structural parent selections that this entry never loads; those prerequisites
+  remain specific to `projectEntryPoint`.
+  `projectModuleTaskSelectionUuids` reads the same module-target frame for
+  destination lifetime: a module command contributes no own leaf slot, while
+  ancestor-owned selections remain explicit identities.
+  Private incomplete-form reads may qualify an uncompiled entry as unavailable;
+  runtime and export always use the strict projection.
 - **Session scope.** Core evaluates link conditions and datum XPath after the
   XForm instance has closed, with a NULL main instance
   (`CommCareSession::getEvaluationContext`; `XPathPathExpr::evalRaw` throws on

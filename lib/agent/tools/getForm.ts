@@ -9,7 +9,8 @@
 
 import type { z } from "zod";
 import { formRecordName } from "@/lib/doc/formRecordName";
-import { formNavigation, type Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
+import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	type OperationSemantics,
 	operationSemantics,

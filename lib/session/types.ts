@@ -60,6 +60,17 @@ export interface PreviewCaseTarget {
 	caseDatabase?: CaseDatabaseSnapshot;
 }
 
+/** A command retained by after-submit navigation. Its exact task may finish
+ * even when the save changes whether that task is offered on a menu. */
+export interface PreviewTaskContinuation {
+	readonly moduleUuid: Uuid;
+	readonly formUuid?: Uuid;
+	/** The retained menu's world survives ordinary Back from a chosen form. */
+	readonly returnModuleUuid?: Uuid;
+	readonly selectingModuleUuids: readonly Uuid[];
+	readonly caseDatabase: CaseDatabaseSnapshot;
+}
+
 /** The worker's answers as the search-input instance would hold them:
  * prompt name → value, hidden inputs included. */
 export type PreviewSearchAnswers = Readonly<Record<string, string>>;

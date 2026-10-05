@@ -91,10 +91,12 @@ import {
 	deriveSessionDatums,
 	type SessionDatum,
 	type StackQueryData,
+	sessionDatumRequiresSelection,
 } from "./session";
 import {
 	buildInlineSearch,
 	type InlineSearchEmission,
+	inlineSearchQueryMetadata,
 	moduleIsSearchFirst,
 } from "./suite/case-search/inlineSearch";
 import type { FormActions } from "./types";
@@ -176,6 +178,8 @@ export function sessionDataRef(datumId: string): string {
  * expanded actions (the datum list depends on which cases the form opens).
  */
 export interface FormLinkProjectionContext {
+	/** Neutral task reads do not compile selector or query expressions. */
+	readonly entryMetadataOnly: boolean;
 	readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 	/** Export-only observer of an HQ root alignment that would bypass a bound. */
 	readonly onHqSelectionBoundMismatch?: (
@@ -193,6 +197,11 @@ export interface FormLinkProjectionContext {
 	/** The module whose menu selection supplies each selectable datum. Kept
 	 * out of `SessionDatum` because it is projection provenance, never wire. */
 	readonly selectionSourceModules: WeakMap<SessionDatum, Uuid>;
+	/** Stable command identity for runtime projections; never emitted on wire. */
+	readonly commandTargets: WeakMap<
+		FrameChild,
+		{ moduleUuid: Uuid; formUuid?: Uuid }
+	>;
 	/** Root-computed datums copied into a child entry by `add_parent_datums`.
 	 * Weak provenance keeps the session wire object unchanged. */
 	readonly fromParentModuleDatums: WeakSet<SessionDatum>;
@@ -233,6 +242,7 @@ export function moduleCaseTypeForActions(
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,
 	opts: {
+		readonly entryMetadataOnly?: boolean;
 		readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 		readonly onHqSelectionBoundMismatch?: (
 			issue: HqSelectionBoundMismatch,
@@ -274,6 +284,7 @@ export function formLinkProjectionContext(
 			return built;
 		});
 	return {
+		entryMetadataOnly: opts.entryMetadataOnly === true,
 		...(opts.onParentSelectionConflict && {
 			onParentSelectionConflict: opts.onParentSelectionConflict,
 		}),
@@ -287,6 +298,7 @@ export function formLinkProjectionContext(
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
 		entryDatums: new Map(),
 		selectionSourceModules: new WeakMap(),
+		commandTargets: new WeakMap(),
 		fromParentModuleDatums: new WeakSet(),
 		inlineSearches: new Map(),
 		queryNextDatums: new WeakMap(),
@@ -336,15 +348,22 @@ function withInlineSearchQueries(
 	const out: SessionDatum[] = [];
 	for (const datum of datums) {
 		const sourceUuid = ctx.selectionSourceModules.get(datum);
-		const search =
-			datum.nodeset === undefined || sourceUuid === undefined
+		const query =
+			!sessionDatumRequiresSelection(datum) || sourceUuid === undefined
 				? undefined
-				: inlineSearchFor(doc, ctx, sourceUuid);
-		if (search !== undefined) {
+				: ctx.entryMetadataOnly
+					? moduleIsSearchFirst(doc.modules[sourceUuid])
+						? inlineSearchQueryMetadata(
+								doc.modules[sourceUuid],
+								moduleIndexOf(ctx, sourceUuid),
+							)
+						: undefined
+					: inlineSearchFor(doc, ctx, sourceUuid)?.query;
+		if (query !== undefined) {
 			const queryDatum: SessionDatum = {
-				id: search.query.storageInstance,
-				caseType: search.query.caseType,
-				query: search.query,
+				id: query.storageInstance,
+				caseType: query.caseType,
+				query,
 			};
 			ctx.queryNextDatums.set(queryDatum, datum);
 			out.push(queryDatum);
@@ -422,7 +441,7 @@ function toFrameDatum(
 	}
 	return {
 		id: datum.id,
-		requiresSelection: datum.nodeset !== undefined,
+		requiresSelection: sessionDatumRequiresSelection(datum),
 		...(datum.maxSelectValue !== undefined && {
 			maximum: datum.maxSelectValue,
 		}),
@@ -494,6 +513,7 @@ function selectableDatums(
 		const parentSelection = datums.at(-1);
 		const moduleIndex = moduleIndexOf(ctx, selectedModuleUuid);
 		const datum = deriveCaseSelectionDatum({
+			entryMetadataOnly: ctx.entryMetadataOnly,
 			id,
 			caseType: selectedModule.caseType,
 			moduleIndex,
@@ -566,7 +586,7 @@ function alignWithRootMenu(
 	for (const parentDatum of parentDatums) {
 		// HQ aligns against the root's datums BEFORE its queries are placed.
 		if (parentDatum.query !== undefined) continue;
-		if (parentDatum.nodeset === undefined) {
+		if (!sessionDatumRequiresSelection(parentDatum)) {
 			const inherited = { ...parentDatum };
 			ctx.fromParentModuleDatums.add(inherited);
 			prefix.push(inherited);
@@ -613,7 +633,7 @@ function alignWithRootMenu(
 		}
 		if (
 			matched === undefined ||
-			matched.nodeset === undefined ||
+			!sessionDatumRequiresSelection(matched) ||
 			!selectionShapeMatches
 		) {
 			continue;
@@ -677,8 +697,10 @@ export function selectedCaseDatumId(
 	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
 	return [...entrySessionDatums(doc, ctx, moduleUuid, formUuid)]
 		.reverse()
-		.find((datum) => datum.nodeset !== undefined && datum.caseType === ownType)
-		?.id;
+		.find(
+			(datum) =>
+				sessionDatumRequiresSelection(datum) && datum.caseType === ownType,
+		)?.id;
 }
 
 /** Selected own-case datum including whether the value is scalar or a collection. */
@@ -691,7 +713,10 @@ export function selectedCaseSessionDatum(
 	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
 	return [...entrySessionDatums(doc, ctx, moduleUuid, formUuid)]
 		.reverse()
-		.find((datum) => datum.nodeset !== undefined && datum.caseType === ownType);
+		.find(
+			(datum) =>
+				sessionDatumRequiresSelection(datum) && datum.caseType === ownType,
+		);
 }
 
 /** Root-aware datum list for a case-list-only browse entry. */
@@ -704,7 +729,10 @@ export function caseListSessionDatums(
 	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
 	const own = [...datums]
 		.reverse()
-		.find((datum) => datum.caseType === ownType && datum.nodeset !== undefined);
+		.find(
+			(datum) =>
+				datum.caseType === ownType && sessionDatumRequiresSelection(datum),
+		);
 	const hasDetailScreen = (
 		doc.modules[moduleUuid]?.caseListConfig?.columns ?? []
 	).some((column) => column.visibleInDetail !== false);
@@ -751,7 +779,8 @@ export function entrySelectionDatumSources(
 	formUuid: Uuid,
 ): readonly EntrySelectionDatumSource[] {
 	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).flatMap((datum) => {
-		if (datum.nodeset === undefined || datum.caseType === undefined) return [];
+		if (!sessionDatumRequiresSelection(datum) || datum.caseType === undefined)
+			return [];
 		const sourceModuleUuid = ctx.selectionSourceModules.get(datum);
 		return sourceModuleUuid === undefined
 			? []
@@ -795,14 +824,31 @@ export function targetFrameChildren(
 	return formFrameChildren(doc, ctx, target.moduleUuid, target.formUuid);
 }
 
+function frameCommand(
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid?: Uuid,
+): FrameChild {
+	const child: FrameChild = {
+		type: "command",
+		id:
+			formUuid === undefined
+				? `m${moduleIndexOf(ctx, moduleUuid)}`
+				: `m${moduleIndexOf(ctx, moduleUuid)}-f${formIndexOf(ctx, moduleUuid, formUuid)}`,
+	};
+	ctx.commandTargets.set(child, {
+		moduleUuid,
+		...(formUuid !== undefined && { formUuid }),
+	});
+	return child;
+}
+
 function baseFormFrameChildren(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): FrameChild[] {
-	const mIdx = moduleIndexOf(ctx, moduleUuid);
-	const fIdx = formIndexOf(ctx, moduleUuid, formUuid);
 	const formUuids = ctx.formOrder[moduleUuid] ?? [];
 	// HQ reads every `m{N}-f{K}` entry of the module (browse `*-case-list`
 	// entries are filtered out in `_get_entries_datums`), so the common
@@ -814,9 +860,9 @@ function baseFormFrameChildren(
 		common.length,
 	);
 	return [
-		{ type: "command", id: `m${mIdx}` },
+		frameCommand(ctx, moduleUuid),
 		...common.map((datum) => ({ type: "datum" as const, datum })),
-		{ type: "command", id: `m${mIdx}-f${fIdx}` },
+		frameCommand(ctx, moduleUuid, formUuid),
 		...remaining.map((datum) => ({ type: "datum" as const, datum })),
 	];
 }
@@ -829,10 +875,7 @@ export function moduleFrameChildren(
 	moduleUuid: Uuid,
 ): FrameChild[] {
 	const parentUuid = moduleParent(doc, moduleUuid);
-	const ownCommand: FrameChild = {
-		type: "command",
-		id: `m${moduleIndexOf(ctx, moduleUuid)}`,
-	};
+	const ownCommand = frameCommand(ctx, moduleUuid);
 	if (parentUuid === undefined || parentUuid === null) return [ownCommand];
 	const parentForms = ctx.formOrder[parentUuid] ?? [];
 	const parentCommon = commonPrefixById(
@@ -1132,6 +1175,22 @@ export function previousFrameChildren(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): MatchedChild[] {
+	if (ctx.entryMetadataOnly)
+		throw new Error(
+			"Entry-plan metadata cannot be emitted as a previous frame.",
+		);
+	const children = previousEntryFrameChildren(doc, ctx, moduleUuid, formUuid);
+	const pending: PendingChild[] = children.map(staticFrameChild);
+	return replaceSessionReferences(pending, new Set());
+}
+
+/** The same previous frame before wire matching discards runtime provenance. */
+export function previousEntryFrameChildren(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): FrameChild[] {
 	const parentUuid = moduleParent(doc, moduleUuid);
 	let children: FrameChild[];
 	if (parentUuid === undefined || parentUuid === null) {
@@ -1147,17 +1206,10 @@ export function previousFrameChildren(
 			common.length,
 		);
 		children = [
-			{ type: "command", id: `m${moduleIndexOf(ctx, parentUuid)}` },
-			{ type: "command", id: `m${moduleIndexOf(ctx, moduleUuid)}` },
+			frameCommand(ctx, parentUuid),
+			frameCommand(ctx, moduleUuid),
 			...common.map((datum) => ({ type: "datum" as const, datum })),
-			{
-				type: "command",
-				id: `m${moduleIndexOf(ctx, moduleUuid)}-f${formIndexOf(
-					ctx,
-					moduleUuid,
-					formUuid,
-				)}`,
-			},
+			frameCommand(ctx, moduleUuid, formUuid),
 			...remaining.map((datum) => ({ type: "datum" as const, datum })),
 		];
 	}
@@ -1169,8 +1221,7 @@ export function previousFrameChildren(
 	) {
 		last = children.pop();
 	}
-	const pending: PendingChild[] = children.map(staticFrameChild);
-	return replaceSessionReferences(pending, new Set());
+	return children;
 }
 
 /** A frame child with no source to match: a selection reads its own

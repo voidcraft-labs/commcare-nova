@@ -14,6 +14,7 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
@@ -35,7 +36,11 @@ import {
 } from "./navigation";
 import { appTestRecords } from "./records";
 import { submitAppTest } from "./submission";
-import type { AppTestAction, AppTestSessionState } from "./types";
+import type {
+	AppTestAction,
+	AppTestScreen,
+	AppTestSessionState,
+} from "./types";
 
 type Scope = AppTestScope & {
 	role: string;
@@ -419,13 +424,61 @@ export async function advanceAppTest(
 				selections: {},
 			};
 			break;
-		case "sync":
+		case "sync": {
+			const deviceCases = await context.store.readDeviceCaseDatabase({
+				appId: scope.appId,
+				restoreScope: context.restoreScope,
+			});
+			const rowById = new Map(
+				deviceCases.rows.map((row) => [row.case_id, row]),
+			);
+			const refreshSelection = (
+				selection: PreviewMenuCaseSelection,
+			): PreviewMenuCaseSelection => ({
+				...selection,
+				cases: selection.cases.map((choice) => {
+					const row = rowById.get(choice.caseId);
+					return {
+						...choice,
+						...(row && { caseName: row.case_name || "Case" }),
+						caseProperties: row
+							? Object.fromEntries(caseRowToFormPreload(row))
+							: {},
+					};
+				}),
+			});
+			// A form already entered keeps its captured world. Retained menus and
+			// selectors, including a menu reached by Back, use the explicit restore
+			// before a new entry instead of overriding it with an older receipt.
+			const refreshSelector = <
+				T extends Extract<AppTestScreen, { kind: "menu" | "records" }>,
+			>(
+				task: T,
+			): T => ({
+				...task,
+				...(task.taskCases !== undefined && { taskCases: deviceCases }),
+				...(task.kind === "menu" &&
+					task.selection !== undefined && {
+						selection: refreshSelection(task.selection),
+					}),
+			});
+			const refreshTask = (task: AppTestScreen): AppTestScreen =>
+				task.kind === "details"
+					? { ...task, source: refreshSelector(task.source) }
+					: task.kind === "menu" || task.kind === "records"
+						? refreshSelector(task)
+						: task;
 			next = {
 				...state,
-				deviceCases: await context.store.readDeviceCaseDatabase({
-					appId: scope.appId,
-					restoreScope: context.restoreScope,
-				}),
+				deviceCases,
+				screen: refreshTask(screen),
+				history: state.history.map(refreshTask),
+				selections: Object.fromEntries(
+					Object.entries(state.selections).map(([uuid, selected]) => [
+						uuid,
+						refreshSelection(selected),
+					]),
+				),
 			};
 			extra = {
 				synced: true,
@@ -435,6 +488,7 @@ export async function advanceAppTest(
 				})),
 			};
 			break;
+		}
 		case "menu": {
 			if (screen.kind !== "home" && screen.kind !== "menu")
 				throw new AppTestActionError(

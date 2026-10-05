@@ -62,6 +62,11 @@ import {
 	buildLocalizationBlueprint,
 	LOCALIZATION_SEED,
 } from "./localizationSeed";
+import {
+	buildPreviousTaskBlueprint,
+	PREVIOUS_TASK_SEED,
+	previousTaskRoutes,
+} from "./previousTaskSeed";
 
 import {
 	buildReactProfileBlueprint,
@@ -866,6 +871,40 @@ export async function createSmokeBuilders(
 					caseId: formLinksPatient.caseId,
 				},
 			};
+		},
+		"previous-task": async () => {
+			const { appId, baseSeq } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: PREVIOUS_TASK_SEED.appName, status: "complete" },
+			);
+			const blueprint = toPersistableDoc(buildPreviousTaskBlueprint(appId));
+			await appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: baseSeq,
+				targetDoc: blueprint,
+				authority: { kind: "user", actorUserId: SEED.userId },
+			});
+			await materializeCaseStoreSchemas({
+				appId,
+				blueprint,
+				syncedSeq: baseSeq + 1,
+			});
+			for (const task of [
+				PREVIOUS_TASK_SEED.formsFirst,
+				PREVIOUS_TASK_SEED.caseFirst,
+			])
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: task.caseType,
+						case_name: task.caseName,
+						status: "open",
+						properties: { condition: "Before submission" },
+					},
+				});
+			return { previousTask: { appId, routes: previousTaskRoutes(appId) } };
 		},
 		"deep-links": async () => {
 			const { appId, baseSeq } = await createExplicitBlankApp(

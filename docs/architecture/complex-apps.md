@@ -2407,6 +2407,17 @@ them (`lib/preview/CLAUDE.md` § End-of-form links), the SA and MCP speak
 `add_form_links` / `update_form_link` / `remove_form_link` /
 `move_form_link`, and `content/docs/form-links.mdx` is the user-facing guide.
 
+The same raw `previous` frame exposes stable task and selection provenance to
+`lib/commcare/previousTaskProjection.ts`. Preview and App Tests resolve that
+neutral projection through `lib/preview/engine/previousTask.ts` against the
+submitting entry plus its exact receipt. It reopens the exact forms-first
+selector or returns to the case-first menu with its retained records, rather
+than treating `previous` as visited-screen history. Retained commands finish
+their existing task even if the save changes its offering conditions; a module
+menu evaluates its current form offerings. Authoring navigation reads and
+mutation results use this same projection, qualifying private incomplete
+neighbors explicitly instead of inventing a destination.
+
 ### Form sections
 
 A `section` is a field kind of its own: a root-only container whose

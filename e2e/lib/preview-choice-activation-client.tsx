@@ -176,7 +176,6 @@ root.render(
 					<Capture />
 					<FormScreen
 						screen={{ type: "form", moduleUuid: MODULE, formUuid: FORM }}
-						onBack={() => {}}
 					/>
 				</BuilderFormEngineProvider>
 			</BuilderLocalizationProvider>

@@ -109,6 +109,14 @@ rather than silently
 skipping it or returning an identity that did not land. Names resolve within the
 complete call scope; unresolved or ambiguous references refuse before mutation.
 
+`getForm`, `createForm` and `updateForm` return resolved navigation through
+`lib/preview/engine/navigationProjection.ts`. Its `previous` read comes from
+the same owner projection as Preview and App Tests: it names the exact record
+selector or module menu and retained record selections. It never promises a
+visited screen or Details. A private empty registration neighbor has no
+compilable entry until its record name exists; the read explicitly qualifies
+that destination as unavailable while runtime and export remain strict.
+
 One list-taking operation handles both one and several additions. Do not add a
 singular twin. Preserve nested identities and attached media during read/edit
 cycles. Unused custom property removal uses the reference index and the canonical

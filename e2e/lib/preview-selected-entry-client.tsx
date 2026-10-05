@@ -150,7 +150,6 @@ root.render(
 													? undefined
 													: [{ caseId: "selected-room" }],
 									}}
-									onBack={() => {}}
 								/>
 							</PreviewCaseDatabaseProvider>
 						</BuilderFormEngineProvider>

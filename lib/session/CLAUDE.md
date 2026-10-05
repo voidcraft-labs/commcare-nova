@@ -251,6 +251,21 @@ simply re-anchored by both readers rather than trusted.
 
 ## Endpoint launch lifetime
 
+`previewTaskContinuation` records only a command that the after-submit task
+projection retained, plus its exact patched device case database. It scopes
+menu-visibility continuation to that task's module, exact form and pending
+selectors. Ordinary navigation offering conditions and Project authorization
+keep their normal gates. A retained form command completes its selector
+without asking the menu to offer the form again; a module command evaluates
+form offerings normally. Leaving the task, Home, Preview mode changes, worker
+changes, resets and confirmed Project changes clear the marker. The URL still
+owns location; this marker neither records nor replaces navigation history.
+Choosing a form on a retained menu keeps that device world while the owner's
+actual entry datums decide its missing selectors. `returnModuleUuid` retains
+the world when ordinary Back returns to that menu, without admitting another
+command. A successful submission with a different routing outcome retires the
+completed task before installing its new destination.
+
 `previewEntryPointLaunch` is a verified local launch intent, never authored data.
 `installEntryPointLaunch` atomically installs Preview mode, selected persona, the
 ordered menu selections and exact form target, and clears unrelated search/parent

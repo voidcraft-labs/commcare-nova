@@ -274,6 +274,7 @@ export type AppTestScreen =
 			moduleUuid: Uuid;
 			/** A leaf record's inline form chooser, not a persistent menu datum. */
 			selection?: PreviewMenuCaseSelection;
+			taskCases?: CaseDatabaseSnapshot;
 	  }
 	| {
 			kind: "details";
@@ -286,6 +287,13 @@ export type AppTestScreen =
 			moduleUuid: Uuid;
 			formUuid?: Uuid;
 			returnModules?: readonly Uuid[];
+			/** The saved entry retains this command; selection completes it
+			 * without asking the menu to choose a form again. */
+			retainedFormTarget?: {
+				readonly moduleUuid: Uuid;
+				readonly formUuid: Uuid;
+			};
+			taskCases?: CaseDatabaseSnapshot;
 			searchEntry?: SearchEvaluationInput["entry"];
 			registeredCaseId?: string;
 			searchAnswers?: readonly { name: string; value: string }[];

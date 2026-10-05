@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
 import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
+import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	refineFormConnectMutations,
 	updateFormMutations,
@@ -70,7 +71,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "module" (its normal opening screen), or "previous". null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). For entry search-no-matches, only explicit app_home is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "module" (its normal opening screen), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). For entry search-no-matches, only explicit app_home is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()
@@ -99,6 +100,7 @@ export type UpdateFormResult =
 			close?: "conditional" | "unconditional";
 			display?: "conditional" | "always";
 			postSubmit?: string;
+			navigation?: ReturnType<typeof formNavigation>;
 			entry?: "menu" | "search-no-matches";
 			searchFirst?: boolean;
 			clearedSearchDefaults?: string[];
@@ -353,6 +355,7 @@ export const updateFormTool = {
 				mutations: commit.mutations,
 				result: {
 					ok: true,
+					navigation: formNavigation(newDoc, formUuid),
 					...(close_condition !== undefined && {
 						close: formAfter.closeCondition
 							? ("conditional" as const)

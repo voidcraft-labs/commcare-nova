@@ -157,7 +157,6 @@ root.render(
 							moduleUuid: activeModule,
 							formUuid: activeForm,
 						}}
-						onBack={() => {}}
 					/>
 				</BuilderFormEngineProvider>
 			</BuilderLocalizationProvider>

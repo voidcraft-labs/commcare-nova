@@ -410,7 +410,7 @@ export function sourceSessionDatums(
 	submission: CarriedSubmission,
 	selectedCases: SelectedCaseSession = new Map(),
 ): ReadonlyMap<string, SessionDatumValue> {
-	const ctx = formLinkProjectionContext(doc);
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const moduleUuid = owningModuleOf(ctx, formUuid);
 	const form = doc.forms[formUuid];
 	if (moduleUuid === undefined || form === undefined) return new Map();
@@ -557,7 +557,7 @@ export function carriedCaseFromSelections(
 ): CarriedCase {
 	if (link.target.type !== "form") return { kind: "none" };
 	const { doc } = input;
-	const ctx = formLinkProjectionContext(doc);
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const targetCaseDatumId = selectedCaseDatumId(
 		doc,
 		ctx,
@@ -592,7 +592,7 @@ export function projectTargetCaseSelections(
 	link: FormLink,
 ): readonly TargetCaseSelection[] {
 	const { doc } = input;
-	const ctx = formLinkProjectionContext(doc);
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const sourceModuleUuid = owningModuleOf(ctx, formUuid);
 	if (sourceModuleUuid === undefined) {
 		throw new Error(
@@ -661,7 +661,7 @@ export async function projectTargetCaseSelectionsAsync(
 	world?: FormLinkWorkerWorld,
 ): Promise<readonly TargetCaseSelection[]> {
 	const { doc } = input;
-	const ctx = formLinkProjectionContext(doc);
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const sourceModuleUuid = owningModuleOf(ctx, formUuid);
 	if (sourceModuleUuid === undefined) {
 		throw new Error("Cannot follow a form link whose source has no module.");

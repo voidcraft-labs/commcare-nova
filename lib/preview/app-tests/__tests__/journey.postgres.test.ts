@@ -851,6 +851,21 @@ it("requires a saved role and parent selection, then executes additional operati
 	});
 	expect(await step({ kind: "submit" })).toMatchObject({
 		savedInTest: true,
+		screen: "menu",
+		name: "Equipment",
+	});
+	// A survey's Previous drops its form command. Starting Inspect from that
+	// menu requires its own parent and record selectors, even if they were
+	// selected before the Receipt command was entered.
+	expect(await step({ kind: "form", formUuid: inspect.uuid })).toMatchObject({
+		name: "Households",
+		screen: "browse",
+	});
+	await step({ kind: "select", caseIds: ["home-a"] });
+	await step({ kind: "continue" });
+	await step({ kind: "select", caseIds: ["pump-a"] });
+	expect(await step({ kind: "continue" })).toMatchObject({
+		screen: "form",
 		name: "Inspect",
 		questions: expect.arrayContaining([
 			expect.objectContaining({ path: "condition", value: "Working" }),
@@ -1198,13 +1213,51 @@ it("reports its local clock and uses the same day in list calculations and forms
 });
 
 it.each([
-	{ chooser: false, destination: "previous" },
-	{ chooser: true, destination: "previous" },
-	{ chooser: false, destination: "module" },
-	{ chooser: true, destination: "module" },
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: true,
+		destination: "previous",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: false,
+		destination: "module",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: true,
+		destination: "module",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: true,
+		conditionalFallback: false,
+	},
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: true,
+		conditionalFallback: true,
+	},
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: false,
+		conditionalFallback: true,
+	},
 ] as const)(
-	"keeps leaf selection local (chooser $chooser, return $destination)",
-	async ({ chooser, destination }) => {
+	"resolves the saved task independently of visited Details (chooser $chooser, return $destination, forms first $formsFirst, conditional fallback $conditionalFallback)",
+	async ({ chooser, destination, formsFirst, conditionalFallback }) => {
 		const doc = await createEvaluationApp(
 			[
 				{
@@ -1212,6 +1265,9 @@ it.each([
 					caseType: "repair",
 					forms: [
 						{ name: "Update condition", type: "followup" },
+						...(formsFirst
+							? [{ name: "Register", type: "registration" as const }]
+							: []),
 						...(chooser
 							? [{ name: "Inspect", type: "followup" as const }]
 							: []),
@@ -1250,6 +1306,25 @@ it.each([
 						fieldUuid: "fixture_placeholder",
 					},
 				},
+				...(conditionalFallback
+					? [
+							{
+								toolName: "addFormLinks",
+								input: {
+									moduleUuid: "Repairs",
+									formUuid: "Update condition",
+									links: [
+										{
+											link: {
+												condition: "#case/condition = 'Unavailable'",
+												target: { type: "module", moduleUuid: "Repairs" },
+											},
+										},
+									],
+								},
+							},
+						]
+					: []),
 				...(chooser
 					? [
 							{
@@ -1259,9 +1334,10 @@ it.each([
 									formUuid: "Inspect",
 									fields: [
 										{
-											kind: "label",
-											id: "info",
-											label: "Inspect this equipment.",
+											kind: "text",
+											id: "condition",
+											label: "Inspection condition",
+											caseWrite: { caseType: "repair", property: "condition" },
 										},
 									],
 								},
@@ -1272,6 +1348,14 @@ it.each([
 									moduleUuid: "Repairs",
 									formUuid: "Inspect",
 									fieldUuid: "fixture_placeholder",
+								},
+							},
+							{
+								toolName: "updateForm",
+								input: {
+									moduleUuid: "Repairs",
+									formUuid: "Inspect",
+									post_submit: "module",
 								},
 							},
 						]
@@ -1334,6 +1418,7 @@ it.each([
 			return current.observation;
 		};
 		await step({ kind: "menu", moduleUuid: module.uuid });
+		if (formsFirst) await step({ kind: "form", formUuid: form.uuid });
 		expect(await step({ kind: "select", caseIds: ["repair-a"] })).toMatchObject(
 			{
 				screen: "details",
@@ -1372,13 +1457,17 @@ it.each([
 				expect.objectContaining({ value: "Broken" }),
 			]),
 		});
+		// Ordinary Back still follows the visited Details destination. Submit's
+		// preceding task is independently derived from the native entry.
+		expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
+		await openTask();
 		await step({
 			kind: "answer",
 			answers: [{ path: "condition", value: "Fixed" }],
 		});
 		const submitted = await step({ kind: "submit" });
 		expect(submitted.savedInTest).toBe(true);
-		if (destination === "module") {
+		if (destination === "module" || formsFirst) {
 			expect(submitted).toMatchObject({
 				screen: "browse",
 				results: {
@@ -1393,20 +1482,72 @@ it.each([
 			await step({ kind: "select", caseIds: ["repair-a"] });
 		} else {
 			expect(submitted).toMatchObject({
-				screen: "details",
-				fields: expect.arrayContaining([
-					expect.objectContaining({ label: "Condition", text: "Fixed" }),
-				]),
+				screen: "menu",
+				selected: [
+					expect.objectContaining({
+						caseId: "repair-a",
+						caseProperties: expect.objectContaining({ condition: "Fixed" }),
+					}),
+				],
 			});
 		}
-		expect(await openTask()).toMatchObject({
+		expect(
+			destination === "previous" && !formsFirst
+				? await step({ kind: "form", formUuid: form.uuid })
+				: await openTask(),
+		).toMatchObject({
 			screen: "form",
 			questions: expect.arrayContaining([
 				expect.objectContaining({ value: "Fixed" }),
 			]),
 		});
-		expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
-		expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+		expect(await step({ kind: "back" })).toMatchObject({
+			screen: destination === "previous" && !formsFirst ? "menu" : "details",
+		});
+		if (chooser && destination === "previous" && !formsFirst) {
+			const inspect = Object.values(doc.forms).find(
+				(item) => item.name === "Inspect",
+			);
+			if (!inspect) throw new Error("Missing inspection form");
+			expect(
+				await step({ kind: "form", formUuid: inspect.uuid }),
+			).toMatchObject({
+				questions: expect.arrayContaining([
+					expect.objectContaining({ path: "condition", value: "Fixed" }),
+				]),
+			});
+			await step({
+				kind: "answer",
+				answers: [{ path: "condition", value: "Inspected" }],
+			});
+			// Previous installed the leaf selection. The second form's explicit
+			// module frame drops that slot and starts fresh Results with its own
+			// committed value instead of the first receipt's selected menu.
+			const returned = await step({ kind: "submit" });
+			expect(returned).toMatchObject({
+				savedInTest: true,
+				screen: "browse",
+				results: {
+					rows: [
+						expect.objectContaining({
+							case_id: "repair-a",
+							properties: expect.objectContaining({ condition: "Inspected" }),
+						}),
+					],
+				},
+			});
+			expect(
+				z
+					.object({
+						route: z.object({
+							ancestorSelections: z.array(z.object({ moduleUuid: z.string() })),
+						}),
+					})
+					.parse(returned).route.ancestorSelections,
+			).not.toContainEqual(
+				expect.objectContaining({ moduleUuid: module.uuid }),
+			);
+		}
 		await step({ kind: "finish" });
 	},
 );
@@ -2649,8 +2790,8 @@ it.each([false, true])(
 	},
 );
 
-it("preserves synced records for fresh entries while linked forms keep the submitting entry world", {
-	timeout: 20_000,
+it("preserves linked and Previous entry worlds until Sync precedes a fresh entry", {
+	timeout: 30_000,
 }, async () => {
 	const doc = await createEvaluationApp(
 		[
@@ -2719,6 +2860,14 @@ it("preserves synced records for fresh entries while linked forms keep the submi
 					fieldUuid: "fixture_placeholder",
 				},
 			})),
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Review",
+					post_submit: "previous",
+				},
+			},
 			{
 				toolName: "addFormLinks",
 				input: {
@@ -2825,6 +2974,53 @@ it("preserves synced records for fresh entries while linked forms keep the submi
 			questions: expect.arrayContaining([
 				expect.objectContaining({ path: "name", value: "Learned by Sync" }),
 				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+		const createElsewhere = async (name: string) => {
+			await advance("other", { kind: "home" });
+			await advance("other", { kind: "menu", moduleUuid: "Equipment" });
+			await advance("other", { kind: "form", formUuid: "Register" });
+			await advance("other", {
+				kind: "answer",
+				answers: [{ path: "name", value: name }],
+			});
+			return advance("other", { kind: "submit" });
+		};
+		await createElsewhere("Third equipment");
+		expect(await advance("held", { kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			screen: "browse",
+		});
+		await advance("held", { kind: "select", caseIds: [learnedId] });
+		// The Previous selector survives a persisted call and carries the
+		// submitting entry's two rows despite the third row now in the store.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+		expect(await advance("held", { kind: "sync" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+		await advance("held", { kind: "back" });
+		// Sync refreshed the visited Details source for this new entry while
+		// leaving the already-open form's entry unchanged.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "3" }),
+			]),
+		});
+		await advance("held", { kind: "submit" });
+		await advance("held", { kind: "select", caseIds: [learnedId] });
+		await createElsewhere("Fourth equipment");
+		await advance("held", { kind: "sync" });
+		// Sync while Details is open updates its pending selector, so Continue
+		// uses all four rows rather than an older retained receipt.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "4" }),
 			]),
 		});
 	} finally {

@@ -15,7 +15,9 @@ import {
 	useEditMode,
 	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
+	usePreviewTaskContinuation,
 } from "@/lib/session/hooks";
+import { continuesPreviewCommand } from "../taskContinuation";
 import { usePreviewMenuSource } from "./usePreviewMenuSource";
 import { useSelectedPreviewIdentityState } from "./useSelectedPreviewIdentity";
 
@@ -33,6 +35,9 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 		endpointLaunch?.ignoreDisplayConditions === true &&
 		JSON.stringify(endpointLaunch.location) === JSON.stringify(loc);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const continuation = usePreviewTaskContinuation();
+	const continuesExistingTask =
+		mode === "preview" && continuesPreviewCommand(continuation, loc);
 	const identityState = useSelectedPreviewIdentityState();
 	const identity =
 		identityState.kind === "ready" ? identityState.identity : null;
@@ -58,6 +63,7 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 			? loc.moduleUuid
 			: undefined;
 	const requiredCaseAdmissionModuleUuid = useMemo(() => {
+		if (continuesExistingTask) return undefined;
 		if (directRunningModuleUuid === undefined) return undefined;
 		return previewMenuCaseContext(
 			menuSource,
@@ -66,7 +72,12 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 		).requiredParentCase
 			? directRunningModuleUuid
 			: undefined;
-	}, [directRunningModuleUuid, menuCaseSelections, menuSource]);
+	}, [
+		directRunningModuleUuid,
+		menuCaseSelections,
+		menuSource,
+		continuesExistingTask,
+	]);
 
 	return useMemo(
 		() =>
@@ -77,6 +88,7 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 				formOrder,
 				moduleVisibility,
 				requiredCaseAdmissionModuleUuid,
+				continuesExistingTask,
 			),
 		[
 			loc,
@@ -85,6 +97,7 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 			formOrder,
 			moduleVisibility,
 			requiredCaseAdmissionModuleUuid,
+			continuesExistingTask,
 		],
 	);
 }

@@ -12,6 +12,7 @@ import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import { formDisplayVisibility } from "../engine/displayConditionEvaluation";
 import { previewSessionValues } from "../engine/identity";
+import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
 	moduleHasChildren,
 	previewAutomaticForm,
@@ -142,15 +143,40 @@ export function enterAppTestForm(
 	state: AppTestSessionState,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
+	retainedCommand = false,
 ): AppTestScreen {
-	const entry = appTestForms(context, state, moduleUuid).find(
-		(item) => item.form.uuid === formUuid,
-	);
-	if (entry?.visibility !== "shown")
+	const entry = retainedCommand
+		? { form: context.doc.forms[formUuid], visibility: "shown" }
+		: appTestForms(context, state, moduleUuid).find(
+				(item) => item.form.uuid === formUuid,
+			);
+	if (
+		entry?.visibility !== "shown" ||
+		!entry.form ||
+		!(context.doc.formOrder[moduleUuid] ?? []).includes(formUuid)
+	)
 		throw new AppTestActionError(
 			"This form is not available on the current menu.",
 		);
 	const selection = appTestMenuSelection(context, state, moduleUuid);
+	if (state.screen.kind === "menu" && state.screen.taskCases) {
+		const [first, ...remaining] = previousTaskFormSelectors(
+			context.doc,
+			formUuid,
+			selection
+				? { ...state.selections, [moduleUuid]: selection }
+				: state.selections,
+		);
+		if (first !== undefined)
+			return {
+				kind: "records",
+				moduleUuid: first,
+				...(first === moduleUuid && { formUuid }),
+				returnModules: remaining,
+				retainedFormTarget: { moduleUuid, formUuid },
+				taskCases: state.screen.taskCases,
+			};
+	}
 	const needsCase =
 		formLaunch({
 			formType: entry.form.type,
@@ -162,7 +188,10 @@ export function enterAppTestForm(
 		moduleUuid,
 		formUuid,
 		caseIds: needsCase ? (selection?.cases.map((row) => row.caseId) ?? []) : [],
-		entryCases: state.deviceCases,
+		entryCases:
+			state.screen.kind === "menu"
+				? (state.screen.taskCases ?? state.deviceCases)
+				: state.deviceCases,
 	};
 }
 
@@ -188,6 +217,8 @@ export function selectAppTestRecords(
 	const selections = { ...state.selections };
 	const selectsForMenu =
 		!!screen.returnModules?.length ||
+		(screen.retainedFormTarget !== undefined &&
+			screen.retainedFormTarget.moduleUuid !== screen.moduleUuid) ||
 		(screen.formUuid === undefined &&
 			moduleHasChildren(context.doc, screen.moduleUuid));
 	const selection = {
@@ -209,10 +240,37 @@ export function selectAppTestRecords(
 	const next: AppTestSessionState = {
 		...state,
 		selections,
-		screen: { kind: "menu", moduleUuid: screen.moduleUuid, selection },
+		screen: {
+			kind: "menu",
+			moduleUuid: screen.moduleUuid,
+			selection,
+			taskCases: screen.taskCases,
+		},
 	};
 	if (selectsForMenu) {
 		const [target, ...remaining] = screen.returnModules ?? [];
+		if (screen.retainedFormTarget)
+			return {
+				...next,
+				screen: target
+					? {
+							kind: "records",
+							moduleUuid: target,
+							returnModules: remaining,
+							retainedFormTarget: screen.retainedFormTarget,
+							taskCases: screen.taskCases,
+							...(target === screen.retainedFormTarget.moduleUuid && {
+								formUuid: screen.retainedFormTarget.formUuid,
+							}),
+						}
+					: enterAppTestForm(
+							context,
+							next,
+							screen.retainedFormTarget.moduleUuid,
+							screen.retainedFormTarget.formUuid,
+							true,
+						),
+			};
 		return {
 			...next,
 			screen: enterAppTestMenu(
@@ -223,6 +281,17 @@ export function selectAppTestRecords(
 			),
 		};
 	}
+	if (screen.retainedFormTarget)
+		return {
+			...next,
+			screen: enterAppTestForm(
+				context,
+				next,
+				screen.retainedFormTarget.moduleUuid,
+				screen.retainedFormTarget.formUuid,
+				true,
+			),
+		};
 	const forms = appTestForms(context, next, screen.moduleUuid, true);
 	if (forms.length === 0)
 		throw new AppTestActionError("This record list has no next task.");

@@ -115,17 +115,24 @@ Single-record selection follows the browser's shared row-action decision. A
 configured Details screen exposes ordered, formatted values through the same
 cell projector as the browser. Continue reloads the selected identity using the
 production device-scoped detail reader and then applies ordinary form/menu
-eligibility. Informational details have no Continue action. A returning Details
-screen reads current stored values, even if the record no longer matches its
-old Results page. Back retains the visited destinations; returning to a form
+eligibility. Informational details have no Continue action. Details opened
+through ordinary Back read current stored values, even if the record no longer
+matches its old Results page. Back retains the visited destinations; returning to a form
 starts a fresh entry. These observations describe Preview navigation, not a
 native session-stack proof.
 
 A leaf record's inline form chooser carries its selection on that screen and
 offers only case-loading forms, matching the browser chooser. It
 does not add a persistent menu datum. Parent selectors and explicit link-carried
-selections keep the production menu-context lifetime. After a leaf form returns
-to its module, ordinary case-first routing reopens Results; Back from the form
+selections keep the production menu-context lifetime. An explicit module
+destination reopens ordinary Results in a leaf case-first module. The `previous`
+destination instead uses the same native task projection as Preview: forms-first
+reopens that exact form's picker; case-first retains the ordered selection and
+returns to its module menu. It does not return to visited Details. The receipt
+world continues into the next form, including a just-closed retained record.
+An already chosen form command completes selection without rechecking its menu
+offering condition; a returned module menu evaluates its offerings normally.
+Back from the form
 returns to the original Results/Details destination, not the transient chooser.
 
 Form observations return only the current page’s questions, available sections,
@@ -190,3 +197,8 @@ calculated columns and calculated ordering expose built-in dates at native
 calendar precision, while custom datetime values keep their clocks. Retained
 older observations remain readable, but a fresh journey is needed to execute
 these semantics.
+
+A Previous-retained menu or selector carries its saved device world into every next form, including surveys and registration. The next form's actual owner entry datums supply its missing selectors. Normal Back preserves a retained menu's world; explicit Sync refreshes every pre-entry retained world and its selected-row values, including retained menus and Details' pending source selectors in history, while an already-open form keeps its captured entry. Persisted retained task snapshots rehydrate timestamps just like form entries and the device catalog.
+An explicit module destination retires the destination's own leaf selection
+when the owner's target frame has no such slot. Parent selections and explicit
+form-link target selections retain their existing identities.

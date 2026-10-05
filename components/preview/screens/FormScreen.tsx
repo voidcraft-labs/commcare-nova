@@ -90,6 +90,10 @@ import {
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import {
+	resolvePreviousTask,
+	selectionsForModuleTask,
+} from "@/lib/preview/engine/previousTask";
 import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
@@ -335,8 +339,6 @@ interface FormScreenProps {
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
-	/** BuilderLayout's back handler: also the fallback post-submit destination for `previous` forms. */
-	onBack: () => void;
 }
 
 function previewCaseChoiceIdsEqual(
@@ -376,7 +378,7 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({ screen, onBack }: FormScreenProps) {
+export function FormScreen({ screen }: FormScreenProps) {
 	const explicitCases = screen.cases;
 	const loc = useLocation();
 	const navigate = useNavigate();
@@ -954,26 +956,35 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		(
 			dest: PostSubmitDestination,
 			submittedModuleUuid: Uuid | undefined,
+			submittedDoc: BlueprintDoc,
 		): void => {
 			switch (dest) {
 				case "module":
-					if (submittedModuleUuid) navigate.openModule(submittedModuleUuid);
+					if (submittedModuleUuid) {
+						const selections = selectionsForModuleTask(
+							submittedDoc,
+							submittedModuleUuid,
+							session.getState().previewMenuCaseSelections,
+						);
+						setPreviewMenuCaseSelection(
+							submittedModuleUuid,
+							selections[submittedModuleUuid],
+						);
+						navigate.openModule(submittedModuleUuid);
+					}
 					return;
 				case "app_home":
 					navigate.goHome();
 					return;
 				case "previous":
-					/* Return to whatever screen sent the user here. `onBack`
-					 * reads from BuilderLayout, which holds the back-stack and
-					 * falls through to the module home when the stack is
-					 * empty. */
-					onBack();
-					return;
+					throw new Error(
+						"The preceding task must be resolved from the submitted entry.",
+					);
 				default: {
 					/* Exhaustive switch: a future `PostSubmitDestination`
 					 * arm landing without a case here surfaces as the
 					 * standard `unhandledKindMessage` shape rather than
-					 * silently routing to `onBack()`. */
+					 * silently choosing an unrelated destination. */
 					const _exhaustive: never = dest;
 					throw new Error(
 						unhandledKindMessage({
@@ -986,7 +997,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}
 			}
 		},
-		[navigate, onBack],
+		[navigate, session, setPreviewMenuCaseSelection],
 	);
 
 	/**
@@ -1045,6 +1056,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			announced = true;
 			args.announceWrite();
 		};
+		const retireCompletedTask = (): void => {
+			session.getState().setPreviewTaskContinuation(undefined);
+			session.getState().setPreviewParentCaseRequest(undefined);
+			setPreviewCaseTarget(undefined);
+		};
 		/* Unless it explicitly returns to App home, a no-matches registration
 		 * form returns to its module as the wire's
 		 * return frame does; the gate keeps such a form free of links, so
@@ -1086,6 +1102,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
 				: undefined;
 		if (noMatchesRegistration !== undefined) {
+			retireCompletedTask();
 			// An explicitly authored App home destination is HQ's empty root
 			// frame. It discards the scalar registration return rather than feeding
 			// that scalar into a host that may require a multiple-case selection.
@@ -1097,7 +1114,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				session.getState().setPreviewParentCaseRequest(undefined);
 				settleAttempt({ kind: "idle" });
 				forgetCompletedPages();
-				dispatchPostSubmit("app_home", noMatchesRegistration.moduleUuid);
+				dispatchPostSubmit(
+					"app_home",
+					noMatchesRegistration.moduleUuid,
+					submitted.doc,
+				);
 				return;
 			}
 			landOnResultsWithRegisteredCase(
@@ -1106,16 +1127,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			);
 			return;
 		}
-		const links = submitted.links;
+		const links = submitted.links ?? [];
 		if (
-			links === undefined ||
-			links.length === 0 ||
+			(links.length === 0 && submitted.destination !== "previous") ||
 			submitted.formUuid === undefined
 		) {
+			retireCompletedTask();
 			announceWrite();
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
-			dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
+			dispatchPostSubmit(
+				submitted.destination,
+				submitted.moduleUuid,
+				submitted.doc,
+			);
 			return;
 		}
 		const sourceFormUuid = submitted.formUuid;
@@ -1313,13 +1338,25 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			const linkedCaseCollections =
 				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
 			const route = afterSubmitRoute({
+				previousTask: () =>
+					resolvePreviousTask({
+						doc,
+						formUuid: sourceFormUuid,
+						submittedCaseIds: resultCaseIds,
+						selections: menuCaseSelections,
+						caseDatabase: refreshedCaseDatabase,
+					}),
 				choice,
 				doc,
 				caseFirstModules,
 				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
 					return previewTargetHasSelectedCase({
 						menuSource: routeMenuSource,
-						current: menuCaseSelections,
+						current: selectionsForModuleTask(
+							doc,
+							targetModuleUuid,
+							menuCaseSelections,
+						),
 						targetModuleUuid,
 						projected: projectedSelections,
 						collections: linkedCaseCollections,
@@ -1395,16 +1432,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			/* Target hydration no longer depends on the source form or its case
 			 * binding. Invalidation may now rebuild/clear that source safely. */
+			if (route.kind !== "previous-task" && route.kind !== "unresolvable")
+				retireCompletedTask();
 			announceWrite();
 			const applyCaseSelections = (): void => {
 				if (route.kind !== "module" && route.kind !== "form") return;
-				const nextSelections = previewMenuSelectionsAfterTargetCases(
+				const projectedSelections = previewMenuSelectionsAfterTargetCases(
 					routeMenuSource,
 					menuCaseSelections,
 					route.caseSelections,
 					targetCaseData,
 					linkedCaseCollections,
 				);
+				const nextSelections =
+					route.kind === "module"
+						? selectionsForModuleTask(
+								doc,
+								route.moduleUuid,
+								projectedSelections,
+							)
+						: projectedSelections;
 				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
@@ -1422,10 +1469,67 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}
 			};
 			switch (route.kind) {
+				case "previous-task": {
+					for (const uuid of routeMenuSource.moduleOrder)
+						setPreviewMenuCaseSelection(uuid, route.task.selections[uuid]);
+					setPreviewSelectedCase(undefined);
+					setPreviewCaseTarget(undefined);
+					const next = route.task.destination;
+					session.getState().setPreviewParentCaseRequest(undefined);
+					session.getState().setPreviewTaskContinuation(
+						next.kind === "home"
+							? undefined
+							: {
+									moduleUuid: next.moduleUuid,
+									...(next.kind === "record-selection" && {
+										formUuid: next.formUuid,
+									}),
+									selectingModuleUuids:
+										next.kind === "record-selection"
+											? next.selectingModuleUuids
+											: [],
+									caseDatabase: route.task.caseDatabase,
+								},
+					);
+					settleAttempt({ kind: "idle" });
+					forgetCompletedPages();
+					if (next.kind === "home") navigate.goHome();
+					else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
+					else {
+						setPreviewCaseTarget({
+							formUuid: next.formUuid,
+							caseDatabase: refreshedCaseDatabase,
+						});
+						const [first, ...remaining] = next.selectingModuleUuids;
+						if (first === undefined)
+							throw new Error("The preceding record selector is unavailable.");
+						if (remaining.length > 0 || first !== next.moduleUuid)
+							session.getState().setPreviewParentCaseRequest({
+								selectingModuleUuid: first,
+								returnModuleUuids:
+									remaining.length > 0 ? remaining : [next.moduleUuid],
+								resumeLocation:
+									remaining.length > 0
+										? { kind: "cases", moduleUuid: next.moduleUuid }
+										: {
+												kind: "form",
+												moduleUuid: next.moduleUuid,
+												formUuid: next.formUuid,
+											},
+								cancelLocation: { kind: "module", moduleUuid: next.moduleUuid },
+							});
+						navigate.openCaseList(first);
+					}
+					return;
+				}
 				case "post-submit":
 					settleAttempt({ kind: "idle" });
 					forgetCompletedPages();
-					dispatchPostSubmit(route.destination, submitted.moduleUuid);
+					dispatchPostSubmit(
+						route.destination,
+						submitted.moduleUuid,
+						submitted.doc,
+					);
 					return;
 				case "module":
 					applyCaseSelections();
@@ -1482,6 +1586,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							received: _exhaustive,
 							knownKinds: [
 								"post-submit",
+								"previous-task",
 								"module",
 								"form",
 								"results-with-registered-case",

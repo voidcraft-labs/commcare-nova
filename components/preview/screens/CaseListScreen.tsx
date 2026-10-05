@@ -103,6 +103,7 @@ import {
 	isNoMatchesForm,
 	makeTranslationUnitId,
 	orderedColumns,
+	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	searchInputRuntimeValueType,
 	visibleSearchInputs,
@@ -139,6 +140,7 @@ import {
 } from "@/lib/preview/columnDisplay";
 import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
 import {
+	caseDatabaseToFormPreloads,
 	caseRowToFormPreload,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
@@ -190,6 +192,7 @@ import {
 	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
 	usePreviewSearchState,
+	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
@@ -300,6 +303,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			? seeded
 			: undefined;
 	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
+	const taskContinuation = usePreviewTaskContinuation();
+	const retainedFormUuid =
+		taskContinuation?.moduleUuid === moduleUuid
+			? taskContinuation.formUuid
+			: undefined;
 	const hasChildren = moduleUuid
 		? moduleHasChildren(menuSource, moduleUuid)
 		: false;
@@ -805,6 +813,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		},
 		[selectionScopeKey],
 	);
+	useEffect(() => {
+		if (
+			!taskContinuation ||
+			!moduleUuid ||
+			!taskContinuation.selectingModuleUuids.includes(moduleUuid)
+		)
+			return;
+		setOpenCase(null);
+		setFormMenuCase(null);
+		setMultiFormMenuOpen(false);
+		setSelectedChoices([]);
+	}, [taskContinuation, moduleUuid, setSelectedChoices]);
 	useEffect(() => {
 		/* A module, Project, or worker change retires the old validation attempt
 		 * immediately. Its response may still settle, but it no longer owns either
@@ -1393,9 +1413,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setOpenCase(null);
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
+		const caseDatabase =
+			retainedFormUuid === formUuid
+				? taskContinuation?.caseDatabase
+				: undefined;
 		setPreviewCaseTarget({
 			formUuid,
 			cases,
+			...(caseDatabase !== undefined && {
+				caseDatabase,
+				caseData:
+					cases.length === 1
+						? caseDatabaseToFormPreloads(
+								caseDatabase,
+								cases[0].caseId,
+								reachableCaseTypes(mod.caseType, menuSource.caseTypes),
+							)
+						: undefined,
+			}),
 		});
 		navigate.openForm(moduleUuid, formUuid);
 	};
@@ -1414,7 +1449,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
 		setPreviewSelectedCase(undefined);
-		setPreviewCaseTarget(undefined);
+		if (taskContinuation?.formUuid === undefined)
+			setPreviewCaseTarget(undefined);
 		setPreviewMenuCaseSelection(moduleUuid, {
 			caseType: mod.caseType,
 			cases,
@@ -1443,7 +1479,43 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						}
 					: undefined,
 			);
-			if (
+			if (taskContinuation?.formUuid && nextModuleUuid) {
+				if (
+					remainingModuleUuids.length === 0 &&
+					previewParentCaseRequest.resumeLocation?.kind === "form"
+				) {
+					const target = previewParentCaseRequest.resumeLocation;
+					const selected = previewMenuCaseContext(
+						menuSource,
+						target.moduleUuid,
+						{
+							...menuCaseSelections,
+							[moduleUuid]: { caseType: mod.caseType, cases },
+						},
+					).selectedCase;
+					setPreviewCaseTarget({
+						formUuid: target.formUuid,
+						cases: CASE_LOADING_FORM_TYPES.has(
+							menuSource.forms[target.formUuid].type,
+						)
+							? (selected?.cases ?? [])
+							: [],
+						caseDatabase: taskContinuation.caseDatabase,
+						caseData:
+							selected?.cases.length === 1
+								? caseDatabaseToFormPreloads(
+										taskContinuation.caseDatabase,
+										selected.cases[0].caseId,
+										reachableCaseTypes(
+											menuSource.modules[target.moduleUuid].caseType,
+											menuSource.caseTypes,
+										),
+									)
+								: undefined,
+					});
+					navigate.replace(target);
+				} else navigate.replace({ kind: "cases", moduleUuid: nextModuleUuid });
+			} else if (
 				nextModuleUuid &&
 				remainingModuleUuids.length === 0 &&
 				previewParentCaseRequest.resumeLocation !== undefined
@@ -1477,7 +1549,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 		const decided = decideCaseLoadingForms(row);
-		const automaticForm = previewAutomaticForm(decided, seededFormUuid);
+		const automaticForm =
+			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
 		if (automaticForm !== undefined) {
 			openFormWithCase(automaticForm, row);
 		} else if (decided.length > 0) {
@@ -1554,7 +1627,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 		const decided = decideMultiCaseLoadingForms();
-		const automaticForm = previewAutomaticForm(decided, seededFormUuid);
+		const automaticForm =
+			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
 		if (automaticForm !== undefined) {
 			openFormWithCases(automaticForm, choices);
 			return;

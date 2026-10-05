@@ -6,6 +6,7 @@ import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
+	effectivePostSubmit,
 	expressionSurfaceReads,
 	materializableCaseTypes,
 	USERCASE_CASE_TYPE,
@@ -95,10 +96,12 @@ export function caseDatabaseRequirements(
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
 	 * XPath mentions `instance('casedb')`. The transaction patch contains only
-	 * affected rows, so every linked, case-bearing app needs the entry-time
+	 * affected rows, so linked tasks and Previous in case-bearing apps need the entry-time
 	 * device snapshot as its baseline. */
-	const hasAfterSubmitLink = Object.values(doc.forms).some(
-		(form) => (form.formLinks?.length ?? 0) > 0,
+	const hasAfterSubmitTask = Object.values(doc.forms).some(
+		(form) =>
+			(form.formLinks?.length ?? 0) > 0 ||
+			effectivePostSubmit(doc, form.uuid) === "previous",
 	);
 	const hasCaseBearingModule = Object.values(doc.modules).some(
 		(module) => module.caseType !== undefined,
@@ -106,7 +109,7 @@ export function caseDatabaseRequirements(
 	const required =
 		explicitReference ||
 		proseReference ||
-		(hasAfterSubmitLink && hasCaseBearingModule);
+		(hasAfterSubmitTask && hasCaseBearingModule);
 	const caseTypes = required
 		? [
 				...materializableCaseTypes(doc).map((caseType) => caseType.name),
