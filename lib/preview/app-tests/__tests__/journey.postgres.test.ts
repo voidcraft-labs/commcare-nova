@@ -857,14 +857,41 @@ it("requires a saved role and parent selection, then executes additional operati
 	// A survey's Previous drops its form command. Starting Inspect from that
 	// menu requires its own parent and record selectors, even if they were
 	// selected before the Receipt command was entered.
-	expect(await step({ kind: "form", formUuid: inspect.uuid })).toMatchObject({
+	const previousStep = current.step;
+	const reopened = stepSchema
+		.extend({
+			results: z.array(stepSchema),
+			stopped: z.unknown().optional(),
+		})
+		.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: previousStep,
+				actions: [
+					{ action: { kind: "form", formUuid: inspect.uuid } },
+					{ action: { kind: "select", caseIds: ["home-a"] } },
+					{ action: { kind: "continue" } },
+					{ action: { kind: "select", caseIds: ["pump-a"] } },
+					{ action: { kind: "continue" } },
+				],
+			}),
+		);
+	expect(reopened.testId).toBe(current.testId);
+	expect(reopened.stopped).toBeUndefined();
+	expect(reopened.step).toBe(previousStep + 5);
+	expect(
+		reopened.results.map(({ testId, step }) => ({ testId, step })),
+	).toEqual(
+		[1, 2, 3, 4, 5].map((offset) => ({
+			testId: current.testId,
+			step: previousStep + offset,
+		})),
+	);
+	expect(reopened.results[0].observation).toMatchObject({
 		name: "Households",
 		screen: "browse",
 	});
-	await step({ kind: "select", caseIds: ["home-a"] });
-	await step({ kind: "continue" });
-	await step({ kind: "select", caseIds: ["pump-a"] });
-	expect(await step({ kind: "continue" })).toMatchObject({
+	expect(reopened.results[4].observation).toMatchObject({
 		screen: "form",
 		name: "Inspect",
 		questions: expect.arrayContaining([

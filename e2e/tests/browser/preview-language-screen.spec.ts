@@ -174,9 +174,18 @@ test("a production form keeps partial drafts and capture identity mounted throug
 		const date = page.getByRole("button", { name: /Visit date/ });
 		await date.click();
 		await page.getByRole("button", { name: /January 9th, 2024/ }).click();
-		await page
-			.getByRole("button", { name: "Enter coordinates manually", exact: true })
-			.click();
+		await expect(date).toHaveText("January 9, 2024");
+		await expect(page.locator('[data-slot="popover-content"]')).toHaveCount(0);
+		await page.evaluate(() => window.previewLanguageScreen.settled());
+		await expect(
+			page.locator('[data-preview-engine-ready="true"]'),
+		).toBeVisible();
+		const manualCoordinates = page.getByRole("button", {
+			name: "Enter coordinates manually",
+			exact: true,
+		});
+		await manualCoordinates.click();
+		await expect(manualCoordinates).toHaveAttribute("aria-expanded", "true");
 		const latitude = page.getByRole("spinbutton", {
 			name: "Latitude",
 			exact: true,
@@ -185,6 +194,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			name: "Longitude",
 			exact: true,
 		});
+		await expect(latitude).toBeVisible();
 		await latitude.fill("40");
 		await longitude.fill("-74");
 		await page
