@@ -88,7 +88,7 @@ test("a rejected submission keeps required errors and review announcements in th
 				expect(after.values).toEqual(before.values);
 				await capture(`required-rebuilt-${tag}`);
 			}
-			await page.getByRole("textbox", { name: /Question 1.*Name/ }).fill("   ");
+			await question.getByRole("textbox").fill("   ");
 			await page.getByRole("button", { name: "Enviar", exact: true }).click();
 			await expect(
 				question.getByText("Ingrese un nombre con letras.", { exact: true }),
