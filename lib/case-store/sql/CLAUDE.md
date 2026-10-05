@@ -59,10 +59,24 @@ fractions and wider numbers use `numeric`. Explicit authored types still win.
 Every arithmetic node preserves its grouping, including a nested right operand
 with the same precedence: `10 - (5 - 2)` must return `7`.
 
-Numeric coercion binds its input through `text` before the numeric cast. A
-prepared empty parameter must not be decoded as numeric before `CASE` can skip
-an unselected arithmetic branch. Executing arithmetic on invalid numeric text
-still fails, as does division by zero; this is not a general null-on-error rule.
+Numeric coercion binds its input through `text` before the numeric cast. Inside
+`if`, `switch` and `coalesce`, the operand's text value is also gated by the
+enclosing branch conditions before casting. An outer `CASE` alone is insufficient:
+PostgreSQL can fold invalid constant arithmetic during planning even when a
+row-backed condition never chooses it. Carry every enclosing condition, preserve
+the first matching switch case and the first nonblank coalesce value, and treat a
+null condition as the else/fallback branch. Executing arithmetic on invalid
+numeric text still fails, as does division by zero; this is not a general
+null-on-error rule.
+
+Selected branch indices and preceding coalesce values use private one-row projections
+with `OFFSET 0` to prevent planner flattening. Guards refer to projected columns,
+so numeric fallback chains do not recursively duplicate parameters and a switch
+relation count executes once per row. Keep nested projection aliases distinct.
+Keep the final coalesce fallback inside `COALESCE`, where an unknown bound input
+inherits the preceding SQL type. Switch dispatch retains its authored comparison
+context; numeric question discriminators carry an explicit numeric cast and a
+literal null discriminator selects the fallback.
 
 ## Blank semantics
 

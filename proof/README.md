@@ -1450,8 +1450,9 @@ whitespace and embedded NBSP use ASCII JSON outputs so HQ indentation and
 Vellum's NBSP replacement preserve their values. Literal markup stays text.
 The ordinary proof consumes full HQ builds and both Vellum saves. Core reads
 exact plain and Markdown labels, hints, help, options and validation messages
-with one and three meals in English and Spanish. The body alert substitutes
-the validation template while the bind retains its compatible itext fallback.
+with one and three meals in English and Spanish. Validation messages use
+protected raw constraint expressions, read through `jr:constraintMsg` without
+body alerts.
 These are native text-value checks, not browser or Android typography checks.
 
 #### Case tiles (`tile`)

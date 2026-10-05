@@ -19,20 +19,19 @@
 // is a `Literal` per `switchCaseSchema`, not a Predicate. The
 // expression compiler handles the equality dispatch directly.
 //
-// ## Why simple `CASE` (not searched) for `switch`
+// ## Simple `CASE` dispatch for `switch`
 //
-// SQL's simple `case <on> when <lit> then ...` evaluates the
-// discriminator ONCE per row and compares cached. The searched
-// form `case when <on> = <lit> then ...` re-evaluates per branch;
-// Postgres's planner does not deduplicate non-idempotent operands
-// across CASE arms, so a `count(...)` discriminator would scan
-// its relation-walk leaf N times.
+// Project the selected branch index from the original simple CASE. Keeping
+// its discriminator beside the authored comparisons preserves their SQL
+// comparison context. The result and numeric guards
+// then refer to that index without rescanning a `count(...)` discriminator.
 
 import type {
 	AliasableExpression,
 	AliasedExpression,
 	BinaryOperator,
 	Expression,
+	SqlBool,
 } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
@@ -117,6 +116,10 @@ export type CompilePredicateThunk = (
  */
 export interface ExpressionCompileContext extends TermCompileContext {
 	compilePredicate?: CompilePredicateThunk;
+	/** The enclosing branches in which a numeric operand may execute. */
+	numericBranchCondition?: Expression<SqlBool>;
+	/** Lexical depth keeps nested private SQL projections from shadowing guards. */
+	numericBranchDepth?: number;
 }
 
 // ---------------------------------------------------------------
@@ -248,10 +251,64 @@ function compileCast(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const inner = compileExpression(value, ctx);
-	// Numeric parameters must arrive as text. PostgreSQL otherwise decodes an
-	// unanswered field as numeric before CASE can skip that calculation. The
-	// outer cast still rejects invalid text when the calculation executes.
-	return eb.cast(cast === "numeric" ? eb.cast(inner, "text") : inner, cast);
+	return eb.cast(
+		cast === "numeric" ? numericBranchOperand(inner, ctx) : inner,
+		cast,
+	);
+}
+
+/** Protect both parameter decoding and planner constant folding. The numeric
+ * cast receives a conditional text value; putting CASE outside the cast alone
+ * lets PostgreSQL pre-evaluate invalid constant arithmetic in a row-backed
+ * branch. A selected operand still reaches the ordinary, fallible cast. */
+function numericBranchOperand(
+	inner: AliasableExpression<unknown>,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const text = eb.cast(inner, "text");
+	if (ctx.numericBranchCondition === undefined) return text;
+	return eb
+		.case()
+		.when(ctx.numericBranchCondition)
+		.then(text)
+		.else(eb.cast(eb.val(null), "text"))
+		.end();
+}
+
+function withNumericBranchCondition(
+	ctx: ExpressionCompileContext,
+	condition: Expression<SqlBool>,
+): ExpressionCompileContext {
+	return {
+		...ctx,
+		numericBranchDepth: (ctx.numericBranchDepth ?? 0) + 1,
+		numericBranchCondition:
+			ctx.numericBranchCondition === undefined
+				? condition
+				: eb.and([ctx.numericBranchCondition, condition]),
+	};
+}
+
+/** OFFSET 0 keeps PostgreSQL from pulling this projection into its consumers.
+ * Values and selectors execute once; later guards reference their columns rather
+ * than recursively copying expressions and bound parameters. */
+function projectBranchValue(
+	value: Expression<unknown>,
+	alias: string,
+	ctx: ExpressionCompileContext,
+) {
+	return ctx.db
+		.selectNoFrom(eb.parens(value).as("value"))
+		.offset(eb.lit(0))
+		.as(alias);
+}
+
+function branchValueRef(alias: string): AliasableExpression<unknown> {
+	return eb.ref(`${alias}.value` as never);
+}
+
+function branchAlias(ctx: ExpressionCompileContext, name: string): string {
+	return `__nova_branch_${ctx.numericBranchDepth ?? 0}_${name}`;
 }
 
 /**
@@ -568,19 +625,35 @@ export function compileTemporalValues(
 	values: readonly ValueExpression[],
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown>[] {
+	const promotions = temporalBranchPromotions(values, ctx);
+	return values.map((value, index) =>
+		compileTemporalBranch(value, ctx, promotions[index]),
+	);
+}
+
+function temporalBranchPromotions(
+	values: readonly ValueExpression[],
+	ctx: ExpressionCompileContext,
+): boolean[] {
 	const types = ctx.portableCaseDates
 		? values.map((value) => portableTemporalType(value, ctx))
 		: [];
 	const mixed = types.includes("date") && types.includes("datetime");
-	return values.map((value, index) => {
-		const compiled = compileExpression(value, ctx);
-		return mixed && types[index] === "date"
-			? compilePinnedInstant(
-					compiled,
-					resolveViewerTimeZone(ctx.bindings.viewerTimeZone),
-				)
-			: compiled;
-	});
+	return values.map((_, index) => mixed && types[index] === "date");
+}
+
+function compileTemporalBranch(
+	value: ValueExpression,
+	ctx: ExpressionCompileContext,
+	promoteDate: boolean,
+): AliasableExpression<unknown> {
+	const compiled = compileExpression(value, ctx);
+	return promoteDate
+		? compilePinnedInstant(
+				compiled,
+				resolveViewerTimeZone(ctx.bindings.viewerTimeZone),
+			)
+		: compiled;
 }
 
 function portableTemporalType(
@@ -597,19 +670,28 @@ function portableTemporalType(
 function compileBranchValues(
 	values: readonly ValueExpression[],
 	ctx: ExpressionCompileContext,
+	contexts?: readonly ExpressionCompileContext[],
 ): AliasableExpression<unknown>[] {
-	const branches = compileTemporalValues(values, ctx);
-	return values.map((value, index) => {
-		if (value.kind === "term" && value.term.kind === "field") {
-			const type = ctx.formFieldTypes?.get(value.term.uuid);
-			if (type === "int" || type === "decimal") {
-				if (ctx.bindings.formFields?.get(value.term.uuid) === "")
-					return eb.cast(eb.val(null), "numeric");
-				return compileCast(value, "numeric", ctx);
-			}
+	const promotions = temporalBranchPromotions(values, ctx);
+	return values.map((value, index) =>
+		compileBranchValue(value, contexts?.[index] ?? ctx, promotions[index]),
+	);
+}
+
+function compileBranchValue(
+	value: ValueExpression,
+	ctx: ExpressionCompileContext,
+	promoteDate: boolean,
+): AliasableExpression<unknown> {
+	if (value.kind === "term" && value.term.kind === "field") {
+		const type = ctx.formFieldTypes?.get(value.term.uuid);
+		if (type === "int" || type === "decimal") {
+			if (ctx.bindings.formFields?.get(value.term.uuid) === "")
+				return eb.cast(eb.val(null), "numeric");
+			return compileCast(value, "numeric", ctx);
 		}
-		return branches[index];
-	});
+	}
+	return compileTemporalBranch(value, ctx, promoteDate);
 }
 
 /** Skip blank values while preserving the result's SQL type. Casting only
@@ -618,24 +700,53 @@ function compileCoalesce(
 	values: ReadonlyArray<ValueExpression>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const branches = compileBranchValues(values, ctx);
-	const valueExprs = values.map((v, index) => {
-		const value = branches[index];
-		// The last argument is the fallback, even when it is blank. Leave a
-		// literal null untyped so SQL can infer the other branches' result type.
-		if (
-			index === values.length - 1 ||
-			(v.kind === "term" && v.term.kind === "literal" && v.term.value === null)
-		)
-			return value;
-		return eb
-			.case()
-			.when(eb.cast(value, "text"), "=", "")
-			.then(null)
-			.else(value)
-			.end();
-	});
-	return eb.fn<unknown>("coalesce", valueExprs);
+	const promotions = temporalBranchPromotions(values, ctx);
+	const valueExprs: AliasableExpression<unknown>[] = [];
+	let valueContext = ctx;
+	let query: DynamicBranchQuery | undefined;
+	for (let index = 0; index < values.length; index++) {
+		const v = values[index];
+		// A standalone SELECT resolves an untyped NULL to text. Omit literal
+		// nulls instead, retaining the original positions for blank handling.
+		if (v.kind === "term" && v.term.kind === "literal" && v.term.value === null)
+			continue;
+		let compiled = compileBranchValue(v, valueContext, promotions[index]);
+		// Nothing after the fallback consumes it as a guard. Keep it inside
+		// COALESCE so an unknown bound parameter inherits the preceding type.
+		if (index === values.length - 1) {
+			valueExprs.push(compiled);
+			break;
+		}
+		if (valueContext.numericBranchCondition !== undefined) {
+			compiled = eb
+				.case()
+				.when(valueContext.numericBranchCondition)
+				.then(compiled)
+				.else(eb.val(null))
+				.end();
+		}
+		const alias = branchAlias(ctx, `coalesce_${index}`);
+		const projection = projectBranchValue(compiled, alias, ctx);
+		query = query
+			? query.crossJoinLateral(projection)
+			: (eb.selectFrom(projection) as unknown as DynamicBranchQuery);
+		const value = branchValueRef(alias);
+		valueExprs.push(
+			eb
+				.case()
+				.when(eb.cast(value, "text"), "=", "")
+				.then(null)
+				.else(value)
+				.end(),
+		);
+		valueContext = withNumericBranchCondition(
+			valueContext,
+			eb.or([eb(value, "is", null), eb(eb.cast(value, "text"), "=", "")]),
+		);
+	}
+	return query
+		? query.select(eb.fn<unknown>("coalesce", valueExprs).as("value"))
+		: (valueExprs[0] ?? eb.val(null));
 }
 
 /**
@@ -659,30 +770,49 @@ function compileIf(
 			}),
 		);
 	}
-	const condExpr = compilePredicate(cond, ctx);
+	const alias = branchAlias(ctx, "if");
+	const projection = projectBranchValue(
+		compilePredicate(cond, ctx),
+		alias,
+		ctx,
+	);
+	const condExpr = branchValueRef(alias);
+	const selected = eb.fn.coalesce(
+		condExpr as Expression<boolean>,
+		eb.val(false),
+	);
 	const [thenExpr, elseExpr] = compileBranchValues(
 		[thenBranch, elseBranch],
 		ctx,
+		[
+			withNumericBranchCondition(ctx, selected),
+			withNumericBranchCondition(ctx, eb.not(selected)),
+		],
 	);
 	// Passing typed expressions (not raw values) to `.then` /
 	// `.else` keeps the parameter channel consistent — Kysely
 	// otherwise inlines numbers / booleans / null directly into the
 	// SQL instead of retaining the common bound-value path.
-	return eb
-		.case()
-		.when(condExpr as Expression<boolean>)
-		.then(thenExpr)
-		.else(elseExpr)
-		.end();
+	return eb.selectFrom(projection).select(
+		eb
+			.case()
+			.when(condExpr as Expression<boolean>)
+			.then(thenExpr)
+			.else(elseExpr)
+			.end()
+			.as("value"),
+	) as unknown as AliasableExpression<unknown>;
 }
 
-/** Compile `switch` to SQL's simple-CASE form. See file header for "why simple". */
+/** Compile `switch` through a simple-CASE dispatch and one selected branch. */
 function compileSwitch(
 	on: ValueExpression,
 	cases: ReadonlyArray<SwitchCase>,
 	fallback: ValueExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
+	const nullSelector =
+		on.kind === "term" && on.term.kind === "literal" && on.term.value === null;
 	const comparisonValues = compileTemporalValues(
 		[
 			on,
@@ -690,23 +820,57 @@ function compileSwitch(
 		],
 		ctx,
 	);
-	const onExpr: Expression<unknown> = comparisonValues[0];
+	// Bound numeric questions have unknown SQL types until a consumer supplies
+	// one. Simple CASE resolves its discriminator before inspecting WHEN values.
+	if (on.kind === "term" && on.term.kind === "field") {
+		const type = ctx.formFieldTypes?.get(on.term.uuid);
+		if (type === "int" || type === "decimal")
+			comparisonValues[0] = compileCast(on, "numeric", ctx);
+	}
+	const alias = branchAlias(ctx, "switch");
+	let dispatch = eb.case(comparisonValues[0]);
+	for (let index = 0; index < cases.length; index++) {
+		dispatch = dispatch
+			.when(comparisonValues[index + 1])
+			.then(eb.lit(index)) as unknown as typeof dispatch;
+	}
+	const projection = projectBranchValue(
+		// A literal null cannot match. Keep the result CASE below so its
+		// unreachable branches still supply the fallback's ordinary SQL type.
+		nullSelector
+			? eb.lit(cases.length)
+			: (
+					dispatch as unknown as {
+						else: (e: AliasableExpression<unknown>) => {
+							end: () => AliasableExpression<unknown>;
+						};
+					}
+				)
+					.else(eb.lit(cases.length))
+					.end(),
+		alias,
+		ctx,
+	);
+	const selectedIndex = branchValueRef(alias);
+	const contexts = Array.from({ length: cases.length + 1 }, (_, index) =>
+		withNumericBranchCondition(ctx, eb(selectedIndex, "=", eb.lit(index))),
+	);
 	const branches = compileBranchValues(
 		[...cases.map((entry) => entry.then), fallback],
 		ctx,
+		contexts,
 	);
 	const fallbackExpr = branches[cases.length];
 	// `as unknown as` per-iteration widens because TS can't
 	// enumerate the fluent chain's `O` accumulation.
-	let builder = eb.case(onExpr);
+	let builder = eb.case(selectedIndex);
 	for (let index = 0; index < cases.length; index++) {
-		const whenExpr = comparisonValues[index + 1];
 		const thenExpr = branches[index];
 		builder = builder
-			.when(whenExpr)
+			.when(eb.lit(index))
 			.then(thenExpr) as unknown as typeof builder;
 	}
-	return (
+	const result = (
 		builder as unknown as {
 			else: (e: AliasableExpression<unknown>) => {
 				end: () => AliasableExpression<unknown>;
@@ -715,6 +879,9 @@ function compileSwitch(
 	)
 		.else(fallbackExpr)
 		.end();
+	return eb
+		.selectFrom(projection)
+		.select(result.as("value")) as unknown as AliasableExpression<unknown>;
 }
 
 /**
@@ -1040,6 +1207,16 @@ function sqlTextValue(value: string): AliasableExpression<unknown> {
 interface DynamicCountQuery {
 	where: (predicate: Expression<unknown>) => DynamicCountQuery;
 	whereRef: (left: string, op: "=", right: string) => DynamicCountQuery;
+	select: (
+		selection: AliasedExpression<unknown, string>,
+	) => AliasableExpression<unknown>;
+}
+
+/** Runtime aliases are private, depth-scoped, single-value projections. */
+interface DynamicBranchQuery {
+	crossJoinLateral: (
+		table: AliasedExpression<{ value: unknown }, string>,
+	) => DynamicBranchQuery;
 	select: (
 		selection: AliasedExpression<unknown, string>,
 	) => AliasableExpression<unknown>;

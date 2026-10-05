@@ -37,7 +37,10 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
-import { checkPredicate } from "@/lib/domain/predicate/typeChecker";
+import {
+	checkPredicate,
+	checkValueExpression,
+} from "@/lib/domain/predicate/typeChecker";
 import type {
 	DateAddInterval,
 	ValueExpression,
@@ -245,6 +248,326 @@ describe("compileExpression — round-trip — form bindings", () => {
 
 		expect(rows).toEqual([{ answer: ["urgent", "review"] }]);
 	});
+});
+
+describe("compileExpression — round-trip — row-backed branch arithmetic", () => {
+	test("preserves contextual numeric and date fallback inputs", async ({
+		db,
+	}) => {
+		const primary = testUuid("typed-fallback-primary");
+		const fallback = testUuid("typed-fallback-input");
+		for (const [type, expected] of [
+			["int", "7"],
+			["decimal", "7.5"],
+			["date", "2026-05-01"],
+		] as const) {
+			const expression = coalesce(
+				type === "date"
+					? term(qualifiedLiteral("", "date"))
+					: term(formField(primary)),
+				term(input(fallback)),
+			);
+			const fields = new Map([[primary, type]]);
+			const inputs = [{ uuid: fallback, name: "fallback", data_type: type }];
+			expect(
+				checkValueExpression(expression, {
+					caseTypes: [],
+					formFields: fields,
+					knownInputs: inputs,
+				}),
+			).toEqual({ ok: true });
+			const compiled = compileExpression(
+				expression,
+				makeCtx(db, {
+					formFieldTypes: fields,
+					knownInputs: inputs,
+					bindings: {
+						formFields: new Map([[primary, ""]]),
+						searchInputs: new Map([[fallback, expected]]),
+					},
+				}),
+			);
+			const { rows } = await sql`
+				SELECT CAST(${compiled} AS text) AS value,
+				pg_typeof(${compiled})::text AS type
+			`.execute(db);
+			expect(rows).toEqual([
+				{ value: expected, type: type === "date" ? "date" : "numeric" },
+			]);
+		}
+	});
+
+	test("executes numeric and null switch selectors", async ({ db }) => {
+		const selector = testUuid("numeric-switch-selector");
+		for (const type of ["int", "decimal"] as const) {
+			const value = type === "int" ? 2 : 2.5;
+			const ctx = makeCtx(db, {
+				formFieldTypes: new Map([[selector, type]]),
+				bindings: { formFields: new Map([[selector, String(value)]]) },
+			});
+			for (const on of [term(formField(selector)), term(literal(null))]) {
+				const expression = switchExpr(
+					on,
+					[switchCase(literal(value), term(literal("matched")))],
+					term(literal("fallback")),
+				);
+				const result = await db
+					.selectNoFrom(compileExpression(expression, ctx).as("value"))
+					.executeTakeFirstOrThrow();
+				expect(result.value).toBe(
+					on.term.kind === "literal" ? "fallback" : "matched",
+				);
+			}
+		}
+	});
+
+	test("retains the result type of a null switch discriminator", async ({
+		db,
+	}) => {
+		for (const value of [1, 1.5]) {
+			const expression = switchExpr(
+				term(literal(null)),
+				[switchCase(literal("x"), term(literal(value)))],
+				term(literal(null)),
+			);
+			const selected = compileExpression(expression, makeCtx(db));
+			const expectedType = value === 1 ? "integer" : "numeric";
+			const standalone = await sql`
+				SELECT ${selected} AS value, pg_typeof(${selected})::text AS type
+			`.execute(db);
+			expect(standalone.rows).toEqual([{ value: null, type: expectedType }]);
+			const fallback = compileExpression(
+				coalesce(expression, term(literal(7))),
+				makeCtx(db),
+			);
+			const nested = await sql`
+				SELECT CAST(${fallback} AS text) AS value,
+				pg_typeof(${fallback})::text AS type
+			`.execute(db);
+			expect(nested.rows).toEqual([{ value: "7", type: expectedType }]);
+		}
+	});
+
+	test("executes a ten-value numeric fallback chain with ordinary bind counts", async ({
+		db,
+	}) => {
+		const ids = Array.from({ length: 10 }, (_, index) =>
+			testUuid(`fallback-chain-${index}`),
+		);
+		const last = ids[ids.length - 1];
+		for (const type of ["int", "decimal"] as const) {
+			const fields = new Map(ids.map((id) => [id, "1"]));
+			const ctx = makeCtx(db, {
+				formFieldTypes: new Map(ids.map((id) => [id, type])),
+				bindings: { formFields: fields },
+			});
+			const expression = coalesce(
+				term(formField(ids[0])),
+				term(formField(ids[1])),
+				...ids.slice(2).map((id) => term(formField(id))),
+			);
+			const read = () =>
+				db
+					.selectNoFrom(compileExpression(expression, ctx).as("value"))
+					.executeTakeFirstOrThrow();
+			expect(await read()).toEqual({ value: "1" });
+			for (const id of ids) fields.set(id, "");
+			fields.set(last, type === "int" ? "7" : "7.5");
+			expect(await read()).toEqual({ value: type === "int" ? "7" : "7.5" });
+			fields.set(last, "");
+			expect(await read()).toEqual({ value: null });
+		}
+	});
+
+	test("executes a switch relation-count discriminator once", async ({
+		db,
+	}) => {
+		const children = [
+			testUuid("switch-child-one"),
+			testUuid("switch-child-two"),
+		];
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: HOUSEHOLD_CASE_ID,
+					case_type: "household",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+				}),
+				...children.map((case_id) =>
+					makeCaseRow({
+						case_id,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+					}),
+				),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values(
+				children.map((case_id) => ({
+					case_id,
+					ancestor_id: HOUSEHOLD_CASE_ID,
+					target_case_type: "household",
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				})),
+			)
+			.execute();
+		const expression = switchExpr(
+			count(subcasePath("parent", "patient")),
+			[
+				switchCase(literal(0), arith("+", term(literal(0)), term(literal(1)))),
+				...[1, 2].map((value) =>
+					switchCase(
+						literal(value),
+						arith("+", term(literal(value)), term(literal(1))),
+					),
+				),
+			],
+			term(literal(0)),
+		);
+		const value = compileExpression(
+			expression,
+			makeCtx(db, { currentCaseType: "household" }),
+		);
+		const query = db
+			.selectFrom("cases as c")
+			.where("c.app_id", "=", APP_ID)
+			.where("c.project_id", "=", OWNER_ID)
+			.where("c.case_id", "=", HOUSEHOLD_CASE_ID)
+			.select(value.as("value"));
+		expect(await query.executeTakeFirstOrThrow()).toEqual({ value: "3" });
+		const result = await sql<{
+			"QUERY PLAN": [{ Plan: Record<string, unknown> }];
+		}>`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`.execute(db);
+		const aggregates: Record<string, unknown>[] = [];
+		const visit = (node: Record<string, unknown>) => {
+			if (node["Node Type"] === "Aggregate") aggregates.push(node);
+			for (const child of (node.Plans ?? []) as Record<string, unknown>[])
+				visit(child);
+		};
+		visit(result.rows[0]["QUERY PLAN"][0].Plan);
+		expect(aggregates).toHaveLength(1);
+		expect(aggregates[0]["Actual Loops"]).toBe(1);
+	});
+
+	for (const kind of ["if", "switch", "coalesce"] as const) {
+		test(`evaluates arithmetic only in the selected ${kind} branch`, async ({
+			db,
+			pgClient,
+		}) => {
+			await db
+				.insertInto("cases")
+				.values(
+					makeCaseRow({
+						case_id: PATIENT_CASE_ID,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+						properties: JSON.stringify({ nickname: "skip", age: 15 }),
+					}),
+				)
+				.execute();
+			const volume = testUuid("row-branch-volume");
+			const duration = testUuid("row-branch-duration");
+			for (const type of ["int", "decimal"] as const) {
+				const fields = new Map([
+					[volume, ""],
+					[duration, ""],
+				]);
+				const ctx = makeCtx(db, {
+					formFieldTypes: new Map([
+						[volume, type],
+						[duration, type],
+					]),
+					bindings: { formFields: fields },
+				});
+				const arithmetic = arith(
+					"div",
+					arith("*", term(literal(60)), term(formField(volume))),
+					term(formField(duration)),
+				);
+				const expression =
+					kind === "if"
+						? ifExpr(
+								eq(prop("patient", "nickname"), literal("run")),
+								arithmetic,
+								term(formField(volume)),
+							)
+						: kind === "switch"
+							? switchExpr(
+									term(prop("patient", "nickname")),
+									[switchCase(literal("run"), arithmetic)],
+									term(formField(volume)),
+								)
+							: coalesce(term(prop("patient", "age")), arithmetic);
+				const read = async () => {
+					const value = compileExpression(expression, ctx);
+					return db
+						.selectFrom("cases as c")
+						.where("c.app_id", "=", APP_ID)
+						.where("c.project_id", "=", OWNER_ID)
+						.where("c.case_id", "=", PATIENT_CASE_ID)
+						.select([
+							value.as("value"),
+							sql<string>`pg_typeof(${value})::text`.as("type"),
+						])
+						.executeTakeFirstOrThrow();
+				};
+				const setProperties = async (properties: Record<string, unknown>) => {
+					await db
+						.updateTable("cases")
+						.set({ properties: JSON.stringify(properties) })
+						.where("case_id", "=", PATIENT_CASE_ID)
+						.execute();
+				};
+				const expectError = async (code: string) => {
+					await pgClient.query("SAVEPOINT expected_arithmetic_error");
+					try {
+						await expect(read()).rejects.toMatchObject({ code });
+					} finally {
+						await pgClient.query(
+							"ROLLBACK TO SAVEPOINT expected_arithmetic_error",
+						);
+						await pgClient.query("RELEASE SAVEPOINT expected_arithmetic_error");
+					}
+				};
+
+				await setProperties({ nickname: "skip", age: 15 });
+				const skipped = await read();
+				expect(skipped.type).toBe("numeric");
+				expect(skipped.value).toBe(kind === "coalesce" ? "15" : null);
+
+				fields.set(volume, "0");
+				await setProperties({ nickname: "skip", age: 0 });
+				expect(await read()).toEqual({ value: "0", type: "numeric" });
+
+				if (kind !== "coalesce") {
+					fields.set(volume, "5");
+					await setProperties({ age: 15 });
+					expect(await read()).toEqual({ value: "5", type: "numeric" });
+				}
+
+				await setProperties({ nickname: "run" });
+				fields.set(volume, type === "int" ? "7" : "7.5");
+				fields.set(duration, "30");
+				const selected = await read();
+				expect(selected.type).toBe("numeric");
+				expect(Number(selected.value)).toBe(type === "int" ? 14 : 15);
+
+				fields.set(duration, "0");
+				await expectError("22012");
+				fields.set(volume, "");
+				fields.set(duration, "");
+				await expectError("22P02");
+			}
+		});
+	}
 });
 
 // ---------------------------------------------------------------
