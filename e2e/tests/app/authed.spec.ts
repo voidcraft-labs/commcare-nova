@@ -2857,13 +2857,25 @@ test.describe("authenticated builder", () => {
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
+				await expect(
+					page
+						.getByRole("dialog", { includeHidden: true })
+						.filter({ hasText: "Form settings" }),
+				).toHaveCount(0);
 				const firstNameRow = page.locator(
 					`main [data-field-uuid="${identity.firstNameUuid}"]`,
 				);
 				const idInput = page.locator('[data-field-id="id"] input').visible();
-				await firstNameRow
-					.getByRole("button", { name: "Select field", exact: true })
-					.press("Enter");
+				const selectField = firstNameRow.getByRole("button", {
+					name: "Select field",
+					exact: true,
+				});
+				await selectField.focus();
+				await expect(selectField).toBeFocused();
+				await selectField.press("Enter");
+				await expect(page).toHaveURL(
+					`${new URL(page.url()).origin}/build/${fixture.appId}/${identity.firstNameUuid}`,
+				);
 				await expect(idInput).toHaveValue("given_name");
 				await waitForSavedMutation('"kind":"removeField"', () =>
 					page
