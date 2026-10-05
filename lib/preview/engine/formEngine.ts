@@ -863,8 +863,16 @@ export class FormEngine {
 		this.markTouched(path);
 		const current = this.store.getState()[path];
 		if (!current) return;
+		// Blur does not introduce required errors. Keep a blank required answer's
+		// existing verdict, including a warning already published by submission.
+		if (current.required && !current.value) return;
 		const updates: EngineStoreState = { [path]: current };
-		await this.validateAndCollectAsync(path, current, updates, evaluateAsync);
+		await this.evaluateValidationAndCollectAsync(
+			path,
+			current,
+			updates,
+			evaluateAsync,
+		);
 		this.store.setState(updates);
 	}
 

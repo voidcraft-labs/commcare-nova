@@ -4,7 +4,7 @@ import { componentPeer } from "../../lib/componentPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-language-screen-client";
-import { NAME } from "../../lib/preview-language-screen-doc";
+import { DATE, NAME } from "../../lib/preview-language-screen-doc";
 
 test("a rejected submission keeps required errors and review announcements in the current language", async ({
 	page,
@@ -632,10 +632,19 @@ test("held section unwrap and wrap retain the published controls until their new
 		).toBeVisible();
 		await page.getByRole("textbox", { name: /Question 1.*Name/ }).fill("Amina");
 		await page.getByRole("button", { name: /Visit date/ }).click();
+		await page.evaluate(() => window.previewLanguageScreen.settled());
+		// Entering the calendar is not submission: it must not introduce a
+		// required warning that then moves the next control when a day is picked.
+		await expect(
+			page.locator(`[data-field-uuid="${DATE}"][data-instance-path]`),
+		).not.toHaveAttribute("data-invalid", "true");
 		await page.getByRole("button", { name: /January 9th, 2024/ }).click();
-		await page
-			.getByRole("button", { name: "Enter coordinates manually", exact: true })
-			.click();
+		const manualCoordinates = page.getByRole("button", {
+			name: "Enter coordinates manually",
+			exact: true,
+		});
+		await manualCoordinates.click();
+		await expect(manualCoordinates).toHaveAttribute("aria-expanded", "true");
 		const originalLatitude = page.getByRole("spinbutton", {
 			name: "Latitude",
 			exact: true,

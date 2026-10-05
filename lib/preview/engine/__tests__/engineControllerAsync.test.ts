@@ -129,6 +129,45 @@ afterEach(async () => {
 });
 
 describe("EngineController async runtime", () => {
+	it("defers required errors until submission while blur still checks authored constraints", async () => {
+		const ctrl = controller({
+			uuid: FIELD_UUID,
+			id: "name",
+			kind: "text",
+			label: proseText("Name"),
+			required: xp("true()"),
+			validate: xp(". = 'Ada'"),
+			validate_msg: proseText("Enter Ada"),
+		});
+		await ctrl.activateFormAsync(FORM_UUID);
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			touched: true,
+			valid: true,
+		});
+		expect(ctrl.store.getState()[FIELD_UUID]?.errorMessage).toBeUndefined();
+
+		expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			valid: false,
+			errorMessage: "This field is required",
+		});
+
+		await ctrl.onValueChangeAsync(FIELD_UUID, "Grace");
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			valid: false,
+			errorMessage: "Enter Ada",
+		});
+		await ctrl.onValueChangeAsync(FIELD_UUID, "Ada");
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			valid: true,
+		});
+		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
+	});
+
 	it("retains every rapid raw edit and reconciles their shared async DAG once", async () => {
 		const ctrl = controller(
 			{
