@@ -357,7 +357,7 @@ question-by-question timing outside authored sections.
 
 All five production roles use GPT-6.1 Sol at xhigh effort: the architect, peer,
 ordinary editor, document extraction and translation. The
-role map in `lib/models.ts` owns these choices. Extraction version 7 gives new
+role map in `lib/models.ts` owns these choices. Extraction version 8 gives new
 requests a distinct cache key; previous extracts remain readable at their stored
 version. Usage retains the producing model and its recorded cost.
 
