@@ -1692,23 +1692,27 @@ verdict), and appends it to the job's summary.
 
 ### Claims
 
-A claim is made of artifacts of the run named after the block,
-`proof-claim-<attempt>-<block>` (`proof/ci/claim.mjs`). Each block has an
-owner among the shards; another shard may take it by declaring an intent and
-committing it once a listing shows nothing else of the block, and the owner
-takes it unless a listing shows a committed intent. So no two shards run a
-block, and every block is run, resting only on a listing taken after an
-artifact is finalized holding it. Claiming by creating one artifact per block
-(`--mode create`) would rest on the service refusing a name the run already
-holds, and GitHub's does not when shards create the name at once. Each shard
-claims its own bin's blocks first (`--bin`, `proof.checks.sharding.claim_order`),
-so the shards start on different blocks and meet only at the end. A claim that
-cannot be settled stops that shard's claiming instead. The run steps reach the artifact service with the job's runtime
-token, which `.github/actions/proof-runtime` exports to them and the lane's
-server passes to its claim and wait commands alone. `proof-claim-race.yml`,
-run by hand, races the claim modes on GitHub's service; `ci.yml`'s
-`proof_claims` input runs the lane with another mode (`create`, or `static`
-bins), and its `proof_shards` input with another shard count.
+CI and the reusable proof lane use `static` allocation by default.
+`proof.checks.sharding.static_bins` sorts blocks by estimated cost and assigns
+each to the least-loaded shard, with deterministic ties. Each shard runs only
+its exclusive bin; allocation makes no artifact claim or listing request.
+The aggregate gate still rejects every duplicate or missing block.
+
+The explicit `create` and `steal` modes are claim diagnostics
+(`proof/ci/claim.mjs`), using artifacts named
+`proof-claim-<attempt>-<block>`. `create` depends on the artifact service
+refusing concurrent creation of the same name. `steal` depends on a listing
+after finalization including every finalized marker. GitHub's service has
+violated both assumptions: it accepted duplicate names and returned listings
+that omitted newly finalized owner and intent markers, allowing two shards
+to run one block. Dynamic claims therefore do not establish exclusive
+execution on this service. A claim that cannot be settled stops that shard.
+
+The run steps reach the artifact service with the job's runtime token, which
+`.github/actions/proof-runtime` exports and the lane's server passes to its
+claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
+the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
+explicit diagnostic mode, and `proof_shards` selects another shard count.
 
 ### The other workflows
 

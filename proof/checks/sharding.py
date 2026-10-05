@@ -33,7 +33,7 @@ seed; any other group it does not list counts ``DEFAULT_SECONDS``
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
 claimed by one shard. ``static_bins`` splits the blocks across ``n`` shards
 by greedy longest-processing-time balancing over their estimates, the
-fallback when shards cannot claim. ``verify`` holds every shard's output to
+default CI allocation without artifact claims. ``verify`` holds every shard's output to
 the queues: every queued block ran exactly once (a block two shards ran
 fails, whatever they wrote: a run that reads its records from the evidence
 store writes what any other run of it writes, so two alike show only that a
