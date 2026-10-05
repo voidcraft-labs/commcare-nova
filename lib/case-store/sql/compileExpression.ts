@@ -248,7 +248,10 @@ function compileCast(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const inner = compileExpression(value, ctx);
-	return eb.cast(inner, cast);
+	// Numeric parameters must arrive as text. PostgreSQL otherwise decodes an
+	// unanswered field as numeric before CASE can skip that calculation. The
+	// outer cast still rejects invalid text when the calculation executes.
+	return eb.cast(cast === "numeric" ? eb.cast(inner, "text") : inner, cast);
 }
 
 /**
@@ -344,8 +347,8 @@ function compileArith(
 	// Explicit numeric casts prevent Postgres selecting text's pg_trgm `%`
 	// operator for bound answers. Numeric operands avoid imposing an int4 or
 	// int8 range on admitted integral literals and intermediate expressions.
-	const leftExpr = eb.cast(compileExpression(left, ctx), "numeric");
-	const rightExpr = eb.cast(compileExpression(right, ctx), "numeric");
+	const leftExpr = compileCast(left, "numeric", ctx);
+	const rightExpr = compileCast(right, "numeric", ctx);
 	const opToken = ARITH_OP_TO_SQL[op];
 	const result = eb.parens(eb(leftExpr, opToken, rightExpr));
 	return op === "div" && type === "int" ? eb.fn("trunc", [result]) : result;
@@ -587,13 +590,35 @@ function portableTemporalType(
 	return resolveCaseListTemporalType(value, expressionTypeContext(ctx));
 }
 
+/** A blank numeric question is a legitimate branch result, not numeric text.
+ * Storage projects SQL NULL to an omitted create value or a removed update
+ * value. Keep arithmetic coercion separate: an executing calculation on that
+ * unanswered question must retain its normal numeric error. */
+function compileBranchValues(
+	values: readonly ValueExpression[],
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown>[] {
+	const branches = compileTemporalValues(values, ctx);
+	return values.map((value, index) => {
+		if (value.kind === "term" && value.term.kind === "field") {
+			const type = ctx.formFieldTypes?.get(value.term.uuid);
+			if (type === "int" || type === "decimal") {
+				if (ctx.bindings.formFields?.get(value.term.uuid) === "")
+					return eb.cast(eb.val(null), "numeric");
+				return compileCast(value, "numeric", ctx);
+			}
+		}
+		return branches[index];
+	});
+}
+
 /** Skip blank values while preserving the result's SQL type. Casting only
  * the blank check avoids comparing numbers, dates or booleans with `''`. */
 function compileCoalesce(
 	values: ReadonlyArray<ValueExpression>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const branches = compileTemporalValues(values, ctx);
+	const branches = compileBranchValues(values, ctx);
 	const valueExprs = values.map((v, index) => {
 		const value = branches[index];
 		// The last argument is the fallback, even when it is blank. Leave a
@@ -635,7 +660,7 @@ function compileIf(
 		);
 	}
 	const condExpr = compilePredicate(cond, ctx);
-	const [thenExpr, elseExpr] = compileTemporalValues(
+	const [thenExpr, elseExpr] = compileBranchValues(
 		[thenBranch, elseBranch],
 		ctx,
 	);
@@ -666,7 +691,7 @@ function compileSwitch(
 		ctx,
 	);
 	const onExpr: Expression<unknown> = comparisonValues[0];
-	const branches = compileTemporalValues(
+	const branches = compileBranchValues(
 		[...cases.map((entry) => entry.then), fallback],
 		ctx,
 	);

@@ -112,6 +112,120 @@ function makeCtx(
 }
 
 describe("compileExpression — round-trip — form bindings", () => {
+	test("preserves numeric types through nested answered and blank branches", async ({
+		db,
+	}) => {
+		const flag = testUuid("nested-numeric-flag");
+		const emptyAmount = testUuid("nested-numeric-empty");
+		const primaryAmount = testUuid("nested-numeric-primary");
+		const fallbackAmount = testUuid("nested-numeric-fallback");
+		for (const type of ["int", "decimal"] as const) {
+			const expected = type === "int" ? "15" : "15.5";
+			const fields = new Map([
+				[flag, "no"],
+				[emptyAmount, ""],
+				[primaryAmount, expected],
+				[fallbackAmount, "20"],
+			]);
+			const ctx = makeCtx(db, {
+				formFieldTypes: new Map([
+					[flag, "single_select"],
+					[emptyAmount, type],
+					[primaryAmount, type],
+					[fallbackAmount, type],
+				]),
+				bindings: { formFields: fields },
+			});
+			const primary = term(formField(primaryAmount));
+			const fallback = term(formField(fallbackAmount));
+			const nested = [
+				coalesce(primary, fallback),
+				ifExpr(eq(formField(flag), literal("no")), primary, fallback),
+				switchExpr(
+					term(formField(flag)),
+					[switchCase(literal("no"), primary)],
+					fallback,
+				),
+			];
+			for (const branch of nested) {
+				const expression = ifExpr(
+					eq(formField(flag), literal("yes")),
+					term(formField(emptyAmount)),
+					branch,
+				);
+				for (const answer of ["no", "yes"]) {
+					fields.set(flag, answer);
+					const compiled = compileExpression(expression, ctx);
+					const { rows } = await sql`
+						SELECT ${compiled} AS value, pg_typeof(${compiled})::text AS type
+					`.execute(db);
+					expect(rows).toEqual([
+						{ value: answer === "yes" ? null : expected, type: "numeric" },
+					]);
+				}
+			}
+		}
+	});
+
+	test("allows blank numeric branch values while keeping text blanks distinct", async ({
+		db,
+	}) => {
+		const flag = testUuid("numeric-branch-flag");
+		const amount = testUuid("numeric-branch-amount");
+		const text = testUuid("numeric-branch-text");
+		for (const type of ["int", "decimal"] as const) {
+			const ctx = makeCtx(db, {
+				formFieldTypes: new Map([
+					[flag, "single_select"],
+					[amount, type],
+					[text, "text"],
+				]),
+				bindings: {
+					formFields: new Map([
+						[flag, "no"],
+						[amount, ""],
+						[text, ""],
+					]),
+				},
+			});
+			const numeric = term(formField(amount));
+			const selected = compileExpression(
+				switchExpr(
+					term(formField(flag)),
+					[switchCase(literal("yes"), double(numeric))],
+					numeric,
+				),
+				ctx,
+			);
+			const fallback = compileExpression(
+				coalesce(numeric, term(literal(15))),
+				ctx,
+			);
+			const blankText = compileExpression(
+				ifExpr(
+					eq(formField(flag), literal("no")),
+					term(formField(text)),
+					term(literal("fallback")),
+				),
+				ctx,
+			);
+			const { rows } = await sql`
+				SELECT ${selected} AS selected, pg_typeof(${selected})::text AS type,
+				${fallback} AS fallback, pg_typeof(${fallback})::text AS fallback_type,
+				${blankText} AS blank_text
+			`.execute(db);
+			expect(rows).toEqual([
+				{
+					selected: null,
+					type: "numeric",
+					fallback: "15",
+					fallback_type: "numeric",
+					blank_text: "",
+				},
+			]);
+		}
+	});
+
 	test("preserves a multi-select answer as a JSONB array for operation writes", async ({
 		db,
 	}) => {

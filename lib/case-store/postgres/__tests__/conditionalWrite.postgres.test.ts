@@ -16,6 +16,7 @@ import {
 	eq,
 	formField,
 	gt,
+	ifExpr,
 	literal,
 	matchAll,
 	tableLookup,
@@ -28,7 +29,7 @@ import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
-import { buildCaseTypeMap } from "../../store";
+import { buildCaseTypeMap, type CaseRow } from "../../store";
 import type { CaseOperationProgram } from "../../submission";
 import { PostgresCaseStore } from "../store";
 
@@ -131,13 +132,17 @@ function program(
 	};
 }
 
-function submit(store: PostgresCaseStore, operations: CaseOperationProgram) {
+function submit(
+	store: PostgresCaseStore,
+	operations: CaseOperationProgram,
+	entryKey = "conditional-write-entry",
+) {
 	return store.applySubmission({
 		appId: APP_ID,
 		ordinary: { kind: "none" },
 		operations,
 		submissionReceipt: {
-			entryKey: "conditional-write-entry",
+			entryKey,
 			formUuid: FORM_UUID,
 			expectedAppMutationSeq: 0,
 			blueprintDigest: "0".repeat(64),
@@ -542,4 +547,93 @@ describe("conditional numeric writes", () => {
 			expect(intents.rows[0]?.count).toBe(0);
 		},
 	);
+});
+
+describe("numeric answer branches", () => {
+	it("omits a blank event value, clears its summary, and preserves zero and earlier events", async () => {
+		const store = makeStore();
+		const { caseId: summaryId } = await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: INSPECTION.name,
+				case_name: "Summary",
+				properties: { flow: 42, note: "summary" },
+			},
+		});
+		const events: CaseRow[] = [];
+		const declarations = [
+			["yes", "7.5", "30", 15],
+			["no", "", "", undefined],
+			["no", "0", "", 0],
+		] as const;
+		for (const [
+			index,
+			[flag, volume, duration, expected],
+		] of declarations.entries()) {
+			const base = program(flag, volume, duration);
+			const create = base.operations[0];
+			if (!create) throw new Error("Inspection create operation is missing.");
+			const value = ifExpr(
+				eq(formField(FLAG_FIELD), literal("yes")),
+				arith(
+					"div",
+					arith("*", term(literal(60)), term(formField(VOLUME_FIELD))),
+					term(formField(DURATION_FIELD)),
+				),
+				term(formField(VOLUME_FIELD)),
+			);
+			const writes = [{ property: "flow", value }];
+			await submit(
+				store,
+				{
+					...base,
+					sessionCaseIds: [summaryId],
+					operations: [
+						{
+							...create,
+							operation: { ...create.operation, writes },
+						},
+						{
+							guardConditions: [],
+							expressionSnapshotTypes: { links: new Map() },
+							operation: {
+								uuid: testUuid("numeric-branch-summary"),
+								id: "update_summary",
+								action: "update",
+								caseType: INSPECTION.name,
+								target: { kind: "session" },
+								writes,
+							},
+						},
+					],
+				},
+				`numeric-branch-${index}`,
+			);
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: INSPECTION.name,
+			});
+			expect(rows).toHaveLength(index + 2);
+			const currentSummary = rows.find((row) => row.case_id === summaryId);
+			expect(currentSummary?.properties).toEqual({
+				note: "summary",
+				...(expected === undefined ? {} : { flow: expected }),
+			});
+			for (const event of events) {
+				expect(rows.find((row) => row.case_id === event.case_id)).toEqual(
+					event,
+				);
+			}
+			const event = rows.find(
+				(row) =>
+					row.case_id !== summaryId &&
+					!events.some((prior) => prior.case_id === row.case_id),
+			);
+			expect(event?.properties).toEqual(
+				expected === undefined ? {} : { flow: expected },
+			);
+			if (!event) throw new Error("Submitted inspection event is missing.");
+			events.push(event);
+		}
+	});
 });

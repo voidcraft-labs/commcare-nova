@@ -158,6 +158,13 @@ When a value's condition is false, that property stays as it was. Preview skips
 the value's calculation, so unanswered inputs used only by that skipped value
 do not block submission.
 
+A calculation can also choose between values. Preview skips arithmetic in the
+branch it does not choose, so an unanswered numeric question in that branch
+does not block submission. When the chosen value is an unanswered numeric
+question, a new case leaves the property empty and an existing case clears its
+previous value. To keep the previous value instead, give that saved value a
+condition. Zero remains a value.
+
 A calculation can count related cases, such as visits belonging to the selected
 patient. A condition can also check whether related cases exist or are missing.
 These rules travel with the exported form, including when no other question

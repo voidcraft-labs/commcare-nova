@@ -59,6 +59,11 @@ fractions and wider numbers use `numeric`. Explicit authored types still win.
 Every arithmetic node preserves its grouping, including a nested right operand
 with the same precedence: `10 - (5 - 2)` must return `7`.
 
+Numeric coercion binds its input through `text` before the numeric cast. A
+prepared empty parameter must not be decoded as numeric before `CASE` can skip
+an unselected arithmetic branch. Executing arithmetic on invalid numeric text
+still fails, as does division by zero; this is not a general null-on-error rule.
+
 ## Blank semantics
 
 `is-blank` matches absent-or-empty, the one absence meaning Nova's Postgres runtime and every CommCare wire target can preserve identically.
@@ -69,6 +74,14 @@ cast the empty string into that type and can fail before filtering any rows.
 Property checks retain their storage-aware blank semantics.
 
 `coalesce` skips null and empty values, preserving the selected value's type. The last argument is the fallback even when blank, matching the form runtime.
+
+For `if`, `switch` and `coalesce` result branches, an unanswered bound `int` or
+`decimal` question projects to typed numeric `NULL`; an answered question keeps
+the same numeric result type, including inside nested branches. Submission storage omits
+that property on create and removes it on update; a false per-write condition
+preserves the old value instead. Text blanks remain empty strings and zero
+remains numeric. This projection is confined to direct result branches;
+arithmetic retains the coercion contract above.
 
 Typed temporal literals are the one intentional editor-draft exception: an optional date, time, or datetime control commits `""` while unset, and the live Results preview executes that AST immediately. `compileLiteral` must pass temporal strings through `nullif(value, '')` before the cast, so the unset draft becomes typed SQL `NULL` (and therefore no match) instead of a raw Postgres `22007` error. Non-empty malformed values still reach the cast and fail; this is not a general parse-error catch or a widening of valid temporal syntax.
 
