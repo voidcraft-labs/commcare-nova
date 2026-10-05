@@ -501,7 +501,11 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	}
 });
 
-it("requires a saved role and parent selection, then executes additional operations before opening the next form", async () => {
+// Seventeen persisted worker actions include two submissions and linked-form
+// entry. Give the complete integration journey the same budget as page journeys.
+it("requires a saved role and parent selection, then executes additional operations before opening the next form", {
+	timeout: 15_000,
+}, async () => {
 	// This fixture exercises the saved journey, not private authoring persistence.
 	const author = makeAuthoringHarness(
 		{},
