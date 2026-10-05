@@ -79,7 +79,8 @@ const {
 	},
 	resolveOpenAIKeyMock: vi.fn(),
 	resolveAuthorizedAppSnapshotMock: vi.fn(),
-	createSolutionsArchitectMock: vi.fn(),
+	createSolutionsArchitectMock:
+		vi.fn<typeof import("@/lib/agent").createSolutionsArchitect>(),
 	runBuildOrchestrationMock:
 		vi.fn<
 			typeof import("@/lib/agent/build/orchestrator").runBuildOrchestration
@@ -941,6 +942,10 @@ describe("pause-stamp ownership admission", () => {
 			await vi.importActual<typeof import("@/lib/db/apps")>("@/lib/db/apps");
 		setAwaitingInputMock.mockImplementationOnce(
 			async (...args: Parameters<typeof actualApps.setAwaitingInput>) => {
+				// A stale holder no longer beats. Join the real context's refresh
+				// before forcing expiry so it cannot renew the simulated dead lease.
+				const [ctx] = createSolutionsArchitectMock.mock.calls[0];
+				await ctx.stopRunLeaseHeartbeat();
 				await appDb
 					.updateTable("apps")
 					.set({ lock_expire_at: new Date(0) })
