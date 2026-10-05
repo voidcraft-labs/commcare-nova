@@ -280,6 +280,158 @@ async function cleanup(subject: ReturnType<typeof fixture>) {
 
 describe("same-entry runtime publication", () => {
 	it.each(["synchronous", "worker"] as const)(
+		"retains required and authored errors through language rebuilds with %s execution",
+		async (mode) => {
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "section",
+										id: "answers",
+										children: [
+											f({
+												kind: "text",
+												id: "name",
+												required: "true()",
+												validate: "normalize-space(.) != ''",
+												validate_msg: "Enter a name with letters.",
+											}),
+											f({
+												kind: "text",
+												id: "spaces",
+												required: "true()",
+												validate: "normalize-space(.) != ''",
+												validate_msg: "Enter a name with letters.",
+											}),
+										],
+									}),
+									f({
+										kind: "section",
+										id: "later",
+										children: [
+											f({ kind: "text", id: "untouched", required: "true()" }),
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const form = doc.formOrder[doc.moduleOrder[0]][0];
+			const fields = Object.fromEntries(
+				Object.values(doc.fields).map((field) => [field.id, field.uuid]),
+			);
+			const { name, spaces, untouched, answers } = fields;
+			const store = createBlueprintDocStore();
+			store.getState().load(admittedControllerDoc(doc));
+			store.getState().startTracking();
+			applyControllerEdit(store, [
+				{ kind: "addLanguage", language: { language: "spa" } },
+			]);
+			for (const uuid of [name, spaces]) {
+				const unitId = makeTranslationUnitId("field", uuid, "validate_msg");
+				const unit = collectTranslationUnits(store.getState()).find(
+					(item) => item.id === unitId,
+				);
+				if (!unit)
+					throw new Error("Expected the authored validation translation unit");
+				applyControllerEdit(store, [
+					{
+						kind: "setTranslation",
+						language: "spa",
+						unitId,
+						entry: {
+							value: proseText("Ingrese un nombre con letras."),
+							sourceFingerprint: unit.sourceFingerprint,
+							origin: "human",
+							review: "reviewed",
+							translatedFrom: "eng",
+						},
+					},
+				]);
+			}
+			const ctrl = new EngineController(
+				mode === "worker"
+					? new XPathRuntime({
+							workerFactory: createInProcessXPathWorkerFactory(),
+						})
+					: undefined,
+			);
+			ctrl.setDocStore(store);
+			ctrl.setPresentationLanguage("spa");
+			try {
+				expect(await ctrl.activateFormAsync(form)).toBe(true);
+				expect(await ctrl.onValueChangeAsync(spaces, "   ")).toBe(true);
+				expect(await ctrl.validateSectionAsync(answers)).toBe(false);
+				const blank = ctrl.store.getState()[name];
+				const authored = ctrl.store.getState()[spaces];
+				const clean = ctrl.store.getState()[untouched];
+				const entryKey = ctrl.entryKey;
+				expect(blank).toMatchObject({
+					value: "",
+					required: true,
+					valid: false,
+					touched: true,
+					errorMessage: "Este campo es obligatorio",
+				});
+				expect(authored).toMatchObject({
+					value: "   ",
+					valid: false,
+					touched: true,
+					errorMessage: "Ingrese un nombre con letras.",
+				});
+				expect(clean).toMatchObject({
+					value: "",
+					required: true,
+					valid: true,
+					touched: false,
+				});
+				for (const [language, requiredMessage, authoredMessage] of [
+					["eng", "This field is required", "Enter a name with letters."],
+					["spa", "Este campo es obligatorio", "Ingrese un nombre con letras."],
+				] as const) {
+					ctrl.setPresentationLanguage(language);
+					expect(await ctrl.awaitSettled(entryKey)).toBe(true);
+					expect(ctrl.store.getState()[name]).toEqual({
+						...blank,
+						errorMessage: requiredMessage,
+					});
+					expect(ctrl.store.getState()[spaces]).toEqual({
+						...authored,
+						errorMessage: authoredMessage,
+					});
+					expect(ctrl.store.getState()[untouched]).toEqual(clean);
+					expect(ctrl.entryStore.getState()).toMatchObject({
+						entryKey,
+						ready: true,
+						fault: undefined,
+					});
+				}
+				expect(await ctrl.onValueChangeAsync(name, "Amina")).toBe(true);
+				expect(await ctrl.onTouchAsync(name)).toBe(true);
+				ctrl.setPresentationLanguage("eng");
+				expect(await ctrl.awaitSettled(entryKey)).toBe(true);
+				expect(ctrl.store.getState()[name]).toMatchObject({
+					value: "Amina",
+					valid: true,
+					errorMessage: undefined,
+				});
+				expect(ctrl.store.getState()[untouched]).toEqual(clean);
+			} finally {
+				ctrl.dispose();
+				await ctrl.awaitSettled();
+			}
+		},
+	);
+
+	it.each(["synchronous", "worker"] as const)(
 		"refreshes a restored local error in the selected language with %s execution",
 		async (mode) => {
 			const doc = buildDoc({

@@ -4,6 +4,120 @@ import { componentPeer } from "../../lib/componentPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-language-screen-client";
+import { NAME } from "../../lib/preview-language-screen-doc";
+
+test("a rejected submission keeps required errors and review announcements in the current language", async ({
+	page,
+}, testInfo) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-language-screen-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+			"@/lib/preview/xpath/browserWorkerClient": resolve(
+				"e2e/lib/preview-language-worker-boundary.ts",
+			),
+		},
+	);
+	try {
+		const guard = await attachErrorGuard(page, peer.origin);
+		async function capture(name: string) {
+			await writeFile(
+				testInfo.outputPath(`${name}.aria.txt`),
+				await page.locator("body").ariaSnapshot(),
+			);
+			const screenPath = testInfo.outputPath(`${name}.png`);
+			await page.screenshot({ path: screenPath, fullPage: true });
+			await testInfo.attach(name, {
+				path: screenPath,
+				contentType: "image/png",
+			});
+		}
+		try {
+			await page.setViewportSize({ width: 390, height: 720 });
+			await page.goto(peer.origin);
+			await expect(
+				page.locator('[data-preview-engine-ready="true"]'),
+			).toBeVisible();
+			await page.getByRole("button", { name: "Español", exact: true }).click();
+			await page.evaluate(() => window.previewLanguageScreen.settled());
+			const before = await page.evaluate(() =>
+				window.previewLanguageScreen.observation(),
+			);
+			const question = page.locator(
+				`[data-field-uuid="${NAME}"][data-instance-path]`,
+			);
+			const announcement = page.locator('p[role="alert"].sr-only');
+			await page.getByRole("button", { name: "Enviar", exact: true }).click();
+			await expect(question).toHaveAttribute("data-invalid", "true");
+			await expect(
+				question.getByText("Este campo es obligatorio", { exact: true }),
+			).toBeVisible();
+			await expect(announcement).toHaveText("Revise la pregunta resaltada.");
+			await capture("required-spa");
+			for (const [button, error, review, tag] of [
+				[
+					"English",
+					"This field is required",
+					"Review the highlighted question.",
+					"eng",
+				],
+				[
+					"Español",
+					"Este campo es obligatorio",
+					"Revise la pregunta resaltada.",
+					"spa",
+				],
+			] as const) {
+				await page.getByRole("button", { name: button, exact: true }).click();
+				// Observe the completed production rebuild, without revalidating or
+				// submitting again to recreate the warning under test.
+				await page.evaluate(() => window.previewLanguageScreen.settled());
+				await expect(question).toHaveAttribute("data-invalid", "true");
+				await expect(question.getByText(error, { exact: true })).toBeVisible();
+				await expect(announcement).toHaveText(review);
+				const after = await page.evaluate(() =>
+					window.previewLanguageScreen.observation(),
+				);
+				expect(after.entry?.entryKey).toBe(before.entry?.entryKey);
+				expect(after.values).toEqual(before.values);
+				await capture(`required-rebuilt-${tag}`);
+			}
+			await page.getByRole("textbox", { name: /Question 1.*Name/ }).fill("   ");
+			await page.getByRole("button", { name: "Enviar", exact: true }).click();
+			await expect(
+				question.getByText("Ingrese un nombre con letras.", { exact: true }),
+			).toBeVisible();
+			await page.getByRole("button", { name: "English", exact: true }).click();
+			await page.evaluate(() => window.previewLanguageScreen.settled());
+			await expect(question).toHaveAttribute("data-invalid", "true");
+			await expect(
+				question.getByText("Enter a name with letters.", { exact: true }),
+			).toBeVisible();
+			await expect(announcement).toHaveText("Review the highlighted question.");
+			await expect(question.getByRole("textbox")).toHaveValue("   ");
+			await capture("authored-rebuilt-eng");
+		} catch (error) {
+			if (!page.isClosed()) await capture("failure");
+			throw error;
+		} finally {
+			try {
+				if (!page.isClosed())
+					await page.evaluate(() => window.previewLanguageScreen?.dispose());
+			} finally {
+				await closePageWithUnload(page);
+				await guard.assertNoErrors();
+			}
+		}
+	} finally {
+		await peer.close();
+	}
+});
 
 test("a production form keeps partial drafts and capture identity mounted through a held language and path replacement", async ({
 	page,

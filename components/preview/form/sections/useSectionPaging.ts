@@ -27,7 +27,6 @@
  */
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { Uuid } from "@/lib/domain";
 import type {
 	InvalidFieldTarget,
@@ -41,7 +40,6 @@ import {
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useSectionPages } from "@/lib/preview/hooks/useSectionPages";
-import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	useActiveSection,
 	useGetActiveSection,
@@ -55,8 +53,8 @@ export interface SectionPagingArgs {
 	readonly enabled: boolean;
 	/** Reveal and focus an invalid question (FormScreen's reveal path). */
 	readonly revealInvalid: (target: InvalidFieldTarget) => void;
-	/** Say why the page did not turn (FormScreen's `role="alert"` node). */
-	readonly refuse: (message: string) => void;
+	/** Announce an invalid page through FormScreen's localized alert intent. */
+	readonly refuse: () => void;
 }
 
 export interface SectionPaging {
@@ -92,7 +90,6 @@ export function useSectionPaging({
 	refuse,
 }: SectionPagingArgs): SectionPaging {
 	const controller = useEngineController();
-	const { language } = useBuilderLanguage();
 	const allPages = useSectionPages();
 	/* The engine is one per builder session and activates a form after its
 	 * screen mounts, so `enabled` alone would page this form with another
@@ -185,12 +182,12 @@ export function useSectionPaging({
 			const target = controller.firstInvalidFieldTarget({
 				withinSection: page.uuid,
 			});
-			refuse(runtimeMessage(language, "reviewHighlightedQuestion"));
+			refuse();
 			if (page.uuid !== current?.uuid) showPage(page.uuid);
 			if (target !== undefined) revealInvalid(target);
 			return false;
 		},
-		[controller, current?.uuid, language, refuse, revealInvalid, showPage],
+		[controller, current?.uuid, refuse, revealInvalid, showPage],
 	);
 
 	const goNext = useCallback(async () => {

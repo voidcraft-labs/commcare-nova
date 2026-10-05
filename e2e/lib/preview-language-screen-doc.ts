@@ -39,7 +39,15 @@ export function languageScreenDoc() {
 								id: "visit",
 								label: "Visit details",
 								children: [
-									{ uuid: NAME, kind: "text", id: "name", label: "Name" },
+									{
+										uuid: NAME,
+										kind: "text",
+										id: "name",
+										label: "Name",
+										required: "true()",
+										validate: "normalize-space(.) != ''",
+										validate_msg: "Enter a name with letters.",
+									},
 									{
 										uuid: GREETING,
 										kind: "text",
@@ -119,12 +127,27 @@ export function languageScreenDoc() {
 		(item) => item.id === unitId,
 	);
 	if (!unit) throw new Error("Expected the admitted greeting translation unit");
+	const validationUnitId = makeTranslationUnitId("field", NAME, "validate_msg");
+	const validationUnit = collectTranslationUnits(source).find(
+		(item) => item.id === validationUnitId,
+	);
+	if (!validationUnit)
+		throw new Error("Expected the admitted validation translation unit");
 	source.localization = {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
 		translations: {
 			spa: {
+				[validationUnitId]: {
+					value: {
+						parts: [{ kind: "text", text: "Ingrese un nombre con letras." }],
+					},
+					sourceFingerprint: validationUnit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
 				[unitId]: {
 					value: {
 						parts: [

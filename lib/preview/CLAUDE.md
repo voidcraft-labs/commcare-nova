@@ -153,11 +153,16 @@ labels, placeholder and Clear across live forms and Search. The generic
 canonical worker tag, retaining regional suffixes; DayPicker uses generic
 English/Spanish labels and week layout. A language rerender adds no answer or
 draft reset. Restored entries refresh existing invalid-state messages in the
-new presentation language without touching previously clean questions; ordinary
-input blur still commits and normalizes values. Other worker
+new presentation language without touching previously clean questions. Capture
+invalid paths before constraint settlement so an already-shown required warning
+on a blank answer cannot disappear during restoration; revalidate current values
+and rules rather than restoring stale error strings. Ordinary input blur still
+commits and normalizes values. Other worker
 languages
 use English platform copy. Invalid Submit and section Next/jump feedback both
-read `reviewHighlightedQuestion` from the selected worker language. Configured
+retain the `reviewHighlightedQuestion` intent and render it in the selected worker
+language, including after a same-entry language change. Authored and server error
+text remains literal. Configured
 Google Maps/Places labels and errors, clock formatting, record metadata,
 media controls, other accessibility labels and diagnostics remain outside this
 catalog; authored labels and custom validation continue through the app's

@@ -855,7 +855,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		kind: "idle",
 	});
 	const [validationAnnouncement, setValidationAnnouncement] = useState<
-		{ readonly serial: number; readonly message: string } | undefined
+		| {
+				readonly serial: number;
+				readonly kind: "literal";
+				readonly message: string;
+		  }
+		| { readonly serial: number; readonly kind: "review" }
+		| undefined
 	>();
 	/* Each announcement gets its own serial so the same sentence said twice
 	 * (two failed Next presses) re-renders the alert node and is read twice. */
@@ -863,7 +869,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const announce = useCallback((message: string): void => {
 		setValidationAnnouncement({
 			serial: ++announcementSerialRef.current,
+			kind: "literal",
 			message,
+		});
+	}, []);
+	/* Keep platform feedback as intent: the same entry may change language
+	 * while this alert is still present. Authored/server messages stay literal. */
+	const announceReview = useCallback((): void => {
+		setValidationAnnouncement({
+			serial: ++announcementSerialRef.current,
+			kind: "review",
 		});
 	}, []);
 	const [clearRevision, setClearRevision] = useState(0);
@@ -1544,7 +1559,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		formUuid,
 		enabled: mode === "preview" && formIsSectioned,
 		revealInvalid: revealInvalidOnPage,
-		refuse: announce,
+		refuse: announceReview,
 	});
 	/** Turn to the page holding a question before revealing it: an invalid
 	 *  question's first ancestor is its section, so the reveal's DOM query
@@ -1855,9 +1870,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
 				// The focused question supplies the specific correction.
-				announce(
-					runtimeMessage(language.language, "reviewHighlightedQuestion"),
-				);
+				announceReview();
 				const firstInvalid = controller.firstInvalidFieldTarget();
 				if (firstInvalid !== undefined) showPageOf(firstInvalid);
 				revealAndFocusFirstInvalid();
@@ -2512,7 +2525,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							role="alert"
 							className="sr-only"
 						>
-							{validationAnnouncement.message}
+							{validationAnnouncement.kind === "review"
+								? runtimeMessage(language.language, "reviewHighlightedQuestion")
+								: validationAnnouncement.message}
 						</p>
 					) : null}
 					{formFrozen && !engineInitializing ? (

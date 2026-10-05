@@ -465,7 +465,10 @@ for calendar text and accessible labels, placeholder and Clear. Date display
 passes the canonical selected tag to Intl, retaining its regional suffix; the
 calendar uses generic English/Spanish labels and week layout. The generic
 authoring picker keeps its English defaults. Language rerenders retain answers
-and drafts and refresh existing validation messages after rebuilding; ordinary
+and drafts and revalidate already-invalid questions after rebuilding, including
+blank required answers whose authored constraint is skipped. Previously clean
+questions remain clean. Retained platform review announcements resolve in the
+current language; authored and server messages keep their own wording. Ordinary
 input blur still commits and normalizes values. Other worker
 languages use
 English platform copy. Configured Google Maps/Places labels and errors, clock
