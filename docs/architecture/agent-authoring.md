@@ -14,6 +14,9 @@ passage edits have durable request receipts. A peer review acquires exclusive
 plan ownership while the architect is paused. The peer can improve the plan and
 returns a concise assessment; the architect receives both the updated document
 and the assessment. There is no finding-ID or disposition protocol.
+The architect and peer distinguish requested outcomes from design choices in
+ordinary prose. Plan choices and review focus do not become additional user
+requirements; validation must not add unrequested business restrictions.
 
 Review identity binds the plan revision, source digest, and, for an app review,
 the actual canonical revision. Editing the plan or app makes the relevant old

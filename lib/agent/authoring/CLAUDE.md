@@ -43,6 +43,9 @@ protection. The existing plugin bootstraps this server-owned reference only.
 Clock guidance preserves typed capture and a separately saved recorded-time
 display with its numeric offset. It does not promise viewer-local conversion or
 absolute chronology from the device runtime's stored timestamp parsing.
+Expression guidance distinguishes skipping a write from clearing a saved numeric
+value with a typed blank form answer; text blanks and numeric coercion are not
+substitutes. This uses the existing operation and field model.
 
 Write results report completed operations with `ok: true`, created identities,
 and any consequential side effects. Confirmation and rejection remain explicit.
