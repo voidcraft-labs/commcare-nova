@@ -1,4 +1,8 @@
 import type { CaseOperation, Uuid } from "@/lib/domain";
+import {
+	type OperationSemantics,
+	operationSemantics,
+} from "../../authoring/operationSemantics";
 import { formAnswerWrites } from "../../formAnswerWrites";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
@@ -23,6 +27,7 @@ export type GetCaseOperationsResult =
 			readonly form: string;
 			readonly operations: readonly CaseOperation[];
 			readonly answerWrites: ReturnType<typeof formAnswerWrites>;
+			readonly operationSemantics: OperationSemantics;
 	  }
 	| { readonly error: string };
 
@@ -46,6 +51,7 @@ export const getCaseOperationsTool = {
 				formUuid: address.formUuid,
 				form: doc.forms[address.formUuid]?.name ?? "",
 				operations: projectedCaseOperations(doc, address.formUuid),
+				operationSemantics: operationSemantics(doc, address.formUuid),
 				answerWrites: formAnswerWrites(
 					doc,
 					address.moduleUuid,

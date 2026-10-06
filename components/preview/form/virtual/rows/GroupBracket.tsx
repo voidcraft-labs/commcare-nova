@@ -35,7 +35,10 @@ import {
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
-import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
+import {
+	CONTAINER_HEADER_STYLES,
+	FIELD_STYLES,
+} from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -188,8 +191,8 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					flatBottomOnSelect={!collapsed}
 				>
 					<div
-						className={`rounded-t-lg border border-b-0 border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
-							collapsed ? "rounded-b-lg border-b" : ""
+						className={`rounded-t-lg border border-pv-input-border bg-pv-surface px-3 py-2 transition-shadow ${
+							collapsed ? "rounded-b-lg" : "border-b-0"
 						} ${showIntoGroupRing ? "ring-2 ring-nova-violet" : ""}`}
 					>
 						{/* Group label media: banner above the header row, matching
@@ -198,7 +201,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							media={q && "label_media" in q ? q.label_media : undefined}
 							interactive={false}
 						/>
-						<div className="flex items-center gap-2">
+						<div className={CONTAINER_HEADER_STYLES.row}>
 							<button
 								type="button"
 								onClick={(e) => {
@@ -206,7 +209,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									onToggleCollapse();
 								}}
 								data-no-drag
-								className="pointer-events-auto text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded-sm"
+								className={CONTAINER_HEADER_STYLES.toggle}
 								aria-label={collapsed ? "Expand group" : "Collapse group"}
 							>
 								<Icon
@@ -216,19 +219,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 								/>
 							</button>
 
-							{isRepeat && (
-								<span className="flex items-center gap-1 text-xs font-medium text-nova-text-muted">
-									<Icon icon={tablerRepeat} width="11" height="11" />
-									Repeat
-									{repeatCount > 1 && (
-										<span className="font-normal normal-case tracking-normal">
-											· {repeatCount} instances
-										</span>
-									)}
-								</span>
-							)}
-
-							<div className="min-w-0 flex-1">
+							<div className={CONTAINER_HEADER_STYLES.title}>
 								{/* GroupBracket always receives a container field (group
 								 *  or repeat). Both kinds carry an OPTIONAL `label`
 								 *  (containerFieldBase): empty/absent label means the
@@ -261,6 +252,17 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									)}
 								</TextEditable>
 							</div>
+							{isRepeat && (
+								<span className={CONTAINER_HEADER_STYLES.metadata}>
+									<Icon icon={tablerRepeat} width="11" height="11" />
+									Repeat
+									{repeatCount > 1 && (
+										<span className="font-normal normal-case tracking-normal">
+											· {repeatCount} instances
+										</span>
+									)}
+								</span>
+							)}
 						</div>
 						{/* Containers (group/repeat) carry no `hint` in the domain
 						 *  schema: only `relevant`. The hint editor only appears

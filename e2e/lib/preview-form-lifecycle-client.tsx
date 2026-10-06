@@ -21,9 +21,16 @@ import {
 	BuilderFormEngineProvider,
 	useBuilderFormEngine,
 } from "@/lib/preview/engine/provider";
+import { PreviewCaseDatabaseProvider } from "@/lib/preview/engine/useCaseDatabaseSnapshot";
+import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
+import {
+	armValidationWorker,
+	releaseValidationWorker,
+	validationWorkerHeld,
+} from "./preview-form-lifecycle-boundary";
 
 const MODULE = testUuid("native-form-module"),
 	FORM = testUuid("native-form-survey");
@@ -32,6 +39,8 @@ const NAME = testUuid("native-form-name"),
 const numbers = new URLSearchParams(location.search).has("numbers");
 const drafts = new URLSearchParams(location.search).has("drafts");
 const sections = new URLSearchParams(location.search).has("sections");
+const caseDatabase = new URLSearchParams(location.search).has("case-database");
+const registration = drafts || caseDatabase;
 const doc = admittedControllerDoc(
 	new URLSearchParams(location.search).has("live-counts")
 		? liveCountEntryDoc()
@@ -40,20 +49,23 @@ const doc = admittedControllerDoc(
 			: buildDoc({
 					appId: "native-form",
 					appName: "Form lifecycle",
-					caseTypes: drafts ? [{ name: "visit", properties: [] }] : undefined,
+					caseTypes: registration
+						? [{ name: "visit", properties: [] }]
+						: undefined,
 					modules: [
 						{
 							uuid: MODULE,
 							name: "Visits",
-							caseType: drafts ? "visit" : undefined,
-							caseListConfig: drafts
+							caseType: registration ? "visit" : undefined,
+							caseListConfig: registration
 								? caseListConfig([{ field: "case_name", header: "Name" }])
 								: undefined,
 							forms: [
 								{
 									uuid: FORM,
 									name: "Visit",
-									type: drafts ? "registration" : "survey",
+									type: registration ? "registration" : "survey",
+									...(caseDatabase ? { postSubmit: "previous" as const } : {}),
 									fields: [
 										{
 											uuid: NAME,
@@ -61,7 +73,8 @@ const doc = admittedControllerDoc(
 											kind: "text",
 											label: "Name",
 											required: "true()",
-											...(drafts
+											...(caseDatabase ? { validate: ". != ''" } : {}),
+											...(registration
 												? {
 														caseWrite: {
 															caseType: "visit",
@@ -144,21 +157,31 @@ if (!element) throw new Error("Missing root");
 element.style.height = "calc(100vh - 32px)";
 const root = createRoot(element);
 pushBuilderHistory(`/build/${doc.appId}/${activeModule}/${activeForm}`);
+const formScreen = (
+	<>
+		<Capture />
+		<FormScreen
+			screen={{
+				type: "form",
+				moduleUuid: activeModule,
+				formUuid: activeForm,
+			}}
+		/>
+	</>
+);
 root.render(
 	<BuilderSessionContext value={session}>
 		<BlueprintDocContext value={docStore}>
 			<BuilderLocalizationProvider>
 				<LanguageSelector />
 				<BuilderFormEngineProvider>
-					<Capture />
-					<FormScreen
-						screen={{
-							type: "form",
-							moduleUuid: activeModule,
-							formUuid: activeForm,
-						}}
-						onBack={() => {}}
-					/>
+					{caseDatabase ? (
+						<PreviewCaseDatabaseProvider>
+							{formScreen}
+						</PreviewCaseDatabaseProvider>
+					) : (
+						formScreen
+					)}
 				</BuilderFormEngineProvider>
 			</BuilderLocalizationProvider>
 		</BlueprintDocContext>
@@ -170,6 +193,20 @@ window.previewFormLifecycleAudit = {
 		name: controller?.store.getState()[NAME]?.value,
 		photo: controller?.store.getState()[PHOTO]?.value,
 	}),
+	async armValidation() {
+		await controller?.awaitSettled();
+		const entryKey = controller?.entryKey;
+		if (entryKey === undefined) throw new Error("Expected a form entry");
+		armValidationWorker(entryKey);
+	},
+	validationHeld: validationWorkerHeld,
+	releaseValidation: releaseValidationWorker,
+	refreshCaseData() {
+		invalidateCaseData(doc.appId, "visit");
+	},
+	async settled() {
+		await controller?.awaitSettled();
+	},
 	refresh(projectId: string) {
 		session.getState().beginAccessRefresh();
 		session.getState().resetProjectScope();
@@ -180,6 +217,7 @@ window.previewFormLifecycleAudit = {
 	async dispose() {
 		const owned = controller;
 		root.unmount();
+		releaseValidationWorker();
 		await owned?.awaitSettled();
 		await __resetAttachmentCoordinatorForTests();
 	},
@@ -189,6 +227,11 @@ declare global {
 		previewFormLifecycleAudit: {
 			entry(): string | undefined;
 			answers(): { name?: string; photo?: string };
+			armValidation(): Promise<void>;
+			validationHeld(): boolean;
+			releaseValidation(): void;
+			refreshCaseData(): void;
+			settled(): Promise<void>;
 			refresh(projectId: string): void;
 			dispose(): Promise<void>;
 		};

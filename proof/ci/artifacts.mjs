@@ -4,9 +4,10 @@
 // in proof/ci/vendor), over the job's runtime token, which
 // .github/actions/proof-runtime exports to the steps after it.
 //
-// Everything here names an artifact of the current workflow run. The claims
-// CI makes rest on one property of the service: a listing taken after an
-// artifact is finalized includes it. The service may refuse a second
+// Everything here names an artifact of the current workflow run. Dynamic
+// claim diagnostics assume a listing after finalization includes every
+// finalized marker; GitHub has returned listings that omit them. Static CI
+// allocation does not use claims. The service may refuse a second
 // creation of a name the run already holds (409 Conflict, which
 // upload-artifact's `overwrite: false` reports), but shards creating one name
 // at once each get an artifact of it (proof/ci/claim.mjs).

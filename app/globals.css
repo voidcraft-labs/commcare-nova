@@ -654,6 +654,16 @@ body {
 	inset: calc((var(--hit-target) - 100%) / -2) 0;
 	pointer-events: auto;
 }
+/* Authored interactive content owns its hit area above the label's extension.
+   This is local paint order, not an application overlay plane. Native choice
+   inputs retain their sr-only layout and edit-mode pointer rules still apply. */
+.pv-choice-row a[href],
+.pv-choice-row button,
+.pv-choice-row audio,
+.pv-choice-row video {
+	position: relative;
+	z-index: 1;
+}
 
 /* Every layer is sized in `em` against the mark's own font-size, which
    `Logo` sets to the mark's diameter. One rule then serves a 14px docs

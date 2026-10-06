@@ -17,6 +17,7 @@ import {
 	type XPathInstance,
 	type XPathNode,
 	XPathNodeSet,
+	XPathNodesetCardinalityError,
 	type XPathRuntimeValue,
 } from "./runtimeValues";
 import type { EvalContext, XPathValue } from "./types";
@@ -370,12 +371,12 @@ function classifyWorkerFailure(
 	if (error instanceof RangeError) kind = "range-error";
 	else if (error instanceof TypeError) kind = "type-error";
 	else if (error instanceof DOMException) kind = "dom-exception";
+	else if (error instanceof XPathNodesetCardinalityError)
+		kind = "nodeset-cardinality";
 	else if (error instanceof Error) {
 		const message = error.message;
 		if (message === "The XPath worker evaluation world is unavailable.") {
 			kind = "world-unavailable";
-		} else if (message.startsWith("XPath nodeset has more than one node")) {
-			kind = "nodeset-cardinality";
 		} else if (message.includes("path that does not exist")) {
 			kind = "invalid-path";
 		} else if (message.includes("did not pass admission")) {

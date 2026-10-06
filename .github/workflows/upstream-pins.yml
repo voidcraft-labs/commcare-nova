@@ -9,11 +9,13 @@ name: Upstream pins
 # such pull request: a week with new heads replaces its one commit, and a week
 # with nothing new leaves it as it is, its description's date going stale.
 #
-# Before CI runs on the branch, the whole proof lane runs fresh on the
-# candidate image and saves what it observed as main's evidence store for
-# that image (proof-lane.yml), so the pin pull request's CI reads its records
-# instead of observing every document again; this schedule's runs write the
-# default branch's caches, which every pull request can read. The prewarm
+# GitHub holds CI on a pull request this workflow's token opened until a
+# person approves its run or updates the branch. Before that, the whole
+# proof lane runs fresh on the candidate image and saves what it observed as
+# main's evidence store for that image (proof-lane.yml), so the pin pull
+# request's CI reads its records instead of observing every document again;
+# this schedule's runs write the default branch's caches, which every pull
+# request can read. The prewarm
 # checks the tree the pull request will carry: the branch with the lock the
 # report job commits (the candidate image and the new pins) and the
 # regenerated surface, so its records and judgments are keyed as the pull
@@ -128,7 +130,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      actions: write
     steps:
       - uses: actions/checkout@v7
         with:

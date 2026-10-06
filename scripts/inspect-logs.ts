@@ -27,7 +27,7 @@
  * `inspect-design-session.ts <anyRelatedId>`; use this app-centric reader for
  * a focused event-log analysis after materialization.
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command, InvalidArgumentError } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";

@@ -2,7 +2,7 @@
 
 This is a separate, explicitly labeled disposable-record surface. Ordinary
 Preview still uses the user's real records. Shared tools start at app entry as
-the authorized actor, then choose only saved Preview identities and available
+the authorized actor or an explicitly selected saved Preview identity, then choose only saved Preview identities and available
 menus, records and forms. Do not accept a privileged replacement worker context.
 
 `service.ts` pins the saved blueprint and authorized lookup/place snapshots.
@@ -12,6 +12,21 @@ the source app and rechecks real-actor membership and the exact app revision.
 versions, and commits state, observations and idempotency receipts together.
 Only the creating actor can continue a test; current app members can read its
 observations. Simulated worker identity never grants Project authority.
+
+A journey may retain one to four worker sessions in the same isolated namespace.
+`startAppTest.sessions` supplies unique bounded test-local IDs and optional saved
+identity/language choices; omission creates `default`. The first session is
+primary. Each ordered action may address `sessionId`; omission uses primary.
+An unknown ID refuses before identity materialization, navigation or submission,
+and a duplicate ID refuses before namespace admission. Session IDs are opaque
+labels, not entity names or invented Preview workers. Identity, language,
+navigation, ancestor selections, record catalog and open-form entry/checkpoint
+belong to that session. Advancing another session never retires them. The step,
+record and combined-state budgets belong to the whole journey. Persist the
+supplied session order separately from the JSONB object so every directory keeps
+its primary-first order across checkpoints. Finish disposes
+all sessions and their shared namespace; omitting a session ID also permits
+cleanup of an older runtime's journey.
 
 After app authorization succeeds, an unavailable test identity is an
 `AppTestUnavailableError`, including a test belonging to another app or a
@@ -30,7 +45,10 @@ still requires those edits to be saved.
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach
 must resolve there, with the current production column contract. No live case
-rows are copied. Start observations retain supplied record counts by type,
+rows are copied. No live lookup-table locks are taken by the isolated store.
+Lookup definitions and rows are seeded from the same authorized snapshot. Runtime version 13 refuses
+execution of older namespaces that lack the definition table.
+Start observations retain supplied record counts by type,
 including an empty list when no business records were supplied. This is input
 provenance, not a readiness verdict or a count of current worker-visible rows. Supplied records and fictional places exist only in this
 namespace; saved lookup rows and actual place context are authorized read inputs.
@@ -47,8 +65,9 @@ ordinary browser Preview uses the browser timezone. Neither asserts a supplied
 place has that timezone. `RUNTIME_VERSION` in `lib/db/appTests.ts` fences
 execution semantics (section-entry checkpoints and page turns, scoped
 initialization order, transient leaf versus persistent parent-menu selection,
-Details with Continue/Back, the shared clock); bump it when those semantics
-change. Older journeys remain readable but require a fresh test to execute. Search,
+Details with Continue/Back, the shared clock, resolved-language presentation and
+custom-constraint wording fallback);
+bump it when those semantics change. Older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
 between calls. Form and journey observations share the question participation
@@ -60,9 +79,23 @@ input and location-picker formatter with the real UI. Malformed supplied locatio
 are test-input refusals, not observations of worker validation; map services and
 GPS capture remain outside this surface. Submission uses the production operation planner and atomic
 envelope. Its receipt overlays the entry case database, including just-closed
-records, before evaluating the next task. Sync applies the production restore
-closure. A next-task failure preserves an already successful test submission.
+records, before evaluating the next task. It separately overlays the session's
+latest record catalog, preserving unrelated rows learned by Sync while the
+submitting form was open. A direct linked form keeps the entry-plus-effects
+snapshot; an ordinary new entry uses the updated session catalog.
+Sync applies the production restore closure. A next-task failure preserves an
+already successful test submission.
 An action rejected before submission leaves no partial effects.
+
+Retained sessions expose held-open interleavings: open a form in A, submit in B,
+then observe or submit A. Explicit sync refreshes only the addressed session's
+record catalog and preserves its open form's entry snapshot, defaults, answers
+and repeat identities. Every active observation labels its session and compact
+session directory. `recordSources` distinguishes current isolated-store
+Results/Details and submission evaluation from retained open-form data. A
+current-store condition can protect Preview's serialized Postgres submission;
+these receipts do not prove offline native conflict resolution or fresh native
+case reads.
 
 Limits are eight active tests per app, 200 steps, 2,000 accumulated records and
 16 MiB of state per test. Continuation expires after 24 hours. Explicit finish
@@ -82,21 +115,32 @@ Single-record selection follows the browser's shared row-action decision. A
 configured Details screen exposes ordered, formatted values through the same
 cell projector as the browser. Continue reloads the selected identity using the
 production device-scoped detail reader and then applies ordinary form/menu
-eligibility. Informational details have no Continue action. A returning Details
-screen reads current stored values, even if the record no longer matches its
-old Results page. Back retains the visited destinations; returning to a form
+eligibility. Informational details have no Continue action. Details opened
+through ordinary Back read current stored values, even if the record no longer
+matches its old Results page. Back retains the visited destinations; returning to a form
 starts a fresh entry. These observations describe Preview navigation, not a
 native session-stack proof.
 
 A leaf record's inline form chooser carries its selection on that screen and
 offers only case-loading forms, matching the browser chooser. It
 does not add a persistent menu datum. Parent selectors and explicit link-carried
-selections keep the production menu-context lifetime. After a leaf form returns
-to its module, ordinary case-first routing reopens Results; Back from the form
+selections keep the production menu-context lifetime. An explicit module
+destination reopens ordinary Results in a leaf case-first module. The `previous`
+destination instead uses the same native task projection as Preview: forms-first
+reopens that exact form's picker; case-first retains the ordered selection and
+returns to its module menu. It does not return to visited Details. The receipt
+world continues into the next form, including a just-closed retained record.
+An already chosen form command completes selection without rechecking its menu
+offering condition; a returned module menu evaluates its offerings normally.
+Back from the form
 returns to the original Results/Details destination, not the transient chooser.
 
 Form observations return only the current page’s questions, available sections,
-and whether Submit is offered. A `section` action validates forward pages before
+the canonical presentation hierarchy and whether Submit is offered. Presentation
+nodes preserve containers and repeat-instance boundaries in worker order.
+`pageNext`/`pagePrevious` follow the production available-page projection;
+`routeBack`/`routeContinue` navigate screens and Details. Existing `back` and
+`continue` remain route aliases. A `section` action validates forward pages before
 entering the target; Back retains existing rows and answers. Future-page answers
 and early submissions cannot bypass this progression. These use the browser’s
 FormEngine insertion and paging projections, not a separate simulation.
@@ -126,14 +170,35 @@ Results and Details share formatted cell projection, including the browser's
 localized record-choice labels. Route context exposes
 retained ancestor/record selections. Submission evidence proves isolated case
 commit only; serialized submissions and retained reports stay `not-observed`.
+`savedInTest` means the isolated submission transaction and idempotency receipt
+committed. `evidence.collectionScope` is `disposable-case-store`; `casePatch`
+distinguishes a persisted case patch from `none`. A plain survey can therefore
+be accepted with no case effects. This path creates no submitted-answer document
+archive. Earlier journey observations retain inspected answers as test evidence,
+not as an independently retrievable collection report.
 
 Evidence reads have a fixed upper step, ten-step default/twenty-step maximum
 and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
 explicit bounded paths and offsets. The start/source/runtime provenance travels
 with every page. Builder pages these same rows rather than loading all history.
 
-Runtime version 8 also pins portable case-list metadata reads: Results/Details,
+Runtime version 12 also applies Preview's custom-constraint wording policy
+through the actual observation worker: empty wording or a typed reference to
+several live answers leaves the form invalid with its localized warning and
+retained answers, without a proposed submission. Rules, ordinary prose and other
+XPath failures remain bounded test-input refusals. User-controlled row removal
+can restore exact custom wording on the next observation.
+
+The runtime preserves the synced session catalog across submission while
+direct form links retain the submitting entry plus its committed effects.
+It also pins retained worker sessions, the shared presentation
+hierarchy and distinct page/route controls, alongside portable case-list metadata reads: Results/Details,
 calculated columns and calculated ordering expose built-in dates at native
 calendar precision, while custom datetime values keep their clocks. Retained
 older observations remain readable, but a fresh journey is needed to execute
 these semantics.
+
+A Previous-retained menu or selector carries its saved device world into every next form, including surveys and registration. The next form's actual owner entry datums supply its missing selectors. Normal Back preserves a retained menu's world; explicit Sync refreshes every pre-entry retained world and its selected-row values, including retained menus and Details' pending source selectors in history, while an already-open form keeps its captured entry. Persisted retained task snapshots rehydrate timestamps just like form entries and the device catalog.
+An explicit module destination retires the destination's own leaf selection
+when the owner's target frame has no such slot. Parent selections and explicit
+form-link target selections retain their existing identities.

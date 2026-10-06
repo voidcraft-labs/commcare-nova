@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./lib/loadEnv";
 import { readFile } from "node:fs/promises";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";

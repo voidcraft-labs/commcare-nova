@@ -17,7 +17,7 @@
  * the scan to zero repairable rows.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp, reapStaleRun, recoverAppStatus } from "@/lib/db/apps";

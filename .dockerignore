@@ -46,6 +46,7 @@ scripts/lib/*
 !scripts/lib/languageIdentityRepair.ts
 !scripts/lib/selectOptionValueRepair.ts
 !scripts/lib/loadPersistedBlueprint.ts
+!scripts/lib/loadEnv.ts
 !scripts/lib/main.ts
 !scripts/lib/schemaDrift.ts
 !scripts/lib/schemaDriftMigration.ts

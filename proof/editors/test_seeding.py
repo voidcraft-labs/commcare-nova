@@ -26,6 +26,8 @@ shows or asks (a debounce or an animation that never ends, which
 
 from __future__ import annotations
 
+import pytest
+
 from proof.editors import pages, seeding, transcripts, vellum
 from proof.editors.client import EditorDriver, PageResponse
 from proof.editors.conftest import (
@@ -176,6 +178,7 @@ def _forms_seeded_and_unseeded(driver, unit, forms):
     assert len({run.page_draw for run in runs.values()}) == len(runs)
 
 
+@pytest.mark.under_determinism
 def test_seeded_and_unseeded_runs_record_the_same_on_every_fixture(hq, core_runner, editor_driver):
     """Every fixture view (basic and advanced modules, case search, UI translations, a second display language,
     user properties) and their forms in Vellum, seeded and unseeded: the same outputs and the same HQ exchanges."""

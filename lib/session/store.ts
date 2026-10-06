@@ -53,6 +53,7 @@ import type {
 	PreviewParentCaseRequest,
 	PreviewSearchState,
 	PreviewSelectedCase,
+	PreviewTaskContinuation,
 	StagedUpload,
 } from "./types";
 
@@ -244,6 +245,7 @@ export interface BuilderSessionState {
 	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
 	 *  so previewing a form fresh never reloads a stale case. */
 	previewCaseTarget: PreviewCaseTarget | undefined;
+	previewTaskContinuation: PreviewTaskContinuation | undefined;
 	previewEntryPointLaunch: EntryPointPreviewLaunch | undefined;
 
 	/** The case currently open in the running-app case list's detail/confirm
@@ -628,6 +630,9 @@ export interface BuilderSessionState {
 	 *  case list feeds and the selected case. No-ops when shallow-equal so
 	 *  repeated sets don't notify subscribers. */
 	setPreviewCaseTarget: (target: PreviewCaseTarget | undefined) => void;
+	setPreviewTaskContinuation: (
+		task: PreviewTaskContinuation | undefined,
+	) => void;
 
 	/** Set (or clear) the case open in the running-app case list. No-ops when
 	 *  shallow-equal. */
@@ -789,6 +794,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewing: false,
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
+				previewTaskContinuation: undefined as
+					| PreviewTaskContinuation
+					| undefined,
 				previewEntryPointLaunch: undefined as
 					| EntryPointPreviewLaunch
 					| undefined,
@@ -989,6 +997,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							...(confirmedProjectChanged
 								? {
 										previewCaseTarget: undefined,
+										previewTaskContinuation: undefined,
 										previewEntryPointLaunch: undefined,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
@@ -1164,6 +1173,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: true,
 						previewPersonaUuid: launch.personaUuid,
 						previewEntryPointLaunch: launch,
+						previewTaskContinuation: undefined,
 						previewCaseTarget: launch.formTarget,
 						previewMenuCaseSelections: launch.menuSelections,
 						previewSelectedCase: undefined,
@@ -1202,6 +1212,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						set({
 							previewing: true,
 							previewCaseTarget: undefined,
+							previewTaskContinuation: undefined,
 							previewEntryPointLaunch: undefined,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
@@ -1230,6 +1241,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						previewPersonaUuid: undefined,
 						previewCaseTarget: undefined,
+						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
@@ -1256,6 +1268,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPersonaUuid: personaUuid,
 						previewCaseTarget: undefined,
+						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
@@ -1286,6 +1299,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					}
 					set({ previewCaseTarget: target });
+				},
+				setPreviewTaskContinuation(task: PreviewTaskContinuation | undefined) {
+					set({ previewTaskContinuation: task });
 				},
 
 				setPreviewSearchState(
@@ -1323,6 +1339,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const current = get();
 					if (
 						current.previewCaseTarget === undefined &&
+						current.previewTaskContinuation === undefined &&
 						current.previewSelectedCase === undefined &&
 						current.previewParentCaseRequest === undefined &&
 						Object.keys(current.previewMenuCaseSelections).length === 0 &&
@@ -1331,6 +1348,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					set({
 						previewCaseTarget: undefined,
+						previewTaskContinuation: undefined,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewMenuCaseSelections: {},
@@ -1673,6 +1691,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
+						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},

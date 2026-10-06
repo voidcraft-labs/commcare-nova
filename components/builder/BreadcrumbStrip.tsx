@@ -22,6 +22,7 @@ import { useMemo } from "react";
 import { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
 import { CaseDataManager } from "@/components/builder/CaseDataManager";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 
 export { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
@@ -80,6 +81,7 @@ export function BreadcrumbStrip() {
 	 * setup's section strip): on handsets the breadcrumb drops the
 	 * redundant leaf and collapses its ancestors into one path menu. */
 	const previewing = usePreviewing();
+	const { language } = useBuilderLanguage();
 	const renderedPreviewScreen = usePreviewScreenForLocation(loc);
 	const compactWorkspaceBreadcrumb =
 		handsetLayout &&
@@ -128,6 +130,7 @@ export function BreadcrumbStrip() {
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
 		return previewBreadcrumbTrail({
+			language,
 			loc,
 			baseBreadcrumbs: breadcrumbs,
 			moduleUuid,
@@ -137,6 +140,7 @@ export function BreadcrumbStrip() {
 			renderedScreen: renderedPreviewScreen,
 		});
 	}, [
+		language,
 		previewing,
 		moduleUuid,
 		loc,
@@ -197,6 +201,7 @@ export function BreadcrumbStrip() {
 					canGoBack={canGoBack}
 					onBack={() => navigate.back()}
 					parts={breadcrumbParts}
+					workerLanguage={previewing ? language : undefined}
 					compactWorkspaceBreadcrumb={compactWorkspaceBreadcrumb}
 				/>
 				{appId && materializableCaseTypes.length > 0 && (

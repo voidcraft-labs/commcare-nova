@@ -109,7 +109,9 @@ describe("search answers across device-data resource suspension", () => {
 				expect(ctrl.formUuid).toBe(FORM);
 				expect(ctrl.entryKey).toBe(entryKey);
 				expect(ctrl.store.getState()[NAME]?.value).toBe("Edited name");
-				expect(await ctrl.validateAllAsync()).toBe(false);
+				expect(await ctrl.validateAllAsync()).toEqual({
+					kind: "unavailable",
+				});
 				expect(() => ctrl.computeSubmissionMutation({})).toThrow();
 				expect(await ctrl.onValueChangeAsync(NAME, "Blocked edit")).toBe(false);
 				ctrl.setCaseDatabaseState({ required: true, status: "error" });

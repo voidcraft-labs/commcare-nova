@@ -65,9 +65,14 @@ and Go worker to reduce measured contention without changing the Cloud Build
 machine. These settings belong only to the builder stage. CI continues to
 type-check the whole repo; the production configuration covers runtime code and Next's generated route
 types. Turbopack generates native debug IDs and indexed maps with embedded
-source content. Sentry accepts those maps directly (`--no-rewrite`); its
-symbolication reader flattens indexed maps when needed. The upload retains the
+source content. The upload reads each file's debug ID to key its map and
+leaves a file that already has one untouched; Sentry's symbolication reader
+flattens indexed maps when needed. The upload retains the
 SDK's exact manifest exclusions, including the private Server Action manifest.
+The upload runs the `sentry` CLI that the Sentry SDK depends on. Nova declares
+no copy of its own, so one CLI serves both and its version moves with the SDK;
+the build test checks the installed CLI against every command and flag the
+build sends.
 Only after successful upload and release finalization are source maps and
 mapping URLs removed from public, server, and standalone output. Cloud SQL,
 Storage, KMS, the document/media parsers, and Sentry's server SDK use their

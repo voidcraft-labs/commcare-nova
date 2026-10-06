@@ -18,12 +18,8 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
-import type {
-	BlueprintDoc,
-	CaseOperation,
-	LookupColumnId,
-	LookupTableId,
-} from "@/lib/domain";
+import type { AppDatabase } from "@/lib/db/pg";
+import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import {
 	eq,
 	formField,
@@ -33,6 +29,8 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
@@ -101,8 +99,6 @@ function makeStore(): CaseStore {
 
 const OP_ROOT = testUuid("60000000-0000-7000-8000-00000000a001");
 const OP_REPEAT = testUuid("60000000-0000-7000-8000-00000000a002");
-const LOOKUP_TABLE = "70000000-0000-7000-8000-000000000001" as LookupTableId;
-const LOOKUP_COLUMN = "70000000-0000-7000-8000-000000000002" as LookupColumnId;
 
 async function seedSessionCase(store: CaseStore, doc: BlueprintDoc) {
 	await store.applySchemaChange({
@@ -575,6 +571,34 @@ describe("engine → builder → executor acceptance", () => {
 	});
 
 	it("a lookup-backed false condition skips its operation while the ordinary effect commits", async () => {
+		const appDb = dbHandle.db as Kysely<AppDatabase>;
+		const seeded = await appDb.transaction().execute((tx) =>
+			applyLookupAuthoringBatchInTransaction(
+				tx,
+				{ projectId: PROJECT, actorId: ACTOR, role: "owner" },
+				{
+					createTables: [
+						{
+							key: "operation_gate",
+							name: "Operation gate",
+							tag: "operation_gate",
+							columns: [
+								{
+									key: "status",
+									wireName: "status",
+									label: "Status",
+									dataType: "text",
+								},
+							],
+							rows: [],
+						},
+					],
+				},
+			),
+		);
+		const table = seeded.tables[0];
+		const columnId = table?.columnIds[0]?.id;
+		if (!table || !columnId) throw new Error("Lookup seed is incomplete.");
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
 				uuid: OP_ROOT,
@@ -584,9 +608,9 @@ describe("engine → builder → executor acceptance", () => {
 				target: { kind: "session" },
 				condition: eq(
 					tableLookup(
-						LOOKUP_TABLE,
-						LOOKUP_COLUMN,
-						eq(tableColumn(LOOKUP_TABLE, LOOKUP_COLUMN), literal("enabled")),
+						table.tableId,
+						columnId,
+						eq(tableColumn(table.tableId, columnId), literal("enabled")),
 					),
 					literal("enabled"),
 				),
@@ -596,12 +620,25 @@ describe("engine → builder → executor acceptance", () => {
 		const store = makeStore();
 		await seedSessionCase(store, doc);
 
-		const engine = engineFor(doc, formUuid);
+		const lookupSnapshot = await appDb
+			.transaction()
+			.execute((tx) =>
+				readLookupDefinitionsInTransaction(tx, PROJECT, [table.tableId]),
+			);
+		const engine = engineFor(doc, formUuid, {
+			kind: "available",
+			...lookupSnapshot,
+		});
 		engine.setValue("/data/note", "never-lands");
 		engine.setValue("/data/external_code", "ordinary-landed");
-		const lookupTableSchemas: LookupTableSchemas = new Map([
-			[LOOKUP_TABLE, new Map([[LOOKUP_COLUMN, "text" as const]])],
-		]);
+		const lookupTableSchemas: LookupTableSchemas = new Map(
+			lookupSnapshot.definitions.map((definition) => [
+				definition.id,
+				new Map(
+					definition.columns.map((column) => [column.id, column.dataType]),
+				),
+			]),
+		);
 
 		const result = await submit(doc, engine, store, lookupTableSchemas);
 		expect(result.operations).toEqual([

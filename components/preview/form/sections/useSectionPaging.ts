@@ -26,8 +26,14 @@
  * pager binds no key handler.
  */
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { Uuid } from "@/lib/domain";
 import type {
 	InvalidFieldTarget,
@@ -41,7 +47,6 @@ import {
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useSectionPages } from "@/lib/preview/hooks/useSectionPages";
-import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	useActiveSection,
 	useGetActiveSection,
@@ -55,8 +60,8 @@ export interface SectionPagingArgs {
 	readonly enabled: boolean;
 	/** Reveal and focus an invalid question (FormScreen's reveal path). */
 	readonly revealInvalid: (target: InvalidFieldTarget) => void;
-	/** Say why the page did not turn (FormScreen's `role="alert"` node). */
-	readonly refuse: (message: string) => void;
+	/** Announce an invalid page through FormScreen's localized alert intent. */
+	readonly refuse: () => void;
 }
 
 export interface SectionPaging {
@@ -92,7 +97,6 @@ export function useSectionPaging({
 	refuse,
 }: SectionPagingArgs): SectionPaging {
 	const controller = useEngineController();
-	const { language } = useBuilderLanguage();
 	const allPages = useSectionPages();
 	/* The engine is one per builder session and activates a form after its
 	 * screen mounts, so `enabled` alone would page this form with another
@@ -138,88 +142,178 @@ export function useSectionPaging({
 			void controller.enterSectionAsync(currentUuid);
 	}, [controller, live, currentUuid, entry.ready, entry.entryKey]);
 
-	const [announced, setAnnounced] = useState<SectionPaging["announced"]>(null);
-	const pendingFocusRef = useRef(false);
+	const [announcedTurn, setAnnouncedTurn] = useState<{
+		readonly entryKey: string;
+		readonly uuid: Uuid;
+		readonly nonce: number;
+	} | null>(null);
+	const pendingFocusRef = useRef<{
+		readonly entryKey: string;
+		readonly uuid: Uuid;
+	} | null>(null);
+	const turnNonceRef = useRef(0);
+	const navigationVersionRef = useRef(0);
+	const liveRef = useRef(false);
+
+	/* A retained screen can outlive its entry. Intent belongs to that entry
+	 * and its visible page, including before passive heading focus runs. */
+	useLayoutEffect(() => {
+		liveRef.current = live;
+		navigationVersionRef.current += 1;
+		const ownsTurn = (turn: { entryKey: string; uuid: Uuid }) =>
+			live &&
+			formUuid !== undefined &&
+			controller.entryKey === turn.entryKey &&
+			controller.formUuid === formUuid &&
+			turn.entryKey === entry.entryKey &&
+			turn.uuid === currentUuid;
+		if (pendingFocusRef.current && !ownsTurn(pendingFocusRef.current)) {
+			pendingFocusRef.current = null;
+		}
+		setAnnouncedTurn((turn) => (turn && ownsTurn(turn) ? turn : null));
+		return () => {
+			liveRef.current = false;
+			navigationVersionRef.current += 1;
+		};
+	}, [controller, live, formUuid, entry.entryKey, currentUuid]);
+
+	const retireTurn = useCallback(() => {
+		navigationVersionRef.current += 1;
+		pendingFocusRef.current = null;
+		setAnnouncedTurn(null);
+	}, []);
+	const ownsNavigation = useCallback(
+		(entryKey: string | undefined, version: number): entryKey is string =>
+			liveRef.current &&
+			entryKey !== undefined &&
+			controller.entryKey === entryKey &&
+			controller.formUuid === formUuid &&
+			navigationVersionRef.current === version,
+		[controller, formUuid],
+	);
 	const takeFocusOnMount = useCallback((): boolean => {
 		const pending = pendingFocusRef.current;
-		pendingFocusRef.current = false;
-		return pending;
-	}, []);
+		pendingFocusRef.current = null;
+		return (
+			pending !== null &&
+			liveRef.current &&
+			controller.entryKey === pending.entryKey &&
+			controller.formUuid === formUuid &&
+			formUuid !== undefined &&
+			resolveCurrentPage(controller.sectionPages(), readActive(formUuid))
+				?.uuid === pending.uuid
+		);
+	}, [controller, formUuid, readActive]);
 
 	const turnTo = useCallback(
-		async (page: SectionPage) => {
+		async (
+			page: SectionPage,
+			entryKey: string | undefined,
+			version: number,
+		) => {
 			if (
 				formUuid === undefined ||
-				!(await controller.enterSectionAsync(page.uuid))
+				!ownsNavigation(entryKey, version) ||
+				!(await controller.enterSectionAsync(page.uuid)) ||
+				!ownsNavigation(entryKey, version)
 			)
 				return;
-			pendingFocusRef.current = true;
+			pendingFocusRef.current = { entryKey, uuid: page.uuid };
 			setActive(formUuid, page.uuid);
-			setAnnounced((previous) => ({
+			setAnnouncedTurn({
+				entryKey,
 				uuid: page.uuid,
-				nonce: (previous?.nonce ?? 0) + 1,
-			}));
+				nonce: ++turnNonceRef.current,
+			});
 		},
-		[controller, formUuid, setActive],
+		[controller, formUuid, ownsNavigation, setActive],
 	);
 
 	const showPage = useCallback(
 		(uuid: Uuid) => {
+			retireTurn();
 			if (formUuid === undefined) return;
 			if (!pages.some((page) => page.uuid === uuid)) return;
 			setActive(formUuid, uuid);
 		},
-		[formUuid, pages, setActive],
+		[formUuid, pages, retireTurn, setActive],
 	);
 
 	const showFirst = useCallback(() => {
 		const first = pages[0];
 		if (first !== undefined) showPage(first.uuid);
-	}, [pages, showPage]);
+		else retireTurn();
+	}, [pages, retireTurn, showPage]);
 
 	/** Validate one page; on failure refuse, turn to it if needed, reveal. */
 	const pagePasses = useCallback(
-		async (page: SectionPage): Promise<boolean> => {
-			if (!(await controller.enterSectionAsync(page.uuid))) return false;
-			if (await controller.validateSectionAsync(page.uuid)) return true;
-			const target = controller.firstInvalidFieldTarget({
-				withinSection: page.uuid,
-			});
-			refuse(runtimeMessage(language, "reviewHighlightedQuestion"));
-			if (page.uuid !== current?.uuid) showPage(page.uuid);
-			if (target !== undefined) revealInvalid(target);
+		async (
+			page: SectionPage,
+			entryKey: string | undefined,
+			version: number,
+		): Promise<boolean> => {
+			if (
+				!ownsNavigation(entryKey, version) ||
+				!(await controller.enterSectionAsync(page.uuid)) ||
+				!ownsNavigation(entryKey, version)
+			)
+				return false;
+			const validation = await controller.validateSectionAsync(page.uuid);
+			if (
+				!ownsNavigation(entryKey, version) ||
+				!controller.isValidationCurrent(validation)
+			)
+				return false;
+			if (validation.kind === "valid") return true;
+			if (validation.kind !== "invalid" || validation.target === undefined)
+				return false;
+			refuse();
+			showPage(page.uuid);
+			revealInvalid(validation.target);
 			return false;
 		},
-		[controller, current?.uuid, language, refuse, revealInvalid, showPage],
+		[controller, ownsNavigation, refuse, revealInvalid, showPage],
 	);
 
 	const goNext = useCallback(async () => {
 		if (current === undefined) return;
 		const next = pages[index + 1];
 		if (next === undefined) return;
-		if (!(await pagePasses(current))) return;
-		await turnTo(next);
-	}, [current, pages, index, pagePasses, turnTo]);
+		const entryKey = controller.entryKey;
+		const version = ++navigationVersionRef.current;
+		if (!(await pagePasses(current, entryKey, version))) return;
+		await turnTo(next, entryKey, version);
+	}, [controller, current, pages, index, pagePasses, turnTo]);
 
 	const goBack = useCallback(async () => {
 		if (current === undefined) return;
 		const previous = pages[index - 1];
 		if (previous === undefined) return;
-		await turnTo(previous);
-	}, [current, pages, index, turnTo]);
+		const entryKey = controller.entryKey;
+		const version = ++navigationVersionRef.current;
+		await turnTo(previous, entryKey, version);
+	}, [controller, current, pages, index, turnTo]);
 
 	const goTo = useCallback(
 		async (uuid: Uuid) => {
 			if (current === undefined || uuid === current.uuid) return;
 			const target = pages.find((page) => page.uuid === uuid);
 			if (target === undefined) return;
+			const entryKey = controller.entryKey;
+			const version = ++navigationVersionRef.current;
 			for (const page of pagesToValidate(pages, current.uuid, uuid)) {
-				if (!(await pagePasses(page))) return;
+				if (!(await pagePasses(page, entryKey, version))) return;
 			}
-			await turnTo(target);
+			await turnTo(target, entryKey, version);
 		},
-		[current, pages, pagePasses, turnTo],
+		[controller, current, pages, pagePasses, turnTo],
 	);
+	const announced =
+		live &&
+		announcedTurn?.entryKey === entry.entryKey &&
+		announcedTurn?.uuid === currentUuid
+			? announcedTurn
+			: null;
 
 	return {
 		enabled: live,

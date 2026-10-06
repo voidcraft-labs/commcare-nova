@@ -83,6 +83,13 @@ describe("admitted XForm media references", () => {
 						expect(reference).toBe(
 							present ? `jr:itext('answer-${slot}')` : undefined,
 						);
+						if (slot === "constraintMsg") {
+							expect(
+								xmlChildren(answer, "alert").map(
+									(alert) => alert.attributes.ref,
+								),
+							).toEqual(present ? ["jr:itext('answer-constraintMsg')"] : []);
+						}
 						const values = itext.get(`answer-${slot}`);
 						if (!present) {
 							expect(values).toBeUndefined();

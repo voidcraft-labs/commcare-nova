@@ -14,6 +14,10 @@ import {
 	listAuthorizedClients,
 } from "@/lib/db/oauth-consents";
 import { MCP_RESOURCE_URL } from "@/lib/hostnames";
+import {
+	type ConsentSearchParams,
+	isSignedConsentRequest,
+} from "@/lib/oauth/consent-query";
 
 // Better Auth, the oauth-provider, and the cimd plugin all run their production
 // code against a real database. The one controlled boundary is the transport the
@@ -175,6 +179,54 @@ it("takes a URL client id to consent and keeps a client linked to the MCP resour
 	expect(await resourceLinks(CLAUDE_CODE_ID)).toEqual([
 		{ resourceId: MCP_RESOURCE_URL },
 	]);
+});
+
+/** The query as a page receives it: decoded, a repeated key as an array. */
+function asPageSearchParams(url: URL): ConsentSearchParams {
+	const params: ConsentSearchParams = {};
+	for (const key of new Set(url.searchParams.keys())) {
+		const values = url.searchParams.getAll(key);
+		params[key] = values.length === 1 ? values[0] : values;
+	}
+	return params;
+}
+
+it("accepts the consent link authorization issued and refuses an altered or unsigned one", async () => {
+	const cookie = await signIn();
+	const consent = await authorize(CLAUDE_CODE_ID, cookie);
+	const issued = asPageSearchParams(consent);
+	const { secret: authSecret } = await auth.$context;
+
+	expect(await isSignedConsentRequest(issued, authSecret)).toBe(true);
+	/* A parameter the link picked up after it was issued isn't signed and
+	 * isn't posted with the decision, so it doesn't invalidate the request. */
+	expect(
+		await isSignedConsentRequest({ ...issued, utm_source: "mail" }, authSecret),
+	).toBe(true);
+	expect(
+		await isSignedConsentRequest(
+			{ ...issued, scope: "openid nova.read nova.write" },
+			authSecret,
+		),
+	).toBe(false);
+	expect(
+		await isSignedConsentRequest(
+			{ ...issued, client_id: IMPOSTOR_ID },
+			authSecret,
+		),
+	).toBe(false);
+	expect(
+		await isSignedConsentRequest({ ...issued, sig: undefined }, authSecret),
+	).toBe(false);
+	expect(
+		await isSignedConsentRequest(
+			{ ...issued, sig: [String(issued.sig), String(issued.sig)] },
+			authSecret,
+		),
+	).toBe(false);
+	expect(await isSignedConsentRequest(issued, `${authSecret}-rotated`)).toBe(
+		false,
+	);
 });
 
 it("rebuilds a missing client from its URL", async () => {

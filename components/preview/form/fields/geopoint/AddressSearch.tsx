@@ -15,8 +15,10 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader from "@iconify-icons/tabler/loader-2";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useEffect, useRef, useState } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { usePortaledContentDirection } from "@/components/shadcn/portaled-content-direction";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useAccessPhase } from "@/lib/session/hooks";
 import {
 	FLOATING_LAYER_CLS,
@@ -51,6 +53,7 @@ interface AddressSearchProps {
 }
 
 export function AddressSearch({ value, onSelect }: AddressSearchProps) {
+	const { language } = useBuilderLanguage();
 	const reconciler = useReconcilerContext();
 	const accessPhase = useAccessPhase();
 	const direction = usePortaledContentDirection();
@@ -209,10 +212,10 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 					}`}
 				/>
 				<Autocomplete.Input
-					placeholder="Search for an address or place"
+					placeholder={runtimeMessage(language, "addressSearchPlaceholder")}
 					autoComplete="off"
 					data-1p-ignore
-					aria-label="Search for an address"
+					aria-label={runtimeMessage(language, "addressSearch")}
 					className="w-full rounded-lg border border-pv-input-border bg-pv-input-bg py-2 pl-8 pr-3 text-sm text-nova-text outline-none transition-colors placeholder:text-nova-text-muted focus:border-pv-input-focus"
 				/>
 			</Autocomplete.InputGroup>
@@ -230,10 +233,12 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 						<Autocomplete.Empty>
 							<div className="px-3 py-2 text-xs text-nova-text-muted">
 								{loading
-									? "Searching…"
+									? runtimeMessage(language, "addressSearching")
 									: query.trim().length < MIN_QUERY
-										? "Type at least 3 characters"
-										: "No matching places"}
+										? runtimeMessage(language, "addressSearchMinimum", {
+												count: MIN_QUERY,
+											})
+										: runtimeMessage(language, "addressNoResults")}
 							</div>
 						</Autocomplete.Empty>
 						<Autocomplete.List className="max-h-56 w-full overflow-y-auto">

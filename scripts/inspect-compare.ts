@@ -18,7 +18,7 @@
  * image); `--prod` targets the production instance over its public IP (see
  * `./lib/prodDb.ts`). Run with `--help` for flags.
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command, InvalidArgumentError } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import type { RunSummaryDoc } from "@/lib/db/types";

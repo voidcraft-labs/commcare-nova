@@ -8,6 +8,7 @@ import {
 	withAppTestNamespace,
 } from "../appTestNamespace";
 import * as disposalConstraints from "../migrations/20260930020000_app_test_disposal_constraints";
+import * as lookupDefinitions from "../migrations/20261004000000_app_test_lookup_definitions";
 import { setupPerTestDatabase } from "../sql/__tests__/perTestDatabase";
 import type { Database } from "../sql/database";
 
@@ -93,6 +94,53 @@ async function seed(testId: string) {
 }
 
 describe("isolated app-test submissions", () => {
+	it("migrates lookup-table isolation without changing definer privileges and refuses older namespaces", async () => {
+		const definition = () =>
+			sql<{
+				owner: number;
+				acl: string[] | null;
+				secure: boolean;
+				config: string[];
+			}>`SELECT proowner AS owner, proacl::text[] AS acl, prosecdef AS secure, proconfig AS config
+			FROM pg_proc WHERE oid = 'public.nova_create_app_test_namespace(uuid)'::regprocedure`.execute(
+				fixture.db,
+			);
+		const original = (await definition()).rows;
+		expect(original).toEqual([
+			expect.objectContaining({
+				secure: true,
+				config: ["search_path=pg_catalog"],
+			}),
+		]);
+		await lookupDefinitions.down(fixture.db);
+		const oldId = randomUUID();
+		await sql`SELECT public.nova_create_app_test_namespace(${oldId}::uuid)`.execute(
+			fixture.db,
+		);
+		await lookupDefinitions.up(fixture.db);
+		expect((await definition()).rows).toEqual(original);
+		let entered = false;
+		await expect(
+			run(oldId, async () => {
+				entered = true;
+			}),
+		).rejects.toThrow("Start a new test");
+		expect(entered).toBe(false);
+		const newId = await createNamespace();
+		await run(newId, async (_store, tx) => {
+			expect(
+				await tx.selectFrom("lookup_tables").selectAll().execute(),
+			).toEqual([]);
+			const foreignKeys = await sql<{ target: string }>`
+				SELECT n.nspname AS target FROM pg_constraint c
+				JOIN pg_class r ON r.oid = c.confrelid JOIN pg_namespace n ON n.oid = r.relnamespace
+				WHERE c.conrelid = ${`${appTestNamespace(newId)}.lookup_rows`}::regclass AND c.contype = 'f'`.execute(
+				tx,
+			);
+			expect(foreignKeys.rows).toEqual([{ target: appTestNamespace(newId) }]);
+		});
+	});
+
 	it("migrates disposal across pending case constraints while preserving its definer privileges and unrelated deferred work", async () => {
 		const definition = () =>
 			sql<{
@@ -326,30 +374,33 @@ describe("isolated app-test submissions", () => {
 		expect(retry.primaryCaseIds).toHaveLength(1);
 	});
 
-	it("refuses a missing isolated table instead of falling through to live data, and restores the connection path", async () => {
-		const testId = await createNamespace();
-		await sql`DROP TABLE ${sql.id(appTestNamespace(testId), "form_submission_intents")}`.execute(
-			fixture.db,
-		);
-		let entered = false;
-		await expect(
-			run(testId, async () => {
-				entered = true;
-			}),
-		).rejects.toThrow("Start a new test");
-		expect(entered).toBe(false);
-		const path = await sql<{
-			schema: string;
-		}>`SELECT current_schema() AS schema`.execute(fixture.db);
-		expect(path.rows[0].schema).toBe("public");
-		await sql`SELECT nova_drop_app_test_namespace(${testId}::uuid)`.execute(
-			fixture.db,
-		);
-		const namespace = await sql<{
-			name: string;
-		}>`SELECT nspname AS name FROM pg_namespace WHERE nspname = ${appTestNamespace(testId)}`.execute(
-			fixture.db,
-		);
-		expect(namespace.rows).toEqual([]);
-	});
+	it.each(["lookup_tables", "form_submission_intents"])(
+		"refuses missing isolated %s instead of falling through to live data, and restores the connection path",
+		async (table) => {
+			const testId = await createNamespace();
+			await sql`DROP TABLE ${sql.id(appTestNamespace(testId), table)} CASCADE`.execute(
+				fixture.db,
+			);
+			let entered = false;
+			await expect(
+				run(testId, async () => {
+					entered = true;
+				}),
+			).rejects.toThrow("Start a new test");
+			expect(entered).toBe(false);
+			const path = await sql<{
+				schema: string;
+			}>`SELECT current_schema() AS schema`.execute(fixture.db);
+			expect(path.rows[0].schema).toBe("public");
+			await sql`SELECT nova_drop_app_test_namespace(${testId}::uuid)`.execute(
+				fixture.db,
+			);
+			const namespace = await sql<{
+				name: string;
+			}>`SELECT nspname AS name FROM pg_namespace WHERE nspname = ${appTestNamespace(testId)}`.execute(
+				fixture.db,
+			);
+			expect(namespace.rows).toEqual([]);
+		},
+	);
 });

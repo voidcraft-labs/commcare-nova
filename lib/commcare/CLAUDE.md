@@ -324,11 +324,61 @@ Form-wide hashtag metadata rides HEAD elements after `</model>` — `<vellum:has
 
 ### Bare hashtags in prose
 
-Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to `<output>`, while hashtag-looking text remains literal. `lib/domain/hashtagSegments.ts` still owns the friendly projection's segment vocabulary for editor chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps that projection in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens.
+Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` still owns the friendly projection's segment vocabulary for editor chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps that projection in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens.
 
 ### Markdown itext
 
 All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. Safe for plain text: identical rendering when no markdown syntax is present.
+
+`xform/builder.ts::buildLabelNodes` protects decoded whitespace-only runs with
+outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
+Java `String.trim()`-empty text nodes; HQ's `WrappedNode.render` calls lxml
+indent, which replaces Unicode whitespace-only tails too. ASCII runs use
+literal `<output value="'...'"/>`; Unicode runs use `json-property` with ASCII
+JSON escapes, which Core decodes during substitution. Vellum's XML serializer
+replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
+that protected spelling too. Other prose retains its decoded text nodes.
+The character classifier mirrors these consumers, not JavaScript `trim()`.
+
+Plain literal validation messages emit the compatible bind `jr:constraintMsg`
+reference and a body `<alert>` pointing at the same itext entry. Empty and
+media-only messages retain that path and its shared entry gate.
+
+If any effective locale has a typed reference or decoded `${` literal,
+`xform/constraintMessage.ts` instead composes the raw constraint expression.
+Core's alert template filler would substitute marker-like authored or returned
+data. ASCII JSON literal forms under the original itext id preserve exact
+characters through HQ and Vellum. Typed values reuse the existing identity
+projection, form-context expansion and JavaRosa lowering. One reference stays
+a direct term; `concat(singleNodeset)` would silently join multiple nodes.
+Internal locale/mode forms select the effective wording; media modes delegate
+to the unchanged standard itext/media forms.
+Each protected group carries its base id in an inert `__nova_identity` form
+in every locale, preventing HQ from merging equal groups while leaving the
+suffix-based internal references pointed at a removed id.
+
+An irrelevant, readonly sibling input owns the original itext id without an
+alert on the real question. It carries no value source or case action, is
+excluded from native traversal and normal submission, and retains media
+ownership through HQ and Vellum. Its letter-leading name reserves all authored
+siblings (including later ones), earlier allocations and root Connect ids in
+the actual group/repeat item scope. Count's `nova_count_` and the reserved
+`__nova_` URL/datetime/constraint-collection prefixes are disjoint. These are
+wire artifacts only; the blueprint and its authored identities do not change.
+
+Core catches raw-message evaluation failures and returns expression text.
+Plain/Markdown composition therefore checks each typed reference's actual
+nodeset count first. A count above one returns no custom wording, so the native
+client shows its existing localized validation warning, while zero/singleton
+references retain normal scalar coercion. The answer is still rejected and no
+row is selected or joined. A completely empty resolved message also uses that
+warning. This deliberately improves old exception/empty behavior rather than
+claiming identical error handling; media remains on its unchanged branch.
+The admitted fixture runs through local CCZ, HQ source and HQ regeneration;
+the ordinary proof also builds it through HQ and saves it twice through Vellum.
+`XmlTextRuntimeTest` reads exact plain and Markdown prompts and validation
+messages after changing an answer and switching languages. This proves Core
+text values, not Android or browser typography.
 
 ### Secondary instances
 
@@ -489,6 +539,19 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   through the same projection, so the local suite matches HQ's build. A child
   previous frame begins with root command then child command before its aligned
   datums, matching HQ's `include_root_module=True` branch.
+  `previousEntryFrameChildren` exposes this same raw result before matching;
+  its stable command and selection provenance feeds `previousTaskProjection.ts`
+  for Preview, App Tests and authoring reads. That bridge publishes no wire
+  names and never parses command or datum spelling to recover identity.
+  `projectTaskFormSelections` reads the chosen form's actual entry datums
+  for admission on its current menu. External entry-point frames may prepend
+  structural parent selections that this entry never loads; those prerequisites
+  remain specific to `projectEntryPoint`.
+  `projectModuleTaskSelectionUuids` reads the same module-target frame for
+  destination lifetime: a module command contributes no own leaf slot, while
+  ancestor-owned selections remain explicit identities.
+  Private incomplete-form reads may qualify an uncompiled entry as unavailable;
+  runtime and export always use the strict projection.
 - **Session scope.** Core evaluates link conditions and datum XPath after the
   XForm instance has closed, with a NULL main instance
   (`CommCareSession::getEvaluationContext`; `XPathPathExpr::evalRaw` throws on
@@ -636,7 +699,7 @@ A form can save an answer into the worker's own record, and the emission is gate
 
 Every expression sees one pre-submission snapshot. Form answers and earlier create ids bind explicitly; repeat-local identity paths start at `current()` so they remain anchored on the operation bind even while a nested relation predicate temporarily evaluates a `casedb` candidate. Root case-property reads anchor on the projected own-case session datum in `casedb`, including root relation predicates and counts, while related-case candidate properties remain candidate-relative. Those case-reading expression paths add `commcaresession` with `casedb`. A runtime expression target is lowered through `casedb/case[@case_id=(...) and @case_type='snapshot-type']/@case_id`, never emitted as an unchecked id. The shared order analysis keeps that immutable lookup type separate from the rolling semantic type, so A→B retype followed by a B operation on the exact same target still finds the pre-submission A row. Different ASTs can nevertheless resolve to one concrete id; the static gate therefore rejects a later differently-typed target/link after a potentially aliasing transition unless the ids are provably distinct. Repeated retype is restricted to an exact correlated generated create because duplicate repeat values otherwise make the second iteration consume the first iteration's result type. The authoritative submission envelope (`lib/case-store/postgres/submissionEnvelope.ts`) repeats this proof over expanded, server-resolved ids with `validateResolvedCaseOperationTypeSequence`. Dynamic link targets get the same selector plus a trailing empty-update guard block whose id is the operation case only when the typed link selector resolved to a different id. On absent/wrong type/self-link the blank guard id raises the clean transaction error before an empty index value could be mistaken for an unlink; on success the guard no-ops the case the operation already touches, never the linked case. Server-side preview separately reauthorizes Project/type facts; neither path trusts a client type descriptor.
 
-The operation export corpus starts from strictly admitted documents and emits actual HQ source and CCZ forms. `proof/native/core/CaseOperationRuntimeTest.java` opens both those CCZ forms and the native HQ-regenerated counterparts, evaluates them over native case instances, and applies finalized submissions through `CaseXmlParser`. Stored-record assertions cover ordering, pre-submission reads, conditional dependencies, repeat correlation, authored-key merges, scalar bounds, dynamic-link refusal and nested-menu child selection. This proves these examples against Core's indexed in-memory storage; it does not prove rollback or HQ server case processing. It runs in the proof lane; `proof/README.md` ("Native proofs") describes it.
+The operation export corpus starts from strictly admitted documents and emits actual HQ source and CCZ forms. `proof/native/core/CaseOperationRuntimeTest.java` opens both those CCZ forms and the native HQ-regenerated counterparts, evaluates them over native case instances, and applies finalized submissions through `CaseXmlParser`. Stored-record assertions cover ordering, pre-submission reads, conditional dependencies, repeat correlation, authored-key merges, scalar bounds, dynamic-link refusal and nested-menu child selection. The sequence form's recorded-clock matrix preserves typed `now()` capture and formats both the direct clock and a coalesced typed answer as text, then reads unchanged plain and Markdown prompts across writer and reader zones. Only `now()` is controlled through Core's supported function-handler seam; `java.time` supplies independent expected calendars and offsets. This proves capture-as-recorded display, not viewer-local conversion of stored datetime strings. These examples run against Core's indexed in-memory storage; they do not prove rollback or HQ server case processing. They run in the proof lane; `proof/README.md` ("Native proofs") describes them.
 
 Conditions become wrapper relevance and write conditions become child relevance. A consumer of an earlier conditional create automatically inherits that create's relevance (transitively): if the producer does not execute, no target/link/value may leak its preallocated UUID into an update-only block or dangling index. Conditional retypes participate in the same shared guard analysis: a later operation/link that requires the destination type inherits the transition condition, while a source-type consumer after the transition is rejected. The preview's operation-program fold (`lib/preview/engine/caseDataBindingHelpers.ts`) must use `caseOperationConditionalGuardUuids`, not treat an allocated id or declared retype as proof that the producer effect ran. The validator dry-runs these same emitters after type checking so a schema-valid but nonportable expression cannot reach compilation.
 

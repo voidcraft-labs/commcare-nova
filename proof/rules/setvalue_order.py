@@ -13,8 +13,10 @@ at once evaluates every triggerable that reads the node, and each that
 reads what those set (``SetValueAction.processAction``,
 ``FormDef.setValue``, ``FormDef.triggerTriggerables``).
 
-A value that is ``now()``, ``today()``, ``uuid()`` or a literal reads no
-node, so each setvalue of such a run sets its node to the same value in
+A value that is ``now()``, ``today()``, ``uuid()``, a literal, or
+``format-date(now() or today(), literal pattern)`` reads no node:
+``XPathFormatDateFunc.evalBody`` formats its already evaluated arguments,
+without reading the model or context. Each setvalue of such a run sets its node to the same value in
 any order, and every triggerable the run sets off is evaluated last after
 the last of the run's nodes it reads, at any remove, is set, so it reads
 each at the value the run leaves; a condition (``relevant``,

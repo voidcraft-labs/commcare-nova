@@ -34,11 +34,15 @@ from its own node, each side of a CSQL comparison).
 
 from __future__ import annotations
 
+import json
 import struct
 import zlib
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, replace
+from xml.sax.saxutils import escape, quoteattr
 
 import pytest
+from lxml import etree
 
 from proof.checks import manifest_usage
 from proof.checks import manifest_value_classes as classes
@@ -79,6 +83,76 @@ def _form(data="", model="", body="", head=""):
     return FORM.format(data=data, model=model, body=body, head=head).encode()
 
 
+def _protected_form(
+    control="input", languages=("en", "es"), pieces=(1, 4), nested=False, collision=False, media=False, typed=True
+):
+    """Independent wire shapes for the classifier, read by the observation's real Core/HQ parsers.
+
+    Noncontiguous ordinals, a blank localized piece, nested paths, every media mode and a case predicate
+    distinguish this class from an observed fixture or a simple-path-only approximation. No Nova emitter
+    or private consumer artifact supplies these bytes.
+    """
+    parent = "/data/items/item" if nested else "/data"
+    source, carrier = f"{parent}/q", f"{parent}/nova_constraint_message_q{'_2' if collision else ''}"
+    base = "items-q-constraintMsg" if nested else "q-constraintMsg"
+    reference = (
+        "instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id and "
+        "starts-with(name, /data/other)]/name"
+    )
+    terms = [f"json-property(jr:itext('{base};__nova_piece_{index}'), 'v')" for index in pieces]
+    composition = f"if(count({reference}) > 1, '', concat({', '.join([*terms, reference])}))"
+    if not pieces:
+        composition = f"if(count({reference}) > 1, '', {reference})"
+    if not typed:
+        composition = terms[0] if len(terms) == 1 else f"concat({', '.join(terms)})"
+    for language in reversed(languages[:-1]):
+        composition = f"if(jr:itext('{base};__nova_locale') = '{language}', {composition}, '')"
+    message = f"if(jr:itext('{base};__nova_mode') = 'media', jr:itext('{base}'), {composition})"
+    translations = []
+    for index, language in enumerate(languages):
+        helpers = {
+            "__nova_identity": base,
+            "__nova_mode": "plain",
+            "__nova_mode;markdown": "plain",
+            "__nova_locale": language,
+            "__nova_locale;markdown": language,
+        }
+        helpers.update({f"__nova_mode;{name}": "media" for name in ("image", "audio", "video", "video-inline")})
+        for piece in pieces:
+            literal = "" if index else "Literal ${not-an-expression} café"
+            payload = json.dumps({"v": literal}, ensure_ascii=True).replace("$", "\\u0024")
+            helpers[f"__nova_piece_{piece}"] = payload
+            helpers[f"__nova_piece_{piece};markdown"] = payload
+        values = "<value>Message</value><value form='markdown'>Message</value>"
+        if media:
+            values += "".join(
+                f"<value form='{name}'>jr://file/{name}.bin</value>"
+                for name in ("image", "audio", "video", "video-inline")
+            )
+        values += "".join(f"<value form={quoteattr(name)}>{escape(value)}</value>" for name, value in helpers.items())
+        default = ' default=""' if index == 0 else ""
+        translations.append(
+            f"<translation lang={quoteattr(language)}{default}><text id={quoteattr(base)}>{values}</text></translation>"
+        )
+    data = f"<q/><{carrier.rsplit('/', 1)[-1]}/>"
+    if nested:
+        data = f'<items><item jr:template="">{data}</item></items>'
+    model = (
+        f"""<bind nodeset={quoteattr(source)} type="xsd:string" constraint=". != ''" """
+        f"""jr:constraintMsg={quoteattr(message)}/>\n"""
+        f"""      <bind nodeset={quoteattr(carrier)} type="xsd:string" relevant="false()" readonly="true()"/>\n"""
+        f"""      <itext>{"".join(translations)}</itext>"""
+    )
+    extra = " mediatype='image/*'" if control == "upload" else ""
+    choices = "<item><label>A</label><value>a</value></item>" if control in ("select", "select1") else ""
+    body = f"<{control} ref={quoteattr(source)}{extra}><label>Q</label>{choices}</{control}>"
+    label_ref = f'jr:itext("{base}")'
+    body += f"<input ref={quoteattr(carrier)}><label ref={quoteattr(label_ref)}/></input>"
+    if nested:
+        body = f"<group><repeat nodeset='{parent}'>{body}</repeat></group>"
+    return _form(data=data + "<other/>", model=model, body=body)
+
+
 def _uses(xml, manifest, key, artifact="form:0.0", readings=None):
     found = manifest_usage.Uses()
     manifest_usage.xform_uses(xml, manifest, artifact, found)
@@ -89,6 +163,172 @@ def _uses(xml, manifest, key, artifact="form:0.0", readings=None):
 
 def _read(reader, uses, manifest):
     return {use.where: reader(use, manifest) for use in uses}
+
+
+def _protected_cases():
+    accepted_cases = {name: _protected_form(control=name) for name in sorted(classes.QUESTION_CONTROLS)}
+    accepted_cases.update(
+        {
+            "one-locale": _protected_form(languages=("en",)),
+            "no-literal-pieces": _protected_form(pieces=()),
+            "literal-only": _protected_form(pieces=(2,), typed=False),
+            "sparse-piece-ordinals": _protected_form(pieces=(0, 2, 8)),
+            "nested-collision": _protected_form(nested=True, collision=True),
+            "media-and-blank-localized-pieces": _protected_form(languages=("en", "fr", "es"), media=True),
+        }
+    )
+    refused_cases = {}
+    for name in (
+        "custom-form",
+        "unknown-helper",
+        "unknown-mode-suffix",
+        "unowned-group",
+        "wrong-owner-label",
+        "wrong-identity",
+        "wrong-mode",
+        "invalid-json",
+        "missing-piece-markdown",
+        "raw-message",
+        "unowned-computed-message",
+        "without-constraint",
+        "calculated-carrier",
+        "nonempty-carrier",
+    ):
+        root = etree.fromstring(_protected_form())
+        model = root.find(f"{{{classes.XHTML}}}head/{{{classes.XFORMS}}}model")
+        binds = model.findall(f"{{{classes.XFORMS}}}bind")
+        text = model.find(f"{{{classes.XFORMS}}}itext/{{{classes.XFORMS}}}translation/{{{classes.XFORMS}}}text")
+        values = {value.get("form"): value for value in text}
+        if name in ("custom-form", "unknown-helper", "unknown-mode-suffix"):
+            extra = deepcopy(values["__nova_mode"])
+            extra.set(
+                "form",
+                {
+                    "custom-form": "custom",
+                    "unknown-helper": "__nova_unfamiliar",
+                    "unknown-mode-suffix": "__nova_mode;tts",
+                }[name],
+            )
+            text.append(extra)
+        elif name == "unowned-group":
+            other = deepcopy(text)
+            other.set("id", "unowned")
+            text.getparent().append(other)
+        elif name == "wrong-owner-label":
+            label = root.find(f"{{{classes.XHTML}}}body/{{{classes.XFORMS}}}input[2]/{{{classes.XFORMS}}}label")
+            label.set("ref", "jr:itext('unowned')")
+        elif name == "wrong-identity":
+            values["__nova_identity"].text = "unowned"
+        elif name == "wrong-mode":
+            values["__nova_mode;image"].text = "plain"
+        elif name == "invalid-json":
+            values["__nova_piece_1"].text = '{"other": "text"}'
+        elif name == "missing-piece-markdown":
+            text.remove(values["__nova_piece_1;markdown"])
+        elif name == "raw-message":
+            binds[0].set(f"{{{classes.JAVAROSA}}}constraintMsg", "Literal raw warning")
+        elif name == "unowned-computed-message":
+            binds[0].set(f"{{{classes.JAVAROSA}}}constraintMsg", "concat('raw ', /data/other)")
+        elif name == "without-constraint":
+            del binds[0].attrib["constraint"]
+        elif name == "calculated-carrier":
+            binds[1].set("calculate", "'authored'")
+        elif name == "nonempty-carrier":
+            node = model.find(f"{{{classes.XFORMS}}}instance")[0][1]
+            node.text = "authored"
+        refused_cases[name] = etree.tostring(root)
+    return accepted_cases, refused_cases
+
+
+@pytest.fixture(scope="module")
+def protected_cases(hq, core_runner):
+    accepted_cases, refused_cases = _protected_cases()
+    authored_readonly = etree.fromstring(accepted_cases["input"])
+    bind = authored_readonly.find(f"{{{classes.XHTML}}}head/{{{classes.XFORMS}}}model/{{{classes.XFORMS}}}bind")
+    bind.set("readonly", "true()")
+    table = observed_manifest.readings(
+        core_runner, forms=[*accepted_cases.values(), *refused_cases.values(), etree.tostring(authored_readonly)]
+    )
+    return accepted_cases, refused_cases, manifest_usage.Readings.of(table)
+
+
+def _protected_uses(xml, manifest, readings):
+    found = manifest_usage.Uses()
+    manifest_usage.xform_uses(xml, manifest, "form:0.0", found)
+    manifest_usage.read_observed(found, manifest, readings)
+    return found
+
+
+def test_protected_messages_use_their_owned_forms_and_the_recorded_expression_grammar(manifest, protected_cases):
+    accepted_cases, _, readings = protected_cases
+    for name, xml in accepted_cases.items():
+        found = _protected_uses(xml, manifest, readings)
+        assert not [use.key for use in found.uses if use.key.startswith("itext-form:*/")], name
+        message = next(use for use in found.uses if use.key == "xform:model/bind@jr:constraintMsg")
+        readonly = next(use for use in found.uses if use.key == "xform:model/bind@readonly")
+        assert classes.literal_validation_message(message, manifest) is False, name
+        assert classes.authored_readonly(readonly, manifest) is False, name
+        assert manifest_usage.standing(manifest, message)[0] == manifest_usage.HELD, name
+        assert manifest_usage.standing(manifest, readonly)[0] == manifest_usage.HELD, name
+        grammar = {use.key for use in found.uses if use.where == message.where}
+        assert {"jr-handler:jr:itext", "jr-fn:if"} <= grammar, name
+        if name != "literal-only":
+            assert {"jr-fn:count", "jr-fn:starts-with"} <= grammar, name
+        assert any(key.startswith("xpath-expr:") for key in grammar), name
+        if name != "literal-only":
+            assert any(key.startswith("xpath-axis:") for key in grammar), name
+        if name != "no-literal-pieces":
+            assert "jr-fn:json-property" in grammar, name
+
+
+def test_custom_forms_and_unowned_messages_keep_their_manifest_refusals(manifest, protected_cases):
+    _, refused_cases, readings = protected_cases
+    for name, xml in refused_cases.items():
+        found = _protected_uses(xml, manifest, readings)
+        unknown = [use for use in found.uses if use.key.startswith("itext-form:*/")]
+        assert unknown, name
+        assert all(manifest_usage.standing(manifest, use)[0] == manifest_usage.UNNAMED for use in unknown), name
+        message = next(use for use in found.uses if use.key == "xform:model/bind@jr:constraintMsg")
+        readonly = next(use for use in found.uses if use.key == "xform:model/bind@readonly")
+        # Identical helper names on a different group must remain unknown even beside a valid graph.
+        if name == "unowned-group":
+            assert all(use.at.element.getparent().get("id") == "unowned" for use in unknown)
+            assert classes.literal_validation_message(message, manifest) is False
+            assert classes.authored_readonly(readonly, manifest) is False
+        else:
+            assert classes.literal_validation_message(message, manifest) is True, name
+            assert classes.authored_readonly(readonly, manifest) is True, name
+            assert "jr-fn:json-property" not in {use.key for use in found.uses}, name
+
+
+def test_a_protected_carrier_does_not_classify_the_authored_questions_readonly(manifest, protected_cases):
+    accepted_cases, _, readings = protected_cases
+    root = etree.fromstring(accepted_cases["input"])
+    bind = root.find(f"{{{classes.XHTML}}}head/{{{classes.XFORMS}}}model/{{{classes.XFORMS}}}bind")
+    bind.set("readonly", "true()")
+    found = _protected_uses(etree.tostring(root), manifest, readings)
+    readonly = [use for use in found.uses if use.key == "xform:model/bind@readonly"]
+    assert [classes.authored_readonly(use, manifest) for use in readonly] == [True, False]
+
+
+def test_protected_ownership_requires_the_recorded_core_parse_and_hq_structure(manifest, protected_cases):
+    accepted_cases, _, readings = protected_cases
+    xml = accepted_cases["input"]
+    source = _protected_uses(xml, manifest, readings)
+    message = next(use for use in source.uses if use.key == "xform:model/bind@jr:constraintMsg")
+    text = message.at.element.get(f"{{{classes.JAVAROSA}}}constraintMsg")
+    for incomplete in (
+        replace(readings, expressions={key: value for key, value in readings.expressions.items() if key != text}),
+        replace(readings, trees={key: value for key, value in readings.trees.items() if key != text}),
+    ):
+        found = _protected_uses(xml, manifest, incomplete)
+        assert any(use.key.startswith("itext-form:*/") for use in found.uses)
+        message = next(use for use in found.uses if use.key == "xform:model/bind@jr:constraintMsg")
+        assert classes.literal_validation_message(message, manifest) is not False
+    found = manifest_usage.Uses()
+    manifest_usage.xform_uses(xml, manifest, "form:0.0", found)
+    readonly = next(use for use in found.uses if use.key == "xform:model/bind@readonly")
+    assert classes.authored_readonly(readonly, manifest) is None
 
 
 def test_a_refused_class_names_novas_scaffolding_apart_from_the_ids_a_person_authors(manifest):
@@ -3045,6 +3285,22 @@ def _data_binds_and_itext():
         "questions/literal-jr-constraintmsg-text-no-itext": (
             refused("form", messages, "xform:model/bind@jr:constraintMsg", "bind[3]/@jr:constraintMsg", readings=True),
             accepted("form", messages, "xform:model/bind@jr:constraintMsg", "bind[2]/@jr:constraintMsg", readings=True),
+            accepted(
+                "form",
+                _protected_form(),
+                "xform:model/bind@jr:constraintMsg",
+                "bind[1]/@jr:constraintMsg",
+                readings=True,
+            ),
+        ),
+        "questions/bind-readonly": (
+            refused(
+                "form",
+                _form(data="<q/>", model='<bind nodeset="/data/q" readonly="true()"/>', body='<input ref="/data/q"/>'),
+                "xform:model/bind@readonly",
+                "bind[1]/@readonly",
+            ),
+            accepted("form", _protected_form(), "xform:model/bind@readonly", "bind[2]/@readonly", readings=True),
         ),
         "questions/itemset-label-jr-itext-field": (
             refused(

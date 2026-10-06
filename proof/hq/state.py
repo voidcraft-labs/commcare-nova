@@ -44,7 +44,9 @@ is the same without the seams.
 the unit in autocommit, every statement committed as it runs, in whatever
 database HQ's connection names (``proof.hq.database.fresh_database``): the
 per-check state of the harness before units, which the branch proofs compare
-units with. Such a unit cannot mark.
+units with. Such a unit cannot mark. Real ``on_commit`` callbacks are admitted
+only while that database is an open fresh clone, whose owner drops it at exit;
+rollback units and reusable worker databases refuse them.
 
 Everything is released at exit, in reverse order, whether the owner passed or
 failed.

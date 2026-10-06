@@ -14,6 +14,9 @@ passage edits have durable request receipts. A peer review acquires exclusive
 plan ownership while the architect is paused. The peer can improve the plan and
 returns a concise assessment; the architect receives both the updated document
 and the assessment. There is no finding-ID or disposition protocol.
+The architect and peer distinguish requested outcomes from design choices in
+ordinary prose. Plan choices and review focus do not become additional user
+requirements; validation must not add unrequested business restrictions.
 
 Review identity binds the plan revision, source digest, and, for an app review,
 the actual canonical revision. Editing the plan or app makes the relevant old
@@ -104,6 +107,21 @@ route, selected records and ancestor selections. Submission evidence names the
 isolated case transaction separately from serialized submission and retained
 report evidence, which this surface does not observe.
 
+The workflow reference separates independent report collection from record
+workflows. Preview persists record effects and submission identity, rather than
+an archive of each form's answers. Submitted forms belong to the configured
+CommCare collection destination; reporting discovery and reviewer access need
+their own evidence. Retained worker sessions make competing Preview actions
+observable without presenting those checks as native offline conflict proof.
+
+The reference explains typed clock capture separately from a recorded-time
+display. Existing `now()` and `format-date` expressions can save the writer's
+calendar date, clock and numeric offset as text, then display it without parsing
+it again. Pinned Core checks cover year and leap-day boundaries, fractional
+offsets and daylight-saving transitions across writer and reader zones. This
+proves capture-as-recorded text; it does not establish viewer-local conversion
+or an absolute chronology scalar from stored datetime parsing.
+
 `continueAppTest` accepts one to eight ordered `actions`, each optionally paired
 with a screen/module/form/submission expectation. The legacy singular `action`
 uses the same executor. Each action retains its own step and observation. A
@@ -177,7 +195,10 @@ peer and translation bounds remain separate. Reaching a bound is an unfinished
 run, not successful delivery. The initial 120-call role trial failed during
 peer-driven corrections and remains failed evidence.
 
-Hosted tool search defers shared definitions for Nova's model calls. This lowers
+Journey start, continuation and evidence reads stay eagerly available on the
+architect, peer and ordinary editor. Their availability does not depend on
+hosted discovery after compaction. Hosted tool search defers the other shared
+definitions for Nova's model calls. This lowers
 the initial context but does not remove their eventual cost. The architect's
 construction catalog stays stable before and after the first save; operations
 requiring a saved app explain that prerequisite at invocation before side effects.
@@ -337,9 +358,9 @@ it is not a navigation acceptance result. Native checks remain necessary for
 question-by-question timing outside authored sections.
 ## Model generation and saved context
 
-All production roles use GPT-6: Sol at medium effort for the architect, peer,
-document extraction and translation; Luna at xhigh for ordinary edits. The
-role map in `lib/models.ts` owns these choices. Extraction version 6 gives new
+All five production roles use GPT-6.1 Sol at xhigh effort: the architect, peer,
+ordinary editor, document extraction and translation. The
+role map in `lib/models.ts` owns these choices. Extraction version 8 gives new
 requests a distinct cache key; previous extracts remain readable at their stored
 version. Usage retains the producing model and its recorded cost.
 

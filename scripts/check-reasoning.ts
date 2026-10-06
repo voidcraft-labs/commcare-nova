@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./lib/loadEnv";
 import { createOpenAI } from "@ai-sdk/openai";
 import { Output, streamText } from "ai";
 import { z } from "zod";
@@ -26,10 +26,9 @@ async function main() {
 	const usage = await result.usage;
 	console.log("usage:", JSON.stringify(usage));
 
-	const rt = await result.reasoningText;
+	const { reasoningText: rt, reasoning: r } = await result.finalStep;
 	console.log("reasoningText:", rt ? rt.slice(0, 300) : "(empty/undefined)");
 
-	const r = await result.reasoning;
 	console.log("reasoning:", JSON.stringify(r)?.slice(0, 500));
 }
 

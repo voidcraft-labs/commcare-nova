@@ -71,9 +71,9 @@ on:
         type: boolean
         default: true
       claims:
-        description: How the shards divide the blocks (steal, create or static; proof/ci/claim.mjs)
+        description: Proof allocation (static by default; create and steal are claim diagnostics)
         type: string
-        default: steal
+        default: static
 
 permissions:
   contents: read

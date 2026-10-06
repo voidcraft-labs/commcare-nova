@@ -56,8 +56,10 @@ import base64
 import copy
 import hashlib
 import json
+import os
 import shutil
 import zipfile
+from pathlib import Path
 
 import pytest
 from lxml import etree
@@ -1054,15 +1056,29 @@ def test_the_judge_gives_records_read_back_where_hq_cannot_be_imported_what_it_g
     assert here[str(roots[1])], "Renaming every module's case type gives the judge no difference to compare."
 
 
-def test_the_observation_at_b_edit_is_bs_where_their_inputs_agree(hq, core_runner, monkeypatch):
+@pytest.mark.under_determinism
+def test_the_observation_at_b_edit_is_bs_where_their_inputs_agree(hq, core_runner, monkeypatch, tmp_path):
     """The intent observation names no state: a B-edit observed with B's inputs records B's observation byte for
     byte (HQ's data dictionary and Core's parse of each form), so the unit may record it as B's."""
-    from proof.checks.test_record_determinism import _same_as_subject
-
     _intent_hooks_alone(monkeypatch)
-    document, name = _same_as_subject()
+    document = cases.load_corpus().document("targeted-wire-equal-republish")
+    name = "minimum"
+    keys = unit.part_keys(
+        unit.document_inputs(document), name, unit.case_databases(document), unit.hook_inputs(document)
+    )
+    assert keys["b_edit"] == keys["b"], f"{document.id}'s B-edit and B do not have the same inputs."
     own = unit.observe_document(document, core_runner=core_runner, configurations={name}, same_as=False)
+    own.save(Path(os.environ.get("PROOF_OUT", tmp_path)) / "witnesses" / "wire-equal-intent")
     held = own.configurations[name]
+    assert held.keys["b_edit"] == held.keys["b"] == keys["b"]
+    assert "same_as" not in held.b_edit and {f"{name}/b", f"{name}/b_edit"} <= set(own.observed)
     observed = [held.part(part)["hooks"]["intent"] for part in ("b", "b_edit")]
     assert observed[0]["forms"], f"{document.id}'s B holds no form Core parsed, so the comparison is empty."
+    for shape in observed[0]["forms"].values():
+        assert isinstance(shape, str), f"{document.id}'s B holds a form Core refused: {shape}."
+        nodes = own.blobs.get_json(shape)
+        assert isinstance(nodes, list) and nodes, f"{document.id}'s B holds a form Core parsed as no nodes: {nodes}."
+    assert "note" in observed[0]["dataDictionary"].get("patient", []), (
+        f"{document.id}'s B holds no authored note in HQ's data dictionary, so that comparison is empty."
+    )
     assert canonical(observed[0]) == canonical(observed[1])

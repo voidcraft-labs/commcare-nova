@@ -10,6 +10,7 @@ import {
 	captureAcceptAttribute,
 	MAX_CAPTURE_BYTES,
 } from "@/lib/domain/captureFormats";
+import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
 import {
 	useAccessPhase,
@@ -94,6 +95,7 @@ interface AttachmentFieldProps {
 	readonly questionLabel?: string | undefined;
 	readonly onChangeAt?: ((path: string, value: string) => void) | undefined;
 	readonly onBlurAt?: ((path: string) => void) | undefined;
+	readonly onCommitCapture?: CaptureAnswerCommit;
 }
 
 interface AttachmentControlProps
@@ -105,6 +107,7 @@ interface AttachmentControlProps
 		| "attachmentSlotKey"
 		| "onChangeAt"
 		| "onBlurAt"
+		| "onCommitCapture"
 	> {
 	readonly path: string;
 	readonly appId: string;
@@ -112,6 +115,7 @@ interface AttachmentControlProps
 	readonly attachmentSlotKey: string;
 	readonly onChangeAt: (path: string, value: string) => void;
 	readonly onBlurAt: (path: string) => void;
+	readonly onCommitCapture: CaptureAnswerCommit;
 }
 
 type AttachmentIntent =
@@ -142,6 +146,7 @@ export function AttachmentField({
 	questionLabel,
 	onChangeAt,
 	onBlurAt,
+	onCommitCapture,
 }: AttachmentFieldProps) {
 	const isEdit = useEditMode() === "edit";
 	const { icon, label } = fieldRegistry[field.kind];
@@ -169,7 +174,8 @@ export function AttachmentField({
 		entryKey === undefined ||
 		attachmentSlotKey === undefined ||
 		onChangeAt === undefined ||
-		onBlurAt === undefined
+		onBlurAt === undefined ||
+		onCommitCapture === undefined
 	) {
 		return (
 			<div className="rounded-lg border border-pv-input-border bg-pv-surface px-4 py-3 text-sm text-nova-text-muted">
@@ -192,6 +198,7 @@ export function AttachmentField({
 			questionLabel={questionLabel}
 			onChangeAt={onChangeAt}
 			onBlurAt={onBlurAt}
+			onCommitCapture={onCommitCapture}
 		/>
 	);
 }
@@ -207,8 +214,8 @@ function AttachmentControl({
 	questionLabelledBy,
 	questionDescriptionIds,
 	questionLabel,
-	onChangeAt,
 	onBlurAt,
+	onCommitCapture,
 }: AttachmentControlProps) {
 	const mayEdit = useCanEdit();
 	const accessPhase = useAccessPhase();
@@ -374,13 +381,6 @@ function AttachmentControl({
 		);
 	}, [appId, entryKey, path, slotKey]);
 
-	const changeCurrent = useCallback(
-		(value: string): void => {
-			onChangeAt(currentPath(), value);
-		},
-		[currentPath, onChangeAt],
-	);
-
 	const blurCurrent = useCallback((): void => {
 		onBlurAt(currentPath());
 	}, [currentPath, onBlurAt]);
@@ -412,6 +412,8 @@ function AttachmentControl({
 				});
 			}
 			setIntent("uploading");
+			let confirmed: StagedAttachment | undefined;
+			let adopted = false;
 			try {
 				const next = await stageAttachment({
 					appId,
@@ -421,37 +423,43 @@ function AttachmentControl({
 					file,
 					signal: context.signal,
 				});
+				confirmed = next;
 				if (!context.isCurrent() || !hasWriteAuthority()) {
-					scheduleAttachmentCleanup({
-						appId,
-						attachmentId: next.attachmentId,
-					});
 					return "canceled";
 				}
-				// Replace only after the new generation confirms. Ownership lives
-				// at entry/slot scope, above this component's render lifetime.
-				const previous = stagedRef.current;
-				stagedRef.current = next;
-				rememberOwnedStagedAttachment({
-					appId,
-					entryKey,
-					slotKey,
-					instancePath: uploadPath,
-					attachment: next,
-					maximumDraftGeneration: context.generation,
-				});
-				setStaged(next);
-				changeCurrent(next.attachmentName);
-				if (
-					previous !== undefined &&
-					previous.attachmentId !== next.attachmentId
-				) {
-					scheduleAttachmentCleanup({
-						appId,
-						attachmentId: previous.attachmentId,
-					});
-				}
-				return "committed";
+				const committed = await onCommitCapture(
+					next.attachmentName,
+					{
+						signal: context.signal,
+						isCurrent: () => context.isCurrent() && hasWriteAuthority(),
+					},
+					() => {
+						// Answer staging and ownership share one acceptance step.
+						// The confirmed row still names its original upload path;
+						// the coordinator owns any current-path CAS retarget.
+						const previous = stagedRef.current;
+						stagedRef.current = next;
+						rememberOwnedStagedAttachment({
+							appId,
+							entryKey,
+							slotKey,
+							instancePath: uploadPath,
+							attachment: next,
+							maximumDraftGeneration: context.generation,
+						});
+						adopted = true;
+						setStaged(next);
+						if (
+							previous !== undefined &&
+							previous.attachmentId !== next.attachmentId
+						)
+							scheduleAttachmentCleanup({
+								appId,
+								attachmentId: previous.attachmentId,
+							});
+					},
+				);
+				return committed ? "committed" : "canceled";
 			} catch (err) {
 				if (!context.isCurrent() || isAttachmentTaskAbort(err)) {
 					return "canceled";
@@ -484,6 +492,11 @@ function AttachmentControl({
 				}
 				return "refused";
 			} finally {
+				if (confirmed !== undefined && !adopted)
+					scheduleAttachmentCleanup({
+						appId,
+						attachmentId: confirmed.attachmentId,
+					});
 				if (context.isCurrent()) {
 					setIntent("idle");
 					blurCurrent();
@@ -497,7 +510,7 @@ function AttachmentControl({
 			field.uuid,
 			slotKey,
 			currentPath,
-			changeCurrent,
+			onCommitCapture,
 			blurCurrent,
 			setIntent,
 			hasWriteAuthority,
@@ -573,31 +586,30 @@ function AttachmentControl({
 					instancePath: currentPath(),
 					fieldUuid: field.uuid,
 				},
-				task: async () => {
+				task: async (context) => {
 					// Authority can change while Clear waits behind another slot.
 					// Re-read it before mutating either the answer or ownership.
 					if (!hasWriteAuthority()) return false;
-					const previous =
-						forgetOwnedStagedAttachment({
-							appId,
-							entryKey,
-							slotKey,
-						}) ?? stagedRef.current;
-					stagedRef.current = undefined;
-					setStaged(undefined);
-					// Answer first, bytes second. The reverse order is the
-					// upstream defect this lane exists beside: on a device,
-					// clearing a REQUIRED capture removes the file and leaves
-					// the question still naming it.
-					changeCurrent("");
-					if (previous !== undefined) {
-						scheduleAttachmentCleanup({
-							appId,
-							attachmentId: previous.attachmentId,
-						});
-					}
-					blurCurrent();
-					return true;
+					return onCommitCapture(
+						"",
+						{
+							signal: context.signal,
+							isCurrent: () => context.isCurrent() && hasWriteAuthority(),
+						},
+						() => {
+							const previous =
+								forgetOwnedStagedAttachment({ appId, entryKey, slotKey }) ??
+								stagedRef.current;
+							stagedRef.current = undefined;
+							setStaged(undefined);
+							if (previous !== undefined)
+								scheduleAttachmentCleanup({
+									appId,
+									attachmentId: previous.attachmentId,
+								});
+							blurCurrent();
+						},
+					);
 				},
 			});
 			return committed ? "committed" : "canceled";
@@ -617,7 +629,7 @@ function AttachmentControl({
 		field.uuid,
 		slotKey,
 		currentPath,
-		changeCurrent,
+		onCommitCapture,
 		blurCurrent,
 		setIntent,
 		hasWriteAuthority,

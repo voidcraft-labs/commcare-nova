@@ -354,6 +354,11 @@ corpus ids that show the symptom.
     *Harm:* where the message names an answer, the worker reads `${0}` in
     its place on Nova's export, and the value after a save in HQ.
     *Documents:* `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`.
+    *Fixed (#712):* Nova now writes the control's `<alert>` beside the bind
+    for a plain message, and composes a message that shows an answer as the
+    constraint expression itself (`lib/commcare/xform/constraintMessage.ts`),
+    so the worker reads the value on Nova's export too. The register holds no
+    entry for this finding.
 
 53. **HQ reports an exception for every search Nova's zero-input sentinel
     sends.** Nova's HQ JSON gives a search with no inputs a default filter

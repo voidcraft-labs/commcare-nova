@@ -29,7 +29,7 @@ on:
         options: [default, '2', '3', '4', '6', '8', '12', '14', '16']
         default: default
       proof_claims:
-        description: How the proof jobs divide the queue's blocks (proof/ci/claim.mjs)
+        description: Proof allocation (static by default; create and steal are claim diagnostics)
         type: choice
         options: [default, create, steal, static]
         default: default
@@ -45,18 +45,14 @@ concurrency:
 permissions:
   contents: read
 
-# How the proof shards divide the queue's blocks between them (proof/ci/
-# claim.mjs): `steal` (the default) gives each block an owner that other
-# shards may take it from, resting only on a listing showing every finalized
-# artifact; `create` claims a block by creating its artifact, which holds only
-# where the artifact service refuses a name the run holds, and it does not:
-# shards creating one claim at once each get an artifact of it; `static`
-# splits the blocks into fixed bins by shard
-# (proof.checks.sharding.static_bins). A shard that claims takes its own
-# bin's blocks first (--bin), so shards start apart. The claim-race workflow
-# (proof-claim-race.yml), run by hand, races the first two on the service.
+# Static allocation divides blocks into exclusive bins by estimated load
+# (proof.checks.sharding.static_bins), without artifact claims. GitHub's
+# artifact service has accepted duplicate claim names and omitted finalized
+# markers from subsequent listings, so `create` and `steal` remain explicit
+# diagnostic choices. The manual proof-claim-race.yml measures those service
+# assumptions; the aggregate gate rejects every duplicate or missing block.
 env:
-  PROOF_CLAIMS: ${{ inputs.proof_claims != 'default' && inputs.proof_claims || 'steal' }}
+  PROOF_CLAIMS: ${{ inputs.proof_claims != 'default' && inputs.proof_claims || 'static' }}
 
 # `.nvmrc` is canonical for Node; package.json's `devEngines` is canonical for
 # npm and mirrors Node so npm can enforce both before commands run. Every setup

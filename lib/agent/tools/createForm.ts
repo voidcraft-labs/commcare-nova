@@ -9,6 +9,7 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
+import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import { addFormMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -55,7 +56,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override. With entry search-no-matches, omission returns to Results and explicit app_home returns home; multiple-selection modules require app_home.',
+				'Where the user goes after submitting. "previous" returns to the preceding selection or task shown by the resolved navigation result. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override. With entry search-no-matches, omission returns to Results and explicit app_home returns home; multiple-selection modules require app_home.',
 			),
 		entry: formEntryInputSchema
 			.nullable()
@@ -70,6 +71,7 @@ export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 export type CreateFormResult =
 	| (MutationSuccess & {
 			formUuid: string;
+			navigation: ReturnType<typeof formNavigation>;
 	  })
 	| { error: string };
 
@@ -170,6 +172,7 @@ export const createFormTool = {
 				result: {
 					ok: true,
 					formUuid,
+					navigation: formNavigation(newDoc, formUuid),
 					summary: {
 						location: mod?.name,
 						subject: name,

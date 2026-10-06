@@ -4,6 +4,9 @@ name: Proof audit
 # lane reads records and judgments from the evidence store under keys meant
 # to cover every input; this recomputes everything and holds the store to it.
 #
+# A dispatch runs the nightly audit, the weekly comparisons, or both, as its
+# inputs say.
+#
 # Nightly, on main: the whole lane fresh (every group, nothing shared between
 # documents, every editor view live), compared with main's newest store
 # snapshot (a record that differs is a key that missed an input, and fails
@@ -29,6 +32,10 @@ on:
     - cron: "41 4 * * 0"
   workflow_dispatch:
     inputs:
+      nightly:
+        description: Run the nightly audit
+        type: boolean
+        default: true
       weekly:
         description: Run the weekly comparisons as well
         type: boolean
@@ -41,9 +48,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A dispatch that unticks both runs nothing, which must not read as an audit that passed.
+  selection:
+    name: Something is selected
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly != true && inputs.weekly != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: |
+          echo "::error::This dispatch selected neither the nightly audit nor the weekly comparisons."
+          exit 1
+
   nightly:
     name: Nightly
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * *' }}
+    if: ${{ inputs.nightly == true || github.event.schedule == '23 3 * * *' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml

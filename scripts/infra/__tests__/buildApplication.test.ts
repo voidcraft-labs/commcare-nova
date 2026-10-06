@@ -14,6 +14,8 @@ import { z } from "zod";
 
 const script = resolve("scripts/build-app.mjs");
 const stages = ["next", "tsc", "release", "upload", "finalize"];
+// The Sentry CLI takes one directory per upload, so that stage runs twice.
+const phases = ["next", "tsc", "release", "upload", "upload", "finalize"];
 const directories = [
 	".next/server",
 	".next/static",
@@ -35,7 +37,7 @@ function fixture() {
 	const bin = join(directory, "bin");
 	const log = join(directory, "phases.jsonl");
 	mkdirSync(bin);
-	for (const command of ["next", "tsc", "sentry-cli"]) {
+	for (const command of ["next", "tsc", "sentry"]) {
 		writeFileSync(
 			join(bin, command),
 			`#!/usr/bin/env node
@@ -43,7 +45,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const name = path.basename(process.argv[1]);
 const args = process.argv.slice(2);
-const stage = name !== 'sentry-cli' ? name : args.includes('new') ? 'release' : args.includes('upload') ? 'upload' : 'finalize';
+const stage = name !== 'sentry' ? name : args.includes('create') ? 'release' : args.includes('upload') ? 'upload' : 'finalize';
 const stages = ['next', 'tsc', 'release', 'upload', 'finalize'];
 const index = stages.indexOf(stage);
 const append = (event) => fs.appendFileSync(process.env.NOVA_TEST_PHASE_LOG, JSON.stringify({stage, args, event, hasSentry: Boolean(process.env.SENTRY_AUTH_TOKEN), hasActionKey: Boolean(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY), mapsPresent: fs.existsSync('.next/static/entry.js.map')})+'\\n');
@@ -103,7 +105,7 @@ test("builds and typechecks before uploading and finalizing; then removes only s
 		expect(result.status, result.stderr).toBe(0);
 		const events = f.events();
 		expect(events.map(({ stage, event }) => `${stage}:${event}`)).toEqual(
-			stages.flatMap((stage) => [`${stage}:start`, `${stage}:finish`]),
+			phases.flatMap((stage) => [`${stage}:start`, `${stage}:finish`]),
 		);
 		for (const event of events) {
 			expect(event.hasSentry).toBe(!["next", "tsc"].includes(event.stage));
@@ -118,28 +120,31 @@ test("builds and typechecks before uploading and finalizing; then removes only s
 			"tsconfig.production.json",
 		]);
 		expect(started[2].args).toEqual([
-			"--log-level",
-			"warn",
-			"releases",
-			"new",
+			"release",
+			"create",
 			f.env.NOVA_BUILD_ID,
+			"--project",
+			"nova",
 		]);
-		expect(started[3].args).toEqual(
-			expect.arrayContaining([
-				"sourcemaps",
+		for (const [index, directory] of [
+			".next/server",
+			".next/static",
+		].entries()) {
+			const args = started[3 + index].args;
+			expect(args.slice(0, 5)).toEqual([
+				"sourcemap",
 				"upload",
-				"--no-rewrite",
+				directory,
 				"--release",
 				f.env.NOVA_BUILD_ID,
-				"**/server-reference-manifest.js",
-				".next/server",
-				".next/static",
-			]),
-		);
-		expect(started[4].args).toEqual([
-			"--log-level",
-			"warn",
-			"releases",
+			]);
+			expect(args[5]).toBe("--ignore");
+			expect(args[6].split(",")).toContain("**/server-reference-manifest.js");
+			// `--no-rewrite` skips the debug-ID read that keys each map.
+			expect(args).toHaveLength(7);
+		}
+		expect(started[5].args).toEqual([
+			"release",
 			"finalize",
 			f.env.NOVA_BUILD_ID,
 		]);
@@ -184,8 +189,8 @@ test.each(stages)(
 			const result = f.run({ NOVA_TEST_FAIL_PHASE: stage });
 			expect(result.error).toBeUndefined();
 			expect(result.status, result.stderr).toBe(1);
-			const expected = stages
-				.slice(0, stages.indexOf(stage))
+			const expected = phases
+				.slice(0, phases.indexOf(stage))
 				.flatMap((name) => [`${name}:start`, `${name}:finish`]);
 			expect(f.events().map(({ stage, event }) => `${stage}:${event}`)).toEqual(
 				[...expected, `${stage}:start`],
@@ -238,6 +243,60 @@ test("upload without a release identity refuses before creating a release", () =
 			expect(existsSync(join(f.directory, directory, "entry.js.map"))).toBe(
 				true,
 			);
+	} finally {
+		f.close();
+	}
+});
+
+// Nova declares no Sentry CLI of its own: the build spawns `sentry` by name
+// and reaches the copy the Sentry SDK depends on. A second copy in the tree
+// would mean the build and the SDK no longer run the same CLI.
+test("the dependency tree holds one sentry CLI, at the root", () => {
+	const lock = z
+		.object({ packages: z.record(z.string(), z.unknown()) })
+		.parse(JSON.parse(readFileSync(resolve("package-lock.json"), "utf8")));
+	expect(
+		Object.keys(lock.packages).filter((name) =>
+			name.endsWith("node_modules/sentry"),
+		),
+	).toEqual(["node_modules/sentry"]);
+});
+
+// The stand-in above accepts anything. The installed CLI moves with the SDK,
+// so each command and flag the build sends is checked against the real one.
+test("the installed sentry CLI knows every command and flag the build sends", () => {
+	const f = fixture();
+	try {
+		expect(f.run().status).toBe(0);
+		const sent = f
+			.events()
+			.filter(
+				({ stage, event }) =>
+					event === "start" && stage !== "next" && stage !== "tsc",
+			);
+		expect(sent.map(({ stage }) => stage)).toEqual(phases.slice(2));
+		for (const { args } of sent) {
+			const command = args.slice(0, 2);
+			const help = spawnSync(
+				resolve("node_modules/.bin/sentry"),
+				[...command, "--help"],
+				{
+					encoding: "utf8",
+					timeout: 10_000,
+					env: {
+						...process.env,
+						SENTRY_CLI_NO_TELEMETRY: "1",
+						SENTRY_CLI_NO_UPDATE_CHECK: "1",
+					},
+				},
+			);
+			expect(help.error).toBeUndefined();
+			expect(help.status, command.join(" ")).toBe(0);
+			for (const flag of args.filter((arg) => arg.startsWith("--")))
+				expect(help.stdout, `${command.join(" ")} ${flag}`).toContain(
+					`[${flag}]`,
+				);
+		}
 	} finally {
 		f.close();
 	}

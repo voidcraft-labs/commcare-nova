@@ -182,21 +182,19 @@ describe("actual SA edit-turn Responses wire", () => {
 		const bodies = await captureEditTurns();
 		expect(bodies).toHaveLength(2);
 		for (const body of bodies) {
-			expect(body.model).toBe(MODEL_ROLES.followUpEditor.modelId);
+			expect(body.model).toBe("gpt-6.1-sol");
 			expect(body.store).toBe(false);
 			expect(body.tools).toContainEqual(
 				expect.objectContaining({ type: "tool_search" }),
 			);
-			expect(
-				body.tools
-					?.filter(
-						(tool) => tool.type === "function" && tool.name !== "askQuestions",
-					)
-					.every((tool) => tool.defer_loading === true),
-			).toBe(true);
+			for (const name of ["startAppTest", "continueAppTest", "readAppTest"]) {
+				const tool = body.tools?.find((tool) => tool.name === name);
+				expect(tool).toMatchObject({ type: "function", strict: false });
+				expect(tool?.defer_loading).not.toBe(true);
+			}
 			expect(body.include).toContain("reasoning.encrypted_content");
 			expect(body.reasoning).toMatchObject({
-				effort: MODEL_ROLES.followUpEditor.reasoningEffort,
+				effort: "medium",
 				summary: "auto",
 			});
 			expect(body.prompt_cache_key).toBe("nova:app:a-probe");

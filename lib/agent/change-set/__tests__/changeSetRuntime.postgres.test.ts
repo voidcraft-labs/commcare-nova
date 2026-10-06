@@ -217,6 +217,119 @@ function statusField(workspace: ChangeSetMutationWorkspace) {
 	return field;
 }
 
+it("returns concrete navigation from private create, update and read while qualifying an unfinished neighboring registration", async () => {
+	const f = await fixture();
+	await f.workspace.stageDispatch({
+		toolName: "createModule",
+		requestId: "loans",
+		input: { name: "Loans", case_type: "loan" },
+	});
+	const module = Object.values(f.workspace.currentSnapshot().doc.modules).find(
+		(item) => item.name === "Loans",
+	);
+	if (!module) throw new Error("Missing loan menu");
+	const created = await f.workspace.stageDispatch({
+		toolName: "createForm",
+		requestId: "review",
+		input: { moduleUuid: module.uuid, name: "Review", type: "followup" },
+	});
+	expect(created.receipt?.disposition).toBe("staged");
+	expect(created.result).toMatchObject({
+		kind: "mutate",
+		result: {
+			navigation: {
+				afterSubmit: { fallback: { screen: "menu", moduleUuid: module.uuid } },
+			},
+		},
+	});
+	const review = Object.values(f.workspace.currentSnapshot().doc.forms).find(
+		(item) => item.name === "Review",
+	);
+	if (!review) throw new Error("Missing review form");
+	await f.workspace.stageDispatch({
+		toolName: "addFields",
+		requestId: "review-fields",
+		input: {
+			moduleUuid: module.uuid,
+			formUuid: review.uuid,
+			fields: [{ kind: "text", id: "notes", label: "Notes" }],
+		},
+	});
+	await f.workspace.stageDispatch({
+		toolName: "createForm",
+		requestId: "register",
+		input: { moduleUuid: module.uuid, name: "Register", type: "registration" },
+	});
+	const register = Object.values(f.workspace.currentSnapshot().doc.forms).find(
+		(item) => item.name === "Register",
+	);
+	if (!register) throw new Error("Missing registration form");
+	const unfinished = await f.workspace.stageDispatch({
+		toolName: "getForm",
+		requestId: "read-unfinished",
+		input: { moduleUuid: module.uuid, formUuid: review.uuid },
+	});
+	expect(unfinished.result).toMatchObject({
+		kind: "read",
+		data: {
+			navigation: {
+				afterSubmit: {
+					fallback: {
+						screen: "unavailable",
+						reason: expect.stringContaining("record name"),
+					},
+				},
+			},
+		},
+	});
+	await f.workspace.stageDispatch({
+		toolName: "addFields",
+		requestId: "register-fields",
+		input: {
+			moduleUuid: module.uuid,
+			formUuid: register.uuid,
+			fields: [{ kind: "text", id: "name", label: "Name" }],
+		},
+	});
+	await f.workspace.stageDispatch({
+		toolName: "updateForm",
+		requestId: "register-name",
+		input: {
+			moduleUuid: module.uuid,
+			formUuid: register.uuid,
+			recordName: "#form/name",
+		},
+	});
+	const destination = {
+		screen: "record-selection",
+		moduleUuid: module.uuid,
+		formUuid: review.uuid,
+		selectingModuleUuids: [module.uuid],
+	};
+	const updated = await f.workspace.stageDispatch({
+		toolName: "updateForm",
+		requestId: "review-return",
+		input: {
+			moduleUuid: module.uuid,
+			formUuid: review.uuid,
+			post_submit: "previous",
+		},
+	});
+	expect(updated.result).toMatchObject({
+		kind: "mutate",
+		result: { navigation: { afterSubmit: { fallback: destination } } },
+	});
+	const read = await f.workspace.stageDispatch({
+		toolName: "getForm",
+		requestId: "read-complete",
+		input: { moduleUuid: module.uuid, formUuid: review.uuid },
+	});
+	expect(read.result).toMatchObject({
+		kind: "read",
+		data: { navigation: { afterSubmit: { fallback: destination } } },
+	});
+});
+
 it("keeps private edits invisible, retains choice identities, and replays the exact semantic result after reopening", async () => {
 	const f = await fixture();
 	const before = await visible(f.app.appId);

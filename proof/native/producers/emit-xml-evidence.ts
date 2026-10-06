@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { buildDoc, f, xp } from "../../../lib/__tests__/docHelpers";
+import { proseWhitespaceFixture } from "../../../lib/commcare/__tests__/proseWhitespaceFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import { evaluateCommit } from "../../../lib/commcare/validator/gate";
@@ -28,28 +29,30 @@ const scenarios = [
 	{ name: "noncharacter", text: "Start \uffff end", accepted: false },
 ];
 for (const scenario of scenarios) {
-	const doc = buildDoc({
-		appName: scenario.accepted ? "Café 雪 😀" : scenario.text,
-		modules: [
-			{
-				name: "Surveys",
-				forms: [
+	const doc = scenario.accepted
+		? proseWhitespaceFixture()
+		: buildDoc({
+				appName: scenario.accepted ? "Café 雪 😀" : scenario.text,
+				modules: [
 					{
-						name: "Interview",
-						type: "survey",
-						fields: [
-							f({
-								kind: "text",
-								id: "answer",
-								label: proseText(scenario.text),
-								default_value: xp("'A\tB\nC\rD'"),
-							}),
+						name: "Surveys",
+						forms: [
+							{
+								name: "Interview",
+								type: "survey",
+								fields: [
+									f({
+										kind: "text",
+										id: "answer",
+										label: proseText(scenario.text),
+										default_value: xp("'A\tB\nC\rD'"),
+									}),
+								],
+							},
 						],
 					},
 				],
-			},
-		],
-	});
+			});
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const verdict = evaluateCommit({
 		nextDoc: doc,

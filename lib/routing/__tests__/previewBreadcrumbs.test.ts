@@ -54,12 +54,14 @@ const baseFor = (loc: Location): BreadcrumbItem[] =>
 		: [home, moduleCrumb];
 
 function run(args: {
+	language?: "eng" | "spa";
 	loc: Location;
 	moduleForms?: PreviewTrailForm[];
 	previewCaseTarget?: PreviewCaseTarget;
 	previewSelectedCase?: PreviewSelectedCase;
 }) {
 	return previewBreadcrumbTrail({
+		language: args.language,
 		loc: args.loc,
 		baseBreadcrumbs: baseFor(args.loc),
 		moduleUuid: args.loc.kind === "home" ? undefined : moduleUuid,
@@ -377,4 +379,42 @@ describe("bound case cardinality", () => {
 			).toEqual(labels);
 		},
 	);
+});
+
+it("localizes worker breadcrumbs without losing unnamed or multiple case identities", () => {
+	const target = {
+		formUuid: followupUuid,
+		cases: [{ caseId: "c1", caseName: "" }],
+	};
+	const spanish = run({
+		language: "spa",
+		loc: formLoc(followupUuid),
+		previewCaseTarget: target,
+	});
+	expect(spanish[0].label).toBe("Inicio");
+	expect(spanish.at(-1)).toMatchObject({
+		key: "cases:c1",
+		label: "1 registro",
+	});
+	expect(
+		run({ loc: formLoc(followupUuid), previewCaseTarget: target }).at(-1)
+			?.label,
+	).toBe("1 case");
+	expect(
+		run({
+			language: "spa",
+			loc: formLoc(followupUuid),
+			previewCaseTarget: {
+				...target,
+				cases: [...target.cases, { caseId: "c2", caseName: "Ana" }],
+			},
+		}).at(-1),
+	).toMatchObject({ key: "cases:c1,c2", label: "2 registros" });
+	expect(
+		run({
+			language: "spa",
+			loc: { kind: "cases", moduleUuid },
+			previewSelectedCase: { caseId: "c1", caseName: "" },
+		}).at(-1),
+	).toMatchObject({ key: "case:c1", label: "1 registro" });
 });

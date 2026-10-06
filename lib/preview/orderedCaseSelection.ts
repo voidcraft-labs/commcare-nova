@@ -1,3 +1,5 @@
+import type { LanguageTag } from "@/lib/domain/localization";
+import { runtimeMessage } from "./runtimeMessages";
 /**
  * Preview's case-selection value is an ordered set of case ids.
  *
@@ -75,11 +77,16 @@ export function reconcilePreviewCaseChoices<
 export function previewCaseSelectionMessage(
 	count: number,
 	maximum: number,
+	language?: LanguageTag,
 ): string | undefined {
-	if (count === 0) return "Choose at least one case to continue";
+	if (count === 0) return runtimeMessage(language, "chooseAtLeastOne");
 	if (count > maximum) {
 		const extra = count - maximum;
-		return `Choose ${extra} fewer ${extra === 1 ? "case" : "cases"} to continue`;
+		return runtimeMessage(
+			language,
+			extra === 1 ? "chooseFewerOne" : "chooseFewerMany",
+			{ count: extra },
+		);
 	}
 	return undefined;
 }

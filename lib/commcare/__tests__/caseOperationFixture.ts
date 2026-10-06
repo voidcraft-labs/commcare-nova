@@ -25,6 +25,8 @@ const TEXT = testUuid("11111111-1111-4111-8111-111111111111");
 const KEY = testUuid("33333333-3333-4333-8333-333333333333");
 const ENABLED = testUuid("operation-enabled");
 const DESTINATION = testUuid("operation-destination");
+const RECORDED_CLOCK = testUuid("operation-recorded-clock");
+const RECORDED_ANSWER = testUuid("operation-recorded-answer");
 export const operationScenarios = [
 	"sequence",
 	"conditional",
@@ -396,6 +398,32 @@ export function caseOperationFixture(scenario: OperationScenario) {
 											kind: "text",
 											id: "ordinary_note",
 											caseWrite: { caseType: "patient", property: "nickname" },
+										}),
+										f({
+											kind: "hidden",
+											uuid: RECORDED_CLOCK,
+											id: "recorded_clock",
+											default_value:
+												"format-date(now(), '%Y-%m-%d %H:%M:%S %Z')",
+										}),
+										f({
+											kind: "hidden",
+											uuid: RECORDED_ANSWER,
+											id: "recorded_answer",
+											calculate:
+												"if(#form/visible_at = '', '', format-date(coalesce(#form/visible_at, ''), '%Y-%m-%d %H:%M:%S %Z'))",
+										}),
+										f({
+											kind: "label",
+											id: "recorded_display",
+											label: {
+												parts: [
+													{ kind: "text", text: "Clock: " },
+													{ kind: "field-ref", uuid: RECORDED_CLOCK },
+													{ kind: "text", text: "; answer: " },
+													{ kind: "field-ref", uuid: RECORDED_ANSWER },
+												],
+											},
 										}),
 									]
 								: []),

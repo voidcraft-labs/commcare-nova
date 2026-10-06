@@ -8,8 +8,8 @@ what each side holds under ``--mismatches``; it passes against an absent or
 empty store and against one that holds what it made. Held to another run
 (the weekly comparisons), every part is paired by its document and name and
 every evidence record by its check and document; one only one run holds, or
-that differs, fails, and with ``--masked`` only the evidence is compared, up
-to a renaming of the id-shaped tokens each run drew.
+that differs, fails, and with ``--masked`` only the evidence is compared, the
+right run's held to the left's but for the values each drew.
 
 The plausible failures: an audit that reads the run through ``gather``,
 which drops a key two shards hold differently, and so passes the very
@@ -98,11 +98,28 @@ def test_two_runs_held_to_each_other_pair_parts_and_evidence_and_masked_compares
     assert _compare("--masked", "--left", left, "--right", redrawn_run) == 0
     assert _compare("--left", left, "--right", redrawn_run) == 1
     assert "bar's evidence on corpus:one differs between the runs." in capsys.readouterr().out
-    # Two ids that are one in the other run is a real difference, masked or not.
-    assert (
-        _compare("--masked", "--left", left, "--right", _shard(tmp_path / "collapsed", corpus, evidence=collapsed)) == 1
-    )
+    # Two ids the right run drew where the left holds one are alike: a seeded run draws one id for two states of
+    # one key. One id of the right run's standing where the left holds two is a real difference, and so is an
+    # id where a time was.
+    collapsed_run = _shard(tmp_path / "collapsed", corpus, evidence=collapsed)
+    assert _compare("--masked", "--left", collapsed_run, "--right", left) == 0
+    assert _compare("--masked", "--left", left, "--right", collapsed_run) == 1
     assert "once their drawn values are masked" in capsys.readouterr().out
+    timed = [{**drawn[0], "after": "2026-10-04T10:44:43Z"}]
+    assert _compare("--masked", "--left", left, "--right", _shard(tmp_path / "timed", corpus, evidence=timed)) == 1
+    # Anything else of the evidence is a real difference, masked or not.
+    moved = [{**drawn[0], "path": "/modules/0/unique_id"}]
+    assert _compare("--masked", "--left", left, "--right", _shard(tmp_path / "moved", corpus, evidence=moved)) == 1
+    capsys.readouterr()
+    # The right run's shards each drew their own values: two of them holding one key alike but for those are
+    # one, and two that differ otherwise are not.
+    drew_a, drew_b = (
+        _shard(tmp_path / f"drew-{drawn}", corpus, value=drawn * 32, evidence=redrawn) for drawn in "ef"
+    )
+    assert _compare("--masked", "--left", left, "--right", drew_a, drew_b) == 0
+    other = _shard(tmp_path / "drew-other", corpus, value="differs", evidence=redrawn)
+    assert _compare("--masked", "--left", left, "--right", drew_a, other) == 1
+    assert "In the right run: The run's shards kept 2 different parts entries" in capsys.readouterr().out
     # A record that differs is named by its document and part.
     assert (
         _compare("--left", left, "--right", _shard(tmp_path / "differs", corpus, value="differs", evidence=drawn)) == 1

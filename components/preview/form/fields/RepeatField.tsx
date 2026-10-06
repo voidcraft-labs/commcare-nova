@@ -8,7 +8,7 @@
  * **Shell matches the group.** The outer chrome is identical to
  * `GroupField`: depth-padded header with chevron collapse, nesting rails
  * down the children column, and a flat-top close cap. A small `Repeat`
- * badge next to the chevron signals that the contents are instance-
+ * badge below the title signals that the contents are instance-
  * expanded at runtime.
  *
  * **Instances within the shell.** `count` instances render inside the
@@ -32,16 +32,20 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
+import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
+import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
-import { FIELD_STYLES } from "../fieldStyles";
+import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 import { runWithAttachmentEntryWriteAuthority } from "./attachment/attachmentClient";
@@ -60,6 +64,7 @@ interface RepeatFieldProps {
 	/** Stable identities of enclosing repeats, before this repeat adds its
 	 * own instance identity. */
 	instanceScopeKey: string;
+	repeatInstances: readonly RepeatInstanceIdentity[];
 	accessibleContext: string;
 	position: number;
 }
@@ -92,6 +97,7 @@ function InstanceDivider({
 	accessibleContext,
 	repeatHeaderId,
 }: InstanceDividerProps) {
+	const { language } = useBuilderLanguage();
 	const removeActionId = useId();
 	return (
 		<div
@@ -105,7 +111,7 @@ function InstanceDivider({
 				id={instanceLabelId}
 				className="text-xs font-medium text-nova-text-muted"
 			>
-				Instance {idx + 1}
+				{runtimeMessage(language, "instancePosition", { position: idx + 1 })}
 			</span>
 			{onRemove && (
 				<button
@@ -123,7 +129,7 @@ function InstanceDivider({
 						.join(" ")}
 				>
 					<span id={removeActionId} className="sr-only">
-						Remove
+						{runtimeMessage(language, "remove")}
 					</span>
 					<Icon icon={tablerTrash} width="14" height="14" aria-hidden="true" />
 				</button>
@@ -140,9 +146,11 @@ export function RepeatField({
 	fieldPath,
 	depth,
 	instanceScopeKey,
+	repeatInstances,
 	accessibleContext,
 	position,
 }: RepeatFieldProps) {
+	const { language } = useBuilderLanguage();
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
@@ -162,7 +170,8 @@ export function RepeatField({
 	const addActionId = useId();
 	const instanceLabelBaseId = useId();
 
-	const hasChildren = useHasFieldsInForm(field.uuid);
+	const hasChildren = usePresentationHasFields(field.uuid);
+	const visibleInstances = useVisibleRepeatInstances(field, path);
 
 	// Reactive count: read from `state.repeatCount` (via
 	// `useEngineStateAt`), not `controller.getRepeatCount(uuid)`.
@@ -178,14 +187,15 @@ export function RepeatField({
 	}, [toggleCollapse, field.uuid]);
 
 	const addLabel =
-		state.resolvedLabel ?? (field.label ? projectProse(field.label) : "entry");
+		state.resolvedLabel ??
+		(field.label
+			? projectProse(field.label)
+			: runtimeMessage(language, "entry"));
 
 	// Add/Remove affordances are only meaningful for `user_controlled`
-	// repeats. `count_bound` and `query_bound` repeats freeze their
-	// cardinality at form load (JavaRosa spec), so the runtime suppresses
-	// these affordances: Nova's preview must mirror that. The instance
-	// dividers themselves still render so the user can see each iteration's
-	// content.
+	// repeats. Counted and record-query repeats derive their own rows. Show
+	// instance dividers only for iterations with worker-facing content;
+	// hidden calculations still run for every concrete instance.
 	const isUserControlled = field.repeat_mode === "user_controlled";
 
 	const removeInstance = useCallback(
@@ -233,11 +243,11 @@ export function RepeatField({
 					{/* Repeat label media: banner above the header row, matching
 					    the edit-mode `GroupBracket` position for flipbook parity. */}
 					<MediaDisplay media={field.label_media} interactive />
-					<div className="flex items-center gap-2">
+					<div className={CONTAINER_HEADER_STYLES.row}>
 						<button
 							type="button"
 							onClick={onToggle}
-							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:text-nova-text"
+							className={CONTAINER_HEADER_STYLES.toggle}
 							aria-expanded={!collapsed}
 							aria-controls={contentId}
 							aria-labelledby={[
@@ -250,7 +260,7 @@ export function RepeatField({
 								.join(" ")}
 						>
 							<span id={toggleActionId} className="sr-only">
-								{collapsed ? "Expand" : "Collapse"}
+								{runtimeMessage(language, collapsed ? "expand" : "collapse")}
 							</span>
 							<Icon
 								icon={collapsed ? tablerChevronRight : tablerChevronDown}
@@ -260,26 +270,7 @@ export function RepeatField({
 							/>
 						</button>
 
-						<span
-							id={headerId}
-							className="flex shrink-0 items-center gap-1 text-xs font-medium text-nova-text-muted"
-						>
-							<span className="sr-only">Repeat {position}. </span>
-							<Icon
-								icon={tablerRepeat}
-								width="11"
-								height="11"
-								aria-hidden="true"
-							/>
-							Repeat
-							{count > 1 && (
-								<span className="font-normal normal-case tracking-normal">
-									· {count} instances
-								</span>
-							)}
-						</span>
-
-						<div id={titleId} className="min-w-0 flex-1">
+						<div id={titleId} className={CONTAINER_HEADER_STYLES.title}>
 							{/* Repeats extend `containerFieldBase` (label optional).
 							 *  When set, render the title; when empty/absent, render
 							 *  nothing in the title slot: the surrounding chrome
@@ -304,6 +295,23 @@ export function RepeatField({
 								</div>
 							)}
 						</div>
+						<span id={headerId} className={CONTAINER_HEADER_STYLES.metadata}>
+							<span className="sr-only">
+								{runtimeMessage(language, "repeatPosition", { position })}{" "}
+							</span>
+							<Icon
+								icon={tablerRepeat}
+								width="11"
+								height="11"
+								aria-hidden="true"
+							/>
+							{runtimeMessage(language, "repeat")}
+							{count > 1 && (
+								<span className="font-normal normal-case tracking-normal">
+									· {runtimeMessage(language, "instances", { count })}
+								</span>
+							)}
+						</span>
 					</div>
 					{/* Repeats don't carry `hint` in the domain schema: structural
 					 *  containers expose only `relevant`. Only the label renders. */}
@@ -327,28 +335,28 @@ export function RepeatField({
 							}}
 						/>
 
-						{hasChildren &&
-							Array.from({ length: count }, (_, idx) => {
-								const instanceKey = controller.getRepeatInstanceKey(
-									field.uuid,
-									idx,
-									path,
-								);
-								return (
-									<div key={instanceKey}>
-										<InstanceDivider
-											idx={idx}
-											depth={depth + 1}
-											onRemove={
-												isUserControlled && count > 1
-													? () => removeInstance(idx, instanceKey)
-													: undefined
-											}
-											removeDisabled={writeAuthority === undefined}
-											instanceLabelId={`${instanceLabelBaseId}-${idx}`}
-											accessibleContext={accessibleContext}
-											repeatHeaderId={`${headerId} ${titleId}`}
-										/>
+						{visibleInstances.map((idx) => {
+							const instanceKey = controller.getRepeatInstanceKey(
+								field.uuid,
+								idx,
+								path,
+							);
+							return (
+								<div key={instanceKey}>
+									<InstanceDivider
+										idx={idx}
+										depth={depth + 1}
+										onRemove={
+											isUserControlled && count > 1
+												? () => removeInstance(idx, instanceKey)
+												: undefined
+										}
+										removeDisabled={writeAuthority === undefined}
+										instanceLabelId={`${instanceLabelBaseId}-${idx}`}
+										accessibleContext={accessibleContext}
+										repeatHeaderId={`${headerId} ${titleId}`}
+									/>
+									{hasChildren ? (
 										<InteractiveFormRenderer
 											parentEntityId={field.uuid}
 											prefix={`${path}[${idx}]`}
@@ -356,6 +364,10 @@ export function RepeatField({
 											depth={depth + 1}
 											leadingGap={false}
 											instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
+											repeatInstances={[
+												...repeatInstances,
+												{ fieldUuid: field.uuid, instanceKey },
+											]}
 											accessibleContext={[
 												accessibleContext,
 												headerId,
@@ -365,22 +377,19 @@ export function RepeatField({
 												.filter(Boolean)
 												.join(" ")}
 										/>
-									</div>
-								);
-							})}
-
-						{!hasChildren && <div className="h-[72px]" />}
+									) : (
+										<div className="h-[72px]" />
+									)}
+								</div>
+							);
+						})}
 
 						{/* Add button: depth+1 to align with instance content.
 						 *  `mb-6` gives 24px before the close cap, matching the
 						 *  edit-mode insertion(N+1) that precedes `GroupCloseRow`.
 						 *  Suppressed entirely for non-`user_controlled` modes:
-						 *  count_bound and query_bound repeats derive their
-						 *  cardinality from XPath / case query and JavaRosa
-						 *  freezes it at form load: there's no Add affordance
-						 *  in the actual CommCare runtime, and exposing one
-						 *  here would mislead the user about the form's
-						 *  behavior. */}
+						 *  counted and record-query repeats derive their own
+						 *  rows, so they never offer manual Add/Remove. */}
 						{isUserControlled && (
 							<div
 								className="mb-6"
@@ -408,7 +417,9 @@ export function RepeatField({
 										height="14"
 										aria-hidden="true"
 									/>
-									<span id={addActionId}>Add {addLabel}</span>
+									<span id={addActionId}>
+										{runtimeMessage(language, "addEntry", { label: addLabel })}
+									</span>
 								</button>
 							</div>
 						)}

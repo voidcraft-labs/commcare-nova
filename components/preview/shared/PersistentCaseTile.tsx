@@ -24,6 +24,7 @@ import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { CaseTile } from "./CaseTile";
 import { useColumnDisplayContext } from "./useColumnDisplayContext";
+import { useWorkerMessage } from "./WorkerText";
 
 interface PersistentCaseTileProps {
 	readonly appId: string | undefined;
@@ -51,6 +52,7 @@ export function PersistentCaseTile({
 	fallbackProperties,
 	restoreScopeKey,
 }: PersistentCaseTileProps) {
+	const message = useWorkerMessage();
 	/* A read of its own, with the display config attached, so calculated
 	 * cells project exactly as they did in Results. The form's own case
 	 * read deliberately carries no display config: it feeds the engine,
@@ -105,7 +107,7 @@ export function PersistentCaseTile({
 					) : state.kind === "idle" || state.kind === "loading" ? (
 						<Skeleton
 							className="h-14 w-full max-w-3xl rounded-lg"
-							aria-label="Loading this case"
+							aria-label={message("loadingCase")}
 						/>
 					) : (
 						<CaseUnavailableNotice
@@ -135,16 +137,17 @@ function CaseUnavailableNotice({
 		| "persona-unavailable";
 	readonly onRetry: () => void;
 }) {
+	const message = useWorkerMessage();
 	return (
 		<div role="status" className="flex flex-wrap items-center gap-3">
 			<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 				{kind === "missing"
-					? "This case is no longer available."
+					? message("caseUnavailable")
 					: kind === "unauthenticated"
-						? "You're signed out, so this case's information isn't showing."
+						? message("caseSignedOut")
 						: kind === "persona-unavailable"
 							? "Choose another worker to show this case's information."
-							: "This case's information didn't load."}
+							: message("caseInformationFailed")}
 			</p>
 			{kind === "error" && (
 				<Button
@@ -154,7 +157,7 @@ function CaseUnavailableNotice({
 					className="gap-1.5 rounded-md px-2 text-[13px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerRefresh} width="14" height="14" />
-					Try again
+					{message("tryAgain")}
 				</Button>
 			)}
 		</div>

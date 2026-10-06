@@ -16,7 +16,8 @@ bind; and a ``long`` form, which Core shows from the alert in place of the
 default form the bind reads (``FormEntryCaption.getQuestionText``).
 
 A corpus document whose question validates its answer with a plain message
-is published as Nova writes it and with Vellum's alert: HQ's builds differ by
+is published, then explicitly spelled without and with an alert, independent
+of whether Nova already emits one: HQ's builds differ by
 the alert alone, which the rule erases; Core's sessions compare equal, and
 Core gives a refused answer the same message from both built forms, asked
 both ways its runtimes ask (``getConstraintText`` with and without the
@@ -58,14 +59,25 @@ def _validated(root):
     return binds
 
 
-def _with_alert(root):
+def _set_alerts(root, present):
     for bind in _validated(root):
         control = next(
             element
             for element in root.iter(f"{XF}*")
             if element.get("ref") == bind.get("nodeset") and element.tag != f"{XF}bind"
         )
-        etree.SubElement(control, f"{XF}alert", ref=bind.get(f"{JR}constraintMsg"))
+        for existing in list(control.findall(f"{XF}alert")):
+            control.remove(existing)
+        if present:
+            etree.SubElement(control, f"{XF}alert", ref=bind.get(f"{JR}constraintMsg"))
+
+
+def _with_alert(root):
+    _set_alerts(root, True)
+
+
+def _without_alert(root):
+    _set_alerts(root, False)
 
 
 def _with_output(alert):
@@ -76,8 +88,7 @@ def _with_output(alert):
                 if text.get("id") == text_id:
                     for value in text:
                         etree.SubElement(value, f"{XF}output", value=bind.get("nodeset"))
-        if alert:
-            _with_alert(root)
+        _set_alerts(root, alert)
 
     return change
 
@@ -100,8 +111,7 @@ def _with_placeholder(alert):
         for translation in translations:
             value = etree.SubElement(etree.SubElement(translation, f"{XF}text", id="proof-output"), f"{XF}value")
             etree.SubElement(value, f"{XF}output", value=f"'{FILLED}'")
-        if alert:
-            _with_alert(root)
+        _set_alerts(root, alert)
 
     return change
 
@@ -113,8 +123,7 @@ def _with_long(alert):
             for text in root.iter(f"{XF}text"):
                 if text.get("id") == text_id:
                     etree.SubElement(text, f"{XF}value", form="long").text = LONG
-        if alert:
-            _with_alert(root)
+        _set_alerts(root, alert)
 
     return change
 
@@ -139,25 +148,25 @@ def _messages(core_runner, outcome, restored):
 def test_core_shows_the_same_plain_message_with_or_without_the_alert(rule_documents, hq, core_runner):
     document = rule_documents[DOCUMENT]
     with published(document, core_runner) as app:
-        nova = app.spell(sources={"0.0": rewritten()})
-        saved = app.spell(sources={"0.0": rewritten(_with_alert)})
+        unalerted = app.spell(sources={"0.0": rewritten(_without_alert)})
+        alerted = app.spell(sources={"0.0": rewritten(_with_alert)})
         output = app.spell(sources={"0.0": rewritten(_with_output(alert=False))})
         output_alert = app.spell(sources={"0.0": rewritten(_with_output(alert=True))})
         placeholder = app.spell(sources={"0.0": rewritten(_with_placeholder(alert=False))})
         placeholder_alert = app.spell(sources={"0.0": rewritten(_with_placeholder(alert=True))})
         long = app.spell(sources={"0.0": rewritten(_with_long(alert=False))})
         long_alert = app.spell(sources={"0.0": rewritten(_with_long(alert=True))})
-        _, _, alike = runs_alike(app, core_runner, nova.build, saved.build)
+        _, _, alike = runs_alike(app, core_runner, unalerted.build, alerted.build)
         restored = restore(app, casedata.case_database(document.document))
-        plain = [_messages(core_runner, spelled.build, restored) for spelled in (nova, saved)]
+        plain = [_messages(core_runner, spelled.build, restored) for spelled in (unalerted, alerted)]
         filled = [_messages(core_runner, spelled.build, restored) for spelled in (output, output_alert)]
         templated = [_messages(core_runner, spelled.build, restored) for spelled in (placeholder, placeholder_alert)]
         longer = [_messages(core_runner, spelled.build, restored) for spelled in (long, long_alert)]
 
-    built = shown(build_differences(nova.build, saved.build))
+    built = shown(build_differences(unalerted.build, alerted.build))
     assert built and all("/alert[" in path for _, path, _ in built), built
-    assert build_differences(nova.build, saved.build, rules=(RULE,)) == []
-    assert stored_differences(nova.stored, saved.stored, rules=(RULE,)) == []
+    assert build_differences(unalerted.build, alerted.build, rules=(RULE,)) == []
+    assert stored_differences(unalerted.stored, alerted.stored, rules=(RULE,)) == []
     assert alike == [], shown(alike)
     assert plain[0] == plain[1] and all(text for _, text in plain[0][0]), plain
     assert filled[0] != filled[1], filled

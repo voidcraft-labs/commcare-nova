@@ -20,6 +20,27 @@ export interface ErrorGuard {
  * Playwright's default close can destroy the target without that lifecycle. */
 export async function closePageWithUnload(page: Page): Promise<void> {
 	if (page.isClosed()) return;
+	if (page.context().browser()?.browserType().name() === "webkit") {
+		// WebKit can acknowledge runBeforeUnload without closing the page.
+		// A normal navigation runs the departing document's native lifecycle.
+		const failures: unknown[] = [];
+		try {
+			await page.goto("about:blank", { waitUntil: "load" });
+		} catch (error) {
+			failures.push(error);
+		} finally {
+			try {
+				await page.close();
+			} catch (error) {
+				failures.push(error);
+			}
+		}
+		if (failures.length === 1) throw failures[0];
+		if (failures.length > 1) {
+			throw new AggregateError(failures, "Page departure and close failed");
+		}
+		return;
+	}
 	await Promise.all([
 		page.waitForEvent("close"),
 		page.close({ runBeforeUnload: true }),

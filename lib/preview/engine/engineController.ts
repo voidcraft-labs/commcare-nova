@@ -50,6 +50,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
+	type CaptureFieldKind,
 	caseSelectionCardinality,
 	type Field,
 	fieldCaseWrite,
@@ -60,16 +61,14 @@ import {
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { ProseTemplate } from "@/lib/domain/prose";
+import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
 import {
 	deserializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
 } from "../xpath/workerProjection";
-import type {
-	XPathRuntimeError,
-	XPathWorkerInstances,
-} from "../xpath/workerProtocol";
+import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { buildEngineInput } from "./engineInput";
 import type { FieldTreeNode } from "./fieldTree";
@@ -112,6 +111,32 @@ export interface EngineSubmissionSnapshot {
 	readonly documentState: BlueprintDocState;
 }
 
+/** Only a completed validation can judge answers. Resource preparation and
+ * superseded work never mean that a question needs correcting. */
+export type EngineValidationCompletion =
+	| { readonly kind: "valid" }
+	| {
+			readonly kind: "invalid";
+			readonly target: InvalidFieldTarget | undefined;
+	  }
+	| { readonly kind: "unavailable" }
+	| { readonly kind: "retired" };
+
+interface EngineValidationScope {
+	readonly engine: FormEngine;
+	readonly formUuid: Uuid;
+	readonly entryKey: string;
+	readonly generation: number;
+	readonly documentState: BlueprintDocState | undefined;
+	readonly caseDatabaseState: CaseDatabaseControllerState | undefined;
+	readonly rebuildWork: Promise<void>;
+}
+
+interface EngineValidationFence extends EngineValidationScope {
+	readonly revision: number;
+	readonly runtimeState: RuntimeStoreState;
+}
+
 /** Reactive form-entry identity. Unlike `entryKey`'s imperative getter, this
  * store notifies FormScreen when a materially changed worker rotates the
  * controller without first causing a parent React render. */
@@ -122,6 +147,9 @@ export interface EngineEntryState {
 	/** True only after the active engine has finished its initial worker pass,
 	 * published runtime state, and installed its document subscriptions. */
 	readonly ready: boolean;
+	/** A settled presentation remains mounted while a checkpoint-backed
+	 * replacement of this exact entry initializes. It carries no input authority. */
+	readonly rebuilding: boolean;
 	/** True while the current entry/revision is still evaluating in its worker. */
 	readonly settling: boolean;
 	/** True while a repeat add/remove owns an indivisible topology revision.
@@ -138,6 +166,28 @@ export interface EngineEntryState {
 		| { readonly formUuid: Uuid; readonly status: "loading" | "error" }
 		| undefined;
 }
+
+export interface RepeatInstanceIdentity {
+	readonly fieldUuid: Uuid;
+	readonly instanceKey: string;
+}
+
+export interface CaptureAnswerTarget {
+	readonly fieldUuid: Uuid;
+	readonly kind: CaptureFieldKind;
+	readonly repeatInstances: readonly RepeatInstanceIdentity[];
+}
+
+export interface CaptureCommitGate {
+	readonly signal: AbortSignal;
+	readonly isCurrent: () => boolean;
+}
+
+export type CaptureAnswerCommit = (
+	value: string,
+	gate: CaptureCommitGate,
+	onAccepted: (path: string) => void,
+) => Promise<boolean>;
 
 export type CaseDatabaseControllerState =
 	| { readonly required: false }
@@ -169,22 +219,6 @@ export type EngineFaultReporter = (
 	fault: EngineRuntimeFault,
 	error: unknown,
 ) => void;
-
-class PreviewXPathRuntimeError extends Error {
-	readonly failureKind: string;
-
-	constructor(failure: XPathRuntimeError) {
-		const reason = failure.reason;
-		const failureKind = [
-			"xpath",
-			failure.code,
-			...(reason === undefined ? [] : [reason.phase, reason.kind]),
-		].join(":");
-		super(`The XPath runtime failed (${failureKind}).`);
-		this.name = "PreviewXPathRuntimeError";
-		this.failureKind = failureKind;
-	}
-}
 
 export interface RepeatCompactionEvent {
 	readonly entryKey: string;
@@ -663,6 +697,22 @@ export class EngineController {
 	private pendingDefaultFieldUuids = new Set<Uuid>();
 	private entryReady = false;
 	private settling = false;
+	private rebuilding = false;
+	/** Read-only presentation of the last published engine, bounded to a
+	 * same-entry replacement. Mutation methods always use `engine` instead. */
+	private retainedPresentation:
+		| {
+				readonly engine: FormEngine;
+				readonly uuidToPath: ReadonlyMap<string, string>;
+				readonly document: BlueprintDocState;
+		  }
+		| undefined;
+	/** Completion identity is private to this controller. Callers cannot turn a
+	 * later ready state or a guessed field error into an accepted validation. */
+	private validationCompletions = new WeakMap<
+		EngineValidationCompletion,
+		EngineValidationFence
+	>();
 
 	constructor(xpathRuntime?: XPathRuntime, searchXPathRuntime?: XPathRuntime) {
 		this.xpathRuntime = xpathRuntime;
@@ -673,6 +723,7 @@ export class EngineController {
 			formUuid: undefined,
 			revision: 0,
 			ready: false,
+			rebuilding: false,
 			settling: false,
 			topologySettling: false,
 			fault: undefined,
@@ -720,6 +771,7 @@ export class EngineController {
 			current.entryKey === this.currentEntryKey &&
 			current.formUuid === this.activeFormUuid &&
 			current.ready === this.entryReady &&
+			current.rebuilding === this.rebuilding &&
 			current.settling === this.settling &&
 			current.topologySettling === this.atomicRevisionsPending > 0 &&
 			current.fault === this.runtimeFault &&
@@ -734,6 +786,7 @@ export class EngineController {
 				formUuid: this.activeFormUuid,
 				revision: current.revision + 1,
 				ready: this.entryReady,
+				rebuilding: this.rebuilding,
 				settling: this.settling,
 				topologySettling: this.atomicRevisionsPending > 0,
 				fault: this.runtimeFault,
@@ -1415,8 +1468,44 @@ export class EngineController {
 		},
 		caseDatabaseOverride?: CaseDatabaseSnapshot,
 	): Promise<boolean> {
-		this.clearActiveForm();
+		const work = this.initializeFormAsync(
+			formUuid,
+			caseData,
+			entryKey,
+			restore,
+			caseDatabaseOverride,
+		);
+		// Initialization runs synchronously through scope retirement before its
+		// first await. An exceptional prepare/reconcile path must clear its own
+		// retained presentation, never a newer activation's answer world.
+		const generation = this.lifecycleGeneration;
+		try {
+			return await work;
+		} catch (error) {
+			if (generation === this.lifecycleGeneration)
+				this.recordRuntimeFault("activate", formUuid, error);
+			return false;
+		}
+	}
+
+	private async initializeFormAsync(
+		formUuid: Uuid,
+		caseData: CaseDataByType | undefined,
+		entryKey: string,
+		restore?: {
+			readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
+			readonly preserveAllValues: boolean;
+		},
+		caseDatabaseOverride?: CaseDatabaseSnapshot,
+	): Promise<boolean> {
+		this.clearActiveForm(
+			restore !== undefined &&
+				(this.entryReady || this.rebuilding) &&
+				this.activeFormUuid === formUuid &&
+				this.currentEntryKey === entryKey,
+		);
 		if (this.previewIdentityBlocked || !this.docStore) {
+			this.clearActiveForm();
 			this.publishEntryState();
 			return false;
 		}
@@ -1443,7 +1532,13 @@ export class EngineController {
 			if (!watchingActivation) return;
 			watchingActivation = false;
 			unsubscribeActivation();
+			this.unsubscribers = this.unsubscribers.filter(
+				(unsubscribe) => unsubscribe !== stopWatchingActivation,
+			);
 		};
+		// Preparation can also fail before the first worker revision. Scope
+		// retirement owns this temporary subscription on every failure path.
+		this.unsubscribers.push(stopWatchingActivation);
 		const moduleUuid = findModuleForForm(state, formUuid);
 		const input = buildEngineInput(state, formUuid, this.presentationLanguage);
 		if (
@@ -1452,6 +1547,7 @@ export class EngineController {
 			input === undefined
 		) {
 			stopWatchingActivation();
+			this.clearActiveForm();
 			this.publishEntryState();
 			return false;
 		}
@@ -1514,6 +1610,7 @@ export class EngineController {
 			return false;
 		if (!docStore.getState().forms[formUuid]) {
 			this.clearActiveForm();
+			this.publishEntryState();
 			return false;
 		}
 		const uuids = collectFormUuids(formUuid, state.fieldOrder);
@@ -1571,11 +1668,17 @@ export class EngineController {
 			if (engine !== this.engine || entryKey !== this.currentEntryKey)
 				return false;
 			this.entryReady = this.runtimeFault === undefined;
+			this.rebuilding = false;
+			this.syncAllToStore();
 			this.publishEntryState();
 			return this.entryReady;
 		}
 		if (ready && entryKey === this.currentEntryKey && engine === this.engine) {
 			this.reconciledDocumentState = state;
+		}
+		if (this.rebuilding) {
+			this.rebuilding = false;
+			this.syncAllToStore();
 		}
 		this.publishEntryState();
 		return ready;
@@ -1599,7 +1702,9 @@ export class EngineController {
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 					? this.currentEntryKey
 					: crypto.randomUUID();
-			const checkpoint = this.engine?.entryCheckpoint();
+			const checkpoint = (
+				this.retainedPresentation?.engine ?? this.engine
+			)?.entryCheckpoint();
 			this.mountForm(
 				formUuid,
 				caseData,
@@ -1630,8 +1735,14 @@ export class EngineController {
 			readonly preserveAllValues: boolean;
 		},
 	): void {
-		this.clearActiveForm();
+		this.clearActiveForm(
+			restoredEntry !== undefined &&
+				(this.entryReady || this.rebuilding) &&
+				this.activeFormUuid === formUuid &&
+				this.currentEntryKey === entryKey,
+		);
 		if (this.previewIdentityBlocked || !this.docStore) {
+			this.clearActiveForm();
 			this.publishEntryState();
 			return;
 		}
@@ -1642,11 +1753,13 @@ export class EngineController {
 		// re-render" window is normal; the next effect tick reactivates
 		// against the new active form.
 		if (!s.forms[formUuid]) {
+			this.clearActiveForm();
 			this.publishEntryState();
 			return;
 		}
 		const moduleUuid = findModuleForForm(s, formUuid);
 		if (!moduleUuid) {
+			this.clearActiveForm();
 			this.publishEntryState();
 			return;
 		}
@@ -1654,6 +1767,7 @@ export class EngineController {
 		/* Build the FormEngine input from the doc store */
 		const input = buildEngineInput(s, formUuid, this.presentationLanguage);
 		if (!input) {
+			this.clearActiveForm();
 			this.publishEntryState();
 			return;
 		}
@@ -1705,10 +1819,25 @@ export class EngineController {
 		this.setupAsyncReconciliationSubscription(formUuid);
 		this.reconciledDocumentState = s;
 		this.entryReady = true;
+		this.rebuilding = false;
+		if (this.retainedPresentation !== undefined) this.syncAllToStore();
 		this.publishEntryState();
 	}
 
-	private clearActiveForm(): void {
+	private clearActiveForm(retainPublishedPresentation = false): void {
+		this.retainedPresentation = retainPublishedPresentation
+			? (this.retainedPresentation ??
+				(this.engine === undefined
+					? undefined
+					: this.reconciledDocumentState === undefined
+						? undefined
+						: {
+								engine: this.engine,
+								uuidToPath: this.uuidToPath,
+								document: this.reconciledDocumentState,
+							}))
+			: undefined;
+		this.rebuilding = this.retainedPresentation !== undefined;
 		this.retireRuntimeScope();
 		this.entryReady = false;
 		this.pendingValuePaths.clear();
@@ -1720,12 +1849,12 @@ export class EngineController {
 		this.reconciledDocumentState = undefined;
 		this.caseWriteProjectionDirty = false;
 		this.mountedCaseDatabaseSnapshot = undefined;
-		this.uuidToPath.clear();
-		this.pathToUuid.clear();
+		this.uuidToPath = new Map();
+		this.pathToUuid = new Map();
 		this.activeFormUuid = undefined;
 		this.activeCaseData = undefined;
 		this.currentEntryKey = undefined;
-		this.store.setState({}, true);
+		if (!this.rebuilding) this.store.setState({}, true);
 	}
 
 	/** Clean up all subscriptions and reset state. */
@@ -1809,6 +1938,11 @@ export class EngineController {
 		return this.activeFormUuid;
 	}
 
+	/** The document that names the currently published controls and paths. */
+	get presentationDocument(): BlueprintDocState | undefined {
+		return this.retainedPresentation?.document ?? this.docStore?.getState();
+	}
+
 	/** Exact worker identity captured by the live engine entry. Attachment
 	 * continuations compare this imperative value after every await. */
 	get previewIdentitySnapshot(): ResolvedPreviewIdentity | null {
@@ -1880,6 +2014,7 @@ export class EngineController {
 	 *  entry point, where repeat children carry per-instance indexed paths
 	 *  the uuid map can't address. */
 	setValueAt(path: string, value: string): void {
+		if (this.rebuilding) return;
 		if (!this.engine || this.caseDatabaseWait() !== undefined) return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
@@ -1899,32 +2034,151 @@ export class EngineController {
 	}
 
 	async setValueAtAsync(path: string, value: string): Promise<boolean> {
+		if (this.rebuilding) return false;
 		if (this.caseDatabaseWait() !== undefined) return false;
-		const engine = this.engine;
-		const formUuid = this.activeFormUuid;
-		const entryKey = this.currentEntryKey;
-		if (!engine || !formUuid || !entryKey || this.xpathRuntime === undefined) {
+		if (this.xpathRuntime === undefined) {
 			this.setValueAt(path, value);
 			return this.engine !== undefined;
 		}
-		if (!this.entryReady) return false;
+		return this.beginValueChangeAt(path, value) ?? false;
+	}
+
+	/** An acknowledgement exists only after the answer has actually staged.
+	 * The returned revision remains owned by the controller's normal queue. */
+	private beginValueChangeAt(
+		path: string,
+		value: string,
+	): Promise<boolean> | undefined {
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		const entryKey = this.currentEntryKey;
+		if (
+			!engine ||
+			!formUuid ||
+			!entryKey ||
+			this.rebuilding ||
+			!this.entryReady ||
+			this.caseDatabaseWait() !== undefined
+		)
+			return undefined;
 		/* Concrete repeat paths are positional. Never queue one across an
 		 * indivisible add/remove: compaction may make the same text address a
 		 * different instance. FormScreen also makes controls inert for this
 		 * window; this imperative guard closes the event/render race. */
-		if (this.atomicRevisionsPending > 0) return false;
-		const stageValue = () => {
-			if (engine !== this.engine || entryKey !== this.currentEntryKey) return;
-			engine.setValue(path, value);
-			this.pendingValuePaths.add(path);
-			this.syncPathsToStore([path]);
-		};
-		stageValue();
+		if (this.atomicRevisionsPending > 0) return undefined;
+		engine.setValue(path, value);
+		this.pendingValuePaths.add(path);
+		this.syncPathsToStore([path]);
+		if (this.xpathRuntime === undefined) return Promise.resolve(true);
 		return this.runAsyncRevision(
 			"value-change",
 			formUuid,
 			async () => engine === this.engine && entryKey === this.currentEntryKey,
 			false,
+		);
+	}
+
+	/** Read-only stable-slot lookup. Removed/shrunk rows and reused indices
+	 * cannot stand in for the repeat identity that started a capture. */
+	private captureAnswerPath(target: CaptureAnswerTarget): string | undefined {
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		const document = this.docStore?.getState();
+		if (
+			engine === undefined ||
+			formUuid === undefined ||
+			document?.fields[target.fieldUuid]?.kind !== target.kind ||
+			!collectFormUuids(formUuid, document.fieldOrder).includes(
+				target.fieldUuid,
+			)
+		)
+			return undefined;
+		const keys = engine.getRepeatInstanceKeySnapshot();
+		const walk = (
+			nodes: readonly FieldTreeNode[],
+			prefix: string,
+			repeatDepth: number,
+		): string | undefined => {
+			for (const node of nodes) {
+				const path = `${prefix}/${node.field.id}`;
+				if (
+					node.field.uuid === target.fieldUuid &&
+					node.field.kind === target.kind &&
+					repeatDepth === target.repeatInstances.length &&
+					engine.attachmentPathDisposition(path) === "active"
+				)
+					return path;
+				if (node.field.kind === "repeat") {
+					const identity = target.repeatInstances[repeatDepth];
+					if (identity?.fieldUuid !== node.field.uuid) continue;
+					const count = engine.getRepeatCount(path);
+					const index = keys.get(path)?.indexOf(identity.instanceKey);
+					if (index === undefined || index < 0 || index >= count) continue;
+					const result = walk(
+						node.children ?? [],
+						`${path}[${index}]`,
+						repeatDepth + 1,
+					);
+					if (result !== undefined) return result;
+				} else if (node.children !== undefined) {
+					const result = walk(node.children, path, repeatDepth);
+					if (result !== undefined) return result;
+				}
+			}
+			return undefined;
+		};
+		return walk(engine.getFieldTree(), "/data", 0);
+	}
+
+	private async awaitCaptureEntryReady(
+		entryKey: string,
+		signal: AbortSignal,
+	): Promise<boolean> {
+		if (signal.aborted) return false;
+		let abort: () => void = () => {};
+		const canceled = new Promise<boolean>((resolve) => {
+			abort = () => resolve(false);
+			signal.addEventListener("abort", abort, { once: true });
+		});
+		try {
+			return (
+				(await Promise.race([this.awaitSettled(entryKey), canceled])) &&
+				!signal.aborted &&
+				this.currentEntryKey === entryKey &&
+				this.entryReady &&
+				!this.rebuilding &&
+				this.runtimeFault === undefined
+			);
+		} finally {
+			signal.removeEventListener("abort", abort);
+		}
+	}
+
+	/** Successful capture completion joins only the engine queue, then stages
+	 * against current stable identities. Ownership adoption shares that exact
+	 * synchronous acceptance boundary; it never relies on stale React paths. */
+	async commitCaptureAnswer(
+		entryKey: string,
+		target: CaptureAnswerTarget,
+		value: string,
+		gate: CaptureCommitGate,
+		onAccepted: (path: string) => void,
+	): Promise<boolean> {
+		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
+			return false;
+		if (!gate.isCurrent()) return false;
+		const path = this.captureAnswerPath(target);
+		if (path === undefined) return false;
+		const work = this.beginValueChangeAt(path, value);
+		if (work === undefined) return false;
+		onAccepted(path);
+		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
+			return false;
+		if (!gate.isCurrent()) return false;
+		const currentPath = this.captureAnswerPath(target);
+		return (
+			currentPath !== undefined &&
+			this.engine?.store.getState()[currentPath]?.value === value
 		);
 	}
 
@@ -1938,6 +2192,7 @@ export class EngineController {
 
 	/** Mark the field at a concrete engine path as touched (on blur). */
 	touchAt(path: string): void {
+		if (this.rebuilding) return;
 		if (!this.engine) return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
@@ -1953,6 +2208,7 @@ export class EngineController {
 	}
 
 	async touchAtAsync(path: string): Promise<boolean> {
+		if (this.rebuilding) return false;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
@@ -1985,6 +2241,7 @@ export class EngineController {
 
 	/** Validate all visible fields. Returns true if valid. */
 	validateAll(): boolean {
+		if (this.rebuilding) return false;
 		if (!this.engine) {
 			return (
 				this.runtimeFault === undefined && this.caseDatabaseWait() === undefined
@@ -2001,27 +2258,141 @@ export class EngineController {
 		});
 	}
 
-	async validateAllAsync(): Promise<boolean> {
-		await this.pendingWork;
+	async validateAllAsync(): Promise<EngineValidationCompletion> {
+		return this.validateAsync();
+	}
+
+	private validationScopeIsCurrent(scope: EngineValidationScope): boolean {
+		return (
+			scope.engine === this.engine &&
+			scope.formUuid === this.activeFormUuid &&
+			scope.entryKey === this.currentEntryKey &&
+			scope.generation === this.lifecycleGeneration &&
+			scope.documentState === this.docStore?.getState() &&
+			scope.rebuildWork === this.pendingRebuildWork &&
+			(scope.caseDatabaseState === undefined ||
+				scope.caseDatabaseState === this.caseDatabaseState) &&
+			this.runtimeFault === undefined &&
+			this.caseDatabaseWait() === undefined &&
+			this.entryReady &&
+			!this.rebuilding
+		);
+	}
+
+	/** Recheck the exact validation completion after another owned boundary,
+	 * such as an attachment/save barrier. Readiness alone cannot revive it. */
+	isValidationCurrent(completion: EngineValidationCompletion): boolean {
+		const fence = this.validationCompletions.get(completion);
+		return (
+			fence !== undefined &&
+			this.validationScopeIsCurrent(fence) &&
+			fence.revision === this.runtimeRevision &&
+			fence.runtimeState === this.store.getState()
+		);
+	}
+
+	private async validateAsync(
+		sectionUuid?: Uuid,
+	): Promise<EngineValidationCompletion> {
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
-		if (!engine || !formUuid || !entryKey || this.xpathRuntime === undefined) {
-			return this.validateAll();
+		if (
+			!engine ||
+			!formUuid ||
+			!entryKey ||
+			!this.entryReady ||
+			this.rebuilding ||
+			this.runtimeFault !== undefined ||
+			this.caseDatabaseWait() !== undefined
+		) {
+			return { kind: "unavailable" };
 		}
-		return this.runAsyncRevision(
+		const initialRevision = this.runtimeRevision;
+		const initialRuntimeState = this.store.getState();
+		const scope: EngineValidationScope = {
+			engine,
+			formUuid,
+			entryKey,
+			generation: this.lifecycleGeneration,
+			documentState: this.docStore?.getState(),
+			// A linked task owns its explicit device world. Refreshing the provider's
+			// base cache does not replace that captured world.
+			caseDatabaseState:
+				this.requestedActivation?.caseDatabase === undefined
+					? this.caseDatabaseState
+					: undefined,
+			rebuildWork: this.pendingRebuildWork,
+		};
+		await Promise.all([this.pendingWork, scope.rebuildWork]);
+		if (
+			!this.validationScopeIsCurrent(scope) ||
+			initialRevision !== this.runtimeRevision ||
+			(this.xpathRuntime === undefined &&
+				initialRuntimeState !== this.store.getState())
+		)
+			return { kind: "retired" };
+		const complete = (
+			valid: boolean,
+			revision: number,
+		): EngineValidationCompletion => {
+			if (
+				!this.validationScopeIsCurrent(scope) ||
+				revision !== this.runtimeRevision
+			)
+				return { kind: "retired" };
+			this.syncAllPathsSelectively();
+			const completion: EngineValidationCompletion = valid
+				? { kind: "valid" }
+				: {
+						kind: "invalid",
+						target: engine.firstInvalidFieldTarget(
+							sectionUuid === undefined
+								? undefined
+								: { withinSection: sectionUuid },
+						),
+					};
+			this.validationCompletions.set(completion, {
+				...scope,
+				revision,
+				runtimeState: this.store.getState(),
+			});
+			return completion;
+		};
+		if (this.xpathRuntime === undefined) {
+			return this.contain<EngineValidationCompletion>(
+				"validation",
+				formUuid,
+				{ kind: "retired" },
+				() =>
+					complete(
+						sectionUuid === undefined
+							? engine.validateAll()
+							: engine.validateSection(sectionUuid),
+						this.runtimeRevision,
+					),
+			);
+		}
+		return this.runAsyncRevision<EngineValidationCompletion>(
 			"validation",
 			formUuid,
 			async (revision, generation, signal) => {
-				const valid = await engine.validateAllAsync(
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				if (!this.validationScopeIsCurrent(scope))
+					return { kind: "retired" } as const;
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
-				if (engine !== this.engine || entryKey !== this.currentEntryKey)
-					return false;
-				this.syncAllPathsSelectively();
-				return valid;
+				const valid =
+					sectionUuid === undefined
+						? await engine.validateAllAsync(evaluate)
+						: await engine.validateSectionAsync(sectionUuid, evaluate);
+				return complete(valid, revision);
 			},
-			false,
+			{ kind: "retired" },
 		);
 	}
 
@@ -2035,11 +2406,14 @@ export class EngineController {
 
 	/** The form's pages (root sections) with their current visibility. */
 	sectionPages(): ReadonlyArray<SectionPage> {
-		return this.engine?.sectionPages() ?? [];
+		return (
+			(this.retainedPresentation?.engine ?? this.engine)?.sectionPages() ?? []
+		);
 	}
 
 	/** Materialize this page through the same engine operation used by test journeys. */
 	async enterSectionAsync(sectionUuid: Uuid): Promise<boolean> {
+		if (this.rebuilding) return false;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
@@ -2080,6 +2454,7 @@ export class EngineController {
 
 	/** Validate the visible questions on one page. Returns true if valid. */
 	validateSection(sectionUuid: Uuid): boolean {
+		if (this.rebuilding) return false;
 		if (!this.engine) {
 			return (
 				this.runtimeFault === undefined && this.caseDatabaseWait() === undefined
@@ -2094,29 +2469,10 @@ export class EngineController {
 		});
 	}
 
-	async validateSectionAsync(sectionUuid: Uuid): Promise<boolean> {
-		await this.pendingWork;
-		const engine = this.engine;
-		const formUuid = this.activeFormUuid;
-		const entryKey = this.currentEntryKey;
-		if (!engine || !formUuid || !entryKey || this.xpathRuntime === undefined) {
-			return this.validateSection(sectionUuid);
-		}
-		return this.runAsyncRevision(
-			"validation",
-			formUuid,
-			async (revision, generation, signal) => {
-				const valid = await engine.validateSectionAsync(
-					sectionUuid,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
-				);
-				if (engine !== this.engine || entryKey !== this.currentEntryKey)
-					return false;
-				this.syncAllPathsSelectively();
-				return valid;
-			},
-			false,
-		);
+	async validateSectionAsync(
+		sectionUuid: Uuid,
+	): Promise<EngineValidationCompletion> {
+		return this.validateAsync(sectionUuid);
 	}
 
 	/** Resolve a concrete question to the collapsed containers that hide it. */
@@ -2134,6 +2490,7 @@ export class EngineController {
 
 	/** Full reset — reinitialize all runtime state. */
 	reset(): void {
+		if (this.rebuilding) return;
 		if (!this.engine) return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
@@ -2144,6 +2501,7 @@ export class EngineController {
 	}
 
 	async resetAsync(): Promise<boolean> {
+		if (this.rebuilding) return false;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
 		if (formUuid === undefined || entryKey === undefined) return false;
@@ -2158,6 +2516,7 @@ export class EngineController {
 
 	/** Clear touched/validation state (for mode switches). */
 	resetValidation(): void {
+		if (this.rebuilding) return;
 		if (!this.engine) return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
@@ -2169,17 +2528,19 @@ export class EngineController {
 
 	/** Get the repeat count for a repeat group. */
 	getRepeatCount(uuid: string): number {
-		if (!this.engine) return 1;
-		const path = this.uuidToPath.get(uuid);
+		const engine = this.retainedPresentation?.engine ?? this.engine;
+		if (!engine) return 1;
+		const path = this.getPath(uuid);
 		if (!path) return 1;
-		return this.engine.getRepeatCount(path);
+		return engine.getRepeatCount(path);
 	}
 
 	/** Stable render identity for a repeat instance even when indices compact. */
 	getRepeatInstanceKey(uuid: string, index: number, atPath?: string): string {
-		const path = atPath ?? this.uuidToPath.get(uuid);
-		if (!this.engine || !path) return `${uuid}:${index}`;
-		return this.engine.getRepeatInstanceKey(path, index);
+		const path = atPath ?? this.getPath(uuid);
+		const engine = this.retainedPresentation?.engine ?? this.engine;
+		if (!engine || !path) return `${uuid}:${index}`;
+		return engine.getRepeatInstanceKey(path, index);
 	}
 
 	/**
@@ -2197,6 +2558,7 @@ export class EngineController {
 	 * for `convertField`.
 	 */
 	addRepeat(uuid: string, atPath?: string): number {
+		if (this.rebuilding) return 0;
 		if (!this.engine) return 0;
 		if (!this.isUserControlledRepeat(uuid)) return 0;
 		const path = atPath ?? this.uuidToPath.get(uuid);
@@ -2215,6 +2577,7 @@ export class EngineController {
 	}
 
 	async addRepeatAsync(uuid: string, atPath?: string): Promise<number> {
+		if (this.rebuilding) return 0;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
@@ -2251,6 +2614,7 @@ export class EngineController {
 	/** Remove a repeat instance. Same gate as `addRepeat` — only
 	 *  `user_controlled` repeats can shed instances at runtime. */
 	removeRepeat(uuid: string, index: number, atPath?: string): void {
+		if (this.rebuilding) return;
 		if (!this.engine) return;
 		if (!this.isUserControlledRepeat(uuid)) return;
 		const path = atPath ?? this.uuidToPath.get(uuid);
@@ -2288,6 +2652,7 @@ export class EngineController {
 		index: number,
 		atPath?: string,
 	): Promise<boolean> {
+		if (this.rebuilding) return false;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
@@ -2352,7 +2717,7 @@ export class EngineController {
 
 	/** Get the XForm path for a UUID. */
 	getPath(uuid: string): string | undefined {
-		return this.uuidToPath.get(uuid);
+		return (this.retainedPresentation?.uuidToPath ?? this.uuidToPath).get(uuid);
 	}
 
 	/**
@@ -2369,6 +2734,7 @@ export class EngineController {
 		caseIds?: readonly string[];
 		viewerTimeZone?: string;
 	}): SubmissionMutation {
+		if (this.rebuilding) throw new Error("Preview is preparing this form.");
 		if (
 			this.runtimeFault !== undefined ||
 			this.caseDatabaseWait() !== undefined
@@ -2413,7 +2779,13 @@ export class EngineController {
 	async computeSubmissionMutationAsync(
 		args: { caseIds?: readonly string[]; viewerTimeZone?: string },
 		expectedEntryKey: string,
+		validation?: EngineValidationCompletion,
 	): Promise<EngineSubmissionSnapshot | undefined> {
+		if (
+			validation !== undefined &&
+			(validation.kind !== "valid" || !this.isValidationCurrent(validation))
+		)
+			return undefined;
 		if (!(await this.awaitSettled(expectedEntryKey))) return undefined;
 		const engine = this.engine;
 		const documentState = this.reconciledDocumentState;
@@ -2423,7 +2795,10 @@ export class EngineController {
 			documentState === undefined ||
 			this.docStore?.getState() !== documentState ||
 			this.currentEntryKey !== expectedEntryKey ||
-			this.settling
+			this.settling ||
+			this.rebuilding ||
+			this.caseDatabaseWait() !== undefined ||
+			(validation !== undefined && !this.isValidationCurrent(validation))
 		) {
 			return undefined;
 		}
@@ -3339,7 +3714,7 @@ export class EngineController {
 			runtimeUpdates[uuid] = DEFAULT_RUNTIME_STATE;
 			this.trackedUuids.delete(uuid);
 		}
-		this.store.setState(runtimeUpdates);
+		if (!this.rebuilding) this.store.setState(runtimeUpdates);
 
 		/* Rebuild path maps and DAG without the removed fields */
 		const input = this.currentEngineInput();
@@ -3429,7 +3804,10 @@ export class EngineController {
 	/** Sync ALL engine state to the runtime store. Used only during
 	 *  initial activation and full reset. */
 	private syncAllToStore(): void {
-		if (!this.engine) return;
+		if (!this.engine || this.rebuilding) return;
+		// Store selectors derive pages and repeat render keys through this
+		// controller. They must see the replacement on its first publication.
+		this.retainedPresentation = undefined;
 		const engineState = this.engine.store.getState();
 		const runtime: RuntimeStoreState = {};
 		for (const [path, state] of Object.entries(engineState)) {
@@ -3445,7 +3823,7 @@ export class EngineController {
 	 *  changes, where many fields are touched but most states don't
 	 *  change. */
 	private syncAllPathsSelectively(): void {
-		if (!this.engine) return;
+		if (!this.engine || this.rebuilding) return;
 		const engineState = this.engine.store.getState();
 		const currentRuntime = this.store.getState();
 		const updates: RuntimeStoreState = {};
@@ -3470,7 +3848,7 @@ export class EngineController {
 	 *  used after every targeted operation. Only writes entries whose
 	 *  state actually changed. */
 	private syncPathsToStore(paths: string[]): void {
-		if (!this.engine) return;
+		if (!this.engine || this.rebuilding) return;
 		const engineState = this.engine.store.getState();
 		const currentRuntime = this.store.getState();
 		const updates: RuntimeStoreState = {};

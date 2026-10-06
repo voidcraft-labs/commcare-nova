@@ -11,8 +11,8 @@ Sentry.init({
 	/* Off on localhost — the E2E smoke suite drives the production bundle through
 	 * HeadlessChrome at http://localhost, and local dev runs there too; neither
 	 * should ship browser errors to PROD Sentry. A real deployment is never
-	 * localhost. (The server/edge configs gate on the Firestore emulator host,
-	 * which the browser can't read.) */
+	 * localhost. (The server/edge configs gate on `NOVA_DB_LOCAL_URL`, which
+	 * the browser can't read.) */
 	enabled:
 		typeof window !== "undefined" &&
 		!["localhost", "127.0.0.1"].includes(window.location.hostname),
@@ -22,8 +22,6 @@ Sentry.init({
 
 	// Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
 	tracesSampleRate: 1,
-	// Enable logs to be sent to Sentry
-	enableLogs: true,
 
 	// Define how likely Replay events are sampled.
 	// This sets the sample rate to be 10%. You may want this to be 100% while
@@ -33,9 +31,9 @@ Sentry.init({
 	// Define how likely Replay events are sampled when an error occurs.
 	replaysOnErrorSampleRate: 1.0,
 
-	// Enable sending user PII (Personally Identifiable Information)
-	// https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
-	sendDefaultPii: true,
+	/* `dataCollection` stays at the SDK default, which infers the user's IP.
+	 * Browser events carry no cookies, so that is the whole of what it adds.
+	 * The server and edge configs restrict it (`sentry.dataCollection.ts`). */
 });
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

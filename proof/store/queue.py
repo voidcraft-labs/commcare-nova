@@ -27,7 +27,8 @@ Each group is one of three classes, from the snapshots ``--store`` names
   key (``proof.store.keys.document_key``: its files, the fingerprints of the
   observation's and the browser's code, the platform), but not its
   judgments. It runs, reading every part from the store, so only its checks'
-  judges run.
+  judges run, and HQ's branch proof of it where that names it
+  (``proof/hq/test_branches.py``), which reads nothing from the store.
 - observed: everything else, which runs, reading from the store each part it
   holds.
 

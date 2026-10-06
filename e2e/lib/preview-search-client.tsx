@@ -1,12 +1,49 @@
+import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	BuilderLocalizationProvider,
+	useBuilderLanguage,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import { DatePicker } from "@/components/shadcn/date-picker";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { BlueprintDocContext } from "@/lib/doc/provider";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 import { proseText, simpleSearchInputDef } from "@/lib/domain";
+import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
+
+const doc = buildDoc({
+	appId: "native-search",
+	modules: [
+		{
+			name: "Search",
+			forms: [
+				{
+					name: "Visit",
+					type: "survey",
+					fields: [{ kind: "text", id: "notes", label: "Notes" }],
+				},
+			],
+		},
+	],
+});
+doc.localization = {
+	sourceLanguage: "eng",
+	defaultLanguage: "eng",
+	languageOrder: ["eng", "spa", "eng-GB"],
+	translations: { spa: {}, "eng-GB": {} },
+};
+const docStore = createBlueprintDocStore();
+docStore.getState().load(admittedControllerDoc(doc));
+const languageJourney = new URLSearchParams(window.location.search).has(
+	"language",
+);
 
 const inputs = [
 	simpleSearchInputDef(
@@ -48,6 +85,8 @@ const caseType = {
 	],
 };
 function Surface({ revision }: { revision: number }) {
+	const { selectLanguage } = useBuilderLanguage();
+	const [authoringDate, setAuthoringDate] = useState("2024-01-15");
 	const run = useSearchInputRunState({
 		scopeKey: "native-search",
 		searchInputs: inputs,
@@ -61,6 +100,24 @@ function Surface({ revision }: { revision: number }) {
 	});
 	return (
 		<main style={{ padding: 12 }} data-render-revision={revision}>
+			{languageJourney && (
+				<>
+					<button type="button" onClick={() => selectLanguage("eng")}>
+						English
+					</button>
+					<button type="button" onClick={() => selectLanguage("spa")}>
+						Español
+					</button>
+					<button type="button" onClick={() => selectLanguage("eng-GB")}>
+						English UK
+					</button>
+					<DatePicker
+						aria-label="Authoring date"
+						value={authoringDate}
+						onValueChange={setAuthoringDate}
+					/>
+				</>
+			)}
 			<SearchInputForm
 				caseType={caseType}
 				searchInputs={inputs}
@@ -78,10 +135,20 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Missing root");
 const root = createRoot(rootElement);
 let revision = 0;
-root.render(<Surface revision={revision} />);
+function renderSurface() {
+	return (
+		<BlueprintDocContext value={docStore}>
+			<BuilderLocalizationProvider>
+				<Surface revision={revision} />
+			</BuilderLocalizationProvider>
+		</BlueprintDocContext>
+	);
+}
+root.render(renderSurface());
 window.previewSearchAudit = {
 	rerender() {
-		root.render(<Surface revision={++revision} />);
+		revision += 1;
+		root.render(renderSurface());
 	},
 	dispose() {
 		root.unmount();

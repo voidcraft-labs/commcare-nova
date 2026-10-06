@@ -6,8 +6,8 @@
  * are attributed to a person (name + email) rather than just an IP.
  *
  * Mounted once alongside `ErrorReporter` in the authenticated app layout.
- * Renders nothing: a pure side-effect component. The browser SDK runs with
- * `sendDefaultPii: true` (see `instrumentation-client.ts`), so it already
+ * Renders nothing: a pure side-effect component. The browser SDK keeps its
+ * default `dataCollection` (see `instrumentation-client.ts`), so it already
  * attaches IP-based attribution; this adds the durable identity on top.
  *
  * Mirrors the server side: `lib/auth-utils.ts` sets the same user on each

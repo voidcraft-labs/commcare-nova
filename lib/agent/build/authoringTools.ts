@@ -110,9 +110,9 @@ export function sharedToolAvailable(
 	return phase.building;
 }
 
-/** All authoring definitions come from the same editor/MCP registry. Hosted
- * search defers their loading. Role authority determines discovery; first-save
- * prerequisites are enforced by the invocation boundary. */
+/** All authoring definitions come from the same editor/MCP registry. Journey
+ * tools stay eager; hosted search defers the rest. Role authority determines
+ * discovery; first-save prerequisites are enforced by the invocation boundary. */
 export function architectToolDefinitions(phase: AuthoringToolPhase): ToolSet {
 	const shared = solutionsArchitectToolDefinitions();
 	const selected: ToolSet = {

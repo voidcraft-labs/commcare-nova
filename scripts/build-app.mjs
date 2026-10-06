@@ -66,6 +66,10 @@ const sentryEnvironment = {
 	NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "",
 	SENTRY_ORG: "dimagi-1l",
 	SENTRY_PROJECT: "nova",
+	SENTRY_LOG_LEVEL: "warn",
+	// A build reports to Sentry only what it uploads on purpose.
+	SENTRY_CLI_NO_TELEMETRY: "1",
+	SENTRY_CLI_NO_UPDATE_CHECK: "1",
 };
 // Match the Next SDK's manifest exclusions. These files have no source maps;
 // the server-action manifest also carries private runtime configuration.
@@ -78,13 +82,11 @@ const sourceMapIgnores = [
 	"**/route_client-reference-manifest.js",
 	"**/middleware-react-loadable-manifest.js",
 ];
+// `sentry` is the CLI the Sentry SDK depends on, reached by name from the
+// package scripts' path. Nova declares no copy of its own, so the CLI moves
+// with the SDK.
 const sentry = (name, args) =>
-	runPhase(
-		name,
-		"sentry-cli",
-		["--log-level", "warn", ...args],
-		sentryEnvironment,
-	);
+	runPhase(name, "sentry", args, sentryEnvironment);
 
 // Native Turbopack debug IDs and maps are generated normally. Upload only
 // after compilation and the independent native type check.
@@ -109,21 +111,30 @@ await runPhase(
 );
 if (hasSentryToken) {
 	if (!release) throw new Error("Sentry upload requires NOVA_BUILD_ID");
-	await sentry("sentry-release", ["releases", "new", release]);
-	// Native Turbopack maps already embed source content. Sentry's source-map
-	// reader flattens indexed maps when symbolication needs it; doing so here
-	// parses and re-encodes the entire source set a second time.
-	await sentry("sentry-maps", [
-		"sourcemaps",
-		"upload",
-		"--no-rewrite",
-		"--release",
+	// The command reads the project from its own flag, not the environment.
+	await sentry("sentry-release", [
+		"release",
+		"create",
 		release,
-		...sourceMapIgnores.flatMap((pattern) => ["--ignore", pattern]),
-		".next/server",
-		".next/static",
+		"--project",
+		sentryEnvironment.SENTRY_PROJECT,
 	]);
-	await sentry("sentry-finalize", ["releases", "finalize", release]);
+	// Native Turbopack maps already embed source content and debug IDs. The
+	// upload reads each file's ID to key its map, and leaves a file that has
+	// one untouched; `--no-rewrite` would skip that read and upload maps no
+	// event can be matched to. The command takes one directory per upload.
+	for (const directory of [".next/server", ".next/static"]) {
+		await sentry("sentry-maps", [
+			"sourcemap",
+			"upload",
+			directory,
+			"--release",
+			release,
+			"--ignore",
+			sourceMapIgnores.join(","),
+		]);
+	}
+	await sentry("sentry-finalize", ["release", "finalize", release]);
 }
 // Never ship public source maps, including the standalone server copy made by
 // Next before the upload. Keep compiler cache and dependency packages intact.

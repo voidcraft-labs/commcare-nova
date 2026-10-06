@@ -23,9 +23,13 @@
 //      evaluator — anchored on the loaded session case. Everything
 //      evaluates against the pre-submission snapshot: the app's
 //      relationship advisory lock serializes every actor writer, and
+//      shared lookup-table locks hold the Project data each expression reads,
 //      no envelope DML runs until evaluation completes, so the rows
-//      the SELECTs see are exactly the casedb snapshot the device's
-//      calculates see.
+//      the SELECTs see are the current pre-effect Preview transaction.
+//      Native calculates can retain an initialized form's casedb view
+//      across other submissions to the same local store; this is not a
+//      native current-at-submit or compare-and-set guarantee. Form-answer
+//      bindings retain submitted entry values in either path.
 //   4. **Resolve + reauthorize** targets: `session` is the loaded
 //      case; `op` reads the allocation record; `expression` results
 //      load tenant-bound and revalidate through
@@ -859,6 +863,31 @@ async function resolveOperationProgram(
 	ordinary: ApplySubmissionArgs["ordinary"],
 	sessions: ReadonlyMap<string, SessionAnchor>,
 ): Promise<ResolvedInstance[]> {
+	// Lookup writers take the table FOR UPDATE before changing definitions or
+	// rows. Hold each referenced table in UUID order across every evaluation
+	// phase, so a guard and its value cannot observe different generations.
+	// The store already holds the app's authorization and relationship locks;
+	// lookup writers never request either after acquiring a table lock.
+	const lookupTableIds = [...(program.lookupTableSchemas?.keys() ?? [])].sort();
+	if (lookupTableIds.length > 0) {
+		const locked = await sql<{ id: string }>`
+			SELECT id::text AS id FROM lookup_tables
+			WHERE project_id = ${host.projectId}
+				AND id IN (${sql.join(lookupTableIds)})
+			ORDER BY id FOR SHARE
+		`.execute(trx);
+		if (locked.rows.length !== lookupTableIds.length) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.submissionEnvelope.resolveOperationProgram",
+					invariant:
+						"an operation's lookup definitions name unavailable tables",
+					detail:
+						"Every definition must resolve in the authorized Project before evaluation.",
+				}),
+			);
+		}
+	}
 	const instances = expandPhysicalInstances(program, ordinary);
 	const allocations = allocateCreateIdentities(appId, program, instances);
 
@@ -956,7 +985,42 @@ async function resolveOperationProgram(
 		});
 	}
 
-	// Phase: values + runtime targets for executing instances.
+	// Resolve write guards before requesting values. An omitted write must
+	// not evaluate blank numeric answers or other unused expressions. These
+	// reads share the operation guards' pre-effect view under the app lock.
+	const writeGuardRequests: EvalRequest[] = [];
+	const writeGuardSlots: Array<{ instance: number; write: number }> = [];
+	for (const [index, instance] of instances.entries()) {
+		if (!executing[index]) continue;
+		for (const [writeIndex, write] of (
+			instance.envelope.operation.writes ?? []
+		).entries()) {
+			if (write.condition === undefined) continue;
+			writeGuardSlots.push({ instance: index, write: writeIndex });
+			writeGuardRequests.push({ instance: index, predicate: write.condition });
+		}
+	}
+	const writeGuardResults = await evaluateBatch(
+		trx,
+		host,
+		appId,
+		program,
+		sessionFor,
+		bindingsFor,
+		writeGuardRequests,
+	);
+	const skippedWrites = new Map<number, Set<number>>();
+	for (const [slotIndex, slot] of writeGuardSlots.entries()) {
+		if (writeGuardResults[slotIndex] === true) continue;
+		let writes = skippedWrites.get(slot.instance);
+		if (writes === undefined) {
+			writes = new Set();
+			skippedWrites.set(slot.instance, writes);
+		}
+		writes.add(slot.write);
+	}
+
+	// Phase: values + runtime targets for executing instances and writes.
 	interface ValueSlot {
 		readonly instance: number;
 		readonly kind:
@@ -965,7 +1029,6 @@ async function resolveOperationProgram(
 			| "owner"
 			| "target"
 			| { write: number }
-			| { writeCondition: number }
 			| { link: number };
 	}
 	const valueRequests: EvalRequest[] = [];
@@ -997,14 +1060,8 @@ async function resolveOperationProgram(
 			request(index, "target", { expression: operation.target.expr });
 		}
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
+			if (skippedWrites.get(index)?.has(writeIndex)) continue;
 			request(index, { write: writeIndex }, { expression: write.value });
-			if (write.condition !== undefined) {
-				request(
-					index,
-					{ writeCondition: writeIndex },
-					{ predicate: write.condition },
-				);
-			}
 		}
 		for (const [linkIndex, link] of (operation.links ?? []).entries()) {
 			if (link.target?.kind === "expression") {
@@ -1029,7 +1086,6 @@ async function resolveOperationProgram(
 			owner?: unknown;
 			target?: unknown;
 			writes: Map<number, unknown>;
-			writeConditions: Map<number, unknown>;
 			links: Map<number, unknown>;
 		}
 	>();
@@ -1038,7 +1094,6 @@ async function resolveOperationProgram(
 		if (bag === undefined) {
 			bag = {
 				writes: new Map(),
-				writeConditions: new Map(),
 				links: new Map(),
 			};
 			valuesByInstance.set(slot.instance, bag);
@@ -1049,8 +1104,6 @@ async function resolveOperationProgram(
 		else if (slot.kind === "owner") bag.owner = value;
 		else if (slot.kind === "target") bag.target = value;
 		else if ("write" in slot.kind) bag.writes.set(slot.kind.write, value);
-		else if ("writeCondition" in slot.kind)
-			bag.writeConditions.set(slot.kind.writeCondition, value);
 		else bag.links.set(slot.kind.link, value);
 	}
 
@@ -1368,12 +1421,7 @@ async function resolveOperationProgram(
 			operation.retype ?? operation.caseType,
 		);
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
-			if (
-				write.condition !== undefined &&
-				bag?.writeConditions.get(writeIndex) !== true
-			) {
-				continue;
-			}
+			if (skippedWrites.get(index)?.has(writeIndex)) continue;
 			if (write.property === "external_id") {
 				const prepared = prepareCaseScalarTextValue(
 					evaluatedText(bag?.writes.get(writeIndex)),

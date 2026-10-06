@@ -38,6 +38,15 @@ from proof.hq.determinism import operation
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 
 
+@pytest.fixture(autouse=True)
+def _kept_answers_given(monkeypatch):
+    """These state what a kept answer is and when it is given again. ``PROOF_VERIFY_MEMOS=1`` computes every
+    kept answer again beside it (more flag reads, more queries, no hit that saves the work), so each test runs
+    with it off unless it turns it on itself, as the tests of the verified path do."""
+    monkeypatch.setattr(buildcache, "VERIFY_MEMOS", False)
+    monkeypatch.setattr(seams, "VERIFY_MEMOS", False)
+
+
 def _build(state, record, app_id, key, previous=None):
     """One build as the observation makes it (caches emptied, the app read afresh) and everything it left."""
     from proof.observe.build import build_state

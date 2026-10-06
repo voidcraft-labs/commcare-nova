@@ -205,6 +205,7 @@ from proof.checks.manifest_value_classes import (
     XmlAt,
     appearance_words,
     instance_source,
+    protected_constraint_form,
 )
 from proof.observe.intent import FORM_FILE
 from proof.observe.manifest import read_entry
@@ -835,8 +836,8 @@ def _itext_readers(manifest):
 
 
 def _itext_form_uses(form, manifest, artifact, where, found, at=None):
-    """An itext value's ``form``: each runtime's item for it (``itext-form:<reader>/<form>``), else one no runtime
-    reads."""
+    """An itext value's ``form``: each named runtime item, else an unknown form. Once the observation's
+    readings arrive, a structurally owned protected-message form is covered by the generic @form item."""
     readers = _itext_readers(manifest).get(form, ())
     for key in readers:
         found.add(key, artifact, where, at)
@@ -1560,6 +1561,31 @@ def read_observed(found: Uses, manifest: Manifest, readings: Readings):
     string, as HQ's parser read it, and every form's questions, as HQ's reader read them; each added as uses."""
     for document in found.documents:
         document.readings = readings
+    # Core's parser accepts dynamic form names. A protected message's recorded expression and technical
+    # label prove which group owns these particular names; its generic @form use already exists. Other
+    # custom forms, including identical names on an unrelated group, retain their unknown-form use.
+    found.uses = [
+        use for use in found.uses if not (use.key.startswith("itext-form:*/") and protected_constraint_form(use))
+    ]
+    # Constraint messages are compiled lazily by Core's Constraint, so the generated parser inventory
+    # does not mark the attribute parsedAs:xpath. Read the grammar of only this classified expression
+    # from the parse already recorded by the observation; do not broaden ordinary raw messages.
+    pending = {(expression.artifact, expression.where) for expression in found.expressions}
+    for use in found.uses:
+        if use.key != "xform:model/bind@jr:constraintMsg" or not isinstance(use.at, XmlAt):
+            continue
+        form, bind = use.at.document, use.at.element
+        if isinstance(form, Form) and bind in form.protected_constraint_messages:
+            if (use.artifact, use.where) not in pending:
+                found.expression(
+                    use.artifact,
+                    use.where,
+                    bind.get(f"{{{JAVAROSA}}}constraintMsg"),
+                    form.declared_instances,
+                    grammar=True,
+                    at=use.at,
+                )
+                pending.add((use.artifact, use.where))
     for expression in found.expressions:
         parsed = readings.read("expressions", expression.text, f"{expression.text!r} ({expression.artifact})")
         _expression_uses(expression, parsed, manifest, found)

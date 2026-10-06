@@ -44,6 +44,7 @@ import type {
 	FormAttachmentsTable,
 	FormSubmissionIntentsTable,
 	LookupRowsTable,
+	LookupTablesTable,
 } from "@/lib/db/pg";
 
 // Standard recursive JSON-value union. Read-side shape of every
@@ -338,9 +339,9 @@ export interface ParkedCaseValuesTable {
 
 /**
  * Complete Kysely Database type. The runtime instance is constructed
- * elsewhere. `lookup_rows` is `lib/lookup`'s Project-scoped row
- * storage, present here READ-ONLY for `compileTableLookup`'s
- * first-match subqueries — the authoritative shape and every writer
+ * elsewhere. `lookup_tables` and `lookup_rows` are `lib/lookup`'s
+ * Project-scoped storage, present here READ-ONLY for submission locks and
+ * `compileTableLookup`'s first-match subqueries — their shapes and every writer
  * live in `lib/db` (the type import keeps the two universes'
  * intersection on the shared pool compatible); the case store never
  * writes these rows.
@@ -355,6 +356,7 @@ export interface Database {
 	case_indices: CaseIndicesTable;
 	parked_case_values: ParkedCaseValuesTable;
 	lookup_rows: LookupRowsTable;
+	lookup_tables: LookupTablesTable;
 	form_attachments: FormAttachmentsTable;
 	form_submission_intents: FormSubmissionIntentsTable;
 }

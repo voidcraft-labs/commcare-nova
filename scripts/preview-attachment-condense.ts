@@ -20,7 +20,7 @@
  * Cost: one extractor call per file — never the SA.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { createOpenAI } from "@ai-sdk/openai";

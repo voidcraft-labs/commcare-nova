@@ -10,7 +10,9 @@
 // shard's claiming (it finishes what it holds and fails). NAME is the claim's
 // artifact name, one per block and run attempt (proof-claim-<attempt>-<block>).
 //
-// Two ways to claim, each sound on one property of GitHub's artifact service:
+// Two diagnostic claim modes, each conditional on a service property.
+// GitHub has violated both properties below; CI defaults to exclusive static
+// bins and the aggregate gate rejects duplicates from any diagnostic run.
 //
 // --mode create (the default) rests on the service refusing a second
 //   creation of a name the run holds (409 Conflict). The shard creates the
@@ -24,7 +26,7 @@
 //   after an artifact is finalized includes it. GitHub's service does accept
 //   one name several times when shards create it at once (a run of ten
 //   shards held up to ten artifacts of one claim, and blocks every claimant
-//   yielded), so CI claims with --mode steal.
+//   yielded). This mode remains an explicit diagnostic choice.
 //
 // --mode steal --shard I/N rests on that listing property alone. Each block
 //   has one owner among the N shards (proof/ci/artifacts.mjs::ownerOf). A
@@ -36,8 +38,9 @@
 //   committed. A shard that commits listed after its intent and saw no owner's
 //   mark, so the owner's later listing shows that intent and waits for the
 //   commit; two that both declare see each other and both withdraw, and the
-//   owner then takes the block. So no two shards run a block, and every block
-//   whose owner runs is run.
+//   owner then takes the block. This exclusivity argument requires the listing
+//   property; GitHub has returned listings omitting finalized owner and intent
+//   markers, and two shards then ran one block.
 //
 // --listing-cache FILE keeps the latest listing between claims (at most
 // --listing-age seconds old, 5 by default): a name it holds is taken without

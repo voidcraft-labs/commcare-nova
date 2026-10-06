@@ -28,6 +28,7 @@ import {
 } from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column } from "@/lib/domain";
+import type { LanguageTag } from "@/lib/domain/localization";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
@@ -41,6 +42,7 @@ import type {
 	CalculatedValue,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 /**
  * Render one column's cell for one row. Dispatches on the
  * column's `kind` discriminator; each branch handles the
@@ -83,7 +85,7 @@ export function renderColumnCell(
 			// never a blank cell that hides real case data.
 			address
 		) : (
-			renderEmptyCell()
+			renderEmptyCell(context.language)
 		);
 	}
 	if (column.kind === "phone") {
@@ -91,16 +93,18 @@ export function renderColumnCell(
 		return phoneNumber ? (
 			<a
 				href={`tel:${phoneNumber}`}
-				aria-label={`Call ${phoneNumber}`}
+				aria-label={runtimeMessage(context.language, "callPhone", {
+					number: phoneNumber,
+				})}
 				className="inline-flex min-h-11 min-w-11 items-center text-nova-violet-bright underline decoration-current/50 underline-offset-2 [overflow-wrap:anywhere]"
 			>
 				{displayed.text}
 			</a>
 		) : (
-			renderEmptyCell()
+			renderEmptyCell(context.language)
 		);
 	}
-	return renderPreviewValue(displayed);
+	return renderPreviewValue(displayed, context.language);
 }
 
 export function renderCalculatedCell(
@@ -110,7 +114,10 @@ export function renderCalculatedCell(
 	return renderPreviewValue(projectCalculatedValue(value, temporalType));
 }
 
-function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
+function renderPreviewValue(
+	value: PreviewFormattedValue,
+	language?: LanguageTag,
+): React.ReactNode {
 	if (value.kind === "image") {
 		return (
 			<SimpleTooltip content={value.text}>
@@ -123,7 +130,7 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 		);
 	}
 	if (value.kind === "value") {
-		if (!value.text) return renderEmptyCell();
+		if (!value.text) return renderEmptyCell(language);
 		return value.dateTime === undefined ? (
 			<span>{value.text}</span>
 		) : (
@@ -156,13 +163,13 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 	);
 }
 
-function renderEmptyCell(): React.ReactNode {
+function renderEmptyCell(language?: LanguageTag): React.ReactNode {
 	return (
 		<span>
 			<span aria-hidden="true" className="text-nova-text-muted">
 				–
 			</span>
-			<span className="sr-only">No value</span>
+			<span className="sr-only">{runtimeMessage(language, "noValue")}</span>
 		</span>
 	);
 }

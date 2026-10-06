@@ -1,5 +1,5 @@
 /** Historical select-value repair. Scan by default; production --prod is read only. */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { runMain } from "@/scripts/lib/main";

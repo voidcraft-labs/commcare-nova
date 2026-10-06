@@ -457,6 +457,34 @@ answers. Portaled controls provide the worker direction to Base UI's positioning
 context as well as the popup DOM, so logical start/end alignment is correct for
 RTL content.
 
+Preview's platform catalog supplies English/Spanish navigation and generic
+validation, live question/section/repeat positions and required announcements,
+group/repeat controls, datetime Date/Time names, and Nova-owned GPS address-search,
+wait/empty-state, location guidance, browser-location failure and manual-coordinate copy.
+
+Running-app menus, breadcrumb navigation, record lists and details also follow
+the selected English/Spanish language. This includes filters, counts, selection,
+paging, blank-value labels, loading and empty/error states. Authoring setup and
+diagnostic guidance stay in English.
+
+Live forms and Search share `WorkerDatePicker`
+for calendar text and accessible labels, placeholder and Clear. Date display
+passes the canonical selected tag to Intl, retaining its regional suffix; the
+calendar uses generic English/Spanish labels and week layout. The generic
+authoring picker keeps its English defaults. Language rerenders retain answers
+and drafts and revalidate already-invalid questions after rebuilding, including
+blank required answers whose authored constraint is skipped. Previously clean
+questions remain clean. Retained platform review announcements resolve in the
+current language; authored and server messages keep their own wording. Ordinary
+input blur still commits and normalizes values. Other worker
+languages use
+English platform copy. Browser location failures retain typed reasons and resolve
+their catalog wording in the committed worker language when delivered. Language
+changes retain the request and exact coordinates. Google's map tiles, controls,
+gestures, place names and resolved addresses keep Google's own language. Clock
+formatting, record metadata, media controls and other accessibility labels and
+diagnostics remain outside this catalog.
+
 ## Solutions Architect and MCP experience
 
 The shared SA/MCP surface has one coherent language family:
@@ -515,7 +543,7 @@ belongs in the conversation; conversation language alone is not such a request.
 
 ## AI translation service
 
-Translation is a named model role using GPT-5.6 Sol through Nova's installed AI
+Translation is a named model role using GPT-6.1 Sol at xhigh effort through Nova's installed AI
 SDK structured-output path. The SDK API called “translation” is speech/audio
 translation and is not used for text localization.
 
@@ -531,10 +559,26 @@ oversized unit stays alone without truncating its source. Each batch includes:
 - unit roles and breadcrumbs;
 - sibling labels/options where they disambiguate meaning;
 - protected prose-reference tokens;
-- a bounded durable terminology glossary from prior accepted batches.
+- a bounded terminology glossary derived from current saved translations and
+  prior accepted batches, including protected templates, roles and screens.
+  Saved menu and form names take priority so directions use the names workers see.
 
 The system prompt asks for natural worker-facing text that follows the target's
-script and regional conventions.
+script and regional conventions. Saved and accepted wording is contextual
+guidance, never a mechanical copy between units: identical English labels can
+have different meanings or grammatical forms in different workflows. Every new,
+outdated or unreviewed copied unit goes to the translator with its own role,
+question and screen context. Current translations remain unchanged and are not
+requested again; missing, stale and unreviewed copied values never seed the
+glossary. Protected-template context retains every typed reference identity.
+
+Actual source line breaks must survive translation. When the source contains real
+line breaks and no literal backslash-`n` instructions, the codec corrects doubled
+JSON newline escapes to actual line breaks before accepting the value. It leaves
+authored literal escapes intact and refuses output that loses source line or
+paragraph breaks. Existing malformed formatting is preserved in its current
+entry but does not seed reusable wording for other screens. The codec does not
+generally unescape text or reparse reference spellings.
 
 An explicitly incomplete provider response is refused even when the SDK parsed
 a complete-looking object. Its usage and failure remain durable; it cannot

@@ -23,6 +23,7 @@ import {
 	projectColumnDisplay,
 } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import { useWorkerMessage } from "./WorkerText";
 
 /**
  * Does this row survive the filter text? Every whitespace-separated
@@ -65,6 +66,7 @@ export function ListFilterBox({
 	 * pretending no matching case exists on another server page. */
 	readonly scope?: "results" | "page";
 }) {
+	const message = useWorkerMessage();
 	const id = useId();
 	const inputRef = useRef<HTMLInputElement>(null);
 	return (
@@ -73,7 +75,7 @@ export function ListFilterBox({
 				htmlFor={id}
 				className="mb-1.5 block text-[13px] font-medium text-nova-text-secondary"
 			>
-				{scope === "page" ? "Filter this page" : "Filter results"}
+				{message(scope === "page" ? "filterPage" : "filterResults")}
 			</label>
 			<div className="relative">
 				<Icon
@@ -100,7 +102,7 @@ export function ListFilterBox({
 							onChange("");
 							requestAnimationFrame(() => inputRef.current?.focus());
 						}}
-						aria-label="Clear the filter"
+						aria-label={message("clearFilter")}
 						className="absolute inset-y-0 right-0 h-full w-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-transparent"
 					>
 						<Icon icon={tablerX} width="14" height="14" />
@@ -109,8 +111,12 @@ export function ListFilterBox({
 			</div>
 			{value !== "" && resultCount !== undefined && resultCount > 0 && (
 				<p className="mt-2 text-xs text-nova-text-secondary" role="status">
-					{resultCount.toLocaleString()} {resultCount === 1 ? "case" : "cases"}{" "}
-					{scope === "page" ? "on this page" : "shown"}
+					{message(scope === "page" ? "onThisPage" : "countShown", {
+						count: message(
+							resultCount === 1 ? "caseCountOne" : "caseCountMany",
+							{ count: resultCount.toLocaleString() },
+						),
+					})}
 				</p>
 			)}
 		</div>

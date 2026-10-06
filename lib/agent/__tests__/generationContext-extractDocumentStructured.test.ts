@@ -25,6 +25,8 @@ describe("GenerationContext document extraction with the real SDK", () => {
 		async (kind) => {
 			const received = Promise.withResolvers<{
 				model: string;
+				reasoning: { effort: string; summary: string };
+				store: boolean;
 				input: unknown[];
 				text: { format: { schema: { required: string[] } } };
 			}>();
@@ -65,7 +67,12 @@ describe("GenerationContext document extraction with the real SDK", () => {
 					expect(writer.write).not.toHaveBeenCalled();
 					expect(logWriter.logEvent).not.toHaveBeenCalled();
 					const request = await received.promise;
-					expect(request.model).toBe(model.modelId);
+					expect(request.model).toBe("gpt-6.1-sol");
+					expect(request.reasoning).toEqual({
+						effort: "medium",
+						summary: "auto",
+					});
+					expect(request.store).toBe(false);
 					expect(request.text.format.schema.required).toEqual([
 						"title",
 						"summary",

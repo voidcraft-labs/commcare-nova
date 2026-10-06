@@ -449,7 +449,13 @@ def _raw_builds_differ_whole(before, after):
 
 def _raw_builds_differ_changed(base, after):
     """``_raw_builds_differ_whole(base.outcome, after)``, reading only what can differ (see ``raw_builds_differ``)."""
-    from proof.checks.compare.build_files import comparator_kind, compare_parsed_builds, parse_build_files
+    from proof.checks.compare.build_files import (
+        as_read,
+        comparator_kind,
+        compare_parsed_builds,
+        default_strings_path,
+        parse_build_files,
+    )
     from proof.checks.compare.versions import apply_version_clause
 
     flat = _flat_files(after)
@@ -469,6 +475,13 @@ def _raw_builds_differ_changed(base, after):
     if any(base.parsed[path].error for path in same):
         return True
     kept = [path for path in same if _root_name(base.parsed[path]) in _BUILD_VERSION_ROOTS]
+    # A language's app strings are read over its default file's (``as_read``), so a changed language file is
+    # compared with the default beside it, on both sides, whether or not the default's bytes changed.
+    kept += [
+        default
+        for default in sorted({default_strings_path(path) for path in parsed_after} - {None})
+        if default in same
+    ]
     for path in kept:
         parsed_after[path] = base.parsed[path]
     before = {path: base.parsed[path] for path in parsed_after}
@@ -481,6 +494,7 @@ def _raw_builds_differ_changed(base, after):
     # ``compare_parsed_builds`` compares file by file, so the builds differ where any one file does; a file
     # whose two trees serialize alike (or whose two strings maps are equal) is the same in every part the
     # comparators read.
+    parsed_a, parsed_b = as_read(parsed_a), as_read(parsed_b)
     for path in sorted(parsed_a):
         a, b = parsed_a[path], parsed_b[path]
         if not (a.error or b.error) and _same_parse(a, b):

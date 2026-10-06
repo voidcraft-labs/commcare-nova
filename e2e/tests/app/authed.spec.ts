@@ -2857,13 +2857,25 @@ test.describe("authenticated builder", () => {
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
+				await expect(
+					page
+						.getByRole("dialog", { includeHidden: true })
+						.filter({ hasText: "Form settings" }),
+				).toHaveCount(0);
 				const firstNameRow = page.locator(
 					`main [data-field-uuid="${identity.firstNameUuid}"]`,
 				);
 				const idInput = page.locator('[data-field-id="id"] input').visible();
-				await firstNameRow
-					.getByRole("button", { name: "Select field", exact: true })
-					.press("Enter");
+				const selectField = firstNameRow.getByRole("button", {
+					name: "Select field",
+					exact: true,
+				});
+				await selectField.focus();
+				await expect(selectField).toBeFocused();
+				await selectField.press("Enter");
+				await expect(page).toHaveURL(
+					`${new URL(page.url()).origin}/build/${fixture.appId}/${identity.firstNameUuid}`,
+				);
 				await expect(idInput).toHaveValue("given_name");
 				await waitForSavedMutation('"kind":"removeField"', () =>
 					page
@@ -3471,6 +3483,56 @@ test.describe("authenticated builder", () => {
 					`Case-changes fixture missing for Playwright attempt ${testInfo.retry}`,
 				);
 			}
+			// Observe the native stream after its listeners run, and the resource
+			// refresh it causes. A PUT acknowledgement alone precedes that echo.
+			await page.addInitScript(() => {
+				const observation = {
+					readyRevision: 0,
+					batches: {} as Record<string, { seq: number; readyRevision: number }>,
+				};
+				Object.defineProperty(window, "caseChangesMutationEchoes", {
+					value: observation,
+				});
+				const observer = new MutationObserver((records) => {
+					for (const record of records) {
+						if (
+							record.target instanceof Element &&
+							record.target.matches(
+								'[data-builder-resource="case-database"]',
+							) &&
+							record.oldValue === "loading" &&
+							record.target.getAttribute("data-state") === "ready"
+						)
+							observation.readyRevision++;
+					}
+				});
+				observer.observe(document, {
+					subtree: true,
+					attributes: true,
+					attributeFilter: ["data-state"],
+					attributeOldValue: true,
+				});
+				window.addEventListener("pagehide", () => observer.disconnect(), {
+					once: true,
+				});
+				const NativeEventSource = window.EventSource;
+				window.EventSource = class extends NativeEventSource {
+					constructor(url: string | URL, options?: EventSourceInit) {
+						super(url, options);
+						this.addEventListener("mutation", (event) => {
+							const { batchId, seq } = JSON.parse(
+								(event as MessageEvent<string>).data,
+							) as { batchId: string; seq: number };
+							queueMicrotask(() => {
+								observation.batches[batchId] = {
+									seq,
+									readyRevision: observation.readyRevision,
+								};
+							});
+						});
+					}
+				};
+			});
 			const lookupCatalog = page.locator(
 				'[data-builder-resource="lookup-catalog"]',
 			);
@@ -3799,19 +3861,67 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("repairing the target submits real effects and the linked rows are visible", async () => {
-				const removalSaved = page.waitForResponse(
-					(response) =>
-						response.request().method() === "PUT" &&
-						new URL(response.url()).pathname ===
-							`/api/apps/${caseChanges.appId}`,
-				);
+				const removalSaved = page.waitForResponse((response) => {
+					const request = response.request();
+					if (
+						request.method() !== "PUT" ||
+						new URL(response.url()).pathname !==
+							`/api/apps/${caseChanges.appId}`
+					)
+						return false;
+					const body = request.postDataJSON() as {
+						mutations: {
+							kind: string;
+							caseOperationPatch?: { operation: string; identifier?: string };
+						}[];
+					};
+					return body.mutations.some(
+						(mutation) =>
+							mutation.kind === "updateForm" &&
+							mutation.caseOperationPatch?.operation === "remove-link" &&
+							mutation.caseOperationPatch.identifier === "parent",
+					);
+				});
 				// The connection's Remove names which connection it removes, so a
 				// screen-reader user hears more than "Remove" on a change that can
 				// hold several.
 				await page
 					.getByRole("button", { name: "Remove the connection “parent”" })
 					.click();
-				expect((await removalSaved).ok()).toBe(true);
+				const removal = await removalSaved;
+				expect(removal.ok()).toBe(true);
+				const { batchId } = removal.request().postDataJSON() as {
+					batchId: string;
+				};
+				const { seq } = (await removal.json()) as { seq: number };
+				await expect
+					.poll(() =>
+						page.evaluate(
+							({ batchId, seq }) => {
+								const observation = (
+									window as unknown as Window & {
+										caseChangesMutationEchoes: {
+											readyRevision: number;
+											batches: Record<
+												string,
+												{ seq: number; readyRevision: number }
+											>;
+										};
+									}
+								).caseChangesMutationEchoes;
+								const echo = observation.batches[batchId];
+								return (
+									echo?.seq === seq &&
+									observation.readyRevision > echo.readyRevision
+								);
+							},
+							{ batchId, seq },
+						),
+					)
+					.toBe(true);
+				await expect(
+					page.locator('[data-builder-resource="case-database"]'),
+				).toHaveAttribute("data-state", "ready");
 
 				// The button that did the removing unmounted with the row it
 				// removed, so focus has to be handed forward or it falls to the

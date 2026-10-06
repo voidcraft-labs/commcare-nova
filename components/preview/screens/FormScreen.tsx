@@ -33,7 +33,6 @@ import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
-import { useFormIsSectioned } from "@/lib/doc/hooks/useFormSections";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
 import {
@@ -79,6 +78,7 @@ import {
 	overlayCaseDatabasePatch,
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
+import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
 	type CarriedSubmission,
@@ -91,6 +91,10 @@ import {
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import {
+	resolvePreviousTask,
+	selectionsForModuleTask,
+} from "@/lib/preview/engine/previousTask";
 import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
@@ -101,6 +105,10 @@ import {
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import {
+	usePresentationFormIsSectioned,
+	usePresentationHasFields,
+} from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
@@ -332,8 +340,6 @@ interface FormScreenProps {
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
-	/** BuilderLayout's back handler: also the fallback post-submit destination for `previous` forms. */
-	onBack: () => void;
 }
 
 function previewCaseChoiceIdsEqual(
@@ -373,7 +379,7 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({ screen, onBack }: FormScreenProps) {
+export function FormScreen({ screen }: FormScreenProps) {
 	const explicitCases = screen.cases;
 	const loc = useLocation();
 	const navigate = useNavigate();
@@ -478,6 +484,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
 	const hasFields = useHasFieldsInForm(formUuid);
+	const presentationHasFields = usePresentationHasFields(formUuid);
 
 	/* Direct preview of a case-loading form with no case in hand (jumped here
 	 * from the structure tree, not walked through the case list): auto-bind
@@ -687,7 +694,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		engineEntry.formUuid === formUuid &&
 		engineEntry.ready &&
 		entryKey !== undefined;
-	const engineInitializing = mode === "preview" && !engineReady;
+	const engineRebuilding =
+		engineEntry.formUuid === formUuid && engineEntry.rebuilding;
+	const engineInitializing =
+		mode === "preview" && !engineReady && !engineRebuilding;
 	let attachmentEntryReady = false;
 	if (entryKey !== undefined) {
 		setAttachmentEntryAuthority({
@@ -848,7 +858,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		kind: "idle",
 	});
 	const [validationAnnouncement, setValidationAnnouncement] = useState<
-		{ readonly serial: number; readonly message: string } | undefined
+		| {
+				readonly serial: number;
+				readonly kind: "literal";
+				readonly message: string;
+		  }
+		| { readonly serial: number; readonly kind: "review" }
+		| undefined
 	>();
 	/* Each announcement gets its own serial so the same sentence said twice
 	 * (two failed Next presses) re-renders the alert node and is read twice. */
@@ -856,7 +872,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const announce = useCallback((message: string): void => {
 		setValidationAnnouncement({
 			serial: ++announcementSerialRef.current,
+			kind: "literal",
 			message,
+		});
+	}, []);
+	/* Keep platform feedback as intent: the same entry may change language
+	 * while this alert is still present. Authored/server messages stay literal. */
+	const announceReview = useCallback((): void => {
+		setValidationAnnouncement({
+			serial: ++announcementSerialRef.current,
+			kind: "review",
 		});
 	}, []);
 	const [clearRevision, setClearRevision] = useState(0);
@@ -932,26 +957,35 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		(
 			dest: PostSubmitDestination,
 			submittedModuleUuid: Uuid | undefined,
+			submittedDoc: BlueprintDoc,
 		): void => {
 			switch (dest) {
 				case "module":
-					if (submittedModuleUuid) navigate.openModule(submittedModuleUuid);
+					if (submittedModuleUuid) {
+						const selections = selectionsForModuleTask(
+							submittedDoc,
+							submittedModuleUuid,
+							session.getState().previewMenuCaseSelections,
+						);
+						setPreviewMenuCaseSelection(
+							submittedModuleUuid,
+							selections[submittedModuleUuid],
+						);
+						navigate.openModule(submittedModuleUuid);
+					}
 					return;
 				case "app_home":
 					navigate.goHome();
 					return;
 				case "previous":
-					/* Return to whatever screen sent the user here. `onBack`
-					 * reads from BuilderLayout, which holds the back-stack and
-					 * falls through to the module home when the stack is
-					 * empty. */
-					onBack();
-					return;
+					throw new Error(
+						"The preceding task must be resolved from the submitted entry.",
+					);
 				default: {
 					/* Exhaustive switch: a future `PostSubmitDestination`
 					 * arm landing without a case here surfaces as the
 					 * standard `unhandledKindMessage` shape rather than
-					 * silently routing to `onBack()`. */
+					 * silently choosing an unrelated destination. */
 					const _exhaustive: never = dest;
 					throw new Error(
 						unhandledKindMessage({
@@ -964,7 +998,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}
 			}
 		},
-		[navigate, onBack],
+		[navigate, session, setPreviewMenuCaseSelection],
 	);
 
 	/**
@@ -1023,6 +1057,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			announced = true;
 			args.announceWrite();
 		};
+		const retireCompletedTask = (): void => {
+			session.getState().setPreviewTaskContinuation(undefined);
+			session.getState().setPreviewParentCaseRequest(undefined);
+			setPreviewCaseTarget(undefined);
+		};
 		/* Unless it explicitly returns to App home, a no-matches registration
 		 * form returns to its module as the wire's
 		 * return frame does; the gate keeps such a form free of links, so
@@ -1064,6 +1103,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
 				: undefined;
 		if (noMatchesRegistration !== undefined) {
+			retireCompletedTask();
 			// An explicitly authored App home destination is HQ's empty root
 			// frame. It discards the scalar registration return rather than feeding
 			// that scalar into a host that may require a multiple-case selection.
@@ -1075,7 +1115,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				session.getState().setPreviewParentCaseRequest(undefined);
 				settleAttempt({ kind: "idle" });
 				forgetCompletedPages();
-				dispatchPostSubmit("app_home", noMatchesRegistration.moduleUuid);
+				dispatchPostSubmit(
+					"app_home",
+					noMatchesRegistration.moduleUuid,
+					submitted.doc,
+				);
 				return;
 			}
 			landOnResultsWithRegisteredCase(
@@ -1084,16 +1128,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			);
 			return;
 		}
-		const links = submitted.links;
+		const links = submitted.links ?? [];
 		if (
-			links === undefined ||
-			links.length === 0 ||
+			(links.length === 0 && submitted.destination !== "previous") ||
 			submitted.formUuid === undefined
 		) {
+			retireCompletedTask();
 			announceWrite();
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
-			dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
+			dispatchPostSubmit(
+				submitted.destination,
+				submitted.moduleUuid,
+				submitted.doc,
+			);
 			return;
 		}
 		const sourceFormUuid = submitted.formUuid;
@@ -1291,13 +1339,25 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			const linkedCaseCollections =
 				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
 			const route = afterSubmitRoute({
+				previousTask: () =>
+					resolvePreviousTask({
+						doc,
+						formUuid: sourceFormUuid,
+						submittedCaseIds: resultCaseIds,
+						selections: menuCaseSelections,
+						caseDatabase: refreshedCaseDatabase,
+					}),
 				choice,
 				doc,
 				caseFirstModules,
 				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
 					return previewTargetHasSelectedCase({
 						menuSource: routeMenuSource,
-						current: menuCaseSelections,
+						current: selectionsForModuleTask(
+							doc,
+							targetModuleUuid,
+							menuCaseSelections,
+						),
 						targetModuleUuid,
 						projected: projectedSelections,
 						collections: linkedCaseCollections,
@@ -1373,16 +1433,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			/* Target hydration no longer depends on the source form or its case
 			 * binding. Invalidation may now rebuild/clear that source safely. */
+			if (route.kind !== "previous-task" && route.kind !== "unresolvable")
+				retireCompletedTask();
 			announceWrite();
 			const applyCaseSelections = (): void => {
 				if (route.kind !== "module" && route.kind !== "form") return;
-				const nextSelections = previewMenuSelectionsAfterTargetCases(
+				const projectedSelections = previewMenuSelectionsAfterTargetCases(
 					routeMenuSource,
 					menuCaseSelections,
 					route.caseSelections,
 					targetCaseData,
 					linkedCaseCollections,
 				);
+				const nextSelections =
+					route.kind === "module"
+						? selectionsForModuleTask(
+								doc,
+								route.moduleUuid,
+								projectedSelections,
+							)
+						: projectedSelections;
 				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
@@ -1400,10 +1470,67 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}
 			};
 			switch (route.kind) {
+				case "previous-task": {
+					for (const uuid of routeMenuSource.moduleOrder)
+						setPreviewMenuCaseSelection(uuid, route.task.selections[uuid]);
+					setPreviewSelectedCase(undefined);
+					setPreviewCaseTarget(undefined);
+					const next = route.task.destination;
+					session.getState().setPreviewParentCaseRequest(undefined);
+					session.getState().setPreviewTaskContinuation(
+						next.kind === "home"
+							? undefined
+							: {
+									moduleUuid: next.moduleUuid,
+									...(next.kind === "record-selection" && {
+										formUuid: next.formUuid,
+									}),
+									selectingModuleUuids:
+										next.kind === "record-selection"
+											? next.selectingModuleUuids
+											: [],
+									caseDatabase: route.task.caseDatabase,
+								},
+					);
+					settleAttempt({ kind: "idle" });
+					forgetCompletedPages();
+					if (next.kind === "home") navigate.goHome();
+					else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
+					else {
+						setPreviewCaseTarget({
+							formUuid: next.formUuid,
+							caseDatabase: refreshedCaseDatabase,
+						});
+						const [first, ...remaining] = next.selectingModuleUuids;
+						if (first === undefined)
+							throw new Error("The preceding record selector is unavailable.");
+						if (remaining.length > 0 || first !== next.moduleUuid)
+							session.getState().setPreviewParentCaseRequest({
+								selectingModuleUuid: first,
+								returnModuleUuids:
+									remaining.length > 0 ? remaining : [next.moduleUuid],
+								resumeLocation:
+									remaining.length > 0
+										? { kind: "cases", moduleUuid: next.moduleUuid }
+										: {
+												kind: "form",
+												moduleUuid: next.moduleUuid,
+												formUuid: next.formUuid,
+											},
+								cancelLocation: { kind: "module", moduleUuid: next.moduleUuid },
+							});
+						navigate.openCaseList(first);
+					}
+					return;
+				}
 				case "post-submit":
 					settleAttempt({ kind: "idle" });
 					forgetCompletedPages();
-					dispatchPostSubmit(route.destination, submitted.moduleUuid);
+					dispatchPostSubmit(
+						route.destination,
+						submitted.moduleUuid,
+						submitted.doc,
+					);
 					return;
 				case "module":
 					applyCaseSelections();
@@ -1460,6 +1587,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							received: _exhaustive,
 							knownKinds: [
 								"post-submit",
+								"previous-task",
 								"module",
 								"form",
 								"results-with-registered-case",
@@ -1518,12 +1646,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[],
 	);
 
-	const revealAndFocusFirstInvalid = useCallback((): void => {
-		const target = controller.firstInvalidFieldTarget();
-		if (target === undefined) return;
-		revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true);
-	}, [controller, revealAndFocusTarget]);
-
 	const revealInvalidOnPage = useCallback(
 		(target: InvalidFieldTarget): void =>
 			revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true),
@@ -1532,12 +1654,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	/* A sectioned form previews one page at a time (`useSectionPaging`). The
 	 * hook is inert for a single-page form and in edit mode, where the
 	 * canvas shows every page at once. */
-	const formIsSectioned = useFormIsSectioned(formUuid);
+	const formIsSectioned = usePresentationFormIsSectioned(formUuid);
 	const paging = useSectionPaging({
 		formUuid,
 		enabled: mode === "preview" && formIsSectioned,
 		revealInvalid: revealInvalidOnPage,
-		refuse: announce,
+		refuse: announceReview,
 	});
 	/** Turn to the page holding a question before revealing it: an invalid
 	 *  question's first ancestor is its section, so the reveal's DOM query
@@ -1576,7 +1698,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	const handleSubmit = async (): Promise<void> => {
-		if (clearInFlightRef.current) return;
+		const currentEntry = controller.entryStore.getState();
+		if (
+			clearInFlightRef.current ||
+			currentEntry.rebuilding ||
+			currentEntry.caseDatabaseWait !== undefined
+		)
+			return;
 
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
@@ -1742,13 +1870,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 * links need the case types of the children it created, which the
 		 * result reports only by id. */
 		let landedMutation: SubmissionMutation | undefined;
+		let validation: EngineValidationCompletion | undefined;
 		try {
 			const submitStableAnswers = async (): Promise<
 				SubmissionResult | "invalid" | "save-failed" | "stale"
 			> => {
 				if (!isCurrent()) return "stale";
-				const valid = await controller.validateAllAsync();
-				if (!valid) return "invalid";
+				validation = await controller.validateAllAsync();
+				if (!controller.isValidationCurrent(validation)) return "stale";
+				if (validation.kind === "invalid") return "invalid";
+				if (validation.kind !== "valid") return "stale";
 				const submission = await controller.computeSubmissionMutationAsync(
 					{
 						caseIds: submitted.caseIds,
@@ -1758,6 +1889,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						viewerTimeZone: viewerTimeZone(),
 					},
 					submittedEntryKey,
+					validation,
 				);
 				if (submission === undefined) return "stale";
 				const { mutation, documentState: finalDocState } = submission;
@@ -1781,9 +1913,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				) {
 					return "save-failed";
 				}
-				if (docApi.getState() !== finalDocState) return "stale";
+				if (
+					docApi.getState() !== finalDocState ||
+					!controller.isValidationCurrent(validation)
+				)
+					return "stale";
 				const finalBlueprintDigest = await blueprintRevisionDigest(finalDoc);
-				if (docApi.getState() !== finalDocState) return "stale";
+				if (
+					docApi.getState() !== finalDocState ||
+					!controller.isValidationCurrent(validation)
+				)
+					return "stale";
 				submittedDocState = finalDocState;
 				submitted = finalSubmitted;
 				submissionRevisionFinal = true;
@@ -1846,13 +1986,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
+				if (
+					validation?.kind !== "invalid" ||
+					!controller.isValidationCurrent(validation) ||
+					validation.target === undefined
+				)
+					return;
 				// The focused question supplies the specific correction.
-				announce(
-					runtimeMessage(language.language, "reviewHighlightedQuestion"),
-				);
-				const firstInvalid = controller.firstInvalidFieldTarget();
-				if (firstInvalid !== undefined) showPageOf(firstInvalid);
-				revealAndFocusFirstInvalid();
+				announceReview();
+				showPageOf(validation.target);
+				revealInvalidOnPage(validation.target);
 				return;
 			}
 			if (
@@ -2002,6 +2145,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		submitStatus.kind === "running" ||
 		clearRunning ||
 		engineInitializing ||
+		engineRebuilding ||
 		selectedCaseLoading ||
 		caseDatabaseWait !== undefined ||
 		repeatTopologySettling;
@@ -2328,7 +2472,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					disabled={formFrozen}
 					className="contents"
 				>
-					{hasFields ? (
+					{(mode === "preview" ? presentationHasFields : hasFields) ? (
 						engineInitializing ? (
 							<div
 								role="status"
@@ -2339,7 +2483,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									width="18"
 									className="animate-spin"
 								/>
-								This form is getting ready.
+								{runtimeMessage(language.language, "formGettingReady")}
 							</div>
 						) : /* Clear form intentionally remounts uncontrolled browser controls.
 						 * A transient access refresh only suspends authority: keeping this
@@ -2435,6 +2579,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 										disabled={
 											submitStatus.kind === "running" ||
 											clearRunning ||
+											engineRebuilding ||
+											caseDatabaseWait !== undefined ||
 											!caseBindingReady ||
 											(appId !== undefined && !attachmentEntryReady) ||
 											!mayWriteCaseData
@@ -2502,22 +2648,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							role="alert"
 							className="sr-only"
 						>
-							{validationAnnouncement.message}
+							{validationAnnouncement.kind === "review"
+								? runtimeMessage(language.language, "reviewHighlightedQuestion")
+								: validationAnnouncement.message}
 						</p>
 					) : null}
 					{formFrozen && !engineInitializing ? (
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
-								? "A fresh form entry is ready."
+								? runtimeMessage(language.language, "freshFormReady")
 								: caseDatabaseWait !== undefined
 									? caseDatabaseWait.status === "error"
 										? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
-										: "Case data is refreshing. Your answers are still here."
+										: runtimeMessage(language.language, "caseDataRefreshing")
 									: selectedCaseLoading
-										? "The selected record is loading. Answers will be available shortly."
-										: repeatTopologySettling
-											? "Answers are paused while this repeat updates."
-											: "Answers are locked while this submission finishes."}
+										? runtimeMessage(language.language, "selectedRecordLoading")
+										: engineRebuilding
+											? runtimeMessage(language.language, "formPreparing")
+											: repeatTopologySettling
+												? runtimeMessage(language.language, "repeatUpdating")
+												: runtimeMessage(language.language, "answersLocked")}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

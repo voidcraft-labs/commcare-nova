@@ -7,6 +7,10 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import {
+	type OperationSemantics,
+	operationSemantics,
+} from "../../authoring/operationSemantics";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	applyToDoc,
@@ -88,6 +92,7 @@ export type AddCaseOperationsInput = z.infer<
 export interface AddCaseOperationsSuccess extends MutationSuccess {
 	readonly operationUuids: readonly Uuid[];
 	readonly operationIds: readonly string[];
+	readonly operationSemantics: OperationSemantics;
 }
 
 export type AddCaseOperationsResult =
@@ -209,6 +214,10 @@ export const addCaseOperationsTool = {
 					ok: true,
 					operationUuids,
 					operationIds,
+					operationSemantics: operationSemantics(
+						commit.newDoc,
+						address.formUuid,
+					),
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
 						count: operationIds.length,

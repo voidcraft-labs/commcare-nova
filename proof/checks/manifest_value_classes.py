@@ -387,6 +387,110 @@ class Form:
         return self.readings.trees.get(text)
 
     @cached_property
+    def protected_constraint_messages(self):
+        """The protected messages whose expression, itext group and technical question own one another.
+
+        Read the exported structure, not Nova's emitter. Core registers arbitrary nonempty form names
+        (``XFormParser.parseTextHandle``), evaluates a constraint's message (``Constraint``), and appends
+        the requested output form to an itext id (``FormDef.initEvalContext``). Vellum retains arbitrary
+        forms and raw constraint messages, but keeps a group only through a question's direct itext
+        reference (``javaRosa/plugin.js::{loadXML,populateControlMug,contributeToModelXML}``). The empty,
+        irrelevant, readonly sibling input supplies that reference. Its identity form prevents HQ's
+        ``XForm.normalize_itext`` from merging equal groups while rewriting only their base references.
+
+        This is a finite structural class, never an exemption for a name prefix. Piece ordinals need
+        not be contiguous; language values can be empty; the composition's typed expressions can use
+        any XPath Core accepts. Their function and grammar uses are judged separately by the manifest.
+        """
+        if self.readings is None:
+            return {}
+        found = {}
+        for binds in self.binds.values():
+            for bind in binds:
+                message = bind.get(f"{{{JAVAROSA}}}constraintMsg")
+                parsed, tree = self.parsed(message), self.tree(message)
+                source = self.node(bind.get("nodeset"))
+                controls = self.question_controls(bind.get("nodeset"))
+                if (
+                    parsed is None
+                    or "error" in parsed
+                    or tree is None
+                    or not bind.get("constraint")
+                    or source is None
+                    or isinstance(source, tuple)
+                    or len(controls) != 1
+                    or self.bind(bind.get("nodeset")) is not bind
+                ):
+                    continue
+                # The outer media choice must name exactly the same base in its test and true branch.
+                if tree[:2] != ["call", "if"] or len(tree[2]) != 3:
+                    continue
+                condition, media, composition = tree[2]
+                base = _exact_itext_id(media)
+                if base is None or condition != [
+                    "binary",
+                    "=",
+                    ["call", "jr:itext", [["text", f"{base};__nova_mode"]]],
+                    ["text", "media"],
+                ]:
+                    continue
+                values = _protected_message_values(self, base)
+                if values is None:
+                    continue
+                forms, elements = values
+                runtime_ids = {base, f"{base};__nova_mode", f"{base};__nova_locale"} | {
+                    f"{base};{name}" for name in forms if name.startswith("__nova_piece_") and ";" not in name
+                }
+                if any(
+                    len(arguments) != 1 or arguments[0][0] != "text" or arguments[0][1] not in runtime_ids
+                    for arguments in _calls(composition, "jr:itext")
+                ):
+                    continue
+                for path, node in self.nodes.items():
+                    if (
+                        isinstance(node, tuple)
+                        or node.getparent() is not source.getparent()
+                        or not _constraint_carrier_name(_local(node), _local(source))
+                        or node.attrib
+                        or _children(node)
+                        or (node.text or "").strip()
+                    ):
+                        continue
+                    carrier = self.bind(path)
+                    inputs = self.question_controls(path)
+                    if (
+                        carrier is None
+                        or len(self.binds[path]) != 1
+                        or dict(carrier.attrib)
+                        != {"nodeset": path, "type": "xsd:string", "relevant": "false()", "readonly": "true()"}
+                        or len(inputs) != 1
+                        or inputs[0].tag != f"{{{XFORMS}}}input"
+                        or dict(inputs[0].attrib) != {"ref": path}
+                        or (inputs[0].text or "").strip()
+                        or inputs[0].getparent() is not controls[0].getparent()
+                    ):
+                        continue
+                    children = _children(inputs[0])
+                    if len(children) != 1 or children[0].tag != f"{{{XFORMS}}}label":
+                        continue
+                    label = children[0]
+                    label_ref = label.get("ref")
+                    label_parse = self.parsed(label_ref)
+                    if (
+                        set(label.attrib) != {"ref"}
+                        or _children(label)
+                        or (label.text or "").strip()
+                        or (label.tail or "").strip()
+                        or label_parse is None
+                        or "error" in label_parse
+                        or _exact_itext_id(self.tree(label_ref)) != base
+                    ):
+                        continue
+                    found[bind] = (carrier, elements)
+                    break
+        return found
+
+    @cached_property
     def itext_references(self):
         """``(kinds, unplaced)``: each itext id a question reference names (``question_references``), with what
         the text is there, and whether a reference holds no structure in the records. A reference names the id
@@ -519,6 +623,100 @@ def _itext_id(tree):
     if tree[0] == "call" and tree[1] == "jr:itext" and tree[2] and tree[2][0][0] == "text":
         return tree[2][0][1]
     return None
+
+
+def _exact_itext_id(tree):
+    """A direct one-string-argument itext call, from HQ's recorded XPath structure."""
+    if tree is not None and tree[:2] == ["call", "jr:itext"] and len(tree[2]) == 1 and tree[2][0][0] == "text":
+        return tree[2][0][1]
+    return None
+
+
+def _constraint_carrier_name(name, source):
+    """The generated sibling's stem, with an optional canonical positive collision suffix."""
+    stem = f"nova_constraint_message_{source}"
+    suffix = name.removeprefix(f"{stem}_")
+    return name == stem or (
+        name.startswith(f"{stem}_") and suffix.isascii() and suffix.isdecimal() and not suffix.startswith("0")
+    )
+
+
+def _protected_message_values(form, base):
+    """All translations' finite helper forms and payloads, or None for a group outside this class."""
+    modes = {"__nova_mode": "plain", "__nova_mode;markdown": "plain"} | {
+        f"__nova_mode;{media}": "media" for media in ("image", "audio", "video", "video-inline")
+    }
+    required = set(modes) | {"__nova_identity", "__nova_locale", "__nova_locale;markdown"}
+    allowed = {None, "markdown", "image", "audio", "video", "video-inline"}
+    held, elements = None, set()
+    if not form.translations:
+        return None
+    for translation in form.translations:
+        texts = [text for text in _children(translation) if _local(text) == "text" and text.get("id") == base]
+        if len(texts) != 1 or translation.get("lang") is None:
+            return None
+        values = {}
+        for value in _children(texts[0]):
+            name = value.get("form")
+            if _local(value) != "value" or name in values:
+                return None
+            values[name] = value
+        if None not in values or "markdown" not in values:
+            return None
+        internal = set(values) - allowed
+        pieces = set()
+        for name in internal - required:
+            ordinal = name.removesuffix(";markdown").removeprefix("__nova_piece_")
+            if not (
+                name.startswith("__nova_piece_")
+                and ordinal.isascii()
+                and ordinal.isdecimal()
+                and (ordinal == "0" or not ordinal.startswith("0"))
+                and name in (f"__nova_piece_{ordinal}", f"__nova_piece_{ordinal};markdown")
+            ):
+                return None
+            pieces.add(f"__nova_piece_{ordinal}")
+        expected = required | pieces | {f"{piece};markdown" for piece in pieces}
+        if internal != expected or (held is not None and internal != held):
+            return None
+        held = internal
+        payloads = modes | {
+            "__nova_identity": base,
+            "__nova_locale": translation.get("lang"),
+            "__nova_locale;markdown": translation.get("lang"),
+        }
+        for name in internal:
+            value = values[name]
+            if _children(value) or set(value.attrib) != {"form"}:
+                return None
+            content = value.text or ""
+            if name in payloads:
+                if content != payloads[name]:
+                    return None
+            else:
+                try:
+                    payload = json.loads(content)
+                except ValueError:
+                    return None
+                if not content.isascii() or not isinstance(payload, dict) or set(payload) != {"v"}:
+                    return None
+                if not isinstance(payload["v"], str):
+                    return None
+                plain = name.removesuffix(";markdown")
+                if content != (values[plain].text or "") or f"{plain};markdown" not in values:
+                    return None
+            elements.add(value)
+    return held, frozenset(elements)
+
+
+def protected_constraint_form(use):
+    """A dynamically named itext form owned by a fully classified protected message graph."""
+    form, value = _itext_value(use)
+    return (
+        value is not None
+        and form.readings is not None
+        and any(value in elements for _, elements in form.protected_constraint_messages.values())
+    )
 
 
 def _calls(tree, name):
@@ -5056,7 +5254,33 @@ def literal_validation_message(use, manifest):
         return None
     if "error" in parsed:
         return True
+    if bind in form.protected_constraint_messages:
+        return False
     return not (parsed["functions"] == ["jr:itext"] and parsed["expressions"] == ["XPathStringLiteral"])
+
+
+def authored_readonly(use, manifest):
+    """``questions/bind-readonly``: every readonly except a protected message's exact technical carrier.
+
+    Core's ``processStandardBindAttributes`` accepts readonly; Vellum retains it only in raw bind
+    attributes (``parser.js::parseBindElement``, ``writer.js::getBindList``). Nova derives this one
+    carrier, whereas an authored readonly remains outside Nova's vocabulary.
+    """
+    form, bind, node = _bind(use)
+    if bind is None:
+        return None if form is None else True
+    if form.readings is None:
+        if (
+            node is not None
+            and not isinstance(node, tuple)
+            and _local(node).startswith("nova_constraint_message_")
+            and bind.get("readonly") == "true()"
+            and bind.get("relevant") == "false()"
+            and bind.get("type") == "xsd:string"
+        ):
+            return None  # a possible technical carrier still needs its owning message's recorded parse
+        return True
+    return not any(carrier is bind for carrier, _ in form.protected_constraint_messages.values())
 
 
 # Itext -------------------------------------------------------------------------------
@@ -5431,6 +5655,7 @@ VALUE_CLASSES = {
     "questions/requiredcondition-differing-from-a-present-non-false-required": required_condition_differing,
     "questions/validation-message-without-a-validation-condition": message_without_condition,
     "questions/literal-jr-constraintmsg-text-no-itext": literal_validation_message,
+    "questions/bind-readonly": authored_readonly,
     "questions/itemset-label-jr-itext-field": itemset_label_itext,
     "questions/markdown-form-differing-from-the-default-text": markdown_differing,
     "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": markdown_in_some_languages,

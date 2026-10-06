@@ -26,7 +26,7 @@ import { previewAsMe, previewAsPersona } from "../engine/identity";
 import { previewLookupData } from "../engine/lookupEvaluation";
 import { XPathDate } from "../xpath/types";
 import { AppTestActionError } from "./errors";
-import type { AppTestSnapshot, AppTestState } from "./types";
+import type { AppTestSessionState, AppTestSnapshot } from "./types";
 
 export function appTestLanguage(
 	snapshot: AppTestSnapshot,
@@ -74,7 +74,7 @@ export async function withAppTestContext<T>(
 	tx: Transaction<Database>,
 	scope: AppTestScope & { testId: string; blueprintSeq: number },
 	snapshot: AppTestSnapshot,
-	state: AppTestState,
+	state: AppTestSessionState,
 	body: (context: Awaited<ReturnType<typeof contextFor>>) => Promise<T>,
 ) {
 	if (snapshot.user.id !== scope.actorUserId)
@@ -91,7 +91,7 @@ async function contextFor(
 	store: AppTestCaseStore,
 	scope: AppTestScope,
 	snapshot: AppTestSnapshot,
-	state: AppTestState,
+	state: AppTestSessionState,
 ) {
 	const doc = hydratePersistedBlueprint(snapshot.blueprint);
 	const persona =

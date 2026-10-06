@@ -3,6 +3,7 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { serverDataCollection } from "./sentry.dataCollection";
 
 // withSentryConfig inlines this value in application code. The native server
 // SDK reads its injected-global fallback instead, so carry the same value
@@ -28,12 +29,9 @@ Sentry.init({
 	// Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
 	tracesSampleRate: 1,
 
-	// Enable logs to be sent to Sentry
-	enableLogs: true,
-
-	/* Off on the server: with PII enabled the SDK attaches request headers
-	 * and cookies to events, which would ship the Better Auth session token
-	 * to Sentry on every captured error. The client config keeps it on —
-	 * browser events carry no cookies, just IP-based user attribution. */
-	sendDefaultPii: false,
+	/* Restricted on the server: the SDK's own defaults would ship the Better
+	 * Auth session cookie, request bodies, and model prompts to Sentry. The
+	 * client config keeps the default, where it adds only IP-based user
+	 * attribution. */
+	dataCollection: serverDataCollection,
 });

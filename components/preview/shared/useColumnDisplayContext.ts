@@ -8,7 +8,10 @@
 
 "use client";
 import { useMemo } from "react";
-import { useLocalizedValues } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	useBuilderLanguage,
+	useLocalizedValues,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseListConfig, CaseProperty, Column } from "@/lib/domain";
@@ -35,6 +38,7 @@ export function useColumnDisplayContext(
 		(candidate) => candidate.name === currentCaseType,
 	);
 	const localizedValues = useLocalizedValues();
+	const { language } = useBuilderLanguage();
 	const caseProperties = useMemo(
 		() =>
 			projectLocalizedCaseProperties(
@@ -69,11 +73,12 @@ export function useColumnDisplayContext(
 	}, [config, effectiveCaseType?.name, effectiveCaseTypes]);
 	return useMemo(
 		() => ({
+			language,
 			calculatedTemporalTypes,
 			caseProperties,
 			today,
 			projectProse,
 		}),
-		[calculatedTemporalTypes, caseProperties, today, projectProse],
+		[language, calculatedTemporalTypes, caseProperties, today, projectProse],
 	);
 }

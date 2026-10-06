@@ -39,9 +39,11 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   beacon/fetch observer records attempts synchronously in per-page localStorage
   because Chromium can deliver teardown reports without emitting network events.
   `error-guard.spec.ts` proves native delivery and detection with a real local HTTP
-  receiver across reload/close, plus origin scope and page isolation. A test that
-  requires native unload delivery closes with `runBeforeUnload: true` and awaits
-  the `close` event; the default close can destroy the target without pagehide.
+  receiver across reload/close, plus origin scope and page isolation. Chromium
+  closes with `runBeforeUnload: true` and awaits the `close` event. WebKit first
+  navigates normally to `about:blank`, waits for `load`, then awaits default close.
+  Close is attempted even if navigation fails; departure and close failures still
+  fail teardown. Default close without document departure can bypass pagehide.
   Persistence assertions must distinguish the intended final state from an
   earlier identical state still being saved. The organization journey confirms
   two saved persona places before removing one and waiting for the final one.

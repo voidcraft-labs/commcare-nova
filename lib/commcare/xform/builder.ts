@@ -123,10 +123,83 @@ import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { xpathPrintContext } from "@/lib/domain/xpath/print";
 import {
+	ConstraintMessageNames,
+	protectConstraintMessage,
+} from "./constraintMessage";
+import {
 	datetimeCaseValueCalculate,
 	datetimeCaseValueName,
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
+
+interface ItextRegistration {
+	readonly registered: boolean;
+	readonly protectedConstraint?: string;
+}
+type AddItext = (
+	id: string,
+	label: ProseTemplate | undefined,
+	media?: Media,
+	force?: boolean,
+	protectConstraint?: boolean,
+) => ItextRegistration;
+
+function isConsumerWhitespace(value: string): boolean {
+	for (let index = 0; index < value.length; index++) {
+		const unit = value.charCodeAt(index);
+		// Core removes Java String.trim()-empty text nodes; HQ's lxml indent
+		// additionally replaces whitespace-only tails using Python's isspace.
+		if (
+			unit > 0x20 &&
+			unit !== 0x85 &&
+			unit !== 0xa0 &&
+			unit !== 0x1680 &&
+			!(unit >= 0x2000 && unit <= 0x200a) &&
+			unit !== 0x2028 &&
+			unit !== 0x2029 &&
+			unit !== 0x202f &&
+			unit !== 0x205f &&
+			unit !== 0x3000
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function whitespaceOutput(value: string): Element {
+	if (Array.from(value).every((unit) => unit.charCodeAt(0) <= 0x20)) {
+		return el("output", { value: `'${value}'` });
+	}
+	// Vellum's XML serializer replaces every literal NBSP, including those
+	// inside attributes. ASCII JSON escapes survive that save and HQ's indent;
+	// Core's json-property decodes the exact characters at substitution time.
+	// The input is whitespace only, so the XPath literal cannot contain '.
+	const json = JSON.stringify({ v: value });
+	let ascii = "";
+	for (let index = 0; index < json.length; index++) {
+		const unit = json.charCodeAt(index);
+		ascii +=
+			unit > 0x7f ? `\\u${unit.toString(16).padStart(4, "0")}` : json[index];
+	}
+	return el("output", { value: `json-property('${ascii}', 'v')` });
+}
+
+function literalLabelNodes(literal: string): ChildNode[] {
+	if (isConsumerWhitespace(literal)) return [whitespaceOutput(literal)];
+	// NBSP is also replaced inside ordinary prose, not just between outputs.
+	const fragments = literal.split("\u00a0");
+	return fragments.flatMap((fragment, index) => [
+		...(index > 0 ? [whitespaceOutput("\u00a0")] : []),
+		...(fragment.length > 0
+			? [
+					isConsumerWhitespace(fragment)
+						? whitespaceOutput(fragment)
+						: text(fragment),
+				]
+			: []),
+	]);
+}
 
 /**
  * Build the ordered itext-value node list for one typed prose template, letting
@@ -137,16 +210,23 @@ import {
  *
  * Instead we CONSTRUCT a DOM directly and never parse the label as markup:
  *
- *   - Prose runs become a `Text` node
+ *   - Non-whitespace prose runs become a `Text` node
  *     whose data is `decodeXML(run)`. Decoding normalizes any pre-escaped
  *     entity the author may have typed (the historical `&lt;` workaround → `<`)
  *     so the serializer re-escapes it exactly once — `&lt;`, never the
  *     double-escaped `&amp;lt;` that would show a literal `&lt;` on device.
+ *   - Whitespace-only runs become `<output>` nodes.
+ *     Core's `XFormParser.getXMLDocument` discards text nodes whose Java
+ *     `String.trim()` result is empty before it parses label outputs. A
+ *     literal output preserves those separators, including paragraph breaks.
+ *     HQ's build also replaces Unicode whitespace-only tails. ASCII runs
+ *     use XPath literals; Unicode runs use ASCII JSON escapes consumed by
+ *     Core's json-property. Embedded NBSP uses the same protected spelling
+ *     because Vellum replaces literal NBSP throughout its serialized XML.
  *   - Each typed reference atom becomes a constructed self-closing `<output>`
  *     element: `value` holds the expanded instance XPath, and the parallel
  *     `vellum:value` holds the original shorthand — but only when expansion
  *     changed the string (a non-expanding ref needs no round-trip shadow).
- *     This is the only source of `<output>` elements in prose.
  *
  * Author-written `<output ...>` markup or hashtag-looking literal text is
  * deliberately not recognized. Both serialize as ordinary escaped text.
@@ -166,7 +246,8 @@ function buildLabelNodes(
 	const nodes: ChildNode[] = [];
 	for (const part of template.parts) {
 		if (part.kind === "text") {
-			nodes.push(text(decodeXML(part.text)));
+			const literal = decodeXML(part.text);
+			nodes.push(...literalLabelNodes(literal));
 			continue;
 		}
 		const original = printProseTemplate({ parts: [part] }, doc);
@@ -713,12 +794,13 @@ export function buildXForm(
 	// help / constraintMsg / options) and container labels stay skip-on-empty
 	// — their body ref is itself conditional, so a skipped entry leaves no
 	// dangling reference.
-	const addItext = (
+	const addItext: AddItext = (
 		id: string,
 		label: ProseTemplate | undefined,
 		media?: Media,
 		force = false,
-	): boolean => {
+		protectConstraint = false,
+	): ItextRegistration => {
 		// addItext is the SINGLE funnel for prose lowering — every label / hint /
 		// help / constraintMsg / option label routes through here into
 		// `buildLabelNodes`. Scanning for casedb refs HERE (rather than from a
@@ -744,7 +826,18 @@ export function buildXForm(
 			localizedTemplates.every((template) => template.parts.length === 0) &&
 			sourceMediaValues.length === 0
 		)
-			return false;
+			return { registered: false };
+		const protectedMessage = protectConstraint
+			? protectConstraintMessage(
+					id,
+					localization.languages.map((language, index) => ({
+						language,
+						template: localizedTemplates[index] ?? sourceTemplate,
+					})),
+					doc,
+					expand,
+				)
+			: undefined;
 		for (const [index, language] of localization.languages.entries()) {
 			const languageEntries = itextEntries.get(language);
 			if (languageEntries === undefined) {
@@ -764,11 +857,26 @@ export function buildXForm(
 						buildLabelNodes(labelTemplate, doc, expand, shorthand),
 					),
 					...itextMediaValues(media, opts.assets, "buildXForm"),
+					...(protectedMessage?.forms.get(language) ?? []),
 				]),
 			);
 		}
-		return true;
+		return {
+			registered: true,
+			protectedConstraint: protectedMessage?.expression,
+		};
 	};
+	const constraintMessageNames = new ConstraintMessageNames(
+		doc,
+		new Set(
+			[
+				opts.connect?.learn_module?.id,
+				opts.connect?.assessment?.id,
+				opts.connect?.deliver_unit?.id,
+				opts.connect?.task?.id,
+			].filter((id): id is string => id !== undefined),
+		),
+	);
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
 		buildFieldParts(
@@ -790,6 +898,7 @@ export function buildXForm(
 			opts.assets,
 			lookupSelects,
 			opts.attachmentTarget,
+			constraintMessageNames,
 		);
 	}
 
@@ -999,18 +1108,14 @@ function buildFieldParts(
 	setvalues: Element[],
 	bodyElements: Element[],
 	insideRepeat: boolean,
-	addItext: (
-		id: string,
-		label: ProseTemplate | undefined,
-		media?: Media,
-		force?: boolean,
-	) => boolean,
+	addItext: AddItext,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
+	constraintMessageNames: ConstraintMessageNames,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1058,14 +1163,24 @@ function buildFieldParts(
 	const isContainerKind = isContainer(field);
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
+		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind)
+			.registered;
 	const hasHint =
-		field.kind !== "hidden" && addItext(`${itextKey}-hint`, hint, hintMedia);
+		field.kind !== "hidden" &&
+		addItext(`${itextKey}-hint`, hint, hintMedia).registered;
 	const hasHelp =
-		field.kind !== "hidden" && addItext(`${itextKey}-help`, help, helpMedia);
-	const hasValidationMessage =
-		canValidate &&
-		addItext(`${itextKey}-constraintMsg`, validateMsg, validateMsgMedia);
+		field.kind !== "hidden" &&
+		addItext(`${itextKey}-help`, help, helpMedia).registered;
+	const validationMessage = canValidate
+		? addItext(
+				`${itextKey}-constraintMsg`,
+				validateMsg,
+				validateMsgMedia,
+				false,
+				true,
+			)
+		: { registered: false };
+	const hasValidationMessage = validationMessage.registered;
 
 	// Secondary-instance requirements: any XPath that mentions `#user/`, a
 	// typed readable case namespace, or a raw casedb/session `instance()`
@@ -1143,16 +1258,20 @@ function buildFieldParts(
 		}
 	}
 
-	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
-	// reads the attribute when it points at an itext id via `jr:itext(...)`, so
-	// inline text would vanish on upload. The bind-attribute gate uses the
+	// Standard messages use an itext reference. Protected messages compose
+	// literal pieces and typed values in the raw expression: Core's alert
+	// filler otherwise substitutes `${n}` in literal or referenced data. A
+	// never-relevant label owner below retains the original itext/media in
+	// HQ and Vellum even though the real question carries no alert. The gate uses the
 	// same predicate `addItext` uses to register the entry, so the attribute
 	// emits IFF an entry exists to back it. Media-OFF (no manifest) with only
 	// media set produces no entry — the gate skips the attribute in lockstep
 	// (a `jr:constraintMsg` ref against a non-registered entry is parse-fatal
 	// at JavaRosa install).
 	if (hasValidationMessage) {
-		bindAttribs["jr:constraintMsg"] = `jr:itext('${itextKey}-constraintMsg')`;
+		bindAttribs["jr:constraintMsg"] =
+			validationMessage.protectedConstraint ??
+			`jr:itext('${itextKey}-constraintMsg')`;
 	}
 
 	if (relevant) {
@@ -1294,6 +1413,7 @@ function buildFieldParts(
 			assets,
 			lookupSelects,
 			attachmentTarget,
+			constraintMessageNames,
 		);
 		return;
 	}
@@ -1307,8 +1427,35 @@ function buildFieldParts(
 			? buildLookupItemset(lookupSource, lookupSelects, nodePath, instances)
 			: undefined;
 	bodyElements.push(
-		buildLeafControl(field, nodePath, itextKey, hasHint, hasHelp, itemset),
+		buildLeafControl(
+			field,
+			nodePath,
+			itextKey,
+			hasHint,
+			hasHelp,
+			hasValidationMessage &&
+				validationMessage.protectedConstraint === undefined,
+			itemset,
+		),
 	);
+	if (validationMessage.protectedConstraint !== undefined) {
+		const name = constraintMessageNames.allocate(fieldUuid, parentPath);
+		const path = parentPath.child(name).toXPath();
+		dataElements.push(el(name, {}));
+		binds.push(
+			el("bind", {
+				nodeset: path,
+				type: "xsd:string",
+				relevant: "false()",
+				readonly: "true()",
+			}),
+		);
+		bodyElements.push(
+			el("input", { ref: path }, [
+				el("label", { ref: `jr:itext('${itextKey}-constraintMsg')` }),
+			]),
+		);
+	}
 }
 
 /**
@@ -1434,6 +1581,7 @@ function buildLeafControl(
 	itextKey: string,
 	hasHint: boolean,
 	hasHelp: boolean,
+	hasValidationMessage: boolean,
 	itemset?: Element,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
@@ -1445,6 +1593,12 @@ function buildLeafControl(
 	];
 	if (hasHint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
 	if (hasHelp) head.push(el("help", { ref: `jr:itext('${itextKey}-help')` }));
+	// Core fills output templates through the question's alert; its legacy
+	// bind constraint-message fallback returns the unsubstituted template.
+	// Both references use the same registered entry, including media gating.
+	if (hasValidationMessage) {
+		head.push(el("alert", { ref: `jr:itext('${itextKey}-constraintMsg')` }));
+	}
 	const ref = nodePath.toXPath();
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
@@ -1526,18 +1680,14 @@ function buildContainer(
 	binds: Element[],
 	setvalues: Element[],
 	bodyElements: Element[],
-	addItext: (
-		id: string,
-		label: ProseTemplate | undefined,
-		media?: Media,
-		force?: boolean,
-	) => boolean,
+	addItext: AddItext,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
+	constraintMessageNames: ConstraintMessageNames,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -1582,6 +1732,7 @@ function buildContainer(
 			assets,
 			lookupSelects,
 			attachmentTarget,
+			constraintMessageNames,
 		);
 	}
 

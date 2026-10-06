@@ -25,10 +25,14 @@ import { getAuth } from "@/lib/auth";
 import { getSession } from "@/lib/auth-utils";
 import { getOAuthClientDiscovery } from "@/lib/db/oauth-consents";
 import { getCommCareSettings } from "@/lib/db/settings";
+import {
+	type ConsentSearchParams,
+	isSignedConsentRequest,
+} from "@/lib/oauth/consent-query";
 import { ConsentForm } from "./ConsentForm";
 
 interface ConsentPageProps {
-	searchParams: Promise<Record<string, string | string[] | undefined>>;
+	searchParams: Promise<ConsentSearchParams>;
 }
 
 /** Parse the space-separated `scope` query param into a deduped list. */
@@ -114,18 +118,19 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 
 	const clientId = typeof sp.client_id === "string" ? sp.client_id : undefined;
 	const scopes = parseScopes(sp.scope);
-	const sig = typeof sp.sig === "string" ? sp.sig : undefined;
 	const redirectUri =
 		typeof sp.redirect_uri === "string" ? sp.redirect_uri : undefined;
 
 	/* `sig` is the HMAC the authorize handler appends to the full query
-	 * before redirecting here; its presence is the only trustworthy signal
-	 * that the user landed on the consent page via the plugin's own flow
-	 * rather than by typing the URL or following a forged link. `client_id`
-	 * and `scope` are load-bearing for display; the plugin itself rejects
-	 * stale or forged signatures at the POST, so surfacing an error branch
-	 * client-side is a UX concession, not a security boundary. */
-	const requestValid = Boolean(clientId && scopes.length > 0 && sig);
+	 * before redirecting here. Verifying it is what tells the user's arrival
+	 * through the plugin's own flow from a typed URL or a forged link, and it
+	 * runs before any client read below: a metadata-document client's row is
+	 * rebuilt by that read, which an unsigned link must not trigger. An
+	 * expired request fails here too. The plugin checks the same signature
+	 * again when the decision is posted. */
+	const { secret } = await auth.$context;
+	const signed = await isSignedConsentRequest(sp, secret);
+	const requestValid = Boolean(clientId && scopes.length > 0 && signed);
 
 	/* The HQ scopes (`nova.hq.read` / `nova.hq.write`) are real grants
 	 * regardless of whether the user has connected a CommCare HQ API key:

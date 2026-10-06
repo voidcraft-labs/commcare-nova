@@ -44,6 +44,12 @@ then enter the same Project-state/table prefix. No code may hold Project state
 or a lookup table and later request an app lock. The app-bound bridge is
 app-first; the direct Project writer is Project-first with no reverse edge.
 
+Case submissions also hold their app authority before locking the program's
+referenced lookup tables `FOR SHARE` in UUID order. These locks remain through
+commit, so separate condition and value evaluations read one table generation.
+They do not acquire Project state or change lookup data. Every lookup writer's
+table `FOR UPDATE` prefix is the corresponding fence.
+
 The transaction body may be retried. Keep it free of non-database side effects.
 Rejected and semantic no-op writes do not advance a revision or notify. The
 Project revision is only an invalidation cursor; the optimistic token is

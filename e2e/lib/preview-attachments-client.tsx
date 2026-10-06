@@ -52,6 +52,7 @@ controller.setDocStore(docStore);
 controller.activateForm(FORM);
 const entryKey = controller.entryKey;
 if (!entryKey) throw new Error("Missing active entry");
+const activeEntryKey: string = entryKey;
 const authority = {
 	appId: doc.appId,
 	entryKey,
@@ -89,6 +90,15 @@ function Control({ uuid }: { uuid: Uuid }) {
 				attachmentSlotKey={uuid}
 				onChangeAt={(path, value) => controller.setValueAt(path, value)}
 				onBlurAt={(path) => controller.touchAt(path)}
+				onCommitCapture={(value, gate, onAccepted) =>
+					controller.commitCaptureAnswer(
+						activeEntryKey,
+						{ fieldUuid: field.uuid, kind: field.kind, repeatInstances: [] },
+						value,
+						gate,
+						onAccepted,
+					)
+				}
 			/>
 		</section>
 	);

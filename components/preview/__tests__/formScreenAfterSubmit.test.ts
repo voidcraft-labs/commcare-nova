@@ -97,7 +97,7 @@ const neverCarries = () => {
 const noCaseSelections = () => [];
 
 describe("afterSubmitRoute", () => {
-	it("takes the post-submit destination when no link fired", () => {
+	it("requires the entry projection for a previous fallback", () => {
 		expect(
 			afterSubmitRoute({
 				choice: { kind: "fallback", destination: "previous" },
@@ -106,7 +106,10 @@ describe("afterSubmitRoute", () => {
 				caseSelections: noCaseSelections,
 				carriedCase: neverCarries,
 			}),
-		).toEqual({ kind: "post-submit", destination: "previous" });
+		).toEqual({
+			kind: "unresolvable",
+			reason: "The preceding task was not resolved from the submitted entry.",
+		});
 	});
 
 	it("enters a case-first module on its case list", () => {

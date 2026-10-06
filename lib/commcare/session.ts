@@ -89,6 +89,8 @@ import { collectInstanceRefs } from "./xform/instanceRefs";
  */
 export interface SessionDatum {
 	id: string;
+	/** Entry-plan presence without a lowered selector. Never render on wire. */
+	readonly projectionOnlySelection?: true;
 	/** Instance the nodeset reads from. Required for nodeset datums; omitted for function datums. */
 	instanceId?: string;
 	instanceSrc?: string;
@@ -162,7 +164,7 @@ export interface SessionDatum {
 	 * gives the frame child it derives from it (`workflow.py::WorkflowQueryMeta`).
 	 * No nodeset, value, or detail: the element is rendered as is.
 	 */
-	query?: SessionQuery;
+	query?: SessionQuery | SessionQueryProjection;
 }
 
 /**
@@ -170,9 +172,7 @@ export interface SessionDatum {
  * before the case datum that reads its results (CCHQ's
  * `EntriesHelper.add_remote_query_datums`).
  */
-export interface SessionQuery {
-	/** The rendered `<query>` element. */
-	readonly element: Element;
+export interface SessionQueryMetadata {
 	readonly storageInstance: "results:inline";
 	/** The module's case type, the query's first `<data key="case_type">`. */
 	readonly caseType: string;
@@ -181,8 +181,21 @@ export interface SessionQuery {
 	 *  query as a selecting step in frames (`WorkflowQueryMeta.requires_selection`). */
 	readonly hasPrompts: boolean;
 	readonly defaultSearch: boolean;
+}
+
+export interface SessionQueryProjection extends SessionQueryMetadata {
+	readonly projectionOnly: true;
+}
+
+export interface SessionQuery extends SessionQueryMetadata {
+	/** The rendered `<query>` element. */
+	readonly element: Element;
 	/** Instances the query body reads, declared on the surrounding entry. */
 	readonly instances: readonly string[];
+}
+
+export function sessionDatumRequiresSelection(datum: SessionDatum): boolean {
+	return datum.projectionOnlySelection === true || datum.nodeset !== undefined;
 }
 
 /** A secondary instance required by a form entry. */
@@ -389,7 +402,18 @@ export function deriveCaseSelectionDatum(args: {
 	/** Where the selectable cases come from: the device's casedb, or the
 	 *  results of a search-first module's own search. */
 	readonly caseSource?: "casedb" | "results:inline";
+	/** The owner frame algorithm needs identity and presence, not XPath. */
+	readonly entryMetadataOnly?: boolean;
 }): SessionDatum {
+	const selection = {
+		id: args.id,
+		caseType: args.caseType,
+		...(args.maxSelectValue !== undefined && {
+			maxSelectValue: args.maxSelectValue,
+		}),
+	};
+	if (args.entryMetadataOnly)
+		return { ...selection, projectionOnlySelection: true };
 	const inline = args.caseSource === "results:inline";
 	const secondaryInstances = new Set<string>();
 	if (args.caseListFilter !== undefined) {
@@ -440,7 +464,7 @@ export function deriveCaseSelectionDatum(args: {
 		return `${base}${parentFilter}`;
 	};
 	return {
-		id: args.id,
+		...selection,
 		instanceId: inline ? INLINE_SEARCH_RESULTS_INSTANCE : "casedb",
 		instanceSrc: inline ? INLINE_SEARCH_RESULTS_SRC : "jr://instance/casedb",
 		...(secondaryInstances.size > 0 && {
@@ -456,10 +480,6 @@ export function deriveCaseSelectionDatum(args: {
 		...(args.persistentDetailId !== undefined && {
 			detailPersistent: args.persistentDetailId,
 		}),
-		...(args.maxSelectValue !== undefined && {
-			maxSelectValue: args.maxSelectValue,
-		}),
-		caseType: args.caseType,
 	};
 }
 
@@ -783,7 +803,8 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 	const caseSelectDatum = [...datums]
 		.reverse()
 		.find(
-			(datum) => datum.nodeset !== undefined && datum.caseType === caseType,
+			(datum) =>
+				sessionDatumRequiresSelection(datum) && datum.caseType === caseType,
 		);
 	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
 		const renderFunction = (
@@ -1017,6 +1038,7 @@ export function deriveEntryDefinition(
 
 	if (datums.length > 0) {
 		for (const d of datums) {
+			assertEmittableSessionDatum(d);
 			// A nodeset datum reads exactly one instance and names it in
 			// `instanceId`. A function datum reads none (case-create's `uuid()`)
 			// or several. Resolve those dependencies from its final expression,
@@ -1265,6 +1287,7 @@ export function deriveCaseListEntryDefinition(
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
 	for (const datum of datums) {
+		assertEmittableSessionDatum(datum);
 		if (datum.instanceId !== undefined && !seen.has(datum.instanceId)) {
 			seen.add(datum.instanceId);
 			instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
@@ -1323,7 +1346,20 @@ export function deriveCaseListEntryDefinition(
  * function datum is `id, function`; nodeset datum is `id, nodeset,
  * value, detail-select?, detail-confirm?`.
  */
+function assertEmittableSessionDatum(
+	d: SessionDatum,
+): asserts d is SessionDatum & { query?: SessionQuery } {
+	if (
+		d.projectionOnlySelection ||
+		(d.query !== undefined && "projectionOnly" in d.query)
+	)
+		throw new Error(
+			"Entry-plan metadata cannot be rendered as a session datum.",
+		);
+}
+
 function buildDatumElement(d: SessionDatum): Element {
+	assertEmittableSessionDatum(d);
 	if (d.query !== undefined) return d.query.element;
 	if (d.function !== undefined) {
 		// Function datum — CommCare evaluates the function once at entry;
