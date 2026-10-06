@@ -74,10 +74,6 @@ on:
         description: Proof allocation (static by default; create and steal are claim diagnostics)
         type: string
         default: static
-      shard-timeout:
-        description: Minutes a shard may run (a run that holds every document's branches needs longer)
-        type: number
-        default: 30
 
 permissions:
   contents: read
@@ -182,7 +178,7 @@ jobs:
     name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
     needs: emit
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ inputs.shard-timeout }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}

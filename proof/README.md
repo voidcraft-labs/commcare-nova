@@ -400,7 +400,7 @@ It passes these into the container unchanged, each only when set:
 | `PROOF_HQ_DETERMINISM=0` | HQ's entropy and clock left real (`proof/hq/determinism.py`), to compare. The tests marked `under_determinism` are skipped, and the store holds two records of one key to each other with their drawn values masked. |
 | `PROOF_VERIFY_MEMOS=1` | Every memo, kept build and kept trace computed again on every hit and held to the kept answer. |
 | `PROOF_EDITOR_AUDIT=<fraction>` | That fraction of editor views and Vellum runs rerun on a fresh page and held to the reused one (CI uses `0.03`). |
-| `PROOF_BRANCH_DOCUMENTS` | Which corpus documents the HQ branch proofs hold to fresh states (`proof/hq/test_branches.py`; `all` for every one that carries an edit). |
+| `PROOF_BRANCH_DOCUMENTS` | Which corpus documents the HQ branch proofs hold to fresh states (`proof/hq/test_branches.py`; `all` for every one that carries an edit). Each document's branch items run in that document's group, so shards share them. |
 
 Nothing else of your machine's environment reaches the harness. The
 container's environment is otherwise the image's and `proof/compose.yaml`'s

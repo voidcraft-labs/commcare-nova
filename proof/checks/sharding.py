@@ -9,7 +9,8 @@ observations, a package's session services) is built once, by one worker:
 
 - every item of one corpus document or control is one group, the ``group``
   its parameter carries (``corpus:<id>``, ``corpus:<id>@<configuration>``,
-  ``control:<id>``);
+  ``control:<id>``): each check's item on it, and HQ's branch proof of it
+  (``proof/hq/test_branches.py``);
 - ``proof/surface``'s items are the surface block's group, ``surface``;
 - every other item belongs to its package under ``proof/`` (``proof/native``,
   ``proof/editors``, ``proof/core``, ``proof/hq``, ``proof/checks``,
@@ -18,8 +19,10 @@ observations, a package's session services) is built once, by one worker:
 
 The items of each group run back to back (``order_by_group``).
 ``collection_roots`` names what pytest collects for a set of groups: a
-document's items come from ``proof/checks``, whose check modules parametrize
-over the corpus when they are imported.
+document's checks come from ``proof/checks``, whose check modules parametrize
+over the corpus when they are imported. The lane collects the early queue's
+groups so; its main phase collects the rest of ``proof/``, which finds a
+document's branch items too.
 
 Timings. ``proof/timings.json`` holds each group's measured cost in
 box-seconds: the seconds of one worker's wall time the group took, without
@@ -120,7 +123,7 @@ def order_by_group(items, proof_dir: Path = PROOF_DIR):
 def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     """What pytest collects to find every item of ``groups``.
 
-    A document's or control's items come from the check modules in
+    A document's or control's checks come from the check modules in
     ``proof/checks``; the surface's from ``proof/surface``; a package's from
     its directory; ``proof``'s from the test modules at ``proof/`` itself.
     No test module belongs to ``hq-selfchecks``, so it names nothing, and a
