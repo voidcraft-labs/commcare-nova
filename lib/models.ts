@@ -99,23 +99,23 @@ interface ModelRoleConfig {
 export const MODEL_ROLES = {
 	architect: {
 		modelId: "gpt-6.1-sol",
-		reasoningEffort: "xhigh",
+		reasoningEffort: "medium",
 	},
 	peer: {
 		modelId: "gpt-6.1-sol",
-		reasoningEffort: "xhigh",
+		reasoningEffort: "medium",
 	},
 	followUpEditor: {
 		modelId: "gpt-6.1-sol",
-		reasoningEffort: "xhigh",
+		reasoningEffort: "medium",
 	},
 	documentExtractor: {
 		modelId: "gpt-6.1-sol",
-		reasoningEffort: "xhigh",
+		reasoningEffort: "medium",
 	},
 	translator: {
 		modelId: "gpt-6.1-sol",
-		reasoningEffort: "xhigh",
+		reasoningEffort: "medium",
 	},
 } as const satisfies Record<string, ModelRoleConfig>;
 

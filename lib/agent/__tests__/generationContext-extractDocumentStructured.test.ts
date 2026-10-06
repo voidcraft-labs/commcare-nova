@@ -69,7 +69,7 @@ describe("GenerationContext document extraction with the real SDK", () => {
 					const request = await received.promise;
 					expect(request.model).toBe("gpt-6.1-sol");
 					expect(request.reasoning).toEqual({
-						effort: "xhigh",
+						effort: "medium",
 						summary: "auto",
 					});
 					expect(request.store).toBe(false);

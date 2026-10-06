@@ -194,7 +194,7 @@ describe("actual SA edit-turn Responses wire", () => {
 			}
 			expect(body.include).toContain("reasoning.encrypted_content");
 			expect(body.reasoning).toMatchObject({
-				effort: "xhigh",
+				effort: "medium",
 				summary: "auto",
 			});
 			expect(body.prompt_cache_key).toBe("nova:app:a-probe");

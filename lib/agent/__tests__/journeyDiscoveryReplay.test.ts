@@ -186,7 +186,7 @@ describe("journey availability after compaction", () => {
 			for (const body of bodies) {
 				expect(body).toMatchObject({
 					model: "gpt-6.1-sol",
-					reasoning: { effort: "xhigh", summary: "auto" },
+					reasoning: { effort: "medium", summary: "auto" },
 					store: false,
 					context_management: [
 						{ type: "compaction", compact_threshold: 256_000 },

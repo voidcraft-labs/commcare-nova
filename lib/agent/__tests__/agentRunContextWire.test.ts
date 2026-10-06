@@ -108,7 +108,7 @@ describe("structured agent context", () => {
 				);
 				expect(received).toMatchObject({
 					model: "gpt-6.1-sol",
-					reasoning: { effort: "xhigh", summary: "auto" },
+					reasoning: { effort: "medium", summary: "auto" },
 					store: false,
 				});
 				expect(result.object).toEqual(
