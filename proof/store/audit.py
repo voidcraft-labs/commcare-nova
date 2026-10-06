@@ -172,11 +172,23 @@ def _content(kind: str, entry, source) -> bytes:
     return disk.canonical(entry)
 
 
-def _conflicts(gathered: pack.Gathered, mismatches: Path | None, held: disk.Snapshot) -> list[str]:
-    """Each key the run's outputs hold two values under, written beside what the store holds there."""
+def _drawn_alike(kind: str, values, gathered: pack.Gathered) -> bool:
+    """Whether the values an unseeded run's shards kept under one key are one but for what each drew."""
+    texts = [_content(kind, value, gathered).decode("utf-8") for value in values]
+    return all(alike_but_for_draws(texts[0], text, gathered.blob, gathered.blob) for text in texts[1:])
+
+
+def _conflicts(
+    gathered: pack.Gathered, mismatches: Path | None, held: disk.Snapshot, *, but_for_draws: bool = False
+) -> list[str]:
+    """Each key the run's outputs hold two values under, written beside what the store holds there. With
+    ``but_for_draws`` (an unseeded run, whose shards each drew their own ids), values that are one but for what
+    each drew are not two."""
     problems = []
     for kind in AUDITED:
         for key, values in sorted(gathered.conflicted[kind].items()):
+            if but_for_draws and _drawn_alike(kind, values, gathered):
+                continue
             shown = "the run's outputs"
             if mismatches is not None:
                 where = Path(mismatches) / kind / key
@@ -215,7 +227,9 @@ def compare_runs(left, right, *, masked_only: bool) -> tuple[list[str], list[str
     problems, notes = [], []
     sides = {"left": pack.gather(left), "right": pack.gather(right)}
     for side, gathered in sides.items():
-        problems += [f"In the {side} run: {problem}" for problem in _conflicts(gathered, None, disk.Snapshot(None))]
+        # The right run of a masked comparison is the unseeded one, whose shards each drew their own values.
+        own = _conflicts(gathered, None, disk.Snapshot(None), but_for_draws=masked_only and side == "right")
+        problems += [f"In the {side} run: {problem}" for problem in own]
         notes += [f"The {side} run: {note}" for note in gathered.notes]
     if not masked_only:
         left_parts, right_parts = _parts(sides["left"]), _parts(sides["right"])
