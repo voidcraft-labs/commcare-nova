@@ -24,6 +24,10 @@ since a part's record does not depend on which checks read it. A package
 group's outcome is kept only from a run in the environment the queue keys it
 under (``proof.store.keys.lane_environment``): a document's is keyed by the
 environment its run recorded, a package group's by the one the queue assumed.
+No outcome is kept from a run that held HQ's branch proof over a list of
+documents of its own (``proof.store.keys.lane_branches``): the proof's items
+are in their documents' groups, so such a run's groups hold other items than
+the lane's.
 
 ``merge`` writes one snapshot of several (a source that does not exist holds
 nothing); ``delta`` writes what ``--scope`` (the pull request's snapshot) and
@@ -200,6 +204,13 @@ def gather(outputs, queues=()) -> Gathered:
             gathered.notes.append(
                 f"Kept no outcome or judgment of {output}: its serve.json does not record the lane's own selection"
                 " (no pytest arguments, no PYTEST_ADDOPTS), so its groups may hold only some of their items."
+            )
+            continue
+        recorded = found.get("environment")
+        if isinstance(recorded, dict) and not keys.lane_branches(recorded):
+            gathered.notes.append(
+                f"Kept no outcome or judgment of {output}: its serve.json records HQ's branch proof over a list of"
+                f" documents of its own ({keys.BRANCH_DOCUMENTS}), so its groups may hold only some of their items."
             )
             continue
         packages = _lane_environment(found)

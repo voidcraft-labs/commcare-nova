@@ -77,7 +77,8 @@ SWITCHES = frozenset({"PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM"})
 LANE_ENVIRONMENT = {"PYTHONHASHSEED": "0", "TZ": "UTC"}
 # What a lane run records of its environment beside its selection (proof.lane.serve's serve.json): what its
 # observations record differently under (ENVIRONMENT_VARIABLES), and which documents HQ's branch proof runs over
-# (proof/hq/test_branches.py), which changes which items the run collects as its pytest arguments do.
+# (proof/hq/test_branches.py), which changes which items the run collects, in each such document's group and in
+# proof/hq's, as its pytest arguments do.
 BRANCH_DOCUMENTS = "PROOF_BRANCH_DOCUMENTS"
 SELECTION_ENVIRONMENT = (*ENVIRONMENT_VARIABLES, BRANCH_DOCUMENTS)
 
@@ -130,11 +131,14 @@ def lane_environment(recorded: Mapping[str, str | None]) -> bool:
     """Whether a run's recorded environment (``SELECTION_ENVIRONMENT``) is the one the queue builder keys package
     groups under (``LANE_ENVIRONMENT``), with HQ's branch proof over its own documents or every one."""
     present = {name: value for name, value in recorded.items() if value is not None}
-    return environment(present) == environment(LANE_ENVIRONMENT) and recorded.get(BRANCH_DOCUMENTS) in (
-        None,
-        "",
-        "all",
-    )
+    return environment(present) == environment(LANE_ENVIRONMENT) and lane_branches(recorded)
+
+
+def lane_branches(recorded: Mapping[str, str | None]) -> bool:
+    """Whether a run's recorded environment holds HQ's branch proof over its own documents or every one: the item
+    of it in a group is then every item the lane's own run collects there, or more. Under a list of others, a
+    document the proof names by default runs without it."""
+    return recorded.get(BRANCH_DOCUMENTS) in (None, "", "all")
 
 
 def _named(fingerprints: Mapping[str, str], names: Iterable[str]) -> dict:

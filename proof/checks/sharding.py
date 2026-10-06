@@ -9,7 +9,8 @@ observations, a package's session services) is built once, by one worker:
 
 - every item of one corpus document or control is one group, the ``group``
   its parameter carries (``corpus:<id>``, ``corpus:<id>@<configuration>``,
-  ``control:<id>``);
+  ``control:<id>``): each check's item on it, and HQ's branch proof of it
+  (``proof/hq/test_branches.py``);
 - ``proof/surface``'s items are the surface block's group, ``surface``;
 - every other item belongs to its package under ``proof/`` (``proof/native``,
   ``proof/editors``, ``proof/core``, ``proof/hq``, ``proof/checks``,
@@ -19,7 +20,8 @@ observations, a package's session services) is built once, by one worker:
 The items of each group run back to back (``order_by_group``).
 ``collection_roots`` names what pytest collects for a set of groups: a
 document's items come from ``proof/checks``, whose check modules parametrize
-over the corpus when they are imported.
+over the corpus when they are imported, and from ``proof/hq``, whose branch
+proof does.
 
 Timings. ``proof/timings.json`` holds each group's measured cost in
 box-seconds: the seconds of one worker's wall time the group took, without
@@ -121,7 +123,8 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     """What pytest collects to find every item of ``groups``.
 
     A document's or control's items come from the check modules in
-    ``proof/checks``; the surface's from ``proof/surface``; a package's from
+    ``proof/checks`` and the branch proof in ``proof/hq``; the surface's from
+    ``proof/surface``; a package's from
     its directory; ``proof``'s from the test modules at ``proof/`` itself.
     No test module belongs to ``hq-selfchecks``, so it names nothing, and a
     queue naming it fails the verify, which finds no item of it.
@@ -129,7 +132,7 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     roots = set()
     for group in groups:
         if group.startswith(DOCUMENT_KINDS):
-            roots.add(proof_dir / "checks")
+            roots.update((proof_dir / "checks", proof_dir / "hq"))
         elif group == SURFACE:
             roots.add(proof_dir / "surface")
         elif group == "proof":

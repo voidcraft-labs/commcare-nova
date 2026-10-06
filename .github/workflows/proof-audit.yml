@@ -161,9 +161,6 @@ jobs:
         PROOF_VERIFY_MEMOS=1
         PROOF_EDITOR_AUDIT=1
         PROOF_BRANCH_DOCUMENTS=all
-      # Every document's branches are one group (proof/hq), which one worker runs for about three quarters
-      # of an hour.
-      shard-timeout: 90
 
   weekly-compare:
     name: Weekly comparisons

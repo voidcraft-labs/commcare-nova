@@ -303,8 +303,10 @@ def test_a_package_outcome_is_kept_only_from_a_run_in_the_environment_its_queue_
         write_block(output, {"proof/core": {"proof/core/test_core.py::test_core": "passed"}})
         gathered = pack.gather([output], [queue])
         assert ("6" * 64 in gathered.index["groups"]) is kept, name
-        # A document's outcome is keyed by the environment its run recorded, so it is kept all the same.
-        assert len([g for g in gathered.index["groups"].values() if g["group"].startswith("corpus:")]) == 2, name
+        # A document's outcome is keyed by the environment its run recorded, so it is kept all the same, but from
+        # a run whose branch proof named its own documents: a document's group holds that proof's items of it.
+        documents = [g for g in gathered.index["groups"].values() if g["group"].startswith("corpus:")]
+        assert len(documents) == (0 if name == "one branch" else 2), name
 
 
 def test_a_run_of_another_selection_keeps_its_records_and_no_outcome_or_judgment(tmp_path, corpus):
