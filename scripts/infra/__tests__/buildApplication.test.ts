@@ -247,3 +247,57 @@ test("upload without a release identity refuses before creating a release", () =
 		f.close();
 	}
 });
+
+// Nova declares no Sentry CLI of its own: the build spawns `sentry` by name
+// and reaches the copy the Sentry SDK depends on. A second copy in the tree
+// would mean the build and the SDK no longer run the same CLI.
+test("the dependency tree holds one sentry CLI, at the root", () => {
+	const lock = z
+		.object({ packages: z.record(z.string(), z.unknown()) })
+		.parse(JSON.parse(readFileSync(resolve("package-lock.json"), "utf8")));
+	expect(
+		Object.keys(lock.packages).filter((name) =>
+			name.endsWith("node_modules/sentry"),
+		),
+	).toEqual(["node_modules/sentry"]);
+});
+
+// The stand-in above accepts anything. The installed CLI moves with the SDK,
+// so each command and flag the build sends is checked against the real one.
+test("the installed sentry CLI knows every command and flag the build sends", () => {
+	const f = fixture();
+	try {
+		expect(f.run().status).toBe(0);
+		const sent = f
+			.events()
+			.filter(
+				({ stage, event }) =>
+					event === "start" && stage !== "next" && stage !== "tsc",
+			);
+		expect(sent.map(({ stage }) => stage)).toEqual(phases.slice(2));
+		for (const { args } of sent) {
+			const command = args.slice(0, 2);
+			const help = spawnSync(
+				resolve("node_modules/.bin/sentry"),
+				[...command, "--help"],
+				{
+					encoding: "utf8",
+					timeout: 10_000,
+					env: {
+						...process.env,
+						SENTRY_CLI_NO_TELEMETRY: "1",
+						SENTRY_CLI_NO_UPDATE_CHECK: "1",
+					},
+				},
+			);
+			expect(help.error).toBeUndefined();
+			expect(help.status, command.join(" ")).toBe(0);
+			for (const flag of args.filter((arg) => arg.startsWith("--")))
+				expect(help.stdout, `${command.join(" ")} ${flag}`).toContain(
+					`[${flag}]`,
+				);
+		}
+	} finally {
+		f.close();
+	}
+});
