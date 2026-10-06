@@ -123,6 +123,38 @@ def test_another_record_kept_under_a_held_key_fails_with_both_written(tmp_path, 
     assert str(written) in str(failure.value)
 
 
+def test_an_unseeded_run_holds_two_records_of_one_key_and_their_blobs_to_each_other_but_for_what_each_drew(
+    tmp_path, corpus
+):
+    one = document_of(corpus, "one")
+    key = records_of(one).configurations["minimum"].keys["a"]
+
+    def observed(drawn, text="built"):
+        blobs = Blobs()
+        ref = blobs.put(f'<suite id="{drawn * 32}">{text}</suite>'.encode())
+        return {"kind": "a", "value": 1, "id": drawn * 32, "file": ref}, blobs
+
+    store = runtime.session_store(one, _environ(tmp_path / "out", fresh=True, PROOF_HQ_DETERMINISM="0"))
+    first, first_blobs = observed("a")
+    store.put(key, first, first_blobs)
+    # Another draw of the same observation is the one already kept, and keeps no document entry.
+    store.audit(key, observed("b")[0])
+    store.put(key, *observed("b"))
+    assert store.lookup(key) == first
+    store.recorded(one, records_of(one))
+    assert store.delta.entries("documents") == {}
+    # Anything else that differs fails as it does seeded, in the record or in a blob it names.
+    changed, changed_blobs = observed("b")
+    for record, blobs in (({**changed, "value": 2}, changed_blobs), observed("b", "rebuilt")):
+        with pytest.raises(audit.StoreMismatch):
+            store.put(key, record, blobs)
+    # Seeded, a record that differs only in an id is another record.
+    seeded = runtime.session_store(one, _environ(tmp_path / "seeded"))
+    seeded.put(key, first, first_blobs)
+    with pytest.raises(audit.StoreMismatch):
+        seeded.put(key, *observed("b"))
+
+
 def test_a_fresh_group_observes_every_part_and_holds_it_to_the_snapshot_and_the_runs_delta(tmp_path, corpus):
     one = document_of(corpus, "one")
     records = records_of(one)

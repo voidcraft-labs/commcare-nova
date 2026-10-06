@@ -1056,6 +1056,7 @@ def test_the_judge_gives_records_read_back_where_hq_cannot_be_imported_what_it_g
     assert here[str(roots[1])], "Renaming every module's case type gives the judge no difference to compare."
 
 
+@pytest.mark.under_determinism
 def test_the_observation_at_b_edit_is_bs_where_their_inputs_agree(hq, core_runner, monkeypatch, tmp_path):
     """The intent observation names no state: a B-edit observed with B's inputs records B's observation byte for
     byte (HQ's data dictionary and Core's parse of each form), so the unit may record it as B's."""

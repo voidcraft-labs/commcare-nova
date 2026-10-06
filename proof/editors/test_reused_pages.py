@@ -298,6 +298,7 @@ def test_a_failed_operation_leaves_its_page_to_be_replaced_and_the_next_gives_wh
     assert vellum.vellum_differences(after, fresh) == []
 
 
+@pytest.mark.under_determinism
 def test_pages_replaced_every_recycle_loads_operations_keep_their_seed_and_give_the_same_runs(
     hq, core_runner, monkeypatch
 ):

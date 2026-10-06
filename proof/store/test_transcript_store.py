@@ -80,6 +80,7 @@ def _same_sections(one, other):
         assert pages.section_differences(a, b) == [], a.page.name
 
 
+@pytest.mark.under_determinism
 def test_a_held_transcript_replays_where_hq_answers_alike_and_a_stale_one_goes_live_and_is_replaced(
     tmp_path, suite, editor_driver
 ):

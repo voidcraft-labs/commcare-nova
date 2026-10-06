@@ -13,8 +13,11 @@
 //       --surface-result <result> [--surface <file>] --run-url <url>
 //     Adds the image lock and the regenerated surface to that one commit when
 //     both succeeded (the pins alone otherwise), opens the pull request or
-//     updates the open one, requests the reviewer's review, and dispatches CI
-//     on the branch. The description states the run's date and outcome and
+//     updates the open one, and requests the reviewer's review. GitHub holds
+//     CI on a pull request the workflow's own token opened until a person
+//     approves its run or updates the branch, and a run dispatched on the
+//     branch does not stand in for it (the held run hides its checks), so
+//     the description says so. It states the run's date and outcome and
 //     classifies every surface item the new pins add, remove or change.
 //
 // Every git and gh call goes through the executables on PATH, so a test runs
@@ -260,14 +263,18 @@ function describe({ date, outcome, runUrl, before, after, classified }) {
 	return lines.join("\n");
 }
 
+// GitHub holds CI on a pull request the workflow's token opened, so every outcome says how it starts.
+const CI_STARTS =
+	"starts when you approve its run on this pull request or update the branch";
+
 function outcomeOf(options) {
 	if (options.imageResult !== "success") {
-		return "the image build did not succeed, so the branch carries the new pins alone and CI is red until the harness builds at them";
+		return `the image build did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the harness builds at them`;
 	}
 	if (options.surfaceResult !== "success") {
-		return "the surface extraction did not succeed, so the branch carries the new pins alone and CI is red until the extractor runs at them";
+		return `the surface extraction did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
 	}
-	return "the image, the lock and the surface are updated, and CI runs on the branch";
+	return `the image, the lock and the surface are updated, and CI ${CI_STARTS}`;
 }
 
 export async function report(cwd, options) {
@@ -334,7 +341,6 @@ export async function report(cwd, options) {
 	if (options.reviewer) {
 		await gh(cwd, "pr", "edit", number, "--add-reviewer", options.reviewer);
 	}
-	await gh(cwd, "workflow", "run", "ci.yml", "--ref", BRANCH);
 	return { number, classified };
 }
 
