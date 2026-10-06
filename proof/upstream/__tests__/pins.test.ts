@@ -420,6 +420,10 @@ describe("the report stage", () => {
 		const created = calls.find((c) => c.args[1] === "create");
 		expect(created?.body).toContain("the image build did not succeed");
 		expect(created?.body).toContain("https://example.org/run/3");
+		expect(created?.body).toContain(
+			"CI starts when you approve its run on this pull request or update the branch, and is red until",
+		);
+		expect(calls.map((c) => c.args[0])).not.toContain("workflow");
 	});
 });
 

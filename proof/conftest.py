@@ -133,19 +133,32 @@ def network():
 
 def pytest_collection_modifyitems(config, items):
     """Each group's items together, groups in the order they first appear (``proof.checks.sharding``), and the
-    ``under_determinism`` tests skipped where HQ's determinism is off."""
+    ``under_determinism`` tests skipped where HQ's determinism is off or the corpus was emitted unseeded."""
     from proof.checks.sharding import order_by_group
     from proof.hq import determinism
 
-    if not determinism.ENABLED:
+    if not determinism.ENABLED or _emitted_unseeded():
         unseeded = pytest.mark.skip(
-            reason="With PROOF_HQ_DETERMINISM=0 HQ draws from the system's entropy and reads the real clock, so"
-            " nothing it does twice gives the same bytes."
+            reason="HQ's determinism is off (PROOF_HQ_DETERMINISM=0) or the corpus was emitted with real draws"
+            " (PROOF_ENTROPY=real), so nothing done twice gives the same bytes."
         )
         for item in items:
             if item.get_closest_marker("under_determinism") is not None:
                 item.add_marker(unseeded)
     items[:] = order_by_group(items)
+
+
+def _emitted_unseeded() -> bool:
+    """Whether the corpus this run reads was emitted with real draws (its index's ``entropy``); False where no
+    corpus is named or emitted yet, which a run emitting its own seeds."""
+    named = os.environ.get("PROOF_CORPUS")
+    if not named:
+        return False
+    try:
+        index = json.loads(Path(named, "index.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return index.get("entropy") == "real"
 
 
 def pytest_terminal_summary(terminalreporter):

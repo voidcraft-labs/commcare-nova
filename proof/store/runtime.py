@@ -31,8 +31,9 @@ Any part kept under a key the run already holds another record under fails
 the same way (``put``), so two observations of one key that differ are never
 both kept. With HQ's determinism off (``PROOF_HQ_DETERMINISM=0``, the weekly
 unseeded run) a part holds the ids and clock readings its observation drew,
-so two records of one key are held to each other with those masked
-(``proof.store.audit.masked``), and the first is the one kept.
+so two records of one key, and the blobs they name, are held to each other
+but for those (``proof.store.audit.alike_but_for_draws``, in ``put``), the
+first is the one kept, and no document entry is kept.
 
 The browser transcripts (``transcripts``) are kept the same way, by
 ``proof.store.keys.transcript_key`` under the document scope (the
@@ -116,7 +117,7 @@ class Store:
         self.fingerprints = dict(found)
         self.environment = keys.environment(environ)
         # With HQ's determinism off a part holds the values its observation drew, so two observations of one
-        # key are held to each other with those masked (``audit.masked``), as two unseeded runs are.
+        # key are held to each other but for those (``audit.alike_but_for_draws``).
         self.seeded = self.environment["PROOF_HQ_DETERMINISM"] == "on"
         self.scope = keys.record_scope(found, environ)
         self.document_scope = keys.document_scope(found, environ)
@@ -183,31 +184,41 @@ class Store:
             self.delta.put("parts", stored, entry)
         except disk.EntryConflict as conflict:
             held, read = self._held_entry(stored)
-            held_record = read(held["record"]) if held is not None else None
-            if self._alike_but_for_draws(held_record, content):
+            if self._alike_but_for_draws(held, read, content, blobs):
                 return
+            held_record = read(held["record"]) if held is not None else None
             raise audit.write_mismatch(
                 self.audit_directory, stored, held_record, content, why="this run already kept another record"
             ) from conflict
 
     def audit(self, key: bytes, record: dict) -> None:
         """Hold a part observed afresh to whatever this run's delta and the snapshot hold under its key."""
+        if not self.seeded:
+            # ``put``, which follows with the record's blobs, holds an unseeded run's record to the one kept.
+            return
         stored = self.storage_key(key)
         content = canonical(record)
         for source, where in ((self.delta, "this run kept another record"), (self.snapshot, "the store holds another")):
             held = source.get("parts", stored)
             if held is not None and held["record"] != disk.digest_of(content):
-                if self._alike_but_for_draws(source.blob(held["record"]), content):
-                    continue
                 raise audit.write_mismatch(
                     self.audit_directory, stored, source.blob(held["record"]), content, why=where
                 )
 
-    def _alike_but_for_draws(self, held: bytes | None, content: bytes) -> bool:
-        """Whether an unseeded run's two records of one key differ only in the values each drew."""
+    def _alike_but_for_draws(self, held, read, content: bytes, blobs: Blobs) -> bool:
+        """Whether an unseeded run's two records of one key, and the blobs they name, differ only in the values
+        each observation drew (``audit.alike_but_for_draws``)."""
         if self.seeded or held is None:
             return False
-        return audit.masked(json.loads(held)) == audit.masked(json.loads(content))
+        held_record = read(held["record"])
+        if held_record is None:
+            return False
+        return audit.alike_but_for_draws(
+            held_record.decode("utf-8"),
+            content.decode("utf-8"),
+            read,
+            lambda name: blobs.get(name) if name in blobs else None,
+        )
 
     # Documents -------------------------------------------------------------------------------------
 
@@ -220,8 +231,12 @@ class Store:
 
         A B-edit recorded as B's (``{"same_as": ...}``) is read as B's record
         (``ConfigurationRecords.part``), which its key, B's, holds: so a run
-        that observes it apart (a fresh group) keeps the same entry.
+        that observes it apart (a fresh group) keeps the same entry. An
+        unseeded run keeps none: its records hold what each observation
+        drew, so no digest of one names what another run would read.
         """
+        if not self.seeded:
+            return
         parts = {}
         for name, configuration in sorted(records.configurations.items()):
             for part, key in sorted(configuration.keys.items()):

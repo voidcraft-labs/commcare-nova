@@ -114,6 +114,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from contextlib import contextmanager
 from dataclasses import replace
 from types import SimpleNamespace
@@ -1066,13 +1067,10 @@ def test_hq_raising_on_an_editors_request_is_a_difference(hq, core_runner, edito
     assert not [d for d in found if d.artifact == _artifact("editor:case management") and "/raised/" in d.path]
 
 
-def test_a_harness_failure_during_an_editors_run_ends_the_check(hq, core_runner, editor_driver, monkeypatch):
+def test_a_harness_failure_during_an_editors_run_ends_the_check(hq, core_runner, editor_driver):
     from corehq.apps.app_manager.models import Application
     from corehq.apps.app_manager.views import forms
 
-    # The in-band audit reruns a section on a fresh page, which ends at the first refused save; the reused
-    # page's own run, which reaches both, is what this reads.
-    monkeypatch.delenv(pages.AUDIT_ENVIRONMENT, raising=False)
     held = forms.get_app
 
     def get_app_reading_a_view_the_harness_does_not_answer(domain, app_id, *args, **kwargs):
@@ -1085,11 +1083,17 @@ def test_a_harness_failure_during_an_editors_run_ends_the_check(hq, core_runner,
             with pytest.raises(HQRefusedPageRequest) as raised:
                 observed.observe_b(ctx, views=_view("view_form", 0, 1), forms=_nothing)
     refusals = [exchange for exchange in raised.value.exchanges if exchange.refusal]
-    # Both of the view's held saves reach a save view of views/forms.py, and each is refused.
-    assert {(e.url_name, e.raised) for e in refusals} == {
+    # Both of the view's held saves reach a save view of views/forms.py, and each is refused. Where the in-band
+    # audit reruns a section (``pages.AUDIT_ENVIRONMENT``), its fresh page's save is refused first, and that
+    # refusal ends the check the same way.
+    expected = {
         ("edit_form_attr", "proof.hq.couch.UnansweredView"),
         ("edit_form_actions", "proof.hq.couch.UnansweredView"),
     }
+    found = {(e.url_name, e.raised) for e in refusals}
+    assert found and found <= expected
+    if not os.environ.get(pages.AUDIT_ENVIRONMENT):
+        assert found == expected
 
     # The driver could not finish the run and no HQ view failed (a deadline): no broken run, the check ends.
     failure = EditorRunFailed(

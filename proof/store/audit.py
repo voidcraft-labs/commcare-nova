@@ -21,12 +21,13 @@ document's group and the part's name) rather than by key, since their keys
 name different images, architectures or environments; each pair must hold
 the same record. Every check's evidence is paired by check and document and
 must be the same, byte for byte as canonical JSON. With ``--masked``, only
-the evidence is compared, each record's id-shaped tokens (``MASKED``) read
-as one value, as two runs that draw their ids and clocks afresh observe the
-same things up to those values. Which drawn values are equal is among what
-the seeding chooses (a seeded run draws an id from its state's key, so two
-states of one key hold one id where an unseeded run draws two), so the
-tokens are not told apart. A part or
+the evidence is compared, the right run's held to the left's but for the
+values each drew (``alike_but_for_draws``): every id-shaped token
+(``MASKED``) stands where one of its kind stands, and each value the right
+run drew stands for one value of the left's everywhere. Two of the right
+run's may stand for one of the left's: a seeded run draws an id from its
+state's key, so two states of one key hold one id where an unseeded run
+draws two, and the seeded run is the left one. A part or
 evidence record only one run holds is named too, and so is a key or an
 evidence record one run holds two values of.
 
@@ -100,9 +101,66 @@ def _parts(gathered: pack.Gathered) -> dict:
     return found
 
 
+BLOB = "sha256:"
+
+
+def _kind(token: str) -> str:
+    """What a drawn token is: a UUID, a hex id of its length, or a date or time."""
+    if len(token) == 36 and token.count("-") == 4:
+        return "uuid"
+    if "-" not in token and ":" not in token:
+        return f"hex{len(token)}"
+    return "time"
+
+
+def alike_but_for_draws(held: str, fresh: str, read_held=None, read_fresh=None, _seen=None) -> bool:
+    """Whether ``fresh`` is ``held`` (two texts: a record's canonical JSON, or a blob's) but for the values a
+    run draws afresh (``MASKED``).
+
+    Every drawn token of ``fresh`` stands where one of the same kind stands in ``held``, the text between
+    them is the same, and each value ``fresh`` drew stands for one value of ``held`` everywhere it appears: an
+    id written where another's belongs, or a time where an id was, is a difference. Two values of ``fresh``
+    may stand for one of ``held``, since a seeded run draws an id from its state's key, so two states of one
+    key hold one id where an unseeded run draws two. With ``read_held`` and ``read_fresh`` (each a blob's
+    bytes by its ``sha256:`` name, or None), a pair of blob names that differ is held to the same rule over
+    the blobs' contents, and to the same bytes where they are not text.
+    """
+    found_held, found_fresh = list(MASKED.finditer(held)), list(MASKED.finditer(fresh))
+    if MASKED.sub(lambda match: f"<{_kind(match.group(0))}>", held) != MASKED.sub(
+        lambda match: f"<{_kind(match.group(0))}>", fresh
+    ):
+        return False
+    stands_for = {}
+    for one, other in zip(found_held, found_fresh, strict=True):
+        if stands_for.setdefault(other.group(0), one.group(0)) != one.group(0):
+            return False
+    if read_held is None or read_fresh is None:
+        return True
+    seen = set() if _seen is None else _seen
+    for one, other in zip(found_held, found_fresh, strict=True):
+        pair = (one.group(0), other.group(0))
+        if pair[0] == pair[1] or pair in seen or not fresh.startswith(BLOB, other.start() - len(BLOB)):
+            continue
+        seen.add(pair)
+        blob_held, blob_fresh = read_held(BLOB + pair[0]), read_fresh(BLOB + pair[1])
+        if blob_held is None or blob_fresh is None:
+            if blob_held is not blob_fresh:
+                return False
+            continue
+        try:
+            texts = blob_held.decode("utf-8"), blob_fresh.decode("utf-8")
+        except UnicodeDecodeError:
+            if blob_held != blob_fresh:
+                return False
+            continue
+        if not alike_but_for_draws(*texts, read_held, read_fresh, seen):
+            return False
+    return True
+
+
 def masked(value) -> str:
-    """``value``'s canonical JSON with each id-shaped token read as one value."""
-    return MASKED.sub("<drawn>", json.dumps(value, sort_keys=True, ensure_ascii=False))
+    """``value`` as the canonical JSON ``alike_but_for_draws`` reads."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
 def _content(kind: str, entry, source) -> bytes:
@@ -180,7 +238,11 @@ def compare_runs(left, right, *, masked_only: bool) -> tuple[list[str], list[str
             side = "left" if one is not None else "right"
             problems.append(f"Only the {side} run wrote {identity[0]}'s evidence on {identity[1]}:{identity[2]}.")
             continue
-        alike = masked(one) == masked(other) if masked_only else disk.canonical(one) == disk.canonical(other)
+        alike = (
+            alike_but_for_draws(masked(one), masked(other))
+            if masked_only
+            else disk.canonical(one) == disk.canonical(other)
+        )
         if not alike:
             problems.append(
                 f"{identity[0]}'s evidence on {identity[1]}:{identity[2]} differs between the runs"
