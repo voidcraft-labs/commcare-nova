@@ -153,15 +153,21 @@ def as_read(parsed):
     for path, built in parsed.items():
         if built.kind != "app_strings" or built.parsed is None:
             continue
-        head, _, language = path.removesuffix(f"/{STRINGS_FILE}").rpartition("/")
-        if language == DEFAULT_STRINGS:
-            continue
-        default = parsed.get(
-            f"{head}/{DEFAULT_STRINGS}/{STRINGS_FILE}" if head else f"{DEFAULT_STRINGS}/{STRINGS_FILE}"
-        )
+        default = parsed.get(default_strings_path(path))
         if default is not None and default.parsed is not None:
             shown[path] = replace(built, parsed={**default.parsed, **built.parsed})
     return shown
+
+
+def default_strings_path(path):
+    """The ``default`` app strings file a language's file at ``path`` is read over (``as_read``); None for the
+    default file itself and for a file that is not app strings."""
+    if comparator_kind(path) != "app_strings":
+        return None
+    head, _, language = path.removesuffix(f"/{STRINGS_FILE}").rpartition("/")
+    if language == DEFAULT_STRINGS:
+        return None
+    return f"{head}/{DEFAULT_STRINGS}/{STRINGS_FILE}" if head else f"{DEFAULT_STRINGS}/{STRINGS_FILE}"
 
 
 def _base(artifact):

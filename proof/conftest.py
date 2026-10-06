@@ -28,6 +28,13 @@ each worker's own.
 
 Each group's items run together (``proof.checks.sharding.order_by_group``);
 under the lane, the worker's plugin decides which groups run.
+
+A test marked ``under_determinism`` states what holds only where the same inputs give
+the same bytes: under HQ's determinism (``proof.hq.determinism``) and a
+seeded emission. The weekly unseeded run leaves both real
+(``PROOF_HQ_DETERMINISM=0``, ``PROOF_ENTROPY=real``) to compare what it
+observes with a seeded run's, and there no request is answered alike twice
+and no update sends its republish's bytes, so those tests are skipped.
 """
 
 from __future__ import annotations
@@ -125,9 +132,19 @@ def network():
 
 
 def pytest_collection_modifyitems(config, items):
-    """Each group's items together, groups in the order they first appear (``proof.checks.sharding``)."""
+    """Each group's items together, groups in the order they first appear (``proof.checks.sharding``), and the
+    ``under_determinism`` tests skipped where HQ's determinism is off."""
     from proof.checks.sharding import order_by_group
+    from proof.hq import determinism
 
+    if not determinism.ENABLED:
+        unseeded = pytest.mark.skip(
+            reason="With PROOF_HQ_DETERMINISM=0 HQ draws from the system's entropy and reads the real clock, so"
+            " nothing it does twice gives the same bytes."
+        )
+        for item in items:
+            if item.get_closest_marker("under_determinism") is not None:
+                item.add_marker(unseeded)
     items[:] = order_by_group(items)
 
 

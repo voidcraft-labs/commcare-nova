@@ -132,6 +132,7 @@ def _inline(value, at=""):
             yield from _inline(item, f"{at}/{key}")
 
 
+@pytest.mark.under_determinism
 def test_a_document_observed_twice_writes_the_same_records_naming_no_place(
     observed, document, core_runner, editor_driver, tmp_path
 ):
@@ -152,6 +153,7 @@ def test_a_document_observed_twice_writes_the_same_records_naming_no_place(
     assert DocumentRecords.load(observed.save(tmp_path / "records")).digests() == observed.digests()
 
 
+@pytest.mark.under_determinism
 def test_a_stored_part_is_read_and_what_is_observed_under_it_is_unchanged(
     observed, document, core_runner, editor_driver
 ):
@@ -383,6 +385,7 @@ def _recording_hooks():
     return hooks
 
 
+@pytest.mark.under_determinism
 def test_a_b_edit_with_bs_inputs_is_recorded_as_b_and_judges_as_b_relabeled(hq, core_runner, monkeypatch):
     for module, hook in _recording_hooks().items():
         monkeypatch.setitem(sys.modules, module, hook)
@@ -520,6 +523,7 @@ def _matched(media):
     return {entry["path"] for entry in media["matched"]}
 
 
+@pytest.mark.under_determinism
 def test_a_create_that_sends_media_maps_it_into_a_the_same_way_in_every_unit(hq, core_runner):
     from proof.hq import operations
 
@@ -552,6 +556,7 @@ def _held_app(state):
     return canonical(operations.held_app(state.unit, state.app_id).to_json())
 
 
+@pytest.mark.under_determinism
 def test_b_and_its_recreation_send_the_media_again_and_a_publish_hq_refuses_sends_none(hq, core_runner, tmp_path):
     """HQ's update keeps the app's map (``overwrite_app_from_source``), and B's upload maps each file to the
     medium A's upload made, found by its bytes (``CommCareMultimedia.get_by_data``). B recreated for a

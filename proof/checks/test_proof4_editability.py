@@ -636,6 +636,8 @@ def test_a_kept_traces_case_processing_notes_again_what_hq_noted_under_the_save_
     note = SoftAssertNote("phone datetime should never be empty", "''", "proof::probe", 1)
     with suite_b(CONFIGURATION, [], core_runner, None) as (ctx, _):
         observation = observed._Observation(ctx, observed.hq_order)
+        # The kept trace is a probe no sessions gave, so this reads it as kept, whatever the run verifies.
+        observation.verify = False
         with ctx.unit.fork():
             observation.prepare()
             kept = {"admission": {"admitted": True}, "trace": None, "processed": None}
@@ -1064,10 +1066,13 @@ def test_hq_raising_on_an_editors_request_is_a_difference(hq, core_runner, edito
     assert not [d for d in found if d.artifact == _artifact("editor:case management") and "/raised/" in d.path]
 
 
-def test_a_harness_failure_during_an_editors_run_ends_the_check(hq, core_runner, editor_driver):
+def test_a_harness_failure_during_an_editors_run_ends_the_check(hq, core_runner, editor_driver, monkeypatch):
     from corehq.apps.app_manager.models import Application
     from corehq.apps.app_manager.views import forms
 
+    # The in-band audit reruns a section on a fresh page, which ends at the first refused save; the reused
+    # page's own run, which reaches both, is what this reads.
+    monkeypatch.delenv(pages.AUDIT_ENVIRONMENT, raising=False)
     held = forms.get_app
 
     def get_app_reading_a_view_the_harness_does_not_answer(domain, app_id, *args, **kwargs):
@@ -1188,6 +1193,7 @@ def _with_changed_answer(transcript):
     )
 
 
+@pytest.mark.under_determinism
 def test_a_replayed_view_or_vellum_run_gives_the_live_runs_record(hq, core_runner, editor_driver, monkeypatch):
     monkeypatch.setenv(observed.TRANSCRIPTS_ENVIRONMENT, "on")
     held = observed.LocalTranscripts()
@@ -1663,6 +1669,31 @@ def test_a_saves_build_compared_with_build_b_parsed_once_is_compared_as_both_bui
     misread.flat = {**misread.flat, "en/app_strings.txt": (None, b"name=Named\n")}
     with pytest.raises(observed.MemoMismatch):
         observed.raw_builds_differ(b, saves["app string"][0], misread, verify=True)
+
+
+def test_a_saves_language_strings_are_compared_as_read_over_the_default_file_in_both_comparisons():
+    """A language's app strings are read over the default file's, so a key a save drops from a language's file
+    alone is a difference only where the default's text is another; the narrowed comparison reads the default
+    file beside a changed language file as the whole one does, whether or not the default's bytes changed."""
+
+    def build(app_version, default, spanish):
+        extra = {"default/app_strings.txt": default.encode(), "es/app_strings.txt": spanish.encode()}
+        return _build(app_version, form_version=3, extra=extra)
+
+    b = build(5, "name=Name\nempty=List is empty.\n", "name=Nombre\nempty=List is empty.\n")
+    base = observed.ParsedBuild(b)
+    saves = {
+        # The language's file leaves out a key whose text the default file gives alike.
+        "dropped, the default's text": (build(6, "name=Name\nempty=List is empty.\n", "name=Nombre\n"), False),
+        # The language's own text went, and it now reads the default's.
+        "dropped, another text": (build(6, "name=Name\nempty=List is empty.\n", "empty=List is empty.\n"), True),
+        # The default's text changed under a key the language's file still gives.
+        "the default changed": (build(6, "name=Named\nempty=List is empty.\n", "name=Nombre\n"), True),
+    }
+    for name, (after, expected) in saves.items():
+        whole = observed.raw_builds_differ(b, after)
+        assert whole == expected, name
+        assert observed.raw_builds_differ(b, after, base, verify=True) == whole, name
 
 
 def test_bs_app_read_once_is_read_only_while_hq_holds_its_document_and_verify_holds_each_reading_to_hqs(

@@ -288,7 +288,7 @@ describe("the plan stage", () => {
 });
 
 describe("the report stage", () => {
-	it("commits pins, lock and surface together, opens the one pull request and dispatches CI", async () => {
+	it("commits pins, lock and surface together, opens the one pull request and says how CI starts", async () => {
 		const { checkout, origin, hq, ghLog } = await lane();
 		const head = await hq.advance();
 		await stage(checkout, "plan");
@@ -358,13 +358,11 @@ describe("the report stage", () => {
 			"--add-reviewer",
 			"a-reviewer",
 		]);
-		expect(calls.map((c) => c.args)).toContainEqual([
-			"workflow",
-			"run",
-			"ci.yml",
-			"--ref",
-			"upstream/pins",
-		]);
+		// GitHub holds the pull request's own CI for a person; a run dispatched on the branch would be hidden by it.
+		expect(created?.body).toContain(
+			"CI starts when you approve its run on this pull request or update the branch",
+		);
+		expect(calls.map((c) => c.args[0])).not.toContain("workflow");
 	});
 
 	it("updates the open pull request in place rather than opening another", async () => {
@@ -422,13 +420,6 @@ describe("the report stage", () => {
 		const created = calls.find((c) => c.args[1] === "create");
 		expect(created?.body).toContain("the image build did not succeed");
 		expect(created?.body).toContain("https://example.org/run/3");
-		expect(calls.map((c) => c.args)).toContainEqual([
-			"workflow",
-			"run",
-			"ci.yml",
-			"--ref",
-			"upstream/pins",
-		]);
 	});
 });
 
@@ -451,7 +442,6 @@ describe("the workflow", () => {
 			),
 		);
 		expect([...granted].sort()).toEqual([
-			"actions",
 			"contents",
 			"packages",
 			"pull-requests",

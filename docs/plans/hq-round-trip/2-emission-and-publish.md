@@ -206,11 +206,12 @@ properties no form writes, a follow-up form drawing the registration alert);
 search and publish (the mixed-quote CSQL function HQ does not have, the
 missing-media warning under `CAUTIOUS_MULTIMEDIA`); and those the register
 round found (a list's sort keys on different columns, which a fuzzy search
-reads; a validation message showing an answer that reaches the worker
-unfilled; HQ's exception report for each search Nova's zero-input sentinel
+reads; HQ's exception report for each search Nova's zero-input sentinel
 sends; and two differences only another runtime reads, both alike to it: the
 Case List save's empty search description and a Vellum save's empty Connect
-work area id).
+work area id). Finding 52, a validation message showing an answer that
+reached the worker unfilled, is already fixed (#712), and the register holds
+no entry for it.
 
 ### H. Step 1's open clause
 

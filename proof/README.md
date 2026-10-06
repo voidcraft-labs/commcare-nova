@@ -397,7 +397,7 @@ It passes these into the container unchanged, each only when set:
 | --- | --- |
 | `PROOF_CORPUS_SAMPLE`, `PROOF_CORPUS_SEED` | The fuzz sample's size and the corpus seed, for a corpus the run emits. |
 | `PROOF_HQ_SPEED=0` | HQ without its speed seams (`proof/hq/speed.py`), to compare. |
-| `PROOF_HQ_DETERMINISM=0` | HQ's entropy and clock left real (`proof/hq/determinism.py`), to compare. |
+| `PROOF_HQ_DETERMINISM=0` | HQ's entropy and clock left real (`proof/hq/determinism.py`), to compare. The tests marked `under_determinism` are skipped, and the store holds two records of one key to each other with their drawn values masked. |
 | `PROOF_VERIFY_MEMOS=1` | Every memo, kept build and kept trace computed again on every hit and held to the kept answer. |
 | `PROOF_EDITOR_AUDIT=<fraction>` | That fraction of editor views and Vellum runs rerun on a fresh page and held to the reused one (CI uses `0.03`). |
 | `PROOF_BRANCH_DOCUMENTS` | Which corpus documents the HQ branch proofs hold to fresh states (`proof/hq/test_branches.py`; `all` for every one). |
@@ -1168,9 +1168,9 @@ reused is only what a key names whole, and the reuse is audited:
   main's store;
 - **weekly** (`proof-audit.yml`): four fresh runs. Three run a fixed
   24-document sample: a baseline, one with Nova's emission and HQ unseeded,
-  compared with the baseline (equal up to the masked ids and clocks, with
-  defects 1 and 9 still showing), and one with HQ's speed seams off, compared
-  with it (equal). A sampled run checks every control and package but only
+  compared with the baseline (equal once every drawn id and clock reading is
+  read as one value, with defects 1 and 9 still showing), and one with HQ's
+  speed seams off, compared with it (equal). A sampled run checks every control and package but only
   the sampled documents, so it holds each register entry naming a document
   the sample left out on its control alone ("Known defects", above). The
   fourth runs the whole corpus with every memo verified, every editor view
@@ -1200,7 +1200,7 @@ reused is only what a key names whole, and the reuse is audited:
 | The manifest names only what exists | a dangling key or gate | `lib/commcare/surface/__tests__/manifest.test.ts`, in ordinary CI |
 | Nothing Nova emits is unclassified | an export using an item no entry names, or HQ reading a flag no gate entry names | the manifest check |
 | The surface matches the pins | a hand edit or a stale regeneration | the gate's surface section |
-| The weekly pin pull request reports every outcome once | no change, a second pull request, CI never run, pins without their image, a failure that reports nothing | `proof/upstream/__tests__/pins.test.ts`, with controlled `git` and `gh` |
+| The weekly pin pull request reports every outcome once | no change, a second pull request, how CI starts left unsaid, pins without their image, a failure that reports nothing | `proof/upstream/__tests__/pins.test.ts`, with controlled `git` and `gh` |
 
 ## Native proofs
 
@@ -1773,8 +1773,10 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    that image, so the pull request's own CI reads its records.
 5. **Report** (`pins.mjs report`) adds the image lock and the regenerated
    surface to the one commit, opens the pull request or updates the open one,
-   requests review, and dispatches CI on the branch (a pull request the
-   workflow's own token opens starts no `pull_request` run). Its description
+   and requests review. GitHub holds CI on a pull request the workflow's own
+   token opened: it starts when a person approves its run on the pull request
+   or updates the branch, and a run dispatched on the branch would not stand
+   in for it, because the held run hides its checks. Its description
    states the run's date and outcome and classifies every surface item the new
    pins add (refused wherever an app uses it until an entry names it), remove
    or change (each with the entries that name it and their dispositions). When

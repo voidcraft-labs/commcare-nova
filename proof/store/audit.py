@@ -21,9 +21,12 @@ document's group and the part's name) rather than by key, since their keys
 name different images, architectures or environments; each pair must hold
 the same record. Every check's evidence is paired by check and document and
 must be the same, byte for byte as canonical JSON. With ``--masked``, only
-the evidence is compared, each record's id-shaped tokens (``MASKED``)
-renamed by their first appearance in it, as two runs that draw their ids and
-clocks afresh observe the same things up to those values. A part or
+the evidence is compared, each record's id-shaped tokens (``MASKED``) read
+as one value, as two runs that draw their ids and clocks afresh observe the
+same things up to those values. Which drawn values are equal is among what
+the seeding chooses (a seeded run draws an id from its state's key, so two
+states of one key hold one id where an unseeded run draws two), so the
+tokens are not told apart. A part or
 evidence record only one run holds is named too, and so is a key or an
 evidence record one run holds two values of.
 
@@ -98,14 +101,8 @@ def _parts(gathered: pack.Gathered) -> dict:
 
 
 def masked(value) -> str:
-    """``value``'s canonical JSON with each id-shaped token renamed by its first appearance."""
-    names = {}
-
-    def rename(match):
-        token = match.group(0)
-        return names.setdefault(token, f"<{len(names)}>")
-
-    return MASKED.sub(rename, json.dumps(value, sort_keys=True, ensure_ascii=False))
+    """``value``'s canonical JSON with each id-shaped token read as one value."""
+    return MASKED.sub("<drawn>", json.dumps(value, sort_keys=True, ensure_ascii=False))
 
 
 def _content(kind: str, entry, source) -> bytes:

@@ -30,7 +30,8 @@ the lane with and without it from ever running Django's own draw.
 HQ runs under its determinism here (``proof.editors.units``), as the lane
 runs it, so the same requests over the same state give the same bytes. With
 it off (``PROOF_HQ_DETERMINISM=0``) no request is answered alike twice, so
-the tests of a replay that goes through are skipped (``UNDER_DETERMINISM``).
+the tests of a replay that goes through are skipped (``under_determinism``,
+``proof/conftest.py``).
 """
 
 from __future__ import annotations
@@ -50,12 +51,6 @@ from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
-UNDER_DETERMINISM = pytest.mark.skipif(
-    not determinism.ENABLED,
-    reason="With PROOF_HQ_DETERMINISM=0 HQ draws from the system's entropy, so no request it answers twice is"
-    " answered alike and no transcript replays through.",
-)
-
 
 def _stored(state, app_id):
     """HQ's stored app, as its Couch document."""
@@ -99,7 +94,7 @@ def suite(hq, core_runner):
         yield unit, app_id
 
 
-@UNDER_DETERMINISM
+@pytest.mark.under_determinism
 def test_a_replayed_view_is_the_live_run_and_a_navigation_answered_ahead_is_not_asked_again(suite, editor_driver):
     unit, app_id = suite
     state = unit.state
@@ -155,7 +150,7 @@ def _with_changed_answer(transcript, index):
     return transcripts.Transcript.from_json(changed)
 
 
-@UNDER_DETERMINISM
+@pytest.mark.under_determinism
 def test_a_changed_answer_ends_the_replay_at_that_request_and_the_live_run_after_it_is_the_recorded_one(
     suite, editor_driver
 ):
@@ -202,7 +197,7 @@ def test_a_changed_answer_ends_the_replay_at_that_request_and_the_live_run_after
     assert len(answers.exchanges) == 1 and answers.exchanges[0].url_name == "view_module"
 
 
-@UNDER_DETERMINISM
+@pytest.mark.under_determinism
 def test_a_replayed_vellum_run_is_the_live_run_and_a_changed_answer_ends_it(suite, editor_driver):
     unit, app_id = suite
     state = unit.state
@@ -229,7 +224,7 @@ def test_a_replayed_vellum_run_is_the_live_run_and_a_changed_answer_ends_it(suit
     assert len(answers.exchanges) == last + 1
 
 
-@UNDER_DETERMINISM
+@pytest.mark.under_determinism
 def test_a_view_rendered_alike_under_other_entropy_replays_its_transcript(suite, editor_driver):
     unit, app_id = suite
     state = unit.state

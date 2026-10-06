@@ -29,7 +29,10 @@ run's delta holds under its key (``audit``): a record that differs is
 written, with the one held, under ``<output>/audit/`` and fails the group.
 Any part kept under a key the run already holds another record under fails
 the same way (``put``), so two observations of one key that differ are never
-both kept.
+both kept. With HQ's determinism off (``PROOF_HQ_DETERMINISM=0``, the weekly
+unseeded run) a part holds the ids and clock readings its observation drew,
+so two records of one key are held to each other with those masked
+(``proof.store.audit.masked``), and the first is the one kept.
 
 The browser transcripts (``transcripts``) are kept the same way, by
 ``proof.store.keys.transcript_key`` under the document scope (the
@@ -112,6 +115,9 @@ class Store:
         self.delta = delta
         self.fingerprints = dict(found)
         self.environment = keys.environment(environ)
+        # With HQ's determinism off a part holds the values its observation drew, so two observations of one
+        # key are held to each other with those masked (``audit.masked``), as two unseeded runs are.
+        self.seeded = self.environment["PROOF_HQ_DETERMINISM"] == "on"
         self.scope = keys.record_scope(found, environ)
         self.document_scope = keys.document_scope(found, environ)
         self.fresh = bool(fresh)
@@ -178,6 +184,8 @@ class Store:
         except disk.EntryConflict as conflict:
             held, read = self._held_entry(stored)
             held_record = read(held["record"]) if held is not None else None
+            if self._alike_but_for_draws(held_record, content):
+                return
             raise audit.write_mismatch(
                 self.audit_directory, stored, held_record, content, why="this run already kept another record"
             ) from conflict
@@ -189,9 +197,17 @@ class Store:
         for source, where in ((self.delta, "this run kept another record"), (self.snapshot, "the store holds another")):
             held = source.get("parts", stored)
             if held is not None and held["record"] != disk.digest_of(content):
+                if self._alike_but_for_draws(source.blob(held["record"]), content):
+                    continue
                 raise audit.write_mismatch(
                     self.audit_directory, stored, source.blob(held["record"]), content, why=where
                 )
+
+    def _alike_but_for_draws(self, held: bytes | None, content: bytes) -> bool:
+        """Whether an unseeded run's two records of one key differ only in the values each drew."""
+        if self.seeded or held is None:
+            return False
+        return audit.masked(json.loads(held)) == audit.masked(json.loads(content))
 
     # Documents -------------------------------------------------------------------------------------
 
