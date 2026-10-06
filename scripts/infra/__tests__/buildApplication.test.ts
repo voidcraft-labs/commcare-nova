@@ -4,9 +4,11 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "vitest";
@@ -246,4 +248,21 @@ test("upload without a release identity refuses before creating a release", () =
 	} finally {
 		f.close();
 	}
+});
+
+// The build spawns `sentry` by name and Nova declares no CLI of its own, so
+// the name has to reach the copy the installed Sentry SDK was released with.
+test("the sentry command on the build path is the CLI the Sentry SDK loads", () => {
+	const packageRoot = (entry: string) =>
+		entry.slice(0, entry.lastIndexOf("node_modules/sentry/")) +
+		"node_modules/sentry";
+	const sdk = createRequire(resolve("package.json")).resolve(
+		"@sentry/nextjs/package.json",
+	);
+	const plugin = createRequire(sdk).resolve(
+		"@sentry/bundler-plugins/package.json",
+	);
+	expect(packageRoot(realpathSync(resolve("node_modules/.bin/sentry")))).toBe(
+		packageRoot(createRequire(plugin).resolve("sentry")),
+	);
 });

@@ -82,6 +82,8 @@ const sourceMapIgnores = [
 	"**/route_client-reference-manifest.js",
 	"**/middleware-react-loadable-manifest.js",
 ];
+// `sentry` is the CLI the Sentry SDK depends on. Nova declares no copy of its
+// own, so the release and upload always run the version the SDK shipped with.
 const sentry = (name, args) =>
 	runPhase(name, "sentry", args, sentryEnvironment);
 
