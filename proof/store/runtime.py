@@ -175,6 +175,11 @@ class Store:
     def put(self, key: bytes, record: dict, blobs: Blobs) -> None:
         stored = self.storage_key(key)
         content = canonical(record)
+        if not self.seeded:
+            # Another draw of a part this run holds is the one kept: held to it here, before its blobs are written.
+            held, read = self._held_entry(stored)
+            if held is not None and self._alike_but_for_draws(held, read, content, blobs):
+                return
         named = blobs.refs()
         for name in named:
             self.delta.put_blob(blobs.get(name))
@@ -218,6 +223,7 @@ class Store:
             content.decode("utf-8"),
             read,
             lambda name: blobs.get(name) if name in blobs else None,
+            both=True,
         )
 
     # Documents -------------------------------------------------------------------------------------

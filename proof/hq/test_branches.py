@@ -86,8 +86,14 @@ CONFIGURATIONS = ("minimum", "maximum")
 def _documents():
     named = os.environ.get("PROOF_BRANCH_DOCUMENTS", "")
     if named == "all":
-        # B's and B-edit's branches are what this compares, so a document written with no edit has none to hold.
-        return [document.id for document in load(corpus_root()).emitted if document.edit is not None]
+        # B's and B-edit's branches are what this compares, under each configuration, so a document written with
+        # no edit, or without one of them, has none to hold.
+        return [
+            document.id
+            for document in load(corpus_root()).emitted
+            if document.edit is not None
+            and all(name in document.exports and name in document.edit.exports for name in CONFIGURATIONS)
+        ]
     return [name.strip() for name in named.split(",") if name.strip()] or list(DOCUMENTS)
 
 

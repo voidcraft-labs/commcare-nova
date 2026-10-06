@@ -90,16 +90,14 @@ def _observes_b_edit_apart(document):
 def _cheapest(documents):
     """The cheapest document whose whole tree is observed: edited, each B-edit keyed apart from its B."""
     estimate = sharding.estimate(sharding.load_timings())
-    edited = [
-        document
-        for document in documents
-        if document.edit is not None and document.edit.exports and _observes_b_edit_apart(document)
-    ]
-    assert edited, (
+    edited = [document for document in documents if document.edit is not None and document.edit.exports]
+    for document in sorted(edited, key=lambda document: (estimate(document.group), document.id)):
+        if _observes_b_edit_apart(document):
+            return document
+    raise AssertionError(
         "The corpus holds no edited document whose B-edit is keyed apart from its B, so nothing shows a document's"
         " whole tree recorded."
     )
-    return min(edited, key=lambda document: (estimate(document.group), document.id))
 
 
 @pytest.fixture(scope="module")

@@ -265,16 +265,16 @@ function describe({ date, outcome, runUrl, before, after, classified }) {
 
 // GitHub holds CI on a pull request the workflow's token opened, so every outcome says how it starts.
 const CI_STARTS =
-	"CI starts when you approve its run on this pull request or update the branch";
+	"starts when you approve its run on this pull request or update the branch";
 
 function outcomeOf(options) {
 	if (options.imageResult !== "success") {
-		return `the image build did not succeed, so the branch carries the new pins alone. ${CI_STARTS}, and is red until the harness builds at them`;
+		return `the image build did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the harness builds at them`;
 	}
 	if (options.surfaceResult !== "success") {
-		return `the surface extraction did not succeed, so the branch carries the new pins alone. ${CI_STARTS}, and is red until the extractor runs at them`;
+		return `the surface extraction did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
 	}
-	return `the image, the lock and the surface are updated, and ${CI_STARTS}`;
+	return `the image, the lock and the surface are updated, and CI ${CI_STARTS}`;
 }
 
 export async function report(cwd, options) {

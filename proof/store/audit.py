@@ -78,8 +78,9 @@ def write_mismatch(directory: Path, key: str, held: bytes | None, fresh: bytes, 
     )
 
 
-def _evidence(outputs) -> tuple[dict, list[str]]:
-    """Every check's evidence the runs wrote, by (check, kind, document), and each one two blocks wrote apart."""
+def _evidence(outputs, *, but_for_draws: bool = False) -> tuple[dict, list[str]]:
+    """Every check's evidence the runs wrote, by (check, kind, document), and each one two blocks wrote apart;
+    with ``but_for_draws`` (an unseeded run), two that are one but for what each drew are not apart."""
     found, differing = {}, []
     for output in outputs:
         for directory, _ in lane_blocks.read_manifests(Path(output)):
@@ -87,7 +88,9 @@ def _evidence(outputs) -> tuple[dict, list[str]]:
                 record = json.loads(path.read_bytes())
                 identity = (record["check"], record["kind"], record["document"])
                 held = found.setdefault(identity, record)
-                if disk.canonical(held) != disk.canonical(record) and identity not in differing:
+                if disk.canonical(held) == disk.canonical(record) or identity in differing:
+                    continue
+                if not (but_for_draws and alike_but_for_draws(masked(held), masked(record), both=True)):
                     differing.append(identity)
     return found, differing
 
@@ -113,36 +116,42 @@ def _kind(token: str) -> str:
     return "time"
 
 
-def alike_but_for_draws(held: str, fresh: str, read_held=None, read_fresh=None, _seen=None) -> bool:
+def alike_but_for_draws(
+    held: str, fresh: str, read_held=None, read_fresh=None, *, both: bool = False, _stands=None, _seen=None
+) -> bool:
     """Whether ``fresh`` is ``held`` (two texts: a record's canonical JSON, or a blob's) but for the values a
     run draws afresh (``MASKED``).
 
     Every drawn token of ``fresh`` stands where one of the same kind stands in ``held``, the text between
-    them is the same, and each value ``fresh`` drew stands for one value of ``held`` everywhere it appears: an
-    id written where another's belongs, or a time where an id was, is a difference. Two values of ``fresh``
-    may stand for one of ``held``, since a seeded run draws an id from its state's key, so two states of one
-    key hold one id where an unseeded run draws two. With ``read_held`` and ``read_fresh`` (each a blob's
-    bytes by its ``sha256:`` name, or None), a pair of blob names that differ is held to the same rule over
-    the blobs' contents, and to the same bytes where they are not text.
+    them is the same, and each id ``fresh`` drew stands for one id of ``held`` everywhere it appears, in the
+    text and in every blob it names: an id written where another's belongs, or a time where an id was, is a
+    difference. A time is held to its place alone, since two readings of a real clock may be one where a
+    seeded clock gives two. Two ids of ``fresh`` may stand for one of ``held``, since a seeded run draws an id
+    from its state's key, so two states of one key hold one id where an unseeded run draws two; ``both``
+    refuses that too, for two texts that each drew their own. With ``read_held`` and ``read_fresh`` (each a
+    blob's bytes by its ``sha256:`` name, or None), a pair of blob names that differ is held to the same rule
+    over the blobs' contents, and to the same bytes where they are not text.
     """
     found_held, found_fresh = list(MASKED.finditer(held)), list(MASKED.finditer(fresh))
     if MASKED.sub(lambda match: f"<{_kind(match.group(0))}>", held) != MASKED.sub(
         lambda match: f"<{_kind(match.group(0))}>", fresh
     ):
         return False
-    stands_for = {}
-    for one, other in zip(found_held, found_fresh, strict=True):
-        if stands_for.setdefault(other.group(0), one.group(0)) != one.group(0):
+    stands_for, stood_for = ({}, {}) if _stands is None else _stands
+    pairs = [(one.group(0), other.group(0), other.start()) for one, other in zip(found_held, found_fresh, strict=True)]
+    for one, other, _ in pairs:
+        if _kind(other) == "time":
+            continue
+        if stands_for.setdefault(other, one) != one or (both and stood_for.setdefault(one, other) != other):
             return False
     if read_held is None or read_fresh is None:
         return True
     seen = set() if _seen is None else _seen
-    for one, other in zip(found_held, found_fresh, strict=True):
-        pair = (one.group(0), other.group(0))
-        if pair[0] == pair[1] or pair in seen or not fresh.startswith(BLOB, other.start() - len(BLOB)):
+    for one, other, start in pairs:
+        if one == other or (one, other) in seen or not fresh.startswith(BLOB, start - len(BLOB)):
             continue
-        seen.add(pair)
-        blob_held, blob_fresh = read_held(BLOB + pair[0]), read_fresh(BLOB + pair[1])
+        seen.add((one, other))
+        blob_held, blob_fresh = read_held(BLOB + one), read_fresh(BLOB + other)
         if blob_held is None or blob_fresh is None:
             if blob_held is not blob_fresh:
                 return False
@@ -153,7 +162,9 @@ def alike_but_for_draws(held: str, fresh: str, read_held=None, read_fresh=None, 
             if blob_held != blob_fresh:
                 return False
             continue
-        if not alike_but_for_draws(*texts, read_held, read_fresh, seen):
+        if not alike_but_for_draws(
+            *texts, read_held, read_fresh, both=both, _stands=(stands_for, stood_for), _seen=seen
+        ):
             return False
     return True
 
@@ -175,7 +186,7 @@ def _content(kind: str, entry, source) -> bytes:
 def _drawn_alike(kind: str, values, gathered: pack.Gathered) -> bool:
     """Whether the values an unseeded run's shards kept under one key are one but for what each drew."""
     texts = [_content(kind, value, gathered).decode("utf-8") for value in values]
-    return all(alike_but_for_draws(texts[0], text, gathered.blob, gathered.blob) for text in texts[1:])
+    return all(alike_but_for_draws(texts[0], text, gathered.blob, gathered.blob, both=True) for text in texts[1:])
 
 
 def _conflicts(
@@ -240,7 +251,8 @@ def compare_runs(left, right, *, masked_only: bool) -> tuple[list[str], list[str
                 problems.append(f"Only the {side} run kept the record {identity[0]} {identity[1]}.")
             elif one != other:
                 problems.append(f"The runs kept different records for {identity[0]} {identity[1]}.")
-    (left_evidence, left_differing), (right_evidence, right_differing) = _evidence(left), _evidence(right)
+    left_evidence, left_differing = _evidence(left)
+    right_evidence, right_differing = _evidence(right, but_for_draws=masked_only)
     for side, differing in (("left", left_differing), ("right", right_differing)):
         problems += [
             f"The {side} run wrote {check}'s evidence on {kind}:{document} twice, differently."
@@ -253,7 +265,7 @@ def compare_runs(left, right, *, masked_only: bool) -> tuple[list[str], list[str
             problems.append(f"Only the {side} run wrote {identity[0]}'s evidence on {identity[1]}:{identity[2]}.")
             continue
         alike = (
-            alike_but_for_draws(masked(one), masked(other))
+            alike_but_for_draws(masked(one), masked(other), sides["left"].blob, sides["right"].blob)
             if masked_only
             else disk.canonical(one) == disk.canonical(other)
         )
