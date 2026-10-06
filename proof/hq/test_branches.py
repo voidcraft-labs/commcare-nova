@@ -26,7 +26,7 @@ committed as it ran (``open_unit(transactional=False)``).
 The documents cover lookups, media, locations, case search, several
 modules, several languages and Connect, under both of their configurations.
 ``PROOF_BRANCH_DOCUMENTS`` names others (comma-separated ids), or ``all``
-for every document of the corpus.
+for every document of the corpus that carries an edit.
 
 The other contracts here: a restore puts back every sequence a fresh state
 starts from (``test_a_restore_puts_every_sequence_back``), and takes away
@@ -86,7 +86,8 @@ CONFIGURATIONS = ("minimum", "maximum")
 def _documents():
     named = os.environ.get("PROOF_BRANCH_DOCUMENTS", "")
     if named == "all":
-        return [document.id for document in load(corpus_root()).emitted]
+        # B's and B-edit's branches are what this compares, so a document written with no edit has none to hold.
+        return [document.id for document in load(corpus_root()).emitted if document.edit is not None]
     return [name.strip() for name in named.split(",") if name.strip()] or list(DOCUMENTS)
 
 
@@ -145,10 +146,15 @@ def _publish_over(unit, app_id, captured, label):
 
 
 def _build(unit, app_id, label, previous):
+    """HQ's build as the observation makes it (``proof.observe.build.build_state``), which holds what a step
+    raised and excuses a form ``validate_app`` reports an error for, as some corpus documents' builds do; and
+    the build HQ would keep, None where HQ wrote no files."""
+    from proof.observe.build import build_state
+
     with unit.operation(label, b""):
         with build_seams(previous=previous):
-            built = operations.build(operations.held_app(unit, app_id), unit.record)
-        return built, built.saved_build()
+            outcome, hq_build = build_state(operations.held_app(unit, app_id), unit.record, label)
+        return outcome, hq_build.saved_build() if hq_build is not None else None
 
 
 # What a state is ------------------------------------------------------------------------------
@@ -195,6 +201,8 @@ def _canonical(value):
 
 
 def _file_digests(files):
+    if files is None:
+        return None
     return {
         path: hashlib.sha256(content if isinstance(content, bytes) else content.encode()).hexdigest()
         for path, content in sorted(files.items())
@@ -209,6 +217,7 @@ def _observe(unit, app_id, built):
         "app": _canonical(operations.held_app(unit, app_id).to_json()),
         "build": {
             "errors": _canonical(built.errors),
+            "raised": _canonical(built.raised),
             "files": _file_digests(built.files),
             "profiles": {profile: _file_digests(files) for profile, files in sorted(built.profile_files.items())},
         },
@@ -874,11 +883,16 @@ def _unseen_permission(content_type_id):
         )
 
 
-def test_a_row_the_unit_did_not_see_at_a_commit_is_refused_as_its_scope_or_the_unit_ends(hq, core_runner):
+def test_a_row_the_unit_did_not_see_at_a_commit_is_refused_as_its_scope_or_the_unit_ends(
+    hq, core_runner, monkeypatch
+):
     """A statement run past Django's cursor is no commit point the unit sees: a row it leaves that breaks a deferred
     constraint is refused as its operation ends, or, outside every operation, as the unit ends; with its parent
     saved first, it is accepted. A check's unit, which lets writes outside its operations through, refuses an
     orphan HQ saves there at the statement, as production's autocommit does."""
+    # The unseen statement moves a sequence, which a verified restore reads and reports first; this is the
+    # constraint's refusal, on the path that trusts the unit's write count.
+    monkeypatch.setattr(branch, "VERIFY_MEMOS", False)
     with hq_unit(Configuration(), root_key=_root("unseen"), validate=None) as unit:
         with unit.fork():
             with pytest.raises(DeferredConstraintViolated, match="HQ's operation unseen left"):

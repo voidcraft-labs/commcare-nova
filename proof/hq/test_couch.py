@@ -23,6 +23,13 @@ from proof.hq.couch import ComputedViewCouch
 from proof.hq.seams import MemoMismatch
 
 
+@pytest.fixture(autouse=True)
+def _kept_text_read(monkeypatch):
+    """These state how a read is answered from the text kept at the save. ``PROOF_VERIFY_MEMOS=1`` writes every
+    document out again to hold that text to it, so each test runs with it off unless it turns it on itself."""
+    monkeypatch.setattr(couch, "VERIFY_MEMOS", False)
+
+
 def _copy(value):
     return json.loads(json.dumps(value))
 

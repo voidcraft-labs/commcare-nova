@@ -80,10 +80,25 @@ class DictStore:
         self.audits.append((key, canonical(record) == canonical(self.held[key][0])))
 
 
+def _observes_b_edit_apart(document):
+    """Whether every configuration's B-edit has a key of its own, so it is observed and not recorded as B's."""
+    databases, inputs = unit.case_databases(document), unit.document_inputs(document)
+    keys = [unit.part_keys(inputs, name, databases) for name in sorted(document.edit.exports)]
+    return all(found.get("b_edit") not in (None, found["b"]) for found in keys)
+
+
 def _cheapest(documents):
+    """The cheapest document whose whole tree is observed: edited, each B-edit keyed apart from its B."""
     estimate = sharding.estimate(sharding.load_timings())
-    edited = [document for document in documents if document.edit is not None and document.edit.exports]
-    assert edited, "The corpus holds no edited document, so nothing shows a document's whole tree recorded."
+    edited = [
+        document
+        for document in documents
+        if document.edit is not None and document.edit.exports and _observes_b_edit_apart(document)
+    ]
+    assert edited, (
+        "The corpus holds no edited document whose B-edit is keyed apart from its B, so nothing shows a document's"
+        " whole tree recorded."
+    )
     return min(edited, key=lambda document: (estimate(document.group), document.id))
 
 
