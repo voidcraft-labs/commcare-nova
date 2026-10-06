@@ -19,9 +19,10 @@ observations, a package's session services) is built once, by one worker:
 
 The items of each group run back to back (``order_by_group``).
 ``collection_roots`` names what pytest collects for a set of groups: a
-document's items come from ``proof/checks``, whose check modules parametrize
-over the corpus when they are imported, and from ``proof/hq``, whose branch
-proof does.
+document's checks come from ``proof/checks``, whose check modules parametrize
+over the corpus when they are imported. The lane collects the early queue's
+groups so; its main phase collects the rest of ``proof/``, which finds a
+document's branch items too.
 
 Timings. ``proof/timings.json`` holds each group's measured cost in
 box-seconds: the seconds of one worker's wall time the group took, without
@@ -122,9 +123,8 @@ def order_by_group(items, proof_dir: Path = PROOF_DIR):
 def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     """What pytest collects to find every item of ``groups``.
 
-    A document's or control's items come from the check modules in
-    ``proof/checks`` and the branch proof in ``proof/hq``; the surface's from
-    ``proof/surface``; a package's from
+    A document's or control's checks come from the check modules in
+    ``proof/checks``; the surface's from ``proof/surface``; a package's from
     its directory; ``proof``'s from the test modules at ``proof/`` itself.
     No test module belongs to ``hq-selfchecks``, so it names nothing, and a
     queue naming it fails the verify, which finds no item of it.
@@ -132,7 +132,7 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     roots = set()
     for group in groups:
         if group.startswith(DOCUMENT_KINDS):
-            roots.update((proof_dir / "checks", proof_dir / "hq"))
+            roots.add(proof_dir / "checks")
         elif group == SURFACE:
             roots.add(proof_dir / "surface")
         elif group == "proof":

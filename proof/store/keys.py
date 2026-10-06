@@ -137,7 +137,9 @@ def lane_environment(recorded: Mapping[str, str | None]) -> bool:
 def lane_branches(recorded: Mapping[str, str | None]) -> bool:
     """Whether a run's recorded environment holds HQ's branch proof over its own documents or every one: the item
     of it in a group is then every item the lane's own run collects there, or more. Under a list of others, a
-    document the proof names by default runs without it."""
+    document the proof names by default runs without it. A run over every one reads no outcome from the store
+    (``proof-lane.yml`` queues it ``--fresh``): one kept by the lane's own run holds no branch item of a document
+    the proof does not name."""
     return recorded.get(BRANCH_DOCUMENTS) in (None, "", "all")
 
 

@@ -26,11 +26,12 @@ committed as it ran (``open_unit(transactional=False)``).
 The documents cover lookups, media, locations, case search, several
 modules, several languages and Connect, under both of their configurations.
 ``PROOF_BRANCH_DOCUMENTS`` names others (comma-separated ids), or ``all``
-for every document of the corpus that carries an edit. Each document's two
+for every document the run checks that carries an edit. Each document's two
 items run in that document's own lane group (``corpus:<id>``,
 ``proof.checks.sharding.item_group``), so the shards share them as they
-share the checks; a document the run's sample leaves out has no group of its
-own, and its items stay in this package's.
+share the checks; a named document the run's sample leaves out has no group
+of its own, and its items stay in this package's, as every item does where
+no corpus is named (``PROOF_CORPUS``).
 
 The other contracts here: a restore puts back every sequence a fresh state
 starts from (``test_a_restore_puts_every_sequence_back``), and takes away
@@ -54,14 +55,13 @@ import io
 import json
 import os
 from dataclasses import dataclass
-from functools import cache
 from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 
 from proof.checks import sharding
-from proof.checks.corpus import corpus_root, load
+from proof.checks.cases import load_corpus
 from proof.hq import branch, database, determinism, operations
 from proof.hq.branch import (
     AbortedTransaction,
@@ -99,27 +99,28 @@ class Branched:
     group: str | None
 
 
-@cache
-def _corpus():
-    return load(corpus_root())
+def _collected_corpus():
+    """The corpus as the checks read it when they are collected, or None where none is named: the lane names one
+    (``PROOF_CORPUS``), and collecting this module alone emits none."""
+    return load_corpus() if os.environ.get("PROOF_CORPUS") else None
 
 
 def _documents(corpus=None, named=None):
-    corpus = _corpus() if corpus is None else corpus
+    corpus = _collected_corpus() if corpus is None else corpus
     named = os.environ.get("PROOF_BRANCH_DOCUMENTS", "") if named is None else named
     if named == "all":
         # B's and B-edit's branches are what this compares, under each configuration, so a document written with
-        # no edit, or without one of them, has none to hold.
+        # no edit, or without one of them, has none to hold. Those the run's sample leaves out are left out here.
         ids = [
             document.id
-            for document in corpus.emitted
+            for document in (load_corpus() if corpus is None else corpus).documents
             if document.edit is not None
             and all(name in document.exports and name in document.edit.exports for name in CONFIGURATIONS)
         ]
     else:
         ids = [name.strip() for name in named.split(",") if name.strip()] or list(DOCUMENTS)
     # Only a document the run checks has a group a queue holds; one its sample leaves out is read by this package.
-    groups = {document.id: document.group for document in corpus.documents}
+    groups = {} if corpus is None else {document.id: document.group for document in corpus.documents}
     return [pytest.param(Branched(identifier, groups.get(identifier)), id=identifier) for identifier in ids]
 
 
@@ -131,7 +132,7 @@ def seeded(monkeypatch):
 
 @pytest.fixture(scope="module")
 def corpus():
-    return _corpus()
+    return load_corpus()
 
 
 def _sha(*parts: bytes) -> bytes:
@@ -341,13 +342,13 @@ def test_branches_of_one_unit_equal_fresh_states(hq, core_runner, corpus, branch
     assert fresh_b["key"] != fresh_edit["key"]
 
     for order in (("B", "B-edit"), ("B-edit", "B")):
-        branched = _branched(configuration, root, export, update, validate, order)
-        _assert_same(fresh_a, branched["A"], f"A ({' then '.join(order)})")
-        _assert_same(fresh_b, branched["B"], f"B ({' then '.join(order)})")
-        _assert_same(fresh_edit, branched["B-edit"], f"B-edit ({' then '.join(order)})")
+        states = _branched(configuration, root, export, update, validate, order)
+        _assert_same(fresh_a, states["A"], f"A ({' then '.join(order)})")
+        _assert_same(fresh_b, states["B"], f"B ({' then '.join(order)})")
+        _assert_same(fresh_edit, states["B-edit"], f"B-edit ({' then '.join(order)})")
 
 
-def test_each_documents_branches_run_in_its_own_group_unless_the_sample_leaves_it_out():
+def test_each_documents_branches_run_in_its_own_group_unless_the_sample_leaves_it_out(monkeypatch):
     def document(identifier, configurations=CONFIGURATIONS, edit=True):
         exports = dict.fromkeys(configurations)
         return SimpleNamespace(
@@ -369,9 +370,11 @@ def test_each_documents_branches_run_in_its_own_group_unless_the_sample_leaves_i
             found[branched.id] = sharding.item_group(item)
         return found
 
-    assert groups("all") == {"kept": "corpus:kept", "left-out": "proof/hq"}
+    assert groups("all") == {"kept": "corpus:kept"}
     assert groups("left-out, kept") == {"left-out": "proof/hq", "kept": "corpus:kept"}
     assert [param.id for param in _documents(corpus, "")] == list(DOCUMENTS)
+    monkeypatch.delenv("PROOF_CORPUS")
+    assert {param.values[0].group for param in _documents(named="kept")} == {None}
 
 
 # Sequences ------------------------------------------------------------------------------------

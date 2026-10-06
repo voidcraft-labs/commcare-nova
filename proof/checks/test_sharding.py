@@ -106,7 +106,7 @@ def test_each_group_is_collected_from_where_its_tests_are():
     top = {path for path in roots if path.parent == PROOF and path.suffix == ".py"}
     assert top == set(PROOF.glob("test_*.py")) and top, "proof's own test modules"
     assert len(roots) == 3 + len(top)  # no test module belongs to the HQ self-checks, so they name nothing
-    assert sharding.collection_roots(["corpus:a@minimum"]) == [PROOF / "checks", PROOF / "hq"]
+    assert sharding.collection_roots(["corpus:a@minimum"]) == [PROOF / "checks"]
 
 
 def test_a_document_the_timings_do_not_list_counts_as_their_median_document():
