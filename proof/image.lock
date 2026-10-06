@@ -1,9 +1,9 @@
 {
-	"image": "ghcr.io/voidcraft-labs/commcare-nova-proof@sha256:34f95b5cca992edb4e0d189d1a194a3873cd2515c32d6207f45c1cf0f03501f6",
+	"image": "ghcr.io/voidcraft-labs/commcare-nova-proof@sha256:48d722aec1a319b6cfd4bbe39ead2c07a4992443387f3931b0e958a96263d8e6",
 	"pins": {
-		"commcare-hq": "f57e85e029130ceb576ea6d0f389b744509de6c9",
+		"commcare-hq": "d6c6e16d8ae12a5d0680fe6cce5c51a8b4c8708b",
 		"commcare-core": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
-		"commcare-android": "fd79cac4a0f1b759f8b5fb297e1e300fa22eaff5",
-		"commcare-connect": "4a200c9d93a63196e8b58b57ec6d24d6bb740c94"
+		"commcare-android": "7a5584475580529392f7cb8853a87b2d414e9a6c",
+		"commcare-connect": "046c7fd7808142856ba84364205b4241feb084fa"
 	}
 }

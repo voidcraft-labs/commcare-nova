@@ -15563,6 +15563,7 @@
 			"privileges": [
 				"ACTIVE_DATA_MANAGEMENT",
 				"ADVANCED_DOMAIN_SECURITY",
+				"AI_APP_TRANSLATION",
 				"ALLOW_EXCESS_USERS",
 				"API_ACCESS",
 				"APP_DEPENDENCIES",
@@ -15669,6 +15670,7 @@
 			"privileges": [
 				"ACTIVE_DATA_MANAGEMENT",
 				"ADVANCED_DOMAIN_SECURITY",
+				"AI_APP_TRANSLATION",
 				"ALLOW_EXCESS_USERS",
 				"API_ACCESS",
 				"APP_DEPENDENCIES",
@@ -15786,6 +15788,7 @@
 		},
 		"plan:pro_v1": {
 			"privileges": [
+				"AI_APP_TRANSLATION",
 				"ALLOW_EXCESS_USERS",
 				"API_ACCESS",
 				"BULK_CASE_MANAGEMENT",
@@ -15883,6 +15886,7 @@
 		},
 		"plan:standard_v2": {
 			"privileges": [
+				"AI_APP_TRANSLATION",
 				"ALLOW_EXCESS_USERS",
 				"BULK_CASE_MANAGEMENT",
 				"BULK_USER_MANAGEMENT",
@@ -15931,6 +15935,18 @@
 			"slug": "advanced_domain_security",
 			"source": [
 				"commcare-hq/corehq/privileges.py::ADVANCED_DOMAIN_SECURITY"
+			]
+		},
+		"privilege:AI_APP_TRANSLATION": {
+			"plans": [
+				"advanced_v0",
+				"enterprise_v0",
+				"pro_v1",
+				"standard_v2"
+			],
+			"slug": "ai_app_translation",
+			"source": [
+				"commcare-hq/corehq/privileges.py::AI_APP_TRANSLATION"
 			]
 		},
 		"privilege:ALLOW_EXCESS_USERS": {
@@ -35075,6 +35091,22 @@
 			],
 			"tag": "TAG_DEPRECATED"
 		},
+		"toggle:AI_APP_TRANSLATION": {
+			"class": "FeatureRelease",
+			"defaultRandomness": 0.0,
+			"enabledForNewDomainsAfter": null,
+			"enabledForNewUsersAfter": null,
+			"namespaces": [
+				"domain"
+			],
+			"parents": [],
+			"relevantEnvironments": null,
+			"slug": "ai_app_translation",
+			"source": [
+				"commcare-hq/corehq/toggles/__init__.py::AI_APP_TRANSLATION"
+			],
+			"tag": "TAG_RELEASE"
+		},
 		"toggle:ALLOW_BLANK_CASE_TAGS": {
 			"class": "StaticToggle",
 			"enabledForNewDomainsAfter": null,
@@ -35807,7 +35839,10 @@
 			"namespaces": [
 				"domain"
 			],
-			"parents": [],
+			"parents": [
+				"SESSION_ENDPOINTS",
+				"CUSTOM_PROPERTIES"
+			],
 			"relevantEnvironments": null,
 			"slug": "commcare_connect",
 			"source": [
@@ -37103,6 +37138,24 @@
 				"commcare-hq/corehq/toggles/__init__.py::OCS_CHATBOT_PAGE_CONTEXT"
 			],
 			"tag": "TAG_RELEASE"
+		},
+		"toggle:OCS_CONNECT_INTEGRATION": {
+			"class": "StaticToggle",
+			"enabledForNewDomainsAfter": null,
+			"enabledForNewUsersAfter": null,
+			"namespaces": [
+				"domain"
+			],
+			"parents": [
+				"UCR_EXPRESSION_REGISTRY",
+				"EXPRESSION_REPEATER"
+			],
+			"relevantEnvironments": null,
+			"slug": "ocs_connect_integration",
+			"source": [
+				"commcare-hq/corehq/toggles/__init__.py::OCS_CONNECT_INTEGRATION"
+			],
+			"tag": "TAG_CONNECT_DIVISION"
 		},
 		"toggle:ONE_PHONE_NUMBER_MULTIPLE_CONTACTS": {
 			"class": "StaticToggle",
@@ -39856,7 +39909,6 @@
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
 				"commcare-android/app/src/org/commcare/activities/FormRecordListActivity.java::FormRecordListActivity.getActivityTitle",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
 			]
@@ -40238,7 +40290,7 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeScreenBaseActivity.java::HomeScreenBaseActivity.isBlockedByActiveSync",
+				"commcare-android/app/src/org/commcare/utils/AppLogoutHelper.kt::AppLogoutHelper.isBlockedByActiveSync",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
 			]
@@ -44620,7 +44672,6 @@
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
 				"commcare-android/app/src/org/commcare/activities/HomeButtons.java::HomeButtons.buildButtonData",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
 			]
@@ -44656,7 +44707,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/LoginActivity.java::LoginActivity.onCreateOptionsMenu",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
@@ -44676,7 +44726,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
@@ -44769,7 +44818,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
@@ -44844,7 +44892,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
@@ -44863,7 +44910,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
@@ -44882,7 +44928,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
@@ -44901,7 +44946,6 @@
 			],
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-android/app/src/org/commcare/activities/StandardHomeActivity.java::StandardHomeActivity.onCreateOptionsMenu",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
@@ -45027,7 +45071,6 @@
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
 				"commcare-android/app/src/org/commcare/activities/HomeButtons.java::HomeButtons.buildButtonData",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
 			]
@@ -63647,7 +63690,6 @@
 			"source": [
 				"commcare-android/app/assets/locales/android_translatable_strings.txt",
 				"commcare-android/app/src/org/commcare/activities/HomeButtons.java::HomeButtons.buildButtonData",
-				"commcare-android/app/src/org/commcare/activities/HomeNavDrawerController.java::HomeNavDrawerController.getItemTitle",
 				"commcare-hq/submodules/commcare-translations/historical-translations-by-version",
 				"commcare-hq/submodules/commcare-translations/messages_en-2.txt"
 			]
@@ -76525,8 +76567,8 @@
 		}
 	},
 	"pins": {
-		"commcare-android": "fd79cac4a0f1b759f8b5fb297e1e300fa22eaff5",
+		"commcare-android": "7a5584475580529392f7cb8853a87b2d414e9a6c",
 		"commcare-core": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
-		"commcare-hq": "f57e85e029130ceb576ea6d0f389b744509de6c9"
+		"commcare-hq": "d6c6e16d8ae12a5d0680fe6cce5c51a8b4c8708b"
 	}
 }
