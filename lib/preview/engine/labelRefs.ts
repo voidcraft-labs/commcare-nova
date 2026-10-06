@@ -11,6 +11,33 @@ import {
 	resolveProseTemplate,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
+import { isNodesetCardinalityFailure } from "../xpath/runtimeError";
+
+/** Only ambiguous custom validation wording uses the standard warning.
+ * Rule evaluation and every other prose surface remain outside this policy. */
+export function resolveConstraintMessage(
+	resolve: () => string | undefined,
+): string | undefined {
+	try {
+		const message = resolve();
+		return message === "" ? undefined : message;
+	} catch (error) {
+		if (isNodesetCardinalityFailure(error)) return undefined;
+		throw error;
+	}
+}
+
+export async function resolveConstraintMessageAsync(
+	resolve: () => Promise<string | undefined>,
+): Promise<string | undefined> {
+	try {
+		const message = await resolve();
+		return message === "" ? undefined : message;
+	} catch (error) {
+		if (isNodesetCardinalityFailure(error)) return undefined;
+		throw error;
+	}
+}
 
 /**
  * Project typed prose atoms to friendly reference expressions. Used by the

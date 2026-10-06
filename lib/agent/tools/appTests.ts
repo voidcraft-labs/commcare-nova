@@ -33,7 +33,7 @@ const testIdSchema = z
 
 export const startAppTestTool = {
 	description:
-		"Start a worker journey at app entry using saved Preview identities and disposable records. Real records are never copied or changed. Supply only the test records and fictional places the journey needs. Continue through the visible menus, record selection, answers and submissions. Uses Preview and the production Postgres transaction path; does not establish native device, media capture or deployment readiness.",
+		"Start a worker journey at app entry using saved Preview identities and disposable records. Optionally retain up to four named sessions sharing test records so one worker can keep a form open while another submits. Real records are never copied or changed. Supply only the test records and fictional places the journey needs. Continue through the visible menus, record selection, answers and submissions. Uses Preview and the production Postgres transaction path; does not establish native device, media capture or deployment readiness.",
 	inputSchema: appTestStartSchema,
 	async execute(
 		input: z.infer<typeof appTestStartSchema>,
@@ -81,7 +81,7 @@ const legacyContinueSchema = z.strictObject({
 
 export const continueAppTestTool = {
 	description:
-		"Take up to eight ordered worker actions in a disposable app test using actions. Each returns its own step and observation; the call stops on a refusal or unmet optional expectation, retaining its completed prefix. Choose only identities and destinations the saved app offers. Selecting a record opens its Details when configured; use continue there to enter the task, or back to return. Form observations offer sections; use section to turn a page before answering its questions. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Finish releases test records while retaining observations. Changed source apps require a new test.",
+		"Take up to eight ordered worker actions in a disposable app test using actions. Each returns its own step and observation; the call stops on a refusal or unmet optional expectation, retaining its completed prefix. Choose only identities and destinations the saved app offers. Each item may name sessionId; omission uses the primary session, and other sessions retain their open forms. Selecting a record opens its Details when configured; routeContinue enters the task and routeBack returns to the previous screen (continue and back remain accepted). Form pageNext/pagePrevious turn only form pages; section also accepts an offered section. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Sync refreshes only that session's record catalog and preserves its open form entry snapshot. Receipts label current-store reads separately from retained form data; this is Preview/Postgres evidence. Finish releases all sessions and test records while retaining observations. Changed source apps require a new test.",
 	inputSchema: continueSchema,
 	async execute(
 		input: z.infer<typeof continueSchema>,

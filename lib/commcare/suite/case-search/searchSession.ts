@@ -193,6 +193,10 @@ export function buildSearchSession(
  * `input(...)` read prints through; `defaultSearch` lands on
  * `<query default_search>`.
  */
+export function searchQueryHasPrompts(config: CaseListConfig): boolean {
+	return config.searchInputs.length > 0;
+}
+
 export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const { caseListConfig, caseSearchConfig, wire, moduleIndex } = args;
 	// Route `caseType` through the identifier-validation gate before
@@ -511,7 +515,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		strings,
 		translationUnits,
 		instances,
-		hasPrompts: caseListConfig.searchInputs.length > 0,
+		hasPrompts: searchQueryHasPrompts(caseListConfig),
 	};
 }
 

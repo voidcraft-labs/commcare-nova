@@ -34,6 +34,7 @@ import {
 } from "./formLinkEvaluation";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
+import { resolvePreviousTask, selectionsForModuleTask } from "./previousTask";
 
 export interface PostSubmissionEvaluationInput {
 	formUuid: Uuid;
@@ -177,6 +178,14 @@ export async function evaluatePostSubmissionSnapshot(
 		});
 		const collections = collection ? [collection] : [];
 		const route = afterSubmitRoute({
+			previousTask: () =>
+				resolvePreviousTask({
+					doc,
+					formUuid: args.formUuid,
+					submittedCaseIds: ids,
+					selections: args.selections,
+					caseDatabase: context.cases,
+				}),
 			choice,
 			doc,
 			caseFirstModules: new Set(
@@ -187,7 +196,11 @@ export async function evaluatePostSubmissionSnapshot(
 			hasSelectedCase: (targetModuleUuid, selections) =>
 				previewTargetHasSelectedCase({
 					menuSource,
-					current: args.selections,
+					current: selectionsForModuleTask(
+						doc,
+						targetModuleUuid,
+						args.selections,
+					),
 					targetModuleUuid,
 					projected: selections,
 					collections,
@@ -206,15 +219,28 @@ export async function evaluatePostSubmissionSnapshot(
 				);
 			caseData = new Map([...caseData, ...loaded]);
 		}
+		const selections =
+			route.kind === "previous-task"
+				? route.task.selections
+				: previewMenuSelectionsAfterTargetCases(
+						menuSource,
+						args.selections,
+						projected,
+						caseData,
+						collections,
+					);
+		const moduleDestination =
+			route.kind === "module"
+				? route.moduleUuid
+				: route.kind === "post-submit" && route.destination === "module"
+					? moduleUuid
+					: undefined;
 		return {
 			route,
-			selections: previewMenuSelectionsAfterTargetCases(
-				menuSource,
-				args.selections,
-				projected,
-				caseData,
-				collections,
-			),
+			selections:
+				moduleDestination === undefined
+					? selections
+					: selectionsForModuleTask(doc, moduleDestination, selections),
 			collection,
 		};
 	} finally {

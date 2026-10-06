@@ -17,7 +17,10 @@ import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerCl
 import type { XPathWorkerFactory } from "../../xpath/workerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import type { XPathWorkerEvaluateRequest } from "../../xpath/workerProtocol";
-import { EngineController } from "../engineController";
+import {
+	EngineController,
+	type EngineValidationCompletion,
+} from "../engineController";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import {
@@ -126,6 +129,45 @@ afterEach(async () => {
 });
 
 describe("EngineController async runtime", () => {
+	it("defers required errors until submission while blur still checks authored constraints", async () => {
+		const ctrl = controller({
+			uuid: FIELD_UUID,
+			id: "name",
+			kind: "text",
+			label: proseText("Name"),
+			required: xp("true()"),
+			validate: xp(". = 'Ada'"),
+			validate_msg: proseText("Enter Ada"),
+		});
+		await ctrl.activateFormAsync(FORM_UUID);
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			touched: true,
+			valid: true,
+		});
+		expect(ctrl.store.getState()[FIELD_UUID]?.errorMessage).toBeUndefined();
+
+		expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			valid: false,
+			errorMessage: "This field is required",
+		});
+
+		await ctrl.onValueChangeAsync(FIELD_UUID, "Grace");
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			valid: false,
+			errorMessage: "Enter Ada",
+		});
+		await ctrl.onValueChangeAsync(FIELD_UUID, "Ada");
+		await ctrl.onTouchAsync(FIELD_UUID);
+		expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+			valid: true,
+		});
+		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
+	});
+
 	it("retains every rapid raw edit and reconciles their shared async DAG once", async () => {
 		const ctrl = controller(
 			{
@@ -229,7 +271,7 @@ describe("EngineController async runtime", () => {
 				touched: false,
 			});
 			expect(ctrl.entryStore.getState().fault).toBeUndefined();
-			expect(await ctrl.validateAllAsync()).toBe(false);
+			expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
 		} finally {
 			ctrl.dispose();
 		}
@@ -261,7 +303,7 @@ describe("EngineController async runtime", () => {
 			touched: true,
 		});
 		expect(ctrl.store.getState()[RESULT_FIELD_UUID]?.value).toBe("latest");
-		expect(await ctrl.validateAllAsync()).toBe(true);
+		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
 		ctrl.dispose();
 	});
 
@@ -1152,7 +1194,7 @@ describe("EngineController async runtime", () => {
 		await ctrl.activateFormAsync(FORM_UUID);
 		const entryKey = ctrl.entryKey;
 		if (entryKey === undefined) throw new Error("Expected entry");
-		expect(await ctrl.validateAllAsync()).toBe(false);
+		expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
 		await ctrl.restartActiveEntryAsync();
 		await expect(
 			ctrl.computeSubmissionMutationAsync({}, entryKey),
@@ -1199,7 +1241,7 @@ it.each(["visibility", "count"] as const)(
 		};
 		const ctrl = controllerForDoc(doc);
 		let change: Promise<boolean> | undefined;
-		let validation: Promise<boolean> | undefined;
+		let validation: Promise<EngineValidationCompletion> | undefined;
 		try {
 			await ctrl.activateFormAsync(FORM_UUID);
 			change = ctrl.setValueAtAsync(
@@ -1218,7 +1260,7 @@ it.each(["visibility", "count"] as const)(
 			await vi.runAllTimersAsync();
 			await expect(Promise.all([change, validation])).resolves.toEqual([
 				true,
-				true,
+				{ kind: "valid" },
 			]);
 			expect(ctrl.store.getState()["/data/page/rows[0]/note"]?.value).toBe(
 				"ready",
@@ -1331,7 +1373,7 @@ it.each([false, true])(
 		expect(
 			ctrl.store.getState()["/data/second/rounds[0]/assets"]?.repeatCount,
 		).toBe(1);
-		expect(await ctrl.validateAllAsync()).toBe(false);
+		expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 	},
 );
@@ -1374,7 +1416,7 @@ it("creates newly relevant page rows after a live document edit before validatio
 	expect(
 		ctrl.store.getState()["/data/first/rounds[0]/assets[0]/note"]?.value,
 	).toBe("");
-	expect(await ctrl.validateAllAsync()).toBe(false);
+	expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
 	expect(ctrl.entryStore.getState().fault).toBeUndefined();
 });
 
@@ -1545,7 +1587,7 @@ it("reconciles questions added and renamed during a presentation rebuild", async
 	expect(
 		ctrl.store.getState()["/data/inspection/rounds[0]/assets[0]/note"]?.value,
 	).toBe("Tank inspected");
-	expect(await ctrl.validateAllAsync()).toBe(false);
+	expect(await ctrl.validateAllAsync()).toMatchObject({ kind: "invalid" });
 	expect(ctrl.entryStore.getState().fault).toBeUndefined();
 });
 
@@ -1581,6 +1623,6 @@ it.each([false, true])(
 		expect(ctrl.formUuid).toBe(form);
 		expect(ctrl.sectionPages()).toHaveLength(1);
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
-		expect(await ctrl.validateAllAsync()).toBe(true);
+		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
 	},
 );

@@ -49,6 +49,13 @@ commits and the writer wakes to a missing row and rejects.
 
 `AssetKind` spans `MEDIA_KINDS` (`image`/`audio`/`video`, wire-attachable) and `DOCUMENT_KINDS` (`pdf`/`text`/`docx`/`xlsx`, inputs the user attaches to the SA chat, never to a CommCare carrier). The split is NOT compile-time — a slot's value is an opaque `MediaAssetId` (the brand doesn't encode kind) — so a document id is type-indistinguishable from a media id in a slot. Three independent runtime gates keep a document off the wire, none redundant: the attach verdict's kind check, the validator's `mediaKindMatches` rule (pre-compile), and `resolveMediaManifest`'s `isMediaKind` filter (pre-emit). The document extract lifecycle (`extracting`/`ready`/`failed`) and `EXTRACTOR_VERSION` live in `lib/domain/multimedia.ts`; the extraction machinery is `lib/agent/documentExtraction*`.
 
+A ready extract is a model-produced working account of app requirements, not a
+lossless or comprehensively redacted copy. Its source-fidelity and privacy scope
+lives in `lib/agent/CLAUDE.md` and `EXTRACT_SYSTEM`: necessary explicitly defined
+app-actor bindings may remain, while private fieldwork/example-row values stay
+excluded by the model guidance. This does not redact the uploaded source: its
+original bytes reach the extractor and remain in the Project's library.
+
 ## Accepted formats are HQ-ingestion-bound, not arbitrary
 
 `validate.ts::validateMediaBytes` is the format gate (extension allowlist → size cap → magic-bytes sniff via `file-type`, or UTF-8 validity for text → body re-parse via `sharp` / `music-metadata` → SHA-256 match). The accepted set is deliberately narrow and the audio restriction is load-bearing: **audio is `audio/mpeg` (`.mp3`) and `audio/wav` (`.wav`) ONLY.** `.m4a`/`.ogg` are rejected because CommCare HQ's media-upload endpoint validates the extension against Python's `mimetypes` table and its deployed image registers only CPython's hardcoded types — so accepting them would mint a dead affordance that 400s on every HQ upload (citation in `lib/domain/multimedia.ts`'s `AUDIO_MIME_TYPES`). SVG is excluded as an XSS script container.

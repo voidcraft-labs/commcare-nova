@@ -81,7 +81,11 @@ async function fixture() {
 				formUuid: "Lend",
 				fields: [
 					{ kind: "text", id: "borrower", label: "Borrower", required: true },
-					{ kind: "label", id: "confirmation", label: "Confirm {{borrower}}" },
+					{
+						kind: "label",
+						id: "confirmation",
+						label: "Confirm {{borrower}}\n\nThen continue",
+					},
 				],
 			},
 		],
@@ -99,6 +103,12 @@ async function fixture() {
 }
 
 interface BatchPayload {
+	glossary: Array<{
+		source: string;
+		target: string;
+		role: string;
+		protectedTokens: string[];
+	}>;
 	units: Array<{
 		unitId: string;
 		sourceText: string;
@@ -150,7 +160,7 @@ it("recovers accepted batches across a replacement run, preserves references and
 								text: JSON.stringify({
 									translations: requestBatch(wire).units.map((unit) => ({
 										unitId: unit.unitId,
-										translatedText: `Français ${unit.sourceText}`,
+										translatedText: `Français ${unit.sourceText.replaceAll("\n", "\\n")}`,
 									})),
 								}),
 							},
@@ -267,6 +277,11 @@ it("recovers accepted batches across a replacement run, preserves references and
 					},
 				]),
 			});
+			expect(confirmation?.effective).toMatchObject({
+				parts: expect.arrayContaining([
+					{ kind: "text", text: "\n\nThen continue" },
+				]),
+			});
 			const revision = (await session.getWork()).revision;
 			if (!revision) throw new Error("Missing pending revision");
 			expect(
@@ -356,6 +371,21 @@ it("recovers accepted batches across a replacement run, preserves references and
 				),
 			).toMatchObject({ ok: true, translated: 1 });
 			expect(requests).toHaveLength(batchCount + 1);
+			const followupPayload = requestBatch(requests[batchCount]);
+			expect(followupPayload.glossary).toContainEqual(
+				expect.objectContaining({
+					source: "Loans",
+					target: "Français Loans",
+					role: "module-name",
+				}),
+			);
+			expect(followupPayload.glossary).toContainEqual(
+				expect.objectContaining({
+					role: "field-label",
+					protectedTokens: expect.arrayContaining([expect.any(String)]),
+					target: expect.stringContaining("\n\nThen continue"),
+				}),
+			);
 			const fresh = collectLocalizedTranslationUnits(
 				(await session.snapshot()).doc,
 				tag,
@@ -369,6 +399,73 @@ it("recovers accepted batches across a replacement run, preserves references and
 			).toMatchObject({
 				parts: [{ kind: "text", text: "Français Borrower's full name" }],
 			});
+			expect(
+				await session.shared(
+					{
+						toolName: "addFields",
+						toolCallId: "repeat-current-text",
+						input: {
+							formUuid: "Lend",
+							fields: [
+								{
+									kind: "text",
+									id: "another_borrower",
+									label: "Borrower's full name",
+								},
+								{
+									kind: "label",
+									id: "confirmation_copy",
+									label: "Confirm {{borrower}}\n\nThen continue",
+								},
+							],
+						},
+					},
+					"architect",
+				),
+			).toMatchObject({ ok: true });
+			expect(
+				await session.write(
+					{ ...call, toolCallId: "translate-repeated-text" },
+					(ctx) => translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true, translated: 2 });
+			expect(requests).toHaveLength(batchCount + 2);
+			const repeatedPayload = requestBatch(requests[batchCount + 1]);
+			expect(repeatedPayload.units).toHaveLength(2);
+			expect(repeatedPayload.units).toContainEqual(
+				expect.objectContaining({ sourceText: "Borrower's full name" }),
+			);
+			expect(repeatedPayload.units).toContainEqual(
+				expect.objectContaining({
+					protectedTokens: expect.arrayContaining([expect.any(String)]),
+				}),
+			);
+			expect(repeatedPayload.glossary).toContainEqual(
+				expect.objectContaining({ target: "Français Borrower's full name" }),
+			);
+			const repeated = collectLocalizedTranslationUnits(
+				(await session.snapshot()).doc,
+				tag,
+			);
+			expect(
+				repeated.find(
+					(unit) =>
+						unit.context.fieldId === "confirmation_copy" &&
+						unit.role === "field-label",
+				)?.effective,
+			).toEqual(confirmation?.effective);
+			expect(
+				repeated.find(
+					(unit) =>
+						unit.context.fieldId === "another_borrower" &&
+						unit.role === "field-label",
+				)?.effective,
+			).toEqual(
+				fresh.find(
+					(unit) =>
+						unit.context.fieldId === "borrower" && unit.role === "field-label",
+				)?.effective,
+			);
 		},
 	);
 	expect(failures).toEqual([]);

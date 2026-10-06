@@ -21,7 +21,7 @@ import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
-export const TRANSLATION_PROMPT_VERSION = "translation-v2";
+export const TRANSLATION_PROMPT_VERSION = "translation-v3";
 export const TRANSLATION_SCHEMA_VERSION = "translation-output-v1";
 export const TRANSLATION_MAX_OUTPUT_TOKENS = 32_000;
 const MAX_BATCH_ESTIMATED_TOKENS = 12_000;
@@ -53,6 +53,9 @@ export type TranslationBatchOutput = z.infer<
 export interface TranslationGlossaryEntry {
 	readonly source: string;
 	readonly target: string;
+	readonly role?: TranslationUnit["role"];
+	readonly breadcrumb?: readonly string[];
+	readonly protectedTokens?: readonly string[];
 }
 
 export interface EncodedTranslationUnit {
@@ -189,6 +192,7 @@ export function decodeTranslatedValue(
 	translatedText: string,
 ): LocalizedValue {
 	if (encoded.valueKind === "text") {
+		translatedText = normalizeTranslatedFormatting(encoded, translatedText);
 		if (
 			encoded.contentPolicy === "require-nonblank" &&
 			translatedText.trim().length === 0
@@ -213,6 +217,7 @@ export function decodeTranslatedValue(
 			);
 		}
 	}
+	translatedText = normalizeTranslatedFormatting(encoded, translatedText);
 	const parts: Array<{ kind: "text"; text: string } | ProseReferencePart> = [];
 	let cursor = 0;
 	while (cursor < translatedText.length) {
@@ -249,6 +254,59 @@ export function decodeTranslatedValue(
 		);
 	}
 	return value;
+}
+
+/** JSON parsing already decodes ordinary newline escapes. A doubled escape
+ * is a provider formatting error only when the source contains real line
+ * breaks and does not itself describe the literal backslash-n sequence. */
+export function normalizeTranslatedFormatting(
+	encoded: EncodedTranslationUnit,
+	text: string,
+): string {
+	if (!encoded.sourceText.includes("\n")) return text;
+	const normalized = encoded.sourceText.includes("\\n")
+		? text
+		: text.replaceAll("\\n", "\n");
+	if (!normalized.includes("\n")) {
+		throw new Error(
+			`Translation unit ${encoded.unitId} must preserve the source's line breaks with actual newline characters.`,
+		);
+	}
+	if (encoded.sourceText.includes("\n\n") && !normalized.includes("\n\n")) {
+		throw new Error(
+			`Translation unit ${encoded.unitId} must preserve the source's paragraph breaks.`,
+		);
+	}
+	return normalized;
+}
+
+/** Project an accepted typed value into this source unit's token alphabet.
+ * Target references may move, but another unit's token spellings never escape
+ * into its reusable context. Literal marker text is protected in the same way. */
+export function encodeTranslatedValue(
+	encoded: EncodedTranslationUnit,
+	value: LocalizedValue,
+): string | undefined {
+	if (translationValueIntegrityIssue(encoded.unit, value) !== undefined)
+		return undefined;
+	const target = encodeTranslationUnit({ ...encoded.unit, source: value });
+	const remaining = [...encoded.tokenReferences];
+	const replacements = new Map<string, string>();
+	for (const [token, part] of target.tokenReferences) {
+		const key = canonicalJsonDigest(part);
+		const index = remaining.findIndex(
+			([, sourcePart]) => canonicalJsonDigest(sourcePart) === key,
+		);
+		const match = remaining[index];
+		if (match === undefined) return undefined;
+		replacements.set(token, match[0]);
+		remaining.splice(index, 1);
+	}
+	if (remaining.length > 0) return undefined;
+	return target.sourceText.replace(
+		RESERVED_PROTECTED_TOKEN_PATTERN,
+		(token) => replacements.get(token) ?? token,
+	);
 }
 
 function batchGroup(unit: TranslationUnit): string {
@@ -323,20 +381,42 @@ export function planTranslationBatches(
 
 export function boundedGlossary(
 	entries: readonly TranslationGlossaryEntry[],
+	units: readonly EncodedTranslationUnit[] = [],
 ): readonly TranslationGlossaryEntry[] {
+	const navigationRoles = new Set<TranslationUnit["role"]>([
+		"app-name",
+		"module-name",
+		"form-name",
+		"form-entry-label",
+		"search-screen-title",
+		"search-button-label",
+	]);
+	const priority = (entry: TranslationGlossaryEntry) => {
+		if (entry.role !== undefined && navigationRoles.has(entry.role)) return 2;
+		return units.some((unit) => unit.breadcrumb[0] === entry.breadcrumb?.[0])
+			? 1
+			: 0;
+	};
+	const ordered = entries
+		.map((entry, index) => ({ entry, index }))
+		.sort((a, b) => priority(a.entry) - priority(b.entry) || a.index - b.index);
 	const newestFirst: TranslationGlossaryEntry[] = [];
+	const seen = new Set<string>();
 	let chars = 0;
 	for (
-		let index = entries.length - 1;
+		let index = ordered.length - 1;
 		index >= 0 && newestFirst.length < MAX_GLOSSARY_ENTRIES;
 		index -= 1
 	) {
-		const entry = entries[index];
+		const entry = ordered[index]?.entry;
 		if (entry === undefined) continue;
-		const size = entry.source.length + entry.target.length;
+		const key = canonicalJsonDigest(entry);
+		if (seen.has(key)) continue;
+		const size = JSON.stringify(entry).length;
 		if (size > MAX_GLOSSARY_CHARS) continue;
-		if (chars + size > MAX_GLOSSARY_CHARS) break;
+		if (chars + size > MAX_GLOSSARY_CHARS) continue;
 		newestFirst.push(entry);
+		seen.add(key);
 		chars += size;
 	}
 	return newestFirst.reverse();
@@ -361,9 +441,9 @@ export function translationPromptPayload(input: TranslationBatchInput) {
 	};
 }
 
-export const TRANSLATION_SYSTEM = `Translate app text for frontline workers. Write naturally in the requested language, script and regional variety. Use the app context and glossary to keep domain terms consistent. Keep short labels short and preserve meaningful formatting.
+export const TRANSLATION_SYSTEM = `Translate app text for frontline workers. Write naturally in the requested language, script and regional variety. Use the app context and glossary to keep domain terms consistent. Glossary entries include saved and already accepted translations, with their roles and screens; use the saved names of menus and forms when giving directions. Interpret each requested unit in its own workflow and question context: the same source word can need a different meaning or grammatical form on another screen. Keep short labels short and preserve meaningful line breaks and paragraphs. Return actual newline characters encoded normally in JSON, without double escaping them.
 
-Return each requested unit exactly once. Preserve every protected token exactly once, moving it where the target language's grammar requires. Translate the source faithfully without adding content or explanations.`;
+Return each requested unit exactly once. Preserve every requested unit's protected tokens exactly once, moving them where the target language's grammar requires. Glossary tokens belong to their own entries: reuse the wording, never their token spellings. Translate the source faithfully without adding content or explanations.`;
 
 export function createProductionTranslationBatchRunner(
 	context: StructuredModelRunContext,
@@ -416,7 +496,9 @@ export function validateTranslationBatchOutput(
 			throw new Error(`Translation output repeated unit ${item.unitId}.`);
 		}
 		if (translationUnitUsesLocaleFile(unit.role)) {
-			const issue = localeFileValueIssue(item.translatedText);
+			const issue = localeFileValueIssue(
+				normalizeTranslatedFormatting(unit, item.translatedText),
+			);
 			if (issue !== undefined) {
 				throw new Error(`Translation unit ${item.unitId} ${issue}.`);
 			}
@@ -441,9 +523,22 @@ export function glossaryEntriesFromAcceptedBatch(
 ): readonly TranslationGlossaryEntry[] {
 	const byId = new Map(output.translations.map((item) => [item.unitId, item]));
 	return units.flatMap((unit) => {
-		const target = byId.get(unit.unitId)?.translatedText;
-		return target === undefined || unit.protectedTokens.length > 0
+		const text = byId.get(unit.unitId)?.translatedText;
+		if (text === undefined) return [];
+		const target = encodeTranslatedValue(
+			unit,
+			decodeTranslatedValue(unit, text),
+		);
+		return target === undefined
 			? []
-			: [{ source: unit.sourceText, target }];
+			: [
+					{
+						source: unit.sourceText,
+						target,
+						role: unit.role,
+						breadcrumb: unit.breadcrumb,
+						protectedTokens: unit.protectedTokens,
+					},
+				];
 	});
 }

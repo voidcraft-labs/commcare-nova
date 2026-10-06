@@ -15,6 +15,36 @@ const PROPERTY_UUID = testUuid("prose-worker-property");
 const NAME_UUID = testUuid("prose-answer");
 
 describe("caseDatabaseRequirements", () => {
+	it("captures the entry world for a static previous task without an authored casedb reference", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		expect(caseDatabaseRequirements(doc)).toEqual({
+			required: true,
+			caseTypes: ["commcare-user", "patient"],
+		});
+		doc.forms[doc.formOrder[doc.moduleOrder[0]][0]].postSubmit = "app_home";
+		expect(caseDatabaseRequirements(doc)).toEqual({
+			required: false,
+			caseTypes: [],
+		});
+	});
 	it.each([
 		{
 			slot: "label",
@@ -61,6 +91,7 @@ describe("caseDatabaseRequirements", () => {
 							{
 								name: "Follow up",
 								type: "followup",
+								postSubmit: "app_home",
 								fields: [
 									f({
 										uuid: NAME_UUID,

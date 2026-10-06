@@ -18,6 +18,8 @@ runs.
   ``create_all_files(build_profile_id)`` for each build profile;
 - ``process_case_blocks``: HQ's case processing of one submission up to its
   case database;
+- ``save_standalone_report``: HQ's SQL and attachment save of a submission
+  without case blocks, returning only its id for a fresh read;
 - ``compile_case_search`` / ``compile_domain_filter``: HQ's case search
   query compiler, in a case search context and with only a domain;
 - ``search_request_config``: HQ's reading of a case search request as
@@ -423,6 +425,35 @@ def process_case_blocks(state, submission_xml: bytes, cases=(), attachments=None
         except _known_case_refusals() as refusal:
             return CaseProcessing(blocks, {}, refusal)
     return CaseProcessing(blocks, touched, None)
+
+
+# Standalone form retention -------------------------------------------------
+
+
+def save_standalone_report(state, submission_xml: bytes):
+    """Save a case-free submission through HQ's actual form and attachment writer.
+
+    ``_create_new_xform`` only constructs an unsaved model with a cached
+    parsed body. ``FormProcessorSQL.save_processed_models`` saves the SQL
+    row and ``form.xml`` blob, including the real attachment writer's
+    ``on_commit`` callback. It must run in a fresh database's autocommit
+    state, not a rollback unit. Returning the id makes callers read a new
+    model through ``XFormInstance.objects.get_form(id, domain=...)`` rather
+    than presenting the parser's cached body as retained data.
+
+    Case-bearing submissions need HQ's case processing too; this operation
+    refuses them rather than silently saving a form without its effects.
+    """
+    from casexml.apps.case.xform import extract_case_blocks
+    from corehq.form_processor.backends.sql.processor import FormProcessorSQL
+    from corehq.form_processor.interfaces.processor import ProcessedForms
+    from corehq.form_processor.parsers.form import _create_new_xform
+
+    form = _create_new_xform(state.domain, submission_xml, attachments={}).submitted_form
+    if extract_case_blocks(form):
+        raise HarnessRefusal("A standalone report must not carry case blocks; use HQ's case processing for them.")
+    FormProcessorSQL.save_processed_models(ProcessedForms(form, None), cases=[])
+    return form.form_id
 
 
 # Case search ---------------------------------------------------------------

@@ -37,8 +37,10 @@ import {
 	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type { PreviousTask } from "./engine/previousTask";
 
 export type AfterSubmitRoute =
+	| { readonly kind: "previous-task"; readonly task: PreviousTask }
 	/** No link fired: the form's own post-submit destination. */
 	| {
 			readonly kind: "post-submit";
@@ -77,6 +79,7 @@ export interface PreviewTargetCaseCollection {
 }
 
 export function afterSubmitRoute(args: {
+	readonly previousTask?: () => PreviousTask;
 	readonly choice: AfterSubmitChoice;
 	readonly doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 	/** Modules whose every form loads a case (`useCaseFirstModuleUuids`). */
@@ -98,6 +101,14 @@ export function afterSubmitRoute(args: {
 }): AfterSubmitRoute {
 	const { choice, doc } = args;
 	if (choice.kind === "fallback") {
+		if (choice.destination === "previous")
+			return args.previousTask
+				? { kind: "previous-task", task: args.previousTask() }
+				: {
+						kind: "unresolvable",
+						reason:
+							"The preceding task was not resolved from the submitted entry.",
+					};
 		return { kind: "post-submit", destination: choice.destination };
 	}
 	const { link } = choice;

@@ -3,7 +3,7 @@
  *
  * Every LLM call goes straight to OpenAI through `@ai-sdk/openai` (the
  * Responses API) with the ONE server credential, `OPENAI_API_KEY`. Model ids
- * are OpenAI's own (e.g. "gpt-6-luna"); swapping a constant here switches
+ * are OpenAI's own (e.g. "gpt-6.1-sol"); swapping a constant here switches
  * the model on every surface that uses it.
  */
 
@@ -98,23 +98,23 @@ interface ModelRoleConfig {
  */
 export const MODEL_ROLES = {
 	architect: {
-		modelId: "gpt-6-sol",
+		modelId: "gpt-6.1-sol",
 		reasoningEffort: "medium",
 	},
 	peer: {
-		modelId: "gpt-6-sol",
+		modelId: "gpt-6.1-sol",
 		reasoningEffort: "medium",
 	},
 	followUpEditor: {
-		modelId: "gpt-6-luna",
-		reasoningEffort: "xhigh",
+		modelId: "gpt-6.1-sol",
+		reasoningEffort: "medium",
 	},
 	documentExtractor: {
-		modelId: "gpt-6-sol",
+		modelId: "gpt-6.1-sol",
 		reasoningEffort: "medium",
 	},
 	translator: {
-		modelId: "gpt-6-sol",
+		modelId: "gpt-6.1-sol",
 		reasoningEffort: "medium",
 	},
 } as const satisfies Record<string, ModelRoleConfig>;

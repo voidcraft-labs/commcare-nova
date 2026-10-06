@@ -24,9 +24,13 @@ import {
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { LookupWireNaming } from "../../lookup/naming";
-import type { SessionQuery } from "../../session";
+import type {
+	SessionQuery,
+	SessionQueryMetadata,
+	SessionQueryProjection,
+} from "../../session";
 import { compileForPlatform } from "./compileForPlatform";
-import { buildSearchQuery } from "./searchSession";
+import { buildSearchQuery, searchQueryHasPrompts } from "./searchSession";
 import type { WireShape } from "./types";
 
 export interface InlineSearchEmission {
@@ -39,6 +43,39 @@ export interface InlineSearchEmission {
 /** Whether the module lowers to the inline shape. */
 export function moduleIsSearchFirst(mod: Module): boolean {
 	return moduleOpensOnSearch(mod);
+}
+
+function inlineSearchPlan(mod: Module, moduleIndex: number) {
+	const caseSearchConfig = effectiveCaseSearchConfig(mod);
+	if (mod.caseType === undefined || caseSearchConfig?.searchFirst !== true) {
+		throw new Error(
+			`Tried to build the inline search of module index ${moduleIndex} ("${mod.name}"), but the module is not search-first with a case type. ` +
+				"`moduleIsSearchFirst` gates every caller; reaching here means a caller bypassed it.",
+		);
+	}
+	const caseListConfig: CaseListConfig =
+		mod.caseListConfig ?? emptyCaseListConfig();
+	const wire = compileForPlatform(caseListConfig, caseSearchConfig, {
+		platform: "web",
+	});
+	const metadata: SessionQueryMetadata = {
+		storageInstance: "results:inline",
+		caseType: mod.caseType,
+		hasPrompts: searchQueryHasPrompts(caseListConfig),
+		defaultSearch: wire.defaultSearch,
+	};
+	return { caseSearchConfig, caseListConfig, wire, metadata };
+}
+
+/** The frame planner needs query presence, not its lowered request body. */
+export function inlineSearchQueryMetadata(
+	mod: Module,
+	moduleIndex: number,
+): SessionQueryProjection {
+	return {
+		...inlineSearchPlan(mod, moduleIndex).metadata,
+		projectionOnly: true,
+	};
 }
 
 /**
@@ -56,25 +93,15 @@ export function buildInlineSearch(args: {
 	readonly ancestorCaseType?: string;
 }): InlineSearchEmission {
 	const { module: mod, moduleIndex } = args;
-	const caseSearchConfig = effectiveCaseSearchConfig(mod);
-	if (mod.caseType === undefined || caseSearchConfig?.searchFirst !== true) {
-		throw new Error(
-			`Tried to build the inline search of module index ${moduleIndex} ("${mod.name}"), but the module is not search-first with a case type. ` +
-				"`moduleIsSearchFirst` gates every caller; reaching here means a caller bypassed it.",
-		);
-	}
-	const caseListConfig: CaseListConfig =
-		mod.caseListConfig ?? emptyCaseListConfig();
-	// Search first is platform-independent, so the platform context is
-	// immaterial; `web` is the one every other emitter defaults to.
-	const wire = compileForPlatform(caseListConfig, caseSearchConfig, {
-		platform: "web",
-	});
+	const { caseSearchConfig, caseListConfig, wire, metadata } = inlineSearchPlan(
+		mod,
+		moduleIndex,
+	);
 	const emission = buildSearchQuery({
 		caseListConfig,
 		caseSearchConfig,
 		wire,
-		caseType: mod.caseType,
+		caseType: metadata.caseType,
 		moduleIndex,
 		typeContext: args.typeContext,
 		lookupNaming: args.lookupNaming,
@@ -82,11 +109,8 @@ export function buildInlineSearch(args: {
 		ancestorCaseType: args.ancestorCaseType,
 	});
 	const query: SessionQuery = {
+		...metadata,
 		element: emission.element,
-		storageInstance: "results:inline",
-		caseType: mod.caseType,
-		hasPrompts: emission.hasPrompts,
-		defaultSearch: wire.defaultSearch,
 		instances: [...emission.instances],
 	};
 	return {

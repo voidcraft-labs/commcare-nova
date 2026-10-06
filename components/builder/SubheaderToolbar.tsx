@@ -152,13 +152,18 @@ interface CollapsibleBreadcrumbProps {
 	 * but do not spend the remaining header width repeating and clipping the
 	 * active tab label beside Case data. */
 	readonly compactWorkspace?: boolean;
+	readonly pathLabel?: string;
 }
 
 function breadcrumbPartsEqual(
 	prev: CollapsibleBreadcrumbProps,
 	next: CollapsibleBreadcrumbProps,
 ): boolean {
-	if (prev.compactWorkspace !== next.compactWorkspace) return false;
+	if (
+		prev.compactWorkspace !== next.compactWorkspace ||
+		prev.pathLabel !== next.pathLabel
+	)
+		return false;
 	const a = prev.parts,
 		b = next.parts;
 	if (a.length !== b.length) return false;
@@ -175,10 +180,12 @@ function breadcrumbPartsEqual(
 
 function BreadcrumbPathMenu({
 	parts,
+	pathLabel,
 	open,
 	onOpenChange,
 }: {
 	readonly parts: readonly BreadcrumbPart[];
+	readonly pathLabel: string;
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
 }) {
@@ -186,7 +193,7 @@ function BreadcrumbPathMenu({
 		<Popover open={open} onOpenChange={onOpenChange}>
 			<PopoverTrigger
 				render={<Button variant="ghost" size="icon" />}
-				aria-label="Show breadcrumb path"
+				aria-label={pathLabel}
 				className="size-11 shrink-0 text-nova-text-muted hover:text-nova-text"
 			>
 				&hellip;
@@ -243,6 +250,7 @@ function BreadcrumbPathMenu({
 export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 	parts,
 	compactWorkspace = false,
+	pathLabel = "Show breadcrumb path",
 }: CollapsibleBreadcrumbProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
@@ -308,6 +316,7 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 					className="flex min-w-0 items-center"
 				>
 					<BreadcrumbPathMenu
+						pathLabel={pathLabel}
 						parts={compactAncestors}
 						open={menuOpen}
 						onOpenChange={setMenuOpen}
@@ -332,6 +341,7 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 						return (
 							<Fragment key="collapse">
 								<BreadcrumbPathMenu
+									pathLabel={pathLabel}
 									parts={collapsedAncestors}
 									open={menuOpen}
 									onOpenChange={setMenuOpen}

@@ -103,6 +103,7 @@ import {
 	isNoMatchesForm,
 	makeTranslationUnitId,
 	orderedColumns,
+	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	searchInputRuntimeValueType,
 	visibleSearchInputs,
@@ -139,6 +140,7 @@ import {
 } from "@/lib/preview/columnDisplay";
 import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
 import {
+	caseDatabaseToFormPreloads,
 	caseRowToFormPreload,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
@@ -177,7 +179,10 @@ import {
 	reconcilePreviewCaseChoices,
 	togglePreviewCaseChoice,
 } from "@/lib/preview/orderedCaseSelection";
-
+import {
+	type RuntimeMessage,
+	runtimeMessage,
+} from "@/lib/preview/runtimeMessages";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -190,6 +195,7 @@ import {
 	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
 	usePreviewSearchState,
+	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
@@ -203,7 +209,7 @@ import {
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
-import { WorkerText } from "../shared/WorkerText";
+import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -300,6 +306,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			? seeded
 			: undefined;
 	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
+	const taskContinuation = usePreviewTaskContinuation();
+	const retainedFormUuid =
+		taskContinuation?.moduleUuid === moduleUuid
+			? taskContinuation.formUuid
+			: undefined;
 	const hasChildren = moduleUuid
 		? moduleHasChildren(menuSource, moduleUuid)
 		: false;
@@ -315,6 +326,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseLoadingForms.length > 0;
 
 	const language = useBuilderLanguage();
+	const message = useWorkerMessage();
 	const mod = useWorkerModule(language.language, moduleUuid);
 	const menuCaseContext = useMemo(
 		() =>
@@ -761,7 +773,23 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		() => new Set(selectedChoices.map((choice) => choice.caseId)),
 		[selectedChoices],
 	);
-	const [selectionAnnouncement, setSelectionAnnouncement] = useState("");
+	const [selectionAnnouncement, setSelectionAnnouncement] = useState<{
+		message: RuntimeMessage;
+		values?: Readonly<Record<string, string | number>>;
+	}>();
+	const announce = (
+		message: RuntimeMessage,
+		values?: Readonly<Record<string, string | number>>,
+	) => setSelectionAnnouncement({ message, values });
+	const announceSelectionBlocker = (count: number, maximum: number) =>
+		announce(
+			count === 0
+				? "chooseAtLeastOne"
+				: count - maximum === 1
+					? "chooseFewerOne"
+					: "chooseFewerMany",
+			{ count: count - maximum },
+		);
 	const [reviewSelection, setReviewSelection] = useState(false);
 	const [validatingSelection, setValidatingSelection] = useState(false);
 	const selectionRevisionRef = useRef(0);
@@ -806,6 +834,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[selectionScopeKey],
 	);
 	useEffect(() => {
+		if (
+			!taskContinuation ||
+			!moduleUuid ||
+			!taskContinuation.selectingModuleUuids.includes(moduleUuid)
+		)
+			return;
+		setOpenCase(null);
+		setFormMenuCase(null);
+		setMultiFormMenuOpen(false);
+		setSelectedChoices([]);
+	}, [taskContinuation, moduleUuid, setSelectedChoices]);
+	useEffect(() => {
 		/* A module, Project, or worker change retires the old validation attempt
 		 * immediately. Its response may still settle, but it no longer owns either
 		 * this screen's frozen state or its navigation. */
@@ -828,7 +868,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	useEffect(() => {
 		if (previewing) return;
 		setMultiSelectionState({ scopeKey: selectionScopeKey, choices: [] });
-		setSelectionAnnouncement("");
+		setSelectionAnnouncement(undefined);
 		setReviewSelection(false);
 	}, [previewing, selectionScopeKey]);
 	const selectedParentCases = menuCaseContext?.parentCase;
@@ -1121,7 +1161,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			selectedCase
 				? {
 						caseId: selectedCase.case_id,
-						caseName: selectedCase.case_name || "Case",
+						caseName: selectedCase.case_name,
 					}
 				: undefined,
 		);
@@ -1165,30 +1205,46 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return rows.length === 0 ? [] : [{ key: group.key, header, rows }];
 		});
 	}, [groupedResult, visibleColumns, filterText, columnDisplayContext]);
-	const caseWord = (count: number) => (count === 1 ? "case" : "cases");
-	const groupWord = (count: number) => (count === 1 ? "group" : "groups");
+	const caseCount = (count: number) =>
+		message(count === 1 ? "caseCountOne" : "caseCountMany", {
+			count: count.toLocaleString(),
+		});
+	const groupCount = (count: number) =>
+		message(count === 1 ? "groupCountOne" : "groupCountMany", {
+			count: count.toLocaleString(),
+		});
+	const range = message("resultRange", {
+		start: pageStart.toLocaleString(),
+		end: pageEnd.toLocaleString(),
+		total:
+			groupedResult !== undefined
+				? groupCount(pagedUnitTotal)
+				: caseCount(totalMatchingCases),
+	});
+	const filteredCount = message("filteredCount", {
+		shown: filteredRows.length.toLocaleString(),
+		total: caseCount(loadedRows.length),
+	});
 	const visibleResultCount =
 		filterText !== ""
-			? `${filteredRows.length.toLocaleString()} of ${loadedRows.length.toLocaleString()} ${caseWord(loadedRows.length)}${pageLocalFilter ? " on this page" : ""}`
-			: groupedResult !== undefined
-				? pageLocalFilter
-					? `${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${pagedUnitTotal.toLocaleString()} ${groupWord(pagedUnitTotal)}`
-					: `${totalMatchingCases.toLocaleString()} ${caseWord(totalMatchingCases)} in ${pagedUnitTotal.toLocaleString()} ${groupWord(pagedUnitTotal)}`
-				: pageLocalFilter
-					? `${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${totalMatchingCases.toLocaleString()} cases`
-					: `${totalMatchingCases.toLocaleString()} ${caseWord(totalMatchingCases)}`;
-	/** The pager's own line. It counts the same unit the pager steps through,
-	 *  so a grouped list never reports a page of cases it did not page by. */
-	const pagerSummary =
-		groupedResult !== undefined
-			? `Showing ${groupWord(pagedUnitTotal)} ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${pagedUnitTotal.toLocaleString()}`
-			: `Showing ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${totalMatchingCases.toLocaleString()} cases`;
+			? pageLocalFilter
+				? message("onThisPage", { count: filteredCount })
+				: filteredCount
+			: pageLocalFilter
+				? range
+				: groupedResult !== undefined
+					? message("casesInGroups", {
+							cases: caseCount(totalMatchingCases),
+							groups: groupCount(pagedUnitTotal),
+						})
+					: caseCount(totalMatchingCases);
+	const pagerSummary = message("showingResults", { count: range });
 	const announcedResultCount =
 		filterText !== ""
 			? visibleResultCount
-			: pageLocalFilter
-				? `Showing ${visibleResultCount}`
-				: `${visibleResultCount} found`;
+			: message(pageLocalFilter ? "showingResults" : "resultsFound", {
+					count: visibleResultCount,
+				});
 	const title =
 		(localizedValues.get(
 			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
@@ -1393,15 +1449,30 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setOpenCase(null);
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
+		const caseDatabase =
+			retainedFormUuid === formUuid
+				? taskContinuation?.caseDatabase
+				: undefined;
 		setPreviewCaseTarget({
 			formUuid,
 			cases,
+			...(caseDatabase !== undefined && {
+				caseDatabase,
+				caseData:
+					cases.length === 1
+						? caseDatabaseToFormPreloads(
+								caseDatabase,
+								cases[0].caseId,
+								reachableCaseTypes(mod.caseType, menuSource.caseTypes),
+							)
+						: undefined,
+			}),
 		});
 		navigate.openForm(moduleUuid, formUuid);
 	};
 	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) =>
 		openFormWithCases(formUuid, [
-			{ caseId: row.case_id, caseName: row.case_name || "Case" },
+			{ caseId: row.case_id, caseName: row.case_name },
 		]);
 
 	const continueAfterMenuSelection = (
@@ -1414,7 +1485,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
 		setPreviewSelectedCase(undefined);
-		setPreviewCaseTarget(undefined);
+		if (taskContinuation?.formUuid === undefined)
+			setPreviewCaseTarget(undefined);
 		setPreviewMenuCaseSelection(moduleUuid, {
 			caseType: mod.caseType,
 			cases,
@@ -1443,7 +1515,43 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						}
 					: undefined,
 			);
-			if (
+			if (taskContinuation?.formUuid && nextModuleUuid) {
+				if (
+					remainingModuleUuids.length === 0 &&
+					previewParentCaseRequest.resumeLocation?.kind === "form"
+				) {
+					const target = previewParentCaseRequest.resumeLocation;
+					const selected = previewMenuCaseContext(
+						menuSource,
+						target.moduleUuid,
+						{
+							...menuCaseSelections,
+							[moduleUuid]: { caseType: mod.caseType, cases },
+						},
+					).selectedCase;
+					setPreviewCaseTarget({
+						formUuid: target.formUuid,
+						cases: CASE_LOADING_FORM_TYPES.has(
+							menuSource.forms[target.formUuid].type,
+						)
+							? (selected?.cases ?? [])
+							: [],
+						caseDatabase: taskContinuation.caseDatabase,
+						caseData:
+							selected?.cases.length === 1
+								? caseDatabaseToFormPreloads(
+										taskContinuation.caseDatabase,
+										selected.cases[0].caseId,
+										reachableCaseTypes(
+											menuSource.modules[target.moduleUuid].caseType,
+											menuSource.caseTypes,
+										),
+									)
+								: undefined,
+					});
+					navigate.replace(target);
+				} else navigate.replace({ kind: "cases", moduleUuid: nextModuleUuid });
+			} else if (
 				nextModuleUuid &&
 				remainingModuleUuids.length === 0 &&
 				previewParentCaseRequest.resumeLocation !== undefined
@@ -1470,14 +1578,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			continueAfterMenuSelection([
 				{
 					caseId: row.case_id,
-					caseName: row.case_name || "Case",
+					caseName: row.case_name,
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				},
 			]);
 			return;
 		}
 		const decided = decideCaseLoadingForms(row);
-		const automaticForm = previewAutomaticForm(decided, seededFormUuid);
+		const automaticForm =
+			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
 		if (automaticForm !== undefined) {
 			openFormWithCase(automaticForm, row);
 		} else if (decided.length > 0) {
@@ -1492,26 +1601,30 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const selectionBlocker = previewCaseSelectionMessage(
 		selectedChoices.length,
 		selectionMaximum,
+		language.language,
 	);
 	const toggleMultipleCase = (row: CaseRowWithCalculated) => {
 		if (validatingSelection) return;
-		const choice = { caseId: row.case_id, caseName: row.case_name || "Case" };
+		const choice = {
+			caseId: row.case_id,
+			caseName: row.case_name,
+		};
 		const alreadySelected = selectedChoices.some(
 			(selected) => selected.caseId === choice.caseId,
 		);
 		if (!alreadySelected && selectedChoices.length >= selectionMaximum) {
-			setSelectionAnnouncement(
-				`You can choose up to ${selectionMaximum} ${selectionMaximum === 1 ? "case" : "cases"}`,
+			announce(
+				selectionMaximum === 1 ? "selectionLimitOne" : "selectionLimitMany",
+				{ count: selectionMaximum },
 			);
 			return;
 		}
 		const next = togglePreviewCaseChoice(selectedChoices, choice);
 		setSelectedChoices(next);
-		setSelectionAnnouncement(
-			alreadySelected
-				? `${choice.caseName} removed. ${next.length} selected.`
-				: `${choice.caseName} selected. ${next.length} selected.`,
-		);
+		announce(alreadySelected ? "caseRemoved" : "caseSelected", {
+			name: choice.caseName,
+			count: next.length,
+		});
 	};
 	const chooseVisibleCases = () => {
 		if (validatingSelection) return;
@@ -1521,7 +1634,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				: filteredGroups.map((group) => group.header);
 		const visibleChoices = selectableRows.map((row) => ({
 			caseId: row.case_id,
-			caseName: row.case_name || "Case",
+			caseName: row.case_name,
 		}));
 		const result = addVisiblePreviewCaseChoices(
 			selectedChoices,
@@ -1529,11 +1642,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			selectionMaximum,
 		);
 		setSelectedChoices(result.choices);
-		setSelectionAnnouncement(
-			result.skipped > 0
-				? `${result.choices.length} selected. ${result.skipped} ${result.skipped === 1 ? "case was" : "cases were"} not selected because the limit is ${selectionMaximum}.`
-				: `${result.choices.length} ${result.choices.length === 1 ? "case" : "cases"} selected.`,
-		);
+		if (result.skipped > 0)
+			announce("selectionSkipped", {
+				count: result.choices.length,
+				skipped: result.skipped,
+				maximum: selectionMaximum,
+			});
+		else
+			announce(
+				result.choices.length === 1 ? "selectedCountOne" : "selectedCountMany",
+				{ count: result.choices.length },
+			);
 	};
 	const finishSelectedCaseNavigation = (
 		choices: readonly PreviewCaseChoice[],
@@ -1544,9 +1663,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const currentSelectionBlocker = previewCaseSelectionMessage(
 			choices.length,
 			selectionConfigurationRef.current.maximum,
+			language.language,
 		);
 		if (currentSelectionBlocker !== undefined) {
-			setSelectionAnnouncement(currentSelectionBlocker);
+			announceSelectionBlocker(
+				choices.length,
+				selectionConfigurationRef.current.maximum,
+			);
 			return;
 		}
 		if (selectsForMenu) {
@@ -1554,7 +1677,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 		const decided = decideMultiCaseLoadingForms();
-		const automaticForm = previewAutomaticForm(decided, seededFormUuid);
+		const automaticForm =
+			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
 		if (automaticForm !== undefined) {
 			openFormWithCases(automaticForm, choices);
 			return;
@@ -1571,7 +1695,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			caseType === undefined
 		) {
 			if (selectionBlocker !== undefined) {
-				setSelectionAnnouncement(selectionBlocker);
+				announceSelectionBlocker(selectedChoices.length, selectionMaximum);
 			}
 			return;
 		}
@@ -1604,9 +1728,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				);
 				if (reconciled.removed > 0) {
 					setSelectedChoices(reconciled.choices);
-					setSelectionAnnouncement(
-						`${reconciled.removed} selected ${reconciled.removed === 1 ? "case is" : "cases are"} no longer available. Review the selection before continuing.`,
-					);
+					announce("selectionChanged", {
+						count: reconciled.removed,
+					});
 					setReviewSelection(reconciled.choices.length > 0);
 					return;
 				}
@@ -1615,14 +1739,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			}
 			if (result.kind === "empty") {
 				setSelectedChoices([]);
-				setSelectionAnnouncement(
-					"The selected cases are no longer available. Choose cases again.",
-				);
+				announce("selectionUnavailable");
 				return;
 			}
-			setSelectionAnnouncement(
-				"The selected cases could not be checked. Try again.",
-			);
+			announce("selectionCheckFailed");
 		} catch {
 			if (
 				selectionValidationTokenRef.current === validationToken &&
@@ -1630,9 +1750,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				selectionRevisionRef.current === validationToken.revision &&
 				selectionConfigurationRef.current === validationToken.configuration
 			) {
-				setSelectionAnnouncement(
-					"The selected cases could not be checked. Try again.",
-				);
+				announce("selectionCheckFailed");
 			}
 		} finally {
 			if (selectionValidationTokenRef.current === validationToken) {
@@ -1710,7 +1828,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								className="ml-auto shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent"
 							>
 								<Icon icon={tablerX} width="13" height="13" />
-								Clear search
+								{message("clearSearch")}
 							</Button>
 						)}
 					</div>
@@ -1747,14 +1865,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						className="rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3"
 					>
 						<p className="text-sm font-semibold text-nova-text">
-							Search needs attention
+							{message("searchNeedsAttention")}
 						</p>
 						<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 							{localizeSearchValidationMessage(state.message)}
 						</p>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
 							{state.repair === "inputs"
-								? "Change the Search information, then search again"
+								? message("retrySearchInformation")
 								: "Return to edit mode and review Search settings"}
 						</p>
 					</div>
@@ -1778,7 +1896,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				data-case-detail-title
 				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
-				{displayedOpenCase.case_name || "Case"}
+				{displayedOpenCase.case_name || message("case")}
 			</h1>
 			<dl
 				data-case-detail="responsive"
@@ -1839,24 +1957,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				{routeCaseState.kind === "missing" ? (
 					<CaseListEmptyNotice
 						headingLevel={1}
-						title="This case is no longer available"
-						description="To choose another case, return to Results"
+						title={message("caseUnavailable")}
+						description={message("chooseAnotherCase")}
 					/>
 				) : routeCaseState.kind === "error" ? (
 					<CaseListEmptyNotice
 						headingLevel={1}
-						title="This case didn't load"
-						description="Try again to view this case"
+						title={message("caseLoadFailed")}
+						description={message("retryCase")}
 						tone="error"
 						action={{
-							label: "Try again",
+							label: message("tryAgain"),
 							onClick: (trigger) => void retryRouteCaseWithFocus(trigger),
 						}}
 					/>
 				) : routeCaseState.kind === "unauthenticated" ? (
 					<SessionEndedNotice
 						headingLevel={1}
-						description="To view this case, sign in again"
+						description={message("signInCase")}
 						onSignIn={() => void signIn()}
 					/>
 				) : (
@@ -1914,10 +2032,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				data-form-menu-case-title
 				className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
-				{displayedFormMenuCase.case_name || "Case"}
+				{displayedFormMenuCase.case_name || message("case")}
 			</h1>
 			<p className="mb-4 text-[13px] text-nova-text-muted">
-				Choose what to do with this case
+				{message("chooseCaseTask")}
 			</p>
 			<div className="grid gap-2">
 				{formMenuDecided.map(({ form, visibility }) => {
@@ -1999,10 +2117,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				<WorkerText message="backToResults" />
 			</Button>
 			<h1 className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]">
-				{selectedChoices.length} cases selected
+				{message(
+					selectedChoices.length === 1
+						? "selectedCountOne"
+						: "selectedCountMany",
+					{ count: selectedChoices.length },
+				)}
 			</h1>
 			<p className="mb-4 text-[13px] text-nova-text-muted">
-				Choose the form to run for these cases
+				{message("chooseCasesForm")}
 			</p>
 			<div className="grid gap-2">
 				{multiFormMenuDecided.map(({ form, visibility }) => {
@@ -2088,7 +2211,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							aria-atomic="true"
 							className="sr-only"
 						>
-							{fetching ? "Updating cases…" : announcedResultCount}
+							{fetching ? message("updatingCases") : announcedResultCount}
 						</span>
 					</>
 				)}
@@ -2105,7 +2228,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					className="-ml-2 mb-4 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
-					Search again
+					{message("searchAgain")}
 				</Button>
 			)}
 			{zeroInputSearchActionIsRelevant &&
@@ -2133,9 +2256,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					/>
 					{pageLocalFilter && (
 						<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
-							This filter checks the {loadedRows.length.toLocaleString()}{" "}
-							{loadedRows.length === 1 ? "case" : "cases"} on this page. Go to
-							another page to check more cases.
+							{message("pageFilterScope", {
+								count: caseCount(loadedRows.length),
+							})}
 						</p>
 					)}
 				</div>
@@ -2145,7 +2268,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				filteredRows.length > 0 && (
 					<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
 						<p className="text-sm text-nova-text-secondary">
-							Choose the cases this form should work with
+							{message("chooseCases")}
 						</p>
 						<Button
 							type="button"
@@ -2153,7 +2276,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							onClick={chooseVisibleCases}
 							disabled={fetching || validatingSelection}
 						>
-							Choose all cases shown
+							{message("chooseAllShown")}
 						</Button>
 					</div>
 				)}
@@ -2209,8 +2332,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							(choice) => choice.caseId !== caseId,
 						);
 						setSelectedChoices(next);
-						setSelectionAnnouncement(
-							`${next.length} ${next.length === 1 ? "case" : "cases"} selected.`,
+						announce(
+							next.length === 1 ? "selectedCountOne" : "selectedCountMany",
+							{ count: next.length },
 						);
 					}}
 					onContinue={continueWithSelectedCases}
@@ -2219,12 +2343,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			)}
 			{multipleSelection !== undefined && (
 				<p className="sr-only" role="status" aria-live="polite">
-					{selectionAnnouncement}
+					{selectionAnnouncement &&
+						message(selectionAnnouncement.message, {
+							...selectionAnnouncement.values,
+							...(selectionAnnouncement.values?.name === "" && {
+								name: message("thisCase"),
+							}),
+						})}
 				</p>
 			)}
 			{state.kind === "rows" && pagedUnitTotal > settledPageSize && (
 				<nav
-					aria-label="Results pages"
+					aria-label={message("resultsPages")}
 					className="mt-4 flex flex-wrap items-center justify-between gap-3"
 				>
 					<p className="text-xs text-nova-text-muted">{pagerSummary}</p>
@@ -2236,7 +2366,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							onClick={() => choosePage(settledPageIndex - 1)}
 							className=""
 						>
-							Previous
+							{message("previous")}
 						</Button>
 						<Button
 							type="button"
@@ -2245,7 +2375,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							onClick={() => choosePage(settledPageIndex + 1)}
 							className=""
 						>
-							Next
+							<WorkerText message="next" />
 						</Button>
 					</div>
 				</nav>
@@ -2255,8 +2385,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				rowAction !== "none" && (
 					<p className="mt-2.5 text-xs text-nova-text-muted">
 						{rowAction === "detail"
-							? "To view details, select a case"
-							: "To continue, select a case"}
+							? message("chooseCaseDetails")
+							: message("chooseCaseContinue")}
 					</p>
 				)}
 		</div>
@@ -2325,7 +2455,7 @@ function CasesLoading() {
 				className="animate-spin"
 				aria-hidden="true"
 			/>
-			Loading cases…
+			<WorkerText message="loadingCases" />
 		</div>
 	);
 }
@@ -2398,6 +2528,7 @@ function ResultsBody({
 	readonly selection: MultipleResultSelection | undefined;
 	readonly busy: boolean;
 }) {
+	const message = useWorkerMessage();
 	if (state.kind === "idle" || state.kind === "loading") {
 		return <CasesLoading />;
 	}
@@ -2410,18 +2541,18 @@ function ResultsBody({
 			<CaseListEmptyNotice
 				title={
 					state.repair === "inputs"
-						? "Change Search to see Results"
+						? message("changeSearch")
 						: "Search settings need attention"
 				}
 				description={
 					state.repair === "inputs"
-						? "Change the Search information to update Results"
+						? message("changeSearchInformation")
 						: "An app editor needs to review Search settings"
 				}
 			/>
 		) : (
 			<CaseListEmptyNotice
-				title="Search needs attention"
+				title={message("searchNeedsAttention")}
 				description={`${state.message.replace(/[.!?]+$/, "")}. Return to edit mode and review Search settings`}
 				tone="warning"
 			/>
@@ -2441,7 +2572,7 @@ function ResultsBody({
 	if (state.kind === "unauthenticated") {
 		return (
 			<SessionEndedNotice
-				description="To view these cases, sign in again"
+				description={message("signInCases")}
 				onSignIn={onSignIn}
 			/>
 		);
@@ -2496,7 +2627,7 @@ function ResultsBody({
 		if (unfilteredCountState.kind === "unauthenticated") {
 			return (
 				<SessionEndedNotice
-					description="To view these cases, sign in again"
+					description={message("signInCases")}
 					onSignIn={onSignIn}
 				/>
 			);
@@ -2512,11 +2643,11 @@ function ResultsBody({
 				<AvailabilityConditionsEmptyNotice />
 			) : (
 				<CaseListEmptyNotice
-					title="No cases are available for this search"
+					title={message("noSearchCases")}
 					description={
 						canEdit
-							? "Try different Search information or review Cases available in Results"
-							: "Try different Search information or ask an app editor to review Cases available"
+							? message("reviewSearchAvailability")
+							: message("askReviewSearchAvailability")
 					}
 				/>
 			);
@@ -2533,13 +2664,13 @@ function ResultsBody({
 				<CaseListEmptyNotice
 					title={
 						pageLocalFilter
-							? "No cases on this page match your filter"
-							: "No cases match your filter"
+							? message("noPageFilterMatches")
+							: message("noFilterMatches")
 					}
 					description={
 						pageLocalFilter
-							? "Clear the filter, try a different phrase, or check another page"
-							: "Clear the filter or try a different phrase"
+							? message("retryPageFilter")
+							: message("retryFilter")
 					}
 				/>
 			);
@@ -2552,8 +2683,8 @@ function ResultsBody({
 		}
 		return (
 			<CaseListEmptyNotice
-				title="No cases to show"
-				description="Try searching again or change which cases appear in Results"
+				title={message("noCasesToShow")}
+				description={message("retryResults")}
 			/>
 		);
 	}
@@ -2613,17 +2744,25 @@ function MultiSelectionTray({
 	readonly onContinue: () => void | Promise<void>;
 	readonly validating: boolean;
 }) {
+	const message = useWorkerMessage();
 	return (
 		<>
 			<div className="sticky bottom-3 z-popover mt-4 rounded-xl border border-pv-input-border bg-pv-surface/95 p-3 shadow-elevated backdrop-blur-md">
 				<div className="flex flex-wrap items-center gap-2">
 					<div className="min-w-0 flex-1">
 						<p className="text-sm font-semibold text-nova-text">
-							{choices.length} {choices.length === 1 ? "case" : "cases"}{" "}
-							selected
+							{message(
+								choices.length === 1 ? "selectedCountOne" : "selectedCountMany",
+								{ count: choices.length },
+							)}
 						</p>
 						<p className="text-xs text-nova-text-muted">
-							Up to {maximum} {maximum === 1 ? "case" : "cases"}
+							{message("upToCases", {
+								count: message(
+									maximum === 1 ? "caseCountOne" : "caseCountMany",
+									{ count: maximum },
+								),
+							})}
 						</p>
 					</div>
 					<Button
@@ -2632,7 +2771,7 @@ function MultiSelectionTray({
 						disabled={choices.length === 0}
 						onClick={() => onReviewOpenChange(true)}
 					>
-						Review selected cases
+						{message("reviewSelectedCases")}
 					</Button>
 					<Button
 						type="button"
@@ -2656,10 +2795,8 @@ function MultiSelectionTray({
 			<Dialog open={reviewOpen} onOpenChange={onReviewOpenChange}>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Selected cases</DialogTitle>
-						<DialogDescription>
-							The form will work with these cases in this order
-						</DialogDescription>
+						<DialogTitle>{message("selectedCases")}</DialogTitle>
+						<DialogDescription>{message("selectionOrder")}</DialogDescription>
 					</DialogHeader>
 					<DialogBody>
 						<ol className="m-0 list-none divide-y divide-nova-violet/[0.08] p-0">
@@ -2672,13 +2809,15 @@ function MultiSelectionTray({
 										{index + 1}
 									</span>
 									<span className="min-w-0 flex-1 break-words text-sm text-nova-text">
-										{choice.caseName || "Case"}
+										{choice.caseName || message("case")}
 									</span>
 									<Button
 										type="button"
 										variant="ghost"
 										size="icon"
-										aria-label={`Remove ${choice.caseName || "case"}`}
+										aria-label={message("removeCase", {
+											name: choice.caseName || message("thisCase"),
+										})}
 										disabled={validating}
 										onClick={() => onRemove(choice.caseId)}
 									>
@@ -2767,26 +2906,21 @@ function NoCaseDataNotice({
 	readonly canEdit: boolean;
 	readonly parentScoped: boolean;
 }) {
+	const message = useWorkerMessage();
 	if (parentScoped) {
 		return (
 			<CaseListEmptyNotice
-				title="No related cases yet"
+				title={message("noRelatedCases")}
 				description={
-					canEdit
-						? "Choose a different parent, or create a related case for this one"
-						: "Choose a different parent with related cases"
+					canEdit ? message("createRelatedCase") : message("chooseOtherParent")
 				}
 			/>
 		);
 	}
 	return (
 		<CaseListEmptyNotice
-			title="No cases yet"
-			description={
-				canEdit
-					? "Create a case or add sample cases in Case data"
-					: "Ask an app editor to create a case or add sample cases"
-			}
+			title={message("noCasesYet")}
+			description={canEdit ? message("createCase") : message("askCreateCase")}
 		/>
 	);
 }
@@ -2803,13 +2937,14 @@ function NoMatchNotice({
 }: {
 	readonly action: NoMatchesAction | undefined;
 }) {
+	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
-			title="No cases match your search"
+			title={message("noSearchMatches")}
 			description={
 				action === undefined
-					? "Check your spelling, clear a field, or try a broader search"
-					: "Check your spelling, try a broader search, or register a new case"
+					? message("retrySearch")
+					: message("retrySearchOrRegister")
 			}
 			{...(action === undefined
 				? {}
@@ -2827,10 +2962,11 @@ function NoMatchNotice({
 /** Existing cases are present, but the authored availability conditions
  * exclude all of them from this module. */
 function AvailabilityConditionsEmptyNotice() {
+	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
-			title="No cases available for this task"
-			description="Existing cases do not meet this task's conditions. They may become available as work progresses."
+			title={message("noTaskCases")}
+			description={message("taskCasesUnavailable")}
 		/>
 	);
 }
@@ -2840,12 +2976,13 @@ function CasesLoadFailureNotice({
 }: {
 	readonly onRetry: () => Promise<void>;
 }) {
+	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
-			title="This case list didn't load"
-			description="Try again to view cases"
+			title={message("casesLoadFailed")}
+			description={message("retryCases")}
 			tone="error"
-			action={{ label: "Try again", onClick: () => void onRetry() }}
+			action={{ label: message("tryAgain"), onClick: () => void onRetry() }}
 		/>
 	);
 }
@@ -2855,12 +2992,13 @@ function CaseCountFailureNotice({
 }: {
 	readonly onRetry: () => Promise<void>;
 }) {
+	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
-			title="Nova couldn't check why no cases are showing"
-			description="Try again to check whether cases need to be created or your availability settings are hiding them"
+			title={message("countLoadFailed")}
+			description={message("retryCount")}
 			tone="error"
-			action={{ label: "Try again", onClick: () => void onRetry() }}
+			action={{ label: message("tryAgain"), onClick: () => void onRetry() }}
 		/>
 	);
 }
@@ -2874,13 +3012,18 @@ function SessionEndedNotice({
 	readonly description: string;
 	readonly onSignIn: () => void;
 }) {
+	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
 			headingLevel={headingLevel}
-			title="You're signed out"
+			title={message("signedOut")}
 			description={description}
 			tone="error"
-			action={{ label: "Sign in", onClick: onSignIn, icon: tablerLogin2 }}
+			action={{
+				label: message("signIn"),
+				onClick: onSignIn,
+				icon: tablerLogin2,
+			}}
 		/>
 	);
 }
@@ -2986,6 +3129,7 @@ function ResultsTable({
 	readonly busy: boolean;
 }) {
 	const clickable = rowAction !== "none";
+	const message = useWorkerMessage();
 	const layout = resultsLayoutClasses(visibleColumns.length);
 	const gridTemplateColumns = `${visibleColumns.map(() => "minmax(0, 1fr)").join(" ")} 36px`;
 	return (
@@ -3016,7 +3160,7 @@ function ResultsTable({
 				))}
 				<div aria-hidden="true" />
 			</div>
-			<ul className="m-0 list-none p-0" aria-label="Cases">
+			<ul className="m-0 list-none p-0" aria-label={message("cases")}>
 				{rows.map((row) => {
 					const selected = selection?.selectedCaseIds.has(row.case_id) ?? false;
 					const selectionLabel = caseSelectionActionLabel(
@@ -3130,8 +3274,15 @@ function caseSelectionActionLabel(
 		.filter(Boolean)
 		.slice(0, 3)
 		.join(", ");
-	const caseReference = summary || row.case_name.trim() || "this case";
-	return `${selected ? "Remove" : "Choose"} ${caseReference}`;
+	const caseReference =
+		summary ||
+		row.case_name.trim() ||
+		runtimeMessage(context.language, "thisCase");
+	return runtimeMessage(
+		context.language,
+		selected ? "removeCase" : "chooseCase",
+		{ name: caseReference },
+	);
 }
 
 /**
@@ -3151,10 +3302,15 @@ function primaryRowActionLabel(
 		.filter(Boolean)
 		.slice(0, 3)
 		.join(", ");
-	const caseReference = summary || row.case_name.trim() || "this case";
-	return rowAction === "detail"
-		? `View details for ${caseReference}`
-		: `Continue with ${caseReference}`;
+	const caseReference =
+		summary ||
+		row.case_name.trim() ||
+		runtimeMessage(context.language, "thisCase");
+	return runtimeMessage(
+		context.language,
+		rowAction === "detail" ? "viewCaseDetails" : "continueWithCase",
+		{ name: caseReference },
+	);
 }
 
 // ── Tile results ──────────────────────────────────────────────────
@@ -3236,6 +3392,7 @@ function ResultsTiles({
 	readonly busy: boolean;
 }) {
 	const clickable = rowAction !== "none";
+	const message = useWorkerMessage();
 	/* The action name reads the values a worker can actually see; a hidden
 	 * sort carrier holds a square but shows nothing, so it names nothing. */
 	const spokenColumns = tile.columns
@@ -3296,11 +3453,13 @@ function ResultsTiles({
 				 * grouped card is one choice. The rows beneath the header are
 				 * there to read. */
 				<p className="border-nova-violet/[0.07] border-b px-3 py-2 text-xs text-nova-text-muted @min-[37.5rem]/results:px-5">
-					Choosing a group selects its first case. The rows beneath are there to
-					read.
+					{message("groupSelection")}
 				</p>
 			)}
-			<ul className="m-0 w-full min-w-[18rem] list-none p-0" aria-label="Cases">
+			<ul
+				className="m-0 w-full min-w-[18rem] list-none p-0"
+				aria-label={message("cases")}
+			>
 				{cards.map(({ key, actionRow: row, tile: drawnTile }) => {
 					const selected = selection?.selectedCaseIds.has(row.case_id) ?? false;
 					const content = (

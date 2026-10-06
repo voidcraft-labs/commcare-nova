@@ -14,20 +14,35 @@ import {
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
+import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
+import type { XPathRuntimeError } from "../xpath/workerProtocol";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import { buildEngineInput } from "./engineInput";
 import { evaluationAnswerValue } from "./formAnswerValue";
 import { FormEngine, type FormEngineAsyncEvaluator } from "./formEngine";
 import type {
 	FormEvaluationContext,
+	FormEvaluationFault,
 	FormEvaluationInput,
 } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
+import { projectFormPresentation } from "./formPresentation";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
+
+/** Let FormEngine apply its narrowly scoped wording policy before an uncaught
+ * XPath failure becomes the public authoring-input fault. */
+class FormEvaluationXPathError extends PreviewXPathRuntimeError {
+	constructor(
+		failure: XPathRuntimeError,
+		readonly fault: FormEvaluationFault,
+	) {
+		super(failure);
+	}
+}
 
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
@@ -121,15 +136,12 @@ export async function evaluateFormSnapshot(
 			{ signal },
 		);
 		if (!result.ok)
-			throw new FormEvaluationInputError(
-				"An expression could not be evaluated.",
-				{
-					path,
-					expression: source,
-					code: result.error.code,
-					...(result.error.reason ? { reason: result.error.reason } : {}),
-				},
-			);
+			throw new FormEvaluationXPathError(result.error, {
+				path,
+				expression: source,
+				code: result.error.code,
+				...(result.error.reason ? { reason: result.error.reason } : {}),
+			});
 		return result.nodesetValues === undefined
 			? deserializeXPathWorkerValue(result.value)
 			: { kind: "nodeset-values", values: result.nodesetValues };
@@ -247,35 +259,37 @@ export async function evaluateFormSnapshot(
 			visibleSections.at(-1)?.current === true;
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
-		const fields = Object.entries(engine.store.getState()).map(
-			([path, state]) => {
+		const presentation = projectFormPresentation(
+			engine.getFieldTree(),
+			{ stateAt: (_field, path) => engine.getState(path) },
+			{
+				language: engineInput.language,
+				currentSectionUuid: engine.currentSectionUuid(),
+				availableSectionUuids: new Set(
+					visibleSections.map((section) => section.uuid),
+				),
+				text: (prose) => projectProseTemplate(prose, doc).text,
+			},
+		);
+		const fields = presentation.fields.map(
+			({
+				path,
+				state,
+				field,
+				parentPath,
+				depth,
+				sectionUuid,
+				onCurrentPage,
+				visible,
+				position,
+				label,
+				hint,
+				help,
+			}) => {
 				const relevant = relevantPaths.has(path);
-				const field = fieldAt(path);
-				const kind = field?.kind;
-				const {
-					value,
-					required,
-					valid,
-					errorMessage,
-					resolvedLabel,
-					resolvedHint,
-					resolvedHelp,
-					choices,
-					repeatCount,
-				} = state;
-				const text = (
-					slot: "label" | "hint" | "help",
-					resolved: string | undefined,
-				) => {
-					if (resolved !== undefined) return resolved;
-					const prose =
-						field && slot in field
-							? field[slot as keyof typeof field]
-							: undefined;
-					return typeof prose === "object" && prose !== null && "parts" in prose
-						? projectProseTemplate(prose, doc).text
-						: undefined;
-				};
+				const kind = field.kind;
+				const { value, required, valid, errorMessage, choices, repeatCount } =
+					state;
 				const options =
 					choices ??
 					(field &&
@@ -295,21 +309,24 @@ export async function evaluateFormSnapshot(
 				} = relevant ? { value } : { retainedValue: value };
 				return {
 					path: path.replace(/^\/data\//, ""),
-					onCurrentPage:
-						sectionForPath(path)?.uuid === engine.currentSectionUuid(),
+					parentPath: parentPath.replace(/^\/data\/?/, ""),
+					depth,
+					...(position === undefined ? {} : { position }),
+					...(sectionUuid === undefined ? {} : { sectionUuid }),
+					onCurrentPage,
 					kind,
 					// A retained answer on an excluded question is not a usable
 					// expression/submission value. Hidden calculated fields, unlike
 					// non-relevant questions, still participate in the form.
 					participates: relevant,
 					...observedAnswer,
-					visible: relevant && kind !== "hidden",
+					visible: relevant && visible,
 					required: relevant && required,
 					valid: !relevant || valid,
 					...(relevant && errorMessage ? { error: errorMessage } : {}),
-					label: text("label", resolvedLabel),
-					hint: text("hint", resolvedHint),
-					help: text("help", resolvedHelp),
+					label,
+					hint,
+					help,
 					...(options === undefined ? {} : { choices: options }),
 					...(repeatCount === undefined ? {} : { repeatCount }),
 					...(kind === "geopoint"
@@ -334,6 +351,12 @@ export async function evaluateFormSnapshot(
 				: {}),
 			valid,
 			fields,
+			presentation: {
+				...(presentation.currentSectionUuid === undefined
+					? {}
+					: { currentSectionUuid: presentation.currentSectionUuid }),
+				nodes: presentation.nodes,
+			},
 			sections,
 			canSubmit,
 			...(valid && canSubmit
@@ -345,6 +368,13 @@ export async function evaluateFormSnapshot(
 					}
 				: {}),
 		};
+	} catch (error) {
+		if (error instanceof FormEvaluationXPathError)
+			throw new FormEvaluationInputError(
+				"An expression could not be evaluated.",
+				error.fault,
+			);
+		throw error;
 	} finally {
 		runtime.dispose();
 	}

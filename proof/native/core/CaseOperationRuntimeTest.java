@@ -1,10 +1,18 @@
 package nova.compatibility;
 
 import java.io.ByteArrayInputStream;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
+import java.util.TimeZone;
+import java.util.Vector;
 import org.commcare.cases.model.Case;
 import org.commcare.cases.model.CaseIndex;
 import org.commcare.core.process.XmlFormRecordProcessor;
@@ -13,6 +21,10 @@ import org.commcare.util.mocks.MockDataUtils;
 import org.commcare.util.mocks.MockUserDataSandbox;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.FormIndex;
+import org.javarosa.core.model.condition.EvaluationContext;
+import org.javarosa.core.model.condition.IFunctionHandler;
+import org.javarosa.core.model.data.DateTimeData;
+import org.javarosa.core.model.data.IAnswerData;
 import org.javarosa.core.model.data.StringData;
 import org.javarosa.core.model.instance.ConcreteInstanceRoot;
 import org.javarosa.core.model.instance.ExternalDataInstance;
@@ -20,8 +32,12 @@ import org.javarosa.core.model.instance.InstanceBase;
 import org.javarosa.core.model.instance.InstanceRoot;
 import org.javarosa.core.model.instance.TreeElement;
 import org.javarosa.core.model.instance.utils.InstanceUtils;
+import org.javarosa.core.model.utils.DateUtils;
+import org.javarosa.core.model.utils.TimezoneProvider;
 import org.javarosa.core.test.FormParseInit;
 import org.javarosa.form.api.FormEntryController;
+import org.javarosa.form.api.FormEntryModel;
+import org.javarosa.form.api.FormEntryPrompt;
 import org.javarosa.model.xform.XFormSerializingVisitor;
 import org.javarosa.test_utils.ExprEvalUtils;
 import org.javarosa.xml.util.InvalidStructureException;
@@ -52,6 +68,9 @@ public class CaseOperationRuntimeTest {
         final FormDef form;
         final String scenario;
         Run(String scenario, boolean hq) throws Exception {
+            this(scenario, hq, null);
+        }
+        Run(String scenario, boolean hq, Instant clock) throws Exception {
             this.scenario = scenario;
             for (String[] seed : new String[][]{{"patient-1", "patient", "Original name"}, {"patient-2", "patient", "Other patient"}, {"visit-1", "visit", "Other visit"}}) {
                 Case record = new Case(seed[2], seed[1]);
@@ -89,6 +108,23 @@ public class CaseOperationRuntimeTest {
             }
             parsed = new FormParseInit("/case/operation-" + scenario + (hq ? ".hq.xml" : ".xml"));
             form = parsed.getFormDef();
+            if (clock != null) {
+                // Override only the volatile clock through Core's supported
+                // function-handler seam. The emitted expressions, datetime
+                // coercion, triggers and formatter remain the real consumer.
+                form.getEvaluationContext().addFunctionHandler(new IFunctionHandler() {
+                    @Override public String getName() { return "now"; }
+                    @Override public Vector<Class[]> getPrototypes() {
+                        Vector<Class[]> prototypes = new Vector<>();
+                        prototypes.add(new Class[0]);
+                        return prototypes;
+                    }
+                    @Override public boolean rawArgs() { return false; }
+                    @Override public Object eval(Object[] args, EvaluationContext context) {
+                        return Date.from(clock);
+                    }
+                });
+            }
             form.initialize(true, new TestInstanceInitializer(sandbox) {
                 @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
                     if (!"commcaresession".equals(instance.getInstanceId())) return super.generateRoot(instance);
@@ -183,6 +219,98 @@ public class CaseOperationRuntimeTest {
         assertEquals("An excluded answer must not overwrite the saved datetime", "", run.record("patient-1").getPropertyString("visible_at"));
         assertEquals(java.time.Instant.parse("2026-04-17T11:23:41Z"),
             java.time.OffsetDateTime.parse(run.record("patient-1").getPropertyString("reference_at")).toInstant());
+    }
+    private static final String[] CLOCK_ZONES = {
+        "UTC", "America/Los_Angeles", "Asia/Kathmandu", "Pacific/Kiritimati"
+    };
+    private static final String[] CLOCK_INSTANTS = {
+        "2026-09-30T06:57:00.123Z", "2026-09-30T23:57:00.123Z",
+        "2027-01-01T00:30:00.123Z", "2024-03-01T00:30:00.123Z",
+        "2026-03-08T09:30:00.123Z", "2026-03-08T10:30:00.123Z",
+        "2026-11-01T08:30:00.123Z", "2026-11-01T09:30:00.123Z"
+    };
+    private static void clockZone(String id, Instant instant) {
+        TimeZone timezone = TimeZone.getTimeZone(id);
+        DateUtils.setTimezoneProvider(new TimezoneProvider() {
+            @Override public TimeZone getTimezone() { return timezone; }
+            @Override public int getTimezoneOffsetMillis() {
+                return timezone.getOffset(instant.toEpochMilli());
+            }
+        });
+    }
+    private static String recordedClock(Instant instant, String writerZone) {
+        // java.time supplies the independent instant/calendar expectation;
+        // Core's %Z spells whole-hour offsets without a minute suffix.
+        ZonedDateTime time = instant.atZone(ZoneId.of(writerZone));
+        int minutes = time.getOffset().getTotalSeconds() / 60;
+        String offset = "Z";
+        if (minutes != 0) {
+            int absolute = Math.abs(minutes);
+            offset = String.format(Locale.ROOT, "%s%02d", minutes < 0 ? "-" : "+", absolute / 60);
+            if (absolute % 60 != 0) offset += String.format(Locale.ROOT, ":%02d", absolute % 60);
+        }
+        return time.format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss", Locale.ROOT)) + " " + offset;
+    }
+    private static TreeElement clockNode(FormDef form, String path) throws Exception {
+        XPathNodeset target = (XPathNodeset) XPathParseTool.parseXPath(path)
+            .eval(form.getMainInstance(), form.getEvaluationContext());
+        assertEquals("One clock value at " + path, 1, target.size());
+        return form.getMainInstance().resolveReference(target.getRefAt(0));
+    }
+    private static FormEntryModel clockQuestion(FormDef form, String path) throws Exception {
+        XPathNodeset target = (XPathNodeset) XPathParseTool.parseXPath(path)
+            .eval(form.getMainInstance(), form.getEvaluationContext());
+        assertEquals("One clock question at " + path, 1, target.size());
+        FormEntryModel model = new FormEntryModel(form);
+        FormEntryController controller = new FormEntryController(model);
+        int events = 0;
+        while (controller.stepToNextEvent() != FormEntryController.EVENT_END_OF_FORM) {
+            assertTrue("Bounded sequence form", ++events < 100);
+            if (model.getEvent() == FormEntryController.EVENT_QUESTION
+                    && model.getFormIndex().getReference().equals(target.getRefAt(0))) return model;
+        }
+        throw new AssertionError("Missing clock question " + path);
+    }
+    @Test public void recordedClockTextPreservesWriterTimeAcrossReaderZones() throws Exception {
+        int captures = 0, prompts = 0;
+        try {
+            for (String raw : CLOCK_INSTANTS) {
+                Instant instant = Instant.parse(raw);
+                for (String writer : CLOCK_ZONES) {
+                    clockZone(writer, instant);
+                    Run run = new Run("sequence", hq, instant);
+                    IAnswerData typedClock = clockNode(run.form, "/data/calculated_at").getValue();
+                    assertTrue("A clock saved to a datetime property remains typed", typedClock instanceof DateTimeData);
+                    assertEquals("Typed clock keeps the complete instant", Date.from(instant), typedClock.getValue());
+                    run.answer("/data/enabled", "yes");
+                    FormEntryController answer = new FormEntryController(clockQuestion(run.form, "/data/visible_at"));
+                    assertEquals(FormEntryController.ANSWER_OK, answer.answerQuestion(new DateTimeData(Date.from(instant))));
+                    String expected = recordedClock(instant, writer);
+                    for (String path : new String[]{"/data/recorded_clock", "/data/recorded_answer"}) {
+                        IAnswerData text = clockNode(run.form, path).getValue();
+                        assertTrue("Recorded text remains a string at " + path, text instanceof StringData);
+                        assertEquals("Capture " + raw + " in " + writer + " at " + path, expected, text.getValue());
+                    }
+                    captures++;
+                    for (String reader : CLOCK_ZONES) {
+                        clockZone(reader, instant);
+                        FormEntryPrompt prompt = clockQuestion(run.form, "/data/recorded_display").getQuestionPrompt();
+                        String display = "Clock: " + expected + "; answer: " + expected;
+                        String context = "Writer " + writer + ", reader " + reader + ", instant " + raw;
+                        assertEquals(context + " plain", display, prompt.getQuestionText());
+                        assertEquals(context + " Markdown", display, prompt.getMarkdownText());
+                        prompts += 2;
+                    }
+                    assertEquals(FormEntryController.ANSWER_OK, answer.answerQuestion(null));
+                    assertEquals("A blank typed answer leaves recorded text blank", "", run.eval("string(/data/recorded_answer)"));
+                    assertEquals("The first-open clock text stays captured", expected, run.eval("string(/data/recorded_clock)"));
+                }
+            }
+            assertEquals(32, captures);
+            assertEquals(256, prompts);
+        } finally {
+            DateUtils.resetTimezoneProvider();
+        }
     }
     @Test public void conditionalDependencyAndWrite() throws Exception {
         Run run = run("conditional");

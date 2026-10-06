@@ -127,12 +127,71 @@ same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared
 value. Never defer the ownership mark until the validation Promise settles.
 
-The small `runtimeMessages.ts` platform catalog owns English/Spanish generic
-required/type/constraint fallback messages and core worker navigation. Invalid
-Submit and section Next/jump feedback both read `reviewHighlightedQuestion`
-from the selected worker language. Field widgets, record metadata, other
-accessibility labels and diagnostics remain outside this catalog; authored
-labels and custom validation continue through the app's translation projection.
+While a same-entry replacement initializes, the controller retains the last
+settled runtime publication, its naming document, path/page queries and repeat
+render identities. Runtime field, membership and tree hooks select narrowly
+from that document with field/tree equality; an unrelated edit must not
+invalidate every field. Releasing the hold selects the current document on
+the runtime publication even when no further document mutation occurs.
+The paging decision and page/step field projections read this same retained
+document, so an admitted section wrap or unwrap cannot retire controls before
+the replacement publishes its new topology.
+FormScreen keeps those controls mounted and inert until the replacement has
+reconciled document edits and can publish its complete state. Overlapping
+replacements retain the original settled presentation; they cannot restore an
+unfinished candidate checkpoint. Mutation commands refuse during that window.
+Deactivation, a different entry, explicit reset and runtime faults clear the
+retained presentation, and retired initialization cannot revive it.
+
+The `runtimeMessages.ts` platform catalog owns English/Spanish generic
+required/type/constraint fallback messages, core worker navigation, live spoken
+question/section/repeat positions and required markers, group/repeat controls,
+datetime Date/Time names, and Nova-owned GPS address-search, wait/empty-state,
+location guidance, browser-location failure and manual-coordinate copy.
+Running-app menus, breadcrumb navigation, record lists and details also follow
+the selected English/Spanish language. This includes filters, counts, selection,
+paging, blank-value labels, loading and empty/error states. Authoring setup and
+diagnostic guidance stay in English.
+
+`WorkerDatePicker` shares selected-language calendar text and accessible
+labels, placeholder and Clear across live forms and Search. The generic
+`DatePicker` keeps English authoring defaults. Its display formatter receives the
+canonical worker tag, retaining regional suffixes; DayPicker uses generic
+English/Spanish labels and week layout. A language rerender adds no answer or
+draft reset. Restored entries refresh existing invalid-state messages in the
+new presentation language without touching previously clean questions. Capture
+invalid paths before constraint settlement so an already-shown required warning
+on a blank answer cannot disappear during restoration; revalidate current values
+and rules rather than restoring stale error strings. Ordinary input blur still
+commits and normalizes values. Other worker
+languages
+use English platform copy. Invalid Submit and section Next/jump feedback both
+retain the `reviewHighlightedQuestion` intent and render it in the selected worker
+language, including after a same-entry language change. Authored and server error
+text remains literal. Browser geolocation failures carry typed reasons; the picker
+resolves their catalog wording in the committed worker language at delivery,
+after its existing Project and continuation fences. A language change does not
+restart the request or change coordinate values. Google's map tiles, controls,
+gestures, place names and resolved addresses retain Google's own language.
+Clock formatting, record metadata,
+media controls, other accessibility labels and diagnostics remain outside this
+catalog; authored labels and custom validation continue through the app's
+translation projection.
+
+Read-only form and retained journey presentations use the same catalog for
+repeat-instance headings and unnamed-question fallbacks. Pass the resolved
+engine language to the presentation projection; an omitted or unconfigured
+selection follows the engine's existing language resolution.
+
+Custom validation wording uses the existing localized invalid-answer message
+when its resolved wording is empty or a typed reference names several live
+answers. Only the dedicated scalar-cardinality error or the worker's exact
+evaluation/nodeset-cardinality reason enters this constraint-message policy.
+Validation rules, ordinary labels/hints/help/choices, invalid paths, unsupported
+functions, cancellation and all other runtime failures retain their normal
+containment. This chooses no repeated row and joins no values; native
+plain/Markdown constraint emission applies the same precise count guard, while
+original media remains unchanged.
 
 `useFormEngine` compares case-preload maps by their type/property/value content
 before rebuilding. A list row and the later full case read may be separate Map
@@ -232,6 +291,17 @@ revocation remains terminal and discards the old entry. A rebuilt runtime may
 remount question controls; this does not claim preservation of focus or an open
 native picker through a whole-database refresh.
 
+The controller's asynchronous form and section validation return a completed
+answer judgment or an unavailable/retired result. A completed judgment owns the
+initiating engine, entry, lifecycle generation, device-resource state, document,
+rebuild queue and worker revision. Consumers recheck that exact completion at
+their continuation boundary; they never infer an invalid answer from readiness
+or a later field snapshot. Only a current completed invalid judgment announces
+and focuses its captured question. A refresh or replacement retires the original
+Submit/Next/jump press without a write or automatic replay. Answers survive a
+same-entry refresh, and a fresh press starts a fresh validation. The pure
+FormEngine and non-writing form evaluator retain their boolean validation APIs.
+
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
 those selectors in case-type order, then replaces the selector with that exact
@@ -258,7 +328,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Initialization actions run in authored scope and order.** Defaults and query snapshots run in document order; primary case preloads are appended last. Count-bound repeats read live counts after calculations and preloads settle, and again during entry and answer changes. Increasing a count inserts only new rows; decreasing it retains rows, answers, and case operations. Each write triggers dependent calculations and relevance changes before the next action, including reads affected by a hidden group. A loaded writer therefore ends with its case value, including blank, while an earlier snapshot can retain its default. Standalone calculations run after the actions. Inserting a repeat initializes only that new subtree, including its bound descendants, without recapturing earlier rows. Query identity attributes precede child initialization. Generated snapshot targets carry their enclosing row through the XPath worker even before a repeat has rows; they are expression-local contexts, never answer rows or saved data. Several-case forms preload no single selected record. Root-section query repeats retain their form-start membership; count-bound repeats refresh their target. Both defer insertion until that page is entered. Nested initialization then reads earlier-page answers. Entry checkpoints retain pending snapshots and the active page. Already inserted rows never recapture membership on Back/Next. Unsectioned Preview still presents the form together; no universal native question-by-question parity is claimed.
 
-- **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission.
+- **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
 - **Typed answers are checked before authored validation.** `answerShapeError` checks numeric and temporal answers on blur and at submission. Empty values belong to requiredness. Integer answers use signed decimal digits in the signed 32-bit range; decimal answers accept finite decimal and exponent notation. The numeric widget preserves incomplete text so an optional malformed answer cannot become an empty value through native input sanitization. Numeric case-write projection uses the same full-answer parser and never truncates a prefix. Temporal checks accept every spelling `isReadableTemporalValue` can canonicalize, including older stored values. Errors stay beside the owning question instead of surfacing later as a case-property refusal. Submit retains answer focus during a mouse press so blur validation cannot move the button out from under its release; activation then blurs the current control so local coordinate drafts and clock normalization commit before submission captures answers. A refusal reveals and focuses the first invalid question. Keyboard activation remains native.
 - **Default text remains text.** A default evaluating to `"false"` is a nonempty answer in both synchronous and worker execution; only the empty string means no default value. XPath numeric coercion and `selected()` use Java ASCII-control trimming, so nonbreaking spaces remain significant.
 - **`reset()` is a full reinitialization** — rebuild instance, replay scoped initialization actions, re-cascade. Returns to the exact initial state.
@@ -438,6 +508,16 @@ their own mutation boundaries and adjudicate the receipt before effects, so an
 exact retry after the form or capture question is deleted still replays and a
 changed digest rejects before effects.
 
+Confirmed capture completion joins the controller's readiness work, never its
+own attachment queue, before staging the answer. It resolves the current path
+from the captured field UUID/kind and each enclosing repeat's typed UUID and
+stable instance key. A removed row, changed capture kind, hidden slot, retired
+entry, canceled task or runtime fault cannot accept the answer. Ownership
+adoption runs synchronously after actual answer staging is acknowledged;
+confirmation alone is insufficient. Confirmed rows that never reach adoption
+are cleaned even when acceptance throws. Answer Clear uses this same boundary
+before releasing ownership or scheduling byte cleanup.
+
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same stable
 slot. The control publishes queued intent before it waits behind another slot,
@@ -580,6 +660,14 @@ A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews
 - **The engine owns the page model**: `FormEngine.sectionPages()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `validateSection(uuid)` (`validateAll` restricted to the paths under that section, marking them touched) and `firstInvalidFieldTarget({ withinSection })` (the same target, with the section leading `ancestorUuids`). The controller mirrors all three; `hooks/useSectionPages.ts` subscribes through a one-string key so a keystroke does not re-render the pager.
 - **The open page is session state**, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page. `components/preview/form/sections/useSectionPaging.ts` arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties; `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` turns with no check, which is what Submit routing (the earliest invalid page, `ancestorUuids[0]`) and Clear form (the first page) use. Enter never advances.
 - **`FormScreen` renders `SectionPage`** (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page) in place of `FormRenderer` while paging, and the bottom bar carries the `SectionStepper` (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
+
+Page announcements and pending heading focus belong to the actual controller
+entry and visible page, not the retained FormScreen. `showPage`, `showFirst`,
+automatic re-anchoring and entry retirement clear the old turn intent. Navigation
+checks entry ownership after every asynchronous entry/validation step; a retired
+or superseded continuation cannot move the page, announce or focus a question in
+the new entry. Ordinary turns still focus and announce each time, and a same-entry
+language change retains the current announcement in its new presentation language.
 
 ## Repeat instances are first-class
 
@@ -902,16 +990,36 @@ Running Results reads at most 50 cases per page. The action clamps every caller 
 
 ## End-of-form links
 
+`previous` is the preceding task from the source entry, never browser Back or
+visited-screen history. The wire owner's `previousEntryFrameChildren` also
+feeds `previousTaskProjection.ts`, which exposes stable destination and
+selection identities without wire names. `engine/previousTask.ts` resolves
+only those retained ordered selections against the submitting entry plus its
+receipt. Forms-first reopens the exact form's missing record selector;
+case-first returns to the module menu with its selected records and updated
+values. Computed slots remain runtime values, never invented selections of a
+newly created record. Browser and App Tests use this same resolver for both a
+static destination and a conditional link's false fallback. Normal Back keeps
+its visited-destination behavior.
+
+A retained command continues its task even if the save changes its menu
+visibility; a retained form command also continues that exact form through its
+selector without choosing again or rechecking its offering condition. A module
+command still evaluates its form offerings against the saved values. This is
+ephemeral continuation state, never authored configuration or an authorization
+bypass. Its captured case database travels into the next form so a just-closed
+retained record does not disappear through a fresh restore. It expires when the
+worker leaves the task and with the ordinary worker/mode/Project/Home resets. Choosing another form on a retained menu uses the owner's actual entry datums for its missing selectors; it carries the same device world into case forms, registration and surveys. Ordinary Back to that retained menu preserves its world without changing visited-screen history. A successful non-Previous submission retires the completed task and its case target before routing, so returning to the same menu cannot reinstall an older receipt as though the person pressed Back. An explicit module destination also removes its own leaf selection when the owner's target frame omits that slot; separately owned parent selections and explicit form-link selections remain intact.
+
 A form's `formLinks` run in the running app the way they run on a device, through the ONE projection the wire reads (`lib/commcare/formLinkProjection.ts`): which link fires and which case the next form opens with are never re-derived preview-side. `engine/formLinkEvaluation.ts` is the rule, `lib/preview/afterSubmitRouting.ts` is the routing table, and `FormScreen`'s `dispatchAfterSubmit` performs the effect once the submission has landed; a form with no links takes its `postSubmit` destination.
 
-- **First true wins, evaluated as Nova text after the write.** Each condition prints through `printXPath` (an unresolved reference throws: the commit gate refuses those, so reaching one is a bypass) and the preview evaluator decides it in the entry's post-form scope: `instance('commcaresession')/session/context|user/...` from the identity, `/session/data/<id>` from the source entry's own datums, `#user/<prop>` from the committed usercase row, `#<type>/<prop>` from the case rows AS THEY ARE AFTER THE SUBMISSION, and any read of the closed form (`/data/...`, `#form/...`) throws. Any app with an after-submit link and a case-bearing module loads the complete entry-time device casedb even when no expression names `instance('casedb')`: a link can carry an unchanged existing case or ancestor, while the transaction patch contains only affected rows. `applySubmission` reads every affected row and direct index edge before its transaction commits and persists that exact patch in the durable receipt. Preview applies the patch to the device casedb captured when the entry opened, then derives source and target case preloads from that one world. There is no post-commit case read: it could observe a later writer, and a fresh restore can omit a just-closed case the device still retains locally until sync. Registration-created cases, advanced-operation targets, and the worker usercase all enter through the same patch. A survey with no case or usercase effects contributes an empty patch. A direct linked form carries both its case preload and this patched casedb across navigation so its first render cannot replace a just-closed case with a newer restore. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing earlier could reload or clear the source binding before routing finishes.
+- **First true wins, evaluated as Nova text after the write.** Each condition prints through `printXPath` (an unresolved reference throws: the commit gate refuses those, so reaching one is a bypass) and the preview evaluator decides it in the entry's post-form scope: `instance('commcaresession')/session/context|user/...` from the identity, `/session/data/<id>` from the source entry's own datums, `#user/<prop>` from the committed usercase row, `#<type>/<prop>` from the case rows AS THEY ARE AFTER THE SUBMISSION, and any read of the closed form (`/data/...`, `#form/...`) throws. Any case-bearing app with an after-submit link or Previous loads the complete entry-time device casedb even when no expression names `instance('casedb')`: a link can carry an unchanged existing case or ancestor, while the transaction patch contains only affected rows. `applySubmission` reads every affected row and direct index edge before its transaction commits and persists that exact patch in the durable receipt. Preview applies the patch to the device casedb captured when the entry opened, then derives source and target case preloads from that one world. There is no post-commit case read: it could observe a later writer, and a fresh restore can omit a just-closed case the device still retains locally until sync. Registration-created cases, advanced-operation targets, and the worker usercase all enter through the same patch. A survey with no case or usercase effects contributes an empty patch. A direct linked form carries both its case preload and this patched casedb across navigation so its first render cannot replace a just-closed case with a newer restore. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing earlier could reload or clear the source binding before routing finishes.
 - **The carried case is the wire's match, valued from the complete case session.** `carriedCaseFor` asks `selectedCaseDatumId` for the target's projected own-case selection datum (`case_id` when flat, potentially `case_id_<type>` after root-menu alignment), evaluates a manual datum under that exact id when the link names its datums, and otherwise reads the source datum `matchFrameToSource` picked. `sourceSessionDatums` is the one mapping from source datum ids to values: the projected own-case datum is the case the form loaded; every projected ancestor/inherited selection reads the module-keyed case session that `FormScreen` already resolved through `previewMenuCaseContext`; a registration's `case_id_new_<module type>_0` is the case it created; and a subcase datum is the child case of its type the submission created. `projectTargetCaseSelections` values EVERY matched selection datum in the target frame; the exact `FrameDatum` already carries its stable source-module UUID through root alignment and frame-prefix projection, so Preview never reconstructs ownership from menu shape or display names. `FormScreen` applies that root-to-leaf projection before navigating, so manual parent datums and automatically matched created cases establish the same nested menu session the device frame establishes. Parent changes clear stale descendants before later target selections replace them; a defined blank datum stays installed so Core and Preview both skip a picker, while its empty id still binds no case. A nonblank selection is hydrated from the exact matching row in the transaction-captured post-submit patch before a module menu evaluates case-property conditions. Module landing is decided from that prospective session, including same-type structural inheritance, not from the pre-submit menu snapshot. The created-child mapping comes from the durable structured receipt: every concrete child names its authored child index and selected/generated parent, so `FormScreen` never infers metadata from flat result order. A historical receipt that carries only flat child ids remains replayable, but contributes no created-child metadata because that mapping cannot be proved. A non-repeat child bucket is one per case type (`caseWriteInventory.ts::childBucketKey`); when the form ALSO has a repeat bucket of that type the children cannot be told apart, so the datum stays unvalued rather than guessed. A manual XPath reads the same map, so `instance('commcaresession')/session/data/case_id_new_patient_1` names the created child.
 - **A blank carried value binds nothing, visibly.** `previewCaseTarget.caseId === ""` is a case the navigation bound, to nothing; `FormScreen` opens the form without auto-selecting a case, loads nothing, disables Submit, and says the link carried no case. Absent `caseId` keeps meaning "direct preview, auto-select the first case".
 - **Running menus use one UUID/topology projection.** `menuProjection.ts` consumes `lib/domain/moduleHierarchy.ts`: Home renders root modules only, while a parent module renders its native Forms (or an explicit **Cases** entry) plus its child-module tiles. `PreviewScreen` carries module/Form UUIDs, and retained component + scroll keys come from those UUIDs, so reorder cannot transfer state to a sibling. Module conditions combine through ancestry with `hidden` winning over `pending`; a child condition previews on its structural parent menu rather than Home.
 - **A module target lands where the home screen lands it.** `moduleLanding.ts` reads the module-URL rule (`moduleScreenNavigation.ts`) from the outside: a module with children always lands on its menu so those children remain reachable; a terminal case-first or bare-case-list module opens Results unless its menu already has a selected case. Home tiles and after-submit module targets use the same rule.
 - **Menu selection and Form launch are separate session facts.** A case-list/case-first parent selected through its explicit **Cases** entry stores a UUID-keyed ordered case set and returns to the parent menu; it does not seed a Form target. Same-case-type structural children may reuse that complete set only when `caseSelectionCanFlowBetweenModules` proves their authored type, cardinality, and maxima compatible. Different-type modules follow their explicit `parentCaseModuleUuid`, independently of structural menu parentage. An absent selector leaves the list flat even when its record type has a parent; Preview records an ordered selector/return chain, selects there, then constrains the child's Results query to the union of direct non-extension children of EVERY selected parent before continuing. A direct running Form or Results URL enters through that same module checkpoint while the parent selection is missing, so deep links cannot skip the chain. For a basic registration form, the selected parents remain navigation/session context: the form does not preload them or persist a primary-case index. Never infer case ancestry from `parentModuleUuid`.
 - **The submit row stays running until the next screen is pushed**, because the write has landed and a second press must not land it again. A failure after the write (the read-back did not answer a row, the target is not in the document, the evaluation threw) settles an inline error that says the answers were saved and logs through `log.error`; it never throws and never silently goes back.
-- **A just-closed case carried into a case-loading form finds no case in Preview.** The target form's own preload stays device-scoped, and the restore scope drops a closed root case, so a close form linking to a followup on the same case opens it bound to a missing row (Submit disabled) where the device, which has not synced yet, would open the closed case.
 
 ## The completed-search context and the no-matches form
 
@@ -1091,6 +1199,13 @@ The build script emits its server asset beside the separately bundled browser
 XPath worker; neither server execution nor form-engine code enters the browser
 XPath asset.
 
+The observation worker retains typed XPath failures until FormEngine has applied
+the same custom-constraint wording policy as interactive Preview. Ambiguous or
+empty wording yields the localized invalid warning and a retained invalid entry,
+without a submission. Uncaught failures from rules, ordinary prose and other
+expressions keep the existing authoring-input fault with its path, expression,
+code and bounded reason.
+
 Request authentication and Preview worker resolution live in
 `engine/previewAuthorization.ts`. The production I/O and submission helpers in
 `engine/caseDataBindingHelpers.ts` accept authorized stores and do not import
@@ -1105,10 +1220,22 @@ Form checks and isolated journey answers share `engine/formAnswerValue.ts`: type
 ## Spoken field positions
 
 Interactive Preview numbers rendered siblings within each container.
-`useVisibleFieldOrder` excludes hidden kinds and reads effective runtime visibility
-using the same concrete repeat paths as field controls. Its shallow UUID projection
-does not publish value-only updates. Retained field and repeat-instance keys keep
-input identity stable as conditional siblings appear or disappear.
+`engine/formPresentation.ts` walks the authored field tree in order and expands
+concrete repeat instances. Its worker hierarchy retains headings, resolved prose,
+media, page membership and manual repeat controls. Its complete field projection
+also retains hidden calculations and excluded answers, separately from worker
+visibility. `evaluateFormSnapshot` uses this projection rather than runtime-store
+insertion order, including after restoring an entry checkpoint.
+
+`useVisibleFieldOrder` and `useVisibleRepeatInstances` use the same presentation
+rules with the controller's concrete runtime paths. An automatic repeat with no
+title, media or visible content adds no shell; its hidden calculations still run.
+Automatic iterations with no visible content add no instance dividers. Worker-added
+repeats retain their controls even with no visible questions. The hooks' shallow
+UUID/index projections do not publish value-only updates. Retained field and
+repeat-instance keys keep input identity stable as conditional siblings appear
+or disappear. Browser acceptance still owns layout, focus and physical control
+behavior; an ordered hierarchy is a structural observation.
 
 The running home screen shows authored module names. Internal case-type badges
 belong only to edit mode; they are not worker instructions or record labels.

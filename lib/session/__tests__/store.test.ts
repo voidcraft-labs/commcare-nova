@@ -41,6 +41,47 @@ const NO_LOOKUPS: Pick<ConnectSwitchRequest, "lookupContext"> = {
 };
 
 describe("BuilderSession store", () => {
+	it.each(["home", "worker", "mode", "project", "reset"] as const)(
+		"clears the exact continued task on %s",
+		(boundary) => {
+			const store = createBuilderSessionStore({
+				projectId: "source",
+				role: "editor",
+				canEdit: true,
+			});
+			store.getState().setPreviewing(true);
+			const caseDatabase = { rows: [], indices: [] };
+			store.getState().setPreviewTaskContinuation({
+				moduleUuid: testUuid("task-module"),
+				formUuid: testUuid("task-form"),
+				selectingModuleUuids: [testUuid("task-module")],
+				caseDatabase,
+			});
+			expect(store.getState().previewTaskContinuation?.caseDatabase).toBe(
+				caseDatabase,
+			);
+			store.getState().applyAccessSnapshot({
+				projectId: "source",
+				role: "editor",
+				canEdit: true,
+			});
+			expect(store.getState().previewTaskContinuation?.caseDatabase).toBe(
+				caseDatabase,
+			);
+			if (boundary === "home") store.getState().clearPreviewNavigation();
+			else if (boundary === "worker")
+				store.getState().setPreviewPersonaUuid("new-worker");
+			else if (boundary === "mode") store.getState().setPreviewing(false);
+			else if (boundary === "project")
+				store.getState().applyAccessSnapshot({
+					projectId: "destination",
+					role: "editor",
+					canEdit: true,
+				});
+			else store.getState().reset();
+			expect(store.getState().previewTaskContinuation).toBeUndefined();
+		},
+	);
 	it("1. initial state: not previewing, both sidebars open, no stash", () => {
 		const store = createBuilderSessionStore();
 		const s = store.getState();

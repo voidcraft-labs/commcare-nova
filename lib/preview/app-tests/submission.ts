@@ -13,7 +13,7 @@ import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
-import type { AppTestState } from "./types";
+import type { AppTestSessionState } from "./types";
 
 export async function submitAppTest(
 	context: AppTestContext,
@@ -22,7 +22,7 @@ export async function submitAppTest(
 		blueprintDigest: string;
 		role: string;
 	},
-	state: AppTestState,
+	state: AppTestSessionState,
 ) {
 	const screen = state.screen;
 	if (screen.kind !== "form" || !screen.entry)
@@ -88,6 +88,12 @@ export async function submitAppTest(
 		screen.entryCases,
 		result.caseDatabasePatch,
 	);
+	// A linked task sees the submitting entry plus its own committed effects.
+	// The session catalog also retains unrelated records learned by later Sync.
+	const deviceCases = overlayCaseDatabasePatch(
+		state.deviceCases,
+		result.caseDatabasePatch,
+	);
 	const identity = {
 		...context.identity,
 		usercase: submissionWorkerValues(
@@ -105,7 +111,7 @@ export async function submitAppTest(
 			return {
 				state: {
 					...state,
-					deviceCases: cases,
+					deviceCases,
 					history: [],
 					screen:
 						registrationReturn === "app_home"
@@ -132,29 +138,52 @@ export async function submitAppTest(
 			},
 			{ identity, cases, lookup: context.lookup },
 		);
-		let nextState: AppTestState = {
+		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
-			deviceCases: cases,
+			deviceCases,
 		};
 		switch (next.route.kind) {
+			case "previous-task": {
+				const destination = next.route.task.destination;
+				nextState = {
+					...nextState,
+					screen:
+						destination.kind === "home"
+							? { kind: "home" }
+							: destination.kind === "menu"
+								? {
+										kind: "menu",
+										moduleUuid: destination.moduleUuid,
+										taskCases: cases,
+									}
+								: {
+										kind: "records",
+										moduleUuid: destination.selectingModuleUuids[0],
+										formUuid:
+											destination.selectingModuleUuids[0] ===
+											destination.moduleUuid
+												? destination.formUuid
+												: undefined,
+										returnModules: destination.selectingModuleUuids.slice(1),
+										retainedFormTarget: {
+											moduleUuid: destination.moduleUuid,
+											formUuid: destination.formUuid,
+										},
+										taskCases: cases,
+									},
+				};
+				break;
+			}
 			case "unresolvable":
 				throw new AppTestActionError(next.route.reason);
 			case "post-submit":
 				if (next.route.destination === "app_home")
 					nextState = { ...nextState, screen: { kind: "home" }, history: [] };
 				else if (next.route.destination === "previous")
-					nextState = {
-						...nextState,
-						screen:
-							state.history.at(-1) ??
-							enterAppTestMenu(
-								{ ...context, identity },
-								nextState,
-								screen.moduleUuid,
-							),
-						history: state.history.slice(0, -1),
-					};
+					throw new AppTestActionError(
+						"The preceding task was not resolved from the saved entry.",
+					);
 				else
 					nextState = {
 						...nextState,
@@ -216,7 +245,7 @@ export async function submitAppTest(
 		return {
 			state: {
 				...state,
-				deviceCases: cases,
+				deviceCases,
 				screen: {
 					kind: "after-submit" as const,
 					moduleUuid: screen.moduleUuid,

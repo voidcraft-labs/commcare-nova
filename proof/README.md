@@ -126,6 +126,31 @@ part a use is after its class (`/<key>/refused/<value class>/<part>`,
 `manifest_value_classes.py::VARIANTS`): Nova's scaffolding nodes by their
 name, apart from the ids a person authors.
 
+Protected custom validation messages are one derived wire class, read from the
+artifact after its recorded Core parse and HQ XPath structure are installed.
+The classifier requires the expression's outer media choice to name the same
+base itext group as an exact empty, irrelevant, readonly sibling input's sole
+label. Every translation must carry the finite identity, locale, mode and
+ASCII JSON piece forms with their expected payloads and output-form suffixes.
+Piece ordinals can be noncontiguous, localized pieces can be blank, media forms
+can be absent, and the typed composition can contain any supported XPath.
+Its functions and grammar are still classified from the recorded Core parse.
+Only owned helper forms lose their unknown-form use; their ordinary generic
+`value@form` use remains. A prefix alone, an unrelated group, a raw message,
+or any other readonly bind receives the existing refusal. Missing readings
+cannot establish ownership.
+
+The export-use rows cite the accepting owners: Core's
+`XFormParser.parseTextHandle` registers named forms, `Constraint` evaluates the
+message, `FormDef.initEvalContext` selects output-form keys, and
+`XPathJsonPropertyFunc` decodes pieces. Vellum's `javaRosa/plugin.js` loads and
+writes arbitrary forms, preserves the raw message, and retains the group through
+the technical label; `parser.js::parseBindElement` and `writer.js::getBindList`
+preserve readonly. HQ's `ItextNodeGroup` equality includes the identity form,
+preventing `XForm.normalize_itext` from merging groups while rewriting only
+direct base references. The generated inventory, upstream pins and known-defect
+register do not change for this classification.
+
 ### Configuration sensitivity
 
 Each document's A is built again once for each gate HQ read while building it,
@@ -604,9 +629,24 @@ changes no other document. Where its symptom needs it, it names what a person
 saves in HQ over A (`hqSide`, written as `hq-side.json`) and project
 settings every configuration holds (`projectSettings`).
 
+The harness's own tests also use targeted documents when their contract
+needs a precise edit. `stableWitnesses.ts` keeps the two parent-registration
+edits that reorder a child menu's frame, and a purpose edit whose republish
+and update have identical bytes with a real case-writing form. The intent
+self-check independently observes B and B-edit with matching complete keys,
+requires a parsed form and its authored data-dictionary property, and retains
+both records under the block's `witnesses/wire-equal-intent/` directory.
+`targeted-search-button-label` owns the three unchanged search-label defect
+classes; their retained `case-operation-query` control stays byte-identical.
+These documents join the emitted corpus without joining balanced edit
+assignment. The focused `stableWitnesses.test.ts` holds every emitted byte
+to an emission after an unrelated document advances the fixture counter and
+changes that balance.
+
 To add one: write `proof/targeted/documents/<name>.ts` returning
 `targetedDocument({id, rows, doc, expected, ...})`, with its id
-`targeted-<what it shows>`, the work item 12 rows or finding numbers it shows
+`targeted-<what it shows>`, the work item 12 rows, finding numbers or harness
+contracts it shows
 in `rows`, `singleFlags` where its symptom needs a flag beyond the
 minimum, and `edit`, `hqSide` or `projectSettings` where it needs them;
 list its maker in `TARGETED_DOCUMENTS` (`proof/targeted/index.ts`).
@@ -706,8 +746,11 @@ app, restore and trace) are blobs named by their sha256.
   temporary filesystem blob store, and the change feed is recorded. A unit's
   state has a key: each operation moves it to `sha256(key | label | digest)`,
   a mark takes a savepoint, every sequence, Couch's documents, the blobs and
-  the key, and a restore puts them all back. A new connection, an `on_commit`
-  or an aborted transaction inside a unit ends the check.
+  the key, and a restore puts them all back. A new connection or an aborted
+  transaction inside a unit ends the check. An `on_commit` callback is also
+  refused in a rollback unit, whose transaction never commits. The existing
+  fresh-database mode (`open_unit(transactional=False)`) commits HQ's actual
+  transactions and runs their real callbacks; its database is dropped at exit.
 - **Seams** (`seams.py`, `elasticsearch.py`) answer what HQ reads from outside
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
@@ -725,8 +768,19 @@ app, restore and trace) are blobs named by their sha256.
   child, and the build's pure computations kept once computed. Each computes
   exactly what HQ computes; `PROOF_HQ_SPEED=0` leaves them all out to compare.
 - **Operations** (`operations.py`): publish, the media upload, app source,
-  build, HQ's case processing of a submission, the case search compiler and
-  request reading, and the lookup workbook upload, each HQ's own code.
+  build, HQ's case processing of a submission, standalone form retention,
+  the case search compiler and request reading, and the lookup workbook
+  upload, each HQ's own code.
+
+`proof/hq/test_report_retention.py` saves two case-free submissions through
+HQ's SQL processor and attachment writer in a fresh database, then reads new
+domain-scoped form models. It checks their stored XML and answers, distinct
+rows from HQ's `TableConfiguration`, a workbook from its export writer, and
+zero cases. The paired rollback-unit test refuses the real attachment commit
+callback. This proves storage and row generation from known saved forms;
+indexed export discovery and actor permissions remain outside it, with the
+Elasticsearch seam unchanged. Run it with
+`npm run proof -- proof/hq/test_report_retention.py`.
 
 ### The Core runner
 
@@ -936,7 +990,7 @@ unknown-question clause is not observed (also there).
 | 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update | proof 4, then 3 | a follow-up form that writes nothing |
 | 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | `targeted-close-conditions`, `targeted-close-condition-unparsable` |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
-| 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | a labelled search, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
+| 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name | proof 4, then 3 | any form |
@@ -997,6 +1051,13 @@ shape (a path of plain steps, a value that reads no node, the functions it
 calls) only through `proof/rules/_xpath.py`, a port of Core's XPath lexer that
 `proof/rules/test_xpath_reading.py` holds to Core's own parser, and leaves an
 expression the port does not read as it stands.
+
+The `setvalue-order` rule also reads the exact
+`format-date(now() or today(), string literal)` shape as reading no node.
+Core's `XPathFormatDateFunc` only formats its evaluated arguments. The
+rule's proof runs both clock spellings before and after the other actions;
+field reads, nested calls, wrappers and random or uuid date arguments stay
+outside that shape and retain their order.
 
 Each rule has its own proof test, `proof/rules/test_<rule>.py`, run in the
 lane as the `proof/rules` package. It publishes a corpus document into HQ as
@@ -1324,7 +1385,7 @@ omitting both case writes, an active blank URL clearing one property,
 untouched neighboring rows keeping their URL, capture fields starting empty on
 followup, and child indices naming the selected parent; the multiple-parent
 document writes shared file names to both ids, and all-blank shared answers
-omit the whole ordinary update. `CaseOperationRuntimeTest` (24 cases, both
+omit the whole ordinary update. `CaseOperationRuntimeTest` (26 cases, both
 paths) seeds native `Case` records in Core's indexed in-memory storage, reads
 them through `CaseInstanceTreeElement`, finalizes with `postProcessInstance`
 and applies the submission through `XmlFormRecordProcessor` and
@@ -1334,7 +1395,17 @@ final writes and closure, link creation and removal, scalar normalization and
 bounds, nested-menu child selection, parent updates through the child's saved
 relationship, and repeat-local relation conditions. Datetime writes keep the
 instant `now()` gives; active blank answers clear a saved value and excluded
-answers leave it. A two-row query reuses an authored key and confirms the
+answers leave it. The sequence form also captures recorded-time text with
+`format-date(now(), '%Y-%m-%d %H:%M:%S %Z')` and formats a typed datetime answer
+after `coalesce` unpacks it. Core's supported function-handler seam controls
+only `now()`; Nova's emitted types, calculations, defaults and plain/Markdown
+prompts run unchanged. Independent `java.time` expectations cover eight
+instants across four writer zones and four reader zones, including year and
+leap-day rollover, fractional offsets and both sides of daylight-saving
+transitions. The text retains the writer's clock and offset when displayed
+directly. This does not establish viewer-local conversion of stored datetime
+strings or an absolute chronology scalar from them.
+A two-row query reuses an authored key and confirms the
 accepted same-type merge. Invalid keys, names, owners, external ids and
 dynamic link targets raise `InvalidStructureException`, and the accepted
 counterparts run in the same harness. `OperationRelevanceRuntimeTest` reads
@@ -1369,6 +1440,20 @@ its exact decoded text and the default keeps its tab, newline and carriage
 return; the profile carries the app's name. `XmlTextRuntimeTest` then
 initializes both forms in Core, asserts that default and reads the prompt with
 accents, combining marks, non-Latin scripts, emoji and C1 characters.
+
+That admitted document also contains adjacent reference outputs separated by
+paragraph breaks, spaces, tabs and carriage returns, plus boundary whitespace,
+Unicode spacing, embedded NBSP and escaped literal markup. The same fixture
+feeds ordinary exported-structure tests and the proof corpus. HQ source, local
+CCZ and HQ-regenerated XML retain ASCII separators as literal outputs; Unicode
+whitespace and embedded NBSP use ASCII JSON outputs so HQ indentation and
+Vellum's NBSP replacement preserve their values. Literal markup stays text.
+The ordinary proof consumes full HQ builds and both Vellum saves. Core reads
+exact plain and Markdown labels, hints, help, options and validation messages
+with one and three meals in English and Spanish. Validation messages use
+protected raw constraint expressions, read through `jr:constraintMsg` without
+body alerts.
+These are native text-value checks, not browser or Android typography checks.
 
 #### Case tiles (`tile`)
 
@@ -1607,23 +1692,27 @@ verdict), and appends it to the job's summary.
 
 ### Claims
 
-A claim is made of artifacts of the run named after the block,
-`proof-claim-<attempt>-<block>` (`proof/ci/claim.mjs`). Each block has an
-owner among the shards; another shard may take it by declaring an intent and
-committing it once a listing shows nothing else of the block, and the owner
-takes it unless a listing shows a committed intent. So no two shards run a
-block, and every block is run, resting only on a listing taken after an
-artifact is finalized holding it. Claiming by creating one artifact per block
-(`--mode create`) would rest on the service refusing a name the run already
-holds, and GitHub's does not when shards create the name at once. Each shard
-claims its own bin's blocks first (`--bin`, `proof.checks.sharding.claim_order`),
-so the shards start on different blocks and meet only at the end. A claim that
-cannot be settled stops that shard's claiming instead. The run steps reach the artifact service with the job's runtime
-token, which `.github/actions/proof-runtime` exports to them and the lane's
-server passes to its claim and wait commands alone. `proof-claim-race.yml`,
-run by hand, races the claim modes on GitHub's service; `ci.yml`'s
-`proof_claims` input runs the lane with another mode (`create`, or `static`
-bins), and its `proof_shards` input with another shard count.
+CI and the reusable proof lane use `static` allocation by default.
+`proof.checks.sharding.static_bins` sorts blocks by estimated cost and assigns
+each to the least-loaded shard, with deterministic ties. Each shard runs only
+its exclusive bin; allocation makes no artifact claim or listing request.
+The aggregate gate still rejects every duplicate or missing block.
+
+The explicit `create` and `steal` modes are claim diagnostics
+(`proof/ci/claim.mjs`), using artifacts named
+`proof-claim-<attempt>-<block>`. `create` depends on the artifact service
+refusing concurrent creation of the same name. `steal` depends on a listing
+after finalization including every finalized marker. GitHub's service has
+violated both assumptions: it accepted duplicate names and returned listings
+that omitted newly finalized owner and intent markers, allowing two shards
+to run one block. Dynamic claims therefore do not establish exclusive
+execution on this service. A claim that cannot be settled stops that shard.
+
+The run steps reach the artifact service with the job's runtime token, which
+`.github/actions/proof-runtime` exports and the lane's server passes to its
+claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
+the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
+explicit diagnostic mode, and `proof_shards` selects another shard count.
 
 ### The other workflows
 

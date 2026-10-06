@@ -210,3 +210,83 @@ test("Several-case selection survives pagination in order and rejects a validati
 		}
 	}
 });
+
+test("Worker case navigation follows Spanish and preserves the open record when language changes", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-cases-boundary.ts");
+	const peer = await componentPeer("e2e/lib/preview-cases-client.tsx", [], {
+		"@/lib/preview/engine/caseDataBinding": boundary,
+		"@/lib/preview/engine/lookupDataBinding": boundary,
+		"@/lib/preview/entryPointLaunchAction": boundary,
+		"@/lib/auth/hooks/useAuth": boundary,
+	});
+	try {
+		await page.setViewportSize({ width: 320, height: 720 });
+		await page.goto(peer.origin);
+		await expect(
+			page.getByLabel("Filter results", { exact: true }),
+		).toBeVisible();
+		await page.evaluate(() => window.previewCasesAudit.setCount(8));
+		await page.getByRole("button", { name: "Español", exact: true }).click();
+		const filter = page.getByLabel("Filtrar resultados", { exact: true });
+		await expect(filter).toBeVisible();
+		await expect(
+			page.getByRole("list", { name: "Registros", exact: true }),
+		).toBeVisible();
+		await expect(page.locator("[data-results-count]")).toHaveText("1 registro");
+		await filter.fill("does not exist");
+		await expect(
+			page.getByRole("heading", {
+				name: "Ningún registro coincide con el filtro",
+			}),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Borrar el filtro", exact: true })
+			.click();
+		await expect(filter).toHaveValue("");
+		await page.getByRole("button", { name: /^Ver detalles de/ }).focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+			longCaseName,
+		);
+		await expect(
+			page
+				.locator("[data-case-detail]")
+				.getByText("Sin valor", { exact: true }),
+		).toHaveCount(1);
+		await page.getByRole("button", { name: "Continuar", exact: true }).click();
+		await expect(
+			page.getByText("¿Qué desea hacer con este registro?", { exact: true }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "English", exact: true }).click();
+		await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+			longCaseName,
+		);
+		await expect(
+			page.getByText("Choose what to do with this case", { exact: true }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+		await expect(
+			page.locator("[data-case-detail]").getByText("No value", { exact: true }),
+		).toHaveCount(1);
+		await page
+			.getByRole("button", { name: "Back to results", exact: true })
+			.click();
+		await expect(
+			page.getByRole("button", { name: /^View details for/ }),
+		).toHaveCount(1);
+		await expect(page.locator("[data-results-count]")).toHaveText("1 case");
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewCasesAudit?.dispose());
+		} finally {
+			try {
+				await page.close();
+			} finally {
+				await peer.close();
+			}
+		}
+	}
+});

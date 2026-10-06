@@ -1,5 +1,6 @@
 "use client";
 import { type Field, isCaptureField } from "@/lib/domain";
+import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { assertNever } from "@/lib/utils/assertNever";
 import { AttachmentField } from "./fields/attachment/AttachmentField";
@@ -44,6 +45,7 @@ interface FieldRendererProps {
 	onBlur: () => void;
 	onChangeAt?: ((path: string, value: string) => void) | undefined;
 	onBlurAt?: ((path: string) => void) | undefined;
+	onCommitCapture?: CaptureAnswerCommit;
 }
 
 /**
@@ -74,6 +76,7 @@ export function FieldRenderer({
 	onBlur,
 	onChangeAt,
 	onBlurAt,
+	onCommitCapture,
 }: FieldRendererProps) {
 	// Capture kinds route to the real attachment control. Narrowed through
 	// the domain predicate rather than a case list so the two cannot drift:
@@ -93,6 +96,7 @@ export function FieldRenderer({
 				questionLabel={questionLabel}
 				onChangeAt={onChangeAt}
 				onBlurAt={onBlurAt}
+				onCommitCapture={onCommitCapture}
 			/>
 		);
 	}

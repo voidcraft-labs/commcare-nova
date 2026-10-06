@@ -1,0 +1,149 @@
+import AdmZip from "adm-zip";
+import { describe, expect, it } from "vitest";
+import { compileCcz } from "../compiler";
+import { expandDoc } from "../expander";
+import { proseWhitespaceFixture } from "./proseWhitespaceFixture";
+import { onlyXml, readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
+
+function descendants(node: XmlEvidence, name: string): XmlEvidence[] {
+	return [
+		...(node.name === name ? [node] : []),
+		...node.children.flatMap((child) => descendants(child, name)),
+	];
+}
+
+describe("exported prose whitespace", () => {
+	it("keeps literal separators between reference outputs in every text form and language on both export paths", () => {
+		const doc = proseWhitespaceFixture();
+		const hq = expandDoc(doc);
+		const source = Object.values(hq._attachments)[0];
+		if (typeof source !== "string") throw new Error("Missing HQ form source.");
+		const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+		for (const [path, xml] of [
+			["HQ source", source],
+			["local CCZ", archive.readAsText("modules-0/forms-0.xml")],
+		] as const) {
+			const root = readXmlEvidence(xml);
+			expect(
+				descendants(root, "alert").map((alert) => alert.attributes),
+			).toEqual([]);
+			expect(
+				descendants(root, "bind").find(
+					(bind) => bind.attributes.nodeset === "/data/checked",
+				)?.attributes["jr:constraintMsg"],
+			).toContain("/data/meals");
+			expect(
+				descendants(root, "input")
+					.find(
+						(control) =>
+							control.attributes.ref ===
+							"/data/nova_constraint_message_checked",
+					)
+					?.children.map((child) => child.attributes),
+			).toEqual([{ ref: "jr:itext('checked-constraintMsg')" }]);
+			const translations = descendants(root, "translation");
+			expect(translations.map((entry) => entry.attributes.lang)).toEqual([
+				"en",
+				"es",
+			]);
+			for (const translation of translations) {
+				for (const [id, values] of [
+					[
+						"delivery_context-label",
+						["/data/meals", "'\n\n'", "/data/address"],
+					],
+					["space-label", ["/data/meals", "' '", "/data/address"]],
+					[
+						"xml_whitespace-label",
+						["/data/meals", "'\t \r\n'", "/data/address"],
+					],
+					[
+						"edge_whitespace-label",
+						["' \t'", "/data/meals", "'\n '", "/data/address", "'\t '"],
+					],
+					["checked-hint", ["/data/meals", "'\n\n'", "/data/address"]],
+					["checked-help", ["/data/meals", "' '", "/data/address"]],
+					["checked-constraintMsg", ["/data/meals", "'\t'", "/data/address"]],
+					["choose-opt0-label", ["/data/meals", "'\n\n'", "/data/address"]],
+					[
+						"unicode_spacing-label",
+						[
+							"/data/meals",
+							`json-property('{"v":"\\u00a0\\u2003\\u2028"}', 'v')`,
+							"/data/address",
+						],
+					],
+					[
+						"consumer_spacing-label",
+						[
+							"/data/meals",
+							`json-property('{"v":"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000"}', 'v')`,
+							"/data/address",
+						],
+					],
+				] as const) {
+					const entry = onlyXml(
+						translation.children.filter((node) => node.attributes.id === id),
+					);
+					const standardValues = entry.children.filter(
+						(value) => !value.attributes.form?.startsWith("__nova_"),
+					);
+					expect(standardValues.map((value) => value.attributes.form)).toEqual([
+						undefined,
+						"markdown",
+					]);
+					for (const value of standardValues) {
+						expect(value.children.map((output) => output.name)).toEqual(
+							values.map(() => "output"),
+						);
+						expect(
+							value.children.map((output) => output.attributes.value),
+						).toEqual(values);
+						for (const output of value.children) {
+							if (!output.attributes.value.startsWith("/data/")) {
+								expect(output.attributes).toEqual({
+									value: output.attributes.value,
+								});
+							} else if (path === "HQ source") {
+								expect(output.attributes["vellum:value"]).toBe(
+									output.attributes.value.replace("/data/", "#form/"),
+								);
+							} else {
+								expect(output.attributes).toEqual({
+									value: output.attributes.value,
+								});
+							}
+						}
+						const prefix =
+							id === "delivery_context-label"
+								? translation.attributes.lang === "es"
+									? "Comidas: "
+									: "Meals: "
+								: "";
+						expect(value.text).toBe(prefix);
+					}
+				}
+				for (const value of onlyXml(
+					translation.children.filter(
+						(node) => node.attributes.id === "mixed_nbsp-label",
+					),
+				).children) {
+					expect(value.text).toBe('It\'s "early"today');
+					expect(value.children.map((output) => output.attributes)).toEqual([
+						{ value: `json-property('{"v":"\\u00a0"}', 'v')` },
+					]);
+				}
+				for (const value of onlyXml(
+					translation.children.filter(
+						(node) => node.attributes.id === "escaped_markup-label",
+					),
+				).children) {
+					expect(value.text).toBe(
+						"Literal <output value=\"'x'\"/> & #form/meals",
+					);
+					expect(value.children).toEqual([]);
+				}
+			}
+		}
+	});
+});

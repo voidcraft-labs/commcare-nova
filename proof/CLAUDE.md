@@ -59,6 +59,13 @@ harness keeps, each with its reason.
   Android, Web Apps' client or Connect) is a register entry, never a rule,
   marked `equivalence` with those readers where it is no harm, so the
   register never presents it as one.
+- **A precise witness writes its precise edit.** The fixed producers' edits
+  are balanced together, so an unrelated document can change which admitted
+  edit another gets. A harness test or registered symptom that needs one
+  particular edit belongs in a targeted document with explicit identities,
+  D and D′, planned and admitted through the same production gates. Keep the
+  original assertion and defect class, retain its frozen control, and prove
+  the witness's emitted inputs stay fixed as unrelated documents change.
 - **A structural path names a symptom, never a document.** A register entry
   matches one exact path across every document, so a name the app authored (a
   question, group or repeat id, a case property or type, an operation name, a

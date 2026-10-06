@@ -184,7 +184,7 @@ take exactly one of `app_id` or `work_id`, plus a stable `request_id` for each
 action. A work target needs a saved checkpoint with no pending app changes. `continue_app_test` chooses a saved
 Preview identity, navigates visible menus, selects records, answers questions,
 submits into test storage, and observes the next task. A selected record opens
-Details when configured; `continue` follows its Continue action and `back`
+Details when configured; `routeContinue` follows its Continue action and `routeBack`
 returns to the previous screen. Details include the displayed values, not just
 stored properties. It can also sync the
 test worker's record set or finish the test. Each response returns the step
@@ -203,13 +203,34 @@ language and whether platform text falls back to English. Authored labels and
 messages use the app's translations. Results and Details include formatted cells
 and the current route context.
 
-`continue_app_test` accepts `actions: [{action, expect?}, ...]` with up to eight
+For overlapping worker journeys, `start_app_test` accepts up to four
+`sessions: [{id, personaUuid?, language?}, ...]`. Each ID is a unique test-local
+label; a Preview identity must already be saved in the app. The first session
+is primary. Without `sessions`, the journey has one `default` session.
+An action's optional `sessionId` selects its worker while other sessions retain
+their identity, language, route, answers and open forms. This makes it possible
+to hold a form open in one session while another submits to their shared test
+records. Sync refreshes that session's record catalog while preserving its open
+form entry snapshot. Observations identify the session and distinguish retained
+form data from current isolated-store reads. These are Preview/Postgres
+observations; native offline conflict handling needs separate evidence.
+
+Form observations include the displayed container and repeat-instance hierarchy
+for the current page. `pageNext` and `pagePrevious` turn form pages while
+`routeBack` and `routeContinue` follow screen navigation. Existing `back` and
+`continue` remain accepted route actions. Forward page turns validate earlier
+pages, and answers on a later page need that page to be open.
+
+`continue_app_test` accepts `actions: [{sessionId?, action, expect?}, ...]` with up to eight
 ordered actions. Each produces its own step. Optional expectations can name the
 screen, module, form or whether a submission occurred. The call stops on a
 refusal or unmet expectation and retains the completed prefix. A submission
 already completed remains completed. A retry with the same request ID and
 identical inputs returns the original response. The test still allows 200
 individual actions. A whole-call database timeout rolls back that call.
+The 200-step, 2,000-record and 16 MiB state limits cover the whole journey,
+including all retained sessions. Finish releases every session and its shared
+test records while retaining observations.
 
 Evidence reads return a bounded page. Pass `nextCursor` back with its fixed
 `throughStep` to continue the same window. A large step supplies an `inspect`
@@ -217,6 +238,12 @@ address; its returned paths and offsets let the agent read all retained evidence
 Every page identifies the source revision and starting records. Submission
 observations identify case effects separately from serialized form submissions
 and retained reports, which these tests do not inspect.
+`savedInTest` confirms the isolated submission transaction and its replay
+receipt. `evidence.collectionScope` identifies `disposable-case-store`, and
+`casePatch` distinguishes a persisted case patch from `none`. A plain survey
+can be accepted without changing a case. This path creates no submitted-answer
+document archive; answers retained in journey observations are test evidence,
+not a collection report.
 
 Tests start empty unless fictional records are explicitly supplied; they never
 copy live cases. The first observation records supplied counts by case type.

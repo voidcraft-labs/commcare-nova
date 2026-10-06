@@ -501,7 +501,11 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	}
 });
 
-it("requires a saved role and parent selection, then executes additional operations before opening the next form", async () => {
+// Seventeen persisted worker actions include two submissions and linked-form
+// entry. Give the complete integration journey the same budget as page journeys.
+it("requires a saved role and parent selection, then executes additional operations before opening the next form", {
+	timeout: 15_000,
+}, async () => {
 	// This fixture exercises the saved journey, not private authoring persistence.
 	const author = makeAuthoringHarness(
 		{},
@@ -851,6 +855,48 @@ it("requires a saved role and parent selection, then executes additional operati
 	});
 	expect(await step({ kind: "submit" })).toMatchObject({
 		savedInTest: true,
+		screen: "menu",
+		name: "Equipment",
+	});
+	// A survey's Previous drops its form command. Starting Inspect from that
+	// menu requires its own parent and record selectors, even if they were
+	// selected before the Receipt command was entered.
+	const previousStep = current.step;
+	const reopened = stepSchema
+		.extend({
+			results: z.array(stepSchema),
+			stopped: z.unknown().optional(),
+		})
+		.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: previousStep,
+				actions: [
+					{ action: { kind: "form", formUuid: inspect.uuid } },
+					{ action: { kind: "select", caseIds: ["home-a"] } },
+					{ action: { kind: "continue" } },
+					{ action: { kind: "select", caseIds: ["pump-a"] } },
+					{ action: { kind: "continue" } },
+				],
+			}),
+		);
+	expect(reopened.testId).toBe(current.testId);
+	expect(reopened.stopped).toBeUndefined();
+	expect(reopened.step).toBe(previousStep + 5);
+	expect(
+		reopened.results.map(({ testId, step }) => ({ testId, step })),
+	).toEqual(
+		[1, 2, 3, 4, 5].map((offset) => ({
+			testId: current.testId,
+			step: previousStep + offset,
+		})),
+	);
+	expect(reopened.results[0].observation).toMatchObject({
+		name: "Households",
+		screen: "browse",
+	});
+	expect(reopened.results[4].observation).toMatchObject({
+		screen: "form",
 		name: "Inspect",
 		questions: expect.arrayContaining([
 			expect.objectContaining({ path: "condition", value: "Working" }),
@@ -1198,13 +1244,51 @@ it("reports its local clock and uses the same day in list calculations and forms
 });
 
 it.each([
-	{ chooser: false, destination: "previous" },
-	{ chooser: true, destination: "previous" },
-	{ chooser: false, destination: "module" },
-	{ chooser: true, destination: "module" },
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: true,
+		destination: "previous",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: false,
+		destination: "module",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: true,
+		destination: "module",
+		formsFirst: false,
+		conditionalFallback: false,
+	},
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: true,
+		conditionalFallback: false,
+	},
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: true,
+		conditionalFallback: true,
+	},
+	{
+		chooser: false,
+		destination: "previous",
+		formsFirst: false,
+		conditionalFallback: true,
+	},
 ] as const)(
-	"keeps leaf selection local (chooser $chooser, return $destination)",
-	async ({ chooser, destination }) => {
+	"resolves the saved task independently of visited Details (chooser $chooser, return $destination, forms first $formsFirst, conditional fallback $conditionalFallback)",
+	async ({ chooser, destination, formsFirst, conditionalFallback }) => {
 		const doc = await createEvaluationApp(
 			[
 				{
@@ -1212,6 +1296,9 @@ it.each([
 					caseType: "repair",
 					forms: [
 						{ name: "Update condition", type: "followup" },
+						...(formsFirst
+							? [{ name: "Register", type: "registration" as const }]
+							: []),
 						...(chooser
 							? [{ name: "Inspect", type: "followup" as const }]
 							: []),
@@ -1250,6 +1337,25 @@ it.each([
 						fieldUuid: "fixture_placeholder",
 					},
 				},
+				...(conditionalFallback
+					? [
+							{
+								toolName: "addFormLinks",
+								input: {
+									moduleUuid: "Repairs",
+									formUuid: "Update condition",
+									links: [
+										{
+											link: {
+												condition: "#case/condition = 'Unavailable'",
+												target: { type: "module", moduleUuid: "Repairs" },
+											},
+										},
+									],
+								},
+							},
+						]
+					: []),
 				...(chooser
 					? [
 							{
@@ -1259,9 +1365,10 @@ it.each([
 									formUuid: "Inspect",
 									fields: [
 										{
-											kind: "label",
-											id: "info",
-											label: "Inspect this equipment.",
+											kind: "text",
+											id: "condition",
+											label: "Inspection condition",
+											caseWrite: { caseType: "repair", property: "condition" },
 										},
 									],
 								},
@@ -1272,6 +1379,14 @@ it.each([
 									moduleUuid: "Repairs",
 									formUuid: "Inspect",
 									fieldUuid: "fixture_placeholder",
+								},
+							},
+							{
+								toolName: "updateForm",
+								input: {
+									moduleUuid: "Repairs",
+									formUuid: "Inspect",
+									post_submit: "module",
 								},
 							},
 						]
@@ -1334,6 +1449,7 @@ it.each([
 			return current.observation;
 		};
 		await step({ kind: "menu", moduleUuid: module.uuid });
+		if (formsFirst) await step({ kind: "form", formUuid: form.uuid });
 		expect(await step({ kind: "select", caseIds: ["repair-a"] })).toMatchObject(
 			{
 				screen: "details",
@@ -1372,13 +1488,17 @@ it.each([
 				expect.objectContaining({ value: "Broken" }),
 			]),
 		});
+		// Ordinary Back still follows the visited Details destination. Submit's
+		// preceding task is independently derived from the native entry.
+		expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
+		await openTask();
 		await step({
 			kind: "answer",
 			answers: [{ path: "condition", value: "Fixed" }],
 		});
 		const submitted = await step({ kind: "submit" });
 		expect(submitted.savedInTest).toBe(true);
-		if (destination === "module") {
+		if (destination === "module" || formsFirst) {
 			expect(submitted).toMatchObject({
 				screen: "browse",
 				results: {
@@ -1393,20 +1513,72 @@ it.each([
 			await step({ kind: "select", caseIds: ["repair-a"] });
 		} else {
 			expect(submitted).toMatchObject({
-				screen: "details",
-				fields: expect.arrayContaining([
-					expect.objectContaining({ label: "Condition", text: "Fixed" }),
-				]),
+				screen: "menu",
+				selected: [
+					expect.objectContaining({
+						caseId: "repair-a",
+						caseProperties: expect.objectContaining({ condition: "Fixed" }),
+					}),
+				],
 			});
 		}
-		expect(await openTask()).toMatchObject({
+		expect(
+			destination === "previous" && !formsFirst
+				? await step({ kind: "form", formUuid: form.uuid })
+				: await openTask(),
+		).toMatchObject({
 			screen: "form",
 			questions: expect.arrayContaining([
 				expect.objectContaining({ value: "Fixed" }),
 			]),
 		});
-		expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
-		expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+		expect(await step({ kind: "back" })).toMatchObject({
+			screen: destination === "previous" && !formsFirst ? "menu" : "details",
+		});
+		if (chooser && destination === "previous" && !formsFirst) {
+			const inspect = Object.values(doc.forms).find(
+				(item) => item.name === "Inspect",
+			);
+			if (!inspect) throw new Error("Missing inspection form");
+			expect(
+				await step({ kind: "form", formUuid: inspect.uuid }),
+			).toMatchObject({
+				questions: expect.arrayContaining([
+					expect.objectContaining({ path: "condition", value: "Fixed" }),
+				]),
+			});
+			await step({
+				kind: "answer",
+				answers: [{ path: "condition", value: "Inspected" }],
+			});
+			// Previous installed the leaf selection. The second form's explicit
+			// module frame drops that slot and starts fresh Results with its own
+			// committed value instead of the first receipt's selected menu.
+			const returned = await step({ kind: "submit" });
+			expect(returned).toMatchObject({
+				savedInTest: true,
+				screen: "browse",
+				results: {
+					rows: [
+						expect.objectContaining({
+							case_id: "repair-a",
+							properties: expect.objectContaining({ condition: "Inspected" }),
+						}),
+					],
+				},
+			});
+			expect(
+				z
+					.object({
+						route: z.object({
+							ancestorSelections: z.array(z.object({ moduleUuid: z.string() })),
+						}),
+					})
+					.parse(returned).route.ancestorSelections,
+			).not.toContainEqual(
+				expect.objectContaining({ moduleUuid: module.uuid }),
+			);
+		}
 		await step({ kind: "finish" });
 	},
 );
@@ -1681,7 +1853,7 @@ it("visits form pages using retained entry state before allowing submission", {
 		completed: false,
 		error: "Open that section before answering its questions.",
 	});
-	const opened = await step({ kind: "section", sectionUuid: second.uuid });
+	const opened = await step({ kind: "pageNext" });
 	expect(opened).toMatchObject({
 		canSubmit: true,
 		questions: expect.arrayContaining([
@@ -1699,14 +1871,15 @@ it("visits form pages using retained entry state before allowing submission", {
 		kind: "answer",
 		answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
 	});
-	await step({ kind: "section", sectionUuid: first.uuid });
+	expect(await step({ kind: "pagePrevious" })).toMatchObject({
+		pageNavigation: { canNext: true, canPrevious: false },
+		actions: expect.arrayContaining(["pageNext", "routeBack"]),
+	});
 	await step({
 		kind: "answer",
 		answers: [{ path: "first/zone", value: "north" }],
 	});
-	expect(
-		await step({ kind: "section", sectionUuid: second.uuid }),
-	).toMatchObject({
+	expect(await step({ kind: "pageNext" })).toMatchObject({
 		questions: expect.arrayContaining([
 			expect.objectContaining({
 				path: "second/rounds[0]/assets",
@@ -1718,7 +1891,33 @@ it("visits form pages using retained entry state before allowing submission", {
 			}),
 		]),
 	});
-	expect((await step({ kind: "submit" })).savedInTest).toBe(true);
+	expect(await step({ kind: "submit" })).toMatchObject({
+		savedInTest: true,
+		effects: {
+			primaryCaseIds: [],
+			operations: [],
+			caseDatabasePatch: { rows: [], indices: [] },
+		},
+		evidence: {
+			collectionScope: "disposable-case-store",
+			caseTransaction: "committed",
+			submissionReceipt: "persisted",
+			casePatch: "none",
+			answerDocumentArchive: "not-created",
+		},
+	});
+	const receipts = await sql<{
+		result: Record<string, unknown>;
+	}>`SELECT result FROM ${sql.id(appTestNamespace(current.testId), "form_submission_intents")} WHERE form_uuid = ${formUuid}`.execute(
+		h.db(),
+	);
+	expect(receipts.rows).toHaveLength(1);
+	expect(receipts.rows[0].result).toMatchObject({
+		primaryCaseIds: [],
+		caseDatabasePatch: { rows: [], indices: [] },
+	});
+	expect(receipts.rows[0].result).not.toHaveProperty("answers");
+	expect(JSON.stringify(receipts.rows)).not.toContain("retained");
 });
 
 it("binds ordered public section aliases after navigation, stops at failed forward validation, and replays the whole call", async () => {
@@ -2276,4 +2475,762 @@ it("projects translated choice labels in Results and Details while preserving st
 		]),
 	});
 	await step({ kind: "finish" });
+});
+
+it.each([false, true])(
+	"retains two open worker forms across a competing submission and explicit sync (current-store guard: %s)",
+	{
+		timeout: 20_000,
+	},
+	async (guarded) => {
+		const doc = await createEvaluationApp(
+			[
+				{
+					name: "Jobs",
+					caseType: "job",
+					forms: [
+						{ name: "Complete", type: "followup" },
+						{ name: "Cancel", type: "followup" },
+					],
+				},
+			],
+			[
+				{
+					toolName: "addFields",
+					input: {
+						moduleUuid: "Jobs",
+						formUuid: "Complete",
+						fields: [
+							{
+								id: "job_state",
+								kind: "hidden",
+								calculate: "'completed'",
+								caseWrite: { caseType: "job", property: "job_state" },
+							},
+							{
+								id: "note",
+								kind: "text",
+								label: "Completion note",
+								required: true,
+								caseWrite: { caseType: "job", property: "completion_note" },
+							},
+						],
+					},
+				},
+				{
+					toolName: "addFields",
+					input: {
+						moduleUuid: "Jobs",
+						formUuid: "Cancel",
+						fields: [
+							{
+								id: "status_at_entry",
+								kind: "text",
+								label: "Status at entry",
+								default_value: "#case/job_state",
+							},
+							{
+								id: "note",
+								kind: "text",
+								label: "Cancellation note",
+								required: true,
+								caseWrite: { caseType: "job", property: "cancellation_note" },
+							},
+							{
+								id: "pending_jobs",
+								kind: "repeat",
+								label: "Pending jobs",
+								repeat: {
+									mode: "query_bound",
+									ids_query:
+										"instance('casedb')/casedb/case[@case_type = 'job'][job_state = 'pending']/@case_id",
+								},
+							},
+							{
+								id: "job_id",
+								parentUuid: "pending_jobs",
+								kind: "text",
+								label: "Pending job",
+								default_value: "current()/../@id",
+							},
+						],
+					},
+				},
+				{
+					toolName: "addCaseOperations",
+					input: {
+						moduleUuid: "Jobs",
+						formUuid: "Cancel",
+						operations: [
+							{
+								operation: {
+									id: "cancel",
+									action: "update",
+									caseType: "job",
+									target: { kind: "session" },
+									...(guarded
+										? { condition: "#case/job_state = 'pending'" }
+										: {}),
+									writes: [{ property: "job_state", value: "'cancelled'" }],
+								},
+							},
+						],
+					},
+				},
+				...(["Complete", "Cancel"] as const).flatMap((formUuid) => [
+					{
+						toolName: "removeField",
+						input: {
+							moduleUuid: "Jobs",
+							formUuid,
+							fieldUuid: "fixture_placeholder",
+						},
+					},
+					{
+						toolName: "updateForm",
+						input: { moduleUuid: "Jobs", formUuid, post_submit: "app_home" },
+					},
+				]),
+			],
+		);
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		const call = sharedJourneyCalls(doc);
+		const startInput = {
+			purpose:
+				"Hold a cancellation open while another worker completes the same job",
+			sessions: [{ id: "coordinator" }, { id: "worker" }],
+			scenario: {
+				records: [
+					{
+						id: "job-1",
+						caseType: "job",
+						name: "Inspect pump",
+						properties: { job_state: "pending" },
+					},
+				],
+			},
+		};
+		const started = stepSchema.parse(await call("startAppTest", startInput));
+		expect(started.observation).toMatchObject({
+			sessionId: "coordinator",
+			sessions: [
+				{ id: "coordinator", screen: "home" },
+				{ id: "worker", screen: "home" },
+			],
+			recordSources: { submission: "Preview/Postgres-current-isolated-store" },
+		});
+		let current = started;
+		let request = 0;
+		const advance = async (actions: unknown[]) => {
+			const result = await call(
+				"continueAppTest",
+				{ testId: current.testId, expectedStep: current.step, actions },
+				`interleave-${++request}`,
+			);
+			current = stepSchema.parse(result);
+			return result;
+		};
+		const open = (sessionId: string, formUuid: string) => [
+			{ sessionId, action: { kind: "menu", moduleUuid: "Jobs" } },
+			{ sessionId, action: { kind: "select", caseIds: ["job-1"] } },
+			{ sessionId, action: { kind: "routeContinue" } },
+			{
+				sessionId,
+				action: { kind: "form", formUuid },
+				expect: { screen: "form" },
+			},
+		];
+		// Case-first entry offers record selection, not a search prerequisite or
+		// a direct followup launch. The same saved form opens after selection.
+		expect(
+			await advance([
+				{ action: { kind: "menu", moduleUuid: "Jobs" } },
+				{ action: { kind: "form", formUuid: "Cancel" } },
+			]),
+		).toMatchObject({
+			stopped: { index: 1 },
+			observation: {
+				completed: false,
+				error: "This form is not offered by the current record list.",
+			},
+		});
+		const held = await advance([
+			...open("coordinator", "Cancel").slice(1),
+			{
+				action: {
+					kind: "answer",
+					answers: [{ path: "note", value: "Retained coordinator answer" }],
+				},
+			},
+		]);
+		expect(held).toMatchObject({
+			observation: {
+				sessionId: "coordinator",
+				recordSources: { openForm: "retained-entry-snapshot" },
+				questions: expect.arrayContaining([
+					expect.objectContaining({
+						path: "status_at_entry",
+						value: "pending",
+					}),
+				]),
+			},
+		});
+		const refused = await advance([
+			{ sessionId: "missing", action: { kind: "submit" } },
+			{ sessionId: "worker", action: { kind: "home" } },
+		]);
+		expect(refused).toMatchObject({
+			stopped: { index: 0 },
+			observation: { sessionId: "missing", completed: false },
+		});
+		const competed = await advance([
+			...open("worker", "Complete"),
+			{
+				sessionId: "worker",
+				action: {
+					kind: "answer",
+					answers: [
+						{ path: "note", value: "Completed while cancellation was open" },
+					],
+				},
+			},
+			{
+				sessionId: "worker",
+				action: { kind: "submit" },
+				expect: { submitted: true, screen: "home" },
+			},
+		]);
+		expect(competed).toMatchObject({
+			observation: {
+				sessionId: "worker",
+				sessions: [
+					{ id: "coordinator", screen: "form" },
+					{ id: "worker", screen: "home" },
+				],
+			},
+		});
+		const caseRows = async () =>
+			(
+				await sql<{
+					properties: Record<string, unknown>;
+				}>`SELECT properties FROM ${sql.id(appTestNamespace(started.testId), "cases")} WHERE case_id = 'job-1'`.execute(
+					h.db(),
+				)
+			).rows;
+		expect(await caseRows()).toEqual([
+			{
+				properties: {
+					job_state: "completed",
+					completion_note: "Completed while cancellation was open",
+				},
+			},
+		]);
+		const synced = await advance([{ action: { kind: "sync" } }]);
+		expect(synced).toMatchObject({
+			observation: {
+				sessionId: "coordinator",
+				synced: true,
+				screen: "form",
+				recordSources: { openForm: "retained-entry-snapshot" },
+				questions: expect.arrayContaining([
+					expect.objectContaining({
+						path: "status_at_entry",
+						value: "pending",
+					}),
+					expect.objectContaining({
+						path: "note",
+						value: "Retained coordinator answer",
+					}),
+					expect.objectContaining({ path: "pending_jobs", repeatCount: 1 }),
+					expect.objectContaining({
+						path: "pending_jobs[0]/job_id",
+						value: "job-1",
+					}),
+				]),
+			},
+		});
+		const submitInput = {
+			testId: current.testId,
+			expectedStep: current.step,
+			actions: [{ action: { kind: "submit" }, expect: { submitted: true } }],
+		};
+		const submitted = await call(
+			"continueAppTest",
+			submitInput,
+			"held-form-submission",
+		);
+		current = stepSchema.parse(submitted);
+		expect(submitted).toMatchObject({
+			observation: {
+				sessionId: "coordinator",
+				savedInTest: true,
+				evidence: {
+					caseTransaction: "committed",
+					serializedSubmission: "not-observed",
+				},
+			},
+		});
+		expect(await caseRows()).toEqual([
+			{
+				properties: {
+					job_state: guarded ? "completed" : "cancelled",
+					completion_note: "Completed while cancellation was open",
+					cancellation_note: "Retained coordinator answer",
+				},
+			},
+		]);
+		expect(
+			await call("continueAppTest", submitInput, "held-form-submission"),
+		).toEqual(submitted);
+		const badFinish = await advance([
+			{ sessionId: "missing", action: { kind: "finish" } },
+		]);
+		expect(badFinish).toMatchObject({
+			observation: { completed: false, sessionId: "missing" },
+			stopped: { index: 0 },
+		});
+		expect(await caseRows()).toHaveLength(1);
+		await advance([{ action: { kind: "finish" } }]);
+		expect(
+			(
+				await sql`SELECT 1 FROM pg_namespace WHERE nspname = ${appTestNamespace(started.testId)}`.execute(
+					h.db(),
+				)
+			).rows,
+		).toEqual([]);
+		expect(
+			(
+				await sql`SELECT 1 FROM public.cases WHERE app_id = ${scope.appId}`.execute(
+					h.db(),
+				)
+			).rows,
+		).toEqual([]);
+		const evidence = await readAppTestSteps({
+			...scope,
+			testId: started.testId,
+			limit: 20,
+		});
+		expect(
+			evidence.steps.filter((step) => step.action?.sessionId === "worker"),
+		).toHaveLength(6);
+	},
+);
+
+it("preserves linked and Previous entry worlds until Sync precedes a fresh entry", {
+	timeout: 30_000,
+}, async () => {
+	const doc = await createEvaluationApp(
+		[
+			{
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [
+					{ name: "Register", type: "registration" },
+					{ name: "Review", type: "followup" },
+				],
+			},
+		],
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					fields: [
+						{ id: "name", kind: "text", label: "Name", required: true },
+						{
+							id: "entry_count",
+							kind: "text",
+							label: "Known equipment",
+							default_value:
+								"count(instance('casedb')/casedb/case[@case_type = 'equipment'])",
+						},
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Review",
+					fields: [
+						{
+							id: "name",
+							kind: "text",
+							label: "Equipment name",
+							default_value: "#case/case_name",
+						},
+						{
+							id: "entry_count",
+							kind: "text",
+							label: "Known equipment",
+							default_value:
+								"count(instance('casedb')/casedb/case[@case_type = 'equipment'])",
+						},
+					],
+				},
+			},
+			...(["Register", "Review"] as const).map((formUuid) => ({
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid,
+					fieldUuid: "fixture_placeholder",
+				},
+			})),
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Review",
+					post_submit: "previous",
+				},
+			},
+			{
+				toolName: "addFormLinks",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					links: [
+						{
+							link: {
+								target: {
+									type: "form",
+									moduleUuid: "Equipment",
+									formUuid: "Review",
+								},
+							},
+						},
+					],
+				},
+			},
+		],
+	);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Sync another registration while an unrelated form stays open",
+			sessions: [{ id: "held" }, { id: "other" }],
+		}),
+	);
+	const advance = async (sessionId: string, action: unknown) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				actions: [{ sessionId, action }],
+			}),
+		);
+		expect(current.observation.error).toBeUndefined();
+		return current.observation;
+	};
+	try {
+		for (const [sessionId, name] of [
+			["held", "Held registration"],
+			["other", "Learned by Sync"],
+		]) {
+			await advance(sessionId, { kind: "menu", moduleUuid: "Equipment" });
+			await advance(sessionId, { kind: "form", formUuid: "Register" });
+			await advance(sessionId, {
+				kind: "answer",
+				answers: [{ path: "name", value: name }],
+			});
+		}
+		const created = z
+			.object({
+				savedInTest: z.literal(true),
+				effects: z.object({ primaryCaseIds: z.array(z.string()).length(1) }),
+			})
+			.parse(await advance("other", { kind: "submit" }));
+		const learnedId = created.effects.primaryCaseIds[0];
+		expect(await advance("held", { kind: "sync" })).toMatchObject({
+			availableRecords: expect.arrayContaining([
+				expect.objectContaining({ id: learnedId, type: "equipment" }),
+			]),
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "0" }),
+				expect.objectContaining({ path: "name", value: "Held registration" }),
+			]),
+		});
+		// A direct link uses the submitting entry plus its own exact patch. It
+		// must not borrow the unrelated row learned after this entry opened.
+		expect(await advance("held", { kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			screen: "form",
+			name: "Review",
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "1" }),
+				expect.objectContaining({ path: "name", value: "Held registration" }),
+			]),
+		});
+		const stored = await sql<{
+			case_name: string;
+		}>`SELECT case_name FROM ${sql.id(appTestNamespace(current.testId), "cases")} WHERE case_type = 'equipment' ORDER BY case_name`.execute(
+			h.db(),
+		);
+		expect(stored.rows).toEqual([
+			{ case_name: "Held registration" },
+			{ case_name: "Learned by Sync" },
+		]);
+		await advance("held", { kind: "home" });
+		await advance("held", { kind: "menu", moduleUuid: "Equipment" });
+		await advance("held", { kind: "form", formUuid: "Review" });
+		expect(
+			await advance("held", { kind: "select", caseIds: [learnedId] }),
+		).toMatchObject({ screen: "details", canContinue: true });
+		// An ordinary new entry uses the catalog's Sync plus both commits. No
+		// additional Sync may be needed to recover the already learned identity.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			screen: "form",
+			name: "Review",
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "name", value: "Learned by Sync" }),
+				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+		const createElsewhere = async (name: string) => {
+			await advance("other", { kind: "home" });
+			await advance("other", { kind: "menu", moduleUuid: "Equipment" });
+			await advance("other", { kind: "form", formUuid: "Register" });
+			await advance("other", {
+				kind: "answer",
+				answers: [{ path: "name", value: name }],
+			});
+			return advance("other", { kind: "submit" });
+		};
+		await createElsewhere("Third equipment");
+		expect(await advance("held", { kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			screen: "browse",
+		});
+		await advance("held", { kind: "select", caseIds: [learnedId] });
+		// The Previous selector survives a persisted call and carries the
+		// submitting entry's two rows despite the third row now in the store.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+		expect(await advance("held", { kind: "sync" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "2" }),
+			]),
+		});
+		await advance("held", { kind: "back" });
+		// Sync refreshed the visited Details source for this new entry while
+		// leaving the already-open form's entry unchanged.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "3" }),
+			]),
+		});
+		await advance("held", { kind: "submit" });
+		await advance("held", { kind: "select", caseIds: [learnedId] });
+		await createElsewhere("Fourth equipment");
+		await advance("held", { kind: "sync" });
+		// Sync while Details is open updates its pending selector, so Continue
+		// uses all four rows rather than an older retained receipt.
+		expect(await advance("held", { kind: "routeContinue" })).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({ path: "entry_count", value: "4" }),
+			]),
+		});
+	} finally {
+		await call("continueAppTest", {
+			testId: current.testId,
+			expectedStep: current.step,
+			action: { kind: "finish" },
+		});
+	}
+	expect(
+		(
+			await sql`SELECT 1 FROM public.cases WHERE app_id = ${scope.appId}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+});
+
+it("refuses duplicate session IDs and invented Preview identities before retaining a test namespace", async () => {
+	const doc = sectionEntryDoc();
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const sessions of [
+		[{ id: "same" }, { id: "same" }],
+		[{ id: "worker", personaUuid: "Invented worker" }],
+	]) {
+		await expect(
+			startAppTest(scope, {
+				requestId: "invalid-start",
+				expectedBlueprintSeq: 0,
+				input: { purpose: "Refuse unavailable sessions", sessions },
+			}),
+		).rejects.toThrow();
+	}
+	expect(
+		await h.db().selectFrom("app_test_sessions").select("id").execute(),
+	).toEqual([]);
+	expect(
+		(
+			await sql`SELECT 1 FROM pg_namespace WHERE nspname LIKE 'nova_app_test_%'`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+});
+
+it("keeps saved identities, language, pages and answers local to four retained sessions", {
+	timeout: 15_000,
+}, async () => {
+	const author = makeAuthoringHarness({}, sectionEntryDoc());
+	expect(
+		await author.call("addLanguage", { language: { language: "spa" } }),
+	).not.toHaveProperty("error");
+	expect(
+		await author.call("addPersonas", {
+			personas: [{ name: "Alice" }, { name: "Bob" }],
+		}),
+	).not.toHaveProperty("error");
+	const doc = author.currentDoc();
+	const alice = Object.values(doc.personas ?? {}).find(
+		(persona) => persona.name === "Alice",
+	);
+	const bob = Object.values(doc.personas ?? {}).find(
+		(persona) => persona.name === "Bob",
+	);
+	if (!alice || !bob) throw new Error("Missing saved workers.");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Retain separate worker forms and settings",
+			sessions: [
+				{ id: "first", personaUuid: "Alice" },
+				{ id: "second", personaUuid: "Bob", language: { language: "spa" } },
+				{ id: "third" },
+				{ id: "fourth", personaUuid: alice.uuid },
+			],
+		}),
+	);
+	expect(current.observation).toMatchObject({
+		worker: { personaUuid: alice.uuid, name: "Alice" },
+		sessions: [
+			{ id: "first", personaUuid: alice.uuid },
+			{ id: "second", personaUuid: bob.uuid },
+			{ id: "third", personaUuid: null },
+			{ id: "fourth", personaUuid: alice.uuid },
+		],
+	});
+	let request = 0;
+	const advance = async (actions: unknown[]) => {
+		current = stepSchema.parse(
+			await call(
+				"continueAppTest",
+				{ testId: current.testId, expectedStep: current.step, actions },
+				`workers-${++request}`,
+			),
+		);
+		return current.observation;
+	};
+	await advance([
+		{ action: { kind: "menu", moduleUuid: "Visits" } },
+		{ action: { kind: "form", formUuid: "Inspect" } },
+		{
+			action: {
+				kind: "answer",
+				answers: [{ path: "first/zone", value: "north" }],
+			},
+		},
+		{ sessionId: "second", action: { kind: "menu", moduleUuid: "Visits" } },
+		{ sessionId: "second", action: { kind: "form", formUuid: "Inspect" } },
+		{
+			sessionId: "second",
+			action: {
+				kind: "answer",
+				answers: [{ path: "first/zone", value: "south" }],
+			},
+		},
+		{ sessionId: "second", action: { kind: "pageNext" } },
+	]);
+	expect(current.observation).toMatchObject({
+		sessionId: "second",
+		worker: { personaUuid: bob.uuid },
+		language: { selected: { language: "spa" } },
+		pageNavigation: { canNext: false, canPrevious: true },
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "second/rounds[0]/assets[0]/note",
+				value: "tank",
+			}),
+		]),
+	});
+	expect(await advance([{ action: { kind: "observe" } }])).toMatchObject({
+		sessionId: "first",
+		worker: { personaUuid: alice.uuid },
+		language: { selected: { language: "eng" } },
+		pageNavigation: { canNext: true, canPrevious: false },
+		questions: expect.arrayContaining([
+			expect.objectContaining({ path: "first/zone", value: "north" }),
+		]),
+	});
+	await advance([
+		{
+			sessionId: "second",
+			action: { kind: "language", language: { language: "eng" } },
+		},
+		{ sessionId: "second", action: { kind: "identity", personaUuid: null } },
+		{ sessionId: "third", action: { kind: "menu", moduleUuid: "Visits" } },
+		{ action: { kind: "observe" } },
+	]);
+	expect(current.observation).toMatchObject({
+		sessionId: "first",
+		worker: { personaUuid: alice.uuid },
+		screen: "form",
+		sessions: [
+			{ id: "first", personaUuid: alice.uuid, screen: "form" },
+			{ id: "second", personaUuid: null, screen: "home" },
+			{ id: "third", screen: "menu" },
+			{ id: "fourth", personaUuid: alice.uuid, screen: "home" },
+		],
+		questions: expect.arrayContaining([
+			expect.objectContaining({ path: "first/zone", value: "north" }),
+		]),
+	});
+	await advance([{ sessionId: "fourth", action: { kind: "finish" } }]);
+	expect(current.observation).toEqual({ ended: true, sessionId: "fourth" });
+	expect(
+		(
+			await sql`SELECT 1 FROM pg_namespace WHERE nspname = ${appTestNamespace(current.testId)}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
 });

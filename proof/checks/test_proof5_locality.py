@@ -111,7 +111,7 @@ def test_a_parent_menus_new_form_reorders_its_child_menus_frame_inside_the_footp
     """A form added to a parent menu moves the datums of its child menu's form entry's stack frame, which only
     the local suite shows, and the written footprint holds that form (a menu's form list reaches its child
     menus' forms)."""
-    for document_id in ("nested-menu-parent", "nested-menu-previous"):
+    for document_id in ("targeted-parent-form-selection-frame", "targeted-parent-form-previous-frame"):
         document = cases.load_corpus().document(document_id)
         local = observations.local_records_for(document, core_runner).local
         compared = proof5.comparisons(document, local=local)

@@ -37,14 +37,19 @@
 
 "use client";
 import { memo, useId } from "react";
-import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import { asUuid, type Uuid } from "@/lib/domain";
+import { asUuid, isCaptureFieldKind, type Uuid } from "@/lib/domain";
+import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
-import { useVisibleFieldOrder } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import {
+	usePresentationField,
+	useVisibleFieldOrder,
+} from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useAppId } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
@@ -78,10 +83,13 @@ interface InteractiveFormRendererProps {
 	/** Stable identities of enclosing repeat instances. Concrete indices
 	 * compact; this key does not. */
 	readonly instanceScopeKey?: string;
+	readonly repeatInstances?: readonly RepeatInstanceIdentity[];
 	/** IDs that name enclosing sections/repeat instances for controls whose
 	 * visible prompts may otherwise be duplicates. */
 	readonly accessibleContext?: string;
 }
+
+const NO_REPEAT_INSTANCES: readonly RepeatInstanceIdentity[] = [];
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -97,6 +105,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	depth = 0,
 	leadingGap = true,
 	instanceScopeKey = "",
+	repeatInstances = NO_REPEAT_INSTANCES,
 	accessibleContext = "",
 }: InteractiveFormRendererProps) {
 	const fieldUuids = useVisibleFieldOrder(asUuid(parentEntityId), prefix);
@@ -118,6 +127,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 						parentPath={parentPath}
 						depth={depth}
 						instanceScopeKey={instanceScopeKey}
+						repeatInstances={repeatInstances}
 						accessibleContext={accessibleContext}
 						position={index + 1}
 					/>
@@ -135,6 +145,7 @@ interface InteractiveFieldProps {
 	readonly parentPath?: FieldPath;
 	readonly depth: number;
 	readonly instanceScopeKey: string;
+	readonly repeatInstances: readonly RepeatInstanceIdentity[];
 	readonly accessibleContext: string;
 	readonly position: number;
 }
@@ -157,16 +168,19 @@ const InteractiveField = memo(function InteractiveField({
 	parentPath,
 	depth,
 	instanceScopeKey,
+	repeatInstances,
 	accessibleContext,
 	position,
 }: InteractiveFieldProps) {
-	const field = useLocalizedField(uuid);
+	const { language } = useBuilderLanguage();
+	const field = usePresentationField(uuid);
 	// Engine state is keyed by the CONCRETE path so each repeat instance
 	// carries its own value / visibility / validity; the uuid covers the
 	// render before the doc row resolves.
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
+	const entryKey = controller.entryKey;
 	const projectProse = useProseProjection();
 	// Capture questions stage bytes against the app; every other kind
 	// ignores it.
@@ -211,7 +225,7 @@ const InteractiveField = memo(function InteractiveField({
 		return (
 			<>
 				<span id={transparentSectionId} className="sr-only">
-					Section {position}.
+					{runtimeMessage(language, "sectionPosition", { position })}
 				</span>
 				{/* A label-less group is transparent in preview, but its
 				    `label_media` is authored content: without this it vanishes on
@@ -236,6 +250,7 @@ const InteractiveField = memo(function InteractiveField({
 					depth={depth}
 					leadingGap={false}
 					instanceScopeKey={instanceScopeKey}
+					repeatInstances={repeatInstances}
 					accessibleContext={childContext}
 				/>
 			</>
@@ -271,6 +286,7 @@ const InteractiveField = memo(function InteractiveField({
 					depth={depth}
 					leadingGap={false}
 					instanceScopeKey={instanceScopeKey}
+					repeatInstances={repeatInstances}
 					accessibleContext={accessibleContext}
 				/>
 			</>
@@ -311,6 +327,7 @@ const InteractiveField = memo(function InteractiveField({
 				fieldPath={fieldPath}
 				depth={depth}
 				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
 				accessibleContext={accessibleContext}
 				position={position}
 			/>
@@ -323,6 +340,7 @@ const InteractiveField = memo(function InteractiveField({
 				fieldPath={fieldPath}
 				depth={depth}
 				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
 				accessibleContext={accessibleContext}
 				position={position}
 			/>
@@ -365,7 +383,11 @@ const InteractiveField = memo(function InteractiveField({
 							id={questionLabelId}
 							className="flex items-center gap-1 px-[5px] py-[5px]"
 						>
-							<span className="sr-only">Question {position}. </span>
+							<span className="sr-only">
+								{runtimeMessage(language, "questionPosition", {
+									position,
+								})}{" "}
+							</span>
 							<LabelContent
 								label={field.label}
 								resolvedLabel={state.resolvedLabel}
@@ -380,14 +402,20 @@ const InteractiveField = memo(function InteractiveField({
 									>
 										*
 									</span>
-									<span className="sr-only"> Required.</span>
+									<span className="sr-only">
+										{" "}
+										{runtimeMessage(language, "requiredLabel")}
+									</span>
 								</>
 							) : null}
 						</div>
 					</div>
 				) : (
 					<span id={questionLabelId} className="sr-only">
-						Question {position}.{state.required ? " Required." : ""}
+						{runtimeMessage(language, "questionPosition", { position })}
+						{state.required
+							? ` ${runtimeMessage(language, "requiredLabel")}`
+							: ""}
 					</span>
 				)}
 				{field.hint && (
@@ -422,7 +450,7 @@ const InteractiveField = memo(function InteractiveField({
 					labelledBy={labelId}
 					path={path}
 					appId={appId}
-					entryKey={controller.entryKey}
+					entryKey={entryKey}
 					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
 					questionLabelId={labelId}
 					questionLabelledBy={questionLabelledBy}
@@ -438,6 +466,17 @@ const InteractiveField = memo(function InteractiveField({
 						state.resolvedLabel ??
 						(field.label ? projectProse(field.label) : undefined)
 					}
+					onCommitCapture={async (value, gate, onAccepted) => {
+						if (entryKey === undefined || !isCaptureFieldKind(field.kind))
+							return false;
+						return controller.commitCaptureAnswer(
+							entryKey,
+							{ fieldUuid: field.uuid, kind: field.kind, repeatInstances },
+							value,
+							gate,
+							onAccepted,
+						);
+					}}
 					onChange={(value) => controller.setValueAtAsync(path, value)}
 					onBlur={() => controller.touchAtAsync(path)}
 					onChangeAt={(targetPath, value) =>

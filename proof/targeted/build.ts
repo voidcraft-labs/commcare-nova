@@ -57,7 +57,7 @@ export function targetedUuid(documentId: string, name: string): Uuid {
 export interface TargetedSpec {
 	/** The corpus id, `targeted-<what it shows>`. */
 	readonly id: string;
-	/** The work item 12 rows (or the harness's findings, by defect number) whose symptom it shows. */
+	/** The work item 12 rows, findings by defect number, or harness contracts it shows. */
 	readonly rows: readonly string[];
 	/** The document as written; it must be the one Nova's gate admits. */
 	readonly doc: BlueprintDoc;

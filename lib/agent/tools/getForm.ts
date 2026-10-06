@@ -9,7 +9,12 @@
 
 import type { z } from "zod";
 import { formRecordName } from "@/lib/doc/formRecordName";
-import { formNavigation, type Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
+import { formNavigation } from "@/lib/preview/engine/navigationProjection";
+import {
+	type OperationSemantics,
+	operationSemantics,
+} from "../authoring/operationSemantics";
 import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
 import { formAnswerWrites } from "../formAnswerWrites";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -35,6 +40,7 @@ export type GetFormResult =
 			form: FormSnapshot;
 			navigation: ReturnType<typeof formNavigation>;
 			answerWrites: ReturnType<typeof formAnswerWrites>;
+			operationSemantics: OperationSemantics;
 			recordName?: ReturnType<typeof formRecordName>;
 	  };
 
@@ -67,6 +73,7 @@ export const getFormTool = {
 				form: snapshot,
 				navigation: formNavigation(doc, formUuid),
 				answerWrites: formAnswerWrites(doc, moduleUuid, formUuid),
+				operationSemantics: operationSemantics(doc, formUuid),
 				...(recordName && { recordName }),
 			},
 		};

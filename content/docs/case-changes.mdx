@@ -54,8 +54,21 @@ Every record has a read-only **Record ID**. A change can use an existing
 relationship to find the parent record to update, without asking the worker to
 type an identifier or storing another copy of it. Names and other useful details
 remain the better way for workers to choose records.
-These calculations use the case's values from before submission, even when an
-earlier change updates them. The changes themselves run in the order shown.
+These calculations use a record view from before their effects, even when an
+earlier change updates the record. The changes themselves run in the order shown.
+
+An open CommCare form can keep the record values it initialized with while
+another form changes the same record. A condition on an old value cannot promise
+to protect the record's current value when the open form is submitted. Preview
+evaluates case-change record reads against its current submission transaction;
+answers and captured calculations still retain the values from that form entry.
+
+For progress that must never go backward, you can store separate facts that only
+become true, or save each event as a new child record, and calculate the displayed
+phase from them. An unfinished action can add history without clearing a completed fact.
+Every form that writes these facts or events needs to preserve them. This does
+not guarantee a fresh phase at submission or a timestamp written only by the
+first event.
 
 ## Where to find them
 
@@ -141,6 +154,17 @@ fixed values, from information about the person using the app, from Project data
 or from a calculation you build. A Project data value is found by matching one of
 the table's rows; the complete change remains editable.
 
+When a value's condition is false, that property stays as it was. Preview skips
+the value's calculation, so unanswered inputs used only by that skipped value
+do not block submission.
+
+A calculation can also choose between values. Preview skips arithmetic in the
+branch it does not choose, so an unanswered numeric question in that branch
+does not block submission. When the chosen value is an unanswered numeric
+question, a new case leaves the property empty and an existing case clears its
+previous value. To keep the previous value instead, give that saved value a
+condition. Zero remains a value.
+
 A calculation can count related cases, such as visits belonging to the selected
 patient. A condition can also check whether related cases exist or are missing.
 These rules travel with the exported form, including when no other question
@@ -213,6 +237,11 @@ you later rename or move it, and the names shown in the builder stay current.
 Change ids and connection names use letters, numbers, and underscores and start
 with a letter or underscore; saved property names use the same characters and
 start with a letter.
+
+The shared tools also describe each change's target, the record properties its
+conditions and values read, what it writes, and any matching record identities.
+Possible matches stay marked as possible. This feedback helps explain the change;
+it does not lock records or reject a change that can overwrite a later value.
 
 A request that adds several changes can connect them in one atomic call, for
 example, create a referral and then update that new referral. If any change is

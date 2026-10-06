@@ -11,13 +11,11 @@
  * with more pages than fit scrolls sideways.
  */
 "use client";
-import {
-	useBuilderLanguage,
-	useLocalizedField,
-} from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/domain";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
+import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { selectableSegmentCls } from "@/lib/styles";
 import { sectionKicker } from "./SectionHeading";
@@ -25,7 +23,7 @@ import type { SectionPaging } from "./useSectionPaging";
 
 /** The page's title as the worker sees it, or `undefined` when untitled. */
 function useSectionTitle(uuid: Uuid): string | undefined {
-	const field = useLocalizedField(uuid);
+	const field = usePresentationField(uuid);
 	const projectProse = useProseProjection();
 	if (field?.kind !== "section" || field.label === undefined) return undefined;
 	if (proseTemplateIsEmpty(field.label)) return undefined;

@@ -1,5 +1,7 @@
 /** Shared worker-facing cell values for Preview and disposable app tests. */
+
 import type { ProseTemplate } from "@/lib/domain";
+import type { LanguageTag } from "@/lib/domain/localization";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 
 type ProseProjector = (template: ProseTemplate) => string;
@@ -32,6 +34,8 @@ export type CalculatedTemporalType = "date" | "datetime";
  * can never drift between what a worker sees and what they can search for.
  */
 export type ColumnDisplayContext = {
+	/** Worker platform labels; omitted by authoring callers. */
+	readonly language?: LanguageTag;
 	readonly caseProperties: readonly CaseProperty[];
 	readonly calculatedTemporalTypes: ReadonlyMap<
 		Column["uuid"],

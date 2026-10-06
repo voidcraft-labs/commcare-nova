@@ -29,6 +29,14 @@ export * from "./formActions";
 export * from "./hashtags";
 export * from "./hqShells";
 export * from "./identifierValidation";
+export {
+	type PreviousTaskProjection,
+	type PreviousTaskSelection,
+	projectModuleTaskSelectionUuids,
+	projectPreviousTask,
+	projectTaskFormSelections,
+	readPreviousTaskProjection,
+} from "./previousTaskProjection";
 export * from "./session";
 export * from "./types";
 export * from "./xml";

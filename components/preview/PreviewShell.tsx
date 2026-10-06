@@ -55,6 +55,7 @@ import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection } from "@/lib/routing/types";
@@ -63,10 +64,12 @@ import {
 	useEditMode,
 	usePreviewCaseTarget,
 	usePreviewParentCaseRequest,
+	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewing,
 	useSetPreviewParentCaseRequest,
 	useSetPreviewPersonaUuid,
+	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
 import { HomeScreen } from "./screens/HomeScreen";
 
@@ -177,6 +180,22 @@ export function PreviewShell() {
 	const previousScopeEpochRef = useRef(scopeEpoch);
 	const mode = useEditMode();
 	const previewCaseTarget = usePreviewCaseTarget();
+	const continuation = usePreviewTaskContinuation();
+	const setContinuation = useSetPreviewTaskContinuation();
+	useLayoutEffect(() => {
+		if (
+			continuation?.formUuid &&
+			loc.kind === "module" &&
+			loc.moduleUuid === continuation.returnModuleUuid
+		)
+			setContinuation({
+				moduleUuid: loc.moduleUuid,
+				selectingModuleUuids: [],
+				caseDatabase: continuation.caseDatabase,
+			});
+		else if (continuation && !continuesPreviewTask(continuation, loc))
+			setContinuation(undefined);
+	}, [continuation, loc, setContinuation]);
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const identityState = useSelectedPreviewIdentityState();
@@ -205,8 +224,6 @@ export function PreviewShell() {
 	useLayoutEffect(() => {
 		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
 	}, [mode, loc.kind, clearPreviewNavigation]);
-
-	const handleBack = navigate.back;
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected
@@ -684,7 +701,6 @@ export function PreviewShell() {
 								<FormScreen
 									key={screenKey(formScreenRef.current)}
 									screen={formScreenRef.current}
-									onBack={handleBack}
 								/>
 							</div>
 						</PortaledContentDirectionProvider>

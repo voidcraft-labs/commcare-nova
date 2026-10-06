@@ -82,8 +82,10 @@ Guards, each a ``HarnessRefusal`` that ends the check loudly:
 - a new Postgres connection (``psycopg2.connect``, which SQLAlchemy's engines
   call too) while the unit is open: it would neither see nor roll back the
   unit's transaction (``NewConnectionRefused``);
-- ``transaction.on_commit`` while the unit is open: the unit's transaction
-  never commits, so the function would never run (``OnCommitRefused``);
+- ``transaction.on_commit`` in a rollback unit: its transaction never
+  commits, so the function would never run (``OnCommitRefused``). Native
+  callbacks run only in the existing nonrollback mode over a fresh database
+  whose owner drops it at exit; a reusable worker database still refuses them;
 - after every operation and request, and when the unit ends without an
   error, a connection that is closed, marked for rollback or in an aborted
   transaction (``AbortedTransaction``). HQ's production requests run in
@@ -149,7 +151,7 @@ class NewConnectionRefused(HarnessRefusal):
 
 
 class OnCommitRefused(HarnessRefusal):
-    """HQ asked to run a function on commit while a unit, whose transaction never commits, was open."""
+    """HQ asked for a commit callback outside a fresh-database nonrollback unit."""
 
 
 class AbortedTransaction(HarnessRefusal):
@@ -682,7 +684,8 @@ class Unit:
         try:
             with ExitStack() as stack:
                 stack.enter_context(_refusing_new_connections())
-                stack.enter_context(_refusing_on_commit(connection))
+                if self._transactional or not database.is_fresh_database(self.database):
+                    stack.enter_context(_refusing_on_commit(connection, rollback=self._transactional))
                 stack.enter_context(connection.execute_wrapper(self._watch_sql))
                 if self._transactional:
                     stack.enter_context(_rolled_back())
@@ -1081,13 +1084,18 @@ def _refusing_new_connections():
 
 
 @contextmanager
-def _refusing_on_commit(connection):
+def _refusing_on_commit(connection, *, rollback=True):
     def refuse(func, robust=False):
         name = f"{getattr(func, '__module__', '?')}.{getattr(func, '__qualname__', repr(func))}"
+        reason = (
+            "The unit's transaction is always rolled back, so the function would never run, where production "
+            "runs it once HQ's transaction commits."
+            if rollback
+            else "The unit uses a reusable worker database; commit callbacks require a fresh database its owner drops."
+        )
         raise OnCommitRefused(
-            f"HQ asked to run {name} when its transaction commits, while an HQ unit was open. A unit's "
-            "transaction is always rolled back, so the function would never run, where production runs it once "
-            "HQ's transaction commits. The path that asked needs a seam in proof/hq that runs it as production does."
+            f"HQ asked to run {name} when its transaction commits, while an HQ unit was open. {reason} "
+            "Use the existing fresh-database nonrollback mode to execute the real callback."
         )
 
     had = "on_commit" in vars(connection)

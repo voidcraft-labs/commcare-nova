@@ -14,7 +14,8 @@ Canonical schemas and the existing commit gate remain authoritative.
 projection: small values stay beside their arguments, while substantial reused
 structures remain shared. It visits schema positions only, preserving literal
 data and admission constraints. The same projection serves MCP and both editors.
-The editor and architect mount hosted OpenAI tool search and defer shared definitions. MCP
+The editor, architect and peer mount hosted OpenAI tool search. Journey start,
+continuation and evidence reads are a stable eager subset; other shared definitions are deferred. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference
 material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
 sets purpose, collaboration, and app-quality judgment without describing storage.
@@ -22,6 +23,29 @@ MCP fetches that stable guidance by mode. `appOverview.ts` supplies current app
 orientation separately, shared by editor turns, retries, and MCP `get_app`.
 Detailed questions and configuration belong to scoped reads. The plugin only
 bootstraps current server guidance; it does not keep another authoring manual.
+
+Workflow guidance distinguishes record persistence, standalone report collection,
+and retrieval at the configured CommCare destination. Preview submission receipts
+do not establish an answer-document archive or reporting permissions. Retained
+worker-session checks distinguish entry snapshots from current-store reads;
+their Postgres observations cannot establish native held-form or offline conflict
+behavior. Operation
+conditions read current Preview records but retain submitted form-answer bindings;
+skipped effects need an understandable outcome on the worker's next task.
+Native conditions and values can retain an initialized form's record view across
+another submission to the same local store; they do not compare-and-set current
+records. `operationSemantics.ts` derives one non-gating projection for operation
+add/update results and form/operation reads. It distinguishes record identities,
+condition/value reads, writes and same-record/possible-alias overlaps. It follows
+canonical form-answer dependencies with cycle guards and reports unclassified
+XPath text. It never parses text, rejects an operation or promises concurrency
+protection. The existing plugin bootstraps this server-owned reference only.
+Clock guidance preserves typed capture and a separately saved recorded-time
+display with its numeric offset. It does not promise viewer-local conversion or
+absolute chronology from the device runtime's stored timestamp parsing.
+Expression guidance distinguishes skipping a write from clearing a saved numeric
+value with a typed blank form answer; text blanks and numeric coercion are not
+substitutes. This uses the existing operation and field model.
 
 Write results report completed operations with `ok: true`, created identities,
 and any consequential side effects. Confirmation and rejection remain explicit.

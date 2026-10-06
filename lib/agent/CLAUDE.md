@@ -41,6 +41,24 @@ compiler briefs, and slice executors are retired. Historical database artifacts
 are retained for inspection; serving code does not translate or execute them.
 The one-time transition is in `docs/architecture/design-format-cutover.md`.
 
+## Document source fidelity and privacy
+
+The extractor produces the architect's working requirements extract, not a
+lossless copy of the original document. A complete `readSource` page sequence
+means the complete stored working extract, not every original byte or row.
+`EXTRACT_SYSTEM` preserves necessary distinct name-to-role or responsibility
+bindings only when the source explicitly defines intended app users, Preview
+actors, or operational stakeholders whose stated responsibilities matter to the
+app. A roster, incidental contact, attribution, or example alone does not define
+an actor, and names do not grant permissions, accounts, assignments, or duties.
+Collected fieldwork and example-row private values, contacts, account identifiers,
+and credentials remain excluded; title and summary exclude personal information.
+This is model guidance for minimizing personal data in the working extract, not
+comprehensive PII redaction. The original source still reaches the extraction
+model and remains in the Project's file library. Prompt changes bump
+`EXTRACTOR_VERSION` in `lib/domain/multimedia.ts`; historical extracts remain at
+their recorded versions, and the next reference re-extracts at the new version.
+
 ## The authoring boundary
 
 Read `authoring/CLAUDE.md` before changing model input or read projections.
@@ -66,7 +84,9 @@ it is forbidden in staging and never counts as an app change. Each action
 reauthorizes the real actor independently of the simulated worker. External operations recheck
 membership and their own revision at the transaction boundary.
 
-The architect and editor use hosted tool search with deferred shared definitions.
+The architect, peer and editor keep `startAppTest`, `continueAppTest` and
+`readAppTest` eagerly available so journey continuation does not rely on
+rediscovery after compaction. Other shared definitions use hosted tool search.
 MCP publishes the same authored schemas; its client owns discovery. Deferral is
 not schema reduction. `authoring/readableSchema.ts` factors repeated schema
 structures without changing admission. `getAuthoringGuide` returns focused
@@ -88,6 +108,14 @@ whole-app completeness is checked at save. An invalid child rejects the call
 rather than silently
 skipping it or returning an identity that did not land. Names resolve within the
 complete call scope; unresolved or ambiguous references refuse before mutation.
+
+`getForm`, `createForm` and `updateForm` return resolved navigation through
+`lib/preview/engine/navigationProjection.ts`. Its `previous` read comes from
+the same owner projection as Preview and App Tests: it names the exact record
+selector or module menu and retained record selections. It never promises a
+visited screen or Details. A private empty registration neighbor has no
+compilable entry until its record name exists; the read explicitly qualifies
+that destination as unavailable while runtime and export remain strict.
 
 One list-taking operation handles both one and several additions. Do not add a
 singular twin. Preserve nested identities and attached media during read/edit

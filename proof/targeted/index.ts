@@ -2,7 +2,8 @@
  * The targeted documents (`proof/corpus/documents.ts::TARGETED_MODULE`): one
  * admitted document per work item 12 row that no other corpus document shows,
  * and per symptom only the fuzz sample shows, each fixed so its symptom's
- * values are exact (plan decision 12, work items 10 and 12). Each is built
+ * values are exact (plan decision 12, work items 10 and 12), plus precise
+ * edit witnesses for the harness's own contracts. Each is built
  * by Nova's planners and admitted by Nova's commit gate (`./build.ts`).
  */
 
@@ -29,12 +30,18 @@ import { multiSelectDestinations } from "./documents/multiSelectDestinations";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import {
 	listFirstWebApps,
+	searchButtonLabel,
 	searchDefaultFilterName,
 	searchHqCompile,
 	searchRelatedLookups,
 	syncOnFormEntry,
 } from "./documents/searchApps";
 import { sharedPropertySort } from "./documents/sortKeys";
+import {
+	parentFormPreviousFrame,
+	parentFormSelectionFrame,
+	wireEqualRepublish,
+} from "./documents/stableWitnesses";
 import { timeOrdering } from "./documents/timeOrdering";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
@@ -65,6 +72,10 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchDefaultFilterName,
 	syncOnFormEntry,
 	hqSideState,
+	parentFormSelectionFrame,
+	parentFormPreviousFrame,
+	wireEqualRepublish,
+	searchButtonLabel,
 ];
 
 /** Every targeted document, in a fixed order. */

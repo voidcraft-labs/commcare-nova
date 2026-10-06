@@ -11,6 +11,7 @@ import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
+	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	languageTag,
@@ -20,14 +21,12 @@ import {
 import { MODEL_ROLES } from "@/lib/models";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { TranslationMemory } from "./translationMemory";
 import {
-	boundedGlossary,
-	glossaryEntriesFromAcceptedBatch,
 	planTranslationBatches,
 	TRANSLATION_MAX_OUTPUT_TOKENS,
 	TRANSLATION_SYSTEM,
 	type TranslationBatchOutput,
-	type TranslationGlossaryEntry,
 	translationBatchOutputSchema,
 	translationLanguage,
 	translationPromptPayload,
@@ -104,7 +103,9 @@ export async function translateLanguage(
 				review: "needs-review",
 			},
 		};
-	const glossary: TranslationGlossaryEntry[] = [];
+	const memory = new TranslationMemory(
+		exists ? collectLocalizedTranslationUnits(doc, tag) : [],
+	);
 	const schema = strictStructuredSchema(translationBatchOutputSchema);
 	const schemaDefinition = await schema.jsonSchema;
 	for (const [index, batch] of planTranslationBatches(units).entries()) {
@@ -113,7 +114,7 @@ export async function translateLanguage(
 			targetLanguage: translationLanguage(target),
 			appObjective: doc.appName,
 			units: batch,
-			glossary: boundedGlossary(glossary),
+			glossary: memory.glossary(batch),
 		});
 		const contextVersion = canonicalJsonDigest({
 			requestId: ctx.invocation.requestId,
@@ -196,8 +197,8 @@ export async function translateLanguage(
 					translatedFrom: localization.sourceLanguage,
 				},
 			});
+			memory.accept(unit, value);
 		}
-		glossary.push(...glossaryEntriesFromAcceptedBatch(batch, output));
 	}
 	const outcome = await guardedMutate(
 		ctx,

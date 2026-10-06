@@ -114,7 +114,12 @@ import {
 	remapInstancePath,
 	stripIndices,
 } from "./instancePaths";
-import { resolveLabel, resolveLabelAsync } from "./labelRefs";
+import {
+	resolveConstraintMessage,
+	resolveConstraintMessageAsync,
+	resolveLabel,
+	resolveLabelAsync,
+} from "./labelRefs";
 import {
 	evaluateLookupChoices,
 	lookupOptionsSourceCovered,
@@ -608,6 +613,7 @@ export class FormEngine {
 			this.restoreEntryCheckpoint(restored.checkpoint);
 			if (!restored.preserveAllValues) this.healEntryContext();
 			else this.evaluateAllInto();
+			this.refreshRestoredValidation(restored.checkpoint.state);
 			return;
 		}
 		this.initializeModel(this.tree);
@@ -757,6 +763,31 @@ export class FormEngine {
 		this.store.setState(structuredClone(checkpoint.state), true);
 	}
 
+	/** Local required/type errors have no validation DAG node. Constraint
+	 * settlement may clear a restored blank field's required error, so use the
+	 * checkpoint's invalid paths as well as current errors. Revalidate current
+	 * values in this language without touching previously clean fields. */
+	private refreshRestoredValidation(restoredState: EngineStoreState): void {
+		const updates: EngineStoreState = {};
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			if (restoredState[path]?.valid === false || !state.valid)
+				this.validateAndCollect(path, state, updates);
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
+	private async refreshRestoredValidationAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+		restoredState: EngineStoreState,
+	): Promise<void> {
+		const updates: EngineStoreState = {};
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			if (restoredState[path]?.valid === false || !state.valid)
+				await this.validateAndCollectAsync(path, state, updates, evaluateAsync);
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
 	/** Complete scoped initialization actions before publishing question state. */
 	async initializeAsync(
 		evaluateAsync: FormEngineAsyncEvaluator,
@@ -771,6 +802,10 @@ export class FormEngine {
 			if (!restored.preserveAllValues)
 				await this.healEntryContextAsync(evaluateAsync);
 			else await this.settleAsync(evaluateAsync);
+			await this.refreshRestoredValidationAsync(
+				evaluateAsync,
+				restored.checkpoint.state,
+			);
 			return;
 		}
 		this.dag = new TriggerDag();
@@ -828,8 +863,16 @@ export class FormEngine {
 		this.markTouched(path);
 		const current = this.store.getState()[path];
 		if (!current) return;
+		// Blur does not introduce required errors. Keep a blank required answer's
+		// existing verdict, including a warning already published by submission.
+		if (current.required && !current.value) return;
 		const updates: EngineStoreState = { [path]: current };
-		await this.validateAndCollectAsync(path, current, updates, evaluateAsync);
+		await this.evaluateValidationAndCollectAsync(
+			path,
+			current,
+			updates,
+			evaluateAsync,
+		);
 		this.store.setState(updates);
 	}
 
@@ -3460,12 +3503,15 @@ export class FormEngine {
 		const errorMessage = valid
 			? undefined
 			: ((field
-					? ((await resolveLabelAsync(
-							fieldProseTemplate(field, "validate_msg"),
-							this.printDoc,
-							async (source) =>
-								xpathToString(await evaluateAsync(source, path)),
-						)) ?? expressionSource(field, "validate_msg", this.printDoc))
+					? await resolveConstraintMessageAsync(
+							async () =>
+								(await resolveLabelAsync(
+									fieldProseTemplate(field, "validate_msg"),
+									this.printDoc,
+									async (source) =>
+										xpathToString(await evaluateAsync(source, path)),
+								)) ?? expressionSource(field, "validate_msg", this.printDoc),
+						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
@@ -3524,11 +3570,14 @@ export class FormEngine {
 		const errorMessage = valid
 			? undefined
 			: ((field
-					? (resolveLabel(
-							fieldProseTemplate(field, "validate_msg"),
-							this.printDoc,
-							(source) => xpathToString(evaluate(source, ctx)),
-						) ?? expressionSource(field, "validate_msg", this.printDoc))
+					? resolveConstraintMessage(
+							() =>
+								resolveLabel(
+									fieldProseTemplate(field, "validate_msg"),
+									this.printDoc,
+									(source) => xpathToString(evaluate(source, ctx)),
+								) ?? expressionSource(field, "validate_msg", this.printDoc),
+						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {

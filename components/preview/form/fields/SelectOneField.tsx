@@ -5,6 +5,7 @@ import type { SelectOption, SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
+import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
 import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
 
@@ -84,6 +85,8 @@ export function SelectOneField({
 					return (
 						<label
 							key={opt.key}
+							onMouseDown={isEditMode ? undefined : retainChoiceFocus}
+							onClickCapture={isEditMode ? undefined : focusChosenChoice}
 							className={`pv-choice-row flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								isSelected
 									? "bg-pv-accent/10 border border-pv-accent/30 hover:bg-pv-accent/15 hover:border-pv-accent/50"

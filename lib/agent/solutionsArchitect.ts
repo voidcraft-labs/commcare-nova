@@ -70,8 +70,16 @@ export const EDIT_TURN_LIMIT_MESSAGE =
  * chat route's turn-level re-run (`lib/agent/turnRetry`) owns those. */
 export const SOLUTIONS_ARCHITECT_MAX_RETRIES = 4;
 
-/** The inspection catalog and runtime use these same definitions. Shared tools
- * load through hosted search and retain omission semantics with strict: false.
+/** Journey continuation must not depend on rediscovery after compaction. This
+ * small eager subset stays identical across build, review and ordinary edits. */
+const EAGER_JOURNEY_TOOLS = new Set([
+	"startAppTest",
+	"continueAppTest",
+	"readAppTest",
+]);
+
+/** The inspection catalog and runtime use these same definitions. Other shared
+ * tools load through hosted search; omission semantics retain strict: false.
  * Full canonical validation follows authored-value binding on the server. */
 export function solutionsArchitectToolDefinitions(): ToolSet {
 	return {
@@ -101,7 +109,9 @@ export function solutionsArchitectToolDefinitions(): ToolSet {
 					inputSchema: authoringToolSchema(entry.saName, entry.tool.inputSchema)
 						.inputSchema,
 					strict: false,
-					providerOptions: { openai: { deferLoading: true } },
+					...(!EAGER_JOURNEY_TOOLS.has(entry.saName) && {
+						providerOptions: { openai: { deferLoading: true } },
+					}),
 					...(entry.policy.effect !== "read-blueprint" && {
 						toModelOutput: ({ output }: { output: unknown }) => ({
 							type: "text" as const,

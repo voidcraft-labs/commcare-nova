@@ -9,6 +9,7 @@ import {
 	readAppTestStartReceipt,
 } from "@/lib/db/appTests";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
@@ -19,6 +20,7 @@ import { advanceAppTest, observeAppTest } from "./run";
 import { seedAppTest } from "./seed";
 import {
 	type AppTestAction,
+	type AppTestSessionState,
 	type AppTestSnapshot,
 	type AppTestState,
 	appTestActionItemSchema,
@@ -29,8 +31,7 @@ import {
 
 /** Stored checkpoints are server-produced, versioned by the session contract.
  * Rehydrate only database timestamps; user answers remain exact strings. */
-function restoreState(value: Record<string, unknown>): AppTestState {
-	const state = value as unknown as AppTestState;
+function restoreSession(state: AppTestSessionState): AppTestSessionState {
 	const restore = (snapshot: CaseDatabaseSnapshot): CaseDatabaseSnapshot => ({
 		...snapshot,
 		rows: snapshot.rows.map((row) => ({
@@ -40,10 +41,27 @@ function restoreState(value: Record<string, unknown>): AppTestState {
 			closed_on: row.closed_on === null ? null : new Date(row.closed_on),
 		})),
 	});
-	const screen = (entry: AppTestState["screen"]): AppTestState["screen"] =>
+	const restoreTask = <
+		T extends Extract<
+			AppTestSessionState["screen"],
+			{ kind: "menu" | "records" }
+		>,
+	>(
+		entry: T,
+	): T =>
+		entry.taskCases === undefined
+			? entry
+			: { ...entry, taskCases: restore(entry.taskCases) };
+	const screen = (
+		entry: AppTestSessionState["screen"],
+	): AppTestSessionState["screen"] =>
 		entry.kind === "form"
 			? { ...entry, entryCases: restore(entry.entryCases) }
-			: entry;
+			: entry.kind === "details"
+				? { ...entry, source: restoreTask(entry.source) }
+				: entry.kind === "menu" || entry.kind === "records"
+					? restoreTask(entry)
+					: entry;
 	return {
 		...state,
 		deviceCases: restore(state.deviceCases),
@@ -52,11 +70,95 @@ function restoreState(value: Record<string, unknown>): AppTestState {
 	};
 }
 
+function restoreState(value: Record<string, unknown>): AppTestState {
+	const state = value as unknown as AppTestState;
+	if (
+		typeof state.primarySessionId !== "string" ||
+		!Array.isArray(state.sessionOrder) ||
+		!state.sessions ||
+		!Object.hasOwn(state.sessions, state.primarySessionId)
+	)
+		throw new AppTestActionError(
+			"Retained worker sessions are unavailable. You can finish this test without a session ID and start a new test.",
+		);
+	return {
+		primarySessionId: state.primarySessionId,
+		sessionOrder: state.sessionOrder,
+		sessions: Object.fromEntries(
+			Object.entries(state.sessions).map(([id, session]) => [
+				id,
+				restoreSession(session),
+			]),
+		),
+	};
+}
+
+function sessionObservation(state: AppTestState, sessionId: string) {
+	const session = ownRecordValue(state.sessions, sessionId);
+	return {
+		sessionId,
+		primarySessionId: state.primarySessionId,
+		sessions: state.sessionOrder.map((id) => {
+			const session = ownRecordValue(state.sessions, id);
+			if (!session) throw new Error("A retained worker session is missing.");
+			return {
+				id,
+				personaUuid: session.personaUuid,
+				language: session.language,
+				screen: session.screen.kind,
+				...(session.screen.kind === "form"
+					? { formUuid: session.screen.formUuid }
+					: {}),
+			};
+		}),
+		recordSources: {
+			listsAndDetails: "current-isolated-store",
+			openForm:
+				session?.screen.kind === "form"
+					? "retained-entry-snapshot"
+					: "not-open",
+			submission: "Preview/Postgres-current-isolated-store",
+		},
+	};
+}
+
+function assertStateLimit(state: AppTestState) {
+	if (Buffer.byteLength(JSON.stringify(state)) > 16 * 1024 * 1024)
+		throw new AppTestActionError(
+			"This test exceeded its combined session state limit. You can start a smaller journey.",
+		);
+}
+
+async function assertRecordLimit(
+	tx: Transaction<Database>,
+	scope: AppTestScope,
+) {
+	const count = await sql<{
+		count: string;
+	}>`SELECT count(*)::text AS count FROM cases WHERE app_id = ${scope.appId} AND project_id = ${scope.projectId}`.execute(
+		tx,
+	);
+	if (Number(count.rows[0]?.count) > 2000)
+		throw new AppTestActionError(
+			"This test exceeded its record limit. You can start a smaller journey.",
+		);
+}
+
 export async function startAppTest(
 	scope: AppTestScope,
 	args: { requestId: string; expectedBlueprintSeq: number; input: unknown },
 ) {
 	const input = appTestStartSchema.parse(args.input);
+	const sessionInputs = input.sessions ?? [
+		{ id: "default", personaUuid: null, language: input.language },
+	];
+	if (
+		new Set(sessionInputs.map((session) => session.id)).size !==
+		sessionInputs.length
+	)
+		throw new AppTestActionError(
+			"Each worker session needs a unique test-local ID.",
+		);
 	// The source revision is inferred at execution, not part of the author's
 	// command. Recovery returns that command's original revision and receipt.
 	const requestDigest = canonicalJsonDigest(input);
@@ -106,39 +208,68 @@ export async function startAppTest(
 					(suppliedRecords.get(record.caseType) ?? 0) + 1,
 				);
 			}
-			const initial: AppTestState = {
-				language: appTestLanguage(snapshot, input.language),
-				personaUuid: null,
-				screen: { kind: "home" },
-				history: [],
-				selections: {},
-				deviceCases: { rows: [], indices: [] },
+			const doc = hydratePersistedBlueprint(snapshot.blueprint);
+			const sessions: Record<string, AppTestSessionState> = {};
+			let primaryObservation: Record<string, unknown> = {};
+			for (const sessionInput of sessionInputs) {
+				const initial: AppTestSessionState = {
+					language: appTestLanguage(
+						snapshot,
+						sessionInput.language ?? input.language,
+					),
+					personaUuid: null,
+					screen: { kind: "home" },
+					history: [],
+					selections: {},
+					deviceCases: { rows: [], indices: [] },
+				};
+				const identity = bindAppTestAction(doc, initial, {
+					kind: "identity",
+					personaUuid: sessionInput.personaUuid ?? null,
+				});
+				if (identity.kind !== "identity")
+					throw new Error("Expected a worker identity.");
+				initial.personaUuid = identity.personaUuid;
+				const observed = await withAppTestContext(
+					tx as unknown as Transaction<Database>,
+					testScope,
+					snapshot,
+					initial,
+					async (context) => {
+						const deviceCases = await context.store.readDeviceCaseDatabase({
+							appId: scope.appId,
+							restoreScope: context.restoreScope,
+						});
+						const result = await observeAppTest(context, scope, {
+							...initial,
+							deviceCases,
+						});
+						await assertRecordLimit(
+							tx as unknown as Transaction<Database>,
+							scope,
+						);
+						return {
+							...result,
+							observation: { ...result.observation, clock: context.clock },
+						};
+					},
+				);
+				sessions[sessionInput.id] = observed.state;
+				if (sessionInput.id === sessionInputs[0].id)
+					primaryObservation = observed.observation;
+			}
+			const state: AppTestState = {
+				primarySessionId: sessionInputs[0].id,
+				sessionOrder: sessionInputs.map((session) => session.id),
+				sessions,
 			};
-			const observed = await withAppTestContext(
-				tx as unknown as Transaction<Database>,
-				testScope,
-				snapshot,
-				initial,
-				async (context) => {
-					const deviceCases = await context.store.readDeviceCaseDatabase({
-						appId: scope.appId,
-						restoreScope: context.restoreScope,
-					});
-					const result = await observeAppTest(context, scope, {
-						...initial,
-						deviceCases,
-					});
-					return {
-						...result,
-						observation: { ...result.observation, clock: context.clock },
-					};
-				},
-			);
+			assertStateLimit(state);
 			return {
 				snapshot: { ...snapshot },
-				state: { ...observed.state },
+				state: { ...state },
 				observation: {
-					...observed.observation,
+					...primaryObservation,
+					...sessionObservation(state, state.primarySessionId),
 					purpose: input.purpose,
 					suppliedRecords: Array.from(suppliedRecords, ([caseType, count]) => ({
 						caseType,
@@ -204,12 +335,26 @@ export async function continueAppTest(
 		advance: async (tx, source, item) => {
 			const snapshot = source.snapshot as unknown as AppTestSnapshot;
 			const doc = hydratePersistedBlueprint(snapshot.blueprint);
-			const state = restoreState(source.state);
+			const retained = restoreState(source.state);
 			const authored = appTestActionItemSchema.parse(item);
 			await sql`SAVEPOINT app_test_action`.execute(tx);
 			try {
+				const sessionId = authored.sessionId ?? retained.primarySessionId;
+				const state = ownRecordValue(retained.sessions, sessionId);
+				if (!state)
+					throw new AppTestActionError(
+						`Worker session ${sessionId} is not part of this test.`,
+					);
+				if (authored.action.kind === "finish") {
+					await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);
+					return {
+						state: {},
+						observation: { ended: true, sessionId },
+						finished: true,
+					};
+				}
 				const bound = bindAppTestAction(doc, state, authored.action);
-				const nextState: AppTestState =
+				const nextState: AppTestSessionState =
 					bound.kind === "identity"
 						? {
 								...state,
@@ -251,24 +396,21 @@ export async function continueAppTest(
 										nextState,
 										bound,
 									);
-						const count = await sql<{
-							count: string;
-						}>`SELECT count(*)::text AS count FROM cases WHERE app_id = ${scope.appId} AND project_id = ${scope.projectId}`.execute(
-							tx,
+						await assertRecordLimit(
+							tx as unknown as Transaction<Database>,
+							scope,
 						);
-						if (
-							Number(count.rows[0]?.count) > 2000 ||
-							Buffer.byteLength(JSON.stringify(result.state)) > 16 * 1024 * 1024
-						)
-							throw new AppTestActionError(
-								"This test exceeded its record or state limit. Start a smaller journey.",
-							);
 						return {
 							...result,
 							observation: { ...result.observation, clock: context.clock },
 						};
 					},
 				);
+				const nextRetained: AppTestState = {
+					...retained,
+					sessions: { ...retained.sessions, [sessionId]: observed.state },
+				};
+				assertStateLimit(nextRetained);
 				// A guard is an observation AFTER the action, including any successful
 				// submission. A mismatch never undoes what the worker already completed.
 				let mismatch: string | undefined;
@@ -295,9 +437,10 @@ export async function continueAppTest(
 						: undefined);
 				await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);
 				return {
-					state: { ...observed.state },
+					state: { ...nextRetained },
 					observation: {
 						...observed.observation,
+						...sessionObservation(nextRetained, sessionId),
 						...(mismatch
 							? { expectationMet: false, expectationError: mismatch }
 							: {}),
@@ -309,8 +452,12 @@ export async function continueAppTest(
 				await sql`ROLLBACK TO SAVEPOINT app_test_action`.execute(tx);
 				await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);
 				return {
-					state: { ...state },
+					state: { ...retained },
 					observation: {
+						...sessionObservation(
+							retained,
+							authored.sessionId ?? retained.primarySessionId,
+						),
 						action: authored.action.kind,
 						completed: false,
 						error: error.message,

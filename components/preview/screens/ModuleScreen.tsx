@@ -17,6 +17,7 @@ import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResour
 import { previewParentCaseResumeLocation } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
@@ -32,10 +33,13 @@ import {
 	moduleLanding,
 	moduleParent,
 	moduleScreenLanding,
+	reachableCaseTypes,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
+import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { previousTaskFormSelectors } from "@/lib/preview/engine/previousTask";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
@@ -53,9 +57,12 @@ import {
 	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
+	usePreviewTaskContinuation,
 	useSetPreviewCaseTarget,
 	useSetPreviewParentCaseRequest,
+	useSetPreviewTaskContinuation,
 } from "@/lib/session/hooks";
+import { useWorkerMessage } from "../shared/WorkerText";
 import { openModuleLanding } from "./moduleLanding";
 
 interface ModuleScreenProps {
@@ -69,6 +76,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const navigate = useNavigate();
 	const projectProse = useProseProjection();
 	const { inline } = useBlueprintMutations();
+	const docApi = useBlueprintDocApi();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
@@ -76,6 +84,8 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
 	const menuSource = usePreviewMenuSource();
 	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const taskContinuation = usePreviewTaskContinuation();
+	const setTaskContinuation = useSetPreviewTaskContinuation();
 	const caseFirstModules = useCaseFirstModuleUuids();
 
 	/** Activity keeps a visited module mounted after the URL moves elsewhere,
@@ -87,6 +97,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	 * from Results after an empty search, never from here. */
 	const forms = useOrderedMenuForms(moduleUuid);
 	const language = useBuilderLanguage();
+	const message = useWorkerMessage();
 	const localizedValues = useLocalizedValues();
 	const moduleNameUnitId = makeTranslationUnitId(
 		"module",
@@ -208,7 +219,11 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	});
 	useEffect(() => {
 		if (!moduleUuid) return;
-		if (mode !== "edit" && requiredParentCase) {
+		if (
+			mode !== "edit" &&
+			requiredParentCase &&
+			taskContinuation?.moduleUuid !== moduleUuid
+		) {
 			setPreviewCaseTarget(undefined);
 			const continuingRequest =
 				previewParentCaseRequest?.selectingModuleUuid === moduleUuid
@@ -258,6 +273,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		requiredParentCase,
 		setPreviewCaseTarget,
 		setPreviewParentCaseRequest,
+		taskContinuation,
 	]);
 
 	/* Forward the gated dispatch's outcome: a rename the commit gate
@@ -335,12 +351,19 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
 						/>
 						<div className="flex-1 min-w-0">
-							<div className="text-sm font-medium text-nova-text">Cases</div>
+							<div className="text-sm font-medium text-nova-text">
+								{message("cases")}
+							</div>
 							{selectedMenuCase && (
 								<div className="text-xs text-nova-text-muted truncate">
 									{selectedMenuChoices.length === 1
-										? `Selected: ${selectedMenuChoices[0]?.caseName ?? "Case"}`
-										: `${selectedMenuChoices.length} cases selected`}
+										? message("selectedCase", {
+												name:
+													selectedMenuChoices[0]?.caseName || message("case"),
+											})
+										: message("selectedCountMany", {
+												count: selectedMenuChoices.length,
+											})}
 								</div>
 							)}
 						</div>
@@ -379,6 +402,56 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							formType: form.type,
 							moduleHasCaseType: hasCase,
 						});
+						const continuedWorld =
+							taskContinuation?.moduleUuid === moduleUuid
+								? taskContinuation.caseDatabase
+								: undefined;
+						if (continuedWorld) {
+							const selectingModuleUuids = previousTaskFormSelectors(
+								docApi.getState(),
+								form.uuid,
+								menuCaseSelections,
+							);
+							setTaskContinuation({
+								moduleUuid,
+								formUuid: form.uuid,
+								returnModuleUuid: moduleUuid,
+								selectingModuleUuids,
+								caseDatabase: continuedWorld,
+							});
+							setPreviewCaseTarget({
+								formUuid: form.uuid,
+								...(launch.kind === "select-case-first"
+									? selectedMenuCase && { cases: selectedMenuCase.cases }
+									: { cases: [] }),
+								caseDatabase: continuedWorld,
+								caseData:
+									selectedMenuCase?.cases.length === 1
+										? caseDatabaseToFormPreloads(
+												continuedWorld,
+												selectedMenuCase.cases[0].caseId,
+												reachableCaseTypes(mod?.caseType, menuSource.caseTypes),
+											)
+										: undefined,
+							});
+							const [first, ...remaining] = selectingModuleUuids;
+							if (first === undefined) navigate.openForm(moduleUuid, form.uuid);
+							else {
+								if (remaining.length > 0 || first !== moduleUuid)
+									setPreviewParentCaseRequest({
+										selectingModuleUuid: first,
+										returnModuleUuids:
+											remaining.length > 0 ? remaining : [moduleUuid],
+										resumeLocation:
+											remaining.length > 0
+												? { kind: "cases", moduleUuid }
+												: { kind: "form", moduleUuid, formUuid: form.uuid },
+										cancelLocation: { kind: "module", moduleUuid },
+									});
+								navigate.openCaseList(first);
+							}
+							return;
+						}
 						if (launch.kind === "select-case-first") {
 							if (selectedMenuCase) {
 								setPreviewCaseTarget({

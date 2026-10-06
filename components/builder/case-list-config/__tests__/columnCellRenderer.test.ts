@@ -644,6 +644,19 @@ describe("case-list Preview cell formatting", () => {
 		);
 	});
 
+	it("keeps authoring blank-value labels English while worker cells follow their language", () => {
+		const column = plainColumn(COLUMN_UUID, "notes", "Notes");
+		const row = makeRow({});
+		expect(
+			renderToStaticMarkup(renderColumnCell(column, row, EMPTY_CONTEXT)),
+		).toContain("No value");
+		expect(
+			renderToStaticMarkup(
+				renderColumnCell(column, row, { ...EMPTY_CONTEXT, language: "spa" }),
+			),
+		).toContain("Sin valor");
+	});
+
 	it("preserves calculated missing, invalid-date, and structured fallbacks", () => {
 		const missing = renderToStaticMarkup(renderCalculatedCell(null));
 		expect(missing).toContain('aria-hidden="true"');

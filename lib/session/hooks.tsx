@@ -82,6 +82,14 @@ export function usePreviewCaseTarget(): PreviewCaseTarget | undefined {
 	return useBuilderSession((s) => s.previewCaseTarget);
 }
 
+export function usePreviewTaskContinuation() {
+	return useBuilderSession((s) => s.previewTaskContinuation);
+}
+
+export function useSetPreviewTaskContinuation() {
+	return useBuilderSession((s) => s.setPreviewTaskContinuation);
+}
+
 /** Setter for the preview case target. The module menu sets the destination
  *  form; the case list's Continue adds the selected case. */
 export function useSetPreviewCaseTarget(): (

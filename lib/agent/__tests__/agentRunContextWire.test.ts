@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
+import { collectTranslationUnits } from "@/lib/domain";
 import { AgentRunContext } from "../agentRunContext";
 import type { SubGenerationUsageMeter } from "../modelRunContext";
-import { translationBatchOutputSchema } from "../translation/translator";
+import {
+	createProductionTranslationBatchRunner,
+	encodeTranslationUnit,
+	translationBatchOutputSchema,
+	translationLanguage,
+} from "../translation/translator";
+import { surveyFixture } from "./admittedFixture";
 import { respondWithObject, withResponsesPeer } from "./responsesPeer";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000600";
@@ -63,27 +69,47 @@ describe("structured agent context", () => {
 	});
 
 	it("returns a validated translation and meters the native response", async () => {
+		const doc = surveyFixture();
+		const unit = collectTranslationUnits(doc).find(
+			(candidate) => candidate.role === "field-label",
+		);
+		if (!unit) throw new Error("The survey must have a question label");
 		const translated = {
-			translations: [{ unitId: "label", translatedText: "Visite" }],
+			translations: [{ unitId: unit.id, translatedText: "Note" }],
 		};
+		let received: unknown;
 		await withResponsesPeer(
-			(_request, response) =>
-				respondWithObject(response, JSON.stringify(translated)),
+			(request, response) => {
+				let body = "";
+				request.setEncoding("utf8");
+				request.on("data", (chunk) => {
+					body += chunk;
+				});
+				request.on("end", () => {
+					received = JSON.parse(body);
+					respondWithObject(response, JSON.stringify(translated));
+				});
+			},
 			async (_provider, transport) => {
 				const tracked: unknown[] = [];
 				const context = makeContext(
 					{ track: (usage, options) => tracked.push({ usage, options }) },
 					transport,
 				);
-				const role = MODEL_ROLES.translator;
-				const result = await context.runStructured({
-					schema: translationBatchOutputSchema,
-					modelId: role.modelId,
-					system: "Translate the supplied text",
-					prompt: "Visit",
-					maxOutputTokens: 2000,
-					providerOptions: reasoningProviderOptions(role.reasoningEffort),
-					signal: new AbortController().signal,
+				const result = await createProductionTranslationBatchRunner(context)(
+					{
+						sourceLanguage: translationLanguage({ language: "eng" }),
+						targetLanguage: translationLanguage({ language: "fra" }),
+						appObjective: doc.appName,
+						units: [encodeTranslationUnit(unit)],
+						glossary: [],
+					},
+					new AbortController().signal,
+				);
+				expect(received).toMatchObject({
+					model: "gpt-6.1-sol",
+					reasoning: { effort: "medium", summary: "auto" },
+					store: false,
 				});
 				expect(result.object).toEqual(
 					translationBatchOutputSchema.parse(translated),
@@ -96,7 +122,7 @@ describe("structured agent context", () => {
 							cacheReadTokens: 3,
 							cacheWriteTokens: undefined,
 						},
-						options: { model: role.modelId, phase: "design-author" },
+						options: { model: "gpt-6.1-sol", phase: "design-author" },
 					},
 				]);
 				expect(context.target).toEqual({

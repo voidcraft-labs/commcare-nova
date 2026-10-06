@@ -36,8 +36,11 @@ The **Otherwise** row is always last. It is where the form goes when nothing
 above it matched, and it can be any of:
 
 - **App home**: back to the main screen.
-- **This module**: stay in this module's form list.
-- **Previous screen**: back to where the person was.
+- **This module**: open the module at its normal starting screen.
+- **Previous screen**: return to the preceding selection or task. When the
+  form was chosen before its record, its record picker opens again for that
+  same form. When the record was chosen before the form, the module menu opens
+  with that record still selected. This follows the app's task sequence.
 - **Another form or module**: open a form, or a module's form list, as a link
   with no condition.
 

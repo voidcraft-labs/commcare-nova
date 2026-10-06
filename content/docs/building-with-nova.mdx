@@ -38,8 +38,14 @@ A form check does not establish menu reachability or execute additional record
 operations. Nova can also exercise a journey from app entry through selection,
 record details, form pages, answers, submission and the next task using disposable test records. Page turns check required answers before proceeding. These
 journeys can reveal inaccessible menus and incorrect saved effects without
-changing your live cases. Nova also considers how you start using the app,
-including how its first records are created or provided. Tests with supplied
+changing your live cases, including checks with several workers' forms left open.
+Form checks and journey observations use the selected worker language for
+repeated-entry headings and unnamed questions. These platform labels support
+English and Spanish, with English labels for other worker languages.
+Sync refreshes a test worker's available records while keeping the open form's starting information
+and answers. Submitting that form keeps other records already learned by Sync
+available for the worker's next task. Nova also considers how you start using
+the app, including how its first records are created or provided. Tests with supplied
 records cannot prove that setup is available. They check Preview behavior; they do not prove native
 device behavior, deployment, media uploads or every possible workflow.
 Chat distinguishes these checks and other activities from completed
@@ -64,18 +70,32 @@ When you open a form for a selected record, Preview waits for that record and
 its related information before preparing the questions and matching entries.
 This also applies when you enter Preview from a form you are editing.
 If case data refreshes during a form, your entered answers stay available and
-submission waits for the refresh to finish. Returning Home starts a fresh task,
-so reopening a related-record list lets you choose its parent record again.
+the controls pause until the refresh finishes. A Submit press interrupted by
+that refresh saves nothing and asks for no answer corrections. Once the form is
+ready, you can press Submit again. Returning Home starts a fresh task, so
+reopening a related-record list lets you choose its parent record again.
 
 Screen readers announce question and section positions within their current
 container. Hidden calculations and questions that do not currently apply are
 skipped, including inside each repeated entry.
 
-A repeating section can let workers add entries, follow a count from an integer question or formula, or show one
-entry per matching record. For the latter two, Preview fixes the entries when the
-form loads, or when the enclosing repeated entry is added for a nested section.
-Changing an answer or opening a later page does not rebuild that list. The
-information used to choose entries needs to be available when they are created.
+Repeating sections with only hidden calculations and no title or media stay out
+of the running form. Their calculations still run, and any configured record
+changes happen when you submit. Titles, media and visible questions remain
+available, and entries that workers add keep their Add and Remove controls.
+
+Group and repeating-section titles wrap beside their collapse control.
+Repeating-section information sits below the title, with an entry count when
+there are several entries. This leaves room for longer titles on a phone.
+Editing and Preview use the same layout.
+
+A repeating section can let workers add entries, follow a count from an integer
+question or formula, or show one entry per matching record. Counts stay live:
+increasing the count adds entries; decreasing it retains entries already created,
+their answers and their record changes. A list of matching records is captured
+when the form opens, or when the enclosing entry is created for a nested section.
+Returning to a page keeps those entries. A section creates its entries on first
+entry, so their starting information can come from earlier pages.
 
 Preview checks each answer before submitting the form. Whole-number questions
 accept integers; decimal questions also accept fractions. If an answer is
@@ -84,6 +104,12 @@ can correct it. Optional questions can be left empty.
 When a form opens an existing record, its questions become available after that
 record finishes loading. This keeps early answers from being replaced as the
 form starts.
+
+Preview saves changes to your case records. It does not provide an archive of
+each submitted form's answers. Independent visit reports collected through
+CommCare HQ use its form reporting and export tools. That workflow also needs a
+configured collection destination and reviewer access to the reports. A
+successful Preview submission does not verify those connections.
 
 Changing the Preview worker returns to app entry and clears the previous
 worker’s form and record selection. You can then follow the new worker’s menus.
@@ -127,6 +153,17 @@ files from the app's Project. Elsewhere, it follows your selected Project.
 Project viewers can preview files; editors can also upload and delete them.
 A ready document's information button explains what Nova reads; opening the
 document lets you inspect the summary itself.
+
+Nova prepares a working summary of app requirements, rather than a word-for-word
+copy. Its reading guidance keeps necessary names and roles when the document
+explicitly defines people who will use the app, or operational stakeholders whose
+stated responsibilities matter to it. A roster, contact list, signature, or
+example alone does not define an app user or give them permissions.
+
+The guidance leaves out personal values from fieldwork records and example rows,
+along with contact details, account identifiers and credentials. This does not
+guarantee that every personal detail is removed. Your original file remains in
+the Project's library.
 
 A document is ready only after its read finishes. An interrupted response stays
 unavailable even if part of it looks complete. Nova preserves literal paths and
@@ -272,6 +309,12 @@ While editing a label, hint, help text, choice label, or validation message,
 search by name or reference path, then choose a result to insert a chip. Typing
 `#` also opens reference suggestions. The chip shows the value when the form runs
 and preserves its target when you rename or move the referenced question.
+
+Validation wording follows the same rule: typed or pasted text stays literal,
+including `${0}`, and inserted references read their answers or saved values.
+If the wording is empty or a reference points to several repeated answers, the
+form shows its standard validation warning. The answer still needs to meet
+the rule.
 
 Typing or pasting `#household/case_name` alone keeps it as literal text. To use
 it as a value, select the exact reference text, choose **Convert to reference**,

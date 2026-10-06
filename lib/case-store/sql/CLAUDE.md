@@ -15,6 +15,7 @@ The generic AST also carries contextual case-operation leaves: `field { uuid }`,
 - Any non-self `PropertyRef` surviving predicate normalization is a compiler bug and throws. Predicate compilation never falls back to a scalar `LIMIT 1`, pairwise node-set comparison, or a relation cross-product. `compileTerm` retains its correlated scalar-subquery path only for standalone expression compilation outside the normalized predicate entry point.
 - Standalone relational terms (calculated columns, sort expressions, and defaults) canonicalize the walk from `currentCaseType` before both resolving the destination schema and compiling joins. This materializes every inferable `parent` qualifier, treats `any-relation(parent)` as parent-plus-children, and preserves explicit custom-index destinations; SQL must never re-infer a custom identifier from `parent_type` or omit a same-identifier case-type filter that the on-device wire applies.
 - `count(self)` reduces to `1`, or `CASE WHEN <where> THEN 1 ELSE 0`; it does not enter the relation-path compiler.
+- Every non-self scalar `count` correlates the relation leaf's `anchor_case_id` to the current anchor's `case_id`, before applying its optional leaf predicate. The relation-path subquery contains walks for all anchors; tenancy and leaf filtering alone cannot make a count row-specific. Nested counts use the depth-specific leaf alias for the same correlation.
 - **Leaf-alias depth thread.** Hop aliases are isolated by SQL subquery scoping, but the leaf alias is NOT for inner→outer correlation: an inner subquery reusing `rp_leaf` shadows the outer leaf and the correlation collapses into self-equality on the inner row. `relationPathDepth` increments on every recursion into a walk's inner predicate, and `leafAliasForDepth` derives `rp_leaf` / `rp_leaf_<N>` so inner blocks never shadow outer ones. `compileTerm`'s non-self via reads inherit the same depth.
 
 ## No raw-SQL escape hatches
@@ -58,6 +59,25 @@ fractions and wider numbers use `numeric`. Explicit authored types still win.
 Every arithmetic node preserves its grouping, including a nested right operand
 with the same precedence: `10 - (5 - 2)` must return `7`.
 
+Numeric coercion binds its input through `text` before the numeric cast. Inside
+`if`, `switch` and `coalesce`, the operand's text value is also gated by the
+enclosing branch conditions before casting. An outer `CASE` alone is insufficient:
+PostgreSQL can fold invalid constant arithmetic during planning even when a
+row-backed condition never chooses it. Carry every enclosing condition, preserve
+the first matching switch case and the first nonblank coalesce value, and treat a
+null condition as the else/fallback branch. Executing arithmetic on invalid
+numeric text still fails, as does division by zero; this is not a general
+null-on-error rule.
+
+Selected branch indices and preceding coalesce values use private one-row projections
+with `OFFSET 0` to prevent planner flattening. Guards refer to projected columns,
+so numeric fallback chains do not recursively duplicate parameters and a switch
+relation count executes once per row. Keep nested projection aliases distinct.
+Keep the final coalesce fallback inside `COALESCE`, where an unknown bound input
+inherits the preceding SQL type. Switch dispatch retains its authored comparison
+context; numeric question discriminators carry an explicit numeric cast and a
+literal null discriminator selects the fallback.
+
 ## Blank semantics
 
 `is-blank` matches absent-or-empty, the one absence meaning Nova's Postgres runtime and every CommCare wire target can preserve identically.
@@ -68,6 +88,14 @@ cast the empty string into that type and can fail before filtering any rows.
 Property checks retain their storage-aware blank semantics.
 
 `coalesce` skips null and empty values, preserving the selected value's type. The last argument is the fallback even when blank, matching the form runtime.
+
+For `if`, `switch` and `coalesce` result branches, an unanswered bound `int` or
+`decimal` question projects to typed numeric `NULL`; an answered question keeps
+the same numeric result type, including inside nested branches. Submission storage omits
+that property on create and removes it on update; a false per-write condition
+preserves the old value instead. Text blanks remain empty strings and zero
+remains numeric. This projection is confined to direct result branches;
+arithmetic retains the coercion contract above.
 
 Typed temporal literals are the one intentional editor-draft exception: an optional date, time, or datetime control commits `""` while unset, and the live Results preview executes that AST immediately. `compileLiteral` must pass temporal strings through `nullif(value, '')` before the cast, so the unset draft becomes typed SQL `NULL` (and therefore no match) instead of a raw Postgres `22007` error. Non-empty malformed values still reach the cast and fail; this is not a general parse-error catch or a widening of valid temporal syntax.
 

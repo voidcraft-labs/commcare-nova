@@ -80,6 +80,17 @@ export function isXPathSequence(value: unknown): value is XPathSequence {
 	return value instanceof XPathSequence;
 }
 
+/** The one scalar failure a custom validation message may replace with its
+ * normal invalid-answer wording. Other evaluation failures stay observable. */
+export class XPathNodesetCardinalityError extends Error {
+	constructor(paths: readonly string[]) {
+		super(
+			`XPath nodeset has more than one node [${paths.join(";")}]; cannot convert multiple nodes to a raw value. Refine path expression to match only one node.`,
+		);
+		this.name = "XPathNodesetCardinalityError";
+	}
+}
+
 /** Mirrors XPathNodeset.unpack(): empty → blank, singleton → value, many → error. */
 export function unpackXPathRuntimeValue(value: XPathRuntimeValue): XPathValue {
 	if (isXPathSequence(value)) {
@@ -93,8 +104,8 @@ export function unpackXPathRuntimeValue(value: XPathRuntimeValue): XPathValue {
 	}
 	if (value.nodes.length === 0) return "";
 	if (value.nodes.length > 1) {
-		throw new Error(
-			`XPath nodeset has more than one node [${value.nodes.map((node) => node.path).join(";")}]; cannot convert multiple nodes to a raw value. Refine path expression to match only one node.`,
+		throw new XPathNodesetCardinalityError(
+			value.nodes.map((node) => node.path),
 		);
 	}
 	return value.nodes[0]?.value() ?? "";

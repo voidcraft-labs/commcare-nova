@@ -385,6 +385,22 @@ always produce text, and the `#` suggestion menu is the one path that inserts
 a reference), and a value that does not survive the template ⇄ editor round
 trip is a validator finding rather than an assumption.
 
+Constraint wording uses the same typed prose identity. At the CommCare boundary,
+messages containing a typed reference or decoded `${` literal compose their
+text through a raw constraint expression, so Core's alert filler cannot replace
+marker-like authored text or referenced data. Standard itext and media retain
+an irrelevant, readonly sibling owner in the question's actual scope; that
+owner adds no authored field, visible question, normal submitted answer or
+case write. Plain literal and media-only messages keep the ordinary alert path.
+Normal scalar coercion remains intact without joining a single nodeset. The
+plain/Markdown branch counts each typed reference before coercion; if any
+reference names several answers, it supplies no custom wording and the native
+client shows its existing localized validation warning. A completely empty
+resolved message uses the same warning. These are deliberate improvements to
+old exception/empty behavior, not identical error handling. Validation still
+rejects the answer, chooses no repeated row, and leaves authored answers and
+the original media branch unchanged.
+
 Search-input references are identity too: Predicate and ValueExpression store
 `{ kind: "input", searchInputUuid }` (`lib/domain/predicate/types.ts`),
 resolved to the input's current saved wire name only at projection. Which
@@ -758,6 +774,31 @@ including creates and expression targets, and preserve authored order within
 each repeat iteration. Multiple-selection submissions run form-level operations
 once, then session-targeted operations per selected case; choosing only one row
 does not change that mode. Both evaluate expressions before applying effects.
+
+Pre-effect ordering does not establish current-at-submit reads. Preview operation
+record expressions use the current submission transaction while form-answer
+bindings retain the submitted entry's values. Native expressions can retain an
+open form's initialized record view across another submission to the same local
+store (`CaseInstanceTreeElement`'s single-snapshot lifecycle and
+`CaseChildElement.cache`'s materialized property tree). A read condition is not a
+compare-and-set against current stored properties.
+
+The shared add/update results and form/operation reads return one non-gating
+`operationSemantics` projection derived from canonical references and inherited
+guards. It distinguishes selected, related, created and runtime record targets;
+reports condition/value property reads and writes; and names same-record or
+possible-alias overlaps. Generated creates remain distinct from existing rows,
+even of the same type; authored keys can merge an existing identity. Form-answer
+dependencies preserve their stable field identities and entry provenance.
+Quantified rows, runtime targets and unclassified XPath text are not promoted to
+proven record identity or a complete read inventory. Ordinary answer writes
+remain visible separately, including when advanced operations are empty.
+
+Irreversible true-only facts or append-only child events can express monotonic
+progress with calculated Results columns, filters and form expressions. Every
+writer must preserve those facts/events, and unfinished actions must not clear
+terminal facts. This does not supply current-at-submit phase, first-event-only
+actor/timestamp writes, or fresh checks of mutable values.
 
 Relation operators carry their own case-instance dependency. An unfiltered
 count, exists or missing condition still reads related rows, even when its AST
@@ -2365,6 +2406,17 @@ submit), Preview follows them against the case rows as the submission left
 them (`lib/preview/CLAUDE.md` § End-of-form links), the SA and MCP speak
 `add_form_links` / `update_form_link` / `remove_form_link` /
 `move_form_link`, and `content/docs/form-links.mdx` is the user-facing guide.
+
+The same raw `previous` frame exposes stable task and selection provenance to
+`lib/commcare/previousTaskProjection.ts`. Preview and App Tests resolve that
+neutral projection through `lib/preview/engine/previousTask.ts` against the
+submitting entry plus its exact receipt. It reopens the exact forms-first
+selector or returns to the case-first menu with its retained records, rather
+than treating `previous` as visited-screen history. Retained commands finish
+their existing task even if the save changes its offering conditions; a module
+menu evaluates its current form offerings. Authoring navigation reads and
+mutation results use this same projection, qualifying private incomplete
+neighbors explicitly instead of inventing a destination.
 
 ### Form sections
 

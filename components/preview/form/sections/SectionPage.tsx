@@ -15,14 +15,12 @@
 "use client";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useId, useRef } from "react";
-import {
-	useBuilderLanguage,
-	useLocalizedField,
-} from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { fpath } from "@/lib/doc/fieldPath";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import type { SectionPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
@@ -44,7 +42,7 @@ export function SectionPage({
 	takeFocusOnMount,
 }: SectionPageProps) {
 	const { language } = useBuilderLanguage();
-	const field = useLocalizedField(page.uuid);
+	const field = usePresentationField(page.uuid);
 	const state = useEngineState(page.uuid);
 	const headingId = useId();
 	const headingRef = useRef<HTMLElement | null>(null);

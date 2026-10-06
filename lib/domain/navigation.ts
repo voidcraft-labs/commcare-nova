@@ -100,7 +100,14 @@ export function moduleLanding(args: {
 }
 
 export type NavigationDestination =
-	| { readonly screen: "home" | "previous" }
+	| { readonly screen: "home" }
+	| {
+			readonly screen: "record-selection";
+			readonly moduleUuid: Uuid;
+			readonly formUuid: Uuid;
+			readonly selectingModuleUuids: readonly Uuid[];
+			readonly name: string;
+	  }
 	| {
 			readonly screen: "menu" | "results" | "search";
 			readonly moduleUuid: Uuid;
@@ -114,7 +121,7 @@ export type NavigationDestination =
 			readonly formUuid: Uuid;
 			readonly name: string;
 	  }
-	| { readonly screen: "unavailable" };
+	| { readonly screen: "unavailable"; readonly reason?: string };
 
 type NavigationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 
@@ -156,7 +163,11 @@ export function moduleDestination(
 
 /** Resolved destinations supplement configuration with its actual behavior.
  * Link conditions remain on the links; they are not repeated in this read. */
-export function formNavigation(doc: NavigationDoc, formUuid: Uuid) {
+export function formNavigation(
+	doc: NavigationDoc,
+	formUuid: Uuid,
+	previousDestination?: NavigationDestination,
+) {
 	const form = doc.forms[formUuid];
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (!form || !moduleUuid || !doc.modules[moduleUuid]) return undefined;
@@ -166,7 +177,9 @@ export function formNavigation(doc: NavigationDoc, formUuid: Uuid) {
 			? { screen: "results", moduleUuid, name: doc.modules[moduleUuid].name }
 			: destination === "module"
 				? moduleDestination(doc, moduleUuid)
-				: { screen: destination === "previous" ? "previous" : "home" };
+				: destination === "previous"
+					? (previousDestination ?? { screen: "unavailable" })
+					: { screen: "home" };
 	return {
 		recordSelection:
 			form.entry?.kind === "search-no-matches"

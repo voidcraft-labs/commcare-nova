@@ -106,10 +106,11 @@ export function isNoMatchesForm(form: Pick<Form, "entry">): boolean {
  * The one stored and machine-authored navigation vocabulary:
  *   "app_home" → App Home (main menu)
  *   "module"   → This Module (case list / form list)
- *   "previous" → Previous Screen (back to where the user was)
+ *   "previous" → Previous screen (the preceding selection or task)
  * Form-type-aware default for post_submit when the field is absent.
- * Case-loading forms (followup, close) return to the previous screen
- * (the case list they came from); registration and survey go home.
+ * Case-loading forms (followup, close) return to the preceding task:
+ * the same form's selector in forms-first modules, or the module menu with
+ * its retained selection in case-first modules. Registration and survey go home.
  *
  * In a module that opens on Search (`searchFirst`), a case-loading form
  * returns to the module instead, so the worker searches again. CommCare

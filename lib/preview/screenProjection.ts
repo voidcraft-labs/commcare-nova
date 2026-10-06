@@ -19,6 +19,7 @@ export function locationToPreviewScreen(
 	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
 	moduleVisibility: ReadonlyMap<Uuid, NavigationItemVisibility>,
 	requiredCaseAdmissionModuleUuid?: Uuid,
+	continuesExistingTask = false,
 ): PreviewScreen {
 	if (loc.kind === "home") return { type: "home" };
 	if (loc.kind === "app-setup") {
@@ -45,6 +46,7 @@ export function locationToPreviewScreen(
 	 * itself hidden or pending, Home is the nearest runnable screen. */
 	const parentUuid = moduleParent({ modules, moduleOrder }, loc.moduleUuid);
 	if (
+		!continuesExistingTask &&
 		parentUuid !== undefined &&
 		parentUuid !== null &&
 		moduleVisibility.get(loc.moduleUuid) !== "shown"

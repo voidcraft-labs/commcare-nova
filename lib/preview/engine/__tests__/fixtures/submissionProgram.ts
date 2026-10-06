@@ -1,44 +1,19 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { parseXPathExpression } from "@/lib/commcare/xpath";
-import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import type {
-	BlueprintDoc,
-	CaseOperation,
-	LookupColumnId,
-	LookupTableId,
-	Uuid,
-} from "@/lib/domain";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
+import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { fieldSchema } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { parseLookupRevision } from "@/lib/lookup/schema";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import type { SubmissionMutation } from "../../caseDataBindingTypes";
 import { FormEngine, type FormEngineInput } from "../../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
-const LOOKUP_CONTEXT: LookupValidationContext = {
-	kind: "available",
-	projectId: "project-acceptance",
-	projectRevision: parseLookupRevision("1"),
-	definitions: [
-		{
-			id: "70000000-0000-7000-8000-000000000001" as LookupTableId,
-			name: "Status",
-			tag: "status",
-			definitionRevision: parseLookupRevision("1"),
-			columns: [
-				{
-					id: "70000000-0000-7000-8000-000000000002" as LookupColumnId,
-					wireName: "status",
-					label: "Status",
-					dataType: "text",
-				},
-			],
-		},
-	],
-};
 /** One followup doc: an external-id writer (ordinary), a free root answer, and
  *  a repeat of visit notes — with `operations` built from the minted
  *  field uuids per test. */
@@ -312,8 +287,12 @@ export function ordinaryAuthorityMutation(
 	return mutation;
 }
 
-export function engineFor(doc: BlueprintDoc, formUuid: Uuid): FormEngine {
-	assertAdmittedPreviewDoc(doc, LOOKUP_CONTEXT);
+export function engineFor(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
+): FormEngine {
+	assertAdmittedPreviewDoc(doc, lookupContext);
 	const input: FormEngineInput = {
 		form: doc.forms[formUuid],
 		formUuid,
