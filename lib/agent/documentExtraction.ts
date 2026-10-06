@@ -436,11 +436,17 @@ function escapeAttr(text: string): string {
 		.replaceAll('"', "&quot;");
 }
 
+/** The scheme of the `src` minted per figure. mammoth's Markdown writer
+ *  backslash-escapes Markdown punctuation in an image's `src` (`-`, `_`, `.`
+ *  among it), so the scheme is letters only and the digits follow `://`,
+ *  none of which it touches: the sentinel reaches the output byte for byte. */
+const FIGURE_SENTINEL_SCHEME = "novafigure://";
+
 /** The unique `src` minted per figure during conversion. mammoth emits it as
  *  the byte-exact image `![](<sentinel>)`, which the post-pass swaps for the
  *  real marker tag; the scheme prefix can't occur in document prose. */
 function figureSentinel(index: number): string {
-	return `nova-figure://${index}`;
+	return `${FIGURE_SENTINEL_SCHEME}${index}`;
 }
 
 /** The namespaced in-text marker for one figure. With alt text the document's
@@ -452,7 +458,7 @@ export function figureMarker(index: number, altText?: string | null): string {
 
 /** The slice of mammoth's per-image object the collector reads: a type-only
  *  alias of `MammothImage` from `mammoth.d.ts` (erased at compile time, so
- *  importing it loads neither mammoth nor bluebird), re-exported under this
+ *  importing it never loads mammoth), re-exported under this
  *  module's vocabulary so tests can drive the collector with plain fakes. */
 export type EmbeddedImage = MammothImage;
 
@@ -623,7 +629,7 @@ export function createFigureCollector(): FigureCollector {
 
 /** The exact markdown image mammoth emits for a minted sentinel (`alt` is
  *  forced empty in the collector so this stays byte-exact). */
-const SENTINEL_IMAGE_PREFIX = "![](nova-figure://";
+const SENTINEL_IMAGE_PREFIX = `![](${FIGURE_SENTINEL_SCHEME}`;
 
 /**
  * Swap every sentinel image for its figure's marker tag in ONE linear pass.

@@ -1,5 +1,5 @@
 /** Read-only inspection of the current authoring session and its conversations. */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { setTimeout as delay } from "node:timers/promises";
 import { Command } from "commander";
 import { sql } from "kysely";

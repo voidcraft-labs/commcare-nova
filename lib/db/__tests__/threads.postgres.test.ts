@@ -497,6 +497,13 @@ describe("upsertThreadTurn", () => {
 						state: "input-available",
 						input: {},
 					},
+					{
+						type: "tool-addFields",
+						toolCallId: "call-2",
+						state: "input-streaming",
+						input: { fields: [] },
+						rawInput: '{"fields":[',
+					},
 				],
 			} as UIMessage,
 			clearMarker: false,
@@ -516,6 +523,15 @@ describe("upsertThreadTurn", () => {
 			| undefined;
 		expect(toolPart?.state).toBe("output-error");
 		expect(toolPart?.errorText?.trim().length).toBeGreaterThan(0);
+		/* Cut off mid-input: the partial JSON text belongs to the streaming
+		 * state and does not ride into the closed part. */
+		expect(kept?.parts[2]).toEqual({
+			type: "tool-addFields",
+			toolCallId: "call-2",
+			state: "output-error",
+			input: { fields: [] },
+			errorText: toolPart?.errorText,
+		});
 	});
 
 	it("admits an assistant message the store lost (the self-heal), because it was never clawed back", async () => {

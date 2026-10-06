@@ -7,7 +7,7 @@
  * it never prints authored labels, formulas, or case-data values.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";

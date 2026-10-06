@@ -4,7 +4,7 @@
  * lifecycle rows the paired migrate script marks inactive.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import type { Transaction } from "kysely";
 import {

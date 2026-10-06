@@ -6,7 +6,7 @@
  * then deliberately rolls the caller-owned transaction back.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { runFrozenCanonicalIdentityRepair } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenDatabaseRepair";
 import { CANONICAL_IDENTITY_REPAIR_VERSION } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenRepairManifest";

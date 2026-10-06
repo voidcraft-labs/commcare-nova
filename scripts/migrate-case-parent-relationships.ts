@@ -4,7 +4,7 @@
  * rewritten.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { sql, type Transaction } from "kysely";
 import {

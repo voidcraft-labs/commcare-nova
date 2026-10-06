@@ -5,7 +5,7 @@
  * never a human `--prod` connection.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "../lib/case-store/postgres/connection";
 import { getAppDb } from "../lib/db/pg";

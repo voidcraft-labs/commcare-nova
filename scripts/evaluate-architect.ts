@@ -1,5 +1,5 @@
 /** Bounded local quality trial through the production architect and peer. */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";

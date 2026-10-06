@@ -84,10 +84,10 @@ async function sessionUserIsActive(session: Session): Promise<boolean> {
  * handlers, `getSession` for Server Components) so no individual handler has
  * to remember to.
  *
- * Email + name ship even though `sentry.server.config.ts` runs with
- * `sendDefaultPii: false`: that flag governs only the PII the SDK harvests on
- * its own (cookies, request headers, inferred IP) — an explicitly set user is
- * always sent. This is the controlled inverse of why PII is off there: we ship
+ * Email + name ship even though `sentry.server.config.ts` restricts
+ * `dataCollection`: that option governs only what the SDK harvests on its own
+ * (cookies, request bodies, inferred IP) — an explicitly set user is always
+ * sent. This is the controlled inverse of why PII is off there: we ship
  * the identity we choose, never the session cookie.
  */
 function identifySentryUser(session: Session): void {

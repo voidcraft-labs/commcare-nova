@@ -1,5 +1,5 @@
 /** One-time writer; scan first and again after the cutover. */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { runMain } from "./lib/main";

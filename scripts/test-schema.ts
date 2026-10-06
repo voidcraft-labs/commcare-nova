@@ -31,7 +31,7 @@
  *     `editLookupColumns`, `editLookupRows`, `replaceLookupRows`,
  *     `removeLookupTable`.
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, isStepCount, tool } from "ai";
 import type { z } from "zod";

@@ -5,6 +5,43 @@ type Json = Record<string, unknown>;
 const object = (value: unknown): value is Json =>
 	value !== null && typeof value === "object" && !Array.isArray(value);
 const annotations = new Set(["description", "title", "$comment"]);
+const upperBounds = new Set([
+	"maximum",
+	"exclusiveMaximum",
+	"maxLength",
+	"maxItems",
+	"maxProperties",
+]);
+const lowerBounds = new Set([
+	"minimum",
+	"exclusiveMinimum",
+	"minLength",
+	"minItems",
+	"minProperties",
+]);
+/** A schema whose every keyword holds a plain value: no subschema positions
+ * and no enum, so two of them can be combined keyword by keyword. */
+const scalar = (schema: Json) =>
+	Object.values(schema).every(
+		(value) => value === null || typeof value !== "object",
+	);
+
+/** One schema that accepts exactly what both accept, or `undefined` when two
+ * keywords disagree in a way a single keyword cannot state. */
+function intersect(inner: Json, outer: Json): Json | undefined {
+	const result = { ...inner };
+	for (const [key, value] of Object.entries(outer)) {
+		const prior = inner[key];
+		if (prior === undefined || prior === value || annotations.has(key))
+			result[key] = value;
+		else if (typeof prior !== "number" || typeof value !== "number")
+			return undefined;
+		else if (upperBounds.has(key)) result[key] = Math.min(prior, value);
+		else if (lowerBounds.has(key)) result[key] = Math.max(prior, value);
+		else return undefined;
+	}
+	return result;
+}
 
 /** Visit schema positions only. An enum/default/const may contain ordinary
  * objects whose keys happen to be schema keywords. */
@@ -91,17 +128,21 @@ export function readableToolSchema(input: Json): Json {
 			}
 		}
 		const result = mapSubschemas(schema, (child) => simplify(child, active));
-		if (
-			Array.isArray(result.allOf) &&
-			result.allOf.length === 1 &&
-			object(result.allOf[0]) &&
-			Object.keys(result).every(
-				(key) => key === "allOf" || annotations.has(key),
-			)
-		) {
-			const { allOf, ...notes } = result;
-			return { ...(allOf as Json[])[0], ...notes };
-		}
+		const [member, ...others] = Array.isArray(result.allOf) ? result.allOf : [];
+		if (!object(member) || others.length > 0) return result;
+		const { allOf: _allOf, ...siblings } = result;
+		if (Object.keys(siblings).every((key) => annotations.has(key)))
+			return { ...member, ...siblings };
+		/* A shared scalar narrowed at one use, such as a positive integer with
+		 * its own maximum. Draft-07 ignores keywords beside `$ref`, so Zod wraps
+		 * the reference in `allOf`; stating the narrowed value outright needs
+		 * neither, and no consumer has to rewrite it to read it. */
+		const target =
+			typeof member.$ref === "string" && Object.keys(member).length === 1
+				? definitions.get(member.$ref)
+				: member;
+		const plain = target && !target.$id && !target.$ref && scalar(target);
+		if (plain && scalar(siblings)) return intersect(target, siblings) ?? result;
 		return result;
 	};
 	const result = simplify(root);

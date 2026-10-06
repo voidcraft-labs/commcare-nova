@@ -1,5 +1,5 @@
 /** Bounded local edit comparison through the production Solutions Architect. */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";

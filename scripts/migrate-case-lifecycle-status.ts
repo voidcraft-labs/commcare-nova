@@ -8,7 +8,7 @@
  * because the former close path already recorded the correct event time.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import {
 	closeCaseStoreDatabase,

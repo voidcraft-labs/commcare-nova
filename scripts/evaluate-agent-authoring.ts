@@ -2,7 +2,7 @@
  * node --conditions=react-server --import=tsx scripts/evaluate-agent-authoring.ts
  *   --confirm-paid --out <new-directory> --ledger <spend-ledger.json>
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";

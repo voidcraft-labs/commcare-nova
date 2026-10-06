@@ -4,7 +4,7 @@
  * snapshots, translation-batch state) with its proposed structured-identity
  * rewrite, before the migrate run rewrites them in place.
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";

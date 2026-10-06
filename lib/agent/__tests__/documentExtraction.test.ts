@@ -330,7 +330,7 @@ describe("extractDocument", () => {
 		// in-text marker; no sentinel or base64 residue survives.
 		expect(prompt).toContain('<nova:figure index="1" alt="Referral flow"/>');
 		expect(prompt).toContain('<nova:figure index="2"/>');
-		expect(prompt).not.toContain("nova-figure://");
+		expect(prompt).not.toContain("novafigure://");
 		expect(prompt).not.toContain(";base64,");
 		// The metadata block reports the counts and the unattached junk figure by
 		// marker index, never as prose "figure N".
@@ -354,7 +354,7 @@ describe("extractDocument", () => {
 		await extractDocument({
 			bytes: docxDocument([
 				{ bytes: PNG_1PX, alt: "Revenue $'000" },
-				{ bytes: PNG_1PX, alt: "see ![](nova-figure://1) above" },
+				{ bytes: PNG_1PX, alt: "see ![](novafigure://1) above" },
 			]),
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -370,7 +370,7 @@ describe("extractDocument", () => {
 		expect(prompt.match(/tail/g)).toHaveLength(1);
 		// The sentinel look-alike inside marker 2's alt is NOT rewritten (the
 		// swap never rescans its own output), and marker 1 appears exactly once.
-		expect(prompt).toContain('alt="see ![](nova-figure://1) above"');
+		expect(prompt).toContain('alt="see ![](novafigure://1) above"');
 		expect(prompt.match(/<nova:figure index="1"/g)).toHaveLength(1);
 	});
 
@@ -419,8 +419,8 @@ describe("createFigureCollector", () => {
 				.image,
 		);
 		const second = await collector.collect(fakeImage(GIF_STATIC).image);
-		expect(first).toEqual({ src: "nova-figure://1", alt: "" });
-		expect(second).toEqual({ src: "nova-figure://2", alt: "" });
+		expect(first).toEqual({ src: "novafigure://1", alt: "" });
+		expect(second).toEqual({ src: "novafigure://2", alt: "" });
 		expect(collector.figures).toEqual([
 			{
 				index: 1,
