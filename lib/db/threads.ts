@@ -174,6 +174,10 @@ function withClawedBackEntry(
  * of steps forever in flight (an `input-available` part renders a spinner,
  * and nothing will ever complete it). Display state only: the model-side
  * request sanitizers close dangling calls independently at request time.
+ *
+ * A call cut off while its input was still streaming carries the partial
+ * JSON text as `rawInput`. That belongs to the streaming state alone, and the
+ * SDK reports it as deprecated on an errored part, so it is left behind.
  */
 function closeDanglingToolParts(message: StoredMessage): StoredMessage {
 	const parts = message.parts;
@@ -187,8 +191,12 @@ function closeDanglingToolParts(message: StoredMessage): StoredMessage {
 				(p.type.startsWith("tool-") || p.type === "dynamic-tool") &&
 				(p.state === "input-streaming" || p.state === "input-available")
 			) {
+				const { rawInput: _rawInput, ...rest } = part as Record<
+					string,
+					unknown
+				>;
 				return {
-					...(part as object),
+					...rest,
 					state: "output-error",
 					errorText: "This step was interrupted before it finished.",
 				};

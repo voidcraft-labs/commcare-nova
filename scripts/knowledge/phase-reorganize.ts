@@ -199,7 +199,7 @@ KEEP — Blueprint-level design guidance:
 		model: openai(REORGANIZE_MODEL),
 		providerOptions: { openai: OPENAI_BASE_OPTIONS },
 		output: Output.object({ schema: reorgPlanSchema }),
-		system,
+		instructions: system,
 		prompt: allContent,
 	});
 
@@ -463,7 +463,7 @@ ${sourceContent}`;
 			const result = streamText({
 				model: openai(REORGANIZE_MODEL),
 				providerOptions: { openai: OPENAI_BASE_OPTIONS },
-				system,
+				instructions: system,
 				prompt,
 			});
 

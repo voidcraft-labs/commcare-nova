@@ -20,6 +20,7 @@
  *   OPENAI_API_KEY        — OpenAI key (for triage + distillation)
  */
 
+import "./lib/loadEnv";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { crawl } from "./knowledge/phase-crawl.js";
@@ -36,13 +37,6 @@ import type {
 	PipelineConfig,
 	TriageResult,
 } from "./knowledge/types.js";
-
-// Load .env if dotenv is available (optional)
-try {
-	require("dotenv").config();
-} catch {
-	// dotenv not installed — rely on shell env vars
-}
 
 const CACHE_DIR = ".data/confluence-cache";
 

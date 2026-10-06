@@ -8,7 +8,7 @@
  * with `--help` for flags.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import type { Kysely } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";

@@ -66,6 +66,10 @@ const sentryEnvironment = {
 	NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "",
 	SENTRY_ORG: "dimagi-1l",
 	SENTRY_PROJECT: "nova",
+	SENTRY_LOG_LEVEL: "warn",
+	// A build reports to Sentry only what it uploads on purpose.
+	SENTRY_CLI_NO_TELEMETRY: "1",
+	SENTRY_CLI_NO_UPDATE_CHECK: "1",
 };
 // Match the Next SDK's manifest exclusions. These files have no source maps;
 // the server-action manifest also carries private runtime configuration.
@@ -79,12 +83,7 @@ const sourceMapIgnores = [
 	"**/middleware-react-loadable-manifest.js",
 ];
 const sentry = (name, args) =>
-	runPhase(
-		name,
-		"sentry-cli",
-		["--log-level", "warn", ...args],
-		sentryEnvironment,
-	);
+	runPhase(name, "sentry", args, sentryEnvironment);
 
 // Native Turbopack debug IDs and maps are generated normally. Upload only
 // after compilation and the independent native type check.
@@ -109,21 +108,24 @@ await runPhase(
 );
 if (hasSentryToken) {
 	if (!release) throw new Error("Sentry upload requires NOVA_BUILD_ID");
-	await sentry("sentry-release", ["releases", "new", release]);
-	// Native Turbopack maps already embed source content. Sentry's source-map
-	// reader flattens indexed maps when symbolication needs it; doing so here
-	// parses and re-encodes the entire source set a second time.
-	await sentry("sentry-maps", [
-		"sourcemaps",
-		"upload",
-		"--no-rewrite",
-		"--release",
-		release,
-		...sourceMapIgnores.flatMap((pattern) => ["--ignore", pattern]),
-		".next/server",
-		".next/static",
-	]);
-	await sentry("sentry-finalize", ["releases", "finalize", release]);
+	await sentry("sentry-release", ["release", "create", release]);
+	// Native Turbopack maps already embed source content and debug IDs.
+	// Sentry's source-map reader flattens indexed maps when symbolication needs
+	// it; rewriting here parses and re-encodes the entire source set a second
+	// time. The command takes one directory per upload.
+	for (const directory of [".next/server", ".next/static"]) {
+		await sentry("sentry-maps", [
+			"sourcemap",
+			"upload",
+			directory,
+			"--no-rewrite",
+			"--release",
+			release,
+			"--ignore",
+			sourceMapIgnores.join(","),
+		]);
+	}
+	await sentry("sentry-finalize", ["release", "finalize", release]);
 }
 // Never ship public source maps, including the standalone server copy made by
 // Next before the upload. Keep compiler cache and dependency packages intact.

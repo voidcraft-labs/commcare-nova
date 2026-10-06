@@ -4,6 +4,7 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { serverDataCollection } from "./sentry.dataCollection";
 
 Sentry.init({
 	dsn: "https://1c43ea684bc94e3c53926a2ca3ab9a51@o4511537737039872.ingest.us.sentry.io/4511537747918848",
@@ -17,10 +18,7 @@ Sentry.init({
 	// Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
 	tracesSampleRate: 1,
 
-	// Enable logs to be sent to Sentry
-	enableLogs: true,
-
-	/* Off for the same reason as sentry.server.config.ts — request headers
-	 * and cookies (the Better Auth session token) must not reach Sentry. */
-	sendDefaultPii: false,
+	/* Restricted for the same reason as sentry.server.config.ts: cookies (the
+	 * Better Auth session token) and request bodies must not reach Sentry. */
+	dataCollection: serverDataCollection,
 });

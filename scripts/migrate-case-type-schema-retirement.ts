@@ -8,7 +8,7 @@
  * expression-index cleanup runs after commit from durable pending state.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import type { Transaction } from "kysely";
 import {

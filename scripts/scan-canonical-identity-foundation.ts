@@ -2,7 +2,7 @@
  * READ ONLY — operator shell for the timestamp-frozen canonical identity scan.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { scanFrozenCanonicalIdentityFoundation } from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenScanner";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";

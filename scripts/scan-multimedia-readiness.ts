@@ -47,7 +47,7 @@
  * targets the production instance over its public IP (see
  * `./lib/prodDb.ts`). Run with `--help` for the flag reference.
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { describeLocation } from "@/lib/commcare/validator/rules/media/shared";

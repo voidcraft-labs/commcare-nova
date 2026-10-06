@@ -12,7 +12,7 @@
  * rows without a migration and deserves a look.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import {
 	closeCaseStoreDatabase,

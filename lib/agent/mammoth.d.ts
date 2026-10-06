@@ -1,9 +1,10 @@
 // lib/agent/mammoth.d.ts
 //
 // Ambient type declaration for `mammoth` (the docx → markdown/html converter).
-// The package ships no bundled types and there is no `@types/mammoth` on the
-// registry, so without this `import mammoth from "mammoth"` resolves to `any`,
-// which both fails strict mode and violates the no-`any` rule.
+// The types the package bundles leave out `convertToMarkdown`, an image's
+// `altText`, and the `alt` a converter may return, and there is no
+// `@types/mammoth` on the registry, so the surface our helper calls is
+// declared here.
 //
 // We declare ONLY the narrow surface our docx→markdown helper
 // (`documentExtraction.ts::docxToMarkdownWithFigures`) consumes: the
@@ -32,7 +33,7 @@ declare module "mammoth" {
 	 *  any), and lazy byte readers. Only the members our figure collector
 	 *  consumes are declared. Exported so `documentExtraction.ts` can alias it
 	 *  type-only (erased at compile time, so importing the alias never loads
-	 *  mammoth or bluebird). */
+	 *  mammoth). */
 	export interface MammothImage {
 		contentType?: string;
 		altText?: string;
@@ -42,7 +43,7 @@ declare module "mammoth" {
 	/** The `<img>` attributes a custom converter returns. mammoth merges them
 	 *  over `{ alt: image.altText }`, so returning an explicit `alt` overrides
 	 *  the document's own alt text; the markdown writer then emits
-	 *  `![alt](src)`. */
+	 *  `![alt](src)` with Markdown punctuation in both backslash-escaped. */
 	interface ImgAttributes {
 		src: string;
 		alt?: string;

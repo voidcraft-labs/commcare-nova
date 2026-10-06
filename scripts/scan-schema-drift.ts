@@ -19,7 +19,7 @@
  * Run with `--help` for flags.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import type { Transaction } from "kysely";
 import {

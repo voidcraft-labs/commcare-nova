@@ -11,7 +11,7 @@
  * separate reviewed code change may then update capabilityPolicy.ts.
  */
 
-import "dotenv/config";
+import "./lib/loadEnv";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { AgentRunContext } from "../lib/agent/agentRunContext";

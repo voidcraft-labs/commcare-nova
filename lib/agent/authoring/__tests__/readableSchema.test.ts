@@ -71,3 +71,64 @@ it("keeps argument constraints, recursive structures, and literal data while rem
 		expect(after(value)).toBe(expected);
 	}
 });
+
+it("states a shared scalar narrowed at one use as a single schema, and keeps a narrowing it cannot merge", () => {
+	const positive = { $ref: "#/definitions/Positive" };
+	const schema = {
+		$schema: "http://json-schema.org/draft-07/schema#",
+		type: "object",
+		properties: {
+			first: positive,
+			second: positive,
+			third: positive,
+			fourth: positive,
+			hours: {
+				description: "Hours until it expires",
+				allOf: [positive],
+				maximum: 168,
+			},
+			floor: { allOf: [positive], exclusiveMinimum: 10, maximum: 20 },
+			code: { allOf: [{ $ref: "#/definitions/Code" }], pattern: "^B" },
+			other: { $ref: "#/definitions/Code" },
+		},
+		additionalProperties: false,
+		definitions: {
+			Positive: {
+				type: "integer",
+				exclusiveMinimum: 0,
+				maximum: 9007199254740991,
+			},
+			Code: { type: "string", pattern: "^[A-Z]+$" },
+		},
+	};
+	const readable = readableToolSchema(schema);
+	expect(readable.properties).toMatchObject({
+		first: positive,
+		hours: {
+			type: "integer",
+			exclusiveMinimum: 0,
+			maximum: 168,
+			description: "Hours until it expires",
+		},
+		floor: { type: "integer", exclusiveMinimum: 10, maximum: 20 },
+		code: { allOf: [expect.anything()], pattern: "^B" },
+	});
+	expect(readable.properties).not.toHaveProperty("hours.allOf");
+	expect(readable.properties).not.toHaveProperty("floor.allOf");
+	const before = new Ajv({ strict: false }).compile(schema);
+	const after = new Ajv({ strict: false }).compile(readable);
+	for (const [value, expected] of [
+		[{ first: 1, hours: 168, floor: 11, code: "BA" }, true],
+		[{ hours: 169 }, false],
+		[{ hours: 0 }, false],
+		[{ hours: 1.5 }, false],
+		[{ floor: 10 }, false],
+		[{ floor: 21 }, false],
+		[{ first: 0 }, false],
+		[{ code: "AB" }, false],
+		[{ code: "Ba" }, false],
+	] as const) {
+		expect(before(value)).toBe(expected);
+		expect(after(value)).toBe(expected);
+	}
+});

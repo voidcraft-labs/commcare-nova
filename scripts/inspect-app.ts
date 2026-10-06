@@ -12,7 +12,7 @@
  * production instance over its public IP (see `./lib/prodDb.ts`). Never
  * writes. Run with `--help` for the flag reference.
  */
-import "dotenv/config";
+import "./lib/loadEnv";
 import { Command } from "commander";
 import { sql } from "kysely";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
