@@ -108,17 +108,23 @@ await runPhase(
 );
 if (hasSentryToken) {
 	if (!release) throw new Error("Sentry upload requires NOVA_BUILD_ID");
-	await sentry("sentry-release", ["release", "create", release]);
-	// Native Turbopack maps already embed source content and debug IDs.
-	// Sentry's source-map reader flattens indexed maps when symbolication needs
-	// it; rewriting here parses and re-encodes the entire source set a second
-	// time. The command takes one directory per upload.
+	// The command reads the project from its own flag, not the environment.
+	await sentry("sentry-release", [
+		"release",
+		"create",
+		release,
+		"--project",
+		sentryEnvironment.SENTRY_PROJECT,
+	]);
+	// Native Turbopack maps already embed source content and debug IDs. The
+	// upload reads each file's ID to key its map, and leaves a file that has
+	// one untouched; `--no-rewrite` would skip that read and upload maps no
+	// event can be matched to. The command takes one directory per upload.
 	for (const directory of [".next/server", ".next/static"]) {
 		await sentry("sentry-maps", [
 			"sourcemap",
 			"upload",
 			directory,
-			"--no-rewrite",
 			"--release",
 			release,
 			"--ignore",

@@ -119,23 +119,29 @@ test("builds and typechecks before uploading and finalizing; then removes only s
 			"--project",
 			"tsconfig.production.json",
 		]);
-		expect(started[2].args).toEqual(["release", "create", f.env.NOVA_BUILD_ID]);
+		expect(started[2].args).toEqual([
+			"release",
+			"create",
+			f.env.NOVA_BUILD_ID,
+			"--project",
+			"nova",
+		]);
 		for (const [index, directory] of [
 			".next/server",
 			".next/static",
 		].entries()) {
 			const args = started[3 + index].args;
-			expect(args.slice(0, 6)).toEqual([
+			expect(args.slice(0, 5)).toEqual([
 				"sourcemap",
 				"upload",
 				directory,
-				"--no-rewrite",
 				"--release",
 				f.env.NOVA_BUILD_ID,
 			]);
-			expect(args[6]).toBe("--ignore");
-			expect(args[7].split(",")).toContain("**/server-reference-manifest.js");
-			expect(args).toHaveLength(8);
+			expect(args[5]).toBe("--ignore");
+			expect(args[6].split(",")).toContain("**/server-reference-manifest.js");
+			// `--no-rewrite` skips the debug-ID read that keys each map.
+			expect(args).toHaveLength(7);
 		}
 		expect(started[5].args).toEqual([
 			"release",

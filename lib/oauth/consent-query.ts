@@ -13,14 +13,31 @@ import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
 /** A page's `searchParams`: a repeated key arrives as an array. */
 export type ConsentSearchParams = Record<string, string | string[] | undefined>;
 
-/** Rebuild the query string the page was opened with. */
+/** The parameter the authorize handler lists every signed name under. */
+const SIGNED_NAMES = "ba_param";
+
+const values = (value: string | string[] | undefined): string[] =>
+	value === undefined ? [] : Array.isArray(value) ? value : [value];
+
+/**
+ * Rebuild the signed part of the query the page was opened with: `sig`, the
+ * list of signed names, and the parameters that list names. This is the same
+ * selection the plugin's client posts with the decision, so a parameter the
+ * link picked up on the way (a tracking tag, say) doesn't turn a request the
+ * decision would accept into an invalid one. A query that lists no names is
+ * passed whole and fails verification.
+ */
 export function consentQuery(searchParams: ConsentSearchParams): string {
+	const signed = new Set(values(searchParams[SIGNED_NAMES]));
 	const query = new URLSearchParams();
 	for (const [key, value] of Object.entries(searchParams)) {
-		if (value === undefined) continue;
-		for (const item of Array.isArray(value) ? value : [value]) {
-			query.append(key, item);
-		}
+		const kept =
+			signed.size === 0 ||
+			key === "sig" ||
+			key === SIGNED_NAMES ||
+			signed.has(key);
+		if (!kept) continue;
+		for (const item of values(value)) query.append(key, item);
 	}
 	return query.toString();
 }

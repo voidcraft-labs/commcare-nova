@@ -141,8 +141,8 @@ export function readableToolSchema(input: Json): Json {
 			typeof member.$ref === "string" && Object.keys(member).length === 1
 				? definitions.get(member.$ref)
 				: member;
-		if (target && !target.$id && scalar(target) && scalar(siblings))
-			return intersect(target, siblings) ?? result;
+		const plain = target && !target.$id && !target.$ref && scalar(target);
+		if (plain && scalar(siblings)) return intersect(target, siblings) ?? result;
 		return result;
 	};
 	const result = simplify(root);

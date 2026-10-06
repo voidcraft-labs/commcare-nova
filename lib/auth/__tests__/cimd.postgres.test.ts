@@ -198,6 +198,11 @@ it("accepts the consent link authorization issued and refuses an altered or unsi
 	const { secret: authSecret } = await auth.$context;
 
 	expect(await isSignedConsentRequest(issued, authSecret)).toBe(true);
+	/* A parameter the link picked up after it was issued isn't signed and
+	 * isn't posted with the decision, so it doesn't invalidate the request. */
+	expect(
+		await isSignedConsentRequest({ ...issued, utm_source: "mail" }, authSecret),
+	).toBe(true);
 	expect(
 		await isSignedConsentRequest(
 			{ ...issued, scope: "openid nova.read nova.write" },

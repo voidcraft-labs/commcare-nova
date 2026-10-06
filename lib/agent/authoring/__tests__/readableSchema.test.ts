@@ -90,6 +90,10 @@ it("states a shared scalar narrowed at one use as a single schema, and keeps a n
 			floor: { allOf: [positive], exclusiveMinimum: 10, maximum: 20 },
 			code: { allOf: [{ $ref: "#/definitions/Code" }], pattern: "^B" },
 			other: { $ref: "#/definitions/Code" },
+			noted: {
+				allOf: [{ ...positive, description: "A count" }],
+				maximum: 5,
+			},
 		},
 		additionalProperties: false,
 		definitions: {
@@ -112,6 +116,8 @@ it("states a shared scalar narrowed at one use as a single schema, and keeps a n
 		},
 		floor: { type: "integer", exclusiveMinimum: 10, maximum: 20 },
 		code: { allOf: [expect.anything()], pattern: "^B" },
+		// Keywords beside `$ref` are ignored, so the wrapper has to stay.
+		noted: { allOf: [expect.anything()], maximum: 5 },
 	});
 	expect(readable.properties).not.toHaveProperty("hours.allOf");
 	expect(readable.properties).not.toHaveProperty("floor.allOf");
@@ -127,6 +133,8 @@ it("states a shared scalar narrowed at one use as a single schema, and keeps a n
 		[{ first: 0 }, false],
 		[{ code: "AB" }, false],
 		[{ code: "Ba" }, false],
+		[{ noted: 5 }, true],
+		[{ noted: 6 }, false],
 	] as const) {
 		expect(before(value)).toBe(expected);
 		expect(after(value)).toBe(expected);
