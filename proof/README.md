@@ -6,9 +6,11 @@ views and Connect repeater, CommCare Core's own form engine, session engine
 and archive installer, Formplayer's own application, HQ's own Web Apps
 client and CommCare Connect's own server run at the upstream commits
 `proof/pins.json` names, inside one pinned image, over a corpus of admitted
-Nova documents that Nova's real publish client and compilers export. Every
-pull request runs the lane in CI (`.github/workflows/ci.yml`), and
-`npm run proof` runs it on your machine.
+Nova documents that Nova's real publish client and compilers export; and
+CommCare Android's own application, installers, activities and views read
+every archive a device installs of each document, in a stage of their own
+after the image's ("The Android stage"). Every pull request runs the lane in
+CI (`.github/workflows/ci.yml`), and `npm run proof` runs it on your machine.
 
 Each check reports the complete set of differences it finds, never only the
 first. The lane passes when every difference is erased by a proven spelling
@@ -270,16 +272,26 @@ or it fails the lane ("The registers", below).
 
 ### What the lane does not observe
 
-- **Android is run by its own reader, outside the lane.** The Android reader
-  (`proof/android`) runs commcare-android's own application, installers,
-  activities and views at the pin over the archives a device installs, which
-  each built state's record keeps for it (`state.archive`,
-  `proof/observe/build.py::device_archive`). It runs on linux/amd64 and
-  macOS, where Robolectric's native runtime runs, and the lane's shards are
-  arm64, so no check reads its answers yet: a register entry whose harm is on
-  Android still observes the artifact through Core's parse and names the
-  Android predicate in its `android` field, and `proof/android/README.md`
-  says what remains before the entries rest on what Android read.
+- **What the Android stage does not show.** CommCare Android's own code
+  reads every archive a device installs of every document, and proofs 1, 3
+  and 4 judge what it read ("The Android stage", below), with these left
+  out. A device's own sensors and services are not run: no location fix
+  reaches a form (`PollSensorAction` asks the device's location service), so
+  a Connect visit's location on Android is still written by the harness
+  into Core's submission; and no file is given to an image, audio, video,
+  signature or document question, so a walk leaves one unanswered and ends
+  at one that is required. Nothing is sent: a form is saved and applied to
+  the device's own case database, and where Android posts a form of an
+  archive whose profile names no address is not run. A search is answered
+  with every case of the asked types the device holds, so what a search's
+  filter selects is not read (as on Formplayer). Robolectric lays views out
+  and does not draw them: a cell's class, text, gravity, text size, scale
+  type and width are read, and no rendered picture or played sound. Not run:
+  a language other than the one the app starts in, a tablet's two-pane
+  layout, and the rows of a case detail tab that lists a row a node. The
+  stage reads the archives of the states HQ releases: a document whose build
+  of A HQ's validation refuses has no Android reading, as it has no
+  Formplayer one.
 - **What a served state does not show.** Formplayer and the Web Apps
   client read every state the lane builds ("Served states", below), with
   these left out. Elasticsearch is not in the image: a case search runs
@@ -1277,6 +1289,112 @@ lives in the Redis HQ shares with Formplayer (`proof/hq/redis.py`); and the
 address Connect knows HQ by is answered by HQ's own views over the unit's
 state, as Formplayer's requests are.
 
+### The Android stage
+
+CommCare Android's own code cannot run where the lane's shards do:
+Robolectric's native runtime and the Android Gradle plugin's resource
+compiler ship for Linux on x86-64 alone, and the shards are arm64. So Android
+reads after the shards, from what they observed, as a stage of the same lane:
+its own queue, its own shards on amd64, and the same gate.
+
+**What a document's record keeps for it.** Every state HQ built keeps the
+archive a worker installs of it (`state.archive`,
+`proof/observe/build.py::device_archive`: HQ's own download arrangement with
+the app's multimedia, each entry a blob), and proof 4 keeps the same for every
+editor save whose build is not the one it was saved over. Beside them are the
+restores the states' sessions read: A's (`restoreA`), the local archive's
+(`sessions.restoreLocal`) and B's or B-edit's (`proof4.restore`). Nova's own
+local archives are files of the document.
+
+**What Android reads** (`proof/android/records.py::plan`, each a request of
+the reader, `proof/android/README.md`): the whole app as a worker meets it
+(`app`: the install, every profile reader, the home screen, and a walk down
+every path the app's menus offer, through each list, detail, search, claim
+and form to its save and whatever home starts after it) for Nova's
+`local.ccz`, for A, B and B-edit of each configuration, and for each editor
+save; two installs in turn (`installs`) for the two local exports and for A
+then B; and a device that updates (`update`) from `local.ccz` to
+`local-again.ccz` and from A to B, with every form left incomplete before it
+and a worker's own settings, and from B to each save whose profile is not
+B's. An archive of a state HQ would not release is not read.
+
+**Each answer is kept under what it is a function of.** A request's key
+(`Request.key`) is the digest of every entry of each archive it reads, its
+restore, its options and the reader (`records.fingerprint`: the reader's
+files, the commcare-android and commcare-core pins, the answer table, the
+toolchain and the platform). The evidence store holds each answer under that
+key (its `android` entries), so an archive read before is never read again,
+whichever document or state it is an archive of, in this run or a later one;
+and a change to one form of one state reads only the archives that hold it.
+
+**What is judged** (`proof/checks/android.py`, pure functions of the
+answers, each difference under an `android@...` artifact):
+
+- **Proof 3**: what a device shows of Nova's local archive against HQ's
+  build of A (`android@local.ccz`), and of HQ's build of B against A's
+  (`android@B`), per configuration.
+- **Proof 4**: what a device shows of the app each editor save left against
+  the state it was saved over (`android@<editor>@<state>@<configuration>`),
+  and each of the worker's own settings an update to that app replaced
+  (`/update/workerSettings/<setting>`).
+- **Proof 1**: the two installs and the update of the local path against
+  HQ's (`android@local.ccz`: each install's status, where the update
+  stopped, and, where both installed one, whether it is the same app at no
+  lower a version); and, of each path alone, each form a worker left
+  incomplete before the update that the device no longer opens after it
+  (`/update/reopened/*`, under `android@local.ccz` and `android@B`).
+
+One symptom is one difference: a walk whose screens part from the
+baseline's is named by where they part
+(`/walks/*/screens/after-<screen>:<the baseline's next>:<the other's next>`)
+and its steps are not compared; a form that takes another path of screens, a
+list whose rows are another kind of view, an archive Android does not
+install, each is that. What a reader keys by a name is compared by that name
+(a menu's items, a Sort choice, a search's term, a case, a hidden button).
+Left out, because it names an install and not what a worker reads, or says
+again what a reader beside it says: the app's id and version (proof 1's), the
+profile's stored values (each reader's answer is compared, so a stored value
+no reader reads differently is no difference, which is how the lane shows an
+equivalence on Android), and the media check's flags beside its reader.
+
+**How it sits in the lane.** Each document has an Android group
+(`android:corpus:<id>`, and `android:control:<id>` for each control an
+Android entry of the register names), in a third queue built with the main
+one (`python3 -m proof.store.queue android`): a block, or cached where the
+store holds the group's outcome and each judge's evidence under its key (the
+document's key, the reader and the judge's code with both registers). The
+stage (`python3 -m proof.android.stage run`) runs the blocks of its static
+bin: it finds each document's records in the shards' outputs or the store,
+reads or makes each answer, judges, and writes an output like a shard's
+(`blocks/<id>/block.json` with one item for the answers and one a check, the
+evidence with `"stage": "android"`, the answers in the run's delta). The gate
+reads it with the shards' outputs: every Android block ran exactly once,
+every item passed, and the stage's evidence of a check on a document is held
+to the register beside the shards' own evidence of it.
+
+A register entry belongs to the stage whose check shows it: one whose
+artifact is `android@...` is the Android stage's, held and verified there on
+its document and its control; every other is the shards'
+(`proof/checks/registers.py::stage_of`). The shards' check holds only the
+shards' entries, and still runs a control only an Android entry names, since
+its records are what the stage reads.
+
+The item `android::<group>::records` fails where the reader itself could not
+answer a request (never where Android refused something, which is an
+answer), and where a group the queue marks fresh made an answer that is not
+the one the store holds, both written under the output's `audit/`.
+
+**Its tests.** `proof/android/test_stage.py` and
+`proof/checks/test_android.py` run in the lane with a stand-in reader: each
+archive read once, a changed archive read again and no other, a planted
+difference failing until an entry holds it, the gate and the register reading
+the stage's output. `proof/android/selfcheck.py` and
+`proof/android/predicates.py` run commcare-android's own code, where the
+reader runs (the job that builds its runtime, before the runtime is kept):
+the reader held to itself, the stage end to end with a planted difference
+Android must show, and each Android predicate the register rests on over both
+spellings of its difference.
+
 ## The registers
 
 ### Known defects
@@ -2244,10 +2362,26 @@ CI runs the lane in `ci.yml`, beside the existing jobs:
   started before they existed, and `proof/ci/drained.mjs` ends a shard that
   starts after every block is claimed. A shard fails only when it cannot run
   its blocks; whether the proofs hold is the gate's.
+- **`proof-android-runtime`** ("Android reader runtime", x64) puts the
+  Android reader's runtime in the Actions cache: commcare-android's own
+  unit-test build at the pins, kept under the digest of everything a build
+  of it reads (`python3 proof/android/toolchain.py key`: the two pins, the
+  toolchain, the scripts that build it). A run that finds it kept ends in
+  seconds. One that does not builds it from exactly those, with every
+  download named by commit, checksum or revision
+  (`proof/android/build-runtime.sh`), runs the reader's own checks on it
+  (`selfcheck.py`, `predicates.py`), and saves it.
+- **`proof-android`** ("Android i/n", `ubuntu-24.04`, x64) is one shard of
+  the Android stage ("The Android stage", above). `quality` builds the
+  Android queue with the main one; each shard waits for the proof shards,
+  restores the runtime, downloads their outputs, the corpus and the store,
+  and runs its static bin (`python3 -m proof.android.stage run`), four
+  devices at a time. It fails only when it cannot run its blocks.
 - **`proofs-gate`** ("Proofs") is the lane's one check, whatever its shard
-  count.
+  count: the proof shards' outputs and the Android shards' together.
 - **`proof-store`** saves this pull request's evidence store beside the gate:
-  what it held and what this run observed that main's does not hold.
+  what it held and what this run observed that main's does not hold, the
+  reader's answers and each Android group's outcome among it.
 
 CI makes the corpus and the native products on an x64 runner, with the
 runner's own Node, and the shards read them on arm64 in the image. So
@@ -2265,11 +2399,15 @@ its problems:
 
 1. **Exactly once**: every queued block ran exactly once (a block two shards
    ran fails, whatever they wrote), every group ran every item its worker
-   collected, cached groups ran nowhere, and the shards collected alike.
+   collected, cached groups ran nowhere, and the shards collected alike. The
+   Android queue is a queue like the other two (`--android-queue`), and an
+   Android shard's output an output like a proof shard's.
 2. **Tests**: every item that ran passed, or ended as pytest's marks on it
    allow.
 3. **Register**: the evidence of every block that ran, with the cached groups'
-   evidence read from the store, held to `proof/known-defects.json`.
+   evidence read from the store, held to `proof/known-defects.json`: each
+   stage's evidence of a check on a document to that stage's entries, and
+   every entry seen on its document and its control by its own stage.
 4. **Surface**: the surface block's extraction, or the store's for this image
    and extractor, is byte for byte the committed `surface.json`.
 
@@ -2303,9 +2441,15 @@ explicit diagnostic mode, and `proof_shards` selects another shard count.
 ### The other workflows
 
 - **`proof-lane.yml`** runs the lane whole and fresh for the workflows that
-  check the lane rather than a pull request. It records a candidate image in
-  the checkout's lock first (`proof/ci/candidate.mjs`), so every key the run
-  computes names the image it pulls.
+  check the lane rather than a pull request, the Android stage after the
+  shards (always on x64, whatever the shards' runner). It records a candidate
+  image in the checkout's lock first (`proof/ci/candidate.mjs`), so every key
+  the run computes names the image it pulls.
+- **`proof-android.yml`** runs the Android stage alone, again, over what an
+  earlier CI run's proof shards observed, and the gate over that run's
+  blocks and the stage's: for a change to the reader, its judges or the
+  register's Android entries that changes no observation. By hand, or
+  through `ci.yml`'s `android_from_run` input.
 - **`proof-audit.yml`**: the nightly audit and the weekly comparisons ("The
   evidence store and its audits", above).
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
@@ -2360,6 +2504,15 @@ may be Core's own. Connect's source is fetched at its pin when a proof runs,
 and the image's Connect virtualenv is built from that pin's lock, so moving
 Connect's pin rebuilds the image like any other
 (`proof/connect/test_runtime.py` holds the two to one commit).
+
+The Android reader's runtime is no part of the image. It is built from the
+commcare-android and commcare-core pins and `proof/android/toolchain.json` by
+the first CI run that finds none kept under their digest, so moving either
+pin (or the toolchain) builds a new runtime, and the reader's fingerprint
+names all three, so every archive is read again with it. Where a new
+commcare-android asks for another Gradle, another compile SDK or another
+Robolectric Android runtime, the build stops and names what to move in the
+toolchain.
 
 ### The weekly pin pull request
 

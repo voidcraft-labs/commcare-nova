@@ -24,19 +24,11 @@ import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowLooper;
 
 import org.commcare.AppUtils;
-import org.commcare.activities.FormAndDataSyncer;
-import org.commcare.activities.SyncCapableCommCareActivity;
-import org.commcare.android.database.user.models.FormRecord;
-import org.commcare.models.FormRecordProcessor;
-import org.commcare.models.database.SqlStorage;
-import org.commcare.utils.StorageUtils;
 import org.javarosa.core.model.User;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * The device the reader's observations run on: commcare-android's own application under Robolectric
@@ -55,7 +47,7 @@ final class Device {
     // made at login, before a restore brings the workers it registers.
     static final String USERNAME = "nova-proof-device";
     static final String PASSWORD = "123";
-    /** Whether a walk changed what the worker's sandbox holds (a form's cases applied, a claim's sync). */
+    /** Whether a walk changed what the worker's sandbox holds (a form saved, a claim's sync). */
     static boolean dirty;
     private static String restorePath;
     private static String restoreReference;
@@ -225,40 +217,5 @@ final class Device {
             restore(restorePath);
         }
         dirty = false;
-    }
-
-    /**
-     * What home is given in place of its own syncer. Where home starts sending the worker's unsent forms
-     * (FormAndDataSyncer.processAndSendForms starts a ProcessAndSendTask), this applies each unsent form to the
-     * device as that task first does, with the app's own processor (FormSubmissionHelper: FormRecordProcessor
-     * .process), and sends nothing: there is no server. A sync is not run either, as the project's own fake
-     * leaves it (FormAndDataSyncerFake).
-     */
-    static final class Syncer extends FormAndDataSyncer {
-        static final List<String> processed = new ArrayList<>();
-
-        @Override
-        protected void processAndSendForms(SyncCapableCommCareActivity activity, boolean syncAfterwards,
-                                           boolean userTriggered) {
-            SqlStorage<FormRecord> storage = CommCareApplication.instance().getUserStorage(FormRecord.class);
-            FormRecordProcessor processor = new FormRecordProcessor(activity);
-            for (FormRecord record : StorageUtils.getUnsentRecordsForCurrentApp(storage)) {
-                if (!FormRecord.STATUS_COMPLETE.equals(record.getStatus())) {
-                    continue;
-                }
-                dirty = true;
-                try {
-                    FormRecord after = processor.process(record);
-                    processed.add(String.valueOf(after.getStatus()));
-                } catch (Exception raised) {
-                    processed.add("raised " + raised.getClass().getName() + ": " + raised.getMessage());
-                }
-            }
-        }
-
-        @Override
-        public void syncDataForLoggedInUser(SyncCapableCommCareActivity activity, boolean formsToSend,
-                                            boolean userTriggeredSync) {
-        }
     }
 }

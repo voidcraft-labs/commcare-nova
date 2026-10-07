@@ -11,6 +11,7 @@ import org.commcare.activities.MenuActivity;
 import org.commcare.activities.PostRequestActivity;
 import org.commcare.activities.QueryRequestActivity;
 import org.commcare.activities.StandardHomeActivity;
+import org.commcare.android.mocks.FormAndDataSyncerFake;
 import org.commcare.engine.resource.AppInstallStatus;
 import org.commcare.models.AndroidSessionWrapper;
 import org.commcare.session.CommCareSession;
@@ -41,9 +42,9 @@ import java.util.List;
  * walk (Forms). A walk ends where home starts nothing, at a menu after a form, at a screen the walk does not
  * answer (named, with what it shows), or at its limits.
  *
- * A saved form's case blocks are applied to the device's own case database by the app's own processor, where
- * home starts it (Device.Syncer), so each walk that saved a form starts the next on a device made again: the
- * worker's sandbox wiped by the app's own call and the restore applied again (Device.reset).
+ * Android applies a completed form's case blocks to the device's own case database as it saves the form
+ * (FormRecord.updateAndProcessRecord), so each walk that saved a form starts the next on a device made again:
+ * the worker's sandbox wiped by the app's own call and the restore applied again (Device.reset).
  */
 final class Screens {
     private static final int MAX_STEPS = 24;
@@ -150,7 +151,8 @@ final class Screens {
         wrapper.reset();
         StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
-        home.setFormAndDataSyncer(new Device.Syncer());
+        // Nothing is sent and no sync is run, as the project's own tests leave home (ActivityLaunchUtils).
+        home.setFormAndDataSyncer(new FormAndDataSyncerFake());
         ShadowActivity shadow = Shadows.shadowOf(home);
         drain(shadow);
         if (command != null) {

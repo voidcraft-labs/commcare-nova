@@ -57,7 +57,6 @@ def _form(screens=("/data/name[1]",), cases=()):
             "finishing": True,
             "resultCode": -1,
             "records": [{"status": "unsent", "FormRecord.getDisplayName": "Register"}],
-            "processed": ["unsent"],
             "cases": [{"id": "case-1", "type": "patient", "name": "ada", "closed": False, "properties": {"age": "7"}}]
             + list(cases),
         },

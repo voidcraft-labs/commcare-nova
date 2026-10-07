@@ -72,11 +72,10 @@ logs in is on a real device. The requests (`Reader.java`):
     answered from the lane's answer table (`proof/core/answers.json`, as the
     Core runner reads it) through the form's own controller and read back by
     its own widget; a repeat's "add another?" dialog answered by its own
-    choices; then the worker's finish button, the app's own save, and home
-    handed the result. Home starts sending the worker's unsent forms there,
-    and each is applied to the device's case database by the app's own
-    processor (`FormRecordProcessor`, as `ProcessAndSendTask` first does);
-    nothing is sent. What home starts next is part of the same walk, so a
+    choices; then the worker's finish button and the app's own save, which
+    applies the form's case blocks to the device's case database as it
+    saves (`FormRecord.updateAndProcessRecord`), and home handed the result.
+    Nothing is sent. What home starts next is part of the same walk, so a
     walk shows where a worker lands after a form.
 
   A walk ends where home starts nothing (with the alert home holds for the

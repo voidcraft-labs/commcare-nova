@@ -42,9 +42,10 @@ import java.util.Map;
  * saves (FormEntryActivity.saveAnswersForCurrentScreen). A repeat's "add another?" dialog is answered by its
  * own choices: a row is added while the table asks for one, then the dialog's last choice leaves the repeat.
  *
- * At the form's end the worker's finish button is pressed (triggerUserFormComplete), the form is saved by the
- * app's own save task, and home is handed the result: what the record is called and holds, what the app's own
- * processor made of its case blocks (Device.Syncer) and the cases the device then holds. A walk that cannot
+ * At the form's end the worker's finish button is pressed (triggerUserFormComplete) and the form is saved by the
+ * app's own save task, which applies its case blocks to the device as it does (FormRecord
+ * .updateAndProcessRecord): what the record is called and holds and the cases the device then holds are read,
+ * and home is handed the result. A walk that cannot
  * leave a screen (a required question the table has no answer for, a constraint none of its values meets, an
  * alert) ends there, with what the screen shows.
  */
@@ -162,12 +163,13 @@ final class Forms {
             return false;
         }
         saved.put("resultCode", shadow.getResultCode());
+        // The save applied the form's case blocks to the device (FormRecord.updateAndProcessRecord): the form's
+        // record and the cases the device now holds, read before home is handed the result.
+        Device.dirty = true;
         saved.put("records", records());
-        Device.Syncer.processed.clear();
+        saved.put("cases", Cases.read());
         home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
         ShadowLooper.idleMainLooper();
-        saved.put("processed", new JSONArray(Device.Syncer.processed));
-        saved.put("cases", Cases.read());
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
 
