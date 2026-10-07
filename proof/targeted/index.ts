@@ -13,6 +13,7 @@ import {
 	closeConditionUnparsable,
 } from "./documents/closeConditions";
 import { customTile } from "./documents/customTile";
+import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
 	invalidConnectIds,
@@ -76,6 +77,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	parentFormPreviousFrame,
 	wireEqualRepublish,
 	searchButtonLabel,
+	formLinkHiddenTarget,
 ];
 
 /** Every targeted document, in a fixed order. */

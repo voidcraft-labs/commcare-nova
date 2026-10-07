@@ -101,6 +101,7 @@ EVERY = "every"
 PACKAGE_DATA = {
     "proof/checks": {"documents": EVERY},
     "proof/editors": {"documents": ("proof/editors/test_view_equivalence.py", "CORPUS_SAMPLE")},
+    "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS")},
     "proof/hq": {"documents": ("proof/hq/test_branches.py", "DOCUMENTS"), "native": EVERY},
     "proof/lane": {"documents": EVERY, "native": EVERY},
     "proof/native": {"native": EVERY},

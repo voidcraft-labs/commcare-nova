@@ -3,10 +3,11 @@
 # The proof harness image (proof/README.md). Built by
 # .github/workflows/proof-image.yml from proof/pins.json; every input is pinned
 # here or passed as a build argument (proof/image/build-args.mjs), so one set
-# of pins builds one image. The image holds HQ, Core and Android at their pins,
-# HQ's virtualenv from HQ's own lock, Core compiled with its test classpath
-# recorded, HQ's migrated database schema, HQ's editor bundles, node, and
-# Chromium; Nova's checkout is mounted at run time.
+# of pins builds one image. The image holds HQ, Core, Android and Formplayer at
+# their pins, HQ's virtualenv from HQ's own lock, Core compiled with its test
+# classpath recorded, Formplayer's own boot jar unpacked with its classpath
+# recorded, a Redis for Formplayer, HQ's migrated database schema, HQ's editor
+# bundles, node, and Chromium; Nova's checkout is mounted at run time.
 #
 # Two images come from it. `full` (--target full) is everything the stages
 # install. The default target, `slim`, is `full` without what the lane never
@@ -25,7 +26,8 @@ FROM ${PYTHON_IMAGE} AS sources
 ARG HQ_COMMIT
 ARG CORE_COMMIT
 ARG ANDROID_COMMIT
-RUN test -n "$HQ_COMMIT" && test -n "$CORE_COMMIT" && test -n "$ANDROID_COMMIT"
+ARG FORMPLAYER_COMMIT
+RUN test -n "$HQ_COMMIT" && test -n "$CORE_COMMIT" && test -n "$ANDROID_COMMIT" && test -n "$FORMPLAYER_COMMIT"
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates git \
   && rm -rf /var/lib/apt/lists/*
@@ -33,6 +35,11 @@ COPY proof/image/fetch-commit.sh /usr/local/bin/fetch-commit
 RUN fetch-commit https://github.com/dimagi/commcare-hq.git "$HQ_COMMIT" /opt/hq --submodules
 RUN fetch-commit https://github.com/dimagi/commcare-core.git "$CORE_COMMIT" /opt/core
 RUN fetch-commit https://github.com/dimagi/commcare-android.git "$ANDROID_COMMIT" /opt/android
+# Formplayer with the Core it vendors (libs/commcare, a submodule at the commit
+# Formplayer's own tree records): the Core Formplayer runs is that one, whatever
+# the Core pin is, and the harness's self-test says where the two differ
+# (proof/formplayer/test_boot.py).
+RUN fetch-commit https://github.com/dimagi/formplayer.git "$FORMPLAYER_COMMIT" /opt/formplayer --submodules
 # The HQ pin's commit time, the clock HQ's operations start from
 # (proof/hq/determinism.py::EPOCH), readable where no git is installed.
 RUN git -C /opt/hq log -1 --format=%cI > /opt/hq-pin-time && test -s /opt/hq-pin-time
@@ -83,6 +90,22 @@ RUN gradle --no-daemon -I /opt/proof-image/core-classpath.init.gradle \
       -PnovaClasspathFile=/opt/core/proof-test-classpath.txt \
       testClasses writeNovaTestClasspath \
   && test -s /opt/core/proof-test-classpath.txt
+
+# ---------------------------------------------------------------------------
+# Formplayer's own boot jar, built by Formplayer's own Gradle build at its pin
+# (its wrapper names the Gradle this stage holds), unpacked so the harness's
+# runner starts Formplayer's application on exactly the classes and libraries
+# production's launcher loads (formplayer/build.sh). Its Gradle home is its
+# own and is left behind: the image never builds Formplayer again.
+FROM core-build AS formplayer-build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=sources /opt/formplayer /opt/formplayer
+COPY proof/image/formplayer/ /opt/proof-image/formplayer/
+RUN GRADLE_USER_HOME=/tmp/formplayer-gradle-home \
+      /opt/proof-image/formplayer/build.sh /opt/formplayer /opt/formplayer-app \
+  && rm -rf /tmp/formplayer-gradle-home
 
 # ---------------------------------------------------------------------------
 # Node at Nova's version (.nvmrc), npm at Nova's (package.json devEngines), and
@@ -168,7 +191,7 @@ ARG JAVAPARSER_VERSION=3.28.2
 ARG JAVAPARSER_SHA256=b5499a3b1c40b16c0671fabe478c9aafeab38160c6fde74a6c13f42d86716ecd
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-     ca-certificates curl gnupg git openjdk-17-jdk-headless \
+     ca-certificates curl gnupg git openjdk-17-jdk-headless redis-server \
      libpq5 libxml2 libxmlsec1 libxmlsec1-openssl libxslt1.1 libmagic1 gettext \
   && install -d /usr/share/postgresql-common/pgdg \
   && curl -fsSLo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
@@ -203,6 +226,8 @@ COPY --from=hq-venv /opt/hq-venv /opt/hq-venv
 COPY --from=core-build /opt/gradle /opt/gradle
 COPY --from=core-build /opt/gradle-home /opt/gradle-home
 COPY --from=core-build /opt/core /opt/core
+COPY --from=formplayer-build /opt/formplayer /opt/formplayer
+COPY --from=formplayer-build /opt/formplayer-app /opt/formplayer-app
 COPY --from=hq-schema /opt/hq-schema /opt/hq-schema
 # HQ's XPath validator (corehq/apps/app_manager/xpath_validator/nodejs/),
 # which HQ's build runs on every module and form filter, needs js-xpath and
@@ -220,6 +245,8 @@ ENV LANG=C.UTF-8 \
     PROOF_HQ=/opt/hq \
     PROOF_CORE=/opt/core \
     PROOF_ANDROID=/opt/android \
+    PROOF_FORMPLAYER=/opt/formplayer \
+    PROOF_FORMPLAYER_APP=/opt/formplayer-app \
     PROOF_HQ_SCHEMA=/opt/hq-schema/hq.sql \
     PYTHONPATH=/opt/proof-py \
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
@@ -249,7 +276,8 @@ FROM full AS pruned
 RUN set -eu; \
     rm -rf /opt/ms-playwright/chromium-[0-9]*; \
     test -x /opt/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell; \
-    for gitdir in $(find /opt/hq/.git /opt/core/.git /opt/android/.git -type f -name HEAD -path '*/.git*' \
+    for gitdir in $(find /opt/hq/.git /opt/core/.git /opt/android/.git /opt/formplayer/.git \
+                    -type f -name HEAD -path '*/.git*' \
                     -not -path '*/refs/*' -not -path '*/logs/*' -exec dirname {} \;); do \
       test -d "$gitdir/objects" || continue; \
       head="$(git --git-dir="$gitdir" rev-parse HEAD)"; \
@@ -259,7 +287,7 @@ RUN set -eu; \
       test "$(git --git-dir="$gitdir" hash-object -t commit -w /tmp/head-commit)" = "$head"; \
     done; \
     rm -f /tmp/head-commit; \
-    for checkout in /opt/hq /opt/core /opt/android; do \
+    for checkout in /opt/hq /opt/core /opt/android /opt/formplayer /opt/formplayer/libs/commcare; do \
       git -C "$checkout" rev-parse HEAD >/dev/null; \
       git -C "$checkout" log -1 --format=%cI >/dev/null; \
     done; \
@@ -286,6 +314,8 @@ ENV PATH=/opt/hq-venv/bin:/opt/gradle/bin:/opt/node/bin:/usr/local/bin:/usr/loca
     PROOF_HQ=/opt/hq \
     PROOF_CORE=/opt/core \
     PROOF_ANDROID=/opt/android \
+    PROOF_FORMPLAYER=/opt/formplayer \
+    PROOF_FORMPLAYER_APP=/opt/formplayer-app \
     PROOF_HQ_SCHEMA=/opt/hq-schema/hq.sql \
     PYTHONPATH=/opt/proof-py \
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1

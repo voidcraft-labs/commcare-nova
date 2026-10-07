@@ -54,6 +54,25 @@ final class FormRun {
 
     /** How the form ended: "submitted", or why it stopped before that. */
     String end;
+    /** Whether a submitted form's step also records what Core's session does with the frame it is left. */
+    boolean recordNext;
+
+    /**
+     * What Core's session needs for the frame a submission left it, as a host's
+     * session loop reads it (CommCareSession.getNeededData): the datum or
+     * command it asks for next, or, where it asks for nothing, the entry it
+     * holds and the form that entry opens. A request asks for this
+     * ("afterSubmit"), since it is what Formplayer's end of form navigation is
+     * held against (proof/formplayer).
+     */
+    static JSONObject next(SessionWrapper session) {
+        JSONObject next = new JSONObject();
+        String needs = session.getNeededData(session.getEvaluationContext());
+        next.put("needs", nullable(needs));
+        next.put("command", nullable(session.getCommand()));
+        next.put("form", needs == null ? nullable(session.getForm()) : JSONObject.NULL);
+        return next;
+    }
 
     FormRun(SessionWrapper session, ProofEngine engine, MockUserDataSandbox sandbox, Answers answers, String locale) {
         this.session = session;
@@ -290,6 +309,9 @@ final class FormRun {
             stack.put("nextFrameReady", more);
             stack.put("steps", frameSteps(session));
             stack.put("pendingFrames", session.getFrameStack().size());
+            if (recordNext && more) {
+                stack.put("next", next(session));
+            }
             step.put("stackAfterSubmit", stack);
         } catch (Exception e) {
             step.put("error", failure(e));

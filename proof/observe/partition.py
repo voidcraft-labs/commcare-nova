@@ -31,6 +31,7 @@ OBSERVATION_DIRECTORIES = (
     "proof/checks/compare/",
     "proof/core/",
     "proof/editors/",
+    "proof/formplayer/",
     "proof/hq/",
     "proof/lane/",
     "proof/observe/",

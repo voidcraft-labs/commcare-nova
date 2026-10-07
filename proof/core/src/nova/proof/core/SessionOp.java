@@ -79,6 +79,8 @@ final class SessionOp {
     private final Answers answers;
     private final String locale;
     private final Generated.Inputs inputs;
+    /** "afterSubmit": each submitted form's step also records what Core's session needs next (FormRun.next). */
+    private boolean afterSubmit;
 
     private SessionOp(Apps.App app, byte[] restore, Answers answers, String locale, Generated.Inputs inputs) {
         this.app = app;
@@ -111,6 +113,7 @@ final class SessionOp {
         ProofClock.set(clock);
         Generated.Inputs inputs = Generated.Inputs.of(app, restore, request);
         SessionOp op = new SessionOp(app, restore, answers, locale, inputs);
+        op.afterSubmit = request.optBoolean("afterSubmit", false);
 
         JSONArray runs = new JSONArray();
         JSONArray script = request.optJSONArray("script");
@@ -241,6 +244,7 @@ final class SessionOp {
                         break;
                     }
                     FormRun form = new FormRun(session, app.engine, sandbox, answers, locale);
+                    form.recordNext = afterSubmit;
                     trace.put(form.run(xmlns));
                     end = form.end;
                     break;
