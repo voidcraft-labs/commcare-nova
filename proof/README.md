@@ -449,6 +449,9 @@ In it:
 - `workers/w<n>.log` and `workers/w<n>/`: each worker's output;
 - `timings/`: each group's seconds per worker, which
   `node proof/run.mjs --timings <output>...` turns into `proof/timings.json`;
+- `blocks/<id>/connect-unit/`: the logs of the Connect runtime a Connect
+  document's observation started (its fetch, its services, its migrations
+  and each served session);
 - `store/`: what the run observed for the evidence store, and `audit/`, any
   record the audit sample observed differently from the store;
 - `corpus/`: the corpus the run emitted, and `corpus.log`.

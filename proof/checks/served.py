@@ -451,7 +451,7 @@ def merged_text_ids(built, local) -> dict:
         if [name for name, _ in references_built] != [name for name, _ in references_local]:
             continue
         texts_local = _texts(root_local)
-        for (_, id_built), (_, id_local) in zip(references_built, references_local):
+        for (_, id_built), (_, id_local) in zip(references_built, references_local, strict=True):
             if id_local in refused:
                 continue
             if id_built == id_local:
