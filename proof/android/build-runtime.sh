@@ -131,6 +131,8 @@ fi
 held="$target/commcare-android/gradle/verification-metadata.xml"
 verification=""
 if [ -n "$write_verification" ]; then
+  # Gradle adds what this platform resolves to the entries the file already holds.
+  if [ -f "$here/verification-metadata.xml" ]; then cp "$here/verification-metadata.xml" "$held"; fi
   verification="--write-verification-metadata sha256"
 elif [ -f "$here/verification-metadata.xml" ] && [ "${PROOF_ANDROID_VERIFICATION:-strict}" != "off" ]; then
   cp "$here/verification-metadata.xml" "$held"

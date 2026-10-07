@@ -53,8 +53,23 @@ runs:
         RUNTIME: ${{ steps.name.outputs.runtime }}
       run: |
         python3 proof/android/toolchain.py prepare-sdk "$RUNNER_TEMP/proof-android-sdk"
-        ANDROID_HOME="$RUNNER_TEMP/proof-android-sdk" sh proof/android/build-runtime.sh "$RUNTIME"
+        # Where the dependencies' checksums are not committed yet, this build writes them for a person to
+        # review and commit (the artifact below); where they are, the build holds every dependency to them.
+        write=()
+        if [ ! -f proof/android/verification-metadata.xml ]; then
+          write=(--write-verification "$RUNNER_TEMP/proof-android-verification/verification-metadata.xml")
+          mkdir -p "$RUNNER_TEMP/proof-android-verification"
+        fi
+        ANDROID_HOME="$RUNNER_TEMP/proof-android-sdk" sh proof/android/build-runtime.sh "$RUNTIME" "${write[@]}"
         du -sh "$RUNTIME" "$RUNTIME"/*
+    - name: Upload the dependencies' checksums this build wrote
+      if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' && hashFiles('proof/android/verification-metadata.xml') == '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: proof-android-verification-${{ github.job }}
+        path: ${{ runner.temp }}/proof-android-verification/
+        if-no-files-found: ignore
+        retention-days: 14
     # The reader held to itself on the runtime just built, before any shard reads an archive with it.
     - name: The reader's own checks
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
