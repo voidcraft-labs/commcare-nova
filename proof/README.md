@@ -276,7 +276,7 @@ or it fails the lane ("The registers", below).
   Formplayer is not run over Nova's local archives past their menus and
   forms: a local archive's profile names no submission URL, so Formplayer
   cannot submit its forms, and Web Apps installs only what HQ builds
-  (finding 57).
+  (finding 59).
 - **The Web Apps client runs, and no check judges its screens yet.** HQ's
   own client runs in the lane's Chromium against Formplayer over a released
   build of a Nova export ("The Web Apps driver", below), its own tests hold
@@ -493,8 +493,12 @@ packages themselves where HQ finds them (`/opt/hq/node_modules`: HQ's XPath
 validator reads two, and HQ's static finders and stylesheet precompiler the
 rest for the Web Apps page), and the `sass` that precompiler runs, among the
 image's own Node tools. It holds only public, licensed upstream sources and
-the harness's own
-code; Nova's checkout is mounted at run time. Connect's checkout carries no
+the harness's own code; Nova's checkout is mounted at run time. The Android
+reader's runtime is not in it (`proof/android/README.md`): Robolectric's
+native runtime has no linux/arm64 build, and the runtime holds SDK-derived
+and Google libraries, so the reader builds its runtime from the pins on
+linux/amd64 (`proof/android/build-runtime.sh`), and nothing the image builds
+or the lane imports reaches `proof/android`. Connect's checkout carries no
 license file, so none of Connect's source is in the image: the Connect proofs
 fetch it at its pin when they run (`proof/connect/checkout.py`). The image
 holds what Connect runs on (the `full` stage): Python 3.11, a virtualenv from
@@ -704,7 +708,7 @@ assignment. `targeted-form-link-hidden-target` is the Formplayer runner's:
 three forms each link to one target, a shown form, a form and a menu whose
 display condition is false for the lane's worker (Nova refuses a condition
 no worker could meet), which `proof/formplayer/test_end_of_form.py` runs on
-Formplayer and on Core (finding 56). `targeted-empty-list-no-english` is the
+Formplayer and on Core (finding 58). `targeted-empty-list-no-english` is the
 Web Apps driver's: an app written in Spanish alone, whose empty-list message
 `proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
 module settings save (finding 41). The focused `stableWitnesses.test.ts` holds every emitted byte
@@ -940,7 +944,7 @@ What its own tests observe on HQ's builds of real Nova exports:
 
 | Claim | Observed | Test |
 | --- | --- | --- |
-| A form link whose target is hidden (finding 56) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
+| A form link whose target is hidden (finding 58) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
 | A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, which HQ's compiler takes | `test_search.py` |
 | The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | `test_search.py` |
 | `cc-autosync-freq` absent or `freq-never` (finding 40) | Formplayer asks HQ for no restore after eight days in either; with `freq-daily`, the control, it asks for one | `test_settings.py` |
@@ -1003,7 +1007,7 @@ a step clicks what a worker clicks, or reads what the page shows.
   HQ sets a new app's `cloudcare_enabled` when Nova's upload lands) and the
   app has a released build. The lane's configurations grant a privilege only
   where a document's content needs it, so none of its apps is one Web Apps
-  lists (finding 59); the driver takes the document's configuration with that
+  lists (finding 64); the driver takes the document's configuration with that
   one privilege added. The build is made as HQ's Releases page makes one
   (`Application.make_build` and the build's save, then HQ's own
   `release_build` view), optionally after HQ's own editor pages saved the app
@@ -1065,8 +1069,8 @@ the client itself:
 | A sort-only column | no header and no cell for the column Formplayer hands with a width hint of 0 | `test_search.py` |
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
-| `cc-show-incomplete` after the App Settings save (finding 58) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
-| An after-submit link to a hidden target, end to end (finding 56) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; one submission reaches HQ each time | `test_links.py` |
+| `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
+| An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; one submission reaches HQ each time | `test_links.py` |
 
 #### Web Apps in the lane
 
@@ -1094,7 +1098,7 @@ joining the lane takes:
   aligned build's, where the builds differ, as proof 3 compares Core's
   traces; and, in proof 4, the record after each editor save whose stored
   app or build changed against B's. The second is where a difference only
-  the stored app holds shows (finding 58 changed no file of the build), so
+  the stored app holds shows (finding 62 changed no file of the build), so
   the release must follow the save whether or not the build changed. A
   difference is `webapps@<state>`, its path the screen's (`/runs/*/screens/*
   /list/cells/*/fontSize`), held by the register as any other.
@@ -1137,9 +1141,11 @@ joining the lane takes:
 - `android` names the Android predicate the harm rests on ("What the lane does
   not observe", above).
 - `equivalence` marks a class that is no harm: two spellings every reader
-  reads alike, whose readers are runtimes the lane does not run (Android, Web
-  Apps' client, Connect), so no spelling rule's test can prove them alike. It
-  names those readers and why each reads the two alike. Such an entry is held
+  reads alike, whose readers (Android, Web Apps' client, Connect) are not
+  HQ's build or Core's run, so no spelling rule's test can prove them alike.
+  It names those readers and why each reads the two alike, and, where a
+  reader's own tests ran both spellings (`proof/formplayer`, `proof/webapps`,
+  `proof/connect`), the test that did. Such an entry is held
   and verified as any other, and the fix of the defect or finding it is filed
   under removes it (`harness-findings.md`, "Equivalences only another runtime
   reads").
@@ -1337,9 +1343,9 @@ document the tests read, and its `rule_documents` hands a test those alone.
 To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
 `RULES` where its artifact's rules apply, and add any document its test reads
 to `DOCUMENTS`. `test_closed_set.py` fails while a module is unlisted or
-untested. A difference no proof can show equivalent (one whose reader is
-Android, Web Apps or Connect, which the lane does not run) is not a rule: it
-is a register entry. When an emitter starts writing the editor's spelling, the
+untested. A difference no such proof can show equivalent (one whose reader is
+Android, Web Apps or Connect, which no spelling rule's test runs) is not a
+rule: it is a register entry. When an emitter starts writing the editor's spelling, the
 rule that erased Nova's former spelling goes in the same change.
 
 ## The surface extractor
@@ -1533,7 +1539,7 @@ seconds (the fetch two, the migrations ten), and a scenario under one.
 `proof/connect/test_receiver.py` states each as a test, over
 `targeted-connect-deliver-rename` and `targeted-connect-learn-rename` (a
 deliver app and a learn app that each carry the edit renaming their Connect
-ids), and, for finding 56, `connect-deliver-default`,
+ids), and, for finding 60, `connect-deliver-default`,
 `targeted-connect-deliver-key-names` and `targeted-connect-learn-key-names`:
 
 - Connect reads exactly the authored learn module, deliver unit and task from
@@ -1553,10 +1559,10 @@ ids), and, for finding 56, `connect-deliver-default`,
   renamed learn module leaves a later learner at half, never finished; a
   renamed task never completes the task a worker was assigned, which then
   rejects each of the worker's deliveries.
-- Finding 56: a block whose id is one of the names the receiver looks for
+- Finding 60: a block whose id is one of the names the receiver looks for
   (`task`, `deliver`, `work_area_update`, `module`, `assessment`) fails the
   receiver on every submission of its form.
-- Finding 57: a deliver form that also holds a task loses its own visit while
+- Finding 61: a deliver form that also holds a task loses its own visit while
   the task is assigned.
 
 Each run leaves, under its block's `connect/`: each document's archives, each

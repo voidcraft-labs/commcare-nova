@@ -16,7 +16,7 @@ moving under an opportunity that already holds it (defect 15); a submission
 that carries no location where Connect checks one (the harness's finding
 34); a block spelled another way by HQ's form designer that Connect reads
 differently (finding 55); and a name Nova admits that Connect's receiver
-cannot process (finding 56).
+cannot process (finding 60).
 
 Every scenario's steps, with the rows Connect held after each, are written to
 the run's ``connect/scenario.<name>.json``, beside the submission and the
@@ -414,7 +414,7 @@ def test_a_renamed_task_never_completes_the_task_a_worker_was_assigned(world):
     assert state["access"]["paymentAccrued"] == 0
 
 
-# Finding 56: a block named like one of Connect's own keys ---------------------------------------------------------
+# Finding 60: a block named like one of Connect's own keys ---------------------------------------------------------
 
 
 def test_a_task_named_task_fails_connects_receiver_on_every_submission(world):

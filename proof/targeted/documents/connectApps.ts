@@ -16,13 +16,13 @@
  *   depth of a submission (`module`, `assessment`, `deliver`, `task`,
  *   `work_area_update`): a Connect block's id is also its wrapper node's
  *   name, and the receiver fails on a wrapper so named (the harness's
- *   finding 56, which `connect-deliver-default`'s task shows).
+ *   finding 60, which `connect-deliver-default`'s task shows).
  * - `targeted-connect-learn-rename`: one form holding a learn module and an
  *   assessment scored by an answer.
  *
  * - `targeted-connect-learn-key-names` and
  *   `targeted-connect-deliver-key-names`: one form for each remaining name
- *   of finding 56 (`module` and `assessment` in a learn app; `deliver` and
+ *   of finding 60 (`module` and `assessment` in a learn app; `deliver` and
  *   `work_area_update` in a deliver app).
  *
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
@@ -144,7 +144,7 @@ export function connectLearnRename() {
  * A Connect app whose blocks are each named like one of the keys Connect's
  * receiver looks for in that kind of app, one block to a form, so each
  * form's submission shows what the receiver makes of one name (the
- * harness's finding 56).
+ * harness's finding 60).
  */
 function keyNamedForms(
 	id: string,
@@ -192,7 +192,7 @@ function keyNamedForms(
 	});
 	return targetedDocument({
 		id,
-		rows: ["56, a Connect block named like one of Connect's keys"],
+		rows: ["60, a Connect block named like one of Connect's keys"],
 		doc,
 		expected: {
 			intent: forms.map((form, index) =>

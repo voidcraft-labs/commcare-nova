@@ -408,13 +408,20 @@ corpus ids that show the symptom.
     side for every such search from an install of HQ's build; the worker
     sees the same results. *Documents:* `search-automatic`.
 
+### Found by running the other readers
+
+Findings 58 to 64 were found by running the readers the lane had only cited:
+Formplayer's application, Connect's receiver, HQ's Web Apps client and
+commcare-android. Numbers 56 and 57 belong to two findings made while step 2
+was planned, which its first pull request records.
+
 ### Found by running Formplayer
 
 The lane ran Core alone until the Formplayer runner (`proof/formplayer`,
 Formplayer `24383ac71bfb` with the Core it vendors, `8e9ba8d908e9`). What
 Formplayer's own application does over HQ's builds of Nova's exports:
 
-56. **Formplayer stops where a form link's target is hidden; Core's session
+58. **Formplayer stops where a form link's target is hidden; Core's session
     goes on.** HQ builds a form link as a stack frame naming the target's
     commands (`suite_xml/post_process/workflow.py`). After a submission
     Core's session holds that frame as it stands: for a hidden form it needs
@@ -435,15 +442,27 @@ Formplayer's own application does over HQ's builds of Nova's exports:
     sessions do not stand for Web Apps here. *Documents:*
     `targeted-form-link-hidden-target`.
 
-57. **Formplayer cannot submit a form of Nova's local archive.** The local
-    `.ccz` profile holds no server URL (no `PostURL`), and Formplayer reads
-    a form's submission URL from that property
-    (`session/MenuSession.java`, `FormSession.getPostUrl`), so its submit
-    answers `status: error` (a null URL) and sends nothing. Menus, lists
-    and form entry run. *Harm:* none a worker reaches: Web Apps installs
-    only what HQ builds. It bounds the lane: Formplayer's sessions are
-    walked on HQ's builds, never across the two export paths.
-    *Documents:* any local archive.
+59. **Nova's local archive names no server, so nothing submitted from it
+    names its app.** The local `.ccz` profile holds no `PostURL`
+    (`lib/commcare/compiler.ts::generateProfile`); HQ's build's names HQ's
+    receiver under the app's id. Formplayer reads a form's submission URL
+    from that property (`session/MenuSession.java`,
+    `FormSession.getPostUrl`), so on the local archive its menus, lists and
+    form entry run and its submit answers `status: error` (a null URL) and
+    sends nothing (`proof/formplayer/test_local_archive.py`). A submission
+    of the local archive received with no app named gets a null app id from
+    HQ's own receiver functions (`get_app_and_build_ids`), HQ's Connect
+    repeater still forwards it, and Connect answers 400 (`{"app_id": ["This
+    field may not be null."]}`) and writes nothing, for a learn form and a
+    delivery alike (`proof/connect/test_receiver.py`). Where a device posts
+    for a profile with no `PostURL` is commcare-android's
+    (`sync/FormSubmissionHelper.java`, its default `R.string.PostURL`), read
+    and not run. *Harm:* none in Web Apps, which installs only what HQ
+    builds. For a Connect app installed from the local archive, no
+    submission reaches Connect as that app's, so finding 34's harm is met
+    only by a submission that does name the app. It bounds the lane:
+    Formplayer's sessions are walked on HQ's builds, never across the two
+    export paths. *Documents:* any local archive.
 
 What the same runs show of earlier findings, each on Formplayer itself
 (`proof/formplayer/test_*.py`): finding 40's `cc-autosync-freq` reads alike
@@ -457,6 +476,49 @@ the search screen again with the validation's message); and finding 54's
 description is `""` for Nova's export and a non-breaking space for the saved
 app in what Formplayer hands Web Apps (`QueryResponseBean.description`).
 
+### Found by running Connect's receiver
+
+The Connect proof (`proof/connect`) runs Connect's own sync and form receiver,
+at the Connect pin, over the payload HQ's own repeater builds from a submission
+Core made on HQ's build or Nova's local archive of a Nova export.
+
+60. **A Connect block named like one of Connect's own keys fails Connect's
+    receiver.** Nova names a Connect block's wrapper node by the block's id
+    (`lib/commcare/connectSlugs.ts`), and admits any element name as an id
+    (`lib/domain/forms.ts::connectIdSchema`). HQ's Connect repeater forwards
+    each block at its path (`repeater_generators.py::
+    ConnectFormRepeaterPayloadGenerator`), and Connect's receiver looks for
+    `module` and `assessment` in a learn form, and `deliver`, `task` and
+    `work_area_update` in a deliver form, at every depth, reading each
+    match's `@xmlns` (`commcare-connect form_receiver/processor.py::
+    _get_matching_blocks`). A block whose id is one of those names is
+    wrapped in a node of that name with no namespace, so the receiver raises
+    `KeyError('@xmlns')`, answers 500 and rolls the whole submission back.
+    *Harm:* Connect keeps nothing of any submission of that form (a
+    delivery's visit and pay included), from HQ's build and the local
+    archive alike, and HQ's repeater retries a record that can never
+    succeed. Run in Connect for each of the five names
+    (`proof/connect/test_receiver.py`), with the accepted case: the same
+    forms with blocks named otherwise. HQ's own form designer names the
+    wrapper by the question's id as well, so an app made there with such an
+    id fails alike. *Fix:* the validator refuses the five names as a Connect
+    id, each in the app type whose receiver reads it.
+    *Documents:* `connect-deliver-default`, `connect-deliver-custom` (the
+    task of both is `task`), `targeted-connect-learn-key-names`,
+    `targeted-connect-deliver-key-names`.
+
+61. **A deliver form that also holds a task loses its own visit while the
+    task is assigned.** Nova lets one form hold a deliver unit and a task
+    (`lib/domain/forms.ts`). Connect's receiver reads the deliver unit
+    first and rejects the visit while the worker has an assigned task of
+    the app ("Worker has an incomplete assigned task.",
+    `processor.py::process_deliver_unit`, `_has_blocking_pending_task`),
+    and only then completes the task from the same submission
+    (`process_deliver_form`). *Harm:* the delivery made in the submission
+    that completes a task is always rejected and unpaid; the next one is
+    approved. Run in Connect (`proof/connect/test_receiver.py`).
+    *Documents:* `targeted-connect-deliver-rename`, `connect-deliver-default`.
+
 ### Found by running the Web Apps client
 
 The Web Apps driver (`proof/webapps`) runs HQ's own client, at the HQ pin, in
@@ -464,7 +526,7 @@ the lane's Chromium against Formplayer over a build HQ released of a Nova
 export, for a mobile worker, with HQ's own compiled stylesheets. What it shows
 that no build comparison and no session of Core's or Formplayer's could:
 
-58. **The App Settings save takes Incomplete Forms off Web Apps' home
+62. **The App Settings save takes Incomplete Forms off Web Apps' home
     screen.** The client reads `cc-show-incomplete` from the app HQ stores,
     never from the build (`cloudcare/utils.py::format_app_doc` hands it the
     stored `profile`; `formplayer/apps/controller.js::listApps` hides the
@@ -477,20 +539,6 @@ that no build comparison and no session of Core's or Formplayer's could:
     reader of its own. *Harm:* after a save that changes nothing, a worker
     in Web Apps no longer has the Incomplete Forms screen.
     *Documents:* every document; observed on `targeted-survey-menu`.
-
-59. **No app the lane builds is one Web Apps lists.** HQ sets a new app's
-    `cloudcare_enabled` from the project space's `CLOUDCARE` privilege when
-    Nova's upload lands (`models/applications.py::_create_app_from_doc`), and
-    Web Apps lists only an app that has it
-    (`cloudcare/utils.py::get_web_apps_available_to_user`). The lane's
-    configurations grant a privilege only where a document's content needs
-    it, and Nova sends no `cloudcare_enabled`, so every app of the corpus is
-    stored with it false. *Harm:* none to a worker; it bounds the lane: the
-    stored app the checks compare is never the one a project space with Web
-    Apps holds, and the Web Apps driver adds the privilege to read one
-    (`proof/webapps/test_session.py` shows HQ offering the app with it and
-    not without).
-    *Documents:* every document.
 
 What the same runs show of earlier findings, each on the client
 (`proof/webapps/test_*.py`):
@@ -518,7 +566,7 @@ What the same runs show of earlier findings, each on the client
   its own text for a blank one.
 - **Defect 16.** A list search in Web Apps for the value of a column Nova
   left out finds no case, and a search for a shown value finds the case.
-- **Finding 56.** End to end, with the form opened and submitted by clicks:
+- **Finding 58.** End to end, with the form opened and submitted by clicks:
   a link to a shown form opens it, a link to a hidden form leaves the worker
   on the menu that holds it, listing its shown form alone, and a link to a
   hidden menu leaves them on the app's first screen; HQ receives one
@@ -531,48 +579,57 @@ What the same runs show of earlier findings, each on the client
   cell for it. The plan's sentence for finding 38, that nothing but Android
   reads a column's width hint, does not hold for a hint of 0.
 
-### Found by running Connect's receiver
+### Found by running commcare-android
 
-The Connect proof (`proof/connect`) runs Connect's own sync and form receiver,
-at the Connect pin, over the payload HQ's own repeater builds from a submission
-Core made on HQ's build or Nova's local archive of a Nova export.
+The Android reader (`proof/android`) runs commcare-android's own application,
+installers, activities and views, at the Android pin beside the Core pin,
+under Robolectric, over the archives a lane run recorded: Nova's local
+exports and HQ's builds of A, B, B-edit and every editor save. It runs
+outside the lane's image (`proof/android/README.md`).
 
-56. **A Connect block named like one of Connect's own keys fails Connect's
-    receiver.** Nova names a Connect block's wrapper node by the block's id
-    (`lib/commcare/connectSlugs.ts`), and admits any element name as an id
-    (`lib/domain/forms.ts::connectIdSchema`). HQ's Connect repeater forwards
-    each block at its path (`repeater_generators.py::
-    ConnectFormRepeaterPayloadGenerator`), and Connect's receiver looks for
-    `module` and `assessment` in a learn form, and `deliver`, `task` and
-    `work_area_update` in a deliver form, at every depth, reading each
-    match's `@xmlns` (`commcare-connect form_receiver/processor.py::
-    _get_matching_blocks`). A block whose id is one of those names is
-    wrapped in a node of that name with no namespace, so the receiver raises
-    `KeyError('@xmlns')`, answers 500 and rolls the whole submission back.
-    *Harm:* Connect keeps nothing of any submission of that form (a
-    delivery's visit and pay included), from HQ's build and the local
-    archive alike, and HQ's repeater retries a record that can never
-    succeed. Run in Connect for each of the five names
-    (`proof/connect/test_receiver.py`), with the accepted case: the same
-    forms with blocks named otherwise. HQ's own form designer names the
-    wrapper by the question's id as well, so an app made there with such an
-    id fails alike. *Fix:* the validator refuses the five names as a Connect
-    id, each in the app type whose receiver reads it.
-    *Documents:* `connect-deliver-default`, `connect-deliver-custom` (the
-    task of both is `task`), `targeted-connect-learn-key-names`,
-    `targeted-connect-deliver-key-names`.
+63. **HQ's build installs on Android only with its media.** The lane hands
+    Core HQ's build as HQ's index download arranges it
+    (`hqmedia/views.py::iter_index_files`: the suite, the profile, the app
+    strings and the forms), and Core admits that. Android's install of the
+    same archive fails (`AppInstallStatus.UnknownFailure`): its media
+    installer goes to the network for each file the media suite names. HQ's
+    download with multimedia (`iter_app_files`) installs, and so does Nova's
+    local `.ccz`, which carries its media. *Harm:* none to a worker, who
+    installs from HQ or from a file that holds the media. It bounds the
+    lane: Core's admission of an index-only archive does not stand for a
+    device's install, so each built state's record keeps the archive a
+    device installs (`state.archive`,
+    `proof/observe/build.py::device_archive`), which
+    `proof/checks/test_device_archive.py` holds to HQ's own download.
+    *Documents:* every document whose build names media.
 
-57. **A deliver form that also holds a task loses its own visit while the
-    task is assigned.** Nova lets one form hold a deliver unit and a task
-    (`lib/domain/forms.ts`). Connect's receiver reads the deliver unit
-    first and rejects the visit while the worker has an assigned task of
-    the app ("Worker has an incomplete assigned task.",
-    `processor.py::process_deliver_unit`, `_has_blocking_pending_task`),
-    and only then completes the task from the same submission
-    (`process_deliver_form`). *Harm:* the delivery made in the submission
-    that completes a task is always rejected and unpaid; the next one is
-    approved. Run in Connect (`proof/connect/test_receiver.py`).
-    *Documents:* `targeted-connect-deliver-rename`, `connect-deliver-default`.
+The same runs corrected four earlier findings, each amended where it stands
+above: finding 39 (the language picker is the same on both installs and marks
+no current language on either), finding 40 (the GPS change tightens
+auto-capture, from 10 metres to 5), finding 46 (the header a worker sees from
+home does not change; a completed save's name does) and finding 48 (Android
+shows its own "Client-side error (code 400)", never HQ's message). They also
+showed that `targeted-shared-property-sort` gives no fuzzy-search difference
+on Android, since both of its columns hold the same text, while
+`case-operation-query` gives finding 51's; and that a local archive offers
+that document's hidden sort column in the Sort menu, as finding 36 says of
+others.
+
+### Found of the lane itself
+
+64. **No app the lane builds is one Web Apps lists.** HQ sets a new app's
+    `cloudcare_enabled` from the project space's `CLOUDCARE` privilege when
+    Nova's upload lands (`models/applications.py::_create_app_from_doc`), and
+    Web Apps lists only an app that has it
+    (`cloudcare/utils.py::get_web_apps_available_to_user`). The lane's
+    configurations grant a privilege only where a document's content needs
+    it, and Nova sends no `cloudcare_enabled`, so every app of the corpus is
+    stored with it false. *Harm:* none to a worker; it bounds the lane: the
+    stored app the checks compare is never the one a project space with Web
+    Apps holds, and the Web Apps driver adds the privilege to read one
+    (`proof/webapps/test_session.py` shows HQ offering the app with it and
+    not without).
+    *Documents:* every document.
 
 ## Equivalences only another runtime reads
 

@@ -85,7 +85,7 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
 
 
 def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(hq, core_runner, webapps_documents):
-    """Finding 59: the lane's own configuration of a document makes an app HQ never offers Web Apps."""
+    """Finding 64: the lane's own configuration of a document makes an app HQ never offers Web Apps."""
     from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
 
     offered = {}

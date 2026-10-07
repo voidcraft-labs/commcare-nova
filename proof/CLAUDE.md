@@ -2,8 +2,10 @@
 
 The proof lane holds every Nova export to CommCare's own code at pinned
 upstream commits: HQ's import, build, case processing and editors,
-CommCare Core's runtime, Formplayer's application and HQ's Web Apps client,
-over a reproducible corpus, on every pull request.
+CommCare Core's runtime, Formplayer's application, HQ's Web Apps client and
+CommCare Connect's form receiver, over a reproducible corpus, on every pull
+request; commcare-android's own code reads the same archives in a reader of
+its own (`proof/android`), outside the image.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -45,9 +47,10 @@ harness keeps, each with its reason.
   never read one from a page that loaded none.
 - **Observation is separate from judgment.** The observation partition
   (`proof/observe/partition.py::observes`: `proof/observe`, `proof/hq`,
-  `proof/core`, `proof/formplayer`, `proof/webapps`, `proof/editors` with its driver
-  fingerprinted apart as the browser's, `proof/lane`, `proof/store`, the comparators, the few checks
-  files it runs, the session's fixtures and the gate entries) runs HQ, Core
+  `proof/core`, `proof/formplayer`, `proof/webapps`, `proof/editors` with its
+  driver fingerprinted apart as the browser's, `proof/lane`, `proof/store`,
+  the comparators, the few checks files it runs, the session's fixtures and
+  the gate entries) runs HQ, Core, Formplayer
   and the browser and writes records; the judges (the rest of `proof/checks`,
   and `proof/rules`) are pure functions of records and import neither HQ nor
   Django. Records and judgments are reused across runs under keys
@@ -100,9 +103,10 @@ harness keeps, each with its reason.
   position where position is not what the reader reads; name a refusal's cause
   in its path; report nothing the bar already reports.
 - **Settle every CommCare fact at source.** Read the pinned checkouts
-  (`proof/pins.json`; the image holds the same trees at `/opt/hq`, `/opt/core`,
-  `/opt/android` and `/opt/formplayer`), cite `file::symbol`, search every reader of a value and
-  its enclosing condition, and execute where reading leaves doubt. Never
+  (`proof/pins.json`; the image holds the same trees at `/opt/hq`,
+  `/opt/core`, `/opt/android` and `/opt/formplayer`), cite `file::symbol`,
+  search every reader of a value and its enclosing condition, and execute
+  where reading leaves doubt. Never
   switch a shared checkout, never read one through `git show <commit>:<path>`
   or raw URLs. A fact a brief or plan states and the source contradicts is
   reported with the evidence, never coded around.

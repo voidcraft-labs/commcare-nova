@@ -3,7 +3,7 @@
 ``targeted-form-link-hidden-target``: three forms of one menu each link,
 with no condition, to one target: a form shown in another menu, a form of
 that menu the worker's menu does not offer, and a menu the worker is not
-offered. Finding 56 observed Formplayer's answer to each submission
+offered. Finding 58 observed Formplayer's answer to each submission
 (``proof/formplayer/test_end_of_form.py``); this is the whole path a worker
 takes: the form opened by clicks in the client, submitted with its own
 Submit button, the submission sent to HQ, and the screen the client then

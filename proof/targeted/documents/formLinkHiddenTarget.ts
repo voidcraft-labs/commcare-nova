@@ -140,7 +140,7 @@ export function formLinkHiddenTarget() {
 	});
 	return targetedDocument({
 		id: ID,
-		rows: ["Formplayer, a form link to a target its menu does not show"],
+		rows: ["58, a form link to a target its menu does not show"],
 		doc,
 		expected: {
 			intent: [answerHeld("note-held", source, "/data/note", "fed")],

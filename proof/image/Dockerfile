@@ -6,8 +6,19 @@
 # of pins builds one image. The image holds HQ, Core, Android and Formplayer at
 # their pins, HQ's virtualenv from HQ's own lock, Core compiled with its test
 # classpath recorded, Formplayer's own boot jar unpacked with its classpath
-# recorded, a Redis for Formplayer, HQ's migrated database schema, HQ's editor
-# bundles, node, and Chromium; Nova's checkout is mounted at run time.
+# recorded, a Redis for Formplayer, HQ's migrated database schema, HQ's page
+# bundles (the editors' and the Web Apps client's) with HQ's node packages
+# and the sass its stylesheets compile with, node, Chromium, and what
+# Connect's receiver runs on (its Python, its virtualenv from its own lock, a
+# Postgres 15 with PostGIS and a Redis) without any of Connect's source,
+# which carries no license and is fetched at its pin when a proof runs.
+# Nova's checkout is mounted at run time.
+#
+# The Android reader's runtime (proof/android) is not in this image: it is
+# built from the pins on linux/amd64 by proof/android/build-runtime.sh, since
+# Robolectric's native runtime has no linux/arm64 build and the runtime holds
+# SDK-derived and Google libraries. Nothing here copies or imports
+# proof/android; /opt/android is the pinned source the surface extractor reads.
 #
 # Two images come from it. `full` (--target full) is everything the stages
 # install. The default target, `slim`, is `full` without what the lane never
@@ -176,8 +187,10 @@ RUN npm install --global "npm@${NPM_VERSION}" "yarn@${YARN_VERSION}" --ignore-sc
 
 # ---------------------------------------------------------------------------
 # HQ's node packages from HQ's own lock (HQ's .yarnrc sets ignore-scripts).
-# The final image keeps only what HQ's build runs (its XPath validator,
-# xpath_validator/nodejs/) and the editor bundles built from the rest.
+# The final image keeps them whole, where HQ finds them: HQ's build runs its
+# XPath validator on two (xpath_validator/nodejs/), HQ's static finders and
+# stylesheet precompiler read the rest for the Web Apps page, and the page
+# bundles are built from them.
 FROM node AS hq-node
 COPY --from=sources /opt/hq/package.json /opt/hq/yarn.lock /opt/hq/.yarnrc /opt/hq-node/
 WORKDIR /opt/hq-node
@@ -186,9 +199,10 @@ RUN yarn install --frozen-lockfile --non-interactive --no-progress \
   && test -f node_modules/underscore/underscore.js
 
 # ---------------------------------------------------------------------------
-# HQ's editor pages' JavaScript, bundled from HQ's node packages with esbuild
-# under a configuration read from HQ's own webpack configuration
-# (editors/build.mjs), for the editor driver (proof/editors). HQ's node
+# HQ's editor pages' and Web Apps page's JavaScript, bundled from HQ's node
+# packages with esbuild under a configuration read from HQ's own webpack
+# configuration (editors/build.mjs), for the editor driver (proof/editors)
+# and the Web Apps driver (proof/webapps). HQ's node
 # packages sit where HQ's own build finds them; the image's Node tools
 # (tools/package.json) supply esbuild and acorn.
 FROM hq-node AS editors
