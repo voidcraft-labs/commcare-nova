@@ -1,10 +1,10 @@
 # The proof harness
 
 The proof lane holds Nova's exports to the code that reads them. CommCare HQ's
-own import, build, case processing and app editors, CommCare Core's own
-form engine, session engine and archive installer, Formplayer's own
-application, HQ's own Web Apps client and CommCare Connect's own form
-receiver run at the upstream commits
+own import, build, case processing, app editors, receiver, restore and
+search views, CommCare Core's own form engine, session engine and archive
+installer, Formplayer's own application, HQ's own Web Apps client and
+CommCare Connect's own form receiver run at the upstream commits
 `proof/pins.json` names, inside one pinned image, over a corpus of admitted
 Nova documents that Nova's real publish client and compilers export. Every
 pull request runs the lane in CI (`.github/workflows/ci.yml`), and
@@ -216,7 +216,12 @@ read: `<output>/corpus` where the run emitted it, or the directory
    processing of every submission, read as HQ applies it (case by case, each
    case's blocks where the form holds them, a block with an empty case id by
    the action HQ applies it at), and each language's app strings as Core
-   reads them (over the default file's).
+   reads them (over the default file's). Formplayer's sessions are compared
+   the same way, each state served to it by HQ's own views ("Served
+   states"): Nova's local archive against A always, and B's aligned build
+   against A wherever proof 2 still finds a difference, with the Web Apps
+   client's screens on it; and every request HQ's views refuse while
+   Formplayer walks A is a difference of its own.
 4. **HQ editability** (`proof/checks/proof4.py`). Over B and over B-edit,
    under each configuration: every app-manager section HQ offers is saved the
    way a person saves it without changing a value (app settings, add-ons, UI
@@ -227,8 +232,12 @@ read: `<output>/corpus` where the run emitted it, or the directory
    judged against B (the second Vellum save against the first's result): the
    editor's own report, the stored app, then, where the stored app changed,
    its build against B's as proof 2 compares builds, and, where that still
-   differs, its sessions against B's as proof 3 compares them. So a change
-   shows as a build failure, a build difference or a behavior difference.
+   differs, its sessions against B's as proof 3 compares them. Where the
+   build differs, or what HQ's Web Apps page hands the client of the app
+   does, the saved app is served too, and Formplayer's sessions and the
+   client's screens on it are compared with B's. So a change shows as a
+   build failure, a build difference or a behavior difference, in Core, in
+   Formplayer or in the client.
 5. **Locality** (`proof/checks/proof5.py`). After an edit batch, every entity
    outside its footprint keeps the canonical digest of its emitted wire: its
    module or form JSON and XForm source in the upload, and its form, suite
@@ -262,35 +271,30 @@ or it fails the lane ("The registers", below).
   Android still observes the artifact through Core's parse and names the
   Android predicate in its `android` field, and `proof/android/README.md`
   says what remains before the entries rest on what Android read.
-- **Formplayer runs, and no check judges its sessions yet.** Formplayer's own
-  application runs over HQ's builds of Nova's exports ("The Formplayer
-  runner", below), its own tests hold what the register's entries say of
-  it (`proof/formplayer/test_*.py`), and a document's observation can keep
-  its sessions beside Core's (`proof.observe.unit.observe_document` with a
-  Formplayer runner). The lane's checks still compare Core's sessions alone:
-  proof 3 and proof 4 do not yet hold Formplayer's traces to each other or
-  to Core's, so a difference only Formplayer shows on a document outside
-  those tests is not reported. The Core runner still answers the form
-  validation HQ's build asks Formplayer for (`XFormParser` with
-  `JSONReporter`, the body of Formplayer's `UtilController.validateForm`).
-  Formplayer is not run over Nova's local archives past their menus and
-  forms: a local archive's profile names no submission URL, so Formplayer
-  cannot submit its forms, and Web Apps installs only what HQ builds
-  (finding 59).
-- **The Web Apps client runs, and no check judges its screens yet.** HQ's
-  own client runs in the lane's Chromium against Formplayer over a released
-  build of a Nova export ("The Web Apps driver", below), its own tests hold
-  what the register and the findings say of it (`proof/webapps/test_*.py`),
-  and `proof.webapps.observe` records every screen of a document's walk. No
-  check compares those records yet, so a difference only the client shows
-  on a document outside those tests is not reported. Not run in it: a form's
-  questions answered through the page (the tests submit forms that need no
-  answer, and Formplayer's walk answers the rest), a language other than
-  the worker's default, a small screen's layout, App Preview (the same
-  client under another HQ page), and a web user signing in as a worker. The
-  one request the page makes that nothing answers is for a web font on
-  another host, so text is laid out in the browser's fallback face and no
-  measured width or height is recorded.
+- **What a served state does not show.** Formplayer and the Web Apps
+  client read every state the lane builds ("Served states", below), with
+  these left out. Elasticsearch is not in the image: a case search runs
+  HQ's view whole and is handed every case of the requested types, so what
+  a search's filter selects is not observed, and a document HQ writes to
+  an index is kept nowhere. The worker's sign-in form is not run (the
+  session is Django's own `login`). The client is shown a walk's lists,
+  searches and each form as it opens; a form's questions are answered and
+  its submission made by Formplayer's walk, not through the page, so where
+  the client lands after a submission is read from Formplayer's answer
+  (and, for finding 58, in `proof/webapps/test_links.py`). Not run in the
+  client: a language other than the worker's default, a small screen's
+  layout, App Preview (the same client under another HQ page), and a web
+  user signing in as a worker. The one request the page makes that nothing
+  answers is for a web font on another host, so text is laid out in the
+  browser's fallback face and no measured width or height is recorded.
+  The Core runner still answers the form validation HQ's build asks
+  Formplayer for (`XFormParser` with `JSONReporter`, the body of
+  Formplayer's `UtilController.validateForm`). The packages' own tests
+  (`proof/formplayer/test_*.py`, `proof/webapps/test_*.py`) predate the
+  served states and still answer Formplayer with the harness's own answers
+  (`proof/formplayer/answers.py`, HQ's functions called on its behalf);
+  what they hold of a finding, the lane's own records now show on HQ's
+  views.
 - **Connect runs over its own documents alone.** The Connect proof
   (`proof/connect`, "The Connect proof", below) runs Connect's sync of an
   app's build and its receiver over five corpus documents, and the native
@@ -652,6 +656,10 @@ for the document (`CorpusDocument.projectSettings`), and CommTrack is off.
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
 gate (`proof/checks/configurations.py`), so the emission never starts HQ.
+One of them every document needs: Web Apps (`CLOUDCARE`). Every app Nova
+sends is one a worker opens there, and Web Apps lists an app only in a
+project space that has it (finding 64), so every configuration grants it
+and every app the lane builds is one Web Apps runs.
 
 ### Edit batches
 
@@ -777,10 +785,11 @@ digest of its input:
 
 ```
 seed → lookup upload → create(D) → media → HQ-side saves → build(A) → admit → identities, flag reads
-  mark@A → A's restore for proof 3 → intent hook at A → sensitivity: each gate read, flipped, in a fork
+  mark@A → A's restore for proof 3 → intent hook at A → A served → sensitivity: each gate read, flipped, in a fork
   b:         restore@A → republish(D) → media → build(B) → admit → identities
-               mark@B → intent hook at B → proof 4 over B → restore@B
+               mark@B → intent hook at B → proof 4 over B (B served, and each save that can differ) → restore@B
   b_aligned: B aligned to A → build → proof 3's sessions (local archive and A; B where the raw builds differ)
+               → the local archive served over HQ's state, and B aligned where the raw builds differ
   b_edit:    restore@A → update(D′) → media → build(B-edit) → admit → identities
                mark@B-edit → intent hook at B-edit → proof 4 over B-edit → restore@B-edit
 local: Core's admission of local.ccz, local-again.ccz and edit/local.ccz → the intent and manifest local hooks
@@ -830,7 +839,22 @@ app, restore and trace) are blobs named by their sha256.
   test utilities, the previous build, HQ's resource overrides, and
   Formplayer's form validation answered by the Core runner. Elasticsearch
   answers the three reads the paths make as an empty index and refuses any
-  other. Every other read is HQ's, against HQ's state.
+  other; while a state is served it also answers a case search with the
+  cases Postgres holds and takes each document HQ writes to an index
+  (`proof/formplayer/hq.py::index`). Every other read is HQ's, against HQ's
+  state.
+- **What HQ's receiver needs** (`redis.py`, `localcache.py`,
+  `branch.py::Unit.committing`): HQ takes a lock in Redis around each form,
+  case and user it writes, and admits a mobile endpoint's request by finding
+  in Redis the token Formplayer wrote for it, so while a state is served HQ
+  shares the Formplayer runner's Redis, as production does (the network
+  guard admits that one loopback address; outside a served state HQ's raw
+  Redis client is refused as before). HQ's receiver saves a form and its
+  cases in one atomic block and runs what follows from it when that block
+  commits; a unit's transaction never commits, so inside `committing()` the
+  unit runs each such function where production's commit runs it. HQ's rate
+  counters make two django-redis calls of the Redis-alias caches, which the
+  local caches answer as Redis does.
 - **Determinism** (`determinism.py`): inside an operation every entropy source
   HQ draws from is a DRBG seeded by the operation's key, and HQ's clock is
   frozen at the HQ pin's commit time plus one second per depth, so the same
@@ -893,8 +917,9 @@ three clock readers reading the request's clock, as the Core runner's do.
 The one address Formplayer is given in place of production's is HQ's
 (`commcarehq.host`). It is the runner's own loopback peer, which answers
 nothing itself: every request Formplayer makes of HQ is written to the
-client as a protocol line and answered there, so the harness answers each
-with HQ's own code or the bytes it names, and records every one. Formplayer
+client as a protocol line and answered there, by HQ's own views over the
+unit's state wherever the lane serves a state (`hq.py`, below), and every
+one is recorded. Formplayer
 runs in its own `replace-host` mode, so the URLs an app names (its
 submission URL, a search's, a claim's) reach the peer too. The runner speaks
 one JSON line per request, shaped as the Core runner's, with a deadline on
@@ -904,15 +929,27 @@ and `ageSync` (a worker's last sync as Formplayer keeps it, read and moved
 back through the same Redis template bean Formplayer writes it with, for
 what a worker's absence does, which no run can wait for).
 
-- **HQ's answers** (`answers.py`, `apps.py`): the session's user (only for
-  a body signed with the shared key), the app's archive (HQ's build as HQ's
-  archive download arranges it, zipped, under an id of its own for each
-  build, since Formplayer keeps an install by its id), HQ's restore of the
-  document's case database, a submission (kept, and answered as HQ answers
-  one it processed), a case search (the parameters read by HQ's own
-  `extract_search_request_config` and every case of the requested types
-  written by HQ's own `CaseDBFixture`, since the harness holds no case
-  index), and a case claim. Any other request raises, naming the route.
+- **HQ's own views** (`hq.py`): where the lane serves a state, each request
+  Formplayer makes of HQ is built from the bytes Formplayer sent, handed to
+  Django's handler loaded with HQ's own middleware, resolved by HQ's URLconf
+  and answered by the view that URL names, over the unit's state: the
+  session's user (`SessionDetailsView`, which reads the Django session the
+  worker's browser holds), the app's archive (`direct_ccz`, HQ's own
+  download of the released build), the restore (`ota/views.py::restore`,
+  HQ's restore of the cases HQ holds, with the tables Nova's push uploaded
+  and the user case HQ made), a submission (HQ's receiver whole:
+  `SubmissionPost.run`, its locks, its case processing and what it does on
+  commit), a case search (`app_aware_search`, down to the Elasticsearch
+  transport) and a claim (`claim`, which makes the claim case HQ makes).
+  `serve` makes what HQ needs for that with HQ's own code: the project
+  space's default roles, the worker (`CommCareUser.create`), the document's
+  cases submitted through HQ's receiver as the worker, and a build released
+  as HQ's Releases page releases one. A view that raises answers Formplayer
+  a 500, as production's does, and is recorded with what it raised.
+- **The harness's answers** (`answers.py`, `apps.py`), which this package's
+  own tests still use: the same six requests answered with HQ's functions
+  called on its behalf and a restore written beside HQ. The lane's records
+  use none of it.
 - **The Web Apps client's requests** (`webapps.py`): each body holds the
   fields HQ's client writes (`cloudcare/js/formplayer/menus/api.js`,
   `cloudcare/js/form_entry/web_form_session.js`), with HQ's session cookie
@@ -928,13 +965,10 @@ what a worker's absence does, which no run can wait for).
 - **Canonical JSON** (`canonical.py`): each id Formplayer or its Core drew
   is marked by its first appearance, as the Core runner marks its traces, so
   the same inputs give the same bytes.
-- **A document's record** (`observe.py`): `observe_document` given a
-  Formplayer runner keeps Formplayer's walk of `build(A)`, and of B aligned
-  to A where the raw builds differ, beside Core's sessions in the
-  `b_aligned` record (`sessions.formplayer`), each walk inside one operation
-  of the unit. The lane's own observation gives none until a check judges
-  those sessions, and an observation given one is refused a store, since a
-  part's key does not yet say which was observed.
+- **A served state's record** (`observe.py`): the marked trace of
+  Formplayer's walk, every request an HQ view did not answer 2xx, how often
+  Formplayer asked each view, and each search's parameters ("Served
+  states", below).
 
 The runner costs each worker about four seconds once (its compile, its
 database, its Redis, and Formplayer's start, which is most of it), and a
@@ -1005,10 +1039,9 @@ a step clicks what a worker clicks, or reads what the page shows.
 - **The project space and the release** (`hq.py`). Web Apps lists an app only
   where the project space has Web Apps (the `CLOUDCARE` privilege, from which
   HQ sets a new app's `cloudcare_enabled` when Nova's upload lands) and the
-  app has a released build. The lane's configurations grant a privilege only
-  where a document's content needs it, so none of its apps is one Web Apps
-  lists (finding 64); the driver takes the document's configuration with that
-  one privilege added. The build is made as HQ's Releases page makes one
+  app has a released build. Every configuration of the lane grants the
+  privilege (finding 64), so every app it builds is one Web Apps lists. The
+  build is made as HQ's Releases page makes one
   (`Application.make_build` and the build's save, then HQ's own
   `release_build` view), optionally after HQ's own editor pages saved the app
   in the same Chromium (`released(saves=...)`, `proof.editors.pages`), so a
@@ -1072,41 +1105,51 @@ the client itself:
 | `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; one submission reaches HQ each time | `test_links.py` |
 
-#### Web Apps in the lane
+### Served states
 
-The driver and a document's record run; no check judges the record yet. What
-joining the lane takes:
+A document's unit serves each state of its app as HQ serves an app to Web
+Apps and keeps what its two readers make of it (`proof/observe/served.py`):
 
-- **The image** holds the Web Apps bundle, HQ's node packages whole (the
-  stylesheets' sources, about 570 MB unpacked) and `sass`
-  (`proof/image/tools`).
-- **The unit.** A document's own unit cannot hold the observation as it
-  stands: its configuration grants no `CLOUDCARE`, and granting it changes
-  `cloudcare_enabled` on the app Nova's upload creates, and with it every
-  record of the document. Two ways, one to choose. Either the Web Apps
-  observation is a unit of its own per document and configuration (the
-  configuration with `CLOUDCARE`), a part keyed by the document's inputs,
-  the configuration, the observation and browser fingerprints and the
-  image; or every configuration grants `CLOUDCARE`, as every project space
-  with Web Apps has it, the corpus's records are observed again once, and
-  the release and the walk run in a fork of the document's unit beside
-  Formplayer's (`sessions.webapps` of the `b_aligned` record). The second
-  makes every app the lane builds one a worker could open, and is the one
-  to prefer.
-- **What is compared.** The record of `build(A)`'s release against B's
-  aligned build's, where the builds differ, as proof 3 compares Core's
-  traces; and, in proof 4, the record after each editor save whose stored
-  app or build changed against B's. The second is where a difference only
-  the stored app holds shows (finding 62 changed no file of the build), so
-  the release must follow the save whether or not the build changed. A
-  difference is `webapps@<state>`, its path the screen's (`/runs/*/screens/*
-  /list/cells/*/fontSize`), held by the register as any other.
-- **Cost.** A release and a record cost four to five seconds a document and
-  state, so the whole corpus with its saved states does not fit the
-  five-minute target on every pull request. The package's own tests do (a
-  minute on one worker); the per-document records belong to a sample on
-  each pull request and the whole corpus weekly, as the editors' audits
-  are.
+- **Which states.** A (the unit's `served` hook, the baseline of proof 3's
+  comparisons); with `b_aligned`, B aligned to A wherever its raw build
+  differs from A's, and Nova's local archive, which Formplayer walks over
+  HQ's state with the archive itself handed to it as bytes; and in proof 4,
+  B and each editor save whose build differs from the state it was saved
+  over or whose app differs in what HQ's Web Apps page hands the client
+  (`cloudcare/utils.py::format_app_doc`: its name, languages, profile, logo
+  and multimedia). The saved states are the ones HQ's editor pages saved in
+  proof 4's own forks, never an app written by hand.
+- **Formplayer** walks each: the walk is derived on the baseline (A, or B in
+  proof 4) and replayed on every other, as Core's script is. Each run is a
+  fork of the unit with the worker signed in afresh, so a submission HQ's
+  receiver processed is in HQ while its run lasts and gone for the next.
+- **The Web Apps client** is shown the same walk in a browser of its own
+  (`proof/observe/services.py::client_browser`), and its screens are read
+  after every click. It is shown a state only where Formplayer's trace or
+  what HQ's page hands it of the app is not the baseline's: the client
+  reads nothing else, so the same answers and the same page show the same
+  screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).
+- **The release is the build.** HQ makes the release with `make_build`, the
+  other checks build with `validate_app` and `create_all_files`; each served
+  state's archive is held to the build's files entry for entry, but for the
+  profile, which names the build itself (`release@<state>`,
+  `/release-differs`).
+- **What is compared** (`proof/checks/compare/served.py`). Formplayer's
+  traces as the client reads them: a list's rows by the case each selects
+  with their order beside them, a form's instance and each submission as
+  parsed XML, a form's version under proof 2's version clause, and one
+  difference a symptom (a response of another kind is its kind; a refused
+  submission is its status and what Formplayer said, and what follows from
+  it is not reported again). The client's screens the same way, its own
+  home tiles by their kind. A difference is `formplayer@<state>` or
+  `webapps@<state>` in proof 3 (`local.ccz`, `B`) and
+  `formplayer@<editor>@<B>@<configuration>` or `webapps@...` in proof 4,
+  held by the register as any other. Each request HQ's views refused while
+  Formplayer walked A is `formplayer@A`, `/hq/<view>/<status>`.
+- **Cost.** A served state costs one to two seconds of Formplayer and three
+  to four of the client, and a document has between four and twenty of
+  them a configuration, so a document that took five to ten seconds takes
+  forty to a hundred ("Timings and the five-minute target").
 
 ## The registers
 
@@ -1142,9 +1185,12 @@ joining the lane takes:
 - `equivalence` marks a class that is no harm: two spellings every reader
   reads alike, whose readers (Android, Web Apps' client, Connect) are not
   HQ's build or Core's run, so no spelling rule's test can prove them alike.
-  It names those readers and why each reads the two alike, and, where a
-  reader's own tests ran both spellings (`proof/formplayer`, `proof/webapps`,
-  `proof/connect`), the test that did. Such an entry is held
+  It names those readers and why each reads the two alike. Formplayer and
+  the client read every state the lane serves, so for them the lane itself
+  is the proof: the build differs and neither reader's record of the two
+  states does (a difference either shows is an entry of its own); where a
+  reader's own tests ran both spellings (`proof/connect`), it names the
+  test that did. Such an entry is held
   and verified as any other, and the fix of the defect or finding it is filed
   under removes it (`harness-findings.md`, "Equivalences only another runtime
   reads").
@@ -1457,6 +1503,11 @@ reused is only what a key names whole, and the reuse is audited:
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
 | Formplayer's walk gives the same bytes and is faithful | an id or an install left unmarked; a trace that loses a difference | `proof/formplayer/test_walk.py`, `test_canonical.py`, `test_observe.py` |
 | HQ's answers to Formplayer answer only what they hold | an unanswered route answered empty; a session answered for an unsigned request | `proof/formplayer/test_answers.py` |
+| What answers Formplayer in the lane is HQ | a request answered from outside HQ, a submission acknowledged and not processed, a walk that passes with no worker signed in | `proof/checks/test_served.py` |
+| A served state gives the same bytes, and each reader shows a planted difference and only it | an id HQ, Formplayer or the browser drew in a record; a walk or a screen reading that loses a difference | `proof/checks/test_served.py`, `proof/formplayer/test_observe.py` |
+| A run of a walk leaves HQ as it found it | a run reading the cases an earlier run's submission made | `proof/checks/test_served.py` |
+| The release Formplayer installs is the build the other checks read | a release built from another state | `proof/checks/test_served.py`, and `release@<state>` on every document |
+| HQ's commit callbacks run where a commit would, and its locks are a real Redis's | a callback run before the rows it reads exist, or after a rollback; a lock answered by a stand-in | `proof/hq/test_commits.py` |
 | The Formplayer runner is always joined | a JVM, a Redis or a database left behind | `proof/formplayer/test_lifecycle.py` |
 | What a Web Apps session runs is HQ's own page, bundle and stylesheets on Formplayer's own answers, each build under its own id | a stubbed answer, a page with no stylesheet, a request around Formplayer's security chain, an earlier build's install | `proof/webapps/test_session.py` |
 | A document's Web Apps record reads every screen and gives the same bytes | a screen read before its click's answer rendered; an id or a time reaching a screen | `proof/webapps/test_observe.py` |
@@ -2115,6 +2166,16 @@ by the work it does: the CPU-seconds the harness's and Postgres's containers
 use (their cgroups' CPU usage before and after) beside the wall time and the
 worker count, per document, per check and per job, since a hosted runner has
 four vCPUs and more parallelism on a larger machine buys nothing there.
+
+Serving every state to Formplayer and the Web Apps client ("Served states")
+moved the floor: a document's group costs about ten times what it did
+(forty to a hundred seconds on one worker), nearly all of it Formplayer's
+walks and the client's page, neither of which more workers on a four-vCPU
+job make cheaper. The lane no longer fits five minutes at ten shards, and
+`ci.yml`'s shard timeout is raised to hold it; `proof/timings.json` still
+holds the costs measured before, so the bin packing counts every document
+alike until it is refreshed from hosted runs. What the lane's target is
+now, and how many shards it runs on, is the person's to set (decision 11).
 
 ## Changing a pin
 

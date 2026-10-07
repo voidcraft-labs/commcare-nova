@@ -1,10 +1,10 @@
 # proof: the proof harness
 
 The proof lane holds every Nova export to CommCare's own code at pinned
-upstream commits: HQ's import, build, case processing and editors,
-CommCare Core's runtime, Formplayer's application, HQ's Web Apps client and
-CommCare Connect's form receiver, over a reproducible corpus, on every pull
-request; commcare-android's own code reads the same archives in a reader of
+upstream commits: HQ's import, build, case processing, editors, receiver and
+restore, CommCare Core's runtime, Formplayer's application, HQ's Web Apps
+client and CommCare Connect's form receiver, over a reproducible corpus, on
+every pull request; commcare-android's own code reads the same archives in a reader of
 its own (`proof/android`), outside the image.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
@@ -17,41 +17,65 @@ harness keeps, each with its reason.
   migrated schema) and its own in-memory Couch; the seams answer only what HQ
   reads from outside its state (flags, privileges, project settings,
   Formplayer's form validation through the Core runner, the previous build,
-  resource overrides, Elasticsearch as an empty index), each recorded, and
-  every other read is HQ's. A speed seam computes exactly what HQ computes and
-  can be switched off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since
-  HQ branches on it in what it does; HQ's soft assertions are noted as
-  production notes them, never raised, and each one is evidence. A view or
-  Couch query the harness does not answer raises rather than returning empty.
-- **Formplayer runs whole, and only HQ is answered for it.** A claim about
-  Formplayer or Web Apps' server side is observed on Formplayer's own
+  resource overrides, Elasticsearch), each recorded, and every other read is
+  HQ's. A speed seam computes exactly what HQ computes and can be switched
+  off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
+  it in what it does; HQ's soft assertions are noted as production notes
+  them, never raised, and each one is evidence. A view or Couch query the
+  harness does not answer raises rather than returning empty.
+- **Formplayer runs whole, and HQ answers it with its own views.** A claim
+  about Formplayer or Web Apps' server side is observed on Formplayer's own
   application (`proof/formplayer`), started by its own `main` on its boot
   jar's classes, its own Postgres schema and a real Redis, never on Core
-  alone and never on a controller taken out of its filters and aspects. The
-  one stand-in is HQ's address, whose every request comes back to the
-  harness and is answered with HQ's own code or named bytes; a request the
-  answers do not hold raises. Give each build an id of its own (Formplayer
-  keeps an install by its id), start each run as a worker who cleared their
-  data, and give each runner its own database and Redis.
+  alone and never on a controller taken out of its filters and aspects. HQ's
+  address is the runner's peer, and each request Formplayer makes of HQ is
+  answered by the view HQ's URLconf names, behind HQ's own middleware, over
+  the unit's state (`proof/formplayer/hq.py`): a worker HQ made, the
+  document's cases saved through HQ's receiver, a build HQ released. A
+  request no view answers is HQ's 404; a harness refusal ends the
+  observation. Never answer one of Formplayer's requests with a function
+  called on HQ's behalf, a restore written beside HQ, or a submission
+  acknowledged without being processed. What HQ lacks here is named where it
+  is answered, and stays that narrow: the worker's sign-in form (the session
+  is Django's own `login`), Elasticsearch (a case search runs HQ's view
+  whole and is handed every case of the requested types from Postgres at the
+  transport, its filter compiled and not applied; a document HQ writes to an
+  index is taken and kept nowhere), and Nova's local archive, which HQ does
+  not hold and Formplayer is handed as bytes. HQ's locks are real (HQ shares
+  Formplayer's Redis, as production does, and relies on it), and what HQ
+  runs when a transaction commits runs where the commit would
+  (`Unit.committing`). Each run of a walk is a fork of the unit, so no run
+  reads what another's submission left; start each run as a worker who
+  cleared their data, and give each runner its own database and Redis.
 - **Web Apps is HQ's own client, clicked and read.** A claim about what a
   worker sees in Web Apps is observed on HQ's client itself
   (`proof/webapps`): HQ's `FormplayerMain` page, the bundle built from HQ's
   entry, HQ's own compiled stylesheets, and Formplayer's own answers to the
   client's own requests, over a build HQ released in a project space that
-  has Web Apps. Never copy a client function into a test or call the
-  client's code from a step: a step clicks what a worker clicks or reads
-  the document. The client reads some things from the app HQ stores and
-  never from the build (the logo, `cc-show-incomplete`), so a claim that
-  two builds are alike says nothing of them: release the state and read
-  the page. A computed style means something only under HQ's stylesheets;
-  never read one from a page that loaded none.
+  has Web Apps (every configuration of the lane grants it). Never copy a
+  client function into a test or call the client's code from a step: a step
+  clicks what a worker clicks or reads the document. The client reads some
+  things from the app HQ stores and never from the build (the logo,
+  `cc-show-incomplete`), so a claim that two builds are alike says nothing
+  of them: release the state and read the page. A computed style means
+  something only under HQ's stylesheets; never read one from a page that
+  loaded none. The client has a browser of its own (proof 4 shows a saved
+  app while the page that saved it is still open), and is shown a state only
+  where Formplayer's answers or what HQ's page hands it of the app are not
+  its baseline's: the client reads nothing else.
+- **A served state is judged like every other observation.** The unit serves
+  A, B aligned to A, Nova's local archive, B and each editor save
+  (`proof/observe/served.py`), and proofs 3 and 4 compare what Formplayer
+  and the client made of them (`proof/checks/compare/served.py`), one
+  difference a symptom. A saved state is always the one HQ's own editor page
+  saved in proof 4, never an app document written by hand to look saved.
 - **Observation is separate from judgment.** The observation partition
   (`proof/observe/partition.py::observes`: `proof/observe`, `proof/hq`,
   `proof/core`, `proof/formplayer`, `proof/webapps`, `proof/editors` with its
   driver fingerprinted apart as the browser's, `proof/lane`, `proof/store`,
   the comparators, the few checks files it runs, the session's fixtures and
   the gate entries) runs HQ, Core, Formplayer
-  and the browser and writes records; the judges (the rest of `proof/checks`,
+  and the browsers and writes records; the judges (the rest of `proof/checks`,
   and `proof/rules`) are pure functions of records and import neither HQ nor
   Django. Records and judgments are reused across runs under keys
   fingerprinted by each side's files (`proof/store/fingerprints.py`; the
@@ -85,8 +109,9 @@ harness keeps, each with its reason.
   Android, Web Apps' client or Connect) is a register entry, never a rule,
   marked `equivalence` with those readers where it is no harm, so the
   register never presents it as one. Where the lane runs that reader
-  (Formplayer, Web Apps' client), the entry's `equivalence` names the test
-  that observed both spellings on it.
+  (Formplayer and Web Apps' client, on every document), an equivalence is
+  what the lane itself shows: the two spellings differ in the build and
+  neither reader's record of the two states does.
 - **A precise witness writes its precise edit.** The fixed producers' edits
   are balanced together, so an unrelated document can change which admitted
   edit another gets. A harness test or registered symptom that needs one
@@ -115,8 +140,11 @@ harness keeps, each with its reason.
   `xpathParse`, `xpathStrings`, `xpathSame`), HQ's (eulxml, js-xpath), or
   `proof/rules/_xpath.py`, the port of Core's lexer that its test holds to
   Core. The surface extractor matches no source text by pattern either.
-- **The lane shares CI's five-minute target.** Every hosted job has four
-  vCPUs, so optimize the work, never the parallelism: measure a change in
+- **The lane shares CI's five-minute target, which serving every state no
+  longer fits.** A document served to Formplayer and the client costs about
+  ten times what it did, so the lane's target is the person's to set again
+  (`proof/README.md`, "Timings and the five-minute target"). Every hosted
+  job has four vCPUs, so optimize the work, never the parallelism: measure a change in
   CPU-seconds (the harness's and Postgres's container cgroups) and wall time
   with the worker count, per document, per check, per group and per job's
   fixed cost. Never buy speed with more shards, workers or processes than a
