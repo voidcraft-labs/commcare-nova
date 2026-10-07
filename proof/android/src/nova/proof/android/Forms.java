@@ -45,7 +45,11 @@ final class Forms {
         form.put("FormEntryActivity.getHeaderString", String.valueOf(header.invoke(activity)));
         form.put("title", String.valueOf(activity.getTitle()));
         FormEntryInstanceState state = (FormEntryInstanceState)Screens.field(activity, "instanceState");
-        form.put("FormEntryInstanceState.getDefaultFormTitle", state.getDefaultFormTitle(-1));
+        // The form's own title, and the name form entry asks a completed save to carry: what it passes its save
+        // task (FormEntryActivity.triggerUserFormComplete), for the record the intent names.
+        form.put("formTitle", String.valueOf(FormEntryActivity.mFormController.getFormTitle()));
+        form.put("FormEntryInstanceState.getDefaultFormTitle", Screens.orNull(state.getDefaultFormTitle(
+                started.getIntExtra(FormEntryActivity.KEY_FORM_RECORD_ID, -1))));
         form.put("languages", new JSONArray(FormEntryActivity.mFormController.getLanguages() == null
                 ? new String[0] : FormEntryActivity.mFormController.getLanguages()));
 
@@ -59,8 +63,10 @@ final class Forms {
             JSONObject screen = screen(activity);
             screens.put(screen);
             String now = screen.toString();
+            // The walk ends where the form does, where a screen holds it (a dialog, a screen it cannot leave),
+            // and at a repeat's "add another?" prompt, which it does not answer.
             if (now.equals(before) || screen.getString("event").equals("END_OF_FORM")
-                    || !screen.isNull("alert")) {
+                    || screen.getString("event").equals("PROMPT_NEW_REPEAT") || !screen.isNull("alert")) {
                 break;
             }
             before = now;

@@ -93,10 +93,16 @@ harness keeps, each with its reason.
   fixed cost. Never buy speed with more shards, workers or processes than a
   four-vCPU job serves, and never with a seam that computes something HQ would
   not.
-- **Android is cited, not run** (step 1's decision 18). The Android classes a
-  harm rests on run only inside a running CommCare app, so an entry whose harm
-  is on Android observes the artifact through Core's parse and names the
-  Android predicate in its `android` field.
+- **Android is read by its own code, and the lane does not judge it yet**
+  (step 1's decision 18). The Android reader (`proof/android`) runs
+  commcare-android's own classes over the archive each state's record keeps
+  for it, one JVM and one device a request, on linux/amd64 and macOS only
+  (Robolectric's native runtime). Until its answers are records, an entry
+  whose harm is on Android observes the artifact through Core's parse and
+  names the Android predicate in its `android` field. Never copy or rewrite
+  an Android class to observe it: call the app's own, by reflection where it
+  is private. The reader's self-check is `proof/android/selfcheck.py`, which
+  the lane's pytest does not collect.
 - **A check runs only against a target Nova's publish accepts** (step 1's
   decision 19). A symptom that shows only where Nova refuses to publish
   reaches no one, so a configuration lacking a flag or confirmation Nova

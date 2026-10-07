@@ -38,7 +38,9 @@ import java.io.File;
  * CommCareApp.areMMResourcesValidated reads what the profile gave it.
  */
 final class Device {
-    static final String USERNAME = "test";
+    // A name no restore registers: Android keeps one user record a name, and the device's own worker is
+    // made at login, before a restore brings the workers it registers.
+    static final String USERNAME = "nova-proof-device";
     static final String PASSWORD = "123";
 
     private Device() {

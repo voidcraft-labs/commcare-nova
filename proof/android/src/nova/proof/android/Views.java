@@ -92,12 +92,19 @@ final class Views {
     }
 
     /**
-     * The alert the activity is showing, or null: its class and every text it was built with (its title, its
+     * The alert the activity is showing, or will show when it returns to the front, or null: its class and every text it was built with (its title, its
      * message, each choice it offers), read from the dialog object the activity handed to showAlertDialog.
      */
     static JSONObject alert(CommCareActivity<?> activity) throws Exception {
         activity.getSupportFragmentManager().executePendingTransactions();
         AlertDialogFragment fragment = activity.getCurrentAlertDialog();
+        boolean pending = false;
+        if (fragment == null) {
+            // An activity that is not in front keeps the alert it was asked to show and shows it when it
+            // returns to the front (CommCareActivity.showAlertDialog, showPendingAlertDialog).
+            fragment = (AlertDialogFragment)Screens.field(activity, "alertDialogToShowOnResume");
+            pending = true;
+        }
         if (fragment == null) {
             return null;
         }
@@ -109,6 +116,7 @@ final class Views {
         }
         JSONObject found = new JSONObject();
         found.put("class", dialog.getClass().getSimpleName());
+        found.put("shownWhenTheActivityReturns", pending);
         for (Class<?> owner = dialog.getClass(); owner != null && owner != Object.class; owner = owner.getSuperclass()) {
             for (Field field : owner.getDeclaredFields()) {
                 field.setAccessible(true);

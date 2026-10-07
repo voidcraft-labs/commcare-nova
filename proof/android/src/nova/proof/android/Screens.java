@@ -95,6 +95,18 @@ final class Screens {
             }
         }
         found.put("walks", walks);
+        if (request.has("saveIncomplete")) {
+            // A form saved incomplete from the command, and the record Android keeps of it (its name among it).
+            JSONObject saved = new JSONObject();
+            Updates.saveIncomplete(request.getString("saveIncomplete"), saved);
+            found.put("savedIncomplete", saved);
+        }
+        if (request.has("saveComplete")) {
+            // The same form saved complete, as its end saves it.
+            JSONObject saved = new JSONObject();
+            Updates.save(request.getString("saveComplete"), saved, true);
+            found.put("savedComplete", saved);
+        }
         return found;
     }
 
@@ -150,8 +162,9 @@ final class Screens {
                 form.at(started, step, shadow);
                 break;
             } else if (target.equals(org.commcare.activities.QueryRequestActivity.class.getName())) {
-                Queries.read(started, step);
-                break;
+                if (!Queries.read(started, step, shadow)) {
+                    break;
+                }
             } else {
                 break;
             }
@@ -236,7 +249,7 @@ final class Screens {
             for (int i = 0; i < searches.length(); i++) {
                 String term = searches.getString(i);
                 adapter.filterByString(term);
-                settle();
+                settle(adapter);
                 JSONArray matched = new JSONArray();
                 for (int row = 0; row < adapter.getCurrentCount(); row++) {
                     matched.put(firstText(adapter.getView(row, null, (ViewGroup)rows)));
@@ -244,25 +257,22 @@ final class Screens {
                 results.put(term, matched);
             }
             adapter.filterByString("");
-            settle();
+            settle(adapter);
             list.put("searches", results);
         }
         return chosen;
     }
 
-    /** Waits for the list's filter, which Android runs on a thread of its own, and for what it posts back. */
-    private static void settle() throws Exception {
-        for (int i = 0; i < 200; i++) {
-            ShadowLooper.idleMainLooper();
-            boolean running = false;
-            for (Thread thread : Thread.getAllStackTraces().keySet()) {
-                if (thread.isAlive() && thread.getName().contains("EntityStringFilterer")) {
-                    running = true;
-                    thread.join(5000);
-                }
-            }
-            if (!running) {
-                break;
+    /**
+     * Waits for the list's filter, which Android runs on a thread of its own (EntityFiltererBase.start), and for
+     * the result it posts back to the main thread.
+     */
+    private static void settle(EntityListAdapter adapter) throws Exception {
+        Object filterer = field(adapter, "entityFilterer");
+        if (filterer != null) {
+            Thread thread = (Thread)field(filterer, "thread");
+            if (thread != null) {
+                thread.join(60000);
             }
         }
         ShadowLooper.idleMainLooper();

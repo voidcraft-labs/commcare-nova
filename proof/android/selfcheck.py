@@ -137,8 +137,8 @@ class ReaderSelfCheck(unittest.TestCase):
     def test_the_reader_walks_the_installed_app_through_androids_own_screens(self):
         """Contract: a walk is what Android's home activity and form entry do with the installed suite. Failure
         it catches: a walk that names commands it did not open. Every command of the suite opens Android's form
-        entry on the form the suite names for it, with the title the form holds, and a command the suite does
-        not hold is reported as the reader's failure for that walk, not as a screen."""
+        entry on the form the suite names for it, with the title the form holds, and for a command the suite does
+        not hold Android opens its menu to ask for one, and no form."""
         app = self.reader.request("app", archive=str(SURVEY / "local.ccz"), commands=["m0-f0", "m0-f1", "absent"])
         self.assertEqual(app["install"], "Installed")
         titles = {}
@@ -146,12 +146,9 @@ class ReaderSelfCheck(unittest.TestCase):
             step = app["walks"][command]["steps"][0]
             self.assertEqual(step["screen"], "FormEntryActivity")
             self.assertIs(step["form"]["loaded"], True)
-            titles[command] = step["form"]["FormEntryInstanceState.getDefaultFormTitle"]
+            titles[command] = step["form"]["formTitle"]
         self.assertEqual(titles, {"m0-f0": "Census", "m0-f1": "Water"})
-        self.assertNotEqual(
-            app["walks"]["absent"]["steps"][0]["screen"] if "steps" in app["walks"]["absent"] else None,
-            "FormEntryActivity",
-        )
+        self.assertEqual([step["screen"] for step in app["walks"]["absent"]["steps"]], ["MenuActivity"])
 
     def test_a_request_the_reader_cannot_answer_raises(self):
         """Contract: no answer holds a failure of the reader's own. Failure it catches: a missing archive or an

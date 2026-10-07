@@ -65,7 +65,7 @@ checkout() {
   fi
   rm -rf "$target/$name"
   if [ -n "$source" ]; then
-    git clone -q --local "$source" "$target/$name"
+    git clone -q --no-hardlinks "$source" "$target/$name"
     git -C "$target/$name" -c advice.detachedHead=false checkout -q "$commit"
   else
     sh "$here/../image/fetch-commit.sh" "$(pin "$name" repository)" "$commit" "$target/$name"

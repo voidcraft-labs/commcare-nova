@@ -109,6 +109,7 @@ final class Updates {
             JSONObject entry = new JSONObject();
             entry.put("status", record.getStatus());
             entry.put("xmlns", record.getFormNamespace());
+            entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
             entry.put("AndroidCommCarePlatform.getFormDefId",
                     CommCareApplication.instance().getCommCarePlatform().getFormDefId(record.getFormNamespace()));
             found.put(entry);
@@ -116,8 +117,16 @@ final class Updates {
         return found;
     }
 
-    /** Opens the command's form through home, answers its first screen and saves it incomplete; its record id. */
-    private static Integer saveIncomplete(String command, JSONObject saved) throws Exception {
+    static Integer saveIncomplete(String command, JSONObject saved) throws Exception {
+        return save(command, saved, false);
+    }
+
+    /**
+     * Opens the command's form through home, answers its first screen and saves it: incomplete, as the quit
+     * dialog's Save does, or complete, as the end of the form does (FormEntryActivity.triggerUserFormComplete).
+     * The incomplete record's id, where the save leaves one.
+     */
+    static Integer save(String command, JSONObject saved, boolean complete) throws Exception {
         final Integer[] record = new Integer[1];
         JSONObject walk = Screens.walk(command, null, (started, step, shadow) -> {
             FormEntryActivity activity =
@@ -132,7 +141,14 @@ final class Updates {
                     }
                 }
             }
-            activity.saveFormToDisk(true);
+            if (complete) {
+                java.lang.reflect.Method finish =
+                        FormEntryActivity.class.getDeclaredMethod("triggerUserFormComplete");
+                finish.setAccessible(true);
+                finish.invoke(activity);
+            } else {
+                activity.saveFormToDisk(true);
+            }
             RobolectricUtil.flushBackgroundThread(activity);
             ShadowLooper.idleMainLooper();
             ShadowActivity form = Shadows.shadowOf(activity);

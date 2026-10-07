@@ -136,8 +136,12 @@ corpus ids that show the symptom.
     profile writes none (`lib/commcare/compiler.ts::generateProfile`), so
     Android starts it in the `default` locale (`CommCareApp.java`).
     *Harm:* every text a worker reads is the same (the default locale file
-    holds the default language); Android's language picker shows no current
-    language. *Documents:* every document (the trace's `/locale`).
+    holds the default language). Run on Android (`proof/android`),
+    `Localization.getCurrentLocale` is `default` on the local install and the
+    first language's code on HQ's build, and the language picker
+    (`ChangeLocaleUtil.getLocaleNames`) offers the same languages on both and
+    marks none as current on either. *Documents:* every document (the
+    trace's `/locale`).
 
 40. **The app settings page writes HQ's defaults into a profile Nova leaves
     empty, and HQ's build then forces them.** A save of HQ's settings page
@@ -176,8 +180,14 @@ corpus ids that show the symptom.
     inventory's application settings rows: every setting written explicitly)
     but catalogs no defect.
     *Harm:* the first harmless settings save turns case list search fuzzy,
-    loosens GPS accuracy, skips media checks and overrides workers'
-    preferences. *Documents:* every document.
+    halves the accuracy GPS auto-capture waits for (it polls until a fix
+    within 5 metres where it stopped at 10,
+    `PollSensorController.onLocationResult`), skips media checks and
+    overrides workers' preferences. Run on Android (`proof/android`), each of the three readers
+    gives the changed value on the saved app's build, each of the ten gives
+    the same value on both, and a device whose worker turned text to speech
+    on and chose daily updates reads both back at the profile's values once
+    it updates to the saved app. *Documents:* every document.
 
 41. **The empty-list text goes blank in an app without English.** Nova writes
     no `no_items_text`, so HQ's model default holds `en` alone
@@ -265,7 +275,11 @@ corpus ids that show the symptom.
     Nova's name is in, the saved form's title changes language ("Register"
     becomes "Registrar"), which Android shows as the form's header fallback
     and a saved form's default name (`FormEntryActivity.getHeaderString`,
-    `FormEntryInstanceState.getDefaultFormTitle`). Defect 14's fix for the
+    `FormEntryInstanceState.getDefaultFormTitle`). Run on Android
+    (`proof/android`), a form opened from home keeps its header either way
+    (home hands form entry the menu's text, and the title is read only where
+    it hands none), and the record of a completed save is named "Register"
+    before the save in HQ and "Registrar" after. Defect 14's fix for the
     data node's name assumes the title is right. *Documents:*
     `localization-bilingual`, `localization-escaped`, `localization-stale`.
 
@@ -288,8 +302,13 @@ corpus ids that show the symptom.
     sends it, and HQ answers "'search-value-mixes-quote-marks' is not a valid
     standalone function" (`case_search/filter_dsl.py::build_filter_from_ast`).
     HQ's reader refuses the name as an unknown function (the inventory's case
-    search rows). *Harm:* on Android the worker sees HQ's error instead of a
-    message about the answer. *Documents:* 40, the quote family among them.
+    search rows). *Harm:* on Android the worker sees no message about the
+    answer. Run on Android (`proof/android`), the search screen holds no error
+    for the prompt, sends `_xpath_query=search-value-mixes-quote-marks()`,
+    and for a refusal shows its own "Client-side error (code 400) received
+    from network request." (`QueryRequestActivity.processClientError`, which
+    never reads the server's message), so the worker reads neither a message
+    about the answer nor HQ's. *Documents:* 40, the quote family among them.
 
 49. **Under `CAUTIOUS_MULTIMEDIA`, every first publish with media warns that
     media is missing.** Nova imports the app before it uploads its media
