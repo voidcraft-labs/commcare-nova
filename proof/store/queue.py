@@ -523,7 +523,8 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--android-platform",
         default="linux-amd64",
-        help="where the Android stage runs its reader (android), as the reader's fingerprint names it",
+        help="where the Android stage runs its reader (android), as the reader's fingerprint names it; host for"
+        " this machine's",
     )
     parser.add_argument("--out", required=True, type=Path)
     arguments = parser.parse_args(argv)
@@ -549,7 +550,10 @@ def main(argv=None) -> int:
         elif arguments.phase == "android":
             from proof.android import records as android_records
 
-            reader = android_records.fingerprint(arguments.android_platform, root=proof_dir / "android")
+            platform = arguments.android_platform
+            if platform == "host":
+                platform = android_records.host_platform()
+            reader = android_records.fingerprint(platform, root=proof_dir / "android")
             groups = android_groups(builder, arguments.corpus, reader, proof_dir, observed=arguments.observed)
             unsampled = lane_blocks.unsampled_documents(arguments.corpus)
             found = {**found, "android": reader}

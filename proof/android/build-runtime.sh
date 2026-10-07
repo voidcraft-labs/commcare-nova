@@ -139,10 +139,12 @@ fi
 
 # commcare-core's build runs its own tests before it makes the jar commcare-android builds against
 # (build.gradle: jar.dependsOn test), and one of them reads the machine's zone (DateRangeUtilsTest), so the
-# build runs in UTC, as the project's own CI does.
+# build runs in UTC, as the project's own CI does. The plugin refuses two SDK locations, and a machine may
+# name another under the older variable (a hosted runner's own SDK), so both name the one this build uses.
 cd "$target/commcare-android"
 # shellcheck disable=SC2086
-TZ=UTC GRADLE_USER_HOME="$target/gradle-home" "$target/gradle-dist/gradle-$gradle_version/bin/gradle" \
+TZ=UTC GRADLE_USER_HOME="$target/gradle-home" ANDROID_SDK_ROOT="$ANDROID_HOME" \
+  "$target/gradle-dist/gradle-$gradle_version/bin/gradle" \
   --no-daemon --no-configuration-cache $verification \
   -Dorg.gradle.parallel=false -Dorg.gradle.jvmargs="-Xmx3g -Dfile.encoding=UTF-8" \
   -I "$here/reader.init.gradle" -PnovaAndroidClasspathFile="$target/classpath.txt" \
