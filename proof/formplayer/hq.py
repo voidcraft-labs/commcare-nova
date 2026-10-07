@@ -655,13 +655,18 @@ def _released(unit, app, app_id):
 
     try:
         build = webapps_hq._make_build(unit, app)
+        # HQ's release view also starts the task that builds each build profile's files
+        # (``views/releases.py::release_build``, ``tasks.py::create_build_files_for_all_app_profiles``). The
+        # harness's Celery runs it inline with its errors propagated, so a profile HQ cannot build (defect 1's
+        # language codes, which the bar reports) ends the release here, where production's release would stand
+        # and the task fail behind it.
+        webapps_hq._release(unit, app_id, build._id)
     except webapps_hq.ReleaseRefused:
         raise
     except Exception as error:
-        refused = webapps_hq.ReleaseRefused(f"HQ's make_build raised {type(error).__name__}: {error}")
+        refused = webapps_hq.ReleaseRefused(f"HQ's release raised {type(error).__name__}: {error}")
         refused.raised = f"{type(error).__module__}.{type(error).__qualname__}"
         raise refused from error
-    webapps_hq._release(unit, app_id, build._id)
     return operations.held_app(unit, build._id)
 
 

@@ -131,13 +131,31 @@ def tolerant_replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str)
         end = f"run-{index}"
         add(steps.click(steps.APP_TILE, app_name, within=steps.WITHIN_MS, or_skip_to=end))
         add([steps.SCREEN], ("screen", index))
-        for step in clicks(run, end):
+        for step in clicks(to_the_first_case(run), end):
             add([step], ("screen", index) if step == steps.SCREEN else None)
         add([{"label": end}])
         add([steps.SCREEN], ("end", index))
         # Home by the client's own breadcrumb, or, where a run stopped or the client shows none, its address.
         add([{"recover": {"click": HOME, "goto": home}}, steps.SETTLE])
     return made, plan
+
+
+def to_the_first_case(run: Mapping[str, Any]) -> dict:
+    """A run of the walk as far as the client is shown it for a document's record: up to the first case a worker
+    would choose, that choice left out.
+
+    What only the client decides is on the screens before a case is taken: the home screen's tiles, a menu, a
+    list with its cells, its empty text and its actions, a search and its description. What a chosen case leads
+    to (its detail, the forms after it, a form's questions) is Formplayer's to answer and is read from its trace;
+    and the client's own steps there (a detail it opens or not, a claim's sync) are where its replay stopped
+    following the walk one run and followed it the next, which a record cannot hold.
+    """
+    choices = []
+    for choice in run["script"]:
+        if "entity" in choice:
+            break
+        choices.append(choice)
+    return {**run, "script": choices}
 
 
 def _first_line(text) -> str:
@@ -183,15 +201,15 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     (``proof.formplayer.hq.Served``): the walk's runs replayed in the browser, in one run of the served state
     (the worker signed in, HQ's state put back after it).
 
-    A run the client shows nothing to click for at some choice (within ``steps.WITHIN_MS`` of the page being
-    quiet) is recorded as far as it went, with ``stopped`` and the screen it ended on, and the next run starts
-    from the home screen; an error the client's own script raised is recorded by its message
-    (``pageErrors``). So one screen the replay cannot follow costs a document that screen, never its record.
+    Each run is shown up to the first case a worker would choose (``to_the_first_case``). A run the client
+    shows nothing to click for at some choice before that (within ``steps.WITHIN_MS`` of the page being quiet)
+    is recorded as far as it went, with ``stopped`` and the screen it ended on, and the next run starts from
+    the home screen; an error the client's own script raised is recorded by its message (``pageErrors``).
     """
     from proof.webapps.session import recorded as screen_record
 
     session = Session(served, served, served.runner, driver)
-    script = script_of(walk)
+    script = [to_the_first_case(run)["script"] for run in walk["runs"]]
     made, plan = tolerant_replay(served.doc["name"], walk["runs"], session.home)
     with served.run("webapps"):
         run = session.run(made)
