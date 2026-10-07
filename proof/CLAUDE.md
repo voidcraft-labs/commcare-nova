@@ -1,8 +1,9 @@
 # proof: the proof harness
 
 The proof lane holds every Nova export to CommCare's own code at pinned
-upstream commits: HQ's import, build, case processing and editors, and
-CommCare Core's runtime, over a reproducible corpus, on every pull request.
+upstream commits: HQ's import, build, case processing and editors,
+CommCare Core's runtime and Formplayer's application, over a reproducible
+corpus, on every pull request.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -20,10 +21,20 @@ harness keeps, each with its reason.
   HQ branches on it in what it does; HQ's soft assertions are noted as
   production notes them, never raised, and each one is evidence. A view or
   Couch query the harness does not answer raises rather than returning empty.
+- **Formplayer runs whole, and only HQ is answered for it.** A claim about
+  Formplayer or Web Apps' server side is observed on Formplayer's own
+  application (`proof/formplayer`), started by its own `main` on its boot
+  jar's classes, its own Postgres schema and a real Redis, never on Core
+  alone and never on a controller taken out of its filters and aspects. The
+  one stand-in is HQ's address, whose every request comes back to the
+  harness and is answered with HQ's own code or named bytes; a request the
+  answers do not hold raises. Give each build an id of its own (Formplayer
+  keeps an install by its id), start each run as a worker who cleared their
+  data, and give each runner its own database and Redis.
 - **Observation is separate from judgment.** The observation partition
   (`proof/observe/partition.py::observes`: `proof/observe`, `proof/hq`,
-  `proof/core`, `proof/editors` with its driver fingerprinted apart as the
-  browser's, `proof/lane`, `proof/store`, the comparators, the few checks
+  `proof/core`, `proof/formplayer`, `proof/editors` with its driver
+  fingerprinted apart as the browser's, `proof/lane`, `proof/store`, the comparators, the few checks
   files it runs, the session's fixtures and the gate entries) runs HQ, Core
   and the browser and writes records; the judges (the rest of `proof/checks`,
   and `proof/rules`) are pure functions of records and import neither HQ nor
@@ -75,8 +86,8 @@ harness keeps, each with its reason.
   position where position is not what the reader reads; name a refusal's cause
   in its path; report nothing the bar already reports.
 - **Settle every CommCare fact at source.** Read the pinned checkouts
-  (`proof/pins.json`; the image holds the same trees at `/opt/hq`, `/opt/core`
-  and `/opt/android`), cite `file::symbol`, search every reader of a value and
+  (`proof/pins.json`; the image holds the same trees at `/opt/hq`, `/opt/core`,
+  `/opt/android` and `/opt/formplayer`), cite `file::symbol`, search every reader of a value and
   its enclosing condition, and execute where reading leaves doubt. Never
   switch a shared checkout, never read one through `git show <commit>:<path>`
   or raw URLs. A fact a brief or plan states and the source contradicts is

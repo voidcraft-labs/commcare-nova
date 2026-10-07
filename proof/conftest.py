@@ -2,8 +2,10 @@
 
 pytest owns the lifetime of each service the checks share, whichever package
 they are in: one Core runner JVM for the whole session (``core_runner``), one
-editor driver (node and Chromium) for the whole session (``editor_driver``),
-and HQ booted once per process (``hq``). A service that fails to start fails
+Formplayer for the whole session (``formplayer_runner``: its JVM, its
+database on the lane's Postgres and its Redis), one editor driver (node and
+Chromium) for the whole session (``editor_driver``), and HQ booted once per
+process (``hq``). A service that fails to start fails
 every check that needs it; nothing is skipped.
 
 Under the lane's fork server (``proof.lane.serve``) each worker is one
@@ -50,6 +52,7 @@ import pytest
 
 from proof.core.client import CoreRunner
 from proof.editors.client import EditorDriver
+from proof.formplayer.client import FormplayerRunner
 from proof.hq.boot import GUARD, BootReport, boot
 
 # The name the lane's worker plugin registers under (proof.lane.plugin.LanePlugin).
@@ -78,6 +81,18 @@ def core_runner() -> Iterator[CoreRunner]:
         if runner.timings.compile is not None:
             record_timing("core_runner_compile", runner.timings.compile)
         record_timing("core_runner_start", runner.timings.starts[0])
+        yield runner
+
+
+@pytest.fixture(scope="session")
+def formplayer_runner() -> Iterator[FormplayerRunner]:
+    """One Formplayer (its JVM, its database and its Redis) for the session, joined when the session ends."""
+    with FormplayerRunner() as runner:
+        if runner.timings.compile is not None:
+            record_timing("formplayer_runner_compile", runner.timings.compile)
+        record_timing("formplayer_database", runner.timings.database[0])
+        record_timing("formplayer_redis_start", runner.timings.redis[0])
+        record_timing("formplayer_start", runner.timings.starts[0])
         yield runner
 
 

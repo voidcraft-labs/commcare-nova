@@ -542,9 +542,22 @@ def _flags_of(ops, labels):
 class _Unit:
     """One configuration's unit and what its parts share."""
 
-    def __init__(self, document, export, configuration, unit, core_runner, editor_driver, store, blobs, timings):
+    def __init__(
+        self,
+        document,
+        export,
+        configuration,
+        unit,
+        core_runner,
+        editor_driver,
+        store,
+        blobs,
+        timings,
+        formplayer_runner=None,
+    ):
         self.document, self.export, self.configuration = document, export, configuration
         self.unit, self.core_runner, self.editor_driver = unit, core_runner, editor_driver
+        self.formplayer_runner = formplayer_runner
         self.store, self.blobs, self.timings = store, blobs, timings
         self.hooks = hook_modules()
         self.app_id = None
@@ -800,8 +813,39 @@ class _Unit:
                 blobs=self.blobs,
                 operation=ops,
             )
+            if self.formplayer_runner is not None and record["sessions"] is not None:
+                record["sessions"]["formplayer"] = self.formplayer_sessions(ops, b_aligned, differs, restore)
         record["flagsReadByBuild"] = _flags_of(ops, {"build-aligned"})
         return ops.recorded(record)
+
+    def formplayer_sessions(self, ops, b_aligned, differs, restore_a):
+        """Formplayer's sessions over the builds proof 3's Core sessions run on (``proof.formplayer.observe``):
+        A always, and B aligned to A where the raw builds differ, each over the restore Core's read (B's own
+        where the republish uploads its own lookup tables)."""
+        from proof.formplayer import observe as formplayer
+        from proof.observe import casedata, sessions
+
+        restore_b = restore_a
+        walks_b = b_aligned is not None and b_aligned.files is not None and differs
+        if walks_b and restore_a is not None and self.export.republish.lookups is not None:
+            database = casedata.document_case_database(self.document)
+            _, restore_b = sessions.hq_restore(
+                self.unit, database, self.export.republish.lookups, "restore-b-formplayer", ops
+            )
+        return formplayer.observe(
+            self.unit,
+            document=self.document,
+            export=self.export,
+            app_id=self.app_id,
+            a_build=self.a_built.outcome,
+            b_aligned=b_aligned,
+            b_differs=differs,
+            restore_a=restore_a,
+            restore_b=restore_b,
+            runner=self.formplayer_runner,
+            blobs=self.blobs,
+            operation=ops,
+        )
 
 
 class _TimedRunner:
@@ -853,7 +897,19 @@ def _settle(store, key, record, blobs, held):
 
 
 def observe_configuration(
-    document, name, keys, records, *, core_runner, editor_driver, store, blobs, timings, same_as=True, hooks=None
+    document,
+    name,
+    keys,
+    records,
+    *,
+    core_runner,
+    editor_driver,
+    store,
+    blobs,
+    timings,
+    same_as=True,
+    hooks=None,
+    formplayer_runner=None,
 ):
     """One configuration's parts, from the store where it holds them and observed in one unit otherwise.
 
@@ -896,7 +952,18 @@ def observe_configuration(
         guard.observing(document, name, "configuration", hooks),
         hq_unit(configuration, root_key=keys["a"], validate=core_runner.validate_form) as unit,
     ):
-        state = _Unit(document, export, configuration, unit, core_runner, editor_driver, store, blobs, timings)
+        state = _Unit(
+            document,
+            export,
+            configuration,
+            unit,
+            core_runner,
+            editor_driver,
+            store,
+            blobs,
+            timings,
+            formplayer_runner=formplayer_runner,
+        )
         if "a" in wanted:
             settled("a", state.observe_a)
         else:
@@ -1018,13 +1085,33 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     return record, key, True
 
 
-def observe_document(document, *, core_runner, editor_driver=None, store=NULL_STORE, configurations=None, same_as=True):
+def observe_document(
+    document,
+    *,
+    core_runner,
+    editor_driver=None,
+    store=NULL_STORE,
+    configurations=None,
+    same_as=True,
+    formplayer_runner=None,
+):
     """Every part of one document's tree, each configuration in a unit of its own, and its local archives.
 
     ``configurations`` names the configurations to observe (every one the
     document is exported under by default); ``same_as`` is
-    ``observe_configuration``'s.
+    ``observe_configuration``'s. With ``formplayer_runner``, each
+    configuration's ``b_aligned`` record also holds Formplayer's sessions
+    over the builds Core's run on (``sessions.formplayer``,
+    ``proof.formplayer.observe``). A part's key does not say which was
+    asked, so a caller that gives one keeps nothing in a store other
+    callers read: the lane's own observation gives none until a check
+    judges those sessions, and then gives one always.
     """
+    if formplayer_runner is not None and store is not NULL_STORE:
+        raise ValueError(
+            "A document observed with Formplayer's sessions is kept in no store yet: a part's key does not name"
+            " whether they were observed, so a stored record would stand for both. Observe it with no store."
+        )
     from proof.store import guard
 
     # What every key is derived from, which the guard holds to what the document's key names (``guard.KEYS``).
@@ -1053,6 +1140,7 @@ def observe_document(document, *, core_runner, editor_driver=None, store=NULL_ST
             timings=timings,
             same_as=same_as,
             hooks=hooks,
+            formplayer_runner=formplayer_runner,
         )
         found.observed += [f"{name}/{part}" for part in observed]
         found.configurations[name] = held

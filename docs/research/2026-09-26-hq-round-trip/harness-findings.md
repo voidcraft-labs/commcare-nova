@@ -372,6 +372,55 @@ corpus ids that show the symptom.
     side for every such search from an install of HQ's build; the worker
     sees the same results. *Documents:* `search-automatic`.
 
+### Found by running Formplayer
+
+The lane ran Core alone until the Formplayer runner (`proof/formplayer`,
+Formplayer `24383ac71bfb` with the Core it vendors, `8e9ba8d908e9`). What
+Formplayer's own application does over HQ's builds of Nova's exports:
+
+56. **Formplayer stops where a form link's target is hidden; Core's session
+    goes on.** HQ builds a form link as a stack frame naming the target's
+    commands (`suite_xml/post_process/workflow.py`). After a submission
+    Core's session holds that frame as it stands: for a hidden form it needs
+    nothing more and its entry opens the form
+    (`CommCareSession.getNeededData`), and for a hidden menu it asks for a
+    command inside it. Formplayer rebuilds the session by walking the frame
+    through the screens it would show
+    (`services/MenuSessionFactory.java::rebuildSessionFromFrame`, which
+    matches a step only against `MenuScreen.getMenuDisplayables`), so it
+    answers with the menu that holds the hidden form, listing its shown
+    forms alone, and with the app's first screen for a hidden menu. Nova
+    admits such a link: it refuses only a display condition no worker could
+    meet (`DISPLAY_CONDITION_ALWAYS_FALSE`), and a link's target may be
+    hidden for the worker who submits. *Harm:* none found in Web Apps, where
+    the worker lands on a screen they may use; a runtime that reads the
+    frame as Core's session does opens a form its menu hides, which is
+    Android's to observe. The two runtimes differ, so proof 3's Core
+    sessions do not stand for Web Apps here. *Documents:*
+    `targeted-form-link-hidden-target`.
+
+57. **Formplayer cannot submit a form of Nova's local archive.** The local
+    `.ccz` profile holds no server URL (no `PostURL`), and Formplayer reads
+    a form's submission URL from that property
+    (`session/MenuSession.java`, `FormSession.getPostUrl`), so its submit
+    answers `status: error` (a null URL) and sends nothing. Menus, lists
+    and form entry run. *Harm:* none a worker reaches: Web Apps installs
+    only what HQ builds. It bounds the lane: Formplayer's sessions are
+    walked on HQ's builds, never across the two export paths.
+    *Documents:* any local archive.
+
+What the same runs show of earlier findings, each on Formplayer itself
+(`proof/formplayer/test_*.py`): finding 40's `cc-autosync-freq` reads alike
+absent and `freq-never` (no restore asked after eight days, where
+`freq-daily` asks for one) and its `cc-fuzzy-search-enabled` changes a
+list's search as stated; finding 42's vertical alignment reaches the client
+(`EntityListResponse.styles[].verticalAlign` is null for Nova's export and
+`start` for the saved app), so that equivalence rests on Web Apps' client
+alone; finding 48's mixed-quote answer never reaches HQ (Formplayer answers
+the search screen again with the validation's message); and finding 54's
+description is `""` for Nova's export and a non-breaking space for the saved
+app in what Formplayer hands Web Apps (`QueryResponseBean.description`).
+
 ## Equivalences only another runtime reads
 
 These differences are no harm: every runtime that reads them reads both

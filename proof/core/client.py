@@ -467,6 +467,7 @@ class CoreRunner:
         question_kinds: Mapping[str, str] | None = None,
         locale: str | None = None,
         clock: str = DEFAULT_CLOCK,
+        after_submit: bool = False,
         deadline: float = 600.0,
     ) -> dict[str, Any]:
         """Runs scripted sessions over the admitted app and returns their trace.
@@ -474,6 +475,9 @@ class CoreRunner:
         Without a script the runner derives one from the app (every menu command,
         every reachable form with the first entity of each list); the trace
         records the script it ran, so the same script can replay on another build.
+        With ``after_submit``, each submitted form's ``stackAfterSubmit`` also
+        holds ``next``: what Core's session needs for the frame the submission
+        left it, and the form it opens where it needs nothing (``FormRun.next``).
         """
         self._require_current(app)
         args: dict[str, Any] = {
@@ -488,6 +492,8 @@ class CoreRunner:
             args["questionKinds"] = dict(question_kinds)
         if locale is not None:
             args["locale"] = locale
+        if after_submit:
+            args["afterSubmit"] = True
         return self.request("session", deadline=deadline, **args)
 
     def evaluate(self, *, deadline: float = 120.0, app: AppHandle | None = None, **args: Any) -> dict[str, Any]:

@@ -72,6 +72,7 @@ DOCUMENT_KINDS = ("corpus:", "control:")
 CORPUS_PACKAGES = (
     "proof/checks",
     "proof/editors",
+    "proof/formplayer",
     "proof/hq",
     "proof/lane",
     "proof/native",
