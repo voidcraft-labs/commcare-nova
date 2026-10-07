@@ -202,21 +202,26 @@ def test_a_list_of_another_kind_of_row_is_one_difference():
     assert _paths(_proof3(local)) == [("android@local.ccz", "/walks/*/steps/*/list/rowClass", "changed")]
 
 
-def test_the_same_rows_in_another_order_are_one_difference_and_another_case_opened_ends_the_comparison():
+def test_another_order_is_one_difference_its_rows_compare_by_case_and_another_case_opened_ends_the_comparison():
     """A list sorted another way opens another first case: the order and the choice are the two differences,
-    and the form past them, answered over another case, is none."""
+    a row is compared with the same case's row, and the form past the choice, of another case, is none."""
     baseline, local = _app(), _app()
-    baseline["walks"]["m0/m0-f0"]["steps"][1]["list"]["chose"] = "case-ada"
+    held = baseline["walks"]["m0/m0-f0"]["steps"][1]["list"]
+    held.update(order=["case-ada", "case-bo"], chose="case-ada", detail={"tabs": [{"title": "Ada"}]})
     held = local["walks"]["m0/m0-f0"]["steps"][1]["list"]
     held["rows"].reverse()
-    held["chose"] = "case-bo"
+    held.update(order=["case-bo", "case-ada"], chose="case-bo", detail={"tabs": [{"title": "Bo"}]})
     local["walks"]["m0/m0-f0"]["steps"][2]["form"] = _form(screens=("/data/name[1]", "/data/age[1]"))
     local["walks"]["m0/m0-f0"]["steps"].append({"screen": "MenuActivity"})
     found = _proof3(local, a=baseline)
     assert _paths(found) == [
         ("android@local.ccz", "/walks/*/steps/*/list/chose", "changed"),
-        ("android@local.ccz", "/walks/*/steps/*/list/rowOrder", "changed"),
+        ("android@local.ccz", "/walks/*/steps/*/list/order", "changed"),
     ]
+    held["rows"][1]["children"][0]["textSize"] = 17
+    assert ("android@local.ccz", "/walks/*/steps/*/list/rows/*/children/*/textSize", "added") in _paths(
+        _proof3(local, a=baseline)
+    )
 
 
 def test_a_walk_the_app_raised_in_is_compared_by_what_was_raised_and_not_by_its_frames():

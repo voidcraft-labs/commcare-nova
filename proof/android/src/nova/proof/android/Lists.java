@@ -16,6 +16,8 @@ import org.commcare.adapters.EntityListAdapter;
 import org.commcare.dalvik.R;
 import org.commcare.preferences.MainConfigurablePreferences;
 import org.commcare.suite.model.Detail;
+import org.commcare.suite.model.EntityDatum;
+import org.commcare.util.DatumUtil;
 import org.commcare.views.dialogs.DialogChoiceItem;
 import org.commcare.views.dialogs.PaneledChoiceDialog;
 import org.json.JSONArray;
@@ -48,6 +50,7 @@ final class Lists {
     private static final int ROW_WIDTH = 1000;
     private static final int MAX_ROWS = 4;
     private static final int WORD_ROWS = 12;
+    private static final int ORDER_ROWS = 50;
     private static final int MAX_TERMS = 6;
     private static final String FUZZY = "cc-fuzzy-search-enabled";
     /** Terms the request names for every list, beside each list's own; null where it names none. */
@@ -116,6 +119,22 @@ final class Lists {
             words(row, words);
         }
         list.put("rows", shown);
+        // Which case each row is, in the order the list shows them: the value a tap on the row hands the
+        // session (DatumUtil.getReturnValueFromSelection), so two lists compare row for row by the case.
+        Object datum = Screens.field(activity, "selectDatum");
+        if (datum instanceof EntityDatum) {
+            JSONArray order = new JSONArray();
+            for (int i = 0; i < Math.min(adapter.getCurrentCount(), ORDER_ROWS); i++) {
+                try {
+                    order.put(Screens.orNull(Cases.unnamed(DatumUtil.getReturnValueFromSelection(adapter.getItem(i),
+                            (EntityDatum)datum,
+                            CommCareApplication.instance().getCurrentSessionWrapper().getEvaluationContext()))));
+                } catch (RuntimeException raised) {
+                    order.put("raised " + raised.getClass().getName());
+                }
+            }
+            list.put("order", order);
+        }
 
         list.put("EntitySelectActivity.getSortOptionsList", Views.choices(sortOptions(activity)));
         // What a worker's Sort choice and searches give, each on a list of its own opened as this one was, so
@@ -187,7 +206,7 @@ final class Lists {
         // Which case the tap chose: the value the list hands home for the session.
         Intent result = shadow.getResultIntent();
         list.put("chose", Screens.orNull(result == null ? null
-                : result.getStringExtra(org.commcare.session.SessionFrame.STATE_DATUM_VAL)));
+                : Cases.unnamed(result.getStringExtra(org.commcare.session.SessionFrame.STATE_DATUM_VAL))));
         home.receiveResult(started, shadow.getResultCode(), result);
         ShadowLooper.idleMainLooper();
         return shadow.getResultCode() == Activity.RESULT_OK;

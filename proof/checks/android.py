@@ -32,16 +32,16 @@ and whether it is the same app at no lower a version; and, of each path alone (`
 session, as Android itself stored it, home cannot read (``/update/reopened/*/session``).
 
 One symptom is one difference. Two walks that opened another case at a list are compared as far as that list
-(``/list/chose``), since every screen past it is of another case; a list that shows the same rows in another
-order is that (``/list/rowOrder``). A walk whose screens are not the same screens in the same order is that
-difference, named by where the two part (``/walks/*/screens/after-<the last screen both showed>:<the
-baseline's next>:<the other's next>``, each side's whole walk its value), and its steps are not compared one
-against another; a form that
-takes another path of screens is that (``/form/path``); a list whose rows are another kind of view is that
-(``/list/rowClass``); an archive Android does not install is that (``/install``) and nothing of its app is
-compared. What a reader keys by a name is compared by that name and never by position: a menu's items by
-their ids, a Sort choice's order by the choice, a search's matches by its term, the cases a device holds by
-their ids (each case one value), the home screen's hidden buttons by their names.
+(``/list/chose``), since every screen past it is of another case; a list that shows its cases in another
+order is that (``/list/order``), and its rows are then compared case by case. A walk whose screens are not the
+same screens in the same order is that difference, named by where the two part
+(``/walks/*/screens/after-<the last screen both showed>:<the baseline's next>:<the other's next>``, each side's
+whole walk its value), and its steps are not compared one against another; a form that takes another path of
+screens is that (``/form/path``); a list whose rows are another kind of view is that (``/list/rowClass``); an
+archive Android does not install is that (``/install``) and nothing of its app is compared. What a reader keys
+by a name is compared by that name and never by position: a menu's items by their ids, a Sort choice's order by
+the choice, a search's matches by its term, the cases a device holds by their ids (each case one value), the
+home screen's hidden buttons by their names.
 
 What is left out of a comparison, each because it names an install and not what a worker reads, or says again
 what a reader beside it says: the app's id and version (proof 1's), the profile's stored values (each
@@ -65,6 +65,7 @@ DATA_MAPS = frozenset(
     {
         "/walks",
         "/walks/*/steps/*/menu/items",
+        "/walks/*/steps/*/list/rows",
         "/walks/*/steps/*/list/sorted",
         "/walks/*/steps/*/list/searches/asInstalled",
         "/walks/*/steps/*/list/searches/fuzzyOn",
@@ -89,11 +90,13 @@ def _joined(values) -> str:
 
 
 def _list(step: dict) -> None:
-    """A case list as compared: its Sort menu and each search's matches one value each, each Sort choice's
-    order by the choice."""
+    """A case list as compared: the order it shows its cases in, its Sort menu and each search's matches one
+    value each, each Sort choice's order by the choice."""
     held = step.get("list")
     if not isinstance(held, dict):
         return
+    if isinstance(held.get("order"), list):
+        held["order"] = _joined(held["order"])
     options = held.get("EntitySelectActivity.getSortOptionsList")
     if isinstance(options, list):
         held["EntitySelectActivity.getSortOptionsList"] = _joined(options)
@@ -188,20 +191,33 @@ def _form_path(form) -> str | None:
 
 
 def _row_classes(held) -> str | None:
-    if not isinstance(held, dict) or not isinstance(held.get("rows"), list):
+    if not isinstance(held, dict) or not isinstance(held.get("rows"), (list, dict)):
         return None
-    return _joined(sorted({str(row.get("class")) for row in held["rows"]}))
+    rows = held["rows"].values() if isinstance(held["rows"], dict) else held["rows"]
+    return _joined(sorted({str(row.get("class")) for row in rows}))
 
 
-def _row_order(held) -> str | None:
-    if not isinstance(held, dict) or not isinstance(held.get("rows"), list):
+def _keyed_rows(held) -> dict | None:
+    """A list's recorded rows by the case each is of (``order`` names every row's, the first of them recorded),
+    where the list says which and no case is listed twice."""
+    if not isinstance(held, dict) or not isinstance(held.get("rows"), list) or not isinstance(held.get("order"), str):
         return None
-    return _joined(json.dumps(row, sort_keys=True) for row in held["rows"])
+    cases = held["order"].split(SEPARATOR)[: len(held["rows"])]
+    if len(cases) != len(held["rows"]) or len(set(cases)) != len(cases):
+        return None
+    return dict(zip(cases, held["rows"], strict=True))
 
 
-def _same_rows(before, after) -> bool:
-    a = sorted(json.dumps(row, sort_keys=True) for row in before["rows"])
-    return a == sorted(json.dumps(row, sort_keys=True) for row in after["rows"])
+def _rows_by_case(before: dict, after: dict) -> tuple[dict, dict]:
+    """Two list steps whose lists show their cases in another order, each with its rows by their cases and only
+    the rows both recorded: a row is compared with the row of the same case."""
+    a, b = _keyed_rows(before.get("list")), _keyed_rows(after.get("list"))
+    if a is None or b is None or before["list"]["order"] == after["list"]["order"]:
+        return before, after
+    both = set(a) & set(b)
+    before = {**before, "list": {**before["list"], "rows": {case: row for case, row in a.items() if case in both}}}
+    after = {**after, "list": {**after["list"], "rows": {case: row for case, row in b.items() if case in both}}}
+    return before, after
 
 
 def _chose(step: dict):
@@ -209,8 +225,9 @@ def _chose(step: dict):
 
 
 def _to_first_other_choice(before: dict, after: dict) -> tuple[dict, dict]:
-    """Two walks cut after the first list at which each opened another case: what each showed from there on is
-    of another case, and says nothing more of the two apps than the choice does (``/list/chose``)."""
+    """Two walks cut after the first list at which each opened another case: what each showed from there on
+    (the case's detail, and every screen past the list) is of another case, and says nothing more of the two
+    apps than the choice does (``/list/chose``)."""
     steps_a, steps_b = before.get("steps"), after.get("steps")
     if not isinstance(steps_a, list) or not isinstance(steps_b, list):
         return before, after
@@ -218,29 +235,28 @@ def _to_first_other_choice(before: dict, after: dict) -> tuple[dict, dict]:
         if a.get("screen") != b.get("screen"):
             break
         if _chose(a) != _chose(b):
-            return {**before, "steps": steps_a[: index + 1]}, {**after, "steps": steps_b[: index + 1]}
+            # The detail the list opened on the way is the chosen case's too.
+            a = {**a, "list": {name: value for name, value in a["list"].items() if name != "detail"}}
+            b = {**b, "list": {name: value for name, value in b["list"].items() if name != "detail"}}
+            return {**before, "steps": [*steps_a[:index], a]}, {**after, "steps": [*steps_b[:index], b]}
     return before, after
 
 
 def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
     """Two steps of one screen with what would report one symptom many times reduced to that symptom: a form
     that takes another path of screens is that path (``/form/path``), a list whose rows are another kind of
-    view (a tile, a plain row) is that (``/list/rowClass``), and a list that shows the same rows in another
-    order is that (``/list/rowOrder``)."""
+    view (a tile, a plain row) is that (``/list/rowClass``), and of two lists that show their cases in another
+    order (``/list/order``) each row is compared with the other list's row of the same case."""
     a, b = _form_path(before.get("form")), _form_path(after.get("form"))
     if a is not None and b is not None and a != b:
         before = {**before, "form": {**{k: v for k, v in before["form"].items() if k != "screens"}, "path": a}}
         after = {**after, "form": {**{k: v for k, v in after["form"].items() if k != "screens"}, "path": b}}
+    before, after = _rows_by_case(before, after)
     a, b = _row_classes(before.get("list")), _row_classes(after.get("list"))
     if a is not None and b is not None and a != b:
         kept = ("rows", "header")
         before = {**before, "list": {**{k: v for k, v in before["list"].items() if k not in kept}, "rowClass": a}}
         after = {**after, "list": {**{k: v for k, v in after["list"].items() if k not in kept}, "rowClass": b}}
-    elif a is not None and b is not None:
-        a, b = _row_order(before["list"]), _row_order(after["list"])
-        if a != b and _same_rows(before["list"], after["list"]):
-            before = {**before, "list": {**{k: v for k, v in before["list"].items() if k != "rows"}, "rowOrder": a}}
-            after = {**after, "list": {**{k: v for k, v in after["list"].items() if k != "rows"}, "rowOrder": b}}
     return before, after
 
 

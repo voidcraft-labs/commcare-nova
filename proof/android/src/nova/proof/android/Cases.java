@@ -108,6 +108,11 @@ final class Cases {
                 + "\u0000" + held.isClosed() + "\u0000" + ordered;
     }
 
+    /** A value with each id the device drew for itself written as one, whichever it is. */
+    static String unnamed(String value) {
+        return named(value, new HashMap<>());
+    }
+
     /** A value with each id the device drew written by its order, and any other UUID as one. */
     private static String named(String value, Map<String, String> drawn) {
         if (value == null) {
