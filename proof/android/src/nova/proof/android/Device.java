@@ -23,7 +23,20 @@ import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowLooper;
 
+import org.commcare.AppUtils;
+import org.commcare.activities.FormAndDataSyncer;
+import org.commcare.activities.SyncCapableCommCareActivity;
+import org.commcare.android.database.user.models.FormRecord;
+import org.commcare.models.FormRecordProcessor;
+import org.commcare.models.database.SqlStorage;
+import org.commcare.utils.StorageUtils;
+import org.javarosa.core.model.User;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The device the reader's observations run on: commcare-android's own application under Robolectric
@@ -42,6 +55,10 @@ final class Device {
     // made at login, before a restore brings the workers it registers.
     static final String USERNAME = "nova-proof-device";
     static final String PASSWORD = "123";
+    /** Whether a walk changed what the worker's sandbox holds (a form's cases applied, a claim's sync). */
+    static boolean dirty;
+    private static String restorePath;
+    private static String restoreReference;
 
     private Device() {
     }
@@ -118,6 +135,8 @@ final class Device {
         File file = new File(path);
         String root = CommCareApplication.instance().getArchiveFileRoot().addArchiveFile(file.getParent());
         String reference = "jr://archive/" + root + "/" + file.getName();
+        restorePath = path;
+        restoreReference = reference;
         org.commcare.network.CommcareRequestEndpointsMock.setCaseFetchResponseCodes(new Integer[]{200});
         LocalReferencePullResponseFactory.setRequestPayloads(new String[]{reference});
         CommCareApplication.instance().getCurrentApp().getAppPreferences().edit()
@@ -151,6 +170,95 @@ final class Device {
         if (outcome[0] instanceof Exception) {
             throw new IllegalStateException("Android's data pull raised for " + path, (Exception)outcome[0]);
         }
+        become();
+        Cases.restored();
         return String.valueOf(outcome[0]) + (outcome[1] == null || "".equals(outcome[1]) ? "" : ": " + outcome[1]);
+    }
+
+    /**
+     * The worker the restore registered becomes the device's worker, as the worker who logged in is on a real
+     * device: there the first restore brings the worker's own record and the session starts with it
+     * (DataPullTask, CommCareApplication.startUserSession reads the user by the key record's name). The test
+     * application makes its worker before any restore, under a name of its own, so the session is started
+     * again with the worker the restore brought, by the app's own call.
+     */
+    private static void become() {
+        for (User user : CommCareApplication.instance().getUserStorage("USER", User.class)) {
+            if (!USERNAME.equals(user.getUsername())) {
+                user.setCachedPwd(PASSWORD);
+                CommCareApplication.instance().getSession().startSession(user,
+                        CommCareApplication.instance().getRecordForCurrentUser());
+                return;
+            }
+        }
+    }
+
+    /** The reference a sync reads the server's restore from (the one the device was restored from), or null. */
+    static String restoreReference() {
+        return restoreReference;
+    }
+
+    /** A worker's own settings, written where Android's settings screen writes them. */
+    static void prefer(JSONObject preferences) throws Exception {
+        if (preferences == null) {
+            return;
+        }
+        android.content.SharedPreferences.Editor editor =
+                CommCareApplication.instance().getCurrentApp().getAppPreferences().edit();
+        JSONArray names = preferences.names();
+        for (int i = 0; names != null && i < names.length(); i++) {
+            editor.putString(names.getString(i), preferences.getString(names.getString(i)));
+        }
+        editor.commit();
+    }
+
+    /**
+     * The device as it was before any walk changed the worker's data: the worker's session closed and sandbox
+     * wiped by the app's own calls (CommCareApplication.closeUserSession, AppUtils.wipeSandboxForUser, what the
+     * app's Clear User Data runs), the worker made and logged in again, and the restore applied again.
+     */
+    static void reset() {
+        CommCareApplication.instance().closeUserSession();
+        AppUtils.wipeSandboxForUser(USERNAME);
+        login();
+        if (restorePath != null) {
+            restore(restorePath);
+        }
+        dirty = false;
+    }
+
+    /**
+     * What home is given in place of its own syncer. Where home starts sending the worker's unsent forms
+     * (FormAndDataSyncer.processAndSendForms starts a ProcessAndSendTask), this applies each unsent form to the
+     * device as that task first does, with the app's own processor (FormSubmissionHelper: FormRecordProcessor
+     * .process), and sends nothing: there is no server. A sync is not run either, as the project's own fake
+     * leaves it (FormAndDataSyncerFake).
+     */
+    static final class Syncer extends FormAndDataSyncer {
+        static final List<String> processed = new ArrayList<>();
+
+        @Override
+        protected void processAndSendForms(SyncCapableCommCareActivity activity, boolean syncAfterwards,
+                                           boolean userTriggered) {
+            SqlStorage<FormRecord> storage = CommCareApplication.instance().getUserStorage(FormRecord.class);
+            FormRecordProcessor processor = new FormRecordProcessor(activity);
+            for (FormRecord record : StorageUtils.getUnsentRecordsForCurrentApp(storage)) {
+                if (!FormRecord.STATUS_COMPLETE.equals(record.getStatus())) {
+                    continue;
+                }
+                dirty = true;
+                try {
+                    FormRecord after = processor.process(record);
+                    processed.add(String.valueOf(after.getStatus()));
+                } catch (Exception raised) {
+                    processed.add("raised " + raised.getClass().getName() + ": " + raised.getMessage());
+                }
+            }
+        }
+
+        @Override
+        public void syncDataForLoggedInUser(SyncCapableCommCareActivity activity, boolean formsToSend,
+                                            boolean userTriggeredSync) {
+        }
     }
 }

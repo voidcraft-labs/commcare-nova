@@ -1710,5 +1710,8 @@ def observe_b(ctx, *, order=hq_order, views=None, forms=None):
         )
     observation = _Observation(ctx, order)
     record = observation.observe(views, forms)
+    # The restore B's sessions and every save's read, kept for the readers that read the record's archives
+    # outside the unit (the Android stage, ``proof.android``); None where HQ serves none.
+    record["restore"] = None if ctx.restore is None else observation.blobs.put(ctx.restore)
     COUNTS.append({"document": ctx.document.id, "over": ctx.over, **observation.counts.as_json()})
     return record

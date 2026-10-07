@@ -43,6 +43,17 @@ SOURCE_DIR = Path(__file__).resolve().parent / "src"
 COMPILE_SECONDS = 300.0
 REQUEST_SECONDS = 300.0
 LOG_LIMIT = 256 * 1024
+# Core's clock reads an app's logic reaches (now(), today(), and the dow() of a suite's XPath texts): the reader
+# compiles these three classes from Core's own source in the runtime, with that one expression reading the
+# reader's clock, ahead of Core's on the classpath, as the Core runner does (proof/core/client.py, whose names
+# these are; ProofClock.java says why).
+CLOCK_READERS = (
+    "org/javarosa/xpath/expr/XPathNowFunc.java",
+    "org/javarosa/xpath/expr/XPathTodayFunc.java",
+    "org/commcare/suite/model/Text.java",
+)
+CLOCK_READ = "new Date()"
+CLOCK_REPLACEMENT = "nova.proof.android.ProofClock.now()"
 # The project runs its unit tests with -noverify and a 2 GB heap (app/build.gradle, testOptions.unitTests.all).
 # The zone and locale are fixed so nothing Android formats depends on the machine, and Robolectric reads its
 # Android runtime from the runtime's own directory, never the network.
@@ -168,6 +179,7 @@ class AndroidReader:
         sources = sorted(str(path) for path in self._sources.rglob("*.java"))
         if not sources:
             raise AndroidReaderError(f"The Android reader found no Java sources under {self._sources}.")
+        sources += self._clock_readers(classes.parent / "clock")
         android = sorted(str(path) for path in (self._runtime / runtime["robolectric"]).glob("*.jar"))
         classes.mkdir(parents=True)
         log_path = classes.parent / "javac.log"
@@ -189,6 +201,30 @@ class AndroidReader:
                 log=_tail(log_path),
             )
         return classes
+
+    def _clock_readers(self, target: Path) -> list[str]:
+        """Core's clock-reading classes, from the runtime's own Core checkout, reading the reader's clock."""
+        core = Path(self._runtime_json()["workdir"]).parents[1] / "commcare-core" / "src" / "main" / "java"
+        written = []
+        for relative in CLOCK_READERS:
+            try:
+                text = (core / relative).read_text(encoding="utf-8")
+            except OSError as error:
+                raise AndroidReaderError(
+                    f"The Android reader freezes the clock by recompiling {core / relative}, which it could not"
+                    f" read ({error})."
+                ) from error
+            if text.count(CLOCK_READ) != 1:
+                raise AndroidReaderError(
+                    f"The Android reader expects Core's {relative} to read the clock with exactly one"
+                    f" `{CLOCK_READ}`, and it has {text.count(CLOCK_READ)}. Core's clock changed at this pin;"
+                    " revisit ProofClock before trusting a record."
+                )
+            path = target / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text.replace(CLOCK_READ, CLOCK_REPLACEMENT), encoding="utf-8")
+            written.append(str(path))
+        return written
 
     def close(self) -> None:
         if self._work is not None:

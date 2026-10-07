@@ -138,4 +138,44 @@ final class Views {
         }
         return found;
     }
+
+    /** Every text a view shows, in the order its tree holds them: each visible text view's, where not empty. */
+    static JSONArray texts(View view) {
+        JSONArray found = new JSONArray();
+        texts(view, found);
+        return found;
+    }
+
+    private static void texts(View view, JSONArray found) {
+        if (view == null || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        if (view instanceof TextView) {
+            String text = String.valueOf(((TextView)view).getText());
+            if (!text.isEmpty()) {
+                found.put(text);
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup)view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                texts(group.getChildAt(i), found);
+            }
+        }
+    }
+
+    /** How many visible image views a view holds that show a picture. */
+    static int images(View view) {
+        if (view == null || view.getVisibility() != View.VISIBLE) {
+            return 0;
+        }
+        int found = view instanceof ImageView && ((ImageView)view).getDrawable() != null ? 1 : 0;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup)view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                found += images(group.getChildAt(i));
+            }
+        }
+        return found;
+    }
 }

@@ -1,54 +1,55 @@
 package nova.proof.android;
 
-import android.app.Activity;
 import android.content.Intent;
-import android.view.View;
-import android.view.View.MeasureSpec;
-import android.view.ViewGroup;
-import android.widget.LinearLayout;
-import android.widget.ListView;
 
 import org.commcare.CommCareApplication;
 import org.commcare.activities.CommCareActivity;
+import org.commcare.activities.EntityDetailActivity;
 import org.commcare.activities.EntitySelectActivity;
 import org.commcare.activities.FormEntryActivity;
+import org.commcare.activities.MenuActivity;
+import org.commcare.activities.PostRequestActivity;
+import org.commcare.activities.QueryRequestActivity;
 import org.commcare.activities.StandardHomeActivity;
-import org.commcare.adapters.EntityListAdapter;
-import org.commcare.android.mocks.FormAndDataSyncerFake;
-import org.commcare.dalvik.R;
 import org.commcare.engine.resource.AppInstallStatus;
 import org.commcare.models.AndroidSessionWrapper;
 import org.commcare.session.CommCareSession;
 import org.commcare.session.SessionFrame;
-import org.commcare.suite.model.EntityDatum;
-import org.commcare.suite.model.SessionDatum;
-import org.commcare.util.DatumUtil;
-import org.commcare.views.dialogs.DialogChoiceItem;
-import org.commcare.views.dialogs.PaneledChoiceDialog;
-import org.javarosa.core.model.instance.TreeReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
-import org.robolectric.shadows.ShadowListView;
 import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
 
 /**
- * What Android shows of an installed app: for each command the request names, the screens the app's own home
- * activity takes a worker through from that command (HomeScreenBaseActivity and its SessionNavigator), each
- * built by Robolectric from the intent home started, as the project's own tests build them
- * (ActivityLaunchUtils). At a case list the first case is chosen, by handing home the result the list would;
- * a walk ends at a form, at a screen the walk does not answer, or where home starts nothing.
+ * What Android shows of an installed app: every screen its own home activity takes a worker through
+ * (HomeScreenBaseActivity and its SessionNavigator), each built by Robolectric from the intent home started, as
+ * the project's own tests build them (ActivityLaunchUtils).
+ *
+ * A walk is one session from the app's first menu. Each menu the session reaches is read (Menus), and every item
+ * it offers is a walk of its own, so a session is walked down every path the app's own menus offer and no
+ * further: an item a menu hides is reached by no walk. At a case list the first case is opened and confirmed
+ * (Lists); a search is sent and answered (Queries), a claim posted and its sync run (Posts); a form is answered
+ * to its end and saved, and home is handed its result, so what home starts after a form is part of the same
+ * walk (Forms). A walk ends where home starts nothing, at a menu after a form, at a screen the walk does not
+ * answer (named, with what it shows), or at its limits.
+ *
+ * A saved form's case blocks are applied to the device's own case database by the app's own processor, where
+ * home starts it (Device.Syncer), so each walk that saved a form starts the next on a device made again: the
+ * worker's sandbox wiped by the app's own call and the restore applied again (Device.reset).
  */
 final class Screens {
-    /** The width a row is measured at, so the widths Android gives its columns are comparable. */
-    private static final int ROW_WIDTH = 1000;
-    private static final int MAX_STEPS = 12;
-    private static final int MAX_ROWS = 4;
+    private static final int MAX_STEPS = 24;
+    private static final int MAX_FORMS = 3;
+    private static final int MAX_WALKS = 60;
+    static final String ROOT = "root";
 
     private Screens() {
     }
@@ -69,34 +70,31 @@ final class Screens {
         if (request.has("restore")) {
             found.put("restore", Device.restore(request.getString("restore")));
         }
-        JSONObject preferences = request.optJSONObject("preferences");
-        if (preferences != null) {
-            // A worker's own settings, written where Android's settings screen writes them.
-            android.content.SharedPreferences.Editor editor =
-                    CommCareApplication.instance().getCurrentApp().getAppPreferences().edit();
-            JSONArray names = preferences.names();
-            for (int i = 0; names != null && i < names.length(); i++) {
-                editor.putString(names.getString(i), preferences.getString(names.getString(i)));
-            }
-            editor.commit();
-        }
-        JSONArray searches = request.optJSONArray("searches");
+        Device.prefer(request.optJSONObject("preferences"));
+        found.put("home", Home.read());
+        Lists.searches = request.optJSONArray("searches");
         Queries.answer = request.has("queryAnswer") ? request.getString("queryAnswer") : null;
+        Answers.table = request.optJSONObject("answers");
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
-        if (commands == null) {
-            // Every command the installed suite gives an entry, in a fixed order.
-            commands = new JSONArray(new java.util.TreeSet<>(
-                    CommCareApplication.instance().getCommCarePlatform().getCommandToEntryMap().keySet()));
-        }
-        for (int i = 0; i < commands.length(); i++) {
-            String command = commands.getString(i);
-            try {
-                walks.put(command, walk(command, searches));
-            } catch (Throwable raised) {
-                JSONObject failed = new JSONObject();
-                failed.put("raised", Reader.raised(raised));
-                walks.put(command, failed);
+        if (commands != null) {
+            // The named commands alone, each set on a new session as the project's own tests set one
+            // (ActivityLaunchUtils.addCommandToSession), for a request that asks about one form.
+            for (int i = 0; i < commands.length(); i++) {
+                String command = commands.getString(i);
+                walks.put(command, guarded(command, new ArrayList<>(), null, Forms::read));
+            }
+        } else {
+            Deque<List<String>> pending = new ArrayDeque<>();
+            pending.add(new ArrayList<>());
+            int count = 0;
+            while (!pending.isEmpty()) {
+                List<String> choices = pending.removeFirst();
+                if (count++ >= MAX_WALKS) {
+                    found.put("walksLeft", pending.size() + 1);
+                    break;
+                }
+                walks.put(name(choices), guarded(null, choices, pending, Forms::read));
             }
         }
         found.put("walks", walks);
@@ -106,40 +104,65 @@ final class Screens {
             Updates.saveIncomplete(request.getString("saveIncomplete"), saved);
             found.put("savedIncomplete", saved);
         }
-        if (request.has("saveComplete")) {
-            // The same form saved complete, as its end saves it.
-            JSONObject saved = new JSONObject();
-            Updates.save(request.getString("saveComplete"), saved, true);
-            found.put("savedComplete", saved);
-        }
         return found;
     }
 
-    /** What a walk does at the form home opens: read it (Forms), or something a request needs done there. */
+    static String name(List<String> choices) {
+        return choices.isEmpty() ? ROOT : String.join("/", choices);
+    }
+
+    /** What a walk does at the form home opens; true where home was handed the form's result. */
     interface FormStep {
-        void at(Intent started, JSONObject step, ShadowActivity home) throws Exception;
+        boolean at(Intent started, JSONObject step, ShadowActivity home) throws Exception;
     }
 
-    private static JSONObject walk(String command, JSONArray searches) throws Exception {
-        return walk(command, searches, (started, step, home) -> Forms.read(started, step));
+    private static JSONObject guarded(String command, List<String> choices, Deque<List<String>> pending,
+                                      FormStep form) throws Exception {
+        if (Device.dirty) {
+            Device.reset();
+        }
+        try {
+            return walk(command, choices, pending, form);
+        } catch (Throwable raised) {
+            // What the app itself raised on the way is what a worker meets there (a crash); the next walk
+            // starts on a device made again.
+            Device.dirty = true;
+            JSONObject failed = new JSONObject();
+            failed.put("raised", Reader.raised(raised));
+            return failed;
+        }
     }
 
-    static JSONObject walk(String command, JSONArray searches, FormStep form) throws Exception {
+    static JSONObject walk(String command, FormStep form) throws Exception {
+        return walk(command, new ArrayList<>(), null, form);
+    }
+
+    /**
+     * One session: from {@code command} where the request names one, else from the app's first menu, choosing
+     * {@code choices} at the menus it meets in turn. Every item of the first menu past them is added to
+     * {@code pending} as a walk of its own.
+     */
+    static JSONObject walk(String command, List<String> choices, Deque<List<String>> pending, FormStep form)
+            throws Exception {
         AndroidSessionWrapper wrapper = CommCareApplication.instance().getCurrentSessionWrapper();
         wrapper.reset();
         StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
-        home.setFormAndDataSyncer(new FormAndDataSyncerFake());
+        home.setFormAndDataSyncer(new Device.Syncer());
         ShadowActivity shadow = Shadows.shadowOf(home);
         drain(shadow);
-        wrapper.getSession().setCommand(command);
+        if (command != null) {
+            wrapper.getSession().setCommand(command);
+        }
         home.getSessionNavigator().startNextSessionStep();
         ShadowLooper.idleMainLooper();
 
         JSONArray steps = new JSONArray();
         JSONObject found = new JSONObject();
         found.put("steps", steps);
-        for (int count = 0; count < MAX_STEPS; count++) {
+        int depth = 0;
+        int forms = 0;
+        for (int count = 0; ; count++) {
             Intent started = shadow.getNextStartedActivity();
             drain(shadow);
             JSONObject step = new JSONObject();
@@ -148,26 +171,57 @@ final class Screens {
                 // Home started nothing: where the session stands and what home tells the worker.
                 step.put("screen", "home");
                 step.put("session", session(wrapper));
-                JSONObject alert = Views.alert(home);
-                step.put("alert", alert == null ? JSONObject.NULL : alert);
+                step.put("alert", orNull(Views.alert(home)));
                 break;
             }
             String target = started.getComponent().getClassName();
             step.put("screen", target.substring(target.lastIndexOf('.') + 1));
             step.put("session", session(wrapper));
-            if (target.equals(EntitySelectActivity.class.getName())) {
-                String chosen = list(started, step, searches);
-                if (chosen == null) {
+            if (count >= MAX_STEPS) {
+                step.put("walkEnded", "steps");
+                break;
+            }
+            if (target.equals(MenuActivity.class.getName())) {
+                if (forms == 0 && depth < choices.size()) {
+                    String choice = choices.get(depth++);
+                    // A menu this walk's own start already read: only what is chosen there, and whether the
+                    // menu still offers it.
+                    if (!Menus.choose(started, step, shadow, choice)) {
+                        break;
+                    }
+                } else {
+                    List<String> offered = Menus.read(started, step);
+                    if (forms == 0 && pending != null) {
+                        for (String item : offered) {
+                            List<String> next = new ArrayList<>(choices);
+                            next.add(item);
+                            pending.add(next);
+                        }
+                    }
                     break;
                 }
-                shadow.receiveResult(started, Activity.RESULT_OK,
-                        new Intent(started).putExtra(SessionFrame.STATE_DATUM_VAL, chosen));
-                ShadowLooper.idleMainLooper();
-            } else if (target.equals(FormEntryActivity.class.getName())) {
-                form.at(started, step, shadow);
-                break;
-            } else if (target.equals(org.commcare.activities.QueryRequestActivity.class.getName())) {
+            } else if (target.equals(EntitySelectActivity.class.getName())) {
+                if (!Lists.read(started, step, shadow)) {
+                    break;
+                }
+            } else if (target.equals(EntityDetailActivity.class.getName())) {
+                if (!Lists.confirm(started, step, shadow)) {
+                    break;
+                }
+            } else if (target.equals(QueryRequestActivity.class.getName())) {
                 if (!Queries.read(started, step, shadow)) {
+                    break;
+                }
+            } else if (target.equals(PostRequestActivity.class.getName())) {
+                if (!Posts.read(started, step, shadow)) {
+                    break;
+                }
+            } else if (target.equals(FormEntryActivity.class.getName())) {
+                if (++forms > MAX_FORMS) {
+                    step.put("walkEnded", "forms");
+                    break;
+                }
+                if (!form.at(started, step, shadow)) {
                     break;
                 }
             } else {
@@ -189,124 +243,20 @@ final class Screens {
     static JSONObject session(AndroidSessionWrapper wrapper) throws Exception {
         CommCareSession session = wrapper.getSession();
         JSONObject found = new JSONObject();
-        found.put("command", session.getCommand() == null ? JSONObject.NULL : session.getCommand());
-        String needed = session.getNeededData(wrapper.getEvaluationContext());
-        found.put("needed", needed == null ? JSONObject.NULL : needed);
+        found.put("command", orNull(session.getCommand()));
+        String needed;
+        try {
+            needed = session.getNeededData(wrapper.getEvaluationContext());
+        } catch (RuntimeException raised) {
+            needed = "raised " + raised.getClass().getSimpleName();
+        }
+        found.put("needed", orNull(needed));
+        if (SessionFrame.STATE_DATUM_VAL.equals(needed) || SessionFrame.STATE_DATUM_COMPUTED.equals(needed)
+                || SessionFrame.STATE_QUERY_REQUEST.equals(needed)) {
+            found.put("datum", orNull(session.getNeededDatum() == null ? null
+                    : session.getNeededDatum().getDataId()));
+        }
         return found;
-    }
-
-    /** The case list Android shows for the intent home started, and the id of its first case (null: none). */
-    private static String list(Intent started, JSONObject step, JSONArray searches) throws Exception {
-        EntitySelectActivity activity =
-                Robolectric.buildActivity(EntitySelectActivity.class, started).setup().get();
-        ShadowLooper.idleMainLooper();
-        ListView listView = (ListView)((Activity)activity).findViewById(R.id.screen_entity_select_list);
-        EntityListAdapter adapter = null;
-        View rows = listView;
-        if (listView != null && listView.getAdapter() instanceof EntityListAdapter) {
-            adapter = (EntityListAdapter)listView.getAdapter();
-            ShadowListView shadowList = Shadows.shadowOf(listView);
-            shadowList.populateItems();
-        } else {
-            adapter = (EntityListAdapter)field(activity, "adapter");
-        }
-        if (adapter == null) {
-            step.put("list", JSONObject.NULL);
-            step.put("alert", orNull(Views.alert(activity)));
-            return null;
-        }
-        JSONObject list = new JSONObject();
-        step.put("list", list);
-
-        // The Sort menu's choices, from the activity's own method.
-        PaneledChoiceDialog dialog = new PaneledChoiceDialog(activity, "sort");
-        Method sortOptions = EntitySelectActivity.class.getDeclaredMethod("getSortOptionsList",
-                PaneledChoiceDialog.class);
-        sortOptions.setAccessible(true);
-        list.put("EntitySelectActivity.getSortOptionsList",
-                Views.choices((DialogChoiceItem[])sortOptions.invoke(activity, dialog)));
-
-        // The header row and the first rows, measured, so each column has the width Android gives it.
-        LinearLayout header = (LinearLayout)field(activity, "header");
-        JSONArray headers = new JSONArray();
-        for (int i = 0; header != null && i < header.getChildCount(); i++) {
-            headers.put(Views.describe(measured(header.getChildAt(i))));
-        }
-        list.put("header", headers);
-        list.put("count", adapter.getCurrentCount());
-        JSONArray shown = new JSONArray();
-        for (int i = 0; i < Math.min(adapter.getCurrentCount(), MAX_ROWS); i++) {
-            shown.put(Views.describe(measured(adapter.getView(i, null, (ViewGroup)rows))));
-        }
-        list.put("rows", shown);
-
-        String chosen = null;
-        if (adapter.getCurrentCount() > 0) {
-            AndroidSessionWrapper wrapper = CommCareApplication.instance().getCurrentSessionWrapper();
-            SessionDatum datum = wrapper.getSession().getNeededDatum();
-            TreeReference first = adapter.getItem(0);
-            chosen = DatumUtil.getReturnValueFromSelection(first, (EntityDatum)datum, activity.evalContext());
-        }
-
-        // What each search finds, by the first cell of each row it leaves.
-        if (searches != null) {
-            JSONObject results = new JSONObject();
-            for (int i = 0; i < searches.length(); i++) {
-                String term = searches.getString(i);
-                adapter.filterByString(term);
-                settle(adapter);
-                JSONArray matched = new JSONArray();
-                for (int row = 0; row < adapter.getCurrentCount(); row++) {
-                    matched.put(firstText(adapter.getView(row, null, (ViewGroup)rows)));
-                }
-                results.put(term, matched);
-            }
-            adapter.filterByString("");
-            settle(adapter);
-            list.put("searches", results);
-        }
-        return chosen;
-    }
-
-    /**
-     * Waits for the list's filter, which Android runs on a thread of its own (EntityFiltererBase.start), and for
-     * the result it posts back to the main thread.
-     */
-    private static void settle(EntityListAdapter adapter) throws Exception {
-        Object filterer = field(adapter, "entityFilterer");
-        if (filterer != null) {
-            Thread thread = (Thread)field(filterer, "thread");
-            if (thread != null) {
-                thread.join(60000);
-            }
-        }
-        ShadowLooper.idleMainLooper();
-    }
-
-    private static String firstText(View view) throws Exception {
-        JSONObject described = Views.describe(view);
-        return firstText(described);
-    }
-
-    private static String firstText(JSONObject described) throws Exception {
-        if (described.has("text")) {
-            return described.getString("text");
-        }
-        JSONArray children = described.optJSONArray("children");
-        for (int i = 0; children != null && i < children.length(); i++) {
-            String text = firstText(children.getJSONObject(i));
-            if (text != null) {
-                return text;
-            }
-        }
-        return null;
-    }
-
-    static View measured(View view) {
-        view.measure(MeasureSpec.makeMeasureSpec(ROW_WIDTH, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-        view.layout(0, 0, view.getMeasuredWidth(), view.getMeasuredHeight());
-        return view;
     }
 
     static Object field(Object owner, String name) throws Exception {

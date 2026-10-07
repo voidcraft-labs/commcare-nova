@@ -448,6 +448,9 @@ def observe(unit, *, document, export, a_build, b_aligned, b_differs, restore_a,
     if restore_hq is None:
         return recorded
     restore_plain = local_restore(unit, database, operation)
+    # The restore the local archive's sessions read, kept for the readers that read the document's archives
+    # outside the unit (the Android stage, ``proof.android``).
+    recorded["restoreLocal"] = blobs.put(restore_plain)
     with tempfile.TemporaryDirectory(prefix="proof-observe-sessions-") as scratch:
         baseline, recorded["baseline"] = _side(
             core_runner,

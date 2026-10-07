@@ -52,16 +52,7 @@ final class Updates {
         if (request.has("restore")) {
             found.put("restore", Device.restore(request.getString("restore")));
         }
-        JSONObject preferences = request.optJSONObject("preferences");
-        if (preferences != null) {
-            SharedPreferences.Editor editor =
-                    CommCareApplication.instance().getCurrentApp().getAppPreferences().edit();
-            JSONArray names = preferences.names();
-            for (int i = 0; names != null && i < names.length(); i++) {
-                editor.putString(names.getString(i), preferences.getString(names.getString(i)));
-            }
-            editor.commit();
-        }
+        Device.prefer(request.optJSONObject("preferences"));
         found.put("before", Profile.read());
         Integer record = null;
         if (request.has("incomplete")) {
@@ -103,20 +94,6 @@ final class Updates {
         return found;
     }
 
-    private static JSONArray records() throws Exception {
-        JSONArray found = new JSONArray();
-        for (FormRecord record : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
-            JSONObject entry = new JSONObject();
-            entry.put("status", record.getStatus());
-            entry.put("xmlns", record.getFormNamespace());
-            entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
-            entry.put("AndroidCommCarePlatform.getFormDefId",
-                    CommCareApplication.instance().getCommCarePlatform().getFormDefId(record.getFormNamespace()));
-            found.put(entry);
-        }
-        return found;
-    }
-
     static Integer saveIncomplete(String command, JSONObject saved) throws Exception {
         return save(command, saved, false);
     }
@@ -128,11 +105,8 @@ final class Updates {
      */
     static Integer save(String command, JSONObject saved, boolean complete) throws Exception {
         final Integer[] record = new Integer[1];
-        JSONObject walk = Screens.walk(command, null, (started, step, shadow) -> {
-            FormEntryActivity activity =
-                    Robolectric.buildActivity(FormEntryActivity.class, started).create().start().resume().get();
-            RobolectricUtil.flushBackgroundThread(activity);
-            ShadowLooper.idleMainLooper();
+        JSONObject walk = Screens.walk(command, (started, step, shadow) -> {
+            FormEntryActivity activity = Forms.open(started);
             QuestionsView view = activity.getODKView();
             if (view != null) {
                 for (QuestionWidget widget : view.getWidgets()) {
@@ -156,9 +130,10 @@ final class Updates {
             step.put("resultCode", form.getResultCode());
             shadow.receiveResult(started, form.getResultCode(), form.getResultIntent());
             ShadowLooper.idleMainLooper();
+            return false;
         });
         saved.put("walk", walk);
-        saved.put("records", records());
+        saved.put("records", Forms.records());
         for (FormRecord candidate : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
             if (FormRecord.STATUS_INCOMPLETE.equals(candidate.getStatus())) {
                 record[0] = candidate.getID();
@@ -170,7 +145,7 @@ final class Updates {
     /** What home does with the incomplete record a worker picks from the incomplete-forms list. */
     private static JSONObject reopen(int record) throws Exception {
         JSONObject found = new JSONObject();
-        found.put("records", records());
+        found.put("records", Forms.records());
         CommCareApplication.instance().getCurrentSessionWrapper().reset();
         StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
@@ -195,7 +170,14 @@ final class Updates {
         found.put("screen", target.substring(target.lastIndexOf('.') + 1));
         if (target.equals(FormEntryActivity.class.getName())) {
             try {
-                Forms.read(started, found);
+                JSONObject form = new JSONObject();
+                found.put("form", form);
+                FormEntryActivity activity = Forms.open(started);
+                form.put("loaded", FormEntryActivity.mFormController != null);
+                form.put("alert", Screens.orNull(Views.alert(activity)));
+                if (FormEntryActivity.mFormController != null) {
+                    Forms.describe(activity, started, form);
+                }
             } catch (Throwable raised) {
                 found.put("formEntryRaised", Reader.raised(raised));
             }

@@ -48,6 +48,7 @@ public class Reader {
         ((CommCareTestApplication)CommCareApplication.instance()).initWorkManager();
         JSONObject response = new JSONObject();
         try {
+            ProofClock.requireInstalled();
             JSONObject request = new JSONObject(text(System.getProperty(REQUEST)));
             response.put("ok", answer(request));
         } catch (Throwable raised) {

@@ -84,7 +84,7 @@ final class Queries {
             return false;
         }
         query.put("opened", true);
-        query.put("url", String.valueOf(manager.getBaseUrl()));
+        query.put("url", address(String.valueOf(manager.getBaseUrl())));
         JSONObject prompts = new JSONObject();
         for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {
             prompts.put(box.getKey(), box.getValue().getClass().getSimpleName());
@@ -208,5 +208,10 @@ final class Queries {
             found.put(key, new JSONArray(params.get(key)));
         }
         return found;
+    }
+
+    /** An address as written, for a record: unchanged. */
+    static String address(String url) {
+        return url;
     }
 }
