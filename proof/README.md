@@ -1150,12 +1150,16 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   parsed XML, a form's version under proof 2's version clause, and one
   difference a symptom (a response of another kind is its kind; a refused
   submission is its status and what Formplayer said, and what follows from
-  it is not reported again). The client's screens the same way, its own
-  home tiles by their kind. A difference is `formplayer@<state>` or
+  it is not reported again). On the local archive, a message of Core's that
+  names a question by its label's text id is read with HQ's id for the same
+  texts, where HQ's build of that form merged them
+  (`XForm.normalize_itext`; `merged_text_ids` reads the pairing from the two
+  forms, and a message naming another question stays a difference). The
+  client's screens the same way, its own home tiles by their kind. A difference is `formplayer@<state>` or
   `webapps@<state>` in proof 3 (`local.ccz`, `B`) and
   `formplayer@<editor>@<B>@<configuration>` or `webapps@...` in proof 4,
   held by the register as any other. Each request HQ's views refused while
-  Formplayer walked A is `formplayer@A`, `/hq/<view>/<status>`.
+  Formplayer walked A is `formplayer@A`, `/hq/<view>/<status>/<what HQ said>`.
 - **Cost.** A served state costs one to two seconds of Formplayer and three
   to four of the client, and a document has between four and twenty of
   them a configuration, so a document that took five to ten seconds takes

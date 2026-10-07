@@ -303,7 +303,47 @@ def test_each_request_hq_refused_is_a_difference_by_its_view_its_status_and_what
     ]
     found = compare.refusal_differences(refusals, check="proof3", document="d", artifact="formplayer@A")
     assert [(d.path, d.kind) for d in found] == [
-        ("/hq/app_aware_remote_search/400", "error"),
+        ("/hq/app_aware_remote_search/400/not-a-date", "error"),
         ("/hq/ota_restore/500/builtins.KeyError", "error"),
     ]
     assert compare.refusal_differences([], check="proof3", document="d", artifact="formplayer@A") == []
+
+
+def _form(label_id, texts):
+    held = "".join(f'<text id="{name}"><value>{value}</value></text>' for name, value in texts.items())
+    return (
+        '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"'
+        ' xmlns:jr="http://openrosa.org/javarosa"><h:head><model><itext>'
+        f'<translation lang="en">{held}</translation></itext></model></h:head><h:body>'
+        '<input ref="/data/note"><label ref="jr:itext(\'note-label\')"/><hint ref="jr:itext(\'note-hint\')"/></input>'
+        f'<select ref="/data/pick"><label ref="jr:itext(\'{label_id}\')"/></select></h:body></h:html>'
+    ).encode()
+
+
+def test_a_question_named_by_a_text_hq_merged_is_the_same_question_and_another_question_is_not():
+    """HQ's build points a label at the first id of the texts that are the same; Core names the question by it."""
+    path = "modules-0/forms-0.xml"
+    local = _form("pick-label", {"note-label": "Note", "note-hint": "Score", "pick-label": "Score"})
+    built = _form("note-hint", {"note-label": "Note", "note-hint": "Score"})
+    assert compare.merged_text_ids({path: built}, {path: local}) == {"pick-label": "note-hint"}
+    # A reference HQ's build makes to texts that are not the local id's maps nothing.
+    other = _form("note-label", {"note-label": "Note", "note-hint": "Score"})
+    assert compare.merged_text_ids({path: other}, {path: local}) == {}
+
+    def refused(name):
+        said = (
+            f"value a could not be loaded into question {name}."
+            f"  Check to see if value a is a valid option for question {name}."
+        )
+        return _trace({"request": {"selections": ["0"]}, "asked": [], "response": {"exception": said}})
+
+    def compared(name, text_ids):
+        return compare.formplayer_differences(
+            refused("note-hint"), refused(name), check="proof3", document="d", artifact="a", text_ids=text_ids
+        )
+
+    assert compared("pick-label", {"pick-label": "note-hint"}) == []
+    assert [d.path for d in compared("pick-label", {})] == ["/runs/*/steps/*/response/exception"]
+    assert [d.path for d in compared("other-label", {"pick-label": "note-hint"})] == [
+        "/runs/*/steps/*/response/exception"
+    ]

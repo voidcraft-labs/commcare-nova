@@ -639,6 +639,20 @@ Web Apps client, with HQ's own views answering Formplayer (`proof/README.md`,
     read. *Documents:* every document with a case list or a form
     (`formplayer@local.ccz`, proof 3).
 
+66. **Nova's local form writes a case's updated properties in another
+    order than HQ's build.** HQ's build writes the properties of an
+    `<update>` sorted by name (`xform.py::XFormCaseBlock.add_case_updates`,
+    `sorted(update_mapping.items())`); Nova's local form writes them in the
+    order its own case blocks are assembled
+    (`lib/commcare/xform/caseBlocks.ts`), so a form's instance, as
+    Formplayer hands it back, lists the same properties with the same
+    values in a different order on the two paths. *Harm:* none found: HQ's
+    case processing and Core's apply each property of an update by its
+    name, and no update names a property twice. It is a difference between
+    the two export paths that Core's sessions did not show. *Documents:*
+    `workforce-case-operation-sequence`, `case-operation-sequence`
+    (`formplayer@local.ccz`, proof 3).
+
 What the same runs show of earlier defects and findings, each on HQ's own
 views, Formplayer and the client, on the documents the register names:
 

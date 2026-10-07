@@ -46,6 +46,18 @@ Where the two sides' forms carry other namespaces (Nova's local archive
 against HQ's build: proof 1 holds identity), ``xmlns`` maps the other side's
 to the baseline's, in the trace's values and in its XML documents.
 
+Where a question's value is not one of its choices, Core names the question
+in its message by the id of its label's text
+(``javarosa/core/model/data/helper/Selection.java::attachChoice``). HQ's
+build keeps one id for every group of texts that are the same in every
+language and rewrites each reference to the others
+(``xform.py::XForm.normalize_itext``), so the same question of the same form
+is named by another id on HQ's build than on Nova's local archive.
+``text_ids`` maps the local archive's id to HQ's (``merged_text_ids``, read
+from the two forms themselves: the same reference, in the same place, to
+texts that are the same), and the local side's messages are read with it. A
+message that names another question stays a difference.
+
 **The client's screens** (``webapps_differences``) are compared the same
 way: a case list's rows by the case each selects with their order beside
 them, the client's own home tiles by their kind, without the build's
@@ -55,9 +67,9 @@ a run the client stopped following is where it stopped.
 
 **HQ's refusals** (``refusal_differences``) are absolute: each request an HQ
 view did not answer 2xx while a state was walked is a difference of that
-state, by the view, the status, and what HQ raised where it raised
-(``/hq/<view>/<status>``, ``/hq/<view>/<status>/<class>``). A worker sees
-each as an error.
+state, by the view, the status, and what HQ said or raised
+(``/hq/<view>/<status>/<what HQ said>``, ``/hq/<view>/<status>/<class>``).
+A worker sees each as an error.
 """
 
 from __future__ import annotations
@@ -379,7 +391,91 @@ def _content_version(root, changed):
     return root
 
 
-def formplayer_differences(before, after, *, check, document, artifact, xmlns=None, versions=None):
+ITEXT_REFERENCE = re.compile(r"^jr:itext\('([^']*)'\)$")
+# Core's message for a value that is not one of a question's choices, as far as the question it names.
+NAMES_A_QUESTION = ("could not be loaded into question ", "is a valid option for question ")
+
+
+def _local_name(element):
+    return element.tag.rsplit("}", 1)[-1] if isinstance(element.tag, str) else None
+
+
+def _text_references(root):
+    """Every reference a form's body makes to a text, in document order: (the element, the text's id)."""
+    found = []
+    for element in root.iter():
+        if _local_name(element) in ("text", "value", None):
+            continue
+        match = ITEXT_REFERENCE.match(element.get("ref") or "")
+        if match:
+            found.append((_local_name(element), match.group(1)))
+    return found
+
+
+def _texts(root):
+    """Each text of a form by its id: per language, its values by their form."""
+    from lxml import etree
+
+    found = {}
+    for translation in root.iter():
+        if _local_name(translation) != "translation":
+            continue
+        for text in translation:
+            if _local_name(text) != "text":
+                continue
+            values = sorted(
+                (value.get("form") or "", etree.tostring(value, method="c14n", with_tail=False))
+                for value in text
+                if _local_name(value) == "value"
+            )
+            found.setdefault(text.get("id"), {})[translation.get("lang")] = values
+    return found
+
+
+def merged_text_ids(built, local) -> dict:
+    """``{the local archive's text id: HQ's}`` for each text reference HQ's build rewrote to another id whose
+    texts are the same (``XForm.normalize_itext``), read from the two builds' forms: ``built`` and ``local`` are
+    each ``{path: bytes}``. Only a form both hold, whose bodies make the same references in the same places, is
+    read; a reference HQ's build makes to texts that are not the local id's maps nothing, and neither does an
+    id two forms would map two ways."""
+    found, refused = {}, set()
+    for path in sorted(set(built) & set(local)):
+        try:
+            root_built, root_local = parse_xml(built[path]), parse_xml(local[path])
+        except XmlNotWellFormed:
+            continue
+        references_built, references_local = _text_references(root_built), _text_references(root_local)
+        if [name for name, _ in references_built] != [name for name, _ in references_local]:
+            continue
+        texts_built, texts_local = _texts(root_built), _texts(root_local)
+        for (_, id_built), (_, id_local) in zip(references_built, references_local):
+            if id_built == id_local or id_local in refused:
+                continue
+            same = texts_built.get(id_built) is not None and texts_built.get(id_built) == texts_local.get(id_local)
+            if not same or found.get(id_local, id_built) != id_built:
+                refused.add(id_local)
+                found.pop(id_local, None)
+                continue
+            found[id_local] = id_built
+    return found
+
+
+def _named_by(value, text_ids):
+    """``value`` with each of Core's messages naming a question by a merged text's id naming it by HQ's."""
+    if isinstance(value, str):
+        if any(phrase in value for phrase in NAMES_A_QUESTION):
+            for local, built in text_ids.items():
+                for phrase in NAMES_A_QUESTION:
+                    value = value.replace(f"{phrase}{local}.", f"{phrase}{built}.")
+        return value
+    if isinstance(value, list):
+        return [_named_by(item, text_ids) for item in value]
+    if isinstance(value, dict):
+        return {key: _named_by(item, text_ids) for key, item in value.items()}
+    return value
+
+
+def formplayer_differences(before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None):
     """Every difference between two of Formplayer's traces, as ``artifact``: ``before`` the baseline state's.
 
     ``versions`` is each side's ``{xmlns: version}`` of the forms whose built content differs between the two
@@ -387,6 +483,8 @@ def formplayer_differences(before, after, *, check, document, artifact, xmlns=No
     """
     xmlns = xmlns or {}
     versions = versions or ({}, {})
+    if text_ids:
+        after = _named_by(after, text_ids)
     shown_before, shown_after = one_symptom(comparable_trace(before), map_strings(comparable_trace(after), xmlns))
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)
@@ -436,13 +534,21 @@ def webapps_differences(before, after, *, check, document, artifact):
     )
 
 
+def refusal_cause(said) -> str:
+    """What HQ said refusing a request, as a path names it: its words, without the values it quotes (an answer,
+    a date, a name), so one refusal is one class on every document."""
+    words = [word for word in re.split(r"[^A-Za-z]+", str(said or "")) if word]
+    return "-".join(words[:10]).lower() or "-"
+
+
 def refusal_differences(refusals, *, check, document, artifact):
     """Each request an HQ view did not answer 2xx while a state was walked (a side record's ``hq``), as that
-    state's difference: ``/hq/<view>/<status>``, with what HQ raised after it where it raised."""
+    state's difference: ``/hq/<view>/<status>/<what HQ said>`` (``refusal_cause``), or what HQ raised where it
+    raised."""
     found = []
     for index, entry in enumerate(refusals or []):
         path = f"/hq/{pointer_token(entry.get('view') or 'unresolved')}/{entry.get('status')}"
-        if entry.get("raised"):
-            path = f"{path}/{pointer_token(entry['raised'])}"
+        cause = entry["raised"] if entry.get("raised") else refusal_cause(entry.get("said"))
+        path = f"{path}/{pointer_token(cause)}"
         found.append(Difference(check, document, artifact, path, f"{path}/{index}", "error", None, entry))
     return found

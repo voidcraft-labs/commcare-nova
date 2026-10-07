@@ -1,0 +1,66 @@
+{
+	"intent": [
+		{
+			"id": "pump-rows-local",
+			"export": "local",
+			"form": "d2d11ff1-1990-589d-a206-340bf039a9a1",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/visited",
+						"value": "1"
+					}
+				],
+				"expressions": [
+					"count(/data/later/measured/item)",
+					"count(/data/never/missed/item)"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "2"
+				},
+				{
+					"pointer": "/values/1/value",
+					"value": "0"
+				}
+			]
+		},
+		{
+			"id": "pump-rows-a",
+			"export": "A",
+			"form": "d2d11ff1-1990-589d-a206-340bf039a9a1",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/visited",
+						"value": "1"
+					}
+				],
+				"expressions": [
+					"count(/data/later/measured/item)",
+					"count(/data/never/missed/item)"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "2"
+				},
+				{
+					"pointer": "/values/1/value",
+					"value": "0"
+				}
+			]
+		}
+	]
+}

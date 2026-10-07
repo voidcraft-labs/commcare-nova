@@ -1,0 +1,315 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "household-1",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"rank",
+							"7"
+						]
+					]
+				},
+				{
+					"case_id": "household-2",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"rank",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "household-3",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"rank",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"household",
+							"household-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"birthdate",
+							"2026-01-10"
+						],
+						[
+							"phone",
+							"proof text"
+						],
+						[
+							"website",
+							"proof text"
+						],
+						[
+							"code",
+							"proof text"
+						],
+						[
+							"weight",
+							"7"
+						]
+					]
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"household",
+							"household-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"birthdate",
+							"2001-02-03"
+						],
+						[
+							"phone",
+							"10"
+						],
+						[
+							"website",
+							"10"
+						],
+						[
+							"code",
+							"10"
+						],
+						[
+							"weight",
+							"10.5"
+						]
+					]
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"household",
+							"household-3",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"birthdate",
+							"2025-12-31"
+						],
+						[
+							"phone",
+							"2"
+						],
+						[
+							"website",
+							"2"
+						],
+						[
+							"code",
+							"2"
+						],
+						[
+							"weight",
+							"2.25"
+						]
+					]
+				},
+				{
+					"case_id": "patient-4",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"household",
+							"household-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"birthdate",
+							"2026-01-10"
+						],
+						[
+							"phone",
+							"proof text"
+						],
+						[
+							"website",
+							"proof text"
+						],
+						[
+							"code",
+							"a"
+						],
+						[
+							"weight",
+							"7"
+						]
+					]
+				},
+				{
+					"case_id": "patient-5",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"household",
+							"household-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:07:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:07:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"birthdate",
+							"2001-02-03"
+						],
+						[
+							"phone",
+							"10"
+						],
+						[
+							"website",
+							"10"
+						],
+						[
+							"code",
+							"b"
+						],
+						[
+							"weight",
+							"10.5"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:08:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:08:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						],
+						[
+							"display_name",
+							"proof display_name"
+						],
+						[
+							"excluded_owners",
+							"proof excluded_owners"
+						]
+					]
+				}
+			],
+			"user_data": [
+				[
+					"display_name",
+					"proof display_name"
+				],
+				[
+					"excluded_owners",
+					"proof excluded_owners"
+				]
+			],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Case list proof",
+			"modules": [
+				[
+					"patient",
+					[]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [],
+					"uuid": "f93404f0-b0db-520c-a471-b382632102e0"
+				}
+			]
+		}
+	}
+}

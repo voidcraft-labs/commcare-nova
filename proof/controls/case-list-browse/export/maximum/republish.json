@@ -1,0 +1,33 @@
+{
+	"method": "POST",
+	"path": "/a/nova-proof/apps/api/import_app/",
+	"contentType": "multipart/form-data; boundary=----nova-proof-capture",
+	"fields": [
+		"waf_padding",
+		"app_name",
+		"app_id",
+		"app_file"
+	],
+	"compatibility": {
+		"status": "ready",
+		"capabilities": [
+			{
+				"id": "case-search",
+				"state": "available"
+			}
+		],
+		"advisories": [
+			{
+				"id": "large-search-performance",
+				"state": "available"
+			}
+		]
+	},
+	"media": "media.body",
+	"placeholderAppId": "nova-proof-placeholder-app",
+	"assumedSourceProfile": {
+		"custom_properties": {
+			"cc-index-case-search-results": "yes"
+		}
+	}
+}

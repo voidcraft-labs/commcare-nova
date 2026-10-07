@@ -947,7 +947,20 @@ def _served_a(records, name):
     return held["A"] if held.get("served") else None
 
 
-def served_equivalence(document, records, name, observed, sessions, *, has_local):
+def _archive_forms(path) -> dict:
+    """Each form of a local archive by its path in it."""
+    import zipfile
+    from pathlib import PurePosixPath
+
+    with zipfile.ZipFile(path) as archive:
+        return {
+            entry: archive.read(entry)
+            for entry in archive.namelist()
+            if PurePosixPath(entry).match("modules-*/forms-*.xml")
+        }
+
+
+def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
     Where A is served (``proof.observe.served``): every request HQ's own
@@ -997,6 +1010,9 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             document=document,
             artifact="formplayer@local.ccz",
             xmlns=xmlns,
+            text_ids=served.merged_text_ids(observed.a.build.files or {}, _archive_forms(local_ccz))
+            if local_ccz is not None
+            else None,
         )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
@@ -1042,6 +1058,12 @@ def document_behavior(document, records):
             local_admission=local_admission,
         )
         found += served_equivalence(
-            document.id, records, name, observed, sessions, has_local=document.local_ccz is not None
+            document.id,
+            records,
+            name,
+            observed,
+            sessions,
+            has_local=document.local_ccz is not None,
+            local_ccz=document.local_ccz,
         )
     return found + observations.soft_assertion_differences(records, CHECK)

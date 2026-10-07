@@ -1,0 +1,33 @@
+{
+	"capabilities": [
+		{
+			"id": "case-search",
+			"flags": [
+				{
+					"symbol": "SYNC_SEARCH_CASE_CLAIM",
+					"slug": "search_claim"
+				}
+			],
+			"runtimeProbes": [
+				"case-search"
+			]
+		}
+	],
+	"advisories": [
+		{
+			"id": "large-search-performance",
+			"flags": [
+				{
+					"symbol": "CUSTOM_PROPERTIES",
+					"slug": "custom_properties"
+				}
+			]
+		}
+	],
+	"minimumConfiguration": {
+		"flags": [
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"caseSearchEnabled": true
+	}
+}

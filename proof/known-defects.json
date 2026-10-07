@@ -3162,10 +3162,6 @@
 		"check": "proof4",
 		"artifact": "app.json@case list@*",
 		"path": "/modules/*/search_config/auto_launch",
-		"values": {
-			"before": false,
-			"after": true
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3206,10 +3202,6 @@
 		"check": "proof4",
 		"artifact": "case_blocks@case list@*",
 		"path": "/runs/*/submitted",
-		"values": {
-			"before": true,
-			"after": false
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3220,10 +3212,6 @@
 		"check": "proof4",
 		"artifact": "suite.xml@case list@*",
 		"path": "/suite/detail[@id=*]/action[*]/@auto_launch",
-		"values": {
-			"before": "false()",
-			"after": "$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0"
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3234,10 +3222,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/end/submitted/unreplayable",
-		"values": {
-			"before": "submitted",
-			"after": "unreplayable"
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3258,10 +3242,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/autoLaunched",
-		"values": {
-			"before": null,
-			"after": true
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3322,10 +3302,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/defaultSearch",
-		"values": {
-			"before": null,
-			"after": false
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3366,10 +3342,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/root",
-		"values": {
-			"before": "m0",
-			"after": null
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -6468,5 +6440,1219 @@
 		"control": "targeted-sync-on-form-entry",
 		"kind": "added",
 		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+	},
+	{
+		"id": "d6-csql-formplayer-a-app-aware-remote-search-400-is-not-a-correct",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "proof3",
+		"artifact": "formplayer@A",
+		"path": "/hq/app_aware_remote_search/400/is-not-a-correctly-formatted-date-or-datetime",
+		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d12-related-lookups-formplayer-a-app-aware-remote-search-400-you-cannot-query",
+		"defect": 12,
+		"part": "related lookups",
+		"check": "proof3",
+		"artifact": "formplayer@A",
+		"path": "/hq/app_aware_remote_search/400/you-cannot-query-related-cases-here",
+		"document": "targeted-search-related-lookups",
+		"control": "targeted-search-related-lookups"
+	},
+	{
+		"id": "d4-auto-gps-capture-formplayer-b-data-meta-location",
+		"defect": 4,
+		"part": "auto_gps_capture",
+		"check": "proof3",
+		"artifact": "formplayer@B",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d4-auto-gps-capture-formplayer-b-data-meta-location-2",
+		"defect": 4,
+		"part": "auto_gps_capture",
+		"check": "proof3",
+		"artifact": "formplayer@B",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-asked",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/asked/*",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-asked-2",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/asked/*/*",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/details/*/altText/*",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext-2",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/entities/*/altText/*",
+		"document": "case-list-inline",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d35-hidden-select-column-text-formplayer-local-ccz-data",
+		"defect": 35,
+		"part": "hidden select column text",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/entities/*/data/*",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0"
+	},
+	{
+		"id": "d10-label-column-and-unsorted-or-formplayer-local-ccz-response-entityorder",
+		"defect": 10,
+		"part": "label-column and unsorted order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/entityOrder/*",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
+	},
+	{
+		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-response-headers",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/headers/*",
+		"document": "targeted-shared-property-sort",
+		"control": "targeted-shared-property-sort"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/case[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-order",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/order()",
+		"document": "case-capture-query",
+		"control": "case-capture-query"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/subcase_*[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d9-form-version-formplayer-local-ccz-output-data-version",
+		"defect": 9,
+		"part": "form version",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/@version",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-update-external-id-text",
+		"defect": 33,
+		"part": "trimmed case names and external ids",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/external_id[*]/text()",
+		"document": "navigation-base",
+		"control": "navigation-base"
+	},
+	{
+		"id": "d66-update-property-order-formplayer-local-ccz-case-update-order",
+		"defect": 66,
+		"part": "update property order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/order()",
+		"document": "workforce-case-operation-sequence",
+		"control": "workforce-case-operation-sequence"
+	},
+	{
+		"id": "d34-connect-location-capture-formplayer-local-ccz-data-meta-location",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d37-new-case-order-formplayer-local-ccz-output-data-order",
+		"defect": 37,
+		"part": "new case order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/order()",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-output-data-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/subcase_*[*]",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-response-metadata-attemptrestore",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/metaData/attemptRestore",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-noitemstext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/noItemsText",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-persistentcasetile-headers",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/headers/*",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-selecttext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/selectText",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d51-sort-keys-formplayer-local-ccz-response-sortindices",
+		"defect": 51,
+		"part": "sort keys",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/sortIndices/*",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-translations",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/translations/*",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-response-type",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/type",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status",
+		"defect": 59,
+		"part": "local archive names no server",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/status",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d54-empty-search-description-formplayer-case-list-response-description",
+		"defect": 54,
+		"part": "empty search description",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/description",
+		"document": "search-browse",
+		"control": "search-browse",
+		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android never reads it (finding 54)."
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/maxHeight",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-response-maxwidth",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/maxWidth",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-numentitiesperrow",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/numEntitiesPerRow",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-response-persistentcasetile-maxwidth",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/maxWidth",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-fontsize",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/fontSize",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/horizontalAlign",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-verticalalign",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/verticalAlign",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-persistentcasetile-tiles",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/tiles/*",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-tiles-fontsize",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/tiles/*/fontSize",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d54-empty-search-description-formplayer-case-list-response-queryresponse-description",
+		"defect": 54,
+		"part": "empty search description",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/queryResponse/description",
+		"document": "search-browse",
+		"control": "search-browse",
+		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android never reads it (finding 54)."
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-fontsize-2",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign-2",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/horizontalAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-verticalalign-2",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/verticalAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-tiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/tiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-response-tiles",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/tiles/*",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-tiles-fontsize-2",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/tiles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-search-settings-formplayer-case-list-response-title",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/title",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-formplayer-case-list-response-type",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/type",
+		"document": "targeted-list-first-web-apps",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-usescasetiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/usesCaseTiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d54-empty-search-description-formplayer-case-list-submit-nextscreen-description",
+		"defect": 54,
+		"part": "empty search description",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/description",
+		"document": "case-list-inline",
+		"control": "case-list-inline",
+		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android never reads it (finding 54)."
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-maxheight",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/maxHeight",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-submit-nextscreen-maxwidth",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/maxWidth",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-numentitiesperrow",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/numEntitiesPerRow",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d54-empty-search-description-formplayer-case-list-nextscreen-queryresponse-description",
+		"defect": 54,
+		"part": "empty search description",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/queryResponse/description",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none",
+		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android never reads it (finding 54)."
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-fontsize-3",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign-3",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/horizontalAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-verticalalign-3",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/verticalAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-tiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/tiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-nextscreen-tiles",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/tiles/*",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-tiles-fontsize-3",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/tiles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-search-settings-formplayer-case-list-submit-nextscreen-title",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/title",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-formplayer-case-list-submit-nextscreen-type",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
+		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-usescasetiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/usesCaseTiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-non-writing-follow-up-formplayer-case-management-output-data-case",
+		"defect": 14,
+		"part": "non-writing follow-up",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d14-non-writing-follow-up-formplayer-case-management-instance-data-case",
+		"defect": 14,
+		"part": "non-writing follow-up",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d14-close-conditions-formplayer-case-management-data-case-close",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/close[*]",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d14-non-writing-follow-up-formplayer-case-management-output-data-case-2",
+		"defect": 14,
+		"part": "non-writing follow-up",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/case[*]",
+		"document": "search-registration-link",
+		"control": "search-registration-link"
+	},
+	{
+		"id": "d14-close-conditions-formplayer-case-management-submit-nextscreen-type",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d26-hidden-links-and-navigation--formplayer-form-settings-submit-nextscreen",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "formplayer@form settings@*",
+		"path": "/runs/*/steps/*/submit/nextScreen",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d41-empty-list-text-goes-blank-formplayer-module-settings-response-noitemstext",
+		"defect": 41,
+		"part": "empty-list text goes blank",
+		"check": "proof4",
+		"artifact": "formplayer@module settings@*",
+		"path": "/runs/*/steps/*/response/noItemsText",
+		"document": "targeted-empty-list-no-english",
+		"control": "search-browse"
+	},
+	{
+		"id": "d41-empty-list-text-goes-blank-formplayer-module-settings-submit-nextscreen-noitemstext",
+		"defect": 41,
+		"part": "empty-list text goes blank",
+		"check": "proof4",
+		"artifact": "formplayer@module settings@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/noItemsText",
+		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
+		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--formplayer-vellum-data-count",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/@count",
+		"document": "targeted-query-repeat-places",
+		"control": "targeted-query-repeat-places"
+	},
+	{
+		"id": "d55-connect-work-area-id-formplayer-vellum-deliver-id-work-area-id",
+		"defect": 55,
+		"part": "Connect work area id",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/deliver[@id=*]/work_area_id[*]",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
+		"document": "case-operation-query",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d45-blanked-case-id-owner-and-st-formplayer-vellum-data-text",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/text()",
+		"document": "standard-case-reads",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-output-data-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/@name",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-case-case-id",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/*/case[*]/@case_id",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-update-text",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/*/case[*]/update[*]/*/text()",
+		"document": "case-operation-sequence",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-case-id",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@case_id",
+		"document": "case-operation-sequence",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id-2",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-2",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-multiple",
+		"control": "case-extension-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-update-selected-cases-case-attachment",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"document": "case-capture-multiple",
+		"control": "case-capture-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-3",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--formplayer-vellum-response-type",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/type",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d55-connect-work-area-id-formplayer-vellum-deliver-id-work-area-id-2",
+		"defect": 55,
+		"part": "Connect work area id",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/deliver[@id=*]/work_area_id[*]",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-4",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d45-blanked-case-id-owner-and-st-formplayer-vellum-data-text-2",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/text()",
+		"document": "standard-case-reads",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-instance-data-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/@name",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d13-wrapper-conditions-and-leaf--formplayer-vellum-data-nova-operations",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_operations[*]/*",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-5",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-multiple",
+		"control": "case-extension-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-update-selected-cases-case-attachment-2",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"document": "case-capture-multiple",
+		"control": "case-capture-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-6",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-output-data-name-2",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@name",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d13-datetime-leaves-formplayer-vellum-submit-nextscreen-type",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"document": "case-operation-retype",
+		"control": "case-operation-retype"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-submit-status",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/status",
+		"document": "case-operation-query",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-end-empty-menu-unreplayable",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/empty-menu/unreplayable",
+		"document": "case-list-no-details",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d14-search-settings-trace-case-list-end-no-cases-script-ended",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/no-cases/script-ended",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*",
+		"document": "targeted-search-related-lookups",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-datum",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/datum",
+		"document": "tile-grouped-search",
+		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-requests",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/requests",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-step",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/step",
+		"document": "tile-grouped-search",
+		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d62-incomplete-forms-tile-webapps-app-settings-home-tiles-incomplete",
+		"defect": 62,
+		"part": "Incomplete Forms tile",
+		"check": "proof4",
+		"artifact": "webapps@app settings@*",
+		"path": "/home/tiles/incomplete",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d62-incomplete-forms-tile-webapps-app-settings-screens-tiles-incomplete",
+		"defect": 62,
+		"part": "Incomplete Forms tile",
+		"check": "proof4",
+		"artifact": "webapps@app settings@*",
+		"path": "/runs/*/screens/*/tiles/incomplete",
+		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-screens-kind",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/kind",
+		"document": "targeted-list-first-web-apps",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-list-cells",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-alignself",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/alignSelf",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-class",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/class",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-fontsize",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-gridarea",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/gridArea",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-webapps-case-list-cells-justifyself",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/justifySelf",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-webapps-case-list-cells-textalign",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/textAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-headers",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/headers/*",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-hidden",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/hidden",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-cells-image",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/image",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-text",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/text",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-sort",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/sort/*",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-tiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/tiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-search-settings-webapps-case-list-screens-title",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/title",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-alerts",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/alerts/*",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-screens-kind",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/kind",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
 	}
 ]

@@ -737,7 +737,9 @@ def serve(
             with operation(f"formplayer:release@{label}", content.encode()), build_seams(previous=previous):
                 app = operations.held_app(unit, app_id)
                 if change is not None:
-                    type(app).wrap(stored).save()
+                    # The state's own version: the build the lane's other checks read is built at it
+                    # (``Application.save`` would count this rewrite as a person's save and raise it).
+                    type(app).wrap(stored).save(increment_version=False)
                     app = operations.held_app(unit, app_id)
                 build = _released(unit, app, app_id)
         hq = HqViews(unit, worker.username, archives=dict(archives or {}))
