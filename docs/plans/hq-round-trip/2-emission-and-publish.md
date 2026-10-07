@@ -11,8 +11,8 @@ additions, the work items with where each is planned in full, the stack, the
 cutover, the contracts and the exit. The detail (files, schemas, migrations,
 register entries, tests) is in eleven part files beside it,
 [`2-emission-and-publish/`](2-emission-and-publish/). A session implementing
-one pull request reads this file and the parts that pull request names
-("The stack", below). Nothing here or there is left to decide during
+one pull request reads this file, that pull request's row in part 11's stack
+table, and every part "The stack" below names for it. Nothing here or there is left to decide during
 implementation: where a design rests on reading alone, the part names the lane
 run that confirms it and the fallback already chosen.
 
@@ -144,9 +144,10 @@ decision; the part named gives its evidence.
    in-place update.** The outline's create-then-update left HQ-minted form ids
    and an orphaned copy of every form behind. An app with no menus cannot be
    made into a saved build, so none can exist between the two calls (part 01).
-10. **The version floor stops a new app before its content**, since the shell
-    holds none, where the outline wrote ids first. The version is read from the
-    app source (part 03).
+10. **The version floor stops a new app before anything else is written**: the
+    shell is created and read first, ahead of the lookup tables and places, so
+    a target below the floor holds an empty app and nothing more. The outline
+    wrote ids first. The version is read from the app source (part 03).
 11. **The drift baseline is HQ's own reading taken after Nova's push**, where
     the outline stored what Nova sent. Only reading against reading needs no
     model of HQ's defaults. A save in an HQ editor that changes no value can
@@ -211,7 +212,7 @@ of places every addition touches.
 
 | Addition | Part |
 |---|---|
-| `localization.wireCodes`: each language's HQ code, stored when the language is added | 01 |
+| `localization.wireCodes`: each language's HQ code, carried by the mutation that adds the language and stored with it | 01 |
 | `appSettings.showSavedForms` and `appSettings.showIncompleteForms` | 04 |
 | `postSubmit: firstMenu` and `postSubmit: parentMenu` | 06 |
 | `hiddenFromMenu` on a menu and on a form, holding the display condition as its rest; `DISPLAY_CONDITION_ALWAYS_FALSE` retires | 06 |
@@ -275,25 +276,27 @@ files, entries, rules, transform steps and ordering constraints.
 
 | # | Pull request | Parts |
 |---|---|---|
-| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for work item H and findings 56 and 57; `targeted-hq-side-state` split; controls replayed in their capture layout | 09 |
+| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for work item H and findings 56 and 57; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 04 (work item H), 06 (finding 50), 07 (finding 57), 08 (finding 56) |
 | 2 | The cutover's skeleton, the notice, frozen pre-step fixtures, every ledger table | 10, 02 |
-| 3 | Identity and the publish sequence | 01 |
-| 4 | Drift and baselines | 02 |
-| 5 | App-level emission | 04 |
+| 3 | Identity and the publish sequence | 01, 09 (the capture) |
+| 4 | Drift and baselines | 02, 09 (the retained reads) |
+| 5 | App-level emission | 04, 02 (the ownership descriptor) |
 | 6 | XForms, first part: shadows, leaf constraints, datetime leaves, the root create id, defaults, translations, the form's name | 05 |
 | 7 | XForms, second part: groups, the rename, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
 | 8 | Defect 3 and work item H's closure | 04 |
-| 9 | Case writes through basic actions: findings 33 and 37, `update_case`, close conditions | 05, 06 |
+| 9 | Case writes through basic actions: findings 33 and 37, `update_case`, close conditions | 05 (findings 33, 37), 06 (`update_case`, close conditions) |
 | 10 | Identifiers and form content: defect 15; findings 31, 43, 44 | 08 |
-| 11 | Case lists | 07 |
-| 12 | Menus, navigation and search settings | 06 |
-| 13 | Publish gates | 03 |
-| 14 | Lookup, CSQL, media and the model clean-up | 02, 08 |
-| 15 | Contracts and public docs | 11 |
+| 11 | Case lists, with findings 41 and 54 | 07, 06 (findings 41, 54) |
+| 12 | Menus, navigation and search settings, with finding 53 | 06, 03 (finding 53) |
+| 13 | Publish gates | 03, 01 (the shell's keys), 02 (the confirmation store) |
+| 14 | Lookup, CSQL, media and the model clean-up | 02 (defect 5), 08 |
+| 15 | Contracts and public docs | 11, and each part's docs and contract lines |
 | 16 | Removal of the cutover tooling | 10 |
 
-Each pull request that changes a stored shape adds its transform step and its
-notice reason. Each fix moves its entries and retires its rule in the same pull
+Every pull request also reads part 09 for what its fix does to the register,
+its controls and the corpus, and part 10 for the transform step and notice
+reason it adds. Each pull request that changes a stored shape adds its
+transform step and its notice reason. Each fix moves its entries and retires its rule in the same pull
 request. Each validator narrowing emits the corpus before and after, compares
 the document ids, and rewrites or removes what it refuses. A pull request that
 changes a tool's input schema asks the person before `npm run test:schema`,
@@ -318,7 +321,10 @@ full in part 10.
   ids, `xmlns` and source from the app source, form ids from
   `ApplicationResource`, each pushed table and place. A transient failure
   stops it before that write. It records the ids each project space holds, the
-  drift baselines, and whose key read what.
+  drift baselines, and whose key read what. A deployment no key can read keeps
+  its HQ app and takes derived ids, so its ids and `xmlns` change once at its
+  next publish, as the research's "Identity" decides; the operator reviews
+  that count before the cutover executes.
 - **It migrates each document** through one ordered list of transform steps,
   one per fix that changes a stored shape, and proves the result under the new
   schema and the full validator.

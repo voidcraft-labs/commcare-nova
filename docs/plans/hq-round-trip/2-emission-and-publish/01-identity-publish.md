@@ -266,6 +266,14 @@ its first publish after the cutover:
 - A menu or form left without a pair, and every entity of a deployment no
   credential could read: derived ids and derived `xmlns`, once. The notice
   names each and says its earlier submissions stay under the earlier `xmlns`.
+  An unreadable deployment keeps its HQ app id, and its ids change at the
+  publish where the person discards HQ's copy (its baseline is `unread`, so
+  that publish stops first). That publish reads the app's source and still
+  adopts none of the ids the read shows: a publish writes no identity row,
+  and adopting at publish would be a second, lasting writer of
+  `app_deployment_identities` where step 2 allows the cutover alone (part
+  10, Reading HQ, under "An unreadable deployment, said plainly", gives the
+  three reasons and the runbook's review of the count).
 - A `.ccz` installed before step 2 carries random `xmlns`. The first `.ccz`
   built after it renames every form on that device one last time: a form
   saved incomplete under the old archive does not reopen under the new one.
@@ -352,31 +360,100 @@ export function mintLanguageWireCode(
 
 Mutations (`lib/doc/types.ts`, `lib/doc/mutations/app.ts`):
 
-- `addLanguage` and `relabelSourceLanguage` gain an optional
-  `wireCode: languageWireCodeSchema`.
-- The reducer stores `mut.wireCode ?? mintLanguageWireCode(held, identity)`.
-  For `addLanguage`, `held` is the set of codes in `wireCodes` before the
-  mutation. For `relabelSourceLanguage`, `held` is the empty set: the mutation
-  applies only to a single-language app and replaces that one language, so no
-  other language holds a code, and the map becomes exactly `{ <new tag>:
-  <code> }`. `removeLanguage` deletes the entry.
-- The mint is a pure function of the state the batch folds on, so replay and
-  multiplayer agree and no producer changes
-  (`components/builder/app-setup/LanguagesSection.tsx`,
-  `lib/agent/tools/localization.ts`,
-  `lib/agent/translation/translateLanguage.ts`).
-- **Undo.** `lib/doc/diffDocsToMutations.ts::diffLocalization` always carries
-  the target document's code, so undoing a removal restores the code the
-  language had, which a fresh mint would not always give.
-  `lib/doc/mutationTargetAdmission.ts` refuses a carried code another language
-  holds.
-- `lib/doc/mutations/app` joins the `lib/commcare` consumer allowlist in
-  `biome.json`, in both copies of the rule, as `lib/doc/mutations/pathRewrite`
-  already is.
+- **The mutation carries the code.** `addLanguage` and
+  `relabelSourceLanguage` gain a required `wireCode: languageWireCodeSchema`.
+  A wire code is an identity, and a mutation carries the identities it
+  installs (`lib/doc/CLAUDE.md`, "Every reducer is deterministic").
+- **The reducer stores what the mutation carries and computes nothing.**
+  `addLanguage` writes `wireCodes[<tag>] = mut.wireCode`.
+  `relabelSourceLanguage` applies only to a single-language app and replaces
+  that one language, so the map becomes exactly `{ <new tag>: mut.wireCode }`.
+  `removeLanguage` deletes the entry. `lib/doc/mutations/app.ts` does not
+  import `lib/commcare` and never calls `mintLanguageWireCode`.
+- **A code another language holds is refused.**
+  `lib/doc/mutationTargetAdmission.ts` refuses an `addLanguage` whose
+  `wireCode` is in `wireCodes` at that point of the batch, beside its
+  existing refusal of a tag the app already holds, and the reducer leaves
+  the document unchanged for one, as it does today for a held tag. A
+  `relabelSourceLanguage` has no other language to collide with.
+- **Every producer mints when it builds the mutation**, with
+  `mintLanguageWireCode(held, identity)`, through one planner so the held
+  set is read one way: `lib/doc/languageMutations.ts`, new, in the pattern of
+  `lib/doc/userMutations.ts`.
 
-Rejected: a required payload code. It would stop every stored `addLanguage`
-and `relabelSourceLanguage` row from parsing and change every producer, to
-remove a derivation that is already deterministic.
+  ```ts
+  /** The codes the app's languages hold now. */
+  export function heldLanguageWireCodes(doc: BlueprintDoc): Set<string>;
+  /** `addLanguage` carrying the code this identity takes beside `held`. */
+  export function addLanguageMutation(
+    held: ReadonlySet<string>,
+    identity: AppLanguageIdentity,
+  ): Extract<Mutation, { kind: "addLanguage" }>;
+  /** `relabelSourceLanguage` carrying the identity's preferred spelling. */
+  export function relabelSourceLanguageMutation(
+    identity: AppLanguageIdentity,
+  ): Extract<Mutation, { kind: "relabelSourceLanguage" }>;
+  ```
+
+  `heldLanguageWireCodes` reads
+  `effectiveAppLocalization(doc.localization).wireCodes`. For
+  `relabelSourceLanguage` the held set is empty, since the one language it
+  replaces is the only one. A producer that puts two `addLanguage` mutations
+  in one batch adds the first's code to the set before it builds the second.
+  A producer that adds a replacement before it removes the old language
+  (`update_language`'s change of identity) mints against a set that still
+  holds the old code, which is the state the reducer applies it on.
+
+  The producers, each of which builds the mutation through the planner:
+
+  | Producer | Builds |
+  |---|---|
+  | `components/builder/app-setup/LanguagesSection.tsx` (the builder's add, and its change of the sole language) | `addLanguage`, `relabelSourceLanguage` |
+  | `lib/agent/tools/localization.ts::addLanguageTool` and the `change-identity` action of `::updateLanguageTool`, which are the SA tools and, through `lib/agent/sharedToolRegistry.ts`, MCP's `add_language` and `update_language`; `lib/mcp` holds no producer of its own | `addLanguage`, `relabelSourceLanguage` |
+  | `lib/agent/translation/translateLanguage.ts` (a translation into a language the app does not hold yet) | `addLanguage` |
+  | `proof/corpus/editKinds.ts` (the `addLanguage`, `relabelSourceLanguage` and `setDefaultLanguage` generators and the translation generators' prefix) and `proof/corpus/workforce.ts` | both |
+  | `scripts/lib/languageIdentityRepair.ts`, which rewrites stored rows of the retired free-code shape into these two kinds: its own fold of the row sequence gains the held codes, and each rewritten row carries the code minted there | both |
+  | `e2e/lib/preview-form-lifecycle-client.tsx` and the test fixtures listed under "Files" | `addLanguage` |
+
+  `lib/doc/diffDocsToMutations.ts::diffLocalization` is the one producer
+  that does not mint: it carries the target document's stored code
+  (`after.wireCodes[<tag>]`).
+- **Undo.** Because `diffLocalization` carries the target document's code,
+  undoing a removal restores the code the language had, which a fresh mint
+  would not always give.
+- **The import boundary.** The reducer does not join the `lib/commcare`
+  consumer allowlist: `lib/doc/mutations/app` stays out of it. What changes
+  in `biome.json` is one entry, `lib/doc/languageMutations.ts`, added to the
+  `includes` exclusions and to the rule's message in both copies of the rule,
+  as `lib/doc/mutations/pathRewrite.ts` already is. The builder component
+  imports the planner, not `lib/commcare`, so `components/builder/app-setup`
+  gains no entry. `lib/agent/**` is already a consumer, and the rule does not
+  cover `proof/`, `scripts/` or `e2e/`.
+
+Reason for carrying it: `mintLanguageWireCode` reads the language catalog
+(`languageWire.ts::preferredWireSpelling` reads
+`lib/commcare/classicLanguages.ts::classicLanguageRow` and
+`lib/domain/languageRegistry/classicRuntime.ts::classicWideningTarget`). A code derived in the
+reducer would be derived again at every replay, from the catalog as it stands
+at the time of the replay, so a later catalog change (a language gaining a
+Classic row) would rename a deployed code on the next refold, which is defect
+1's symptom again by another route. A carried code is read from the row and
+never recomputed.
+
+Requiring the field strands no history. The cutover is a fold horizon (part
+10, Why this is a fold-horizon cutover): every `addLanguage` and
+`relabelSourceLanguage` row written before it lies behind each app's baseline
+as opaque audit history and is never parsed or replayed again, and the
+baseline's document already holds `wireCodes` from the cutover's
+`language-wire-codes` step. Every other holder of an old-dialect mutation
+(open agent workspaces, the event log, the stream log, queued edits of an
+open tab) is ended, archived or dropped by the cutover as part 10, What else
+holds old-shape state, and what the cutover does with each, says.
+
+Rejected: an optional code that the reducer fills in by derivation where a
+mutation carries none. It needs no producer change and parses every stored
+row, and it makes a deployed identity a function of catalog data at replay
+time.
 
 The code is an identity no author chooses: no builder control and no SA or MCP
 input. `lib/agent/tools/localization.ts::getLanguagesTool` (registered as MCP
@@ -391,21 +468,49 @@ plugin pull request that merges after the deploy.
 **Files.**
 
 - Domain: `lib/domain/localization.ts`.
-- Doc and mutations: `lib/doc/types.ts`, `lib/doc/mutations/app.ts`,
-  `lib/doc/diffDocsToMutations.ts`, `lib/doc/mutationTargetAdmission.ts`,
-  `biome.json`.
+- Doc and mutations: `lib/doc/types.ts` (the required `wireCode`),
+  `lib/doc/mutations/app.ts` (stores it), `lib/doc/languageMutations.ts`
+  (new: the planner), `lib/doc/diffDocsToMutations.ts`,
+  `lib/doc/mutationTargetAdmission.ts`, `biome.json` (the planner's entry;
+  the reducer gains none).
+- Producers: `components/builder/app-setup/LanguagesSection.tsx`,
+  `lib/agent/tools/localization.ts`,
+  `lib/agent/translation/translateLanguage.ts`, `proof/corpus/editKinds.ts`,
+  `proof/corpus/workforce.ts`, `scripts/lib/languageIdentityRepair.ts`,
+  `e2e/lib/preview-form-lifecycle-client.tsx`.
+- Fixtures that build one of the two mutations and gain the field:
+  `lib/doc/__tests__/mutations-app.test.ts`,
+  `lib/doc/__tests__/diffDocsToMutations.localization.test.ts`,
+  `lib/agent/tools/__tests__/localization.test.ts`,
+  `lib/agent/authoring/__tests__/readContract.test.ts` and
+  `session.postgres.test.ts`,
+  `lib/agent/change-set/__tests__/changeSetRuntime.postgres.test.ts`,
+  `lib/case-store/migrations/__tests__/authoringCutover.postgres.test.ts`,
+  `lib/preview/app-tests/__tests__/journey.postgres.test.ts`,
+  `lib/preview/engine/__tests__/engineController.test.ts`,
+  `engineControllerAsync.test.ts`, `engineControllerPublication.test.ts`,
+  `evaluateForm.test.ts` and `evaluateFormConstraintMessages.test.ts`,
+  `proof/corpus/__tests__/footprint.test.ts`, and
+  `scripts/lib/__tests__/languageIdentityRepair.test.ts` and
+  `languageIdentityRepair.postgres.test.ts`. A missed one is a type error or
+  a schema refusal, never a silent default.
 - Validator: none (the schema's two clauses are the rule).
 - Emitters: `lib/commcare/languageWire.ts`, `lib/commcare/localization.ts`
   (`commCareLocalization`, the one production reader).
 - Preview: none.
-- Builder: none.
+- Builder: `components/builder/app-setup/LanguagesSection.tsx` builds its
+  two mutations through the planner; no control changes.
 - SA and MCP tools: `lib/agent/tools/localization.ts::getLanguagesTool` (the
-  `commcareCode` output); `content/docs/mcp/tools.mdx` names it.
+  `commcareCode` output); `content/docs/mcp/tools.mdx` names it. The add and
+  update tools build their mutations through the planner; no input changes.
 - Docs: `content/docs/languages.mdx` (a language's CommCare code is set when
   the language is added and never changes);
   `docs/architecture/multilingual-localization.md`.
 - CLAUDE.md: root `CLAUDE.md` (the document holds language wire codes as
-  identities no author chooses); `lib/domain/CLAUDE.md` and
+  identities no author chooses); `lib/doc/CLAUDE.md` (the file list gains
+  `languageMutations.ts`, and "Every reducer is deterministic" names a
+  language's wire code as an identity the mutation carries);
+  `lib/domain/CLAUDE.md` and
   `lib/commcare/CLAUDE.md` ("Multilingual emission") lose the claim that
   wire codes exist nowhere outside `lib/commcare`.
 
@@ -441,18 +546,22 @@ shows `/langs/*` moving and the bar still shows the build profile's
 
 | Contract | Boundary |
 |---|---|
-| Adding a language that prefers a held spelling leaves the first code alone; removing either leaves the other; a carried code another language holds is refused; an undo of a removal restores the exact code | pure, through `mutationSchema`, admission and the reducer (`lib/doc/__tests__/diffDocsToMutations.localization.test.ts`, `lib/domain/__tests__/localization.test.ts`) |
+| `mutationSchema` refuses an `addLanguage` and a `relabelSourceLanguage` with no `wireCode`; the reducer stores exactly the carried code, including one `mintLanguageWireCode` would not give for that state; a carried code another language holds is refused and leaves the document unchanged | pure, through `mutationSchema`, admission and the reducer (`lib/doc/__tests__/mutations-app.test.ts`) |
+| Through the planner: adding a language that prefers a held spelling leaves the first code alone and gives the second the suffixed code; removing either leaves the other; two adds built for one batch take distinct codes; an undo of a removal restores the exact code | pure, through `lib/doc/languageMutations.ts`, admission and the reducer (`lib/doc/__tests__/languageMutations.test.ts`, new; `lib/doc/__tests__/diffDocsToMutations.localization.test.ts`; `lib/domain/__tests__/localization.test.ts`) |
 | `isEnglishOnlyLocalization` is false for a root whose `eng` holds a suffixed code; an absent root emits `en` | pure |
 | `planLanguageWire` over a root returns its stored codes in `languageOrder` order | pure (`lib/commcare/__tests__/languageWire.test.ts`, rewritten) |
 | `getLanguagesTool` returns each language's stored code, a suffixed one included, and `en` for an app with no stored root | pure (`lib/agent/tools/__tests__/localization.test.ts`) |
-| `relabelSourceLanguage` leaves a one-entry map holding the new tag's preferred spelling | pure, through the reducer (`lib/doc/__tests__/diffDocsToMutations.localization.test.ts`) |
+| `relabelSourceLanguageMutation` carries the identity's preferred spelling, and the reducer leaves a one-entry map holding it | pure, through the planner and the reducer (`lib/doc/__tests__/languageMutations.test.ts`) |
 | The transform step gives every frozen pre-step rooted document the codes today's export gives it | pure over the cutover's frozen fixtures |
 
 **Lane.** Three proof files read codes and move to the new
 `planLanguageWire` signature in this pull request:
 `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts` and
-`proof/targeted/documents/hqSideState.ts`. Every corpus document with a
-localization root gains `wireCodes`; `localization-mandarin`'s two Mandarin
+`proof/targeted/documents/hqSideState.ts`. `proof/corpus/editKinds.ts` and
+`proof/corpus/workforce.ts` build their language mutations through
+`lib/doc/languageMutations.ts`, so every `edit/batch.json` that adds or
+relabels a language gains `wireCode`, which shows in the corpus diff. Every
+corpus document with a localization root gains `wireCodes`; `localization-mandarin`'s two Mandarin
 branches take the preferred spelling and one suffixed code where today both
 are suffixed, which shows in the corpus `index.json` diff and nowhere in a
 proof. Locally the pull request runs the lane selected to
@@ -475,19 +584,45 @@ answers 200 for it and the update answers 400.
 **Fix.** Four decisions, then the sequence.
 
 1. **The first publish is an empty shell create, then the ordinary in-place
-   update.** The shell holds exactly these keys: `doc_type`,
-   `application_version`, `name`, `langs`, `build_spec` (until work item C,
-   part 03, C1. The version floor, stops `applicationShell` writing it), `translations`, `auto_gps_capture`,
-   `add_ons`, `modules: []` and `_attachments: {}`. It holds no
+   update.** The shell's keys are its own fixed list,
+   `lib/commcare/expander.ts::APP_SHELL_KEYS`, new. In this pull request it
+   holds ten: `doc_type`, `application_version`, `name`, `langs`,
+   `build_spec`, `translations`, `auto_gps_capture`, `add_ons`, `modules`
+   (always `[]`) and `_attachments` (always `{}`). The shell holds no
    `multimedia_map` (A4), no `logo_refs` and no `profile`: all three arrive
    with the update. It is built by a new export,
    `lib/commcare/expander.ts::expandAppShell(doc)`, which calls
    `lib/commcare/hqShells.ts::applicationShell(doc.appName, [], {}, { langs,
    translations, autoGpsCapture })` with the same app-level values `expandDoc`
-   computes (one private helper feeds both) and never passes
-   `profileCustomProperties`. `hqImportApplication` with `update: null`
-   returns it; it never calls `expandDoc` and needs no runtime target, no
-   assets and no lookup naming.
+   computes (one private helper feeds both), never passes
+   `profileCustomProperties`, and returns an object holding, for each key of
+   `APP_SHELL_KEYS` in the list's order, that call's value where the call
+   wrote the key. So the values have one source and the key set has its own:
+   a key a later pull request teaches `applicationShell` to write reaches
+   the shell only if that pull request also adds it to the list. Reason: the
+   shell is the one body that meets no source read and no overlay, the
+   create baseline's ownership and the capture peer's assumed source are
+   both stated over its exact keys, and a key that followed
+   `applicationShell` silently would change all three with no line of the
+   diff saying so. `hqImportApplication` with `update: null` returns it; it
+   never calls `expandDoc` and needs no runtime target, no assets and no
+   lookup naming.
+
+   The list by pull request. Each pull request named here edits
+   `APP_SHELL_KEYS`, the exact-key test below and the capture peer's
+   assumed shell source (A7) together:
+
+   | From pull request | `APP_SHELL_KEYS` | What the body holds |
+   |---|---|---|
+   | 3 | `doc_type`, `application_version`, `name`, `langs`, `build_spec`, `translations`, `auto_gps_capture`, `add_ons`, `modules`, `_attachments` | all ten, on every app |
+   | 5 (part 04, the header rule "Every content write is an update") | the ten less `add_ons`: an app with no menus needs none, and the update's overlay writes the needed ones | nine keys for a Connect app; eight otherwise, because from this pull request `applicationShell` writes `auto_gps_capture: true` for a Connect app and leaves the key out for any other (part 04, Defect 4: a republish overwrites values kept in HQ, under (c)) |
+   | 13 (part 03, C1. The version floor) | that list less `build_spec`: HQ discards the body's value on a create and Nova authors none | eight keys for a Connect app, seven otherwise |
+
+   `location_fixture_restore` is never in the list. Pull request 13 teaches
+   `applicationShell` to write it on every app (part 03, C5. Defect 14: the
+   flat location fixture), and it reaches HQ with the update, like every
+   other content key: an update does not exclude it, and an empty app reads
+   no location fixture.
 
    Evidence. Executed during planning, on five bodies, with a shell whose
    `_attachments` was absent and whose `multimedia_map` was `{}`: the create
@@ -670,6 +805,16 @@ display as reached. The last column names the work item whose pull request
 builds the step; a step marked B or C is listed here so the order is stated
 once, and is specified in that work item.
 
+One rule fixes the order of the writes: every stop a person could decide
+differently comes before the first write of Project data (a lookup table or
+a place). Preflight holds every such stop for an app that is already there.
+A first publish has one that preflight cannot hold, the CommCare version of
+an app HQ has not made yet, so the shell create, its source read,
+`recordCreatedRemoteApp` and the floor (steps 5 and 6) run before the
+resource pushes (steps 7 and 8). A shell holds no content, so a target below
+the floor stops having written nothing but an empty app. For an app that is
+already there nothing moves: its floor is read in preflight, at 2g.
+
 | # | Step | Reads | Writes | Can refuse with | Built by |
 |---|---|---|---|---|---|
 | 1 | `readDeployment`, and for a target with a deployment `readDeploymentIdentityOverrides` | Nova: record, mappings, live confirmations, overrides | none | (throws `deploymentNotFound`) | A |
@@ -686,28 +831,48 @@ once, and is specified in that work item.
 | | A preflight refusal folds as today: nothing for a first publish (`deployment: null`), `foldDeploymentAttempt` otherwise. | | | | |
 | 3 | `foldDeploymentAttempt("preflight", succeeded, { ensure: true, confirmations })` | | `app_deployments`, `app_deployment_confirmations`, one transaction | | today, C |
 | 4 | `beginDeploymentContentWrite`; `onUploadStarted` | | `app_deployments` | | today |
-| 5 | `pushLookupTables`: the workbook, the re-list, then a rows read per pushed table; `recordPushedResources` writes mappings and baselines together | HQ | `app_deployment_resources`, `project_space_resource_baselines`, `app_deployments` | `hq_rejected_resource_push`, `hq_resource_state_unknown` (persisted when unreached) | today, B |
-| 6 | `pushLocations`: the batches, then one place inventory read; `recordPushedResources` with baselines | HQ | same | `hq_rejected_resource_push`, `hq_organization_mismatch` | today, B |
-| 7 | Dropped-kinds reconcile, `onResourcesPushed`, as today | | `app_deployment_resources` | | today |
-| 8 | **Make sure the HQ app exists.** When `plannedInPlaceUpdate` is `null`: `importApp` with the shell. On 201, `readHqAppSource` of the new app, then `recordCreatedRemoteApp`. From this pull request it writes the `app` mapping with `pushedRevision: null` and `remoteRevision: null`; from pull request 4 it also takes a `baseline` argument and writes that read as the `create` baseline, or an `unread` baseline when the read failed (part 02, Store functions (`lib/deployment/store.ts`)). The mapping is recorded whether or not the read answered, and only then does a failed read refuse. It folds no rung. When there is an app already: if step 5 or 6 pushed anything, read the source again and compare it with 2g's read through `diffHqAppSource` (B; part 02, Where the check runs, under "The second read"). The two reads' digests are not compared: a save of a key the comparison ignores would otherwise stop a publish whose tables and places are already pushed. Otherwise 2g's read is the current one. | HQ: import (create), app source | `app_deployment_resources`; from pull request 4 also `app_deployment_baselines` | `hq_rejected_upload` (create refused), `hq_app_state_unknown` at `upload` (the read after the create failed; the mapping and an `unread` baseline are kept, and "What the sequence settles" says what the retry does), `hq_changed` at `upload` (from pull request 4: a key Nova writes moved in HQ during the resource push), `remote_app_missing` | A, then B |
-| 9 | **Version floor for an app this publish created**, on the read from step 8. Stops before any content is written. | | | `hq_app_version_below_floor`, phase `upload`, persisted; the refusal carries `hqAppUrl` | C |
-| 10 | `hqImportApplication({ prepared, target, compatibility, update: { appId, source }, identity: targetWireIdentity(overrides) })`, then `importApp` as an update. The profile overlay is computed on the source read in step 8 or 2g. | HQ: import (update) | | `hq_rejected_upload`. A 404 is `remote_app_missing` unless this publish created the shell, where it is `hq_rejected_upload` with the mapping kept. | A |
-| 11 | **Read back**: `readHqAppSource`, before the media upload. Normalized, it is the new baseline. A failed read is an `unread` baseline and a warning; the app landed. | HQ: app source | | none | B |
-| 12 | `recordRemoteResource`: the mapping (clearing `remote_missing_at`), the baseline (`origin: 'push'`), the `uploaded` fold, the cleared observations | | `app_deployment_resources`, `app_deployment_baselines`, `app_deployments`, one transaction | none (a database fault throws) | A, then B, C |
-| 13 | `uploadMediaBytes` | HQ: media upload and status | | none (warnings) | today |
-| 14 | `finishDeploymentContentWrite` (in `finally`, as today) | | `app_deployments` | | today |
+| 5 | **Make sure the HQ app exists**, before any Project data is pushed. Only on a first publish, which is when `plannedInPlaceUpdate` is `null` (no live `app` mapping, or `remote_missing_at` set): `importApp` with the shell. On 201, `readHqAppSource` of the new app, then `recordCreatedRemoteApp`. From this pull request it writes the `app` mapping with `pushedRevision: null` and `remoteRevision: null`; from pull request 4 it also takes a `baseline` argument and writes that read as the `create` baseline, or an `unread` baseline when the read failed (part 02, Store functions (`lib/deployment/store.ts`)). The mapping is recorded whether or not the read answered, and only then does a failed read refuse. It folds no rung. When there is an app already this step does nothing: 2g read it in preflight. | HQ: import (create), app source | `app_deployment_resources`; from pull request 4 also `app_deployment_baselines` | `hq_rejected_upload` (create refused: HQ holds nothing new), `hq_app_state_unknown` (the read after the create failed; the mapping and an `unread` baseline are kept, and "What the sequence settles" says what the retry does). Both at phase `resources`, persisted | A, then B |
+| 6 | **Version floor for an app this publish created**, on the read from step 5. It stops before any lookup table, place or content is written, so HQ holds nothing of this publish but the empty shell. | | | `hq_app_version_below_floor`, or `hq_app_state_unknown` for a version that cannot be read (part 03, C1. The version floor). Phase `resources`, persisted; the refusal carries `hqAppUrl` | C |
+| 7 | `pushLookupTables`: the workbook, the re-list, then a rows read per pushed table; `recordPushedResources` writes mappings and baselines together | HQ | `app_deployment_resources`, `project_space_resource_baselines`, `app_deployments` | `hq_rejected_resource_push`, `hq_resource_state_unknown` (persisted when unreached) | today, B |
+| 8 | `pushLocations`: the batches, then one place inventory read; `recordPushedResources` with baselines | HQ | same | `hq_rejected_resource_push`, `hq_organization_mismatch` | today, B |
+| 9 | Dropped-kinds reconcile, `onResourcesPushed`, as today | | `app_deployment_resources` | | today |
+| 10 | **The second read**, only when step 7 or 8 pushed anything: read the source again and compare it with the read this publish already holds (2g's for an app that was there, step 5's for one this publish created) through `diffHqAppSource` (B; part 02, Where the check runs, under "The second read"). The two reads' digests are not compared: a save of a key the comparison ignores would otherwise stop a publish whose tables and places are already pushed. When nothing was pushed, the read this publish already holds is the current one. | HQ: app source | | `hq_changed` at `upload` (from pull request 4: a key Nova writes moved in HQ during the resource push), `hq_app_state_unknown` at `upload` (the read failed), `remote_app_missing` | A, then B |
+| 11 | `hqImportApplication({ prepared, target, compatibility, update: { appId, source }, identity: targetWireIdentity(overrides) })`, then `importApp` as an update. The profile overlay is computed on the current source read: step 10's when it ran, else step 5's for an app this publish created, else 2g's. | HQ: import (update) | | `hq_rejected_upload`. A 404 is `remote_app_missing` unless this publish created the shell, where it is `hq_rejected_upload` with the mapping kept. | A |
+| 12 | **Read back**: `readHqAppSource`, before the media upload. Normalized, it is the new baseline. A failed read is an `unread` baseline and a warning; the app landed. | HQ: app source | | none | B |
+| 13 | `recordRemoteResource`: the mapping (clearing `remote_missing_at`), the baseline (`origin: 'push'`), the `uploaded` fold, the cleared observations | | `app_deployment_resources`, `app_deployment_baselines`, `app_deployments`, one transaction | none (a database fault throws) | A, then B, C |
+| 14 | `uploadMediaBytes` | HQ: media upload and status | | none (warnings) | today |
+| 15 | `finishDeploymentContentWrite` (in `finally`, as today) | | `app_deployments` | | today |
 
 What the sequence settles:
 
 - **Requests per publish.** First publish: create, source read, update, source
   read. Republish with nothing to push: source read, update, source read.
-  Republish with tables or places: one more source read.
+  Either one with tables or places to push: one more source read (step 10).
+- **A first publish refused at `resources` leaves an empty app in HQ.** Today
+  a first publish whose table or place push is refused leaves nothing of the
+  app there, because the app is created last. From step 2 the shell exists
+  before the pushes, so that refusal (and the floor's, and a failed read
+  after the create) leaves the empty shell, mapped with `pushedRevision`
+  null. This is the one cost of the order above, and it is accepted: the
+  shell holds no content, HQ cannot build it, the dialog says "Nova made an
+  empty app here on an earlier try. Uploading fills it in.", and the retry
+  is an existing-app publish that fills that same app and never creates a
+  second one.
+- **Why the three stops of steps 5 and 6 fold at `resources`.** Nothing of
+  the `resources` phase has run when they stop, and
+  `lib/deployment/stateMachine.ts::deploymentDisplaysAsReached` draws every
+  rung before the failed phase as filled, so folding them at `upload` (whose
+  entry state is `resources`, `lib/deployment/types.ts::DEPLOYMENT_PHASE_ENTRY_STATE`)
+  would show Project data as pushed when none was. Folded at `resources`,
+  the record shows `preflight` reached and nothing more, which is what HQ
+  holds besides the empty shell. Their codes do not change.
 - **A failure after the mapping is recorded never creates a second app.** A
   404, a 429 (both imports of a first publish pass
   `corehq/apps/api/decorators.py::api_throttle`), a timeout or a 5xx answering
-  step 10 inside the publish that created the shell is `hq_rejected_upload`
-  with the mapping kept. The next publish's `target-app` edge reads the source
-  and records the app gone if it is.
+  step 11 inside the publish that created the shell is `hq_rejected_upload`
+  with the mapping kept. A refusal of step 6, 7, 8 or 10 there keeps the
+  mapping too, under its own code. The next publish's `target-app` edge reads
+  the source and records the app gone if it is.
 - **The one window that can leave a second app.** A process death, a deploy or
   a deadline between the create's 201 and `recordCreatedRemoteApp` (one source
   read of an app with no menus, a few kilobytes) leaves an empty app in HQ
@@ -723,14 +888,14 @@ What the sequence settles:
   someone gave a menu in CommCare HQ stops with `hq_changed`. Any other
   change to it does not, and that includes raising the CommCare version in
   the app's settings, which is exactly what the version floor's refusal at
-  step 9 asks a person to do. Reason: nothing of Nova's is in the shell to
+  step 6 asks a person to do. Reason: nothing of Nova's is in the shell to
   protect, and without the exemption the floor's own next step would always
   be followed by a discard prompt. The comparison itself is specified in part
   02, Where the check runs.
 - **When the read after the create fails.** Publish records the mapping (and,
-  from work item B, an `unread` baseline) and refuses with `hq_app_state_unknown` at `upload`
+  from work item B, an `unread` baseline) and refuses with `hq_app_state_unknown` at `resources`
   (today's sentence for that code, which begins "Nova couldn't safely read
-  the current app"). In this pull request the retry reads the source at `target-app`
+  the current app"), before any table or place is pushed. In this pull request the retry reads the source at `target-app`
   and updates the shell. From work item B an `unread` baseline always stops:
   the retry refuses with `hq_changed`, listing the app with
   `baselineKnown: false` and B's sentence "Nova couldn't confirm what its
@@ -742,11 +907,11 @@ What the sequence settles:
   `unread` origin has no read to compare with, so it stops like any other
   unread baseline: an exemption there would need a model of what an empty
   app reads as.
-- **A crash between step 10 and step 12** leaves HQ updated and Nova's record
+- **A crash between step 11 and step 13** leaves HQ updated and Nova's record
   old. From work item B the next publish stops with `hq_changed` over Nova's
   own push; it is no longer silent.
-- **The windows.** An HQ save between the last source read and step 10's
-  import is overwritten unseen; one between step 10 and step 11 becomes part
+- **The windows.** An HQ save between the last source read and step 11's
+  import is overwritten unseen; one between step 11 and step 12 becomes part
   of the baseline and is overwritten unseen by the next publish. Each is one
   round trip wide. The public docs state both.
 - **`recordCreatedRemoteApp`** is one `withDeploymentRow` transaction with
@@ -760,10 +925,10 @@ What the sequence settles:
 |---|---|
 | The first content is HQ app version 2, and 3 once media is mapped. Today it is 1 and 2. The version is written into the build (`suite version`, each resource `version`, the form's `version` attribute), so every proof record that holds state A's version moves (A7). | Executed. |
 | No saved build of the shell can exist: every build maker goes through `make_build`, which raises `no modules`. `create_all_files()` on the shell does succeed and returns eight files, so anything that serves the working app's files without `make_build` sees a valid empty app. | Executed. |
-| `build_spec` is HQ's default from the create and is never changed by an update. The body's `build_spec` is ignored by both calls. | Executed. Work item C stops `lib/commcare/hqShells.ts::applicationShell` writing it. |
+| `build_spec` is HQ's default from the create and is never changed by an update. The body's `build_spec` is ignored by both calls. | Executed. Work item C stops `lib/commcare/hqShells.ts::applicationShell` writing it and removes it from `APP_SHELL_KEYS`. |
 | An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or `practice_mobile_worker_id`. Nova sends none of the last three, and from A4 not the first. A later step that wants one of them cannot use this path. | Executed for `multimedia_map`; the rest read. |
 | `profile`, `logo_refs` and every other key arrive through the update exactly as through a create. `date_created` is the shell's and `created_from_template` is `import_app_api` either way. | Executed. |
-| A person looking at HQ between the two calls of a publish that fails sees an empty app named for the Nova app until the next publish. | Follows from the sequence. |
+| A person looking at HQ during a first publish's resource pushes, or after a first publish that stopped at the floor, at a resource push or at the update, sees an empty app named for the Nova app until the next publish fills it. | Follows from the sequence. |
 | `lib/commcare/targetProfile.ts::projectNewAppProfileForTarget` loses its one caller and is deleted with its four cases in `lib/commcare/__tests__/targetProfile.test.ts`: the first content rides `projectUpdatedAppProfileForTarget` over the shell's profile as HQ serves it. For a first publish whose Search advisory is `unverified` the update omits `profile`, so the shell's HQ default stands, where today's create strips only Nova's own key. In this pull request Nova generates no other profile content, so nothing is lost. From pull request 5 the profile keys of defect 7 and finding 40 ride the same update and its overlay (part 04, Finding 40: an HQ settings save writes its defaults into the profile): on HQ the fifteen constants are seeded only where the target's profile holds no value, Nova owns only `cc-show-saved` and `cc-show-incomplete` there, and the local `.ccz` writes all of them. The shell still carries no `profile`. | `lib/deployment/importApplication.ts::hqImportApplication` |
 
 ### `hqAppAction` and the dialog's sentence
@@ -818,7 +983,7 @@ set) and `hq_app_empty: boolean` (a live mapping that is not gone and whose
   `lib/commcare/client.ts` (the comment on `importApp`),
   `lib/commcare/__tests__/targetProfile.test.ts` and
   `lib/commcare/__tests__/appSource.test.ts` (rewritten),
-  `lib/commcare/expander.ts` (`expandAppShell`),
+  `lib/commcare/expander.ts` (`expandAppShell`, `APP_SHELL_KEYS`),
   `lib/deployment/importApplication.ts` (`HqImportApplicationUpdate` becomes
   `{ appId, source }`; `update: null` returns the shell),
   `lib/deployment/service.ts` (the sequence; `setupArtifactFor` reads
@@ -854,13 +1019,18 @@ set) and `hq_app_empty: boolean` (a live mapping that is not gone and whose
   `get_deployment`, `refresh_deployment` and `compile_app` (A5, A6) are
   served by MCP alone, so they are in no model context Nova stores.
 - Docs: `content/docs/publishing.mdx` (the empty app a failed first publish
-  can leave and that it fills on the next publish; the empty app an
+  can leave, whether it stopped at the CommCare version, at a lookup table
+  or place, or at the update, and that it fills on the next publish; the empty app an
   interrupted publish can leave unknown to Nova, which can be deleted in
   CommCare HQ; the two windows; a deleted HQ app is made afresh),
   `content/docs/mcp/tools.mdx` (`hq_app_gone`, `hq_app_empty`).
 - CLAUDE.md: `lib/deployment/CLAUDE.md` ("Ownership": the explicit gone
   marker and the shell; "One publish lifecycle": the sequence and the single
-  source read; "Preflight": the `target-app` edge; the contract row "a publish
+  source read, and that on a first publish the empty shell and its version
+  check precede the Project data while the app's content still follows it,
+  with the state-ladder paragraph and its copy in
+  `docs/architecture/complex-apps.md` rewritten as part 11, Contract
+  sentences step 2 rewrites, gives them; "Preflight": the `target-app` edge; the contract row "a publish
   creates afresh after the cutover ends a deployment whose HQ app HQ reports
   deleted"); `lib/commcare/CLAUDE.md` (the `importApp` paragraph: an update
   answers 404 for an unknown id and 400 for a deleted app).
@@ -898,8 +1068,9 @@ layout (a full create, then updates), so they keep showing the re-minted ids.
 
 | Contract | Boundary |
 |---|---|
-| A first publish sends the shell create, the source read, the update naming derived ids, then media, in that order; the shell body holds exactly the ten keys listed above, with `modules: []`, `_attachments: {}`, no `multimedia_map`, no `logo_refs`, no `profile` | controlled HQ responses (an undici `MockAgent` peer, as `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts` does, over the documents of `lib/deployment/__tests__/publishFixtures.ts`), real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
-| The create answers 201 and the read after it fails: the mapping is recorded with `pushedRevision` null, the publish refuses with `hq_app_state_unknown` at `upload`, and the next publish sends a source read and an update to the same app id, never a create | same |
+| A first publish sends the shell create, the source read, the update naming derived ids, then media, in that order; for a document with a lookup table and a place, the workbook and the place requests come after the shell's source read and before a second source read and the update; the shell body's key set is exactly the row of the `APP_SHELL_KEYS` table for the pull request at hand (ten keys here; pull requests 5 and 13 each change this expectation with the list), with `modules: []`, `_attachments: {}`, no `multimedia_map`, no `logo_refs`, no `profile` and no `location_fixture_restore` | controlled HQ responses (an undici `MockAgent` peer, as `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts` does, over the documents of `lib/deployment/__tests__/publishFixtures.ts`), real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
+| The create answers 201 and the read after it fails: the mapping is recorded with `pushedRevision` null, the publish refuses with `hq_app_state_unknown` at `resources` having sent no lookup or place request, and the next publish sends a source read and an update to the same app id, never a create | same |
+| A first publish of a document with a lookup table whose workbook HQ refuses: the shell's mapping is kept with `pushedRevision` null, the record is refused at `resources` and shows no rung past `preflight`, no update was sent, and the next publish sends no create, pushes the table and fills that same app | same |
 | The create answers 201 and the process stops before `recordCreatedRemoteApp` (the store call is made to throw): no mapping exists and the next publish sends a create. This is the stated window, pinned so a change to it is seen | same |
 | The shell is created, then the update answers 404, 429, 500 or times out: the mapping is kept with `pushedRevision` null, the record sits at `resources`, the next publish sends an update to the same app id and reports `created`; no second create is ever sent | same |
 | A source read answering 200 with `doc_type: "Application-Deleted"`, and one answering 404, each set `remote_missing_at`, fold `remote_app_missing`, refuse this publish, and make the next publish create and supersede the mapping; a `LinkedApplication` refuses with `hq_app_state_unknown` at `preflight`, with the linked app sentence, and writes nothing | same |
@@ -1529,8 +1700,8 @@ something production does not.
 
 | File | Change |
 |---|---|
-| `proof/corpus/publish.ts::capturePublish` | A first publish is captured as two imports: `create` (the shell, no `app_id`) and `content` (the first update, naming `PLACEHOLDER_APP_ID`). Then `update` (the republish of D) and each later update, as today. The peer answers the source read after the create, and each update's source read, with the assumed source. |
-| `proof/corpus/targetPeer.ts::TargetPeer` | The peer that answers Nova's requests at capture. It holds a whole assumed source in place of `profile` alone (`holdProfile` becomes `holdSource`), answers the source read after a create with the shell's source (`doc_type: "Application"`, the configuration's `build_spec.version`, an empty `profile`, the shell's `langs`, `modules: []`, `_attachments: {}`), answers the second import as an update of the app the first made, and counts both imports. |
+| `proof/corpus/publish.ts::capturePublish` | A first publish is captured as two imports: `create` (the shell, no `app_id`) and `content` (the first update, naming `PLACEHOLDER_APP_ID`). Then `update` (the republish of D) and each later update, as today. The peer answers the source read after the create, and each update's source read, with the assumed source. The capture sends its requests in the sequence's order: the shell create and its source read come before the lookup workbook, and the `content` import after it; `proof/corpus/__tests__/publish.postgres.test.ts` holds that order to `publishAppToHq`'s. |
+| `proof/corpus/targetPeer.ts::TargetPeer` | The peer that answers Nova's requests at capture. It holds a whole assumed source in place of `profile` alone (`holdProfile` becomes `holdSource`), answers the source read after a create with the shell's source (`doc_type: "Application"`, the configuration's `build_spec.version`, an empty `profile`, the shell's `langs`, `modules: []`, `_attachments: {}`). That assumed source is built from the captured `create.body` by the `APP_SHELL_KEYS` table of A3: a key the table's row holds is answered as the shell sent it, `build_spec.version` is always the configuration's because HQ discards the body's, and a key the row does not hold is answered as HQ's default for an app created without it. So pull requests 5 and 13 change the peer's shell source with the list, and `proof/hq/operations.py::publish_capture`'s `CapturedSourceNotHeld` holds each version of it to HQ's own read of the shell. It answers the second import as an update of the app the first made, and counts both imports. |
 | `proof/corpus/entryWriter.ts` | Writes the two-import layout for a corpus entry: `create.body`, `content.body`, `"layout": 2`, `placeholderAppId` and `assumedSource` in each sidecar, where it writes `assumedSourceProfile` today. |
 | `proof/corpus/__tests__/emitCorpus.test.ts` | Reads the new layout (a `content` step beside `create`), and A4's media observation. |
 | `proof/corpus/publish.ts::PublishInput`, `::PublishCapture` | `sourceProfile` becomes `source`, and `assumedSourceProfile` becomes `assumedSource`: the fields of HQ's source the captured body depends on. In this pull request those are `doc_type`, `build_spec.version` and `profile`; work items B and D add theirs. |
@@ -1560,7 +1731,7 @@ and the shards apply its bytes.
 - The ledger's DDL, row types and domain types
   (`DeploymentResource.remoteMissingAt` and its mapping among them): pull
   request 2 (part 02, The ledger schema).
-- The `create`, `push` and `unread` baselines written at steps 8, 11 and 12,
+- The `create`, `push` and `unread` baselines written at steps 5, 12 and 13,
   the normalization, the drift verdict, the shell's `modules`-only comparison
   and `hq_changed`: work item B (part 02, Work item B: the drift check and
   its baselines).
