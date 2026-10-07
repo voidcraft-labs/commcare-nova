@@ -7,9 +7,9 @@ name: Proof Android stage
 # those outputs hold records of (each under the key that run kept it under),
 # every answer is made by the reader of this ref (nothing is read from a
 # store), and the lane's gate holds that run's blocks and this stage's
-# together to this ref's register. Dispatched by hand; the pull request lane
-# (ci.yml) and the whole-lane workflow (proof-lane.yml) run the stage
-# themselves.
+# together to this ref's register. Dispatched by hand, here or through CI's
+# dispatch (ci.yml, android_from_run); the pull request lane (ci.yml) and the
+# whole-lane workflow (proof-lane.yml) run the stage themselves.
 on:
   workflow_dispatch:
     inputs:
@@ -23,6 +23,19 @@ on:
         default: '1'
       shards:
         description: How many jobs run the stage (0 for proof/android/stage.json's)
+        type: string
+        default: '0'
+  # CI's own dispatch can ask for it too (ci.yml, android_from_run), which is
+  # how a branch runs it before this file is on the default branch.
+  workflow_call:
+    inputs:
+      run:
+        type: string
+        required: true
+      attempt:
+        type: string
+        default: '1'
+      shards:
         type: string
         default: '0'
 

@@ -38,6 +38,10 @@ on:
         type: choice
         options: [default, '1', '2', '4', '8', '12', '16', '24']
         default: default
+      android_from_run:
+        description: Also run the Android stage again over this earlier CI run's proof shards (its run id; proof-android.yml)
+        type: string
+        default: ''
 
 # A newer push to the same branch/PR cancels the in-flight run for it.
 concurrency:
@@ -910,6 +914,23 @@ jobs:
           path: ${{ runner.temp }}/android-out/
           if-no-files-found: ignore
           retention-days: 14
+
+  proof-android-again:
+    # A dispatch that names an earlier CI run also runs the Android stage
+    # again over what that run's proof shards observed, with this ref's
+    # reader, judges and register (proof-android.yml): the way to hold a
+    # change to any of those without waiting for the shards to observe
+    # everything again. It is beside this run's own lane, which runs whole as
+    # ever, and decides nothing of this run's verdict.
+    name: Android stage over run ${{ inputs.android_from_run }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.android_from_run != '' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/proof-android.yml
+    with:
+      run: ${{ inputs.android_from_run }}
+      shards: ${{ inputs.android_shards != 'default' && inputs.android_shards || '0' }}
 
   proofs-gate:
     # One check for the whole proof lane, whatever its shard count. It runs
