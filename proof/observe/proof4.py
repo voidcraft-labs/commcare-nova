@@ -98,6 +98,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from proof.observe.build import archive_record, device_archive
 from proof.observe.record import bytes_digest, canonical, digest
 
 CHECK = "proof4"
@@ -478,9 +479,7 @@ def _raw_builds_differ_changed(base, after):
     # A language's app strings are read over its default file's (``as_read``), so a changed language file is
     # compared with the default beside it, on both sides, whether or not the default's bytes changed.
     kept += [
-        default
-        for default in sorted({default_strings_path(path) for path in parsed_after} - {None})
-        if default in same
+        default for default in sorted({default_strings_path(path) for path in parsed_after} - {None}) if default in same
     ]
     for path in kept:
         parsed_after[path] = base.parsed[path]
@@ -1196,6 +1195,9 @@ class _Observation:
         found["build"] = build_delta(outcome, over.build, self.blobs)
         differs = raw_builds_differ(over.build, outcome, over.parsed(), verify=self.verify)
         found["trace"] = self.trace(outcome, over=over, label=processing_label(editor)) if differs else None
+        # What a device installs of the saved app where its build is not the one it was saved over: the Android
+        # reader's input (``proof.android``).
+        found["archive"] = archive_record(device_archive(outcome, held.app), self.blobs) if differs else None
         answers = read_xpath(self.core_runner, xpath_pairs(over.held.stored, stored, over.build, outcome))
         found["xpath"] = self.blobs.put_json(answers) if answers else None
         if not keep:

@@ -252,11 +252,16 @@ or it fails the lane ("The registers", below).
 
 ### What the lane does not observe
 
-- **Android is cited, not run.** The Android classes a defect's harm rests on
-  run only inside a running CommCare app (`HiddenPreferences`, `AppUtils`,
-  `ProfileAndroidInstaller`, `HomeScreenBaseActivity`), so a register entry
-  whose harm is on Android observes the artifact through Core's parse and
-  names the Android predicate in its `android` field.
+- **Android is run by its own reader, outside the lane.** The Android reader
+  (`proof/android`) runs commcare-android's own application, installers,
+  activities and views at the pin over the archives a device installs, which
+  each built state's record keeps for it (`state.archive`,
+  `proof/observe/build.py::device_archive`). It runs on linux/amd64 and
+  macOS, where Robolectric's native runtime runs, and the lane's shards are
+  arm64, so no check reads its answers yet: a register entry whose harm is on
+  Android still observes the artifact through Core's parse and names the
+  Android predicate in its `android` field, and `proof/android/README.md`
+  says what remains before the entries rest on what Android read.
 - **Formplayer runs, and no check judges its sessions yet.** Formplayer's own
   application runs over HQ's builds of Nova's exports ("The Formplayer
   runner", below), its own tests hold what the register's entries say of
@@ -2240,7 +2245,9 @@ each is stated here as it is built.
     value-level checks only on targeted documents.
 17. **HQ's feature-matrix apps belong to step 6**, whose reader is their first
     consumer.
-18. **Android is cited, not run.**
+18. **Android is cited, not run**, in the lane. The Android reader
+    (`proof/android`) now runs it beside the lane ("What the lane does not
+    observe").
 19. **A check runs only against a target Nova's publish accepts.**
 
 These were settled while the lane was built, and stand where the plan's first
