@@ -1,11 +1,12 @@
 {
 	"name": "nova-proof-image-tools",
 	"private": true,
-	"description": "The proof image's own Node tools: esbuild bundles HQ's editor pages at image build time, acorn reads HQ's and Vellum's JavaScript for the surface extractor, and playwright-core drives the image's Chromium for the editor driver.",
+	"description": "The proof image's own Node tools: esbuild bundles HQ's editor pages at image build time, acorn reads HQ's and Vellum's JavaScript for the surface extractor, playwright-core drives the image's Chromium for the editor driver, and sass is the compiler HQ's own stylesheet precompiler runs for the Web Apps page (HQ names no version of it).",
 	"dependencies": {
 		"acorn": "8.18.0",
 		"acorn-walk": "8.3.5",
 		"esbuild": "0.28.2",
-		"playwright-core": "1.63.0"
+		"playwright-core": "1.63.0",
+		"sass": "1.105.1"
 	}
 }

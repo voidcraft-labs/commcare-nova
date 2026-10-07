@@ -13,6 +13,7 @@ import {
 	closeConditionUnparsable,
 } from "./documents/closeConditions";
 import { customTile } from "./documents/customTile";
+import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
@@ -78,6 +79,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	wireEqualRepublish,
 	searchButtonLabel,
 	formLinkHiddenTarget,
+	emptyListNoEnglish,
 ];
 
 /** Every targeted document, in a fixed order. */

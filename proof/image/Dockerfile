@@ -202,8 +202,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=node /opt/node /opt/node
 ENV PATH=/opt/node/bin:$PATH
-# The image's own Node tools (proof/image/tools): esbuild, acorn, and
-# playwright-core with the Chromium it drives.
+# The image's own Node tools (proof/image/tools): esbuild, acorn,
+# playwright-core with the Chromium it drives, and the sass HQ's stylesheet
+# precompiler runs.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 COPY proof/image/tools/package.json proof/image/tools/package-lock.json /opt/proof-tools/
 RUN cd /opt/proof-tools \
@@ -229,12 +230,13 @@ COPY --from=core-build /opt/core /opt/core
 COPY --from=formplayer-build /opt/formplayer /opt/formplayer
 COPY --from=formplayer-build /opt/formplayer-app /opt/formplayer-app
 COPY --from=hq-schema /opt/hq-schema /opt/hq-schema
-# HQ's XPath validator (corehq/apps/app_manager/xpath_validator/nodejs/),
-# which HQ's build runs on every module and form filter, needs js-xpath and
-# its dependency, and underscore, from HQ's node_modules.
-COPY --from=hq-node /opt/hq-node/node_modules/xpath /opt/hq/node_modules/xpath
-COPY --from=hq-node /opt/hq-node/node_modules/biginteger /opt/hq/node_modules/biginteger
-COPY --from=hq-node /opt/hq-node/node_modules/underscore /opt/hq/node_modules/underscore
+# HQ's node packages, where HQ finds them: its XPath validator
+# (corehq/apps/app_manager/xpath_validator/nodejs/), which HQ's build runs on
+# every module and form filter, reads js-xpath and underscore from them, and
+# HQ's static file finders and its stylesheet precompiler read the rest for
+# the Web Apps page (settings.py::STATICFILES_DIRS,
+# hqwebapp/precompilers.py::SassFilter; proof/webapps).
+COPY --from=hq-node /opt/hq-node/node_modules /opt/hq/node_modules
 # HQ's own sources compiled once, so each HQ boot reads bytecode.
 RUN /opt/hq-venv/bin/python -m compileall -q -j0 -x '/node_modules/' /opt/hq
 ENV LANG=C.UTF-8 \

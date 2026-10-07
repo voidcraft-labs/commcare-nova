@@ -244,6 +244,30 @@ def _map_applications(doc):
             )
 
 
+def _map_saved_apps_auto_generated(doc):
+    # corehq/couchapps/saved_apps_auto_generated/views/view/map.js (no reduce);
+    # app_manager/tasks.py::prune_auto_generated_builds queries it after every build HQ makes.
+    if doc.get("doc_type") in ("Application", "LinkedApplication") and doc.get("is_auto_generated", _ABSENT) not in (
+        _ABSENT,
+        None,
+        False,
+        0,
+        "",
+    ):
+        yield (
+            [_js_key(doc, "domain"), _js_key(doc, "copy_of")],
+            _js_object(
+                [
+                    ("doc_type", _js(doc, "doc_type")),
+                    ("_id", _js(doc, "_id")),
+                    ("copy_of", _js(doc, "copy_of")),
+                    ("domain", _js(doc, "domain")),
+                    ("is_released", _js(doc, "is_released")),
+                ]
+            ),
+        )
+
+
 def _map_domains(doc):
     # corehq/apps/domain/_design/views/domains/map.js (reduce: _count)
     if doc.get("doc_type") == "Domain":
@@ -314,6 +338,7 @@ VIEWS = {
     "app_manager/applications_brief": (_map_applications_brief, None),
     "app_manager/applications": (_map_applications, None),
     "app_manager/saved_app": (_map_saved_app, None),
+    "saved_apps_auto_generated/view": (_map_saved_apps_auto_generated, None),
     "domain/domains": (_map_domains, "_count"),
     "domain/by_status": (_map_domains_by_status, "_count"),
     "users/by_username": (_map_users_by_username, "_count"),

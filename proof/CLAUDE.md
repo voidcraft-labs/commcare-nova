@@ -2,8 +2,8 @@
 
 The proof lane holds every Nova export to CommCare's own code at pinned
 upstream commits: HQ's import, build, case processing and editors,
-CommCare Core's runtime and Formplayer's application, over a reproducible
-corpus, on every pull request.
+CommCare Core's runtime, Formplayer's application and HQ's Web Apps client,
+over a reproducible corpus, on every pull request.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -31,9 +31,21 @@ harness keeps, each with its reason.
   answers do not hold raises. Give each build an id of its own (Formplayer
   keeps an install by its id), start each run as a worker who cleared their
   data, and give each runner its own database and Redis.
+- **Web Apps is HQ's own client, clicked and read.** A claim about what a
+  worker sees in Web Apps is observed on HQ's client itself
+  (`proof/webapps`): HQ's `FormplayerMain` page, the bundle built from HQ's
+  entry, HQ's own compiled stylesheets, and Formplayer's own answers to the
+  client's own requests, over a build HQ released in a project space that
+  has Web Apps. Never copy a client function into a test or call the
+  client's code from a step: a step clicks what a worker clicks or reads
+  the document. The client reads some things from the app HQ stores and
+  never from the build (the logo, `cc-show-incomplete`), so a claim that
+  two builds are alike says nothing of them: release the state and read
+  the page. A computed style means something only under HQ's stylesheets;
+  never read one from a page that loaded none.
 - **Observation is separate from judgment.** The observation partition
   (`proof/observe/partition.py::observes`: `proof/observe`, `proof/hq`,
-  `proof/core`, `proof/formplayer`, `proof/editors` with its driver
+  `proof/core`, `proof/formplayer`, `proof/webapps`, `proof/editors` with its driver
   fingerprinted apart as the browser's, `proof/lane`, `proof/store`, the comparators, the few checks
   files it runs, the session's fixtures and the gate entries) runs HQ, Core
   and the browser and writes records; the judges (the rest of `proof/checks`,
@@ -69,7 +81,9 @@ harness keeps, each with its reason.
   not depend on it; a difference no such test can settle (its reader is
   Android, Web Apps' client or Connect) is a register entry, never a rule,
   marked `equivalence` with those readers where it is no harm, so the
-  register never presents it as one.
+  register never presents it as one. Where the lane runs that reader
+  (Formplayer, Web Apps' client), the entry's `equivalence` names the test
+  that observed both spellings on it.
 - **A precise witness writes its precise edit.** The fixed producers' edits
   are balanced together, so an unrelated document can change which admitted
   edit another gets. A harness test or registered symptom that needs one

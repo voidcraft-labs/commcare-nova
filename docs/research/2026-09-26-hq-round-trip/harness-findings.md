@@ -421,6 +421,80 @@ the search screen again with the validation's message); and finding 54's
 description is `""` for Nova's export and a non-breaking space for the saved
 app in what Formplayer hands Web Apps (`QueryResponseBean.description`).
 
+### Found by running the Web Apps client
+
+The Web Apps driver (`proof/webapps`) runs HQ's own client, at the HQ pin, in
+the lane's Chromium against Formplayer over a build HQ released of a Nova
+export, for a mobile worker, with HQ's own compiled stylesheets. What it shows
+that no build comparison and no session of Core's or Formplayer's could:
+
+58. **The App Settings save takes Incomplete Forms off Web Apps' home
+    screen.** The client reads `cc-show-incomplete` from the app HQ stores,
+    never from the build (`cloudcare/utils.py::format_app_doc` hands it the
+    stored `profile`; `formplayer/apps/controller.js::listApps` hides the
+    tile only when every listed app's property is `no`). Nova stores no such
+    property, so the tile shows. HQ's App Settings page, saved without a
+    change, stores every setting at its page value (finding 40), and its
+    value for this one is `no`. HQ's build writes the property either way
+    (defect 7), so no file of the build differs, and the lane held the
+    stored property only inside finding 40's stored-profile entry, with no
+    reader of its own. *Harm:* after a save that changes nothing, a worker
+    in Web Apps no longer has the Incomplete Forms screen.
+    *Documents:* every document; observed on `targeted-survey-menu`.
+
+59. **No app the lane builds is one Web Apps lists.** HQ sets a new app's
+    `cloudcare_enabled` from the project space's `CLOUDCARE` privilege when
+    Nova's upload lands (`models/applications.py::_create_app_from_doc`), and
+    Web Apps lists only an app that has it
+    (`cloudcare/utils.py::get_web_apps_available_to_user`). The lane's
+    configurations grant a privilege only where a document's content needs
+    it, and Nova sends no `cloudcare_enabled`, so every app of the corpus is
+    stored with it false. *Harm:* none to a worker; it bounds the lane: the
+    stored app the checks compare is never the one a project space with Web
+    Apps holds, and the Web Apps driver adds the privilege to read one
+    (`proof/webapps/test_session.py` shows HQ offering the app with it and
+    not without).
+    *Documents:* every document.
+
+What the same runs show of earlier findings, each on the client
+(`proof/webapps/test_*.py`):
+
+- **Finding 42 and defect 14's tile part.** For a cell with no alignment the
+  client writes `start` both ways; after the Case List save it writes `left`
+  and `start`. So the vertical alignment is the same either way, as the
+  register's equivalence says, and the horizontal one differs only where
+  `left` and `start` do. The font size the same save writes, `medium`, is not
+  what an absent one reads as: HQ's stylesheet gives a tile's cell 12px, and
+  `medium` is the browser's 16px, so the save makes a tile's text a third
+  larger. With no stylesheet on the page both computed to 16px, which is why
+  the page loads HQ's own.
+- **Finding 54.** The client shows no description element for `""` or for
+  the non-breaking space, on a search opened from a list, on one the menu
+  opens and on an inline one, and shows a description that has text. The
+  equivalence holds on its one reader.
+- **Defect 21.** The Case List save's `auto_launch` reaches a worker as the
+  register says: the menu that opens the case list for Nova's export opens
+  the search screen for the saved app.
+- **Finding 41.** In an app written in Spanish alone the worker reads HQ's
+  English default, "List is empty.", on an empty list; after the module
+  settings save under `USH_EMPTY_CASE_LIST_TEXT` the client shows a message
+  box that holds only a non-breaking space. The client does not fall back to
+  its own text for a blank one.
+- **Defect 16.** A list search in Web Apps for the value of a column Nova
+  left out finds no case, and a search for a shown value finds the case.
+- **Finding 56.** End to end, with the form opened and submitted by clicks:
+  a link to a shown form opens it, a link to a hidden form leaves the worker
+  on the menu that holds it, listing its shown form alone, and a link to a
+  hidden menu leaves them on the app's first screen; HQ receives one
+  submission each time and the client shows HQ's message for it.
+- **The logo.** The path Nova sends as `logo_refs.hq_logo_web_apps` is the
+  image on the app's tile, resolved by the client through the app's media
+  map to HQ's own multimedia URL, where HQ serves the bytes Nova uploaded.
+- **A sort-only column.** Formplayer hands the client the column with an
+  empty header and a width hint of 0, and the client shows no header and no
+  cell for it. The plan's sentence for finding 38, that nothing but Android
+  reads a column's width hint, does not hold for a hint of 0.
+
 ## Equivalences only another runtime reads
 
 These differences are no harm: every runtime that reads them reads both

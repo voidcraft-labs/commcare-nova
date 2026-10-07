@@ -36,6 +36,7 @@ OBSERVATION_DIRECTORIES = (
     "proof/lane/",
     "proof/observe/",
     "proof/store/",
+    "proof/webapps/",
 )
 # The browser's own partition (the editor driver's code), fingerprinted apart.
 OBSERVATION_EXCLUDED = ("proof/editors/driver/",)

@@ -107,6 +107,7 @@ PACKAGE_DATA = {
     "proof/native": {"native": EVERY},
     "proof/rules": {"documents": ("proof/rules/conftest.py", "DOCUMENTS")},
     "proof/store": {"documents": EVERY},
+    "proof/webapps": {"documents": ("proof/webapps/conftest.py", "DOCUMENTS")},
 }
 CORPUS_DATA = {"documents": EVERY, "native": EVERY}
 # The roles of a B or B-edit that its part key does not read (proof.observe.unit.B_UNREAD_ROLES; test_queue holds

@@ -1,5 +1,6 @@
-// Builds the JavaScript of HQ's editor pages for the proof harness's editor
-// driver (proof/editors), at image build time, from HQ's own node packages.
+// Builds the JavaScript of HQ's editor pages and of its Web Apps page for the
+// proof harness's editor driver (proof/editors, proof/webapps), at image
+// build time, from HQ's own node packages.
 //
 // HQ ships its page JavaScript as webpack bundles (`yarn build`:
 // webpack/generateDetails.js, then webpack/webpack.prod.js). The harness
@@ -10,7 +11,13 @@
 // - resolve.alias, with webpack's matching (a key is the whole request or its
 //   first segments; aliases apply again to what they produce);
 // - resolve.fallback (`false` is an empty module), resolve's default
-//   extensions, main fields and condition names for a web target;
+//   extensions, main fields and condition names for a web target; and, where
+//   esbuild's resolver finds no file for a request, webpack's own resolver's
+//   answer (enhanced-resolve, from HQ's node packages): webpack completes a
+//   package `exports` target with its extensions where esbuild takes the
+//   target as written (Web Apps' `markdown-it/dist/markdown-it`), and reads a
+//   package's `browser` field mapping a request to `false` as an empty
+//   module (crypto-js's `crypto`);
 // - externals: every request of the page graphs is put to the
 //   configuration's externals, and one they make external fails the build
 //   (HQ's only external applies to a Vellum checkout beside HQ, which the
@@ -107,6 +114,9 @@ const PAGE_ENTRIES = [
 	"app_manager/js/modules/bootstrap3/module_view",
 	// app_manager/form_view.html: form settings, case management
 	"app_manager/js/forms/form_view",
+	// cloudcare/formplayer_home.html: Web Apps, the client the Web Apps
+	// driver runs against Formplayer (proof/webapps)
+	"cloudcare/js/formplayer/main",
 ];
 
 // HQ's form designer page entry, whose page JavaScript adds options to
@@ -322,6 +332,41 @@ function loaderNames(rule) {
 	return []
 		.concat(rule.use || [])
 		.map((use) => (typeof use === "string" ? use : use.loader));
+}
+
+// webpack's own resolver (enhanced-resolve, from HQ's node packages), under
+// webpack's resolve defaults for a web target, by dependency type.
+const webpackResolvers = new Map();
+
+/**
+ * How webpack's own resolver answers a request esbuild's found no file for:
+ * the file, `false` for a module a package's `browser` field leaves out (an
+ * empty module to webpack), or undefined where webpack finds none either.
+ */
+function webpackResolve(mode, request, context, kind) {
+	const type = kind === "require-call" ? "require" : "import";
+	const key = `${mode}:${type}`;
+	if (!webpackResolvers.has(key)) {
+		const { ResolverFactory, CachedInputFileSystem } = hq("enhanced-resolve");
+		webpackResolvers.set(
+			key,
+			ResolverFactory.createResolver({
+				fileSystem: new CachedInputFileSystem(hq("node:fs"), 4000),
+				extensions: WEBPACK_EXTENSIONS,
+				mainFields: WEBPACK_MAIN_FIELDS,
+				aliasFields: ["browser"],
+				exportsFields: ["exports"],
+				conditionNames: [...webpackConditions(mode), "browser", type],
+			}),
+		);
+	}
+	return new Promise((resolve) => {
+		webpackResolvers
+			.get(key)
+			.resolve({}, context, request, {}, (error, file) =>
+				resolve(error ? undefined : file),
+			);
+	});
 }
 
 // --- JavaScript source analysis -------------------------------------------
@@ -850,13 +895,30 @@ function webpackMirror({ config, folder, record }) {
 			}
 
 			async function plain(request, args) {
-				const result = await build.resolve(request, {
+				let result = await build.resolve(request, {
 					resolveDir: args.resolveDir,
 					kind: args.kind,
 					importer: args.importer,
 					pluginData: { plain: true },
 				});
-				if (result.errors.length) return null;
+				if (result.errors.length || !path.isAbsolute(result.path)) {
+					// Where esbuild's resolver finds no file, webpack's own answers
+					// (webpackResolve): it completes a package `exports` target
+					// with its extensions, where esbuild takes the target as
+					// written, and reads a `browser` field's `false` as an empty
+					// module.
+					const answered = await webpackResolve(
+						config.mode,
+						request,
+						args.resolveDir,
+						args.kind,
+					);
+					if (answered === undefined) return null;
+					note(args.importer, { webpackResolved: request });
+					if (answered === false)
+						return { path: request, namespace: "webpack-empty" };
+					result = { path: answered, namespace: "file" };
+				}
 				let file = result.path;
 				for (const replacement of replacements) {
 					if (replacement.resourceRegExp.test(file)) {
