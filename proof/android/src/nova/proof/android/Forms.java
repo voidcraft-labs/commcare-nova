@@ -12,9 +12,6 @@ import org.commcare.android.database.user.models.FormRecord;
 import org.commcare.dalvik.R;
 import org.commcare.utils.RobolectricUtil;
 import org.commcare.views.QuestionsView;
-import org.commcare.views.dialogs.AlertDialogFragment;
-import org.commcare.views.dialogs.DialogChoiceItem;
-import org.commcare.views.dialogs.PaneledChoiceDialog;
 import org.commcare.views.widgets.QuestionWidget;
 import org.javarosa.core.model.data.IAnswerData;
 import org.javarosa.form.api.FormEntryController;
@@ -26,7 +23,6 @@ import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
@@ -99,19 +95,25 @@ final class Forms {
                 break;
             }
             if (event.equals("PROMPT_NEW_REPEAT")) {
-                DialogChoiceItem[] choices = choices(activity);
-                if (choices == null || choices.length < 3) {
+                // The dialog Android shows at a repeat: go back, add a row, leave the repeat, each a button of
+                // its own (HorizontalPaneledChoiceDialog), pressed as a worker presses it.
+                android.widget.Button[] choices = choices();
+                if (choices == null) {
                     ended = "repeat prompt without its dialog";
                     break;
                 }
+                JSONArray offered = new JSONArray();
+                for (android.widget.Button choice : choices) {
+                    offered.put(String.valueOf(choice.getText()));
+                }
+                screen.put("choices", offered);
                 String repeat = String.valueOf(FormEntryActivity.mFormController.getFormIndex().getReference()
                         .genericize());
                 int rows = added.getOrDefault(repeat, 0);
-                // The dialog's own choices: go back, add a row, leave the repeat.
                 boolean add = rows < Answers.repeatsToAdd();
                 added.put(repeat, rows + 1);
-                screen.put("chose", choices[add ? 1 : 2].text);
-                choices[add ? 1 : 2].listener.onClick(null);
+                screen.put("chose", String.valueOf(choices[add ? 1 : 2].getText()));
+                choices[add ? 1 : 2].performClick();
                 RobolectricUtil.flushBackgroundThread(activity);
                 ShadowLooper.idleMainLooper();
                 before = null;
@@ -294,20 +296,23 @@ final class Forms {
         return answered;
     }
 
-    /** The choices of the dialog the activity is showing, where it is a choice dialog. */
-    private static DialogChoiceItem[] choices(FormEntryActivity activity) throws Exception {
-        activity.getSupportFragmentManager().executePendingTransactions();
-        AlertDialogFragment fragment = activity.getCurrentAlertDialog();
-        Object dialog = null;
-        if (fragment != null) {
-            Field held = AlertDialogFragment.class.getDeclaredField("underlyingDialog");
-            held.setAccessible(true);
-            dialog = held.get(fragment);
-        }
-        if (!(dialog instanceof PaneledChoiceDialog)) {
+    /** The three buttons of the choice dialog Android is showing, or null where it shows none. */
+    private static android.widget.Button[] choices() {
+        android.app.Dialog shown = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        if (shown == null || !shown.isShowing()) {
             return null;
         }
-        return (DialogChoiceItem[])Screens.field(dialog, "choiceItems");
+        android.widget.Button[] found = {
+                (android.widget.Button)shown.findViewById(R.id.choice_dialog_panel_1),
+                (android.widget.Button)shown.findViewById(R.id.choice_dialog_panel_2),
+                (android.widget.Button)shown.findViewById(R.id.choice_dialog_panel_3),
+        };
+        for (android.widget.Button button : found) {
+            if (button == null) {
+                return null;
+            }
+        }
+        return found;
     }
 
     private static String event(int event) {

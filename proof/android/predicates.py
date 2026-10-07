@@ -302,7 +302,8 @@ class Predicates(unittest.TestCase):
         prompts = [screen for screen in form["screens"] if screen["event"] == "PROMPT_NEW_REPEAT"]
         self.assertEqual(len(prompts), 2)
         self.assertNotEqual(prompts[0]["chose"], prompts[1]["chose"])
-        self.assertEqual(form["ended"], "end")
+        # Leaving the last repeat ends this form, which the dialog's own choice then saves.
+        self.assertEqual(form["ended"], "finished")
         self.assertIs(form["saved"]["finishing"], True)
 
     # The predicates whose other spelling is HQ's build's -------------------------------------------------------
