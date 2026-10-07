@@ -338,9 +338,8 @@ def _connect_app(document, core_runner, editor_driver):
 
 
 @pytest.fixture(scope="session")
-def connect_apps(hq, core_runner, editor_driver, connect_out):
-    """Each document of ``DOCUMENTS`` as HQ holds it and as Connect is given it, by document id; what each was
-    given is written under the run's ``connect/<document>/``."""
+def connect_documents():
+    """The corpus documents ``DOCUMENTS`` names, by id, and no other."""
     from proof.checks import corpus
 
     found = {document.id: document for document in corpus.load(corpus.corpus_root()).emitted}
@@ -350,6 +349,14 @@ def connect_apps(hq, core_runner, editor_driver, connect_out):
             f"The corpus holds no {missing}, which proof/connect/conftest.py::DOCUMENTS names as the Connect apps the"
             " Connect proofs run. Name documents the corpus holds."
         )
+    return {document_id: found[document_id] for document_id in DOCUMENTS}
+
+
+@pytest.fixture(scope="session")
+def connect_apps(hq, core_runner, editor_driver, connect_out, connect_documents):
+    """Each document of ``DOCUMENTS`` as HQ holds it and as Connect is given it, by document id; what each was
+    given is written under the run's ``connect/<document>/``."""
+    found = connect_documents
     apps = {document_id: _connect_app(found[document_id], core_runner, editor_driver) for document_id in DOCUMENTS}
     for app in apps.values():
         directory = connect_out / app.document

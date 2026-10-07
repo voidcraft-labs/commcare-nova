@@ -25,10 +25,10 @@ from proof.observe.record import Blobs
 
 
 @pytest.fixture(scope="module")
-def forwarded_delivery(hq, core_runner, connect_runtime):
+def forwarded_delivery(hq, core_runner, connect_runtime, connect_documents):
     """One delivery of ``targeted-connect-deliver-rename`` made by Core on HQ's released build, posted twice as
     two runs of one served state, and once in a project space whose plan has no Data Forwarding."""
-    from proof.checks import casedata, corpus
+    from proof.checks import casedata
     from proof.connect import hq as connect_hq
     from proof.formplayer import hq as formplayer_hq
     from proof.hq import seams
@@ -36,7 +36,7 @@ def forwarded_delivery(hq, core_runner, connect_runtime):
     from proof.observe.sessions import hq_restore, run_sessions
     from proof.rules.conftest import published
 
-    document = next(d for d in corpus.load(corpus.corpus_root()).emitted if d.id == DELIVER)
+    document = connect_documents[DELIVER]
     blobs = Blobs()
     with published(document, core_runner) as app, tempfile.TemporaryDirectory() as scratch:
         database = casedata.case_database(document.document)
