@@ -1422,7 +1422,7 @@ archive read once, a changed archive read again and no other, a planted
 difference failing until an entry holds it, the gate and the register reading
 the stage's output. `proof/android/selfcheck.py` and
 `proof/android/predicates.py` run commcare-android's own code, where the
-reader runs (the job that builds its runtime, before the runtime is kept):
+reader runs (the job that builds or restores its runtime, on every run):
 the reader held to itself, the stage end to end with a planted difference
 Android must show, and each Android predicate the register rests on over both
 spellings of its difference.
@@ -2413,11 +2413,12 @@ CI runs the lane in `ci.yml`, beside the existing jobs:
   Android reader's runtime in the Actions cache: commcare-android's own
   unit-test build at the pins, kept under the digest of everything a build
   of it reads (`python3 proof/android/toolchain.py key`: the two pins, the
-  toolchain, the scripts that build it). A run that finds it kept ends in
-  seconds. One that does not builds it from exactly those, with every
-  download named by commit, checksum or revision
-  (`proof/android/build-runtime.sh`), runs the reader's own checks on it
-  (`selfcheck.py`, `predicates.py`), and saves it.
+  toolchain, the scripts that build it). A run that does not find it kept
+  builds it from exactly those, with every download named by commit,
+  checksum or revision (`proof/android/build-runtime.sh`), and saves it.
+  Every run then holds the reader to its own checks on it (`selfcheck.py`,
+  `predicates.py`, some four minutes, beside the proof shards), since the
+  reader's code changes without the runtime changing.
 - **`proof-android`** ("Android i/n", `ubuntu-24.04`, x64) is one shard of
   the Android stage ("The Android stage", above). `quality` builds the
   Android queue with the main one; each shard waits for the proof shards,

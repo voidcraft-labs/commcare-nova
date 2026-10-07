@@ -243,8 +243,8 @@ image the lane publishes.
 Three sets of tests hold the stage, each where it can run.
 
 `selfcheck.py` and `predicates.py` run commcare-android's own code, so they
-run where the reader does (the job that builds a runtime runs both before it
-keeps it); neither is a `test_*.py`, because the lane's pytest collects all of
+run where the reader does (the job that builds or restores the runtime runs
+both, on every CI run); neither is a `test_*.py`, because the lane's pytest collects all of
 `proof/` in an image that holds no reader runtime.
 
 - `selfcheck.py` holds the reader to itself: one setting added to a profile

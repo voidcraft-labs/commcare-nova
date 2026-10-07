@@ -6,9 +6,10 @@ description: >-
   (proof/android/toolchain.py key), and is kept in the Actions cache under
   that digest. With `build`, a runtime no cache entry holds is built from
   exactly those (proof/android/build-runtime.sh, every download named by
-  commit, checksum or revision), held to the reader's own checks, and saved;
-  without it, a missing runtime fails the job, since the stage's shards run
-  after the job that builds it. Needs `proof/` checked out, on linux/amd64:
+  commit, checksum or revision) and saved, and the reader's own checks run
+  on the runtime, built or kept (the reader's code changes without the
+  runtime changing); without it, a missing runtime fails the job, since the
+  stage's shards run after the job that builds it. Needs `proof/` checked out, on linux/amd64:
   Robolectric's native runtime and the Android Gradle plugin's resource
   compiler ship for no other Linux.
 inputs:
@@ -70,9 +71,10 @@ runs:
         path: ${{ runner.temp }}/proof-android-verification/
         if-no-files-found: ignore
         retention-days: 14
-    # The reader held to itself on the runtime just built, before any shard reads an archive with it.
+    # The reader held to itself, before any shard reads an archive with it: on a runtime just built before it
+    # is kept, and on a kept one too, since the reader's own code changes without the runtime changing.
     - name: The reader's own checks
-      if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
+      if: ${{ inputs.build == 'true' }}
       shell: bash
       env:
         PROOF_ANDROID_RUNTIME: ${{ steps.name.outputs.runtime }}

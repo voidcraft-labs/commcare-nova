@@ -814,10 +814,12 @@ jobs:
     # The Android reader's runtime (proof/android/README.md): commcare-android's
     # own unit-test build at the pins, kept in the Actions cache under the
     # digest of everything a build of it reads (proof/android/toolchain.py
-    # key), so it is built once a pin. A run that finds it kept ends here in
-    # seconds; one that does not builds it from the pins, with every download
-    # named by commit, checksum or revision, holds the reader to its own
-    # checks on it, and saves it for the stage's shards and every later run.
+    # key), so it is built once a pin. A run that does not find it kept
+    # builds it from the pins, with every download named by commit, checksum
+    # or revision, and saves it for the stage's shards and every later run.
+    # Every run then holds the reader to its own checks on it (some four
+    # minutes, beside the proof shards), since the reader's code changes
+    # without the runtime changing.
     name: Android reader runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 60
