@@ -2336,10 +2336,13 @@ moved the floor: a document's group costs about ten times what it did
 (forty to a hundred seconds on one worker), nearly all of it Formplayer's
 walks and the client's page, neither of which more workers on a four-vCPU
 job make cheaper. The lane no longer fits five minutes at ten shards, and
-`ci.yml`'s shard timeout is raised to hold it; `proof/timings.json` still
-holds the costs measured before, so the bin packing counts every document
-alike until it is refreshed from hosted runs. What the lane's target is
-now, and how many shards it runs on, is the person's to set (decision 11).
+`ci.yml`'s shard timeout is raised to hold it. `proof/timings.json` holds
+the costs a hosted run of sixteen shards measured with every state served
+(about 16,700 box-seconds in all, seventeen to nineteen minutes a shard).
+Connect in the unit is a small part of that: each of the sixteen Connect
+documents costs about ten box-seconds more than it did, and its three
+controls about forty-three each. What the lane's target is now, and how
+many shards it runs on, is the person's to set (decision 11).
 
 ## Changing a pin
 

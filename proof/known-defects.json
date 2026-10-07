@@ -7621,11 +7621,7 @@
 		"path": "/runs/*/state/visits/*/flags/gps",
 		"kind": "added",
 		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename",
-		"values": {
-			"before": null,
-			"after": "GPS data is missing"
-		}
+		"control": "targeted-connect-deliver-rename"
 	},
 	{
 		"id": "d34-connect-location-capture-connect-local-ccz-visits-location",
@@ -7636,11 +7632,7 @@
 		"path": "/runs/*/state/visits/*/location",
 		"kind": "changed",
 		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename",
-		"values": {
-			"before": "12.97160 77.59460 920.0 5.0",
-			"after": null
-		}
+		"control": "targeted-connect-deliver-rename"
 	},
 	{
 		"id": "d60-connect-key-names-connect-a-refused-500-keyerror",
@@ -7662,11 +7654,7 @@
 		"path": "/runs/*/visit-rejected-for-the-task-its-form-completes",
 		"kind": "error",
 		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename",
-		"values": {
-			"before": null,
-			"after": "home_visit"
-		}
+		"control": "targeted-connect-deliver-rename"
 	},
 	{
 		"id": "d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved",
