@@ -15,8 +15,10 @@ it:
   archive of the edit, and on HQ's build of the form as HQ's own form
   designer saves it (Vellum, ``proof.editors.vellum``), on the lane's day and
   on the day after;
-- HQ's Connect payload for each (``proof.connect.hq.forwarded``), posted
-  under the app's id or, for the local archive, also with no app named.
+- HQ's Connect payload for each, as HQ's own receiver and Connect repeater
+  made and sent it (``_forwarded_by_hq``): each submission posted to HQ's
+  receiver view under the app's id or, for the local archive, also with no
+  app named, and the payload read where it reached Connect.
 
 A submission's location is the one value no code the lane runs writes: HQ's
 build adds the node and the action that fills it (``xform.py::
@@ -32,7 +34,6 @@ package's outcome in the evidence store (``proof.store.queue.PACKAGE_DATA``).
 
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
@@ -280,8 +281,57 @@ def _vellum_saved_build(app, editor_driver, form_unique_id):
     return _build_in_fork(app, "vellum", change)
 
 
-def _connect_app(document, core_runner, editor_driver):
+def _refuses_to_answer(method, url, headers, body):
+    raise AssertionError(
+        f"Connect asked HQ for {method} {url} while it was only given forms to receive; it holds no opportunity"
+        " here, so nothing of it should read an app."
+    )
+
+
+def _forwarded_by_hq(app, document, made, connect_runtime) -> dict:
+    """Each submission of ``made`` (by name) as HQ forwards it: posted to HQ's own receiver view as a device
+    posts it, under the app's id (and the local archive's once more with no app named, ``local-unnamed``),
+    taken by HQ's receiver whole and sent by HQ's own Connect repeater, with a token it asked Connect for, to a
+    served Connect over a real connection (``proof.connect.hq.forwarding``). The payload is read where it
+    arrived. That Connect holds HQ's server and no opportunity, so it authenticates HQ and answers that the
+    form belongs to nothing: what Connect makes of a payload is each test's own scenario's to show."""
     from proof.connect import hq as connect_hq
+    from proof.formplayer import hq as formplayer_hq
+
+    wanted = [(name, xml, app.app_id) for name, xml in sorted(made.items())]
+    if "local" in made:
+        wanted.append(("local-unnamed", made["local"], None))
+    found = {}
+    with formplayer_hq.serve(app.unit, document, app.app_id) as served:
+        session = connect_runtime.session(_refuses_to_answer)
+        try:
+            session.step("hq_server", hqUrl="https://www.commcarehq.org", oauthClient=connect_hq.OAUTH_CLIENT)
+            with connect_hq.forwarding(app.unit, session.url, app.unit.operation, "package"):
+                views = formplayer_hq.HqViews(app.unit, served.username)
+                for name, xml, receiver_id in wanted:
+                    with served.run(f"forward-{name}"):
+                        views.begin(f"forward-{name}".encode(), None)
+                        path = connect_hq.receiver_url(app.unit.domain, receiver_id)
+                        request = connect_hq.device_request(path, served.username, formplayer_hq.PASSWORD, xml)
+                        answer = views(request)
+                        assert answer.status == 201, (name, answer.status, answer.body[:300])
+                        registered = connect_hq.forwards(app.unit)
+                        arrived = [
+                            exchange
+                            for exchange in session.step("collect")["exchanges"]
+                            if exchange["path"] == "/api/receiver/"
+                        ]
+                    assert len(registered) == len(arrived) == 1, (name, registered, arrived)
+                    payload = arrived[0]["payload"]
+                    found[name] = Submitted(
+                        xml, connect_hq.Forwarded(payload["app_id"], payload["build_id"], True, payload)
+                    )
+        finally:
+            session.close()
+    return found
+
+
+def _connect_app(document, core_runner, editor_driver, connect_runtime):
     from proof.rules.conftest import published
 
     with published(document, core_runner, CONFIGURATION) as app, tempfile.TemporaryDirectory() as scratch:
@@ -318,13 +368,7 @@ def _connect_app(document, core_runner, editor_driver):
                 for suffix, fix in (("fix", FIX), ("near", FIX_NEAR), ("far", FIX_FAR)):
                     made[f"{name}+{suffix}"] = with_fix(made[name], fix)
 
-        def forward(xml, receiver_id):
-            with app.unit.operation("connect-forward", hashlib.sha256(xml).digest()):
-                return Submitted(xml, connect_hq.forwarded(app.unit, xml, receiver_id))
-
-        submissions = {name: forward(xml, app.app_id) for name, xml in sorted(made.items())}
-        if "local" in made:
-            submissions["local-unnamed"] = forward(made["local"], None)
+        submissions = _forwarded_by_hq(app, document, made, connect_runtime)
         return ConnectApp(
             document=document.id,
             domain=app.unit.domain,
@@ -353,11 +397,14 @@ def connect_documents():
 
 
 @pytest.fixture(scope="session")
-def connect_apps(hq, core_runner, editor_driver, connect_out, connect_documents):
+def connect_apps(hq, core_runner, editor_driver, connect_out, connect_documents, connect_runtime):
     """Each document of ``DOCUMENTS`` as HQ holds it and as Connect is given it, by document id; what each was
     given is written under the run's ``connect/<document>/``."""
     found = connect_documents
-    apps = {document_id: _connect_app(found[document_id], core_runner, editor_driver) for document_id in DOCUMENTS}
+    apps = {
+        document_id: _connect_app(found[document_id], core_runner, editor_driver, connect_runtime)
+        for document_id in DOCUMENTS
+    }
     for app in apps.values():
         directory = connect_out / app.document
         directory.mkdir(parents=True, exist_ok=True)

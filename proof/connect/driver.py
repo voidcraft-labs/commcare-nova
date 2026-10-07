@@ -164,6 +164,19 @@ class Scenario:
         assert Opportunity.objects.count() == 1
         return {}
 
+    def hq_server_step(self, step):
+        """An HQ server as a Connect administrator registers one, with HQ's OAuth application, and no opportunity:
+        Connect then authenticates HQ's repeater and finds nothing a form belongs to."""
+        from commcare_connect.commcarehq.tests.factories import HQServerFactory
+
+        application = HQServerFactory(url=step["hqUrl"]).oauth_application
+        application.client_id = step["oauthClient"]["id"]
+        application.client_secret = step["oauthClient"]["secret"]
+        application.client_type = "confidential"
+        application.authorization_grant_type = "client-credentials"
+        application.save()
+        return {}
+
     def sync_step(self, step):
         """Connect's own reading of the opportunity's apps: its sync of learn modules and deliver units, and the
         deliver app's task units made task types. ``step["ccz"]`` names the archive HQ built for each app id."""

@@ -1,36 +1,19 @@
-"""HQ's side of the Connect proof: a submission as HQ's receiver reads it, and what HQ's Connect repeater forwards.
+"""HQ's side of the Connect proof: a form received by HQ's own receiver and forwarded by its own Connect repeater.
 
 Connect never sees a form. It sees the JSON HQ's Connect repeater posts
 (``corehq/motech/repeaters/models.py::ConnectFormRepeater``), which HQ's own
 payload generator builds from the form HQ holds
 (``repeater_generators.py::ConnectFormRepeaterPayloadGenerator.get_payload``):
-the form through HQ's form API resource (``api/resources/v0_4.py::
-XFormInstanceResource`` over ``api/util.py::form_to_es_form``), kept to its
-domain, id, app id, build id, received time and metadata, with every block
-in Connect's namespace put back at its path under ``form``. So the payload's
-shape is HQ's, produced here by that code and never written by hand.
+the form through HQ's form API resource, kept to its domain, id, app id,
+build id, received time and metadata, with every block in Connect's
+namespace put back at its path under ``form``.
 
-The form it reads is the one HQ's receiver makes of a submission, by the
-receiver's own steps in the receiver's order
-(``form_processor/submission_post.py::SubmissionPost.run``, up to its case
-processing): the app and build the receiver's URL names
-(``receiverwrapper/util.py::get_app_and_build_ids``), the submission parsed
-and its datetimes adjusted (``parsers/form.py::process_xform_xml``), and the
-request's properties and the meta scrub put on the form
-(``SubmissionPost._post_process_form``). HQ's case processing and its save
-are not run here (proof 3 holds HQ's case processing of every submission,
-``proof.observe.sessions``): neither changes a field the payload reads.
-
-``forwards`` is the repeater's own word on whether it forwards the form
-(``FormRepeater.allowed_to_forward``).
-
-That is what the package's own tests read (``proof/connect/test_receiver.py``).
-A document's unit (``proof.observe.connect``) runs the whole of it instead,
-with nothing called on HQ's behalf (``forwarding``): the project space holds
-a Connect repeater as a person adds one (``ConnectFormRepeater`` over
-connection settings that name Connect's receiver and authenticate by OAuth's
-client credentials grant), a device's submission is posted to HQ's own
-receiver view at the address its profile names (``device_post``:
+Nothing here builds that payload or calls a function on HQ's behalf. The
+whole of it runs (``forwarding``): the project space holds a Connect
+repeater as a person adds one (``ConnectFormRepeater`` over connection
+settings that name Connect's receiver and authenticate by OAuth's client
+credentials grant), a device's submission is posted to HQ's own receiver
+view at the address its profile names (``device_request``, ``post_path``:
 ``receiverwrapper/views.py::post``, so ``SubmissionPost.run`` whole, its
 locks, its case processing, its save and what it does on commit), HQ's own
 signal registers the repeat record (``repeaters/signals.py::
@@ -39,20 +22,25 @@ create_form_repeat_records``), HQ's own task fires it
 it is queued), and HQ's own HTTP client asks Connect for a token and posts
 the payload to the address a served Connect answers at
 (``proof.connect.runtime.ConnectSession``), over a real connection. What HQ
-keeps of each forward is read back from its repeat records (``forwards``).
+keeps of each forward is read back from its repeat records (``forwards``),
+and the payload is read where it arrived, in Connect.
 
 What is stated of the project space for that, each named where it is done:
-its plan has Data Forwarding (``proof.hq.seams.also_granted``); Connect is
-reached at a loopback address over plain HTTP, where a deployment's is
-reached over HTTPS, so oauthlib is told the transport is so
-(``OAUTHLIB_INSECURE_TRANSPORT``, its own switch for it), and HQ's own check
-of a forwarding address passes a loopback address while ``DEBUG`` is on, as
-the lane's HQ is (``motech/requests.py::validate_user_input_url_for_repeaters``).
+its plan has Data Forwarding (``proof.hq.seams.also_granted``); the repeater
+and its connection settings are rows made through HQ's models, as HQ's Add
+Forwarder page saves them; Connect is reached at a loopback address over
+plain HTTP, where a deployment's is reached over HTTPS, so oauthlib is told
+the transport is so (``OAUTHLIB_INSECURE_TRANSPORT``, its own switch for
+it), and HQ's own check of a forwarding address passes a loopback address
+while ``DEBUG`` is on, as the lane's HQ is
+(``motech/requests.py::validate_user_input_url_for_repeaters``).
+
+``Forwarded`` is what the package's own tests keep of one forward
+(``proof/connect/conftest.py``).
 """
 
 from __future__ import annotations
 
-import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -60,7 +48,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Forwarded:
-    """What HQ's Connect repeater makes of one submission."""
+    """What HQ's Connect repeater made of one submission: the payload as it reached Connect, the app and build
+    it names, and whether HQ registered a forward for it."""
 
     app_id: str | None
     build_id: str | None
@@ -75,38 +64,6 @@ def receiver_url(domain, receiver_id):
     if receiver_id is None:
         return reverse("receiver_post", args=[domain])
     return reverse("receiver_post_with_app_id", args=[domain, receiver_id])
-
-
-def forwarded(state, submission_xml: bytes, receiver_id: str | None) -> Forwarded:
-    """HQ's Connect payload for ``submission_xml`` posted to the unit's project space under ``receiver_id``.
-
-    ``receiver_id`` is the id in the URL the device posts to: the id HQ's
-    build writes into its profile's ``PostURL``
-    (``app_manager/models/applications.py::ApplicationBase.post_url``), or
-    None for a post to the project space's receiver with no app named.
-    """
-    from corehq.apps.receiverwrapper.util import get_app_and_build_ids
-    from corehq.form_processor.parsers.form import process_xform_xml
-    from corehq.form_processor.submission_post import SubmissionPost
-    from corehq.motech.repeaters.models import ConnectFormRepeater
-
-    domain = state.domain
-    app_id, build_id = get_app_and_build_ids(domain, receiver_id)
-    post = SubmissionPost(
-        instance=submission_xml,
-        attachments={},
-        domain=domain,
-        app_id=app_id,
-        build_id=build_id,
-        path=receiver_url(domain, receiver_id),
-    )
-    form = process_xform_xml(domain, post.instance, post.attachments, post.auth_context.to_json()).submitted_form
-    post._post_process_form(form)
-    repeater = ConnectFormRepeater(domain=domain)
-    payload = json.loads(repeater.generator.get_payload(None, form))
-    return Forwarded(
-        app_id=app_id, build_id=build_id, forwards=bool(repeater.allowed_to_forward(form)), payload=payload
-    )
 
 
 # Forwarding, end to end ------------------------------------------------------------------------------------
