@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "score-held",
+			"export": "local",
+			"form": "e7c3c7e2-b3ca-5e7e-ac85-6db4e4166bb2",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/score",
+						"value": "8"
+					}
+				],
+				"expressions": [
+					"/data/score"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "8"
+				}
+			]
+		}
+	]
+}

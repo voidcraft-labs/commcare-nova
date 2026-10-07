@@ -1,0 +1,136 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Home visits",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "8132f1f9-6ffe-5e85-a8e9-92035eecd5e9",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"8132f1f9-6ffe-5e85-a8e9-92035eecd5e9"
+					],
+					"uuid": "67d91ba7-30d7-5e0b-a335-59a161495817"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Home visits",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "8132f1f9-6ffe-5e85-a8e9-92035eecd5e9",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"8132f1f9-6ffe-5e85-a8e9-92035eecd5e9"
+					],
+					"uuid": "67d91ba7-30d7-5e0b-a335-59a161495817"
+				}
+			]
+		}
+	}
+}

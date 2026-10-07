@@ -7654,5 +7654,142 @@
 		"path": "/runs/*/screens/*/kind",
 		"document": "container-nested-query",
 		"control": "container-nested-query"
+	},
+	{
+		"id": "d59-local-archive-names-no-server-connect-local-ccz-posts-answer",
+		"defect": 59,
+		"part": "local archive names no server",
+		"check": "proof3",
+		"artifact": "connect@local.ccz",
+		"path": "/runs/*/posts/*/answer",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d34-connect-location-capture-connect-local-ccz-visits-flags-gps",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "connect@local.ccz",
+		"path": "/runs/*/state/visits/*/flags/gps",
+		"kind": "added",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": null,
+			"after": "GPS data is missing"
+		}
+	},
+	{
+		"id": "d34-connect-location-capture-connect-local-ccz-visits-location",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "connect@local.ccz",
+		"path": "/runs/*/state/visits/*/location",
+		"kind": "changed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": "12.97160 77.59460 920.0 5.0",
+			"after": null
+		}
+	},
+	{
+		"id": "d60-connect-key-names-connect-a-refused-500-keyerror",
+		"defect": 60,
+		"part": "Connect block named like a Connect key",
+		"check": "proof3",
+		"artifact": "connect@A",
+		"path": "/runs/*/refused/500/KeyError",
+		"kind": "error",
+		"document": "targeted-connect-deliver-key-names",
+		"control": "targeted-connect-deliver-key-names"
+	},
+	{
+		"id": "d61-deliver-form-with-a-task-connect-a-visit-rejected",
+		"defect": 61,
+		"part": "deliver form that holds a task",
+		"check": "proof3",
+		"artifact": "connect@A",
+		"path": "/runs/*/visit-rejected-for-the-task-its-form-completes",
+		"kind": "error",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": null,
+			"after": "home_visit"
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/ids/deliver/moved",
+		"kind": "changed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": ["home_visit"],
+			"after": ["household_visit"]
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-ids-task-moved",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/ids/task/moved",
+		"kind": "changed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": ["follow_up"],
+			"after": ["return_visit"]
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-refused-400-payment-unit",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/runs/*/refused/400/payment-unit-is-not-configured-for-the-deliver-unit",
+		"kind": "error",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-ids-module-moved",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/ids/module/moved",
+		"kind": "changed",
+		"document": "targeted-connect-learn-rename",
+		"control": "targeted-connect-learn-rename",
+		"values": {
+			"before": ["hand_washing"],
+			"after": ["washing_hands"]
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-catalog-learnmodules-added",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/runs/*/catalog/learnModules/added",
+		"kind": "error",
+		"document": "targeted-connect-learn-rename",
+		"control": "targeted-connect-learn-rename",
+		"values": {
+			"before": null,
+			"after": ["washing_hands"]
+		}
 	}
 ]

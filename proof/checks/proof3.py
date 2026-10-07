@@ -972,8 +972,12 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     and, wherever proof 2 still finds a difference between A's build and
     the build of B aligned to A, Formplayer's sessions and the client's
     screens on that build against A's (``formplayer@B``, ``webapps@B``).
+
+    For a Connect app (``proof.observe.connect``), what CommCare Connect made of each state's submissions
+    (``proof.checks.connect``): what stands on its own at A (``connect@A``), and the local archive's and B's
+    against A's (``connect@local.ccz``, ``connect@B``).
     """
-    from proof.checks import served
+    from proof.checks import connect, served
 
     blobs = records.blobs
     a = _served_a(records, name)
@@ -989,6 +993,14 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             " (proof.observe.unit._Unit.observe_b_aligned) records them wherever the served hook ran at A."
         )
     trace_a = blobs.get_json(a["formplayer"]["trace"])
+    # A Connect app: what Connect made of A's submissions that stands on its own, and below what it made of the
+    # local archive's and of B's against A's (``proof.checks.connect``).
+    opportunity = (((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}).get("connect")
+    connect_a = blobs.get_json(a["connect"]) if a.get("connect") else None
+    if opportunity is not None:
+        found += connect.absolute_differences(
+            connect_a, opportunity["catalog"], check=CHECK, document=document, artifact="connect@A"
+        )
     if aligned.get("refused"):
         # HQ's make_build refused the state the unit held with b_aligned (B, or B aligned to A), which the bar
         # reports of B's build; nothing was served there to compare.
@@ -1014,6 +1026,17 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             if local_ccz is not None
             else None,
         )
+        if opportunity is not None and local.get("connect"):
+            # The archive's submissions as it arranges them (no app named) and under the app's id, each against
+            # A's from Core.
+            found += connect.differences(
+                connect_a,
+                blobs.get_json(local["connect"]),
+                check=CHECK,
+                document=document,
+                artifact="connect@local.ccz",
+                readers={"formplayer": "formplayer", "core": "core", "core@app": "core"},
+            )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
         if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
@@ -1036,6 +1059,10 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                     check=CHECK,
                     document=document,
                     artifact="webapps@B",
+                )
+            if opportunity is not None and b.get("connect"):
+                found += connect.differences(
+                    connect_a, blobs.get_json(b["connect"]), check=CHECK, document=document, artifact="connect@B"
                 )
     return found
 

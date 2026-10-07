@@ -74,7 +74,7 @@ FIX = "12.97160 77.59460 920.0 5.0"
 # What an opportunity's manager sets its learn app to pass at; the Core runner answers a score above it.
 PASSING_SCORE = 5
 RECEIVER = "/api/receiver/"
-APP, BUILD, USERCASE = "@app", "@build", "@usercase"
+APP, BUILD, USERCASE, CONNECT = "@app", "@build", "@usercase", "@connect"
 CATALOG = ("learnModules", "deliverUnits", "taskTypes")
 
 
@@ -311,7 +311,8 @@ class Forwarder:
         if not runs:
             return None
         served = self.served
-        drawn = {served.app_id: APP, served.build_id: BUILD}
+        # Where Connect answers is this process's own address, which names nothing of the app.
+        drawn = {served.app_id: APP, served.build_id: BUILD, self.opportunity.session.url: CONNECT}
         if served.usercase_id:
             drawn[served.usercase_id] = USERCASE
         given = canonical.given_ids(served.hq.restores, [served.archive(), *archives])

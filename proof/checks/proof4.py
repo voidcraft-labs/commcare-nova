@@ -1132,6 +1132,18 @@ class _Judged:
             found.append(
                 Difference(CHECK, self.document, "release", cause, cause, "refused", None, served["releaseDiffers"])
             )
+        if served.get("connect") is not None and base.get("connect") is not None:
+            # A Connect app: what Connect made of the saved app's submissions against the state's it was saved
+            # over (``connect@<editor>``, ``proof.checks.connect``).
+            from proof.checks import connect
+
+            found += connect.differences(
+                self._blob(base["connect"]),
+                self._blob(served["connect"]),
+                check=CHECK,
+                document=self.document,
+                artifact="connect",
+            )
         return _named(found, editor)
 
     def behavior_differences(self, editor, base, built, trace):
@@ -1255,6 +1267,30 @@ def edit_refusals(document, records, name, record):
     return compare.refusal_differences(new, check=CHECK, document=document, artifact="formplayer")
 
 
+def connect_beyond_a(document, records, name, record, *, moved):
+    """For a Connect app, what CommCare Connect made of B's (or B-edit's) submissions that stands on its own and
+    that A's did not show (``connect``, ``proof.checks.connect.absolute_differences``): the opportunity was made
+    from A's release and goes on receiving the app's forms after Nova's next publish. An edit changes what a
+    form submits, so B-edit's rows are not held to A's; with ``moved`` (the edit), an id the opportunity keys
+    its rows by that moved is a difference too (``/ids/<kind>/moved``). A's own are proof 3's."""
+    from proof.checks import connect
+
+    a = ((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}
+    held = record.get("served") or {}
+    if a.get("connect") is None or not held.get("served") or held.get("connect") is None:
+        return []
+    connect_a = (a.get("A") or {}).get("connect")
+    return connect.absolute_differences(
+        records.blobs.get_json(held["connect"]),
+        a["connect"]["catalog"],
+        check=CHECK,
+        document=document,
+        artifact="connect",
+        beyond=records.blobs.get_json(connect_a) if connect_a else {},
+        moved=moved,
+    )
+
+
 def _bs(document):
     """Each B proof 4 saves over, in the order the document's exports name their configurations."""
     for name in document.exports:
@@ -1289,4 +1325,5 @@ def document_editability(document, records):
         saves += judged
         if state == EDIT:
             found += [over.named(d) for d in edit_refusals(document.id, records, name, record)]
+        found += [over.named(d) for d in connect_beyond_a(document.id, records, name, record, moved=state == EDIT)]
     return found + observations.soft_assertion_differences(records, CHECK), saves
