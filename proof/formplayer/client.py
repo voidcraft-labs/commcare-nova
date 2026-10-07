@@ -559,7 +559,14 @@ class FormplayerRunner:
             message = error.get("message", "The Formplayer runner refused the request without a message.")
             if kind == "deadline":
                 self._stop_process(kill=False)
-                raise FormplayerDeadlineError(message, kind=kind, log=self.last_log, detail=error)
+                # Where Formplayer's threads stood, which the runner reads before it halts (Runner.threads).
+                stood = error.get("trace")
+                raise FormplayerDeadlineError(
+                    f"{message}\nWhere Formplayer's threads stood:\n{stood}" if stood else message,
+                    kind=kind,
+                    log=self.last_log,
+                    detail=error,
+                )
             raise FormplayerRunnerError(message, kind=kind, log=self.last_log, detail=error)
 
     def _answer_hq(self, line: dict[str, Any], hq: HqHandler) -> tuple[HqRequest, HqAnswer]:

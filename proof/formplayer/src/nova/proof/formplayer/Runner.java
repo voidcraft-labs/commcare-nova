@@ -250,7 +250,7 @@ public final class Runner {
         } catch (HttpTimeoutException e) {
             response = failure(id, "deadline", e.getClass().getName(),
                     "Formplayer did not answer within the request's deadline, so the runner halts; the next request"
-                            + " starts a fresh one.", null);
+                            + " starts a fresh one.", threads());
             response.put("log", captured.take());
             write(response);
             Runtime.getRuntime().halt(DEADLINE_EXIT);
@@ -266,6 +266,38 @@ public final class Runner {
         response.put("log", captured.take());
         current = null;
         write(response);
+    }
+
+    /**
+     * Where every thread of the JVM that is running Formplayer's, Core's or the
+     * web server's code stands, for a request that met its deadline: the one
+     * thing that says what Formplayer was waiting for.
+     */
+    private static String threads() {
+        StringBuilder found = new StringBuilder();
+        for (Map.Entry<Thread, StackTraceElement[]> held : Thread.getAllStackTraces().entrySet()) {
+            StackTraceElement[] frames = held.getValue();
+            boolean ours = false;
+            for (StackTraceElement frame : frames) {
+                String name = frame.getClassName();
+                if (name.startsWith("org.commcare.") || name.startsWith("org.javarosa.")) {
+                    ours = true;
+                    break;
+                }
+            }
+            if (!ours) {
+                continue;
+            }
+            found.append(held.getKey().getName()).append(" (").append(held.getKey().getState()).append(")\n");
+            int shown = 0;
+            for (StackTraceElement frame : frames) {
+                if (shown++ == 40) {
+                    break;
+                }
+                found.append("    at ").append(frame).append("\n");
+            }
+        }
+        return found.length() == 0 ? "No thread was in Formplayer's or Core's code." : found.toString();
     }
 
     private static JSONObject failure(Object id, String kind, String type, String message, String trace) {
