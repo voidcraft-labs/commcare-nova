@@ -129,8 +129,10 @@ def forwards(unit) -> list:
             {
                 "form": record.payload_id,
                 "state": State(record.state).name,
+                # What HQ wrote of the answer: where it sent the form and the status it got (the body, which for
+                # a failure is the page Connect rendered, is Connect's to keep).
                 "attempts": [
-                    {"state": State(attempt.state).name, "message": (attempt.message or "")[:300]}
+                    {"state": State(attempt.state).name, "message": "\n".join((attempt.message or "").splitlines()[:2])}
                     for attempt in record.attempt_set.all()
                 ],
             }

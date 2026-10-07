@@ -107,6 +107,15 @@ corpus ids that show the symptom.
     run here.
 
 ### Case lists
+    *In the lane* (`connect@local.ccz`, proof 3, on every Connect document
+    with a deliver unit): HQ's own receiver and Connect repeater forward
+    Core's delivery from HQ's build, with a device's fix written into its
+    location node, and the local archive's posted under the app's id, to one
+    opportunity that verifies GPS. Connect holds the build's visit with its
+    location and flags the local archive's "GPS data is missing"
+    (`/runs/*/state/visits/*/location`, `/runs/*/state/visits/*/flags/gps`).
+    Formplayer's own delivery on HQ's build carries no location either (no
+    browser gave it one) and is flagged the same.
 
 35. **A hidden select column holds different text on each path.** HQ's build
     writes a hidden column as `invisible` over the raw property
@@ -463,7 +472,17 @@ Formplayer's own application does over HQ's builds of Nova's exports:
     only by a submission that does name the app. The lane now walks the
     local archive on Formplayer over HQ's own state on every document
     (`formplayer@local.ccz`, proof 3), where each form's submission shows as
-    refused. *Documents:* any local archive.
+    refused. For a Connect document the lane also posts each of Core's
+    submissions of the local archive to HQ's own receiver view with no app
+    named, the most a submission of it can name: HQ's receiver takes the
+    form, its Connect repeater forwards it with a null app id, Connect
+    answers 400, and HQ marks the forward rejected and does not send it
+    again (`connect@local.ccz`, `/runs/*/posts/*/answer`). HQ's build's
+    profile sends a device to the receiver under the build's own id, from
+    which HQ reads the app and the build. commcare-android's own default
+    for a profile with no `PostURL` is a fixed address of its own
+    (`app/res/values/strings.xml`, `PostURL`), which names no project space
+    of the app's; cited, not run. *Documents:* any local archive.
 
 What the same runs show of earlier findings, each on Formplayer itself
 (`proof/formplayer/test_*.py`): finding 40's `cc-autosync-freq` reads alike
@@ -480,8 +499,19 @@ app in what Formplayer hands Web Apps (`QueryResponseBean.description`).
 ### Found by running Connect's receiver
 
 The Connect proof (`proof/connect`) runs Connect's own sync and form receiver,
-at the Connect pin, over the payload HQ's own repeater builds from a submission
-Core made on HQ's build or Nova's local archive of a Nova export.
+at the Connect pin, over the payload HQ's own repeater sends of a submission
+Core made on HQ's build or Nova's local archive of a Nova export. Every
+Connect document's unit now runs the same chain on every state it serves
+(`proof/README.md`, "Connect in the unit"): HQ's own receiver view takes
+each of Core's and Formplayer's submissions whole, HQ's own Connect repeater
+posts it over a real connection to Connect's own server, and what Connect
+then holds is judged (`connect@…` in proofs 3 and 4). Two things that chain
+shows of HQ and Connect themselves, neither Nova's: HQ forwards every form
+of a project space that has a Connect repeater, so a form with no Connect
+block reaches Connect too and is answered 400 (it holds nothing of
+Connect's); and HQ retries a forward Connect failed (a 500) and gives up
+on one Connect refused (a 400, "payload rejected"), so a delivery Connect
+refuses is not sent again when the cause is put right.
 
 60. **A Connect block named like one of Connect's own keys fails Connect's
     receiver.** Nova names a Connect block's wrapper node by the block's id
@@ -502,7 +532,10 @@ Core made on HQ's build or Nova's local archive of a Nova export.
     (`proof/connect/test_receiver.py`), with the accepted case: the same
     forms with blocks named otherwise. HQ's own form designer names the
     wrapper by the question's id as well, so an app made there with such an
-    id fails alike. *Fix:* the validator refuses the five names as a Connect
+    id fails alike. In the lane (`connect@A`,
+    `/runs/*/refused/500/KeyError`) each such form's submission, Core's and
+    Formplayer's, fails in Connect and HQ's repeat record is left failed.
+    *Fix:* the validator refuses the five names as a Connect
     id, each in the app type whose receiver reads it.
     *Documents:* `connect-deliver-default`, `connect-deliver-custom` (the
     task of both is `task`), `targeted-connect-learn-key-names`,
@@ -517,8 +550,31 @@ Core made on HQ's build or Nova's local archive of a Nova export.
     and only then completes the task from the same submission
     (`process_deliver_form`). *Harm:* the delivery made in the submission
     that completes a task is always rejected and unpaid; the next one is
-    approved. Run in Connect (`proof/connect/test_receiver.py`).
-    *Documents:* `targeted-connect-deliver-rename`, `connect-deliver-default`.
+    approved. Run in Connect (`proof/connect/test_receiver.py`), and in the
+    lane on every document with such a form (`connect@A`,
+    `/runs/*/visit-rejected-for-the-task-its-form-completes`: the rows hold
+    a visit rejected for the pending task and that task completed by the
+    same form).
+    *Documents:* `targeted-connect-deliver-rename`; `connect-deliver-default`
+    and `connect-deliver-custom` hold such a form too, whose submission
+    Connect fails before it reads either (finding 60).
+
+What the same chain shows of defect 15 (Connect ids Vellum rejects, whose
+fix renames them): Connect keys an opportunity's rows by each block's id, so a
+rename under an opportunity that holds the old id breaks it. On the two
+documents whose edit renames their Connect ids (`targeted-connect-deliver-rename`,
+`targeted-connect-learn-rename`), with the opportunity made from A's release
+and B-edit's submissions forwarded to it (`connect@B-edit@…`, proof 4):
+Connect refuses every delivery of the renamed deliver unit (400, "Payment unit
+is not configured for the deliver unit", `/runs/*/refused/400/…`), and HQ
+does not send a refused forward again; the receiver makes a second learn
+module of the renamed one (`/runs/*/catalog/learnModules/added`), so a
+learner who finishes the course stands at half; and the renamed task
+completes no task the worker was assigned. Each is reported with the ids that
+moved (`/ids/deliver/moved`, `/ids/task/moved`, `/ids/module/moved`).
+`proof/connect/test_receiver.py` runs what a manager can do after it (asking
+for the units again and paying for the new one restores deliveries; nothing
+restores the learner or the assigned task).
 
 ### Found by running the Web Apps client
 
@@ -708,12 +764,11 @@ views, Formplayer and the client, on the documents the register names:
 ## Equivalences only another runtime reads
 
 These differences are no harm: every runtime that reads them reads both
-spellings alike. Their readers are runtimes the lane does not run (Android,
-Web Apps' client), or were when the entry was written, so no spelling rule's
-test can prove them alike, and
-the register holds them, each entry marked with its `equivalence`. Connect's
-are now run by the Connect proof (`proof/connect`), which holds finding 55's
-two spellings to the same rows in Connect. Beside the
+spellings alike. One of their readers is a runtime no test of the lane runs
+(Android), or was when the entry was written, so no spelling rule's test can
+prove them alike, and the register holds them, each entry marked with its
+`equivalence`. Finding 55 is no longer one of them: every reader of its
+spelling is run, so it is a spelling rule. Beside the
 findings below, the entries of findings 40 (ten profile settings written at the
 value their readers take when they are absent) and 42 (a vertical alignment of
 `start`) are marked the same way.
@@ -745,7 +800,15 @@ value their readers take when they are absent) and 42 (a vertical alignment of
     submission differs, and only Connect reads it. *Harm:* none: HQ forwards
     the empty id as an empty string, and Connect's receiver leaves the same
     rows for the saved form's delivery as for Nova's
-    (`proof/connect/test_receiver.py`).
+    (`proof/connect/test_receiver.py`). Every reader of the element is now
+    run on both spellings by one test
+    (`proof/rules/test_connect_work_area_empty.py`: HQ's build, Core's
+    sessions and HQ's case processing, Formplayer's walk, HQ's own receiver
+    and Connect repeater, and Connect's receiver, with an id that names a
+    work area as the case Connect reads otherwise), so the spelling is the
+    rule `connect-work-area-empty` and the register holds no entry for it.
+    The lane shows the same on each Vellum save of a deliver form
+    (`connect@vellum@…` reports nothing).
     *Documents:* `connect-deliver-custom`, `connect-deliver-default`,
     `expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0`.
 

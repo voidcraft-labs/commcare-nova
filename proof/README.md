@@ -1,10 +1,10 @@
 # The proof harness
 
 The proof lane holds Nova's exports to the code that reads them. CommCare HQ's
-own import, build, case processing, app editors, receiver, restore and
-search views, CommCare Core's own form engine, session engine and archive
-installer, Formplayer's own application, HQ's own Web Apps client and
-CommCare Connect's own form receiver run at the upstream commits
+own import, build, case processing, app editors, receiver, restore, search
+views and Connect repeater, CommCare Core's own form engine, session engine
+and archive installer, Formplayer's own application, HQ's own Web Apps
+client and CommCare Connect's own server run at the upstream commits
 `proof/pins.json` names, inside one pinned image, over a corpus of admitted
 Nova documents that Nova's real publish client and compilers export. Every
 pull request runs the lane in CI (`.github/workflows/ci.yml`), and
@@ -221,7 +221,12 @@ read: `<output>/corpus` where the run emitted it, or the directory
    states"): Nova's local archive against A always, and B's aligned build
    against A wherever proof 2 still finds a difference, with the Web Apps
    client's screens on it; and every request HQ's views refuse while
-   Formplayer walks A is a difference of its own.
+   Formplayer walks A is a difference of its own. For a Connect app, HQ
+   forwards each state's submissions to one opportunity in CommCare Connect
+   ("Connect in the unit"), and what Connect made of them is compared the
+   same way: the local archive's and B's against A's, and what stands on
+   its own at A (a payload Connect did not take, a visit rejected for the
+   task its own form completes).
 4. **HQ editability** (`proof/checks/proof4.py`). Over B and over B-edit,
    under each configuration: every app-manager section HQ offers is saved the
    way a person saves it without changing a value (app settings, add-ons, UI
@@ -235,9 +240,13 @@ read: `<output>/corpus` where the run emitted it, or the directory
    differs, its sessions against B's as proof 3 compares them. Where the
    build differs, or what HQ's Web Apps page hands the client of the app
    does, the saved app is served too, and Formplayer's sessions and the
-   client's screens on it are compared with B's. So a change shows as a
-   build failure, a build difference or a behavior difference, in Core, in
-   Formplayer or in the client.
+   client's screens on it are compared with B's, and for a Connect app so
+   is what Connect made of its submissions. So a change shows as a build
+   failure, a build difference or a behavior difference, in Core, in
+   Formplayer, in the client or in Connect. For a Connect app, what Connect
+   makes of B's and of B-edit's own submissions is also held to the
+   opportunity it made from A: a payload it no longer takes, and a Connect
+   id that moved under it.
 5. **Locality** (`proof/checks/proof5.py`). After an edit batch, every entity
    outside its footprint keeps the canonical digest of its emitted wire: its
    module or form JSON and XForm source in the upload, and its form, suite
@@ -253,9 +262,9 @@ read: `<output>/corpus` where the run emitted it, or the directory
 
 ### Spelling rules and the registers
 
-A spelling rule erases one difference in how an artifact is spelled that
-neither HQ's build nor Core's run depends on, and its own test proves that by
-building or running both spellings ("Spelling rules", below). Every other
+A spelling rule erases one difference in how an artifact is spelled that no
+reader of it depends on, and its own test proves that by building or running
+both spellings on those readers ("Spelling rules", below). Every other
 difference is a symptom: it is held by an entry of the known-defect register
 or it fails the lane ("The registers", below).
 
@@ -308,15 +317,25 @@ or it fails the lane ("The registers", below).
   (`proof/formplayer/answers.py`, HQ's functions called on its behalf);
   what they hold of a finding, the lane's own records now show on HQ's
   views.
-- **Connect runs over its own documents alone.** The Connect proof
-  (`proof/connect`, "The Connect proof", below) runs Connect's sync of an
-  app's build and its receiver over five corpus documents, and the native
-  proofs its metadata extractors. No other document's submissions are given
-  to Connect; the tasks its receiver queues (a visit's attachments, a scored
-  assessment's and a completed task's notifications) are recorded and not
-  run; and a device's location fix, which only CommCare Android writes
-  (`PollSensorAction`), is written into the submission where the form holds
-  its node.
+- **What Connect in the unit does not show.** Every Connect document's
+  submissions are forwarded to Connect in its unit ("Connect in the unit",
+  below), with these left out. ConnectID, the service Connect sends a
+  worker's notifications through, is not in the lane: each notification
+  task Connect queues is run up to that request, which is recorded and
+  fails as a connection that could not be made. A device's location fix,
+  which only CommCare Android writes (`PollSensorAction`), is written into
+  each of Core's submissions where the form holds its node; where a device
+  posts a form of an archive that names no address is Android's own default
+  and is not run (the lane posts it to the project space's receiver with no
+  app named). The opportunity's own rows (its worker, payment unit, claim
+  and assigned tasks) are made through Connect's models, and HQ's Connect
+  repeater and its connection settings through HQ's models, not through
+  either system's pages. The opportunity is made once, from A's release: a
+  manager who asks for its units again after an edit, or pays for a renamed
+  unit, is not in the unit (`proof/connect/test_receiver.py` runs both), and
+  neither is the distance check between two visits. HQ's Connect payload
+  carries no attachments, so Connect's download of a visit's attachments
+  runs and asks HQ for nothing.
 - **A configuration Nova's publish refuses is not checked.** Each document's
   configurations hold the flags and case search Nova's publish requires for
   it, so a symptom that shows only where Nova refuses to publish cannot reach
@@ -768,13 +787,15 @@ its side's fingerprint:
 - **observation** (`proof/store/fingerprints.py::in_observation`): the
   observation partition (`proof/observe/partition.py::observes`), which is
   every file under `proof/observe`, `proof/hq`, `proof/core`,
-  `proof/formplayer`, `proof/webapps`, `proof/editors`
+  `proof/formplayer`, `proof/webapps`, `proof/connect`, `proof/editors`
   (but its driver), `proof/lane`, `proof/store` and the comparators
   (`proof/checks/compare`), the files of the checks the observation runs but
   does not own (`proof/checks/corpus.py`, `differences.py`,
   `configurations.py`, `sharding.py`), the session's fixtures and process
-  handling (`proof/conftest.py`, `proof/processes.py`, `proof/pytest.ini`)
-  and `lib/commcare/surface/entries/gates.json`; and, beside it, the lane's
+  handling (`proof/conftest.py`, `proof/processes.py`, `proof/pytest.ini`),
+  the pins (`proof/pins.json`, which a Connect document's observation
+  fetches Connect at) and `lib/commcare/surface/entries/gates.json`; and,
+  beside it, the lane's
   container configuration (`LANE_FILES`: `proof/compose.yaml` and
   `proof/run.mjs`), which decides what that code runs under;
 - **browser**: the editor driver, `proof/editors/driver/`, which node runs;
@@ -798,7 +819,7 @@ digest of its input:
 
 ```
 seed → lookup upload → create(D) → media → HQ-side saves → build(A) → admit → identities, flag reads
-  mark@A → A's restore for proof 3 → intent hook at A → A served → sensitivity: each gate read, flipped, in a fork
+  mark@A → A's restore for proof 3 → intent hook at A → A served (a Connect app's opportunity made) → sensitivity: each gate read, flipped, in a fork
   b:         restore@A → republish(D) → media → build(B) → admit → identities
                mark@B → intent hook at B → proof 4 over B (B served, and each save that can differ) → restore@B
   b_aligned: B aligned to A → build → proof 3's sessions (local archive and A; B where the raw builds differ)
@@ -850,7 +871,10 @@ app, restore and trace) are blobs named by their sha256.
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
   test utilities, the previous build, HQ's resource overrides, and
-  Formplayer's form validation answered by the Core runner. Elasticsearch
+  Formplayer's form validation answered by the Core runner. One privilege a
+  part of the lane states of the project space beyond what the document's
+  content needs is granted for that part alone (`also_granted`: Data
+  Forwarding, where a Connect app's forms are forwarded). Elasticsearch
   answers the three reads the paths make as an empty index and refuses any
   other; while a state is served it also answers a case search with the
   cases Postgres holds and takes each document HQ writes to an index
@@ -1168,6 +1192,86 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   them a configuration, so a document that took five to ten seconds takes
   forty to a hundred ("Timings and the five-minute target").
 
+### Connect in the unit
+
+Where a document's app holds a Connect block (an element of Connect's
+namespace in one of its forms, `proof/observe/connect.py::is_connect`), its
+unit also observes Connect, the last reader of a Connect app, on every state
+it serves (`proof/observe/connect.py`). Each link is its owner's code at the
+pins, and nothing is called on a system's behalf:
+
+- **The opportunity** is made once, while A is served, as a manager makes
+  one. Connect is a served process of its own for the life of the unit
+  (`proof/connect/runtime.py::ConnectSession`: Connect's own WSGI
+  application on a loopback address, its own Postgres and Redis). It asks
+  HQ for the app's released build, which HQ's own archive view answers
+  (`views/cli.py::direct_ccz`, `latest=release`), and reads its learn
+  modules, deliver units and tasks
+  (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
+  `app_xml.py::get_task_units_for_app`). Every deliver unit is paid for, the
+  worker's claim is made, GPS verification is on and one task of each type
+  is assigned. Connect's database as the opportunity then stood is kept, and
+  every later state of the document is received by that opportunity, as an
+  app republished, edited or saved in HQ goes on being received by the
+  opportunity made before. An app that only an edit makes a Connect app gets
+  its opportunity from B-edit's release.
+- **Each served state forwards.** The project space holds a Connect
+  repeater (`proof/connect/hq.py::forwarding`). HQ's receiver view takes
+  each form whole (`SubmissionPost.run`), HQ's own signal registers the
+  repeat record, HQ's own task fires it, and HQ's own HTTP client asks
+  Connect for a token (OAuth's client credentials grant, at Connect's own
+  token endpoint) and posts the payload to Connect over a real connection.
+  Connect answers through its own URLconf, middleware, authentication and
+  request transaction, and HQ keeps the answer on its repeat record.
+- **Whose submissions.** Formplayer's are the ones its walk of the state
+  makes. Core's are the ones its sessions made on the state's build, each
+  posted to HQ's receiver view as a device posts one: to the address the
+  released build's profile names (`PostURL`, the receiver under the build's
+  own id), with the worker's own credentials, and with a location fix
+  written where the form holds the node (only CommCare Android writes one).
+  Nova's local archive names no address, so its submissions are posted to
+  the project space's receiver with no app named, and once more under the
+  app's id, which shows what Connect would make of them if they named
+  their app.
+- **Each run is one worker's.** It meets HQ as the unit's fork leaves it
+  and Connect as the opportunity stood, so no run reads what another's
+  submission left in either. After it, Connect's queued tasks are run by
+  Celery's own task machinery, and the run is kept: what HQ's receiver
+  answered, what HQ kept of each forward, each payload as it reached
+  Connect with Connect's answer, each task, and the rows Connect holds
+  (its modules, units and task types, the worker's progress and pay, the
+  visits, completed work and assigned tasks).
+- **What is compared** (`proof/checks/connect.py`). Connect is the reader,
+  so what is compared is what Connect did: its answer to each payload, the
+  tasks it ran and the rows it holds, run by run. A payload is never
+  compared: two payloads Connect answers alike and makes the same rows of
+  are two spellings to it. One symptom is one difference (a payload one
+  side had taken and the other refused is its answer, and the rows that
+  follow are not reported again), and a run only one side made, or one HQ's
+  receiver answered otherwise, is left to the walks and the case processing
+  that report it. A difference is `connect@local.ccz` or `connect@B` in
+  proof 3 and `connect@<editor>@<B>@<configuration>` in proof 4.
+- **What stands on its own** of one state: a payload Connect did not take
+  (`/runs/*/refused/<status>/<cause>`), a visit rejected for the task its
+  own form completes, a unit Connect made of its own on receiving a form, a
+  task that completed nothing, and, after an edit, a Connect id that moved
+  under the opportunity (`/ids/<kind>/moved`). Proof 3 reports A's
+  (`connect@A`); proof 4 reports B's and B-edit's that A did not show
+  (`connect@<B>@<configuration>`). An edit changes what a form submits, so
+  B-edit's rows are not held to A's; what the edit breaks in Connect is.
+- **Cost.** Connect starts once per worker that meets a Connect document
+  (its fetch and its migrations, about thirteen seconds); an opportunity
+  costs about two seconds, and a run that reaches Connect about a third of
+  one.
+
+What the unit states of the world for that, each named where it is done: the
+project space's plan has Data Forwarding (`proof/hq/seams.py::also_granted`);
+Connect is reached over plain HTTP at a loopback address
+(`proof/connect/hq.py`); HQ's count of the devices a worker submits from
+lives in the Redis HQ shares with Formplayer (`proof/hq/redis.py`); and the
+address Connect knows HQ by is answered by HQ's own views over the unit's
+state, as Formplayer's requests are.
+
 ## The registers
 
 ### Known defects
@@ -1200,14 +1304,15 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
 - `android` names the Android predicate the harm rests on ("What the lane does
   not observe", above).
 - `equivalence` marks a class that is no harm: two spellings every reader
-  reads alike, whose readers (Android, Web Apps' client, Connect) are not
-  HQ's build or Core's run, so no spelling rule's test can prove them alike.
-  It names those readers and why each reads the two alike. Formplayer and
-  the client read every state the lane serves, so for them the lane itself
-  is the proof: the build differs and neither reader's record of the two
-  states does (a difference either shows is an entry of its own); where a
-  reader's own tests ran both spellings (`proof/connect`), it names the
-  test that did. Such an entry is held
+  reads alike, one of whose readers no test of the lane runs (Android), so
+  no spelling rule's test can prove them alike. It names those readers and
+  why each reads the two alike. Formplayer and the client read every state
+  the lane serves, so for them the lane itself is the proof: the build
+  differs and neither reader's record of the two states does (a difference
+  either shows is an entry of its own). An equivalence whose every reader a
+  test runs is no entry at all: it is a spelling rule with that test as its
+  proof ("Spelling rules": finding 55's empty work area id, whose readers
+  are HQ, Core, Formplayer and Connect). Such an entry is held
   and verified as any other, and the fix of the defect or finding it is filed
   under removes it (`harness-findings.md`, "Equivalences only another runtime
   reads").
@@ -1322,7 +1427,7 @@ unknown-question clause is not observed (also there).
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name | proof 4, then 3 | any form |
-| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`) | proof 4; the bar | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids` |
+| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). Renaming a Connect id under an opportunity that holds it breaks the opportunity: Connect refuses every delivery of a renamed deliver unit ("Payment unit is not configured for the deliver unit"), makes a second learn module of a renamed one, and completes no assigned task for a renamed task | proof 4; the bar; proof 4 over B-edit, on what Connect made of the edit's submissions | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids`, `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
@@ -1343,10 +1448,11 @@ it corrects, if any.
 1. Settle at source that the class is a defect and which: a numbered one, or a
    new finding in `harness-findings.md` with what goes wrong, its source
    evidence, where its harm shows and what research claim it corrects. A
-   class every reader reads alike is a spelling rule where Core's run or HQ's
-   build can prove it, and otherwise (its readers Android, Web Apps' client or
-   Connect) an entry marked `equivalence`, filed under the defect or finding
-   whose fix removes it.
+   class every reader reads alike is a spelling rule where a test can run
+   every one of those readers on both spellings (HQ's build, Core,
+   Formplayer, HQ's Connect repeater and Connect), and otherwise (a reader no
+   test of the lane runs: Android) an entry marked `equivalence`, filed under
+   the defect or finding whose fix removes it.
 2. Name a non-fuzz document that shows it, or write a targeted document that
    does. Pin `values` only on a targeted document.
 3. Retain that document from an emitted corpus, unless a control already
@@ -1365,8 +1471,10 @@ until a step decides one.
 
 ## Spelling rules
 
-A spelling rule erases one difference in how an artifact is spelled that
-neither HQ's build nor Core's run depends on. The rules are a closed set in
+A spelling rule erases one difference in how an artifact is spelled that no
+reader of it depends on: HQ's build and Core's run, and, for a spelling whose
+readers are others the lane runs, those (Formplayer, HQ's Connect repeater,
+Connect's receiver). The rules are a closed set in
 `proof/rules/`: each is a module, `proof/rules/<rule>.py`, exporting
 `RULE = SpellingRule(id, artifact_glob, description, normalize)`, and `RULES`
 in `proof/rules/__init__.py` lists them in the order the comparators apply
@@ -1405,10 +1513,21 @@ document the tests read, and its `rule_documents` hands a test those alone.
 To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
 `RULES` where its artifact's rules apply, and add any document its test reads
 to `DOCUMENTS`. `test_closed_set.py` fails while a module is unlisted or
-untested. A difference no such proof can show equivalent (one whose reader is
-Android, Web Apps or Connect, which no spelling rule's test runs) is not a
-rule: it is a register entry. When an emitter starts writing the editor's spelling, the
+untested. A difference no such proof can show equivalent (one of whose
+readers is Android, which no spelling rule's test runs) is not a rule: it is a
+register entry. When an emitter starts writing the editor's spelling, the
 rule that erased Nova's former spelling goes in the same change.
+
+`connect-work-area-empty` is the rule whose readers reach past HQ's build and
+Core: a Vellum save writes an empty `work_area_id` into a Connect deliver
+unit (finding 55). Its test (`proof/rules/test_connect_work_area_empty.py`)
+writes the form both ways, builds both in HQ, runs Core's sessions and
+Formplayer's walk over both, and has HQ's own receiver and Connect repeater
+forward each submission to one opportunity in Connect, which answers and
+holds the same for both; an id that names a work area is refused by
+Connect, and the rule leaves it. Formplayer's traces take the rules for an
+`instance` (each XML document a trace holds: a form's instance as
+Formplayer hands it back, a submission HQ received).
 
 ## The surface extractor
 
@@ -1537,6 +1656,9 @@ reused is only what a key names whole, and the reuse is audited:
 | A stored record stands for a fresh one | a key that misses an input | `proof/store/test_keys.py`, `test_guard.py`, the per-pull-request audit sample and the nightly audit |
 | Forked workers observe what one session does | state a fork shares | `proof/lane/test_forkserver.py` |
 | Connect runs at the pin, each scenario alone | a virtualenv from another commit's lock; a row or queued task one scenario leaves the next | `proof/connect/test_runtime.py` |
+| What reaches Connect is what HQ's own receiver and repeater sent | a payload built beside HQ's repeater; a forward acknowledged without reaching Connect; an opportunity made from an archive HQ did not serve; a project space forwarding without Data Forwarding | `proof/connect/test_forwarding.py` |
+| A Connect document's records hold every state, give the same bytes, and are the same under a stored part | a state that forwards nowhere; a run reading another's rows; Connect's address or a drawn id in a record; an opportunity made again from another release | `proof/checks/test_connect_unit.py` |
+| The Connect judge shows a planted difference and only it | a row difference lost or reported with what follows a refusal; two spellings Connect read alike reported; an added unit read as a moved one | `proof/checks/test_connect.py` |
 | The manifest names only what exists | a dangling key or gate | `lib/commcare/surface/__tests__/manifest.test.ts`, in ordinary CI |
 | Nothing Nova emits is unclassified | an export using an item no entry names, or HQ reading a flag no gate entry names | the manifest check |
 | The surface matches the pins | a hand edit or a stale regeneration | the gate's surface section |
@@ -1544,9 +1666,13 @@ reused is only what a key names whole, and the reuse is audited:
 
 ## The Connect proof
 
-`proof/connect` runs CommCare Connect's own code, at its pin, over what HQ
-forwards of a Nova Connect app's submissions. It runs in the lane as the
-package group `proof/connect`:
+`proof/connect` holds what runs CommCare Connect at its pin (its runtime, its
+driver and HQ's forwarding, which a Connect document's unit uses: "Connect in
+the unit", above) and the package's own tests, which run scenarios the unit
+does not: a manager who asks for an app's units again, pays for a renamed
+unit or turns a verification on, a second visit, and each name Connect's
+receiver looks for. They run in the lane as the package group
+`proof/connect`:
 
 ```bash
 npm run proof -- proof/connect
@@ -1566,12 +1692,13 @@ Every link is its owner's code:
 3. **Core** fills and submits the form on each build and on each local
    archive (`proof.core`, the script derived on HQ's build and replayed on the
    rest), on the lane's day and on the day after.
-4. **HQ** reads each submission as its receiver does and builds the payload
-   its Connect repeater posts (`proof/connect/hq.py::forwarded`:
-   `get_app_and_build_ids`, `process_xform_xml`,
-   `SubmissionPost._post_process_form`, then
-   `ConnectFormRepeaterPayloadGenerator.get_payload`), so the payload's shape
-   is HQ's.
+4. **HQ** receives each submission and forwards it
+   (`proof/connect/conftest.py::_forwarded_by_hq`): the submission is posted
+   to HQ's own receiver view as a device posts it, HQ's receiver takes it
+   whole, and HQ's own Connect repeater sends the payload, with a token it
+   asked Connect for, to a served Connect over a real connection
+   (`proof/connect/hq.py::forwarding`). The payload is read where it
+   arrived, so its bytes are the ones HQ sent.
 5. **Connect** reads the app's learn module, deliver unit and task from HQ's
    archive (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
    `app_xml.py::get_task_units_for_app`) and receives each payload through
@@ -1582,32 +1709,49 @@ Every link is its owner's code:
 What stands in for a person or a machine the lane does not have is written
 down where it is done: the opportunity, its worker, a payment unit, the claim
 and an assigned task are made through Connect's models with the factories
-Connect's own tests use (`proof/connect/driver.py`); Connect's download of an
-app's archive is answered with the archive HQ built; and a device's location
+Connect's own tests use (`proof/connect/driver.py`); in a scenario of these
+tests Connect's download of an app's archive is answered with the archive HQ
+built (the unit's is answered by HQ's own view); and a device's location
 fix is written into the submission's own location node
-(`proof/connect/conftest.py::with_fix`).
+(`proof/connect/hq.py::with_fix`).
 
 ### The runtime
 
 `proof/connect/runtime.py::ConnectRuntime` fetches Connect at its pin, starts
 a Postgres 15 with PostGIS and a Redis from the image as processes of its own
 (`proof.processes`), and runs Connect's own `manage.py migrate` once into a
-template database. Each scenario is one run of `proof/connect/driver.py` on
-Connect's interpreter and virtualenv, with Connect's own test settings, in a
-clone of the template over an emptied Redis. A scenario is a list of steps
-(make the opportunity, sync, pay for deliver units, claim, set verification
-flags, assign a task, post a payload), and its result holds, after each step,
-every row the receiver reads or writes, by the names the app and HQ gave
-them, and the tasks Connect queued. Starting the runtime costs about thirteen
-seconds (the fetch two, the migrations ten), and a scenario under one.
+template database. One runtime serves a session
+(`proof/observe/services.py::connect`), started the first time a test or a
+Connect document's observation asks. It runs Connect two ways, each on
+Connect's interpreter and virtualenv with Connect's own test settings, in a
+clone of the template over an emptied Redis:
 
-### What it holds
+- **a scenario** (`ConnectRuntime.run`): one run of `proof/connect/driver.py`
+  over a list of steps (make the opportunity, sync, pay for deliver units,
+  claim, set verification flags, assign a task, post a payload), whose
+  result holds, after each step, every row the receiver reads or writes, by
+  the names the app and HQ gave them, and the tasks Connect queued;
+- **a session** (`ConnectRuntime.session`): Connect served for as long as an
+  opportunity is observed. Connect's WSGI application answers on a loopback
+  address of the worker's own, where HQ's repeater reaches it, and the same
+  steps are taken one at a time. A request Connect makes of its HQ server is
+  handed back to the harness, which answers it with HQ's own view; one to
+  ConnectID is recorded and fails. A session keeps named copies of its
+  database and goes back to one, which is how each run meets the
+  opportunity as it stood.
 
-`proof/connect/test_receiver.py` states each as a test, over
-`targeted-connect-deliver-rename` and `targeted-connect-learn-rename` (a
-deliver app and a learn app that each carry the edit renaming their Connect
-ids), and, for finding 60, `connect-deliver-default`,
-`targeted-connect-deliver-key-names` and `targeted-connect-learn-key-names`:
+Starting the runtime costs about thirteen seconds (the fetch two, the
+migrations ten), a scenario under one, and a session about one.
+
+### What the package's tests hold
+
+`proof/connect/test_forwarding.py` holds the chain itself (above, "How the
+harness proves itself"). `proof/connect/test_receiver.py` states each of
+these as a test, over `targeted-connect-deliver-rename` and
+`targeted-connect-learn-rename` (a deliver app and a learn app that each
+carry the edit renaming their Connect ids), and, for finding 60,
+`connect-deliver-default`, `targeted-connect-deliver-key-names` and
+`targeted-connect-learn-key-names`:
 
 - Connect reads exactly the authored learn module, deliver unit and task from
   HQ's builds.
@@ -1634,8 +1778,8 @@ ids), and, for finding 60, `connect-deliver-default`,
 
 Each run leaves, under its block's `connect/`: each document's archives, each
 path's submission and HQ's payload for it (`<document>/`), every scenario's
-steps with the rows after each (`scenario.<name>.json`), the runtime's logs
-and its timings.
+steps with the rows after each (`scenario.<name>.json`) and its timings; the
+runtime's logs, with each session's, are under `connect-unit/`.
 
 ## Native proofs
 

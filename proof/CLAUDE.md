@@ -1,9 +1,10 @@
 # proof: the proof harness
 
 The proof lane holds every Nova export to CommCare's own code at pinned
-upstream commits: HQ's import, build, case processing, editors, receiver and
-restore, CommCare Core's runtime, Formplayer's application, HQ's Web Apps
-client and CommCare Connect's form receiver, over a reproducible corpus, on
+upstream commits: HQ's import, build, case processing, editors, receiver,
+restore and Connect repeater, CommCare Core's runtime, Formplayer's
+application, HQ's Web Apps client and CommCare Connect's own server, over a
+reproducible corpus, on
 every pull request; commcare-android's own code reads the same archives in a reader of
 its own (`proof/android`), outside the image.
 `proof/README.md` says what it proves, how to run it and read a failure, how
@@ -71,8 +72,9 @@ harness keeps, each with its reason.
   saved in proof 4, never an app document written by hand to look saved.
 - **Observation is separate from judgment.** The observation partition
   (`proof/observe/partition.py::observes`: `proof/observe`, `proof/hq`,
-  `proof/core`, `proof/formplayer`, `proof/webapps`, `proof/editors` with its
-  driver fingerprinted apart as the browser's, `proof/lane`, `proof/store`,
+  `proof/core`, `proof/formplayer`, `proof/webapps`, `proof/connect`,
+  `proof/editors` with its driver fingerprinted apart as the browser's,
+  `proof/lane`, `proof/store`,
   the comparators, the few checks files it runs, the session's fixtures and
   the gate entries) runs HQ, Core, Formplayer
   and the browsers and writes records; the judges (the rest of `proof/checks`,
@@ -104,14 +106,19 @@ harness keeps, each with its reason.
   decision 12, `proof/README.md`). A fix removes its entry in the same pull
   request. Never skip, mark, loosen a comparator or widen a path to make the
   lane pass. A spelling rule erases exactly one spelling, and its own test
-  builds or runs both spellings to show HQ's build output or Core's trace does
-  not depend on it; a difference no such test can settle (its reader is
-  Android, Web Apps' client or Connect) is a register entry, never a rule,
-  marked `equivalence` with those readers where it is no harm, so the
-  register never presents it as one. Where the lane runs that reader
-  (Formplayer and Web Apps' client, on every document), an equivalence is
-  what the lane itself shows: the two spellings differ in the build and
-  neither reader's record of the two states does.
+  builds or runs both spellings on every reader of it to show none depends
+  on it: HQ's build and Core's trace, and, where its readers are others,
+  those too, run for real (Formplayer's walk, HQ's own Connect repeater and
+  Connect's own receiver, as `proof/rules/test_connect_work_area_empty.py`
+  runs them). An equivalence every reader of which a test runs is a rule
+  with that test as its proof, never a register entry. A difference one of
+  whose readers no test of the lane runs (Android) is a register entry,
+  never a rule, marked `equivalence` with those readers where it is no
+  harm, so the register never presents it as one. Where the lane runs a
+  reader on every document (Formplayer, Web Apps' client, and Connect on
+  every Connect document), an equivalence is also what the lane itself
+  shows: the two spellings differ in the build and that reader's record of
+  the two states does not.
 - **A precise witness writes its precise edit.** The fixed producers' edits
   are balanced together, so an unrelated document can change which admitted
   edit another gets. A harness test or registered symptom that needs one
@@ -192,15 +199,27 @@ harness keeps, each with its reason.
   API newer than 3.12. `proof/lane/test_gate.py` holds the gate's imports to
   the standard library, but on the image's 3.13, so a 3.13-only API passes the
   lane's tests and breaks CI's gate.
-- **Connect runs as Connect.** The Connect proof (`proof/connect`) gives
-  Connect only what its owners' code made: HQ's archive of the app, and HQ's
-  own repeater payload of a submission Core made. Never write a payload or a
-  submission by hand to make a claim about Nova, and never import Connect or
-  Django into the harness's process, which is HQ's: Connect runs in its own
-  process, on its own interpreter, database and Redis
-  (`proof/connect/runtime.py`). What stands in for a person or a device is
-  named where it is done (the opportunity's rows, the archive download, a
-  location fix), and a new stand-in is a claim to justify there.
+- **Connect runs as Connect, and is given only what HQ sent.** A claim
+  about what Connect makes of a Nova app is observed on Connect's own
+  server at its pin, in its own process, on its own interpreter, database
+  and Redis (`proof/connect/runtime.py`): never import Connect or its
+  Django into the harness's process, which is HQ's. What reaches Connect is
+  what HQ's own Connect repeater sent after HQ's own receiver took a form
+  whole (`proof/connect/hq.py::forwarding`), over a real connection, with a
+  token HQ asked Connect for; and what Connect asks of HQ is answered by
+  HQ's own view. Never write a payload or a submission by hand, call HQ's
+  receiver or payload functions on its behalf, hand Connect an archive HQ
+  did not serve where the unit runs, or acknowledge a forward that did not
+  reach Connect's receiver. A Connect document's unit makes one
+  opportunity from A's release and every later state is received by it
+  (`proof/observe/connect.py`); each run meets Connect as that opportunity
+  stood, as each run meets HQ as the unit's fork leaves it. Connect is the
+  reader, so the judge compares what Connect did (its answers, tasks and
+  rows) and never a payload (`proof/checks/connect.py`). What stands in for
+  a person or a machine the lane does not have is named where it is done
+  (the opportunity's rows, HQ's repeater's rows, Data Forwarding on the
+  plan, a device's location fix, ConnectID), and a new stand-in is a claim
+  to justify there.
 - **The repository is public.** Nothing here describes an HQ route usable
   without a credential or any other HQ weakness, holds client data, or
   references a scratch directory or private script.
