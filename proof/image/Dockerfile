@@ -405,8 +405,8 @@ ENV PATH=/opt/hq-venv/bin:/opt/gradle/bin:/opt/node/bin:/usr/local/bin:/usr/loca
     PROOF_FORMPLAYER=/opt/formplayer \
     PROOF_FORMPLAYER_APP=/opt/formplayer-app \
     PROOF_HQ_SCHEMA=/opt/hq-schema/hq.sql \
-    PROOF_CONNECT_VENV=/opt/connect-venv \
-    PROOF_CONNECT_POSTGRES=/usr/lib/postgresql/15/bin \
     PYTHONPATH=/opt/proof-py \
-    PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+    PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+    PROOF_CONNECT_VENV=/opt/connect-venv \
+    PROOF_CONNECT_POSTGRES=/usr/lib/postgresql/15/bin
 CMD ["python3"]
