@@ -57,7 +57,7 @@ MASKED = re.compile(
     r"|\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b"
 )
 # The entries an audit holds to the store: a transcript is replayed only where HQ answers alike, so any is right.
-AUDITED = ("parts", "documents", "judgments", "groups")
+AUDITED = ("parts", "documents", "judgments", "groups", "android")
 
 
 class StoreMismatch(AssertionError):
@@ -86,7 +86,9 @@ def _evidence(outputs, *, but_for_draws: bool = False) -> tuple[dict, list[str]]
         for directory, _ in lane_blocks.read_manifests(Path(output)):
             for path in sorted(Path(directory, "checks").glob("*/*.json")):
                 record = json.loads(path.read_bytes())
-                identity = (record["check"], record["kind"], record["document"])
+                # The Android stage's evidence of a check on a document is beside the shards' own of it.
+                check = record["check"] + (f" ({record['stage']})" if record.get("stage") else "")
+                identity = (check, record["kind"], record["document"])
                 held = found.setdefault(identity, record)
                 if disk.canonical(held) == disk.canonical(record) or identity in differing:
                     continue
@@ -175,8 +177,9 @@ def masked(value) -> str:
 
 
 def _content(kind: str, entry, source) -> bytes:
-    """What a mismatch shows of an entry: a part's record and a judgment's evidence as their blobs, else the entry."""
-    if kind in ("parts", "judgments"):
+    """What a mismatch shows of an entry: a part's record, a judgment's evidence and an Android record as their
+    blobs, else the entry."""
+    if kind in ("parts", "judgments", "android"):
         found = source.blob(entry["record"] if kind == "parts" else entry)
         if found is not None:
             return found

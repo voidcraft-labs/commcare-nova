@@ -28,7 +28,9 @@ and whether it is the same app at no lower a version; and, of each path alone (`
 (``/update/reopened/*``: before, how the device held the form; after, what it holds and shows).
 
 One symptom is one difference. A walk whose screens are not the same screens in the same order is that
-difference (``/walks/*/screens``, one value) and its steps are not compared one against another; a form that
+difference, named by where the two part (``/walks/*/screens/after-<the last screen both showed>:<the
+baseline's next>:<the other's next>``, each side's whole walk its value), and its steps are not compared one
+against another; a form that
 takes another path of screens is that (``/form/path``); a list whose rows are another kind of view is that
 (``/list/rowClass``); an archive Android does not install is that (``/install``) and nothing of its app is
 compared. What a reader keys by a name is compared by that name and never by position: a menu's items by
@@ -155,6 +157,18 @@ def _screens(walk: dict) -> str:
     return _joined(step.get("screen") for step in walk.get("steps") or [])
 
 
+def _parted(before: list, after: list) -> str:
+    """Where two walks part, as a path names it: the last screen both showed, then what each showed next
+    (``after-<screen>:<the baseline's next>:<the other's next>``, ``end`` where a walk ended there)."""
+    shared = 0
+    while shared < min(len(before), len(after)) and before[shared] == after[shared]:
+        shared += 1
+    last = before[shared - 1] if shared else "start"
+    next_before = before[shared] if shared < len(before) else "end"
+    next_after = after[shared] if shared < len(after) else "end"
+    return f"after-{last}:{next_before}:{next_after}"
+
+
 def _form_path(form) -> str | None:
     if not isinstance(form, dict) or not isinstance(form.get("screens"), list):
         return None
@@ -194,7 +208,8 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
         walk_a, walk_b = before["walks"][name], after["walks"][name]
         a, b = _screens(walk_a), _screens(walk_b)
         if a != b:
-            before["walks"][name], after["walks"][name] = {"screens": a}, {"screens": b}
+            parted = _parted(a.split(SEPARATOR), b.split(SEPARATOR))
+            before["walks"][name], after["walks"][name] = {"screens": {parted: a}}, {"screens": {parted: b}}
         elif "steps" in walk_a and "steps" in walk_b:
             steps = [_one_step(x, y) for x, y in zip(walk_a["steps"], walk_b["steps"], strict=True)]
             before["walks"][name] = {**walk_a, "steps": [x for x, _ in steps]}
@@ -285,8 +300,8 @@ def editability(document: str, record: dict) -> list:
 
 def identity_summary(installs: dict | None, update: dict | None) -> dict:
     """Two exports of one app as a device meets them: installed in turn (each install's status), and one
-    updated to the other (``update``: where the update stopped, else ``Installed``; then whether it is the same
-    app, and whether its version went down)."""
+    updated to the other (``update``: where the update stopped, else ``Installed``; ``updated``, where it was
+    installed, whether it is the same app and whether its version went down)."""
     found = {}
     if installs is not None:
         found["installs"] = [step.get("install") for step in installs.get("installs") or []]
@@ -296,19 +311,29 @@ def identity_summary(installs: dict | None, update: dict | None) -> dict:
         if updated == INSTALLED:
             before = ((update.get("before") or {}).get("app")) or {}
             after = ((update.get("after") or {}).get("app")) or {}
-            found["sameApp"] = before.get("uniqueId") == after.get("uniqueId")
+            found["updated"] = {"sameApp": before.get("uniqueId") == after.get("uniqueId")}
             try:
-                found["versionLower"] = int(after.get("versionNumber")) < int(before.get("versionNumber"))
+                lower = int(after.get("versionNumber")) < int(before.get("versionNumber"))
             except (TypeError, ValueError):
-                found["versionLower"] = None
+                lower = None
+            found["updated"]["versionLower"] = lower
     elif update is not None:
         found["update"] = f"not installed: {update.get('install')}"
     return found
 
 
+def _identity_differences(document: str, hq: dict, local: dict) -> list:
+    """The local path's summary against HQ's; what an installed update is, only where both installed one (an
+    update that did not install is that difference, and says nothing more of the app it would have been)."""
+    if "updated" not in hq or "updated" not in local:
+        hq = {name: value for name, value in hq.items() if name != "updated"}
+        local = {name: value for name, value in local.items() if name != "updated"}
+    return compare_json(hq, local, check="proof1", document=document, artifact=LOCAL)
+
+
 def _held(records) -> list:
     return sorted(
-        (entry.get("status"), entry.get("AndroidCommCarePlatform.getFormDefId"))
+        [entry.get("status"), entry.get("AndroidCommCarePlatform.getFormDefId")]
         for entry in records or []
         if entry.get("status") == "incomplete"
     )
@@ -372,12 +397,10 @@ def identity(document: str, record: dict) -> list:
         reopened(held.get("update"), REPUBLISH)
         if local.get("installs") is None and local.get("update") is None:
             continue
-        found += compare_json(
+        found += _identity_differences(
+            document,
             identity_summary(held.get("installs"), held.get("update")),
             identity_summary(local.get("installs"), local.get("update")),
-            check="proof1",
-            document=document,
-            artifact=LOCAL,
         )
     return found
 

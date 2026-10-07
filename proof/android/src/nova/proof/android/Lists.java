@@ -54,11 +54,18 @@ final class Lists {
     static JSONArray searches;
     /** Set where a request reads lists only to pass them (a form saved before an update): no Sort, no search. */
     static boolean brief;
+    /** Set by the walk for the list it is about to read: the list's action to take there, or null. */
+    static Integer action;
+    /** How many actions the list last read offers. */
+    static int offered;
+    /** The lists (by the session's command and the case it asks for) a request has sorted and searched. */
+    private static final Set<String> probed = new java.util.HashSet<>();
 
     private Lists() {
     }
 
     static boolean read(Intent started, JSONObject step, ShadowActivity home) throws Exception {
+        offered = 0;
         EntitySelectActivity activity =
                 Robolectric.buildActivity(EntitySelectActivity.class, started).setup().get();
         loaded(activity);
@@ -110,10 +117,42 @@ final class Lists {
         // What a worker's Sort choice and searches give, each on a list of its own opened as this one was, so
         // this one stays as it opened: the Sort menu's choices in turn, then the searches with fuzzy search as
         // installed, and on lists opened with the worker's own setting on and off (the list reads the setting
-        // when it opens, EntityListAdapter).
-        if (!brief) {
+        // when it opens, EntityListAdapter). Once a request for each list a session asks for (the first time
+        // a walk reaches it): the walks that pass the same list again read its rows and choose its case.
+        if (!brief && probed.add(String.valueOf(step.opt("session")))) {
             list.put("sorted", sorted(started));
             list.put("searches", searched(started, words));
+        }
+
+        // The list's own actions (a search behind the list), each as its menu item names it.
+        Detail shortSelect = (Detail)Screens.field(activity, "shortSelect");
+        List<org.commcare.suite.model.Action> actions = shortSelect == null
+                ? new ArrayList<>() : shortSelect.getCustomActions(activity.evalContext());
+        JSONArray named = new JSONArray();
+        for (org.commcare.suite.model.Action offer : actions) {
+            named.put(Screens.orNull(offer.getDisplay() == null ? null : offer.getDisplay().evaluate().getName()));
+        }
+        list.put("actions", named);
+        offered = actions.size();
+        if (action != null) {
+            list.put("took", action);
+            if (action >= actions.size()) {
+                list.put("offered", false);
+                return false;
+            }
+            // The action, taken as its menu item takes it (EntitySelectActivity.onOptionsItemSelected).
+            Method trigger = EntitySelectActivity.class.getDeclaredMethod("triggerDetailAction", int.class);
+            trigger.setAccessible(true);
+            trigger.invoke(activity, action);
+            ShadowLooper.idleMainLooper();
+            list.put("finishing", activity.isFinishing());
+            if (!activity.isFinishing()) {
+                list.put("alertAfterChoice", Screens.orNull(Views.alert(activity)));
+                return false;
+            }
+            home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
+            ShadowLooper.idleMainLooper();
+            return true;
         }
 
         if (adapter.getCurrentCount() == 0) {

@@ -191,10 +191,23 @@ class Archive:
         return target
 
 
-def _stored(name: str, archive) -> Archive | None:
-    if not archive or not archive.get("entries"):
+def _stored(name: str, archive, build=None) -> Archive | None:
+    """The archive a record keeps for a state, or None: where it keeps none, or where HQ releases no build of
+    the state (``build``, its recorded outcome), since no worker is ever handed that archive."""
+    if not archive or not archive.get("entries") or not released(build):
         return None
     return Archive(name, entries=tuple(sorted(archive["entries"].items())))
+
+
+def released(build) -> bool:
+    """Whether HQ makes a release of a state from its recorded build (``proof.observe.runs.unbuildable``, read
+    from the record: HQ's validation listed no error and raised nothing, and HQ wrote the build's files). A
+    record that keeps no build beside an archive (None) is one of a state the archive itself stands for."""
+    if build is None:
+        return True
+    return (
+        build.get("files") is not None and "validate_app" not in (build.get("raised") or {}) and not build.get("errors")
+    )
 
 
 def _editor(view, section) -> str:
@@ -213,7 +226,8 @@ def saves(proof4: dict) -> list[tuple[str, str, str | None, Archive | None]]:
         for section in view.get("sections", ()):
             if "archive" in section or "build" in section:
                 label = _editor(view, section)
-                found.append((label, section["section"], None, _stored(label, section.get("archive"))))
+                archive = _stored(label, section.get("archive"), section.get("build"))
+                found.append((label, section["section"], None, archive))
     for form in proof4.get("vellum", ()):
         m, f = form["scope"]
         over = None
@@ -221,7 +235,7 @@ def saves(proof4: dict) -> list[tuple[str, str, str | None, Archive | None]]:
             if "archive" not in run and "build" not in run:
                 continue
             label = f"{editor}:m{m}.f{f}"
-            archive = _stored(label, run.get("archive"))
+            archive = _stored(label, run.get("archive"), run.get("build"))
             found.append((label, editor, over, archive))
             if archive is not None:
                 over = label
@@ -259,8 +273,16 @@ class Request:
         return keys.hashed("android-record", VERSION, reader, self.summary(source))
 
 
+# What every search screen's free-text prompts are also answered with, on a screen of its own: an answer that
+# holds both quote marks, which no XPath string literal can hold (finding 48). The answer records what the
+# screen then sends and what it shows when the server refuses the query.
+QUERY_ANSWER = 'it\'s "x"'
+
+
 def _app(name, archive, restore, answers) -> Request:
-    return Request(f"app@{name}", "app", {"archive": archive}, restore, {"answers": answers})
+    return Request(
+        f"app@{name}", "app", {"archive": archive}, restore, {"answers": answers, "queryAnswer": QUERY_ANSWER}
+    )
 
 
 def _installs(name, first, second) -> Request:
@@ -291,28 +313,25 @@ def plan(parts: dict, root: Path | None, source: Source, *, answers: dict | None
     # read without one.
     local_restore = next(
         (
-            (parts.get(f"{name}/b_aligned") or {}).get("sessions", {}).get("restoreLocal")
+            restore
             for name in configurations
-            if (parts.get(f"{name}/b_aligned") or {}).get("sessions", {}).get("restoreLocal")
+            if (restore := ((parts.get(f"{name}/b_aligned") or {}).get("sessions") or {}).get("restoreLocal"))
         ),
         None,
     )
-    if local is not None:
-        found.append(_app(LOCAL, local, local_restore, answers))
-        if again is not None:
-            found.append(_installs(LOCAL, local, again))
-            found.append(_update(LOCAL, local, again, local_restore, incomplete=True))
     for configuration in configurations:
         a_record = parts.get(f"{configuration}/a") or {}
         restore_a = (a_record.get("restoreA") or {}).get("restore")
-        a = _stored(f"{configuration}/A", (a_record.get("state") or {}).get("archive"))
+        state_a = a_record.get("state") or {}
+        a = _stored(f"{configuration}/A", state_a.get("archive"), state_a.get("build"))
         if a is not None:
             found.append(_app(a.name, a, restore_a, answers))
         for part, state in STATES[1:]:
             record = parts.get(f"{configuration}/{part}") or {}
             if "same_as" in record:
                 continue
-            archive = _stored(f"{configuration}/{state}", (record.get("state") or {}).get("archive"))
+            held_state = record.get("state") or {}
+            archive = _stored(f"{configuration}/{state}", held_state.get("archive"), held_state.get("build"))
             if archive is None:
                 continue
             proof4 = record.get("proof4") or {}
@@ -331,6 +350,14 @@ def plan(parts: dict, root: Path | None, source: Source, *, answers: dict | None
                 base = held.get(over, archive)
                 if dict(named.entries).get(PROFILE) != dict(base.entries).get(PROFILE):
                     found.append(_update(named.name, base, named, restore, incomplete=False))
+    # Nova's local archives are read where HQ released some build of A to read them against: with none, proof 3
+    # and proof 1's local path have no baseline, and the lane's own checks report why HQ released none.
+    if local is not None and any(request.name.endswith("/A") and request.op == "app" for request in found):
+        ahead = [_app(LOCAL, local, local_restore, answers)]
+        if again is not None:
+            ahead.append(_installs(LOCAL, local, again))
+            ahead.append(_update(LOCAL, local, again, local_restore, incomplete=True))
+        found = ahead + found
     return found
 
 

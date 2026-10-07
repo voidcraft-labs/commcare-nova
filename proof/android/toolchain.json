@@ -1,5 +1,5 @@
 {
-	"description": "What the Android reader's runtime is built with beside the pins (proof/pins.json), each named exactly, so one build of the runtime is every build of it. build-runtime.sh fetches Gradle's distribution and Robolectric's Android runtime by these checksums, refuses an Android SDK package at another revision, and holds every dependency Gradle resolves to verification-metadata.xml where that file is beside this one. The stage's workflow installs this JDK and these SDK packages (.github/workflows/proof-android.yml). The reader's fingerprint names this file (proof/android/records.py), so a change here reads every archive again.",
+	"description": "What the Android reader's runtime is built with beside the pins (proof/pins.json), each named exactly, so one build of the runtime is every build of it. build-runtime.sh fetches Gradle's distribution and Robolectric's Android runtime by these checksums, holds every dependency Gradle resolves to verification-metadata.xml where that file is beside this one, and refuses the Android SDK packages the build installed where one is not at the named revision or does not hold the named bytes (contents: the digest of every file the package's archive unpacks to, toolchain.py contents; the archives are those of Google's repository manifest, repository2-3.xml). The stage's workflow installs this JDK (.github/actions/proof-android-runtime). The reader's fingerprint names this file (proof/android/records.py), so a change here reads every archive again.",
 	"jdk": {
 		"distribution": "temurin",
 		"version": "17.0.13+11"
@@ -18,22 +18,36 @@
 		{
 			"package": "platforms;android-37.0",
 			"directory": "platforms/android-37.0",
-			"revision": "2"
+			"revision": "2",
+			"contents": {
+				"any": "6c84aacf63a81a58a2b5f05fe1ae0cebfc70ac73bfb54fc84fbaafd1840c59bf"
+			}
 		},
 		{
 			"package": "platforms;android-36",
 			"directory": "platforms/android-36",
-			"revision": "2"
+			"revision": "2",
+			"contents": {
+				"any": "31553234aea3fb512e7781bcaf0e4045792cd41028bd947947d57ef2a3059705"
+			}
 		},
 		{
 			"package": "build-tools;35.0.0",
 			"directory": "build-tools/35.0.0",
-			"revision": "35.0.0"
+			"revision": "35.0.0",
+			"contents": {
+				"linux": "99b5fc4f205d7cc03789b392714daedea283e9110cac33290c57b446aabb1abc",
+				"darwin": "cb3386196017bd73060eaf0b02d2366ddca52e42f2aadf34e5ccc868c44b027b"
+			}
 		},
 		{
 			"package": "platform-tools",
 			"directory": "platform-tools",
-			"revision": "37.0.1"
+			"revision": "37.0.1",
+			"contents": {
+				"linux": "8d2ec933aeed9c8b32a729236df981f0ee0970d2d79ae54626e52f051a1a9be0",
+				"darwin": "c3a67643665e720a564cad37f0220e5521d09244f5438940cd2140fad275f0b7"
+			}
 		}
 	]
 }

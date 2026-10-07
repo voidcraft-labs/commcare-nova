@@ -15,13 +15,14 @@ tests install (``app/instrumentation-tests/resources``). A variant changes singl
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
-from proof.android import archives
+from proof.android import records
 from proof.android.client import AndroidReader, AndroidReaderError, AndroidReaderUnavailable, unavailable
 
 CONTROLS = Path(__file__).resolve().parents[1] / "controls"
@@ -165,38 +166,152 @@ class ReaderSelfCheck(unittest.TestCase):
 
 
 class ArchiveSelfCheck(unittest.TestCase):
-    def test_a_materialized_archive_is_the_same_bytes_each_time_and_holds_the_stores_entries(self):
-        """Contract: an archive made from a store is a function of its entries. Failure it catches: an entry
-        dropped, renamed or reordered, or a timestamp that moves the bytes. Two materializations of one record
-        are byte for byte alike and hold each named entry's bytes; a blob the store lacks is refused."""
+    def test_an_archive_written_from_a_store_is_the_same_bytes_each_time_and_holds_the_stores_entries(self):
+        """Contract: an archive made from a store is a function of its entries, and so is its digest, whichever
+        file holds it. Failure it catches: an entry dropped, renamed or reordered, a timestamp that moves the
+        bytes, or a digest that names the zip and not what it holds. Two writings of one record are byte for
+        byte alike and hold each named entry's bytes; the same entries in a zip written otherwise have the same
+        digest; a blob the store lacks is refused."""
         from proof.store import disk
 
         with tempfile.TemporaryDirectory(prefix="proof-android-selfcheck-") as scratch:
-            store = Path(scratch) / "store"
-            delta = disk.Delta(store)
+            output = Path(scratch) / "out"
+            delta = disk.Delta(output / disk.DELTA)
             entries = {"profile.ccpr": delta.put_blob(b"<profile/>"), "suite.xml": delta.put_blob(b"<suite/>")}
-            record = {"kind": "a", "state": {"archive": {"entries": entries}}}
-            delta.put(
-                "documents",
-                "d" * 64,
-                {
-                    "group": "corpus:example",
-                    "parts": {"minimum/a": ["k" * 64, delta.put_blob(json.dumps(record).encode())]},
-                },
-            )
-            listed = archives.document_archives(store, "example")
-            self.assertEqual([archive.name for archive in listed], ["minimum/A"])
-            first = archives.materialize(store, listed[0], Path(scratch) / "one.ccz").read_bytes()
-            second = archives.materialize(store, listed[0], Path(scratch) / "two.ccz").read_bytes()
+            source = records.Source([output])
+            stored = records.Archive("minimum/A", entries=tuple(sorted(entries.items())))
+            first = stored.write(source, Path(scratch) / "one.ccz").read_bytes()
+            second = stored.write(source, Path(scratch) / "two.ccz").read_bytes()
             self.assertEqual(first, second)
             with zipfile.ZipFile(Path(scratch) / "one.ccz") as zipped:
                 self.assertEqual(
                     {name: zipped.read(name) for name in zipped.namelist()},
                     {"profile.ccpr": b"<profile/>", "suite.xml": b"<suite/>"},
                 )
-            missing = archives.Archive("minimum/A", entries={"suite.xml": "sha256:" + "0" * 64})
-            with self.assertRaises(archives.StoreIncomplete):
-                archives.materialize(store, missing, Path(scratch) / "three.ccz")
+            with zipfile.ZipFile(Path(scratch) / "other.ccz", "w", zipfile.ZIP_STORED) as zipped:
+                zipped.writestr("suite.xml", b"<suite/>")
+                zipped.writestr("profile.ccpr", b"<profile/>")
+            local = records.Archive("local.ccz", path=Path(scratch) / "other.ccz")
+            self.assertEqual(local.digest(source), stored.digest(source))
+            missing = records.Archive("minimum/A", entries=(("suite.xml", "sha256:" + "0" * 64),))
+            with self.assertRaises(records.RecordsIncomplete):
+                missing.write(source, Path(scratch) / "three.ccz")
+
+
+class StageSelfCheck(unittest.TestCase):
+    """The stage, end to end, on commcare-android's own code: a planted difference Android must show."""
+
+    @classmethod
+    def setUpClass(cls):
+        reason = unavailable()
+        if reason is not None:
+            raise AndroidReaderUnavailable(reason)
+
+    def lane(self, work: Path, local: Path) -> tuple[Path, Path, str]:
+        """A lane run's output whose one document's build of A is the control's own local archive, entry for
+        entry, and a corpus whose local archive of it is ``local``."""
+        from proof.store import disk, keys
+
+        output = work / "lane-out"
+        delta = disk.Delta(output / disk.DELTA)
+        with zipfile.ZipFile(SURVEY / "local.ccz") as zipped:
+            entries = {info.filename: delta.put_blob(zipped.read(info)) for info in zipped.infolist()}
+        parts = {"minimum/a": {"kind": "a", "state": {"archive": {"entries": entries}}}}
+        document = keys.hashed("selfcheck-document")
+        delta.put(
+            "documents",
+            document,
+            {
+                "group": "corpus:planted",
+                "parts": {
+                    name: [keys.hashed(name), delta.put_blob(disk.canonical(record))] for name, record in parts.items()
+                },
+            },
+        )
+        corpus = work / "corpus"
+        (corpus / "planted").mkdir(parents=True)
+        (corpus / "planted" / "local.ccz").write_bytes(local.read_bytes())
+        return output, corpus, document
+
+    def run_stage(self, work: Path, local: Path) -> tuple[dict, list]:
+        from proof.android import stage
+        from proof.lane import blocks as lane_blocks
+        from proof.store import keys
+        from proof.store import queue as store_queue
+
+        output, corpus, document = self.lane(work, local)
+        reader = records.fingerprint(records.host_platform())
+        group = store_queue.Group("android:corpus:planted", 10.0)
+        group.key, group.document = keys.hashed("selfcheck-group", document, reader), document
+        fingerprints = {
+            name: "selfcheck" for name in ("observation", "browser", "judge", "harness", "image", "postgres")
+        }
+        queue = work / "queue.json"
+        store_queue.write_queue(
+            queue, store_queue.queue_value([group], {**fingerprints, "arch": "amd64", "android": reader}, dedupe=False)
+        )
+        register = work / "register.json"
+        register.write_text("[]", encoding="utf-8")
+        held = os.environ.get("PROOF_KNOWN_DEFECTS")
+        os.environ["PROOF_KNOWN_DEFECTS"] = str(register)
+        try:
+            run = stage.Run(
+                queue_path=queue,
+                out=work / "android-out",
+                corpus=corpus,
+                outputs=[output],
+                store=None,
+                jobs=2,
+                bin_=None,
+                write_records=False,
+            )
+            self.assertEqual(run.run(), 0)
+        finally:
+            if held is None:
+                del os.environ["PROOF_KNOWN_DEFECTS"]
+            else:
+                os.environ["PROOF_KNOWN_DEFECTS"] = held
+        outcomes = {
+            name.rsplit("::", 1)[1]: outcome
+            for _, manifest in lane_blocks.read_manifests(work / "android-out")
+            for entry in manifest["groups"]
+            for name, outcome in entry["outcomes"].items()
+        }
+        evidence = json.loads(next((work / "android-out").glob("blocks/*/checks/proof3/*.json")).read_text())
+        return outcomes, [(d["artifact"], d["path"], d["before"], d["after"]) for d in evidence["differences"]]
+
+    def test_the_stage_reports_a_planted_difference_android_shows_and_nothing_where_the_archives_are_one(self):
+        """Contract: the stage's proof 3 reports what commcare-android's own code reads differently of Nova's
+        local archive and HQ's build, and holds it to the register. Failure it catches: a stage that passes
+        whatever Android reads (answers never compared, or compared with themselves), or one that reports a
+        difference between two readings of one archive. With the local archive the build's own bytes, Android
+        reads both alike and every item passes; with one setting planted in the local profile, the stage
+        reports that setting's reader and the home screen's button, nothing else, and proof 3 fails for want
+        of an entry."""
+        with tempfile.TemporaryDirectory(prefix="proof-android-stage-") as scratch:
+            work = Path(scratch)
+            outcomes, differences = self.run_stage(work / "same", SURVEY / "local.ccz")
+            self.assertEqual(
+                outcomes, {"records": "passed", "proof1": "passed", "proof3": "passed", "proof4": "passed"}
+            )
+            self.assertEqual(differences, [])
+            planted = with_property(SURVEY / "local.ccz", work / "planted.ccz", "cc-show-saved", "no")
+            outcomes, differences = self.run_stage(work / "planted", planted)
+            self.assertEqual(
+                outcomes, {"records": "passed", "proof1": "passed", "proof3": "failed", "proof4": "passed"}
+            )
+            self.assertEqual(
+                differences,
+                [
+                    (
+                        "android@local.ccz",
+                        "/home/StandardHomeActivityUIController.getHiddenButtons/saved",
+                        None,
+                        True,
+                    ),
+                    ("android@local.ccz", "/profile/readers/HiddenPreferences.isSavedFormsEnabled", True, False),
+                ],
+            )
 
 
 if __name__ == "__main__":

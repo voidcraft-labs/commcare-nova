@@ -36,7 +36,7 @@ import java.util.List;
  * A walk is one session from the app's first menu. Each menu the session reaches is read (Menus), and every item
  * it offers is a walk of its own, so a session is walked down every path the app's own menus offer and no
  * further: an item a menu hides is reached by no walk. At a case list the first case is opened and confirmed
- * (Lists); a search is sent and answered (Queries), a claim posted and its sync run (Posts); a form is answered
+ * (Lists), and each action the list offers (a search behind the list) is a walk of its own too; a search is sent and answered (Queries), a claim posted and its sync run (Posts); a form is answered
  * to its end and saved, and home is handed its result, so what home starts after a form is part of the same
  * walk (Forms). A walk ends where home starts nothing, at a menu after a form, at a screen the walk does not
  * answer (named, with what it shows), or at its limits.
@@ -50,6 +50,8 @@ final class Screens {
     private static final int MAX_FORMS = 3;
     private static final int MAX_WALKS = 60;
     static final String ROOT = "root";
+    /** A walk's choice of a list's own action, by its place among the list's actions. */
+    static final String ACTION = "@action:";
 
     private Screens() {
     }
@@ -162,6 +164,7 @@ final class Screens {
         found.put("steps", steps);
         int depth = 0;
         int forms = 0;
+        Lists.action = null;
         for (int count = 0; ; count++) {
             Intent started = shadow.getNextStartedActivity();
             drain(shadow);
@@ -201,7 +204,20 @@ final class Screens {
                     break;
                 }
             } else if (target.equals(EntitySelectActivity.class.getName())) {
-                if (!Lists.read(started, step, shadow)) {
+                // The walk's next choice may be one of this list's own actions (a search behind the list).
+                boolean scripted = forms == 0 && depth < choices.size() && choices.get(depth).startsWith(ACTION);
+                Lists.action = scripted ? Integer.valueOf(choices.get(depth++).substring(ACTION.length())) : null;
+                boolean on = Lists.read(started, step, shadow);
+                if (!scripted && forms == 0 && depth >= choices.size() && pending != null
+                        && !String.join("/", choices).contains(ACTION)) {
+                    // Each action the list offers is a walk of its own, where no action led here.
+                    for (int index = 0; index < Lists.offered; index++) {
+                        List<String> next = new ArrayList<>(choices);
+                        next.add(ACTION + index);
+                        pending.add(next);
+                    }
+                }
+                if (!on) {
                     break;
                 }
             } else if (target.equals(EntityDetailActivity.class.getName())) {

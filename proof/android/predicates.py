@@ -9,10 +9,12 @@ each: the spelling Nova exports is a retained control's archive (``proof/control
 archive with exactly the entry's difference written into it. So each test says, by a run of Android's own
 classes, whether the two spellings differ for a worker and how.
 
-These hold the predicates whose two spellings one archive edit gives. The predicates whose other side only HQ's
-build gives (the Sort menu's hidden column, an image-map column's width, the form entry a sync-on-form-entry
-build refuses, the search screen's handling of a refused query, a fuzzy search's matches) are read over the
-lane's own archives by ``proof.android.observe``.
+Every predicate is held here by one archive edit: the element HQ's build spells one way and Nova's local
+archive another (a hidden sort column's header, an image column's width, the claim a sync-on-form-entry build
+posts before a form, a list's sort keys) is written into the control's archive exactly as HQ's build of that
+control spells it, so the two archives differ in that element alone. The lane's Android stage
+(``proof.android.stage``) holds the same predicates on HQ's own builds of every document, as register entries
+(``android@...``); these say, wherever the reader runs, which element each rests on.
 
 It needs a reader runtime (``PROOF_ANDROID_RUNTIME``) and ``java``, and the standard library alone. Like
 ``selfcheck.py`` it is not a ``test_*.py``: the lane's image holds no reader runtime.
@@ -20,6 +22,7 @@ It needs a reader runtime (``PROOF_ANDROID_RUNTIME``) and ``java``, and the stan
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 import zipfile
@@ -28,10 +31,19 @@ from pathlib import Path
 from proof.android.client import AndroidReader, AndroidReaderUnavailable, unavailable
 from proof.android.selfcheck import CONTROLS, differing, variant, with_property
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+ANSWERS = Path(__file__).resolve().parents[1] / "core" / "answers.json"
 SURVEY = CONTROLS / "targeted-survey-menu" / "local.ccz"
 SURVEY_AGAIN = CONTROLS / "targeted-survey-menu" / "local-again.ccz"
 TILE = CONTROLS / "targeted-custom-tile"
 LABELLED_REPEAT = CONTROLS / "targeted-labelled-group-repeat" / "local.ccz"
+INLINE_LIST = CONTROLS / "case-list-inline" / "local.ccz"
+INLINE_LIST_RESTORE = FIXTURES / "case-list-inline.restore.xml"
+OPERATION_QUERY = CONTROLS / "case-operation-query" / "local.ccz"
+OPERATION_QUERY_RESTORE = FIXTURES / "case-operation-query.restore.xml"
+SYNC_ON_ENTRY = CONTROLS / "targeted-sync-on-form-entry" / "local.ccz"
+SYNC_ON_ENTRY_RESTORE = FIXTURES / "targeted-sync-on-form-entry.restore.xml"
+SEARCH_COMPILE = CONTROLS / "targeted-search-hq-compile" / "local.ccz"
 
 # Each profile setting an entry's difference is, with the value HQ's profile gives it: the readers it moves from
 # what Android gives where the setting is absent (Nova's local profile) to what it gives where it is present,
@@ -226,7 +238,8 @@ class Predicates(unittest.TestCase):
             self.assertEqual([record["status"] for record in answer["incomplete"]["records"]], ["incomplete"])
         self.assertIs(answers["kept"]["reopened"]["form"]["loaded"], True)
         self.assertIs(answers["renamed"]["reopened"]["form"]["loaded"], False)
-        self.assertEqual(answers["renamed"]["reopened"]["records"][0]["AndroidCommCarePlatform.getFormDefId"], -1)
+        self.assertEqual(answers["kept"]["reopened"]["records"][0]["AndroidCommCarePlatform.getFormDefId"], "held")
+        self.assertEqual(answers["renamed"]["reopened"]["records"][0]["AndroidCommCarePlatform.getFormDefId"], "none")
         self.assertIn(
             "No XForm definition defined for this form", answers["renamed"]["reopened"]["form"]["alert"]["msg"]
         )
@@ -286,6 +299,197 @@ class Predicates(unittest.TestCase):
 
         self.assertNotIn("PROMPT_NEW_REPEAT", events(listed))
         self.assertIn("PROMPT_NEW_REPEAT", events(plain))
+
+    # The predicates whose other spelling is HQ's build's -------------------------------------------------------
+
+    def walked(self, archive, restore=None, **options):
+        arguments = {"archive": str(archive), "answers": json.loads(ANSWERS.read_text(encoding="utf-8")), **options}
+        if restore is not None:
+            arguments["restore"] = str(restore)
+        answer = self.reader.request("app", **arguments)
+        self.assertEqual(answer["install"], "Installed")
+        return answer
+
+    @staticmethod
+    def steps(answer, screen):
+        """Each step of every walk that shows ``screen``, the first walk that reaches one first."""
+        return [
+            step
+            for name in sorted(answer["walks"], key=lambda name: (name.count("/"), name))
+            for step in answer["walks"][name].get("steps", ())
+            if step["screen"] == screen
+        ]
+
+    def test_a_hidden_sort_columns_header_puts_it_in_the_sort_menu(self):
+        """Finding 36. Contract: Android's Sort menu offers every column whose header is not empty
+        (``EntitySelectActivity.getSortOptionsList``), so the hidden sort column Nova's local archive gives a
+        header is offered to a worker, and the same column with the empty header HQ's build writes is not.
+        Failure it catches: a Sort menu that reads a column's width or its sort element instead."""
+        local = self.walked(INLINE_LIST, INLINE_LIST_RESTORE)
+        as_hq = self.walked(
+            edited(
+                INLINE_LIST,
+                self.work / "hidden-header.ccz",
+                "suite.xml",
+                [
+                    (
+                        '<header width="0"><text><locale id="m0.case_short.case_weight_9.header"/></text>',
+                        '<header width="0"><text/>',
+                    )
+                ],
+            ),
+            INLINE_LIST_RESTORE,
+        )
+
+        def offered(answer):
+            return self.steps(answer, "EntitySelectActivity")[0]["list"]["EntitySelectActivity.getSortOptionsList"]
+
+        self.assertIn("Hidden order", " ".join(offered(local)))
+        self.assertEqual([name for name in offered(local) if "Hidden order" not in name], offered(as_hq))
+
+    def test_an_image_columns_width_is_the_hint_its_header_carries(self):
+        """Finding 38. Contract: Android lays a list's columns out from each header's width hint (``EntityView``,
+        ``DetailField.getHeaderWidthHint``): with none, every shown column takes an equal share of the row, and
+        the 13% HQ's build writes on an image column gives that column 130 of a 1000-pixel row and the others
+        the rest. Failure it catches: a layout that ignores the hint."""
+        image = '<header><text><locale id="m0.case_short.case_code_6.header"/></text></header><template form="image">'
+        hinted = (
+            '<header width="13%"><text><locale id="m0.case_short.case_code_6.header"/></text></header>'
+            '<template form="image" width="13%">'
+        )
+
+        def widths(answer):
+            header = self.steps(answer, "EntitySelectActivity")[0]["list"]["header"][0]
+            return [child["layoutWidth"] for child in header["children"]]
+
+        local = widths(self.walked(INLINE_LIST, INLINE_LIST_RESTORE))
+        as_hq = widths(
+            self.walked(
+                edited(INLINE_LIST, self.work / "width.ccz", "suite.xml", [(image, hinted)]), INLINE_LIST_RESTORE
+            )
+        )
+        self.assertEqual(len(set(local)), 1)
+        self.assertEqual(sum(local), 1000)
+        self.assertIn(130, as_hq)
+        self.assertEqual(len(set(as_hq) - {130}), 1)
+        self.assertLess(next(iter(set(as_hq) - {130})), local[0])
+
+    def test_a_form_whose_entry_posts_a_claim_is_refused_and_the_session_cleared(self):
+        """Defect 20. Contract: where an entry carries a ``post`` (HQ's build under sync on form entry), Android's
+        home asks for a sync before the form and, the entry being no remote request, clears the session and
+        tells the worker so (``HomeScreenBaseActivity.launchRemoteSync``): no form opens. The same entry
+        without it, as Nova's local archive writes it, opens its form. Failure it catches: the claim being
+        posted, or the form opening after it."""
+        post = (
+            '<post url="https://www.commcarehq.org/a/nova-proof/phone/claim-case/">'
+            '<data key="case_id" ref="instance(\'commcaresession\')/session/data/case_id"/></post>'
+        )
+        with zipfile.ZipFile(SYNC_ON_ENTRY) as zipped:
+            suite = zipped.read("suite.xml").decode()
+        form = suite.split("<entry>", 1)[1].split("</form>", 1)[0] + "</form>"
+        local = self.walked(SYNC_ON_ENTRY, SYNC_ON_ENTRY_RESTORE)
+        as_hq = self.walked(
+            edited(SYNC_ON_ENTRY, self.work / "post.ccz", "suite.xml", [(form, form + post)]), SYNC_ON_ENTRY_RESTORE
+        )
+        self.assertTrue(self.steps(local, "FormEntryActivity"))
+        self.assertTrue(all(step["form"]["loaded"] for step in self.steps(local, "FormEntryActivity")))
+        self.assertEqual(self.steps(as_hq, "FormEntryActivity"), [])
+        self.assertEqual(self.steps(as_hq, "PostRequestActivity"), [])
+        ended = [walk["steps"][-1] for name, walk in as_hq["walks"].items() if name.endswith("m0-f0")]
+        self.assertTrue(ended)
+        for step in ended:
+            self.assertEqual(step["screen"], "home")
+            self.assertEqual(step["alert"]["title"], "Session Refresh Required")
+            self.assertIsNone(step["session"]["command"])
+
+    def test_a_forms_title_names_its_completed_save_and_not_the_header_a_worker_opens_it_under(self):
+        """Finding 46. Contract: Android names a completed save by the form's own title
+        (``FormEntryInstanceState.getDefaultFormTitle``), so a title another save of the form wrote renames
+        what a worker finds under Saved Forms, while the header form entry shows from home is the menu's and
+        the form's names from the suite (``FormEntryActivity.getHeaderString``) and does not change. Failure it
+        catches: the header changing too, or the save's name read from the suite."""
+        form = "modules-0/forms-0.xml"
+        retitled = edited(
+            SURVEY, self.work / "retitled.ccz", form, [("<h:title>Census</h:title>", "<h:title>Recensement</h:title>")]
+        )
+        answers = {name: self.walked(archive) for name, archive in (("plain", SURVEY), ("retitled", retitled))}
+        forms = {
+            name: next(
+                step["form"]
+                for step in self.steps(answer, "FormEntryActivity")
+                if step["form"]["formTitle"] in ("Census", "Recensement")
+            )
+            for name, answer in answers.items()
+        }
+        self.assertEqual(forms["plain"]["FormEntryInstanceState.getDefaultFormTitle"], "Census")
+        self.assertEqual(forms["retitled"]["FormEntryInstanceState.getDefaultFormTitle"], "Recensement")
+        self.assertEqual(
+            forms["plain"]["FormEntryActivity.getHeaderString"], forms["retitled"]["FormEntryActivity.getHeaderString"]
+        )
+        for name, title in (("plain", "Census"), ("retitled", "Recensement")):
+            saved = forms[name]["saved"]
+            self.assertTrue(saved["finishing"], name)
+            self.assertIn(title, [record["FormRecord.getDisplayName"] for record in saved["records"]])
+
+    def test_a_search_answer_holding_both_quote_marks_is_sent_and_the_servers_refusal_shown_as_androids_own(self):
+        """Finding 48. Contract: Android's search screen sends a search whatever its prompts hold
+        (``QueryRequestActivity.makeQueryRequest``): an answer holding both quote marks, which no XPath string
+        can hold, leaves Core's prompt errors empty and is sent as the query the suite builds; and when the
+        server answers 400, as HQ answers a query it cannot compile, the worker sees Android's own text for a
+        client error and the screen stays. Failure it catches: Android stopping the search as Formplayer does,
+        or showing the server's message."""
+        answer = self.walked(SEARCH_COMPILE, queryAnswer='it\'s "x"')
+        probed = [
+            step["query"]["withAnswer"]
+            for step in self.steps(answer, "QueryRequestActivity")
+            if "withAnswer" in step["query"]
+        ]
+        self.assertTrue(probed)
+        sent = [
+            value
+            for probe in probed
+            for values in probe["RemoteQuerySessionManager.getRawQueryParams"].values()
+            for value in values
+        ]
+        self.assertTrue(any("it's" in value or "search-value-mixes-quote-marks" in value for value in sent), sent)
+        for probe in probed:
+            self.assertEqual(probe["RemoteQuerySessionManager.getErrors"], {})
+            refused = probe["afterServerAnswers400"]
+            self.assertIs(refused["errorShown"], True)
+            self.assertIs(refused["finishing"], False)
+            self.assertEqual(refused["errorText"], "Client-side error (code 400) received from network request.")
+
+    def test_a_fuzzy_search_matches_a_columns_sort_key_and_only_where_it_has_one(self):
+        """Finding 51. Contract: with fuzzy search on, Android matches a misspelled term against each column's
+        sort key (``EntityStringFilterer``, ``EntitySortUtil``), so the same list finds a case by a misspelling
+        where its column carries the sort element HQ's build writes, and not where the column carries none, as
+        Nova's local archive leaves it; with fuzzy search off neither finds it, and the exact word finds it
+        either way. Failure it catches: fuzzy search reading the shown text, or the sort element doing nothing."""
+        field = '<template><text><xpath function="case_name"/></text></template></field>'
+        sort = (
+            '<template><text><xpath function="case_name"/></text></template>'
+            '<sort type="string" order="1" direction="ascending"><text><xpath function="case_name"/></text></sort>'
+            "</field>"
+        )
+        with zipfile.ZipFile(OPERATION_QUERY) as zipped:
+            suite = zipped.read("suite.xml").decode()
+        first = suite.index(field)
+        keyed = variant(
+            OPERATION_QUERY,
+            self.work / "sort-key.ccz",
+            {"suite.xml": (suite[:first] + sort + suite[first + len(field) :]).encode()},
+        )
+
+        def searches(archive):
+            listed = self.steps(self.walked(archive, OPERATION_QUERY_RESTORE), "EntitySelectActivity")[0]["list"]
+            return listed["searches"]
+
+        local, as_hq = searches(OPERATION_QUERY), searches(keyed)
+        for held in (local, as_hq):
+            self.assertEqual(held["fuzzyOn"]["proof"], ["proof text"])
+            self.assertEqual(held["fuzzyOff"]["proox"], [])
+        self.assertEqual(local["fuzzyOn"]["proox"], [])
+        self.assertEqual(as_hq["fuzzyOn"]["proox"], ["proof text"])
 
 
 if __name__ == "__main__":

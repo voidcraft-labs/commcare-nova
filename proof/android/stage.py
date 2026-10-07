@@ -305,8 +305,11 @@ class Run:
                 outcomes[item(group, check)] = "passed" if problem is None else "failed"
                 if problem is not None:
                     failures.append(f"{check}: {problem}")
-        except (records.RecordsIncomplete, OSError, ValueError, KeyError) as error:
+        except Exception as error:  # the group could not run; the next still does, and the gate names this one
+            import traceback
+
             failure = f"{type(error).__name__}: {error}"
+            failures.append(traceback.format_exc())
         if failures:
             path = directory / "android" / f"{kind}-{identifier}.failures.txt"
             path.parent.mkdir(parents=True, exist_ok=True)

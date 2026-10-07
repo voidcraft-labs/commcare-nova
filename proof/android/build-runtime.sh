@@ -21,18 +21,20 @@
 # - the two checkouts, each at its pinned commit;
 # - Gradle's distribution and Robolectric's Android runtime, each by its sha256; the distribution is the
 #   version the project's own wrapper names, and the build refuses another;
-# - the Android SDK packages the build reads, which must be in ANDROID_HOME already, each at the revision the
-#   toolchain names: the Android Gradle plugin is told to download none (android.builder.sdkDownload=false), so
-#   a package that is missing fails the build, and one at another revision is refused here before it;
+# - the Android SDK packages the build reads, which the Android Gradle plugin installs into ANDROID_HOME
+#   itself where they are missing (platforms;android-37.0, platforms;android-36, build-tools;35.0.0,
+#   platform-tools): once the build ends, each must be at the revision the toolchain names and hold the bytes
+#   it names, or this fails and leaves no runtime.json, so nothing reads with what was built;
 # - every dependency Gradle resolves, held to verification-metadata.xml beside this file where it exists
 #   (Gradle's own dependency verification, the sha256 of each artifact). PROOF_ANDROID_VERIFICATION=lenient
 #   reports an artifact the file does not hold and goes on, and =off skips it; --write-verification writes the
 #   file a build on this platform needs, for a person to review and commit.
 #
-# It needs JDK 17, git, curl, unzip, python3 and the network, and ANDROID_HOME naming an Android SDK that holds
-# those packages (installed by a person or a runner image that accepted the SDK's licenses: this script
-# accepts none). The plugin's resource compiler (aapt2) is an x86-64 binary on Linux, so on Linux this builds
-# on amd64 alone.
+# It needs JDK 17, git, curl, unzip, python3 and the network, and ANDROID_HOME naming an Android SDK directory
+# that holds the license acceptances the plugin installs under (licenses/, a person's or a runner image's:
+# this script accepts none; `python3 proof/android/toolchain.py prepare-sdk <dir>` makes one that holds
+# nothing else, so every package is installed afresh). The plugin's resource compiler (aapt2) is an x86-64
+# binary on Linux, so on Linux this builds on amd64 alone.
 #
 # With --android and --core it copies local checkouts at the pinned commits instead of fetching them.
 set -eu
@@ -51,8 +53,8 @@ while [ "$#" -gt 0 ]; do
     *) echo "build-runtime: unknown argument $1" >&2; exit 2 ;;
   esac
 done
-if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
-  echo "build-runtime: set ANDROID_HOME to an Android SDK holding the packages proof/android/toolchain.json names" >&2
+if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME/licenses" ]; then
+  echo "build-runtime: set ANDROID_HOME to an Android SDK directory holding the licenses a person accepted (python3 proof/android/toolchain.py prepare-sdk <dir> makes one from an SDK that holds them)" >&2
   exit 2
 fi
 
@@ -80,9 +82,6 @@ fetched() {
     exit 1
   fi
 }
-
-# The SDK packages the build reads, each at the revision the toolchain names.
-python3 "$here/toolchain.py" sdk "$ANDROID_HOME"
 
 mkdir -p "$target"
 target="$(cd "$target" && pwd)"
@@ -146,7 +145,6 @@ cd "$target/commcare-android"
 TZ=UTC GRADLE_USER_HOME="$target/gradle-home" "$target/gradle-dist/gradle-$gradle_version/bin/gradle" \
   --no-daemon --no-configuration-cache $verification \
   -Dorg.gradle.parallel=false -Dorg.gradle.jvmargs="-Xmx3g -Dfile.encoding=UTF-8" \
-  -Pandroid.builder.sdkDownload=false \
   -I "$here/reader.init.gradle" -PnovaAndroidClasspathFile="$target/classpath.txt" \
   :app:writeNovaAndroidClasspath
 test -s "$target/classpath.txt"
@@ -154,6 +152,9 @@ if [ -n "$write_verification" ]; then
   cp "$held" "$write_verification"
   echo "The dependencies' checksums are at $write_verification."
 fi
+
+# The SDK packages the build read, each at the revision and of the bytes the toolchain names.
+python3 "$here/toolchain.py" sdk "$ANDROID_HOME"
 
 printf '{"classpath": "classpath.txt", "robolectric": "robolectric", "workdir": "%s"}\n' \
   "$target/commcare-android/app" > "$target/runtime.json"
