@@ -3,15 +3,13 @@
     python3 -m proof.android.observe --store <run output>/store --corpus <corpus> --out <directory> \\
         [--document <id> ...] [--only <archive name substring>] [--search <text> ...] [--query-answer <text>]
 
-For each archive ``proof.android.archives.document_archives`` names, the reader answers two requests on a device
-of its own (``proof.android.client``):
-
-- ``profile``: the install's status, and what each of Android's profile readers gives;
-- ``app``: the screens Android's home activity takes a worker through from each command of the installed suite,
-  over the restore HQ served for the document's cases: each case list (its Sort menu, its header row and first
-  rows as Android lays them out, and what each ``--search`` finds), the form it opens (its title, its screens),
-  a search screen (and what it sends for ``--query-answer``), or where home starts nothing, what it tells the
-  worker.
+For each archive ``proof.android.archives.document_archives`` names, the reader answers one request on a device
+of its own (``proof.android.client``), ``app``: the install's status; what each of Android's profile readers
+gives; and the screens Android's home activity takes a worker through from each command of the installed suite,
+over the restore HQ served for the document's cases: each case list (its Sort menu, its header row and first
+rows as Android lays them out, and what each ``--search`` finds), a search screen (what it sends for
+``--query-answer``, then the list behind it), the form it opens (its title, its screens), or where home starts
+nothing, what it tells the worker;
 
 and, once per document, ``installs``: each pair the checks compare as two installs of one app (the two local
 archives; A then B) installed on one device in turn.
@@ -44,25 +42,18 @@ def file_name(name: str) -> str:
 
 
 def observe_archive(reader, path: Path, restore: Path | None, *, searches=(), query_answer=None, preferences=None):
-    """Both requests' answers for one archive, with what the reader could not answer named in place."""
-    found = {}
-    for op, arguments in (
-        ("profile", {}),
-        (
-            "app",
-            {
-                **({"restore": str(restore)} if restore is not None else {}),
-                **({"searches": list(searches)} if searches else {}),
-                **({"queryAnswer": query_answer} if query_answer is not None else {}),
-                **({"preferences": preferences} if preferences else {}),
-            },
-        ),
-    ):
-        try:
-            found[op] = reader.request(op, archive=str(path), **arguments)
-        except AndroidReaderError as error:
-            found[op] = {"readerFailed": str(error), "log": error.log[-4000:]}
-    return found
+    """The reader's answer for one archive on one device (the ``app`` request, which holds the profile's readers
+    too), or what the reader could not answer, named in place."""
+    arguments = {
+        **({"restore": str(restore)} if restore is not None else {}),
+        **({"searches": list(searches)} if searches else {}),
+        **({"queryAnswer": query_answer} if query_answer is not None else {}),
+        **({"preferences": preferences} if preferences else {}),
+    }
+    try:
+        return reader.request("app", archive=str(path), **arguments)
+    except AndroidReaderError as error:
+        return {"readerFailed": str(error), "log": error.log[-4000:]}
 
 
 def observe_document(reader, store: Path, root: Path, out: Path, *, only=None, **options) -> list[str]:
@@ -90,7 +81,7 @@ def observe_document(reader, store: Path, root: Path, out: Path, *, only=None, *
             target = out / document_id / (file_name(archive.name) + ".json")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(canonical(answer), encoding="utf-8")
-            lines.append(f"{document_id} {archive.name}: {reader.seconds[-2]} s + {reader.seconds[-1]} s")
+            lines.append(f"{document_id} {archive.name}: {reader.seconds[-1]} s")
         pairs = {}
         for first, second in (("local.ccz", "local-again.ccz"), ("local.ccz", "local.ccz")):
             if first in materialized and second in materialized:

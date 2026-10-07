@@ -151,12 +151,16 @@ class ReaderSelfCheck(unittest.TestCase):
         self.assertEqual([step["screen"] for step in app["walks"]["absent"]["steps"]], ["MenuActivity"])
 
     def test_a_request_the_reader_cannot_answer_raises(self):
-        """Contract: no answer holds a failure of the reader's own. Failure it catches: a missing archive or an
-        unknown request recorded as something Android read. Both raise, and a request after them is answered."""
+        """Contract: no answer holds a failure of the reader's own. Failure it catches: a missing archive, an
+        unknown request or a JVM stopped at its deadline recorded as something Android read. Each raises, and a
+        request after them is answered."""
         with self.assertRaises(AndroidReaderError):
             self.reader.request("profile", archive=str(self.work / "no-such.ccz"))
         with self.assertRaises(AndroidReaderError):
             self.reader.request("no-such-request")
+        with self.assertRaisesRegex(AndroidReaderError, "did not answer"):
+            # No JVM starts and installs an app in a twentieth of a second.
+            self.reader.request("profile", archive=str(SURVEY / "local.ccz"), deadline=0.05)
         self.assertEqual(self.reader.request("profile", archive=str(SURVEY / "local.ccz"))["install"], "Installed")
 
 

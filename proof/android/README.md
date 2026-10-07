@@ -163,6 +163,32 @@ a device of its own; a walk opens the forms the suite names; a request the
 reader cannot answer raises. It is not a `test_*.py`, because the lane's
 pytest collects all of `proof/` in an image that holds no reader runtime.
 
+`predicates.py` runs each Android predicate the known-defect register names
+over both spellings of its entry's difference, where one archive edit gives
+both: the spelling Nova exports is a retained control's archive, and the other
+is that archive with exactly the difference written in.
+
+```bash
+PROOF_ANDROID_RUNTIME=<directory> python3 -m unittest proof.android.predicates -v
+```
+
+It holds: the settings HQ's profile writes and Nova's omits move their readers
+(defects 7 and 40); the ten settings HQ's app settings save writes at their
+readers' defaults read alike (defect 40's equivalences); the media check is
+skipped where the profile calls its content valid; a profile that names no
+current locale starts in `default`, with the same language picker (finding
+39); two exports of one document install as two apps, and one twice is a
+duplicate (defect 9); a setting the next profile forces replaces a worker's
+own at an update, and one it does not force leaves it (defect 40); an
+incomplete form reopens only while its `xmlns` is the app's (defect 1); a tile
+cell's vertical `start` lays out as none does, `left` moves a text cell's
+gravity and an image cell's scale type, and `medium` changes a text cell's
+size (defect 14 and finding 42); a repeat inside a field list never offers a
+row (defect 27). The predicates whose other side only HQ's build gives (the
+Sort menu's hidden column, an image-map column's width, the form entry a
+sync-on-form-entry build refuses, a refused search, a fuzzy search's matches)
+are read over the lane's own archives by `observe.py`.
+
 `proof/checks/test_device_archive.py` runs in the lane: the archive a state
 keeps is HQ's own download with the media its suite names, and a document
 without media keeps exactly its index files.

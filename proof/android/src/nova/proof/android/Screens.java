@@ -60,7 +60,12 @@ final class Screens {
         if (status != AppInstallStatus.Installed) {
             return found;
         }
+        // What the install alone left, before any worker logs in, and the profile as its readers give it: the
+        // `profile` request's answer, so one device answers for both.
+        found.put("areMMResourcesValidatedAfterInstall",
+                CommCareApplication.instance().getCurrentApp().areMMResourcesValidated());
         Device.login();
+        found.put("profile", Profile.read());
         if (request.has("restore")) {
             found.put("restore", Device.restore(request.getString("restore")));
         }
