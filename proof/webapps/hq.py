@@ -7,10 +7,11 @@ lane's other checks need, so this module makes each with HQ's own code:
   ``models/applications.py::_create_app_from_doc`` sets a new app's
   ``cloudcare_enabled`` from it when Nova's upload lands, and
   ``cloudcare/utils.py::get_web_apps_available_to_user`` lists only an app
-  that has it. The lane's configurations grant a privilege only where a
-  document's content needs it and Nova sends no ``cloudcare_enabled``, so
-  here the document's configuration is taken with that one privilege added
-  (``web_apps_configuration``).
+  that has it. Every configuration of the lane grants it, since every app
+  Nova sends is one a worker opens in Web Apps
+  (``proof.checks.configurations``, finding 64); ``without_web_apps`` is
+  the same configuration with that one privilege taken away, for the test
+  that shows what it decides.
 - **The app has a released build.** Web Apps runs the latest released build
   (``cloudcare/utils.py::_get_latest_build_for_web_apps``), never the app a
   person edits. ``Project.released`` makes one the way HQ's Releases page
@@ -62,9 +63,9 @@ class ReleaseRefused(AssertionError):
     """HQ made no released build of the app: what it answered is the message."""
 
 
-def web_apps_configuration(configuration):
-    """``configuration`` as a project space that also has Web Apps."""
-    return replace(configuration, privileges=configuration.privileges | {WEB_APPS_PRIVILEGE})
+def without_web_apps(configuration):
+    """``configuration`` as a project space whose plan has no Web Apps."""
+    return replace(configuration, privileges=configuration.privileges - {WEB_APPS_PRIVILEGE})
 
 
 def worker_username(domain: str) -> str:
@@ -239,9 +240,9 @@ def project(document, core_runner, configuration="minimum", *, restore=None, web
     HQ's own restore writes them over the tables the publish uploaded; or,
     given ``restore``, the bytes of a restore a targeted document fixes by
     hand (its ``restore.xml``), where a test turns on one case's values.
-    With ``web_apps`` false the project space is the document's own
-    configuration as the lane's checks hold it, for the test that shows what
-    the privilege decides.
+    With ``web_apps`` false the project space is the document's
+    configuration without the Web Apps privilege, for the test that shows
+    what the privilege decides.
     """
     from corehq.apps.users.models import CommCareUser
     from django.contrib.auth.models import User
@@ -252,7 +253,12 @@ def project(document, core_runner, configuration="minimum", *, restore=None, web
 
     export = document.exports[configuration]
     held = export.configuration.hq()
-    with hq_check(web_apps_configuration(held) if web_apps else held, validate=core_runner.validate_form) as (unit, _):
+    if WEB_APPS_PRIVILEGE not in held.privileges:
+        raise AssertionError(
+            f"{document.id}'s configuration {configuration} grants no {WEB_APPS_PRIVILEGE}, which every"
+            " configuration of the lane grants (proof/checks/configurations.py::_needs_cloudcare)."
+        )
+    with hq_check(held if web_apps else without_web_apps(held), validate=core_runner.validate_form) as (unit, _):
         # One operation, its digest the document's: what HQ draws while it applies the publish (the app's id,
         # each media file's) is then this document's own and the same on every run.
         with unit.operation("webapps:publish", document.id.encode()):

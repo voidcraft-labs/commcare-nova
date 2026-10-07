@@ -1,9 +1,11 @@
 """The privileges a corpus document's content needs, and its configurations as the checks read them.
 
 A corpus document's minimum configuration grants exactly the plan
-privileges its content needs: HQ refuses to build, drops, or keeps its
-editors from offering that content on a plan without them, so a check that
-ran without them would report the plan, not a defect. ``PRIVILEGE_RULES``
+privileges its content needs: HQ refuses to build, drops, keeps its
+editors from offering, or keeps Web Apps from listing that content on a plan
+without them, so a check that ran without them would report the plan, not a
+defect. One of them every document needs: Web Apps (``CLOUDCARE``), since
+every app Nova sends is one a worker opens there. ``PRIVILEGE_RULES``
 holds one rule per privilege row of the research's gates file that content
 can need (``lib/commcare/surface/entries/gates.json``, the privilege
 entries). Each rule names the HQ reader that makes the content need its
@@ -179,9 +181,12 @@ def _needs_locations(content):
 
 
 def _needs_cloudcare(content):
-    """``models/applications.py::_create_app_from_doc`` sets ``cloudcare_enabled`` from the
-    privilege on create, whatever the app asks, so an app that declares Web Apps needs it."""
-    return bool(content.source.get("cloudcare_enabled"))
+    """Every app Nova sends is one a worker opens in Web Apps as well as on a device, and Web Apps lists an
+    app only where the project space has the privilege: ``models/applications.py::_create_app_from_doc`` sets a
+    new app's ``cloudcare_enabled`` from it when the upload lands, whatever the app asks, and
+    ``cloudcare/utils.py::get_web_apps_available_to_user`` offers a worker only an app that has it. A target
+    without it cannot run the app there, so the content of every publish needs it (finding 64)."""
+    return True
 
 
 def _needs_logo_uploader(content):
