@@ -27,8 +27,11 @@ and the payload is read where it arrived, in Connect.
 
 What is stated of the project space for that, each named where it is done:
 its plan has Data Forwarding (``proof.hq.seams.also_granted``); the repeater
-and its connection settings are rows made through HQ's models, as HQ's Add
-Forwarder page saves them; Connect is reached at a loopback address over
+and its connection settings are rows made through HQ's models, holding what
+HQ's Connection Settings and Add Forwarder pages save for a forwarder to
+Connect (the pages themselves are not run: the second lists the project
+space's users from Elasticsearch, which the lane has none of); Connect is
+reached at a loopback address over
 plain HTTP, where a deployment's is reached over HTTPS, so oauthlib is told
 the transport is so (``OAUTHLIB_INSECURE_TRANSPORT``, its own switch for
 it), and HQ's own check of a forwarding address passes a loopback address
@@ -107,9 +110,15 @@ def forwarding(unit, connect_url: str, operation, label: str):
                 )
                 settings.plaintext_client_secret = OAUTH_CLIENT["secret"]
                 settings.save()
-                ConnectFormRepeater.objects.create(
+                repeater = ConnectFormRepeater(
                     domain=unit.domain, name=CONNECTION_NAME, connection_settings_id=settings.id
                 )
+                # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more
+                # status to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a
+                # proxy in front of Connect answers while it is overloaded). The lane's Connect is at another
+                # address, so the forwarder is given it here, as production's has it.
+                repeater.add_backoff_code(404)
+                repeater.save()
             yield
     finally:
         if insecure is None:

@@ -329,8 +329,10 @@ or it fails the lane ("The registers", below).
   and is not run (the lane posts it to the project space's receiver with no
   app named). The opportunity's own rows (its worker, payment unit, claim
   and assigned tasks) are made through Connect's models, and HQ's Connect
-  repeater and its connection settings through HQ's models, not through
-  either system's pages. The opportunity is made once, from A's release: a
+  repeater and its connection settings through HQ's models, holding what
+  HQ's pages save for a forwarder to Connect, not through either system's
+  pages (HQ's Add Forwarder page lists the project space's users from
+  Elasticsearch). The opportunity is made once, from A's release: a
   manager who asks for its units again after an edit, or pays for a renamed
   unit, is not in the unit (`proof/connect/test_receiver.py` runs both), and
   neither is the distance check between two visits. HQ's Connect payload
