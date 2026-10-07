@@ -285,12 +285,9 @@ class Predicates(unittest.TestCase):
         is never asked; the same form without the field list reaches the prompt. Failure it catches: the form
         being usable on Android as exported."""
         form = "modules-0/forms-0.xml"
-        listed = self.reader.request("app", archive=str(LABELLED_REPEAT), commands=["m0-f0"])
-        plain = self.reader.request(
-            "app",
-            archive=str(
-                edited(LABELLED_REPEAT, self.work / "no-field-list.ccz", form, [(' appearance="field-list"', "")])
-            ),
+        listed = self.walked(LABELLED_REPEAT, commands=["m0-f0"])
+        plain = self.walked(
+            edited(LABELLED_REPEAT, self.work / "no-field-list.ccz", form, [(' appearance="field-list"', "")]),
             commands=["m0-f0"],
         )
 
@@ -299,6 +296,14 @@ class Predicates(unittest.TestCase):
 
         self.assertNotIn("PROMPT_NEW_REPEAT", events(listed))
         self.assertIn("PROMPT_NEW_REPEAT", events(plain))
+        # The walk past a repeat's prompt: the dialog's own choices add one row, then leave the repeat, and the
+        # form goes on to its end and its save.
+        form = plain["walks"]["m0-f0"]["steps"][0]["form"]
+        prompts = [screen for screen in form["screens"] if screen["event"] == "PROMPT_NEW_REPEAT"]
+        self.assertEqual(len(prompts), 2)
+        self.assertNotEqual(prompts[0]["chose"], prompts[1]["chose"])
+        self.assertEqual(form["ended"], "end")
+        self.assertIs(form["saved"]["finishing"], True)
 
     # The predicates whose other spelling is HQ's build's -------------------------------------------------------
 
@@ -401,6 +406,38 @@ class Predicates(unittest.TestCase):
             self.assertEqual(step["screen"], "home")
             self.assertEqual(step["alert"]["title"], "Session Refresh Required")
             self.assertIsNone(step["session"]["command"])
+
+    def test_a_claim_is_posted_its_sync_run_and_the_session_goes_on_to_the_form(self):
+        """The walk past a claim. Contract: Android posts a search result's claim only where the claim's own
+        condition holds (a case the device does not hold), and then syncs before the session goes on
+        (``PostRequestActivity``); the walk answers the post and runs that sync with the app's own data pull,
+        so what follows a claim is read. Failure it catches: a walk that ends at the claim, or one that claims
+        a case the device holds. With the control's own archive the device holds every case a search finds,
+        so no claim is posted; with the same archive's claim made unconditional it is posted for the chosen
+        case, the sync runs, and the walk reaches the form either way."""
+        with zipfile.ZipFile(SYNC_ON_ENTRY) as zipped:
+            suite = zipped.read("suite.xml").decode()
+        post = suite[suite.index("<post ") : suite.index(">", suite.index("<post ")) + 1]
+        condition = post[post.index(" relevant=") : post.rindex('"') + 1]
+        always = edited(SYNC_ON_ENTRY, self.work / "claim.ccz", "suite.xml", [(condition, "")])
+        answers = {
+            name: self.walked(archive, SYNC_ON_ENTRY_RESTORE)
+            for name, archive in (("held", SYNC_ON_ENTRY), ("claimed", always))
+        }
+        searched = "m0/@action:0/m0-f0"
+        self.assertEqual(self.steps(answers["held"], "PostRequestActivity"), [])
+        claims = self.steps(answers["claimed"], "PostRequestActivity")
+        self.assertTrue(claims)
+        for step in claims:
+            self.assertEqual(sorted(step["post"]["params"]), ["case_id"])
+            self.assertTrue(step["post"]["url"].endswith("/phone/claim-case/"))
+            self.assertIs(step["post"]["finishing"], True)
+            self.assertEqual(step["post"]["resultCode"], -1)
+        for name, answer in answers.items():
+            screens = [step["screen"] for step in answer["walks"][searched]["steps"]]
+            self.assertIn("QueryRequestActivity", screens, name)
+            self.assertIn("FormEntryActivity", screens, name)
+            self.assertEqual("PostRequestActivity" in screens, name == "claimed")
 
     def test_a_forms_title_names_its_completed_save_and_not_the_header_a_worker_opens_it_under(self):
         """Finding 46. Contract: Android names a completed save by the form's own title
