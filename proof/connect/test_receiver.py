@@ -136,10 +136,12 @@ def flags(visit):
 
 
 def post_url(profile: bytes):
-    """The submission URL a profile gives the device (its ``PostURL`` property), or None where it names none."""
+    """The submission URL a profile gives the device (its ``PostURL`` property), or None where it names none.
+    HQ's profile holds its properties in no namespace and Nova's local one in the profile's own; a property is
+    read under either."""
     urls = [
         element.get("value")
-        for element in parse_xml(profile).iter(f"{{{PROFILE_XMLNS}}}property")
+        for element in parse_xml(profile).iter("property", f"{{{PROFILE_XMLNS}}}property")
         if element.get("key") == "PostURL"
     ]
     assert len(urls) <= 1, urls

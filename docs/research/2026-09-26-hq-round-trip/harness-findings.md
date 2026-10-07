@@ -404,15 +404,15 @@ corpus ids that show the symptom.
     *Harm:* Connect keeps nothing of any submission of that form (a
     delivery's visit and pay included), from HQ's build and the local
     archive alike, and HQ's repeater retries a record that can never
-    succeed. Run for a task whose id is `task`
-    (`proof/connect/test_receiver.py`, with the accepted case: the same form
-    with a task named `follow_up`); the other four names rest on the same
-    expression, read at source and not run. HQ's own form designer names
-    the wrapper by the question's id as well, so an app made there with
-    such an id fails alike. *Fix:* the validator refuses the five names as
-    a Connect id, each only in the app type whose receiver reads it.
+    succeed. Run in Connect for each of the five names
+    (`proof/connect/test_receiver.py`), with the accepted case: the same
+    forms with blocks named otherwise. HQ's own form designer names the
+    wrapper by the question's id as well, so an app made there with such an
+    id fails alike. *Fix:* the validator refuses the five names as a Connect
+    id, each in the app type whose receiver reads it.
     *Documents:* `connect-deliver-default`, `connect-deliver-custom` (the
-    task of both is `task`).
+    task of both is `task`), `targeted-connect-learn-key-names`,
+    `targeted-connect-deliver-key-names`.
 
 57. **A deliver form that also holds a task loses its own visit while the
     task is assigned.** Nova lets one form hold a deliver unit and a task

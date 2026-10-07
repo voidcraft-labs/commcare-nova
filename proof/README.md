@@ -262,7 +262,7 @@ or it fails the lane ("The registers", below).
   Formplayer's `UtilController.validateForm`).
 - **Connect runs over its own documents alone.** The Connect proof
   (`proof/connect`, "The Connect proof", below) runs Connect's sync of an
-  app's build and its receiver over three corpus documents, and the native
+  app's build and its receiver over five corpus documents, and the native
   proofs its metadata extractors. No other document's submissions are given
   to Connect; the tasks its receiver queues (a visit's attachments, a scored
   assessment's and a completed task's notifications) are recorded and not
@@ -1290,7 +1290,8 @@ seconds (the fetch two, the migrations ten), and a scenario under one.
 `proof/connect/test_receiver.py` states each as a test, over
 `targeted-connect-deliver-rename` and `targeted-connect-learn-rename` (a
 deliver app and a learn app that each carry the edit renaming their Connect
-ids) and `connect-deliver-default`:
+ids), and, for finding 56, `connect-deliver-default`,
+`targeted-connect-deliver-key-names` and `targeted-connect-learn-key-names`:
 
 - Connect reads exactly the authored learn module, deliver unit and task from
   HQ's builds.
@@ -1309,8 +1310,9 @@ ids) and `connect-deliver-default`:
   renamed learn module leaves a later learner at half, never finished; a
   renamed task never completes the task a worker was assigned, which then
   rejects each of the worker's deliveries.
-- Finding 56: a task whose id is `task` fails the receiver on every
-  submission.
+- Finding 56: a block whose id is one of the names the receiver looks for
+  (`task`, `deliver`, `work_area_update`, `module`, `assessment`) fails the
+  receiver on every submission of its form.
 - Finding 57: a deliver form that also holds a task loses its own visit while
   the task is assigned.
 
