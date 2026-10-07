@@ -1,0 +1,470 @@
+# Step 2, part 03: Work item C: publish gates (defect 12; defect 14 logos and the flat location fixture; finding 53)
+
+Part of [step 2's plan](../2-emission-and-publish.md), which holds the baseline, the decisions, the stack and the exit. Citations are `file::symbol`; HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
+
+Every gate in this work item is checked at publish, in the blocking edges of `lib/deployment/preflight.ts::runDeploymentPreflight`, before any write to CommCare HQ. The commit gate reads only the document (`docs/architecture/contracts.md`, "What the commit gate may read") and gains nothing here: no gate below adds a validator rule, a domain field or a mutation. The browser's pre-publish check, `check_project_space_compatibility` and `upload_app_to_hq` read the same functions the preflight edges read.
+
+It lands as pull request 13 of the stack (publish gates), after the emitters whose predicates it reads (pull requests 7 to 9 and 11). Four things land earlier and are named where they do: the ledger tables and columns with their row types in `lib/db/pg.ts`, their privilege lists in `lib/db/privilegeConvergence.ts` and their `lib/db/CLAUDE.md` text (pull request 2; part 02, The ledger schema), `readHqAppSource` (pull request 3; part 01, A3. The publish sequence) and `lib/commcare/versionFloor.ts` with its constant (pull request 3; part 01, A6. The HQ import file as a ZIP with its guide), the `target-app` edge with the drift check (pull request 4; part 02, Work item B: the drift check and its baselines), and finding 53's local sentinel (pull request 12).
+
+HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
+
+## What every part shares
+
+**The one early source read.** Today the only read of the target app is `lib/commcare/hq/appSource.ts::readHqAppSourceProfile`, made in `lib/deployment/service.ts::publishAppToHq` after the lookup tables and places have been pushed, and it keeps only `profile`. From step 2 `lib/commcare/hq/appSource.ts::readHqAppSource` replaces it (pull request 3 creates it, with its result type `HqAppSource`: part 01, A3. The publish sequence). Before the import the source is read once, in the new blocking preflight edge `target-app`, which exists only when `lib/deployment/resources.ts::plannedInPlaceUpdate` names an app, and again only when a lookup or place push ran in between. A new app's source is read after the shell create, and every publish reads it back after the import (part 01, A3. The publish sequence; part 02, Work item B: the drift check and its baselines). The `target-app` read serves the version floor (`HqAppSource.buildSpecVersion`, from `build_spec.version`), the drift check (part 02, Work item B: the drift check and its baselines), and every overlay computed on HQ's current value: the profile, `translations`, `add_ons`, `auto_gps_capture` and the `logo_refs` cleanup (`HqAppSource.logoRefs`, which C6 adds). A missing or non-object `build_spec`, or one with no string `version`, already fails `readHqAppSource`'s shape check (part 01, A3. The publish sequence); C6 adds the same for a `logo_refs` that is present and not an object. Either refuses with `hq_app_state_unknown`; neither is ever read as "fine" or "empty".
+
+**Preflight order from step 2** (`PREFLIGHT_CHECK_IDS` gains `plan-features` and `target-app`):
+
+| Order | Edge | Kind | Asks HQ | Refuses with |
+|---|---|---|---|---|
+| 1 | `hq-connection` | blocking | no | `hq_not_connected`, `domain_not_authorized` |
+| 2 | `app-readiness` | blocking | no | `app_not_ready` |
+| 3 | `plan-features` (new) | blocking | no | `hq_confirmation_needed` |
+| 4 | `project-data` | blocking | yes | as today, plus the drift check's (part 02, Work item B: the drift check and its baselines) |
+| 5 | `organization` | blocking | yes | as today |
+| 6 | `project-space-compatibility` | blocking | yes | `project_space_incompatible` |
+| 7 | `target-app` (new) | blocking | yes | `remote_app_missing`, `hq_app_state_unknown`, `hq_app_version_below_floor` |
+| 8 | the drift verdict over what edges 4, 5 and 7 collected (part 02, Work item B: the drift check and its baselines; a step, not an edge) | blocking | no | `hq_changed` |
+| 9 | `required-worker-data`, `worker-record-access` | attention | no | never |
+
+`plan-features` asks HQ nothing, so both facts about what this publish pushes come from Nova's own data, before HQ is listed:
+
+- `lookupTables` is `boundary.prepared.lookupWorkbook !== undefined`. `lib/export/boundaryValidation.ts::PreparedExportBoundary.lookupWorkbook` is present exactly when the document references a lookup table, and `app-readiness` (edge 2) has already built it. Whatever `lib/deployment/lookupResourcePlan.ts::planLookupResourcePush` later decides about ownership, a publish with a workbook sends it.
+- `places` is `lib/deployment/locationResourcePlan.ts::plannedPlacesFor(doc, snapshot.locations).length > 0`: the organization snapshot (`lib/organization/service.ts::readOrganization`) holds at least one place that is not archived. That read moves from the `organization` edge to just before `plan-features`, still only for a document with organization levels, and the `organization` edge uses the same snapshot.
+
+The cutover's listing (C2, "Stored shape and migration") uses the same two values, from the document's lookup references and each app's stored organization, with no HQ read.
+
+**The gate table.** Each row's predicate is the emitter's own decision, exported by the module that writes the wire it gates and called by both, in the pattern `lib/commcare/projectSpaceCompatibility.ts::moduleRequiresNoMatchesRegistration` already follows with `lib/commcare/emissionPlan.ts::hostLowersNoMatchesForm`.
+
+| Content (predicate over the document) | Gate | Settled by | Shown to the person as |
+|---|---|---|---|
+| any module with an effective case search | `SYNC_SEARCH_CASE_CLAIM`, `CaseSearchConfig.enabled` | flag probe, runtime probe (today) | Case search |
+| a Search field with a starting value; a hidden Search value; a search-first menu; a one-date Search field; a Search field Nova matches by its own filter (`exclude`) | `CASE_SEARCH_ADVANCED` | flag probe | Case search |
+| a multi-select case list | `CASE_SEARCH_ADVANCED` | flag probe | Choosing several cases at once |
+| a relation arm in a search clause; supporting related cases; a search-first menu that follows a parent case chosen first | `CASE_SEARCH_RELATED_LOOKUPS` | flag probe | Search across related cases |
+| a tile layout | `CASE_LIST_TILE` and `CASE_LIST_TILE_CUSTOM` | flag probe | Case tiles |
+| a link write shown in a case list or detail | `VIEW_FORM_ATTACHMENT` | flag probe | Links to captured files (today's capability) |
+| attachment-mode capture; entry points; Connect; no-matches registration | `MM_CASE_PROPERTIES`; `SESSION_ENDPOINTS`; `COMMCARE_CONNECT`; `FOLLOWUP_FORMS_AS_CASE_LIST_FORM` | flag probe (today, unchanged) | today's capabilities |
+| an effective search | `CUSTOM_PROPERTIES` | flag probe, advisory, never blocks (today) | today's advisory |
+| a form reads or saves to the worker's own record | privilege `user_case` | the person confirms, ledger | Worker records (user cases) |
+| the app reads a lookup table, or this publish pushes one | privilege `lookup_tables` | the person confirms, ledger | Lookup Tables |
+| a form with a child case action | privilege `child_cases` | the person confirms, ledger | Child Cases |
+| a form with after-submit links | privilege `form_link_workflow` | the person confirms, ledger | Link to other forms in End of Form Navigation |
+| a form whose source holds a Save to Case block | privilege `save_to_case` | the person confirms, ledger | Save to Case |
+| the app reads the location fixture, or this publish pushes places | privilege `locations` | the person confirms, ledger | Locations |
+| the app reads the location fixture | `locations/models.py::LocationFixtureConfiguration.sync_flat_fixture` | the person confirms, ledger | the flat location list |
+| any app | the target app's CommCare version at least 2.57 | read from the app source | the version sentence |
+| an app with a logo | privilege `commcare_logo_uploader` | never confirmed; the outcome says what it means | the logo step |
+
+A search's own filter (`_xpath_query`), the zero-input `match-all()` included, is in no row: finding 53 below. A basic child case of its own menu's case type under `DONT_INDEX_SAME_CASETYPE` is in no row: it leaves step 2, below.
+
+**Failure codes this work item adds** to `lib/deployment/types.ts::DEPLOYMENT_FAILURE_CODES`, `lib/mcp/errors.ts::UploadErrorType` and `lib/mcp/tools/uploadAppToHq.ts::UPLOAD_ERROR_TAGS`: `hq_confirmation_needed`, `hq_app_version_below_floor`. A missed one is a compile error (`satisfies Record`).
+
+**No new `/api` route.** Every surface below uses an existing route or a server action, so `lib/hostnames.ts` gains no entry. A later change that adds a route for any of this needs its allowlist entry there, or the proxy answers 404 in production.
+
+**Tool schemas change** (`upload_app_to_hq`, `check_project_space_compatibility`, `get_deployment`, the new `withdraw_deployment_confirmation`, and the SA and MCP description of `set_app_logo`, C6). `npm run test:schema` bills one live request per schema: the implementer asks the person before running it. Each of these tools keeps its scope through `lib/mcp/scopes.ts::oauthScopeChallenge`. `set_app_logo` is a Solutions Architect tool, so its changed description changes the tool catalog and pull request 13 bumps `lib/models.ts::MODEL_CONTEXT_VERSION`, as each pull request that changes the catalog does (part 11, The model-addition checklist, item 13, is the one list of them and of the value each sets).
+
+## C1. The version floor
+
+**Today.** Publish reads no CommCare version. `lib/commcare/hqShells.ts::applicationShell` writes `build_spec.version: "2.54.0"`, which HQ discards: a create deletes the body's `build_spec` and stores the server's default (`models/applications.py::_import_app`, `builds/utils.py::get_default_build_spec`), and an update excludes the key (`models/applications.py::_merge_source_into_app`). Executed during planning: the app held HQ's default after the create and the same value after an update whose body named another.
+
+**Fix.**
+- `lib/commcare/versionFloor.ts` was created in pull request 3 with `COMMCARE_VERSION_FLOOR = { major: 2, minor: 57 } as const` (part 01, A6. The HQ import file as a ZIP with its guide). In this pull request it gains `compareToVersionFloor(version: string): "at-or-above" | "below" | "unreadable"`. Its input is `HqAppSource.buildSpecVersion`, always a string: a missing or non-object `build_spec` never reaches it, because `readHqAppSource`'s shape check has already refused that read. It returns `unreadable` only for a string that is not HQ's `major.minor[.patch]`. Defect 9's `.ccz` profile (`requiredMajor`, `requiredMinor`) reads the same constant, so the floor is stated once.
+- It is read from `build_spec.version` of the source (`views/apps.py::app_source` returns it), never stored. `app_deployments` gains no version column: nothing could refresh one (Check status reads `views/releases.py::current_app_version`, which holds no `build_spec`), so a stored value would go on asking a person to raise a version they already raised. The floor is a fact of the attempt, carried by the refusal and the `target-app` check.
+- **Existing app.** The `target-app` edge compares before any write. `below` refuses with `hq_app_version_below_floor`, phase `preflight`; nothing is sent. `unreadable` refuses with `hq_app_state_unknown`, phase `preflight`.
+- **Where the refusal carries the HQ app's address.** `lib/deployment/service.ts::PublishOutcome.hqAppUrl` (on `PublishOutcomeShared`, so on the refused arm too) is the field, built by `hqAppUrlFor` from the deployment's mapped app. It is non-null for every `hq_app_version_below_floor` refusal: an existing app has its mapping, and a new app's mapping is recorded before the comparison. `DeploymentAttemptRefusal` gains no member for it; MCP sends it as `url`.
+- **New app.** HQ's default cannot be known before the create. Publish creates the empty shell, reads its source, records the mapping and the `create` baseline (`recordCreatedRemoteApp`; part 01, A3. The publish sequence), and compares. `below` refuses with `hq_app_version_below_floor`, phase `upload`, persisted, with `hqAppUrl` naming the new app, before any content is written. `unreadable` after the create refuses with `hq_app_state_unknown`, phase `upload`, with the mapping kept, so the next publish is an existing-app publish and creates no second app. This is simpler than "create, write ids, then stop" because the shell holds no content, and HQ will not build an app with no modules (`helpers/validators.py::ApplicationValidator._check_modules`), so no build below the floor can exist. The next publish is an existing-app publish: it finds the shell, passes the floor once the person has raised it, and writes the content.
+- **Raising the version is a save in HQ, in both flows.** The person raises it on the app's settings page (`views/apps.py::edit_app_attr`). What the next publish makes of that save differs by flow, and pull request 13 adds one `proof/hq/test_publish.py` case that raises `build_spec` through that view on a published app and on an empty shell and takes the normalized source read before and after each.
+  - *Existing app.* The next publish compares HQ's app with the baseline like any other (part 02, Work item B: the drift check and its baselines). `build_spec` is not a value Nova writes, so a save that changes it alone is expected to pass; this rests on reading, and the case pins the list of keys that differ on the published app. Decided fallback, whatever the list holds: the `hq_changed` stop applies as for any HQ save, and the copy below prepares the person for it.
+  - *New app.* The shell's baseline origin is `create`, and while it is, the app comparison reads `modules` only (part 02, Work item B: the drift check and its baselines): a shell holds nothing of Nova's to protect. So raising the version never stops the next publish, whatever other keys the settings save writes, and the floor's own next step is never followed by a discard prompt. The case pins that the settings save adds no menu to the shell. A shell that someone gave a menu in HQ still stops with `hq_changed`, and a shell whose read after the create failed holds origin `unread`, which stops as any unread baseline does.
+- **Copy** (the dialog and the MCP error). An existing app: "The app on “<space>” is set to CommCare <version>, and Nova's apps need 2.57 or later. You can raise the CommCare version in that app's settings in CommCare HQ, then publish again. Phones on an older CommCare can no longer install or update the app after that. If that save changes anything else, Nova will show you what changed before it publishes." A new app reads the same first three sentences, leaves out the fourth (nothing about a version raise can stop its next publish), and ends: "Nova created the app there and will fill it in on the next publish."
+- `applicationShell` stops writing `build_spec`, and `lib/commcare/types.ts::HqApplication.build_spec` goes: it is not a field Nova authors.
+- The HQ import file has no target, so `lib/publish/manualImportGuide.ts` (part 01, A6. The HQ import file as a ZIP with its guide) carries the same step, `commcare-version`: check the imported app's CommCare version is at least 2.57.
+- This is a check on the target app at each publish. It is no version floor on Nova, no lease and no flag.
+
+**Files.**
+- Emitters: `lib/commcare/versionFloor.ts` (created in pull request 3 with `COMMCARE_VERSION_FLOOR`; this pull request adds `compareToVersionFloor`), `lib/commcare/hqShells.ts`, `lib/commcare/types.ts`, `lib/commcare/hq/appSource.ts` (no change here: `HqAppSource.buildSpecVersion` and its shape check landed in pull request 3; part 01, A3. The publish sequence).
+- Publish: `lib/deployment/preflight.ts` (`target-app`), `lib/deployment/service.ts` (the comparison after the shell's read), `lib/deployment/types.ts`.
+- Builder: `components/builder/PublishDialog.tsx`, `components/builder/publishOutcome.ts`.
+- SA and MCP tools: `lib/mcp/errors.ts`, `lib/mcp/tools/uploadAppToHq.ts` (`error_type: "hq_app_version_below_floor"` with `url`, read from `PublishOutcome.hqAppUrl`). SA: none (deployment is not an SA surface).
+- Lane: `proof/corpus/targetPeer.ts` answers each configuration's `buildSpecVersion` as the source's `build_spec.version`; `proof/hq/test_publish.py` (the settings-save case above, on a published app and on a shell).
+- Docs: `content/docs/publishing.mdx`, `content/docs/mcp/tools.mdx`.
+- CLAUDE.md: `lib/commcare/CLAUDE.md` (the paragraph that calls `build_spec.version` "fixed output metadata" is replaced by: Nova writes no `build_spec`, and publish reads HQ's), `lib/deployment/CLAUDE.md` ("Preflight").
+- Domain, doc and mutations, validator, Preview: none.
+
+**Stored shape and migration.** No schema change and no document transform. The cutover's reads already hold each deployment's source, so the cutover writes one deployment notice reason, `commcare-version-below-floor` (the reason string is the registry's: part 10, Changes that write nothing and still get a line), naming each deployment whose app is below 2.57 with its version; the advisory scan before the window reports the same list. Whether production HQ's default version is at least 2.57 is server data this plan cannot read. The scan lists every existing deployment's version, and the new-app flow above handles either answer.
+
+**Register.** None. The lane's HQ builds every configuration at 2.57.0 (`proof/hq/configuration.py::DEFAULT_COMMCARE_VERSION`), so no document shows a symptom.
+
+**Spelling rule.** None.
+
+**Identity.** None; `proof/identity-moves.json` gains no entry. HQ's stored `build_spec` was never Nova's value.
+
+**Control.** None: no entry, no control.
+
+**Nova tests.**
+- Pure: `compareToVersionFloor` over `2.53.0`, `2.57.0`, `2.58.1`, `2.57`, `""`, `latest`; the constant is the one pull request 3 exported, unchanged.
+- Pure: `applicationShell` output holds no `build_spec` (the HQ JSON shape test over the fuzz corpora).
+- Controlled HQ responses over real Postgres (`lib/deployment/__tests__/publishGates.postgres.test.ts`, HQ replaced at the network boundary by `lib/deployment/__tests__/publishFixtures.ts`): an existing app at 2.53.0 refuses with no lookup, place, import or media request recorded; a source with no `build_spec`, and one whose version reads `latest`, each refuse with `hq_app_state_unknown`; a new app whose shell reads 2.53.0 records the mapping and the `create` baseline, sends no update, carries a non-null `hqAppUrl`, and the next publish after the source reads 2.57.0 updates that same app, creates no second one, and is not stopped by `hq_changed` although the read differs from the `create` baseline in `build_spec` and in another settings key; the same shell given a menu in HQ stops with `hq_changed`; a new app whose shell reads `latest` refuses with `hq_app_state_unknown` at `upload` and keeps the mapping.
+- MCP over real Postgres (`lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`): the error envelope and its `url`.
+
+**Lane.** Locally: `npm run proof -- -k navigation-base`, `proof/hq/test_publish_capture.py` (the capture passes the floor at 2.57.0 and its bodies hold no `build_spec`) and the new `proof/hq/test_publish.py` case, whose pinned list of changed keys on the published app, and whose pin that the shell gains no menu, are reviewed in the pull request. CI's full lane shows every corpus document published, with the captured bodies regenerated and no new difference.
+
+## C2. Plan features: the per-privilege confirmation
+
+**Today.** Nothing asks. The one trace is the attention edge `worker-record-access` (`lib/deployment/preflight.ts::runDeploymentPreflight`, from `lib/deployment/workerRecordRequirements.ts::workerRecordRequirements`), which says the target "must include user cases" and lets the publish proceed.
+
+No API key can read a project space's plan or privileges, so the person confirms; HQ decides each privilege on its own, by the subscribed plan version's role or a legacy toggle keyed by that privilege (`accounting/utils/__init__.py::domain_has_privilege`, `corehq/toggles/__init__.py::domain_has_privilege_from_toggle`), so the confirmation is per privilege and never per plan.
+
+**Fix.**
+
+*Derivation.* `lib/commcare/planPrivileges.ts::requiredPlanPrivileges(doc, pushes: { lookupTables: boolean; places: boolean }): HqPlanPrivilegeUse[]`, where `HqPlanPrivilegeUse` is `{ id: HqPlanPrivilegeId; gate: string; reasons: readonly string[] }`, `gate` is the entry id `privilege/<slug>` in `lib/commcare/surface/entries/gates.json`, and `HqPlanPrivilegeId` is the closed set below. HQ's slugs stay inside `lib/commcare`. `pushes` is defined under "Preflight order from step 2" above: both values come from Nova's own data.
+
+| Privilege | Content predicate (Nova) | HQ reader, and what happens without the privilege |
+|---|---|---|
+| `user_case` | `workerRecordRequirements(doc).length > 0`: a form's XPath or prose reads the worker's record, or its case-write inventory holds a `usercase` bucket (the bucket `lib/commcare/formActions.ts::buildFormActions` turns into `usercase_update`) | `helpers/validators.py::ApplicationValidator._check_subscription` fails the build for a form that saves to it; `callcenter/sync_usercase.py::_iter_sync_usercase_helpers` keeps a worker's record only under the privilege, so a read is blank |
+| `lookup_tables` | the document references a lookup table, or `pushes.lookupTables` | `helpers/validators.py::ApplicationBaseValidator._validate_fixtures` fails the build; `fixtures/dispatcher.py::require_can_edit_fixtures` refuses the workbook |
+| `child_cases` | some form's `buildFormActions(...)` yields a non-empty `subcases` list. Extension children count: `lib/commcare/subcaseWire.ts::hqCaseActions` keeps them as `never` actions, and HQ's test reads the list's length | `add_ons.py::_ADD_ONS["subcases"]` (`used_in_form`, privilege `child_cases`): the Case Management page does not offer the form's child cases |
+| `form_link_workflow` | some form has `formLinks` (the emitter writes `post_form_workflow: "form"` exactly then) | `views/forms.py::_edit_form_attr`: a form settings save does not keep the links |
+| `save_to_case` | `lib/commcare/xform/caseOps.ts::formEmitsSaveToCase(doc, formUuid)` for some form: new, exported, and true exactly when `lib/commcare/xform/caseOps.ts::buildCaseOperations` returns at least one Save to Case block for the form. By pull request 13 that one function is the producer of every such block: case operations, extension children, multi-select batch writes, the guard blocks of defect 13 (pull request 7) and the close conditions defect 14 moves into a Save to Case block (pull request 9). `lib/commcare/xform/builder.ts` writes the blocks it returns, and this rule reads only whether there are any | `views/formdesigner.py::_get_vellum_plugins` loads Vellum's `saveToCase` plugin only under the privilege, so a save in the form builder discards every such block's case bindings; HQ's build and Core do not read it |
+| `locations` | `readsLocationsFixture(doc)` (moved from `lib/commcare/expander.ts` to `lib/commcare/locations/readsLocationsFixture.ts` and exported), or `pushes.places` | `domain/models.py::Domain.uses_locations`, read by `locations/fixtures.py::should_sync_flat_fixture`: no location list syncs, and HQ refuses the place push |
+
+`workerRecordRequirements` moves to `lib/domain/workerRecordRequirements.ts` (it reads only the domain); `lib/deployment/workerRecordRequirements.ts` keeps `workerRecordSetup` and re-exports it. Reason: `lib/commcare` does not import `lib/deployment`.
+
+Every other privilege gates content Nova does not hold yet and gets its rule in the step that first holds it. `api_access` is not content: Nova observes it as the refusal its inventory reads answer. `commcare_logo_uploader` is never confirmed (C6).
+
+*Plans.* Read from `accounting/bootstrap/features.py` at the pin. The file's own comments name the current plans (`community_v2` Free, `standard_v2` Standard, `pro_v1` Pro, `advanced_v0` Advanced, `enterprise_v0` Enterprise); the rest are grandfathered.
+
+| Privilege (`corehq/privileges.py` constant) | Plan lists that carry it | Current plans |
+|---|---|---|
+| `user_case` (`USERCASE`) | `standard_v0`, `standard_v1`, `pro_v0`, `pro_v1`, `advanced_v0`, `enterprise_v0` | Pro, Advanced and Enterprise |
+| `lookup_tables` (`LOOKUP_TABLES`) | `standard_v0`, `standard_v1`, `standard_v2`, `pro_v0`, `pro_v1`, `advanced_v0`, `enterprise_v0` | Standard, Pro, Advanced and Enterprise |
+| `child_cases` (`CHILD_CASES`) | `community_v0`, `community_v1`, `standard_v0`, `pro_v0`, `pro_v1`, `advanced_v0`, `enterprise_v0` | Pro, Advanced and Enterprise |
+| `form_link_workflow` (`FORM_LINK_WORKFLOW`) | `standard_v1`, `standard_v2`, `pro_v1`, `advanced_v0`, `enterprise_v0` | Standard, Pro, Advanced and Enterprise |
+| `save_to_case` (`VELLUM_SAVE_TO_CASE`) | `advanced_v0`, `enterprise_v0` | Advanced and Enterprise |
+| `locations` (`LOCATIONS`) | `standard_v0`, `pro_v0`, `advanced_v0`, `enterprise_v0` | Advanced and Enterprise |
+
+The middle column is committed as `lib/commcare/planPrivilegePlans.json` (slug to plan list names). `lib/publish/planFeatures.ts` derives each `plans` string from it, and a lane test (`proof/hq/test_plan_features.py`) holds the file equal to HQ's own lists, so a pin move that changes a plan fails the weekly pin pull request.
+
+*Public projection.* `lib/publish/planFeatures.ts` (safe for browser, HTTP and MCP) holds one `PlanFeatureDefinition` per privilege: `{ id: PlanFeatureId; label; plans; consequence }`. The label is HQ's own name for the feature where `corehq/privileges.py::Titles` has one, because the person looks for it on HQ's subscription page; a plan feature is something a person sees and buys, so naming it is not naming a flag.
+
+| `PlanFeatureId` | Privilege | Label | Consequence shown |
+|---|---|---|---|
+| `worker-records` | `user_case` | Worker records (user cases) | "Without it, CommCare HQ can't build a form that saves to the worker's record, and what a form reads from it is blank." |
+| `lookup-tables` | `lookup_tables` | Lookup Tables | "Without it, CommCare HQ turns away the tables Nova sends and can't build a form that reads one." |
+| `child-cases` | `child_cases` | Child Cases | "Without it, CommCare HQ's Case Management page doesn't show this form's child cases." |
+| `form-links` | `form_link_workflow` | Link to other forms in End of Form Navigation | "Without it, saving a form's settings in CommCare HQ drops its links." |
+| `advanced-case-actions` | `save_to_case` | Save to Case | "Without it, saving a form in CommCare HQ's form builder breaks the case changes Nova wrote there." |
+| `organization` | `locations` | Locations | "Without it, no location list reaches phones and CommCare HQ turns away the places Nova sends." |
+
+*Who confirmed, as shown.* The row stores the user id in `confirmed_by`. Every projection (`PlanFeatureCheck.confirmed_by`, `flat_location_fixture.confirmed_by`, `deployment.confirmations[].confirmed_by`, the card) carries the member's display name: `lib/deployment/store.ts`'s read of live confirmations left-joins `auth_user` on `confirmed_by` and returns `confirmedByName` (`auth_user.name`, the join `lib/projects/membership.ts::listProjectMembers` makes), or "A former member" when that user no longer exists. No projection carries a user id.
+
+*The ledger row.* `app_deployment_confirmations` (pull request 2's migration `lib/case-store/migrations/<ts>_hq_round_trip_deployment_ledger.ts`): `id uuid` (uuidv7), `deployment_id` (references `app_deployments`, cascade), `kind` in (`plan-feature`, `flat-location-fixture`), `subject` (a `PlanFeatureId`, or `flat-location-fixture` for that kind), `confirmed_by`, `confirmed_at`, `withdrawn_by`, `withdrawn_at` (set together), and the partial unique index `app_deployment_confirmations_live` on `(deployment_id, kind, subject) WHERE withdrawn_at IS NULL`. Rows are kept, never deleted, so who confirmed what and when survives a withdrawal, as adoption attribution does. The table is in `lib/db/privilegeConvergence.ts::RUNTIME_INSERT_UPDATE_TABLES`, and its row type is in `lib/db/pg.ts`; both land with the migration in pull request 2 (part 02, The ledger schema) and pull request 13 changes neither. It carries no `project_id`: it hangs off the deployment, and a Project move leaves it alone because a confirmation is about the project space.
+
+*The blocking edge.* `plan-features`, titled "What this project space needs", computes `needed = requiredPlanPrivileges(doc, pushes)` mapped to `PlanFeatureId`, plus the flat fixture's item (C5); `have` = the deployment's live confirmations plus `input.confirm`. A non-empty `needed − have` refuses with `hq_confirmation_needed`, and `DeploymentAttemptRefusal.confirmationsNeeded` lists each as `DeploymentConfirmationNeeded { kind, subject, label, plans, consequence, reasons }` (empty for every other refusal). A plan feature fills `label`, `plans` and `consequence` from its `PlanFeatureDefinition` and `reasons` from `HqPlanPrivilegeUse.reasons`; the flat fixture's item fills them as C5 states. The edge reads the document, the ledger and the call's arguments, and asks HQ nothing.
+
+*Carrying a confirmation.* As adoption works today: the refusal names what is needed, and the caller comes back naming what a person confirmed.
+- `PublishInput.confirm?: readonly DeploymentConfirmationKey[]`, where the key is `{ kind: "plan-feature"; subject: PlanFeatureId } | { kind: "flat-location-fixture" }`.
+- `lib/deployment/store.ts::foldDeploymentAttempt(scope, target, "preflight", succeeded, { ensure: true, confirmations })` inserts them in the transaction that creates or folds the deployment record, with `confirmed_by` the actor. A confirmation naming something the app does not need is dropped by preflight and never stored.
+- **A refused publish stores no confirmation.** A refused first publish writes no record (`deployment: null`), so there is no row to hang a confirmation on; it rides `confirm` until an attempt passes preflight. This holds for an existing deployment too: confirmations are written only by the fold of a succeeded preflight, so a publish refused for any reason (`hq_changed`, for one) stores none and the caller resends them until an attempt passes. The dialog keeps the ticks in state and the MCP description tells a client to resend them.
+- A confirmation stands until withdrawn. Nova cannot see a plan change in HQ, and the copy says so.
+
+*Browser.* `app/api/commcare/project-space-compatibility/route.ts` returns `plan_features` (each a `PlanFeatureCheck`: the definition plus `reasons`, `state: "confirmed" | "needs_confirmation"`, and `confirmed_by`, `confirmed_at` when confirmed) and `flat_location_fixture` (`{ label, consequence, reasons, state, confirmed_by?, confirmed_at? }` with C5's `label` and `consequence`, or `null` when the app reads no places), so `components/builder/PublishDialog.tsx` shows the rows before the first press instead of after a refusal. Each row shows the label, the plans, why this app needs it, the consequence, and one checkbox "This project space has it". Publish stays unavailable until every row is ticked; the ticked set goes out as `confirm` through `app/api/commcare/upload/route.ts`, read with the strictness of `readAdoptResourceIds`. A `hq_confirmation_needed` refusal renders the same rows. `components/builder/DeploymentStatus.tsx` (the target's card in `components/builder/app-setup/PublishingSection.tsx`) lists the live confirmations with who and when, and a "Withdraw" control per row for a member who may edit (`canRefresh`'s rule; a viewer sees the rows and no control).
+
+*Withdrawing.* `lib/deployment/actions.ts::withdrawDeploymentConfirmationAction` calls `lib/deployment/store.ts::withdrawDeploymentConfirmation(scope, target, { kind, subject })` (one `withDeploymentRow` transaction, sets `withdrawn_by` and `withdrawn_at`, a no-op when nothing is live). The next publish asks again.
+
+*MCP.*
+
+| Tool (scope, through `oauthScopeChallenge`) | Change |
+|---|---|
+| `upload_app_to_hq` (`nova.hq.write`) | inputs `confirm_plan_features: string[]` of `PlanFeatureId` and `confirm_flat_location_fixture: boolean`, each described "Send only after an `hq_confirmation_needed` refusal named them and the user said yes to each."; error `error_type: "hq_confirmation_needed"` with `confirmations_needed: [{ kind, subject, label, plans, consequence, reasons }]`, structured like `makeConflictError`'s; the flat fixture's item carries C5's `label` and `consequence` and `plans: ""` |
+| `check_project_space_compatibility` (`nova.hq.read`) | returns `plan_features` and `flat_location_fixture` (the route's shapes above) beside `project_space_compatibility`, with state from the ledger when a deployment exists for the target |
+| `get_deployment`, `refresh_deployment` | `lib/mcp/tools/deploymentProjection.ts::describeDeployment` adds `deployment.confirmations: [{ kind, subject, label, confirmed_by, confirmed_at }]`, `confirmed_by` a display name |
+| `withdraw_deployment_confirmation` (new, `nova.hq.write`, `assertScope` before any read) | `{ app_id, domain?, kind, subject }`, returns the deployment projection. `nova.hq.write` because the deployment tools are gated as one family (`get_deployment` already requires `nova.hq.read` for a ledger read) |
+
+*The `worker-record-access` edge loses its plan half.* It stays an attention edge with the device half only. `workerRecordSetup.detail` becomes: "These forms use the worker's own CommCare record. It reaches a phone when the worker syncs, so it helps to ask each worker to sync before opening them." `workerRecordSetup.consequences` is unchanged, and the edge still prints `detail` followed by it. The setup artifact's `worker-record` section reads the same two strings.
+
+*Downloads.* The HQ import file names the plan features the app needs, with their plans, in `lib/publish/manualImportGuide.ts` (part 01, A6. The HQ import file as a ZIP with its guide), from the same `requiredPlanPrivileges` call.
+
+*What changes for an existing deployment.* Nothing is backfilled: the first publish after the cutover asks. Two changes are stated plainly in the docs and the notice. An app with case operations, multi-select writes or extension children publishes and runs today on a space without `save_to_case`, and from step 2 its publish waits for that confirmation. The same holds for `user_case`, which today is an attention line.
+
+**Files.**
+- Domain: `lib/domain/workerRecordRequirements.ts` (moved; no schema change).
+- Doc and mutations, validator, Preview: none.
+- Emitters: `lib/commcare/planPrivileges.ts` (new), `lib/commcare/planPrivilegePlans.json` (new), `lib/commcare/xform/caseOps.ts` (`formEmitsSaveToCase`, called by `lib/commcare/xform/builder.ts` and this rule), `lib/commcare/locations/readsLocationsFixture.ts` (moved), `lib/commcare/expander.ts`.
+- Public vocabulary: `lib/publish/planFeatures.ts` (new), `lib/publish/manualImportGuide.ts`.
+- Publish: `lib/deployment/preflight.ts`, `service.ts`, `store.ts`, `types.ts`, `actions.ts`, `workerRecordRequirements.ts`, `setupArtifact.ts`; `app/api/commcare/upload/route.ts`, `app/api/commcare/project-space-compatibility/route.ts`. The table's row type (`lib/db/pg.ts`) and privilege list (`lib/db/privilegeConvergence.ts`) landed in pull request 2 (part 02, The ledger schema), with no change here.
+- Builder: `components/builder/PublishDialog.tsx`, `PublishPanel.tsx`, `publishOutcome.ts`, `DeploymentStatus.tsx`, `app-setup/PublishingSection.tsx`, `app-setup/publishingSectionModel.ts`.
+- SA and MCP tools: `lib/mcp/tools/uploadAppToHq.ts`, `checkProjectSpaceCompatibility.ts`, `deploymentProjection.ts`, `deploymentTools.ts`, `withdrawDeploymentConfirmation.ts` (new), `lib/mcp/server.ts`, `lib/mcp/errors.ts`. SA: none. `../nova-plugin`'s `upload_to_hq` skill changes in its own pull request there, merged after the deploy.
+- Lane: `proof/corpus/publish.ts`, `proof/checks/configurations.py`, `proof/checks/test_corpus.py`, `proof/hq/test_plan_features.py` (new), `proof/corpus/hq/test_privileges.py` (gains one case: an app whose only user-case content is a bind `calculate` that reads the worker's record needs `USERCASE`).
+- Docs: `content/docs/publishing.mdx`, `content/docs/project-space-compatibility.mdx`, `content/docs/mcp/tools.mdx`.
+- CLAUDE.md: `lib/deployment/CLAUDE.md` (the edge, the confirmation ledger and why it mirrors adoption), `lib/commcare/CLAUDE.md` (plan privileges beside the flag probe). `lib/db/CLAUDE.md`'s text for the table landed in pull request 2 (part 11, Contract sentences step 2 rewrites), with no change here.
+
+**Stored shape and migration.** The `app_deployment_confirmations` table, additive, created by pull request 2's migration (part 02, The ledger schema); pull request 13 adds no DDL. No document changes and the transform step does nothing for this part. The cutover lists, from Nova's own data and with no HQ read (each document, and `requiredPlanPrivileges` with the two `pushes` values defined under "Preflight order from step 2"), each deployment whose next publish asks for a confirmation, and writes the deployment notice reason `next-publish-asks-more` (the registry's string: part 10, Changes that write nothing and still get a line), naming the deployment and each plan feature (and capability, C3) it will ask about.
+
+**Register.** None. A privilege's absence harms no system the lane runs: every corpus configuration grants what the content needs.
+
+**Spelling rule.** None.
+
+**Identity.** None; `proof/identity-moves.json` gains no entry.
+
+**Control.** None.
+
+**Nova tests.**
+- Pure (`lib/commcare/__tests__/planPrivileges.test.ts`), over the fuzz corpora through `lib/commcare/__tests__/compilerEvidence.ts`: for each admitted document, read the markers off `expandDoc`'s output (a `usercase_update` map, a `subcases` list, `post_form_workflow: "form"`, a `vellum:role="SaveToCase"` block in a form source, a `jr://fixture/locations` instance) and assert each implies, and is implied by, the derived privilege. The wire is the independent consumer.
+- Pure: `lib/publish/planFeatures.ts` renders every `HqPlanPrivilegeId`, and each `plans` string follows from `planPrivilegePlans.json`.
+- Real Postgres (`lib/deployment/__tests__/confirmations.postgres.test.ts`): a confirmation is recorded with who and when; two competing confirms of one subject leave one live row; a withdrawn row no longer satisfies the edge and a fresh confirm makes a second row; a Project move keeps the rows reachable.
+- Controlled HQ responses over real Postgres (`publishGates.postgres.test.ts`): a publish missing a confirmation refuses with no HQ request recorded; a refused first publish stores no row and no record; the same publish with `confirm` lands and records the rows; a confirmation the app does not need is not stored.
+- MCP over real Postgres (`uploadAppToHq.postgres.test.ts`, `deploymentTools.postgres.test.ts`, `compatibility.postgres.test.ts`): each new input and output, the error envelope, and the scope challenge on `withdraw_deployment_confirmation`.
+- State model: `publishOutcome.ts::publishOutcome` carries `confirmationsNeeded` on its `refused` arm; `publishingSectionModel.ts` upserts a withdrawal.
+- Playwright (`e2e`): the dialog's rows hold Publish until ticked, and the card's Withdraw makes the next publish ask again.
+
+**Lane: the privilege oracle held equal to Nova's derivation.** `proof/corpus/publish.ts::NovaPublishVerdict` gains `planPrivileges: string[]`: the `corehq/privileges.py` constants (from each gate entry's `surfaceKeys`) that `requiredPlanPrivileges` yields for the document as the capture publishes it, with `lookupTables` as the capture pushes and `places: false` (a capture pushes no places). A new test in `proof/checks/test_corpus.py` holds it equal, for every corpus document and the six constants above, to `proof/checks/configurations.py::required_privileges`, which derives the same set from HQ's own model of the exported app through `PRIVILEGE_RULES`. A Nova rule that misses content HQ gates, or asks for a privilege no HQ reader needs, fails on the document that shows it.
+
+Two edits to the oracle keep the two sides honest:
+- `_needs_usercase` gains an arm for a form whose source reads the worker's record: HQ's own `util.py::xpath_references_usercase` over each bind's `calculate`, `relevant`, `constraint` and `required`, each `setvalue`'s `value` and each `output`'s `value`, with the reader `callcenter/sync_usercase.py::_iter_sync_usercase_helpers`. Today the rule sees only a save (`uses_usercase`) or a form display condition. `proof/corpus/hq/test_privileges.py`, whose contract is that each rule of `PRIVILEGE_RULES` finds the content its HQ reader gates, gains the case for this arm in the same pull request: the base app plus one bind whose `calculate` reads the worker's record yields `["USERCASE"]`, and the base app alone still yields none. This rests on reading and the pull request's lane run confirms it. Decided fallback: where HQ's substring test does not match the read as Nova spells it, the arm matches the `commcare-user` case type (`const.py::USERCASE_TYPE`) in the same attributes.
+- `_needs_locations` keeps both arms. After C5 no Nova app carries `both_fixtures`, so the instance arm alone decides, which is the same fact `readsLocationsFixture` reads.
+
+A disagreement on any document is fixed in Nova's predicate, or in the oracle's rule with its HQ reader cited; no document is exempted. Because the first edit grants `USERCASE` to more configurations, the pull request runs the full lane. Locally: `python3 -m proof.checks.configurations <corpus>` and `npm run proof -- -k "test_corpus or test_plan_features or test_privileges"`. CI's full lane shows the equality on every document and no new difference.
+
+## C3. Defect 12: the flag probe
+
+**Today.** `lib/commcare/projectSpaceCompatibility.ts::moduleRequiresAdvancedCaseSearch` requires `CASE_SEARCH_ADVANCED` only for a hidden Search value or a starting value. Nothing checks `CASE_SEARCH_RELATED_LOOKUPS`, `CASE_LIST_TILE` or `CASE_LIST_TILE_CUSTOM` (none is in `HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`), and `projectSpaceCompatibilityProbePlan` requires `VIEW_FORM_ATTACHMENT` for every link write, shown or not.
+
+**Fix.** `projectSpaceCompatibilityProbePlan` still reads only the document. Its `CompatibilityDoc` parameter becomes `BlueprintDoc`: the new predicates read `caseTypes` through the emitters' own type context, and every caller already holds the whole document.
+
+| Capability (`ProjectSpaceCapabilityId`) | Label and description | Flags | Predicate, and where it lives | HQ fact that makes it a gate |
+|---|---|---|---|---|
+| `case-search` (existing) | Case search (unchanged) | `SYNC_SEARCH_CASE_CLAIM`, plus `CASE_SEARCH_ADVANCED` when any reason below holds | `lib/commcare/projectSpaceCompatibility.ts::advancedCaseSearchReasons(module): string[]` replaces today's pair `moduleRequiresAdvancedCaseSearch` and `advancedCaseSearchReasons` (empty means not required). It takes the module alone, since no reason reads the rest of the document, and every reason is evaluated only when `effectiveCaseSearchConfig(module) !== undefined`, as today | below |
+| `multi-select-case-lists` (new) | "Choosing several cases at once". "Lets workers pick more than one case from a case list." | `CASE_SEARCH_ADVANCED` | `module.caseListConfig?.selection?.kind === "multiple"` | the Case List page offers the multi-select card only under the flag (`templates/app_manager/partials/modules/bootstrap5/case_list_multi_select.html`) |
+| `related-case-search` (new) | "Search across related cases". "Lets a search filter on, or show, cases related to the ones it lists." | `CASE_SEARCH_RELATED_LOOKUPS` | any of the three arms below, each only for a module with an effective case search | `case_search/filter_dsl.py::_require_related_lookups_flag` refuses the search outright; HQ adds the ancestor filter itself for the parent-select shape (`util.py::module_uses_inline_search_with_parent_relationship_parent_select`) |
+| `case-tiles` (new) | "Case tiles". "Lets a case list draw each case as a tile." | `CASE_LIST_TILE` and `CASE_LIST_TILE_CUSTOM` | `lib/domain/modules.ts::tileCellFor` admits a cell for some column, the test `lib/commcare/hqJson/caseList.ts::applyTileLayoutToShortDetail` makes before it writes `case_tile_template` | every Nova tile is `custom`, which the Case List page offers and keeps only under both (`static/app_manager/js/details/bootstrap5/screen.js`); a save under `CASE_LIST_TILE` alone drops the tile (the register's entries) |
+| `attachment-links` (existing) | "Links to captured files" (unchanged) | `VIEW_FORM_ATTACHMENT` | new `lib/commcare/projectSpaceCompatibility.ts::linkWriteIsShown(doc, field)`, beside the capture predicates there: a capture field with `caseWrite.mode === "url"` whose `(caseType, property)` a column whose text shows on a screen (`lib/domain/modules.ts::caseListColumnTextShows`, which pull request 11 puts in place of `caseListColumnIsEmitted`: part 07, Hidden columns: defect 16's column half, findings 35 and 36) on Results or Details of some module of that case type shows, as a plain column or through a calculated column's expression (walked with `lib/domain/predicate/walk.ts::walkExpressionTerms`, never text) | `reports/views.py::_can_view_form_attachment` is read only when someone opens the link |
+
+The three arms of `related-case-search`, with `typeContext = lib/commcare/validator/rules/case-list/shared.ts::moduleTypeContext(module, doc)`, the function `lib/commcare/compiler.ts` passes to the search emitters:
+
+| Arm | Predicate |
+|---|---|
+| a relation arm in the search's own filter | new `lib/commcare/suite/case-search/xpathQuery.ts::xpathQueryUsesRelatedLookup(predicate: Predicate \| undefined): boolean`, fed `composeXPathQueryPredicate(module.caseListConfig, module.caseType, typeContext)`. True for `exists`, `missing` or `count` over a relation that is not `self`, and for a comparison on an ancestor's property other than its case id. It reads the typed predicate, never printed text, so it needs no lookup naming and `composeXPathQueryEmission` is not called |
+| supporting related cases | `lib/commcare/suite/case-search/relatedCaseProjection.ts::searchNeedsSupportingCases(module.caseListConfig, { ...typeContext, currentCaseType: module.caseType })`, the context `lib/commcare/hqJson/caseList.ts` passes where it writes `include_all_related_cases` |
+| a parent case chosen first | `moduleIsSearchFirst(module) && parentSelectModuleUuid(doc, module.uuid) !== undefined`. `lib/commcare/formLinkProjection.ts::parentSelectModuleUuid` reads only `doc.modules[moduleUuid]?.parentCaseModuleUuid` and ignores its context parameter, so pull request 13 drops that parameter (its callers in `lib/commcare/compiler.ts` and `lib/commcare/formLinkProjection.ts` change with it) and the probe calls the same function with no link context to build. Every Nova parent selection is written with `relationship: "parent"` (`lib/commcare/expander.ts::expandDoc`), which is the shape HQ's rule reads |
+
+Reasons shown for the new and narrowed capabilities, one per predicate arm:
+
+| Capability | Arm | Reason |
+|---|---|---|
+| `multi-select-case-lists` | the one predicate | "A case list lets workers choose several cases." |
+| `related-case-search` | relation arm in the filter | "A Search filter looks at related cases." |
+| `related-case-search` | supporting related cases | "A case list shows values from related cases." |
+| `related-case-search` | parent case chosen first | "A menu that opens on Search follows a parent case chosen first." |
+| `case-tiles` | the one predicate | "A case list is laid out as tiles." |
+| `attachment-links` | `linkWriteIsShown` (replaces today's "A capture question saves a link to its file on the case.") | "A case list or its details show a link to a captured file." |
+
+`multi-select-case-lists` is its own capability because a multi-select list needs no case search: folding it into `case-search` would also demand the base search flag and `CaseSearchConfig.enabled`.
+
+Reasons that add `CASE_SEARCH_ADVANCED` to `case-search`:
+
+| Reason shown | Predicate |
+|---|---|
+| "A Search field starts with a suggested value." (today) | `searchInputDefault(input) !== undefined` |
+| "A Search screen carries a hidden value worked out when it opens." (today) | `input.kind === "hidden"` |
+| "The menu opens on Search." | `lib/commcare/suite/case-search/inlineSearch.ts::moduleIsSearchFirst(module)` |
+| "A Search field takes one date." | new `lib/commcare/suite/case-search/searchPrompts.ts::searchInputIsSingleDate(input)`, which `searchPromptWire` also calls |
+| "A Search field is matched by a rule Nova writes." | `lib/commcare/suite/case-search/searchPrompts.ts::searchInputSuppressesAutoMatch(input)` |
+
+HQ facts: its build writes a prompt's default only under the flag (`feature_support.py::CommCareFeatureSupportMixin.enable_default_value_expression`), and its editor offers inline search, the single `date` format, "Hide in Search Screen" and "Exclude From Search Filters" only under it (`templates/app_manager/partials/modules/bootstrap5/case_search_properties.html`, `case_search_property.html`). Inline search, multi-select and `exclude` are required because no HQ editor offers them without the capability.
+
+*How broad this is,* in plain words: Nova writes `exclude` on every advanced input and on every simple input it routes through its own filter (any match mode but exact, an exact match on a date, any relation walk, any input whose name differs from its property, and an exact match on `status` or `owner_id`). So a project space with base case search alone publishes a search whose fields are exact matches on their own property (dates, `status` and `owner_id` aside) or date ranges, with or without a Results filter, or a search with no fields. Every other search waits for the capability. The docs and the notice say so.
+
+*Whose key reads a space's flags.* The publishing person's, and no other, at every publish; this is what `runDeploymentPreflight` does today (`lib/db/settings.ts::getCredentialsForUpload` with the actor's id). The creator-then-members order belongs to the cutover alone, which has no publishing person. Reason: a person can choose a target only from their own key's project spaces, so the fallback would run only when their membership ended since they connected, and it would be the one place in Nova where a person's HQ credential acts without them.
+
+*The not-a-member stop.* `lib/publish/projectSpaceCompatibility.ts::ProjectSpaceCompatibilityIssue` gains `"not-a-member"`, set by `lib/commcare/client.ts::probeHqProjectSpaceCompatibility` when the unfiltered project-space list answers and lacks the target (today that is the generic unverified result). The publish stops with `project_space_incompatible` and: "Nova couldn't check “<space>” because the connected CommCare HQ account is no longer a member of it. Once that account joins the project space again, or you connect a different account in Settings, publishing can continue." Two limits, stated in `lib/deployment/CLAUDE.md`: the probe returns before that read when the app needs no flag, so for such an app HQ's own refusal of the first request is the stop; and the route to this state is a stored project-space list that outlived the membership.
+
+*Capabilities are named, never flags.* Publish, the pre-publish check, MCP and the docs name the capability; no surface names an HQ flag. HQ fact: `corehq/toggles/__init__.py::StaticToggle.enabled` answers false for a namespace the toggle does not declare, so `toggles_enabled_for_user` never enables a toggle declared for project spaces alone, and `lib/commcare/surface/gates.ts::domainFeatureFlag` refuses to probe any other kind. A flag the probe reads as on is therefore the space's own, and the outline's reason for naming flags (a flag on for the person alone read as the space's) cannot occur. `lib/commcare/CLAUDE.md` and `content/docs/project-space-compatibility.mdx` keep their rule unchanged.
+
+*Mechanics.* `HqPrivateFeatureFlagId` gains `"related-case-lookups"`, `"case-tiles"` and `"custom-case-tiles"`, and `HQ_PRIVATE_FEATURE_FLAG_SYMBOLS` their three toggles (each a `StaticToggle` declared for project spaces alone, so `domainFeatureFlag` accepts it). `lib/publish/projectSpaceCompatibility.ts` gains the three definitions (labels and descriptions from the table above), `CAPABILITY_IDS` gains their ids, and `COMPATIBILITY_ISSUES` gains `"not-a-member"`, so a parsed report that carries the new issue or a new capability is accepted; `components/docs/ProjectSpaceCapabilityCatalog.tsx` renders them from the same table.
+
+*`DONT_INDEX_SAME_CASETYPE` leaves step 2* (a departure from the outline). No Nova document can hold a basic child case of its own menu's case type, which is why step 1 dropped that row (`proof/README.md`, "Inputs Nova cannot produce"). The fact that guarantees it is structural, not a validator rule: `lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory` puts a case write in the primary bucket whenever its case type is the menu's and in a child bucket only for another type whose parent is the menu's, and `lib/commcare/formActions.ts::buildFormActions` builds `subcases` from the child buckets alone (through `lib/commcare/deriveCaseConfig.ts::deriveCaseConfig`). A Nova test below holds it over the fuzz corpora. So the refusal would guard nothing and the offered move to a Save to Case placement would have nothing to move. It goes to step 5, which first admits that content; `docs/plans/hq-round-trip/5-case-writes-forms-navigation.md` carries it. Its gate entry (`toggle/DONT_INDEX_SAME_CASETYPE`) is unchanged in step 2.
+
+*Manifest cells and gate entries that change.*
+
+| Entry | Change |
+|---|---|
+| `toggle/CASE_LIST_TILE` (`gates.json`) | `content` loses "the flag probe does not check it today: defect 12" |
+| `toggle/CASE_LIST_TILE_CUSTOM` | its preflight cell loses the same clause |
+| `toggle/CASE_SEARCH_RELATED_LOOKUPS` | its preflight cell loses the same clause |
+| `toggle/VIEW_FORM_ATTACHMENT` | unchanged: its cell already reads "for an app that shows a link write in a case list or detail" |
+| `application-and-settings/50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture` | C5 |
+
+A new structural test in `lib/commcare/surface/__tests__/gates.test.ts` holds "the flag probe checks each gate where the manifest names it": every toggle gate named by an inventory entry whose disposition is HELD, and whose own preflight is a precondition, is a value of `HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`. A later step that holds new content fails CI until the probe takes its flag.
+
+**Files.**
+- Emitters: `lib/commcare/projectSpaceCompatibility.ts`, `lib/commcare/suite/case-search/searchPrompts.ts`, `lib/commcare/suite/case-search/xpathQuery.ts`, `lib/commcare/formLinkProjection.ts` and `lib/commcare/compiler.ts` (`parentSelectModuleUuid` loses its unused context parameter), `lib/commcare/client.ts`, `lib/commcare/surface/entries/gates.json`.
+- Public vocabulary: `lib/publish/projectSpaceCompatibility.ts`.
+- Builder: `components/docs/ProjectSpaceCapabilityCatalog.tsx`, `components/builder/PublishDialog.tsx` (the new issue's copy).
+- SA and MCP tools: `lib/mcp/tools/checkProjectSpaceCompatibility.ts` (the widened capability ids and the new issue in its output schema). SA: none.
+- Lane: `proof/targeted/documents/customTile.ts`, `proof/known-defects.json`, `proof/fixed-defects.json` (`proof/controls/targeted-custom-tile-explicit-cells`, where it exists, is pull request 11's and is only named here).
+- Docs: `content/docs/project-space-compatibility.mdx`, `content/docs/attachments.mdx`, `content/docs/publishing.mdx`.
+- CLAUDE.md: `lib/commcare/CLAUDE.md` ("CommCare HQ project-space compatibility": the list of what adds the private child setting, which C4 leaves for this pull request, becomes "A Search field with a starting value, a hidden Search value, a search-first menu, a one-date Search field and a Search field Nova matches by its own filter each add the private child setting to the SAME public Case search capability: HQ omits `<prompt default>` without it and its editors offer none of the others without it."; the three new capabilities and the narrowed one are added beside it), `lib/deployment/CLAUDE.md`.
+- Domain, doc and mutations, validator, Preview: none.
+
+**Stored shape and migration.** None. The transform step changes no document. The cutover lists, from the documents alone and with no probe, each deployment whose app now needs one of the three new capabilities or `CASE_SEARCH_ADVANCED` for a new reason, under the notice reason `next-publish-asks-more` (shared with C2; part 10, Changes that write nothing and still get a line). Such a deployment's next publish stops with the capability's name where the space lacks it.
+
+**Register.** Nine entries move to `proof/fixed-defects.json`, each held on its control from then on, and three more move with them where pull request 11 registered them (below):
+
+| Ids | Check | Control |
+|---|---|---|
+| `d12-custom-tile-app-case-tile-template`, `d12-custom-tile-app-grid-x`, `d12-custom-tile-app-grid-y`, `d12-custom-tile-app-height`, `d12-custom-tile-app-width`, `d12-custom-tile-suite-style` | proof4 | `targeted-custom-tile` |
+| `d12-single-date-app-search-config-input`, `d12-single-date-suite-prompt-input` | proof4 | `navigation-search-date-add` |
+| `d12-related-lookups-compile-flag` | intent | `targeted-search-related-lookups` |
+| where pull request 11 registered them: `d12-custom-tile-app-horizontal-align`, `d12-custom-tile-app-vertical-align`, `d12-custom-tile-app-font-size` | proof4 | `targeted-custom-tile-explicit-cells` |
+
+The last row is decided by pull request 11's lane run (part 07, Tile cells and finding 42). From that pull request Nova writes each tile cell's alignment and font size, and a Case List save under `CASE_LIST_TILE` alone can drop those three keys with the tile. If the run reports them, pull request 11 registers the three as defect 12's on the new control `targeted-custom-tile-explicit-cells`, retained from its own bytes because `targeted-custom-tile`'s bytes hold none of the three keys. They then move here with the other six tile entries, by the same configuration change: twelve entries in all, and that control joins the Control list. If the run reports none, the count stays nine.
+
+They leave by a configuration change, not an emission change: each document's minimum configuration is `proof/corpus/publish.ts::novaPublishVerdict(doc).minimumConfiguration.flags`, read from the probe plan, so once the plan requires the flag the Case List save keeps the tile and the date input, and HQ's compiler accepts the relation arm. The over-required `VIEW_FORM_ATTACHMENT` has no entry (a Nova publish check, in no system the lane runs).
+
+*`targeted-custom-tile` loses its `CASE_LIST_TILE` configuration.* `proof/targeted/documents/customTile.ts` drops `singleFlags: ["CASE_LIST_TILE"]` and its header comment is rewritten: Nova's publish now refuses that configuration, and `proof/corpus/entryWriter.ts` throws for a configuration the verdict refuses. The retained control keeps `proof/controls/targeted-custom-tile/export/CASE_LIST_TILE` with its pre-fix `configurations.json` and `verdict.json`, so the six entries still show there; that directory is never re-retained. Where `targeted-custom-tile-explicit-cells` exists, it keeps its own `CASE_LIST_TILE` export the same way, and its three entries show there. Defect 14's tile entries and finding 42's on this document are fixed in pull request 11, before this one, so by now they are fixed entries held on the same control and the corpus edit cannot unshow them.
+
+**Spelling rule.** None.
+
+**Identity.** None; `proof/identity-moves.json` gains no entry.
+
+**Control.** `targeted-custom-tile`, `navigation-search-date-add`, `targeted-search-related-lookups`, and `targeted-custom-tile-explicit-cells` where pull request 11 retained it: each is the app as Nova would have published it to a space Nova now refuses.
+
+**Nova tests.**
+- Pure (`lib/commcare/__tests__/projectSpaceCompatibilityProbe.test.ts`), over the fuzz corpora through `compilerEvidence.ts`: read the markers off `expandDoc`'s output (`search_config.inline_search`, `properties[].exclude`, `hidden`, `default_value` and `input_`, `case_details.short.multi_select`, `case_tile_template`, `include_all_related_cases`) and assert each implies, and is implied by, the plan's flag.
+- Pure: four admitted documents for `VIEW_FORM_ATTACHMENT` (link not shown; a plain column; a calculated column that reads it; a column hidden from both screens, whose text shows nowhere by `caseListColumnTextShows` and so asks for nothing).
+- Pure: `xpathQueryUsesRelatedLookup` over a clause with `exists`, `missing` and `count` on a relation, an ancestor property comparison, and an ancestor case-id comparison (the one that needs no flag).
+- Pure: the structural gate test above.
+- Pure, over the fuzz corpora through `compilerEvidence.ts` (the test that holds `DONT_INDEX_SAME_CASETYPE`'s departure): no emitted form's `actions.subcases` entry has the `case_type` of its own menu. A corpus that ever admits one fails here, and the refusal then comes back into the step that admitted it.
+- Controlled HQ responses (`lib/commcare/__tests__/projectSpaceCompatibilityTransport.test.ts`): the unfiltered list answering without the target yields `not-a-member`; an empty probe plan makes no request.
+
+**Lane.** Locally: `npm run proof -- -k "targeted-custom-tile or navigation-search-day-range or targeted-search-related-lookups"`, then `python3 -m proof.checks.sensitivity effects <output>/blocks/*` with its diff to `gates.json` reviewed in the pull request (`proof/README.md` requires it for any change to what builds read). CI's full lane shows the nine entries (twelve where pull request 11 registered the three tile-cell entries) held on their controls, no live entry for defect 12, and no document published under a configuration its verdict refuses.
+
+## C4. Finding 53: the zero-input sentinel
+
+**Today.** `lib/commcare/hqJson/caseList.ts::ZERO_INPUT_SEARCH_SENTINEL` writes a default `_xpath_query` of `'match-all()'` for a search with no fields and no filter, and the local path (`lib/commcare/suite/case-search/searchSession.ts::buildSearchSession`) sends nothing, so the two exports send different requests.
+
+**Fix.**
+- The sentinel is kept and sent on the local path too: `buildSearchSession` emits `<data key="_xpath_query" ref="'match-all()'"/>` for the same shape (no fields, no composed clause). The constant moves to `lib/commcare/suite/case-search/xpathQuery.ts` and both paths read it. The requests are then identical and HQ returns the same cases.
+- It is kept because HQ builds no search for a module with neither properties nor default properties (`util.py::module_offers_search`), and a default `_xpath_query = 'match-all()'` row is a state HQ's Case List page offers and keeps for every project space (its Default Search Filters card in `case_search_properties.html`, saved by `views/modules.py::_gather_and_update_search_properties`).
+- **Nova adds no requirement for `_xpath_query`.** It is inside what HQ's editor offers every project space, the sentinel being one case among every Results filter. What HQ records about such a search is HQ's own behavior with a state its own editor produces, not a Nova defect: `docs/research/2026-09-26-hq-round-trip/harness-findings.md` moves that half of finding 53 under "What HQ does itself", and that file alone carries the detail, corrected there from "every search" to at most once per project space per day (`case_search/utils.py::_require_case_search_advanced`).
+- `lib/commcare/CLAUDE.md` changes in two pull requests, because the list of what adds the private child setting changes only with C3:
+  - Pull request 12 (this fix) rewrites two sentences and leaves "Only a Search field with a starting value adds the private child setting ... because HQ omits `<prompt default>` without it." as it is. "HQ still emits and executes `_xpath_query` filters without that setting; the disabled path records telemetry but does not reject the query." becomes: "A search's own filter (`_xpath_query`), the zero-input `match-all()` included, does not add it: HQ's Case List page offers and keeps a default filter for every project space. Both export paths send the zero-input filter." And "The HQ JSON projection supplies a match-all default property for the explicit zero-input/manual shape because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter." becomes: "Both export paths send a match-all filter for the explicit zero-input/manual shape (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter."
+  - Pull request 13 (C3) rewrites the list of reasons; its text is in C3's Files.
+
+**Files.**
+- Emitters: `lib/commcare/suite/case-search/xpathQuery.ts`, `lib/commcare/suite/case-search/searchSession.ts`, `lib/commcare/hqJson/caseList.ts`, `lib/commcare/surface/entries/case-search.json` (its cells name the constant's file).
+- Docs: `docs/research/2026-09-26-hq-round-trip/harness-findings.md`.
+- CLAUDE.md: `lib/commcare/CLAUDE.md`.
+- Domain, doc and mutations, validator, builder, SA and MCP tools: none. Preview: none; it evaluates the typed predicate, and no predicate already means every case.
+
+**Stored shape and migration.** None, and no notice: a worker's results do not change.
+
+**Register.** Two entries move to `proof/fixed-defects.json`: `d53-zero-input-sentinel-trace-params` and `d53-zero-input-sentinel-trace-request-params`, check proof3, control `search-automatic`.
+
+**Spelling rule.** None. The difference is removed by sending the same parameter, never by a rule calling the two alike.
+
+**Identity.** None; `proof/identity-moves.json` gains no entry.
+
+**Control.** `search-automatic`.
+
+**Nova tests.** Pure (`lib/commcare/__tests__/searchEmission.test.ts`): one document with a zero-input search and one with a Results filter, each through both paths; the HQ JSON's default properties and the local suite's `<data>` agree on when the sentinel is sent and on its value.
+
+**Lane.** Pull request 12 (the `lib/commcare/CLAUDE.md` list of reasons follows in pull request 13). Locally: `npm run proof -- -k search-automatic`. CI's full lane shows proof 3 with no `_xpath_query` difference between the paths on any document and the two entries held on the control.
+
+## C5. Defect 14: the flat location fixture
+
+**Today.** `lib/commcare/expander.ts::expandDoc` writes `location_fixture_restore: "both_fixtures"` when `readsLocationsFixture(doc)` and nothing otherwise; `lib/commcare/types.ts::HqApplication.location_fixture_restore` is typed as that one literal. HQ's settings page offers the app's value only under a retiring flag (`static/app_manager/json/commcare-app-settings.yml`), so no editor can produce it elsewhere.
+
+**Fix.**
+- `lib/commcare/hqShells.ts::applicationShell` writes `location_fixture_restore: "project_default"` on every app, the type becomes that required literal, and the conditional assignment in `expandDoc` goes with its comment. The key is not excluded from an update, so each publish writes it.
+- Under `project_default` HQ asks the project space (`locations/fixtures.py::should_sync_flat_fixture` falls to `LocationFixtureConfiguration.for_domain(...).sync_flat_fixture`, which defaults to on). No API reads that setting, so the person confirms it, only for an app where `readsLocationsFixture(doc)` is true: one more item of the `plan-features` edge, stored as `kind = 'flat-location-fixture'`, `subject = 'flat-location-fixture'`, carried as `{ kind: "flat-location-fixture" }` in `confirm` and `confirm_flat_location_fixture` on `upload_app_to_hq`, and withdrawn from the same card (C2).
+- Copy: "This app reads the places in your organization on the phone. Does “<space>” still send its location list to phones? It does unless someone turned that off in the project space's Location Fixture settings." The checkbox reads "It still does". Where it does not, the row says: "Turning the flat location list back on is done on the project space's Location Fixture page, or through Dimagi Support where the space has no such page. It changes what every app there syncs." Nothing is stored for "no": the confirmation is simply not given.
+- **The item's fields.** As a `DeploymentConfirmationNeeded` (and so as MCP's `confirmations_needed` item, which carries the same `label` and `consequence`): `kind: "flat-location-fixture"`, `subject: "flat-location-fixture"`, `label` "The flat location list", `plans` "" (empty: no plan decides it), `consequence` "Without it, the places this app reads are missing on the phone.", and `reasons` one sentence per form whose source reads places: "<form name> sets a case's owner from a place in your organization." The forms come from `lib/commcare/locations/readsLocationsFixture.ts::formsReadingLocationsFixture(doc): Uuid[]`, new, the walk today's function makes with the form kept; `readsLocationsFixture(doc)` becomes "that list is not empty". The route's and MCP's `flat_location_fixture` carry the same `label`, `consequence` and `reasons` with the state. The question above, the checkbox label and the "Turning the flat location list back on" paragraph are dialog copy, exported from `lib/publish/planFeatures.ts` beside the plan-feature definitions (`FLAT_LOCATION_FIXTURE`), so the dialog, the card and the HQ import guide read one source.
+- **The HQ import file.** `lib/publish/manualImportGuide.ts`'s `flat-location-fixture` step is this work item's, present exactly when `readsLocationsFixture(doc)`. Title "The location list". Lines: "This app reads the places in your organization on the phone." and "It helps to check that the project space still sends its location list to phones. It does unless someone turned that off on its Location Fixture page." The guide's `plan-features` step separately names Locations (C2).
+- Nova does not probe `HIERARCHICAL_LOCATION_FIXTURE` to skip the question: a space can have had the flag, turned the setting off, and lost the flag since, so flag-off does not prove the list syncs.
+- `privilege locations` is the separate row of C2; an app that reads places asks for both.
+
+**Files.**
+- Emitters: `lib/commcare/hqShells.ts`, `lib/commcare/types.ts`, `lib/commcare/expander.ts`, `lib/commcare/surface/entries/application-and-settings.json` (the `50p-...` entry's emission cell loses "(today Nova writes `both_fixtures` ...: unproducible)" and its `unproducible` marker), `lib/export/boundaryValidation.ts` (comment only: the paragraph that says the project space's `sync_flat_fixture` row "used to belong on this list and no longer does" because Nova writes `both_fixtures` is replaced by a list item, "**Its flat location list still syncs.** Every app carries `project_default`, so `locations/fixtures.py::should_sync_flat_fixture` asks the project space's `LocationFixtureConfiguration.sync_flat_fixture`, which is on unless someone turned it off. A publish asks the person to confirm it; a `.ccz` or import file cannot.").
+- Publish, builder, MCP: as C2 (the item rides the same edge, dialog rows, card and inputs).
+- Public vocabulary: `lib/publish/planFeatures.ts` (`FLAT_LOCATION_FIXTURE`: label, consequence and the dialog copy), `lib/publish/manualImportGuide.ts` (the `flat-location-fixture` step).
+- Docs: `content/docs/organization.mdx`, `content/docs/publishing.mdx`.
+- CLAUDE.md: `lib/commcare/CLAUDE.md` (the sentence that says the expander requests `both_fixtures` becomes: every app carries `project_default`, and publish asks the person to confirm the flat list still syncs for an app that reads places), `lib/organization/CLAUDE.md` (in the bullet "The compiler lowers fixed-place and reverse-hop owner terms", the clause "so neither a missing identity map nor a missing fixture is a reason to refuse" becomes "so a missing identity map is no reason to refuse; whether the project space still sends its flat location list to phones is a setting no API reads, which publish asks the person to confirm (`lib/deployment`)").
+- Domain, doc and mutations, validator, Preview, SA: none.
+
+**Stored shape and migration.** No document change; the confirmation row is C2's table. An existing deployment that holds `both_fixtures` gets `project_default` at its next publish, which first asks for the confirmation. Its notice line is C2's `next-publish-asks-more`, naming the flat location list.
+
+**Register.** None. HQ's saves keep `both_fixtures`, so the lane shows no difference (`proof/README.md`, "What the lane does not observe").
+
+**Spelling rule.** None.
+
+**Identity.** None; `proof/identity-moves.json` gains no entry.
+
+**Control.** None.
+
+**Nova tests.**
+- Pure: the HQ JSON shape test over the fuzz corpora asserts `location_fixture_restore === "project_default"` on every app.
+- Pure: the `plan-features` requirement asks for the fixture exactly when `readsLocationsFixture(doc)`, with the fields above; the guide holds the `flat-location-fixture` step exactly then (`lib/publish/__tests__/manualImportGuide.test.ts`).
+- Real Postgres: the ledger row (shared with C2's confirmation tests), including the constraint that the kind's subject is `flat-location-fixture`.
+
+**Lane.** Locally: `npm run proof -- -k "location-direct or location-multirung"`, the two corpus documents whose form source declares the `jr://fixture/locations` instance (`lib/commcare/locations/__tests__/locationOwnerFixture.ts`, scenarios `direct` and `multirung`; `location-plain` assigns the acting user and declares none). CI's full lane shows the regenerated bodies carrying `project_default`, the `LOCATIONS` privilege still derived for those documents by the oracle's instance arm (C2), and proof 3 unchanged for them.
+
+## C6. Defect 14: logos
+
+**Today.** `lib/commcare/multimedia/logoEntry.ts::buildLogoRefs` returns `{ hq_logo_web_apps: { path } }` and `expandDoc` assigns it. HQ's own uploader writes a full media record per slot (`hqmedia/views.py::ProcessLogoFileUploadView`), a linked app's pull reads each entry's `m_id` (`models/applications.py::LinkedApplication.reapply_overrides`), and an import that carries `logo_refs` replaces the whole dict, so today's publish also removes slots a person uploaded in HQ. The media ZIP still carries the logo (`lib/commcare/multimedia/bulkUploadZip.ts::buildMediaBulkUploadZip`), which HQ's upload never maps (`hqmedia/models.py::ApplicationMediaMixin.all_media` leaves app-level media out).
+
+**Fix.**
+- **No `logo_refs`.** `buildLogoRefs` and `LogoRef` are deleted, `HqApplication.logo_refs` goes, and `expandDoc` assigns none, in the direct upload and the HQ import file alike. `buildLogoProfileProperty` stays: the local `.ccz` and Preview carry Nova's logo directly.
+- **The source read carries `logo_refs`.** Pull request 13 extends the type pull request 3 created (part 01, A3. The publish sequence): `HqAppSource` gains `readonly logoRefs: Readonly<Record<string, unknown>>`, and `readHqAppSource`'s shape check gains one rule, "a `logo_refs` that is present and not an object fails the check; an absent key reads as `{}`". Today's `HqAppSource` holds it only inside `raw`.
+- **A stateless cleanup overlay.** `lib/commcare/targetLogoRefs.ts::withoutNovaLogoRefs(logoRefs)` returns the dict without Nova's entries, or `null` when it holds none. An entry is Nova's when its only key is `path`; HQ's uploader always writes `m_id` and the rest. `lib/deployment/importApplication.ts::hqImportApplication` puts `logo_refs: <result>` on an update only when the result is not `null`, in the pattern of `lib/commcare/targetProfile.ts::projectUpdatedAppProfileForTarget`. It is decided from HQ's current value at each publish, so after one publish it is inert: no marker, no flag, no recorded "cleaned", and no cutover step.
+- **The logo leaves the media ZIP.** `publishAppToHq`'s `uploadMediaBytes` passes `buildMediaBulkUploadZip` only the assets some carrier other than the logo references (`lib/domain/mediaRefs.ts::carriesViaBulkUpload`); an image shared between the logo and a question still uploads. `lib/media/uploadOutcome.ts::interpretMediaAttach` loses its `logoNotCarried` branch and warning line. The HQ import file's `multimedia.zip` uses the same filter, and `lib/commcare/multimedia/hqJsonExportArchive.ts::buildHqJsonExportArchive` puts the logo file beside it as `logo<ext>`, named by the README.
+- **The offered upload step.** The landed `PublishOutcome` gains `logoStep: { assetId, fileName, changed: boolean } | null` (`null` with no logo). `changed` is true when the logo's content hash differs from `app_deployments.offered_logo_content_hash`, which `lib/deployment/store.ts::recordRemoteResource` writes with the upload. It is a content hash, not an asset id, because a Project move remaps asset ids. When `changed`, the dialog shows: "Your app's logo isn't sent with the app. To show it in apps built on CommCare HQ, you can download it here and add it in this app's settings there. That takes a plan with the Custom CommCare Logo Uploader (Advanced or Enterprise); on other plans, apps built on CommCare HQ carry no logo." with a download control (`app/api/media/[assetId]/route.ts` already serves a Project member) and a link to the HQ app. `lib/deployment/setupArtifact.ts::buildSetupArtifact` gains a `logo` section whenever the document has a logo. MCP returns `logo_step: { asset_id, file_name, changed, instructions } | null`. The dialog's sentence is one exported constant, `lib/publish/planFeatures.ts::LOGO_UPLOAD_STEP_TEXT`, read verbatim by the dialog, by `buildSetupArtifact` as the `logo` section's text, and by `lib/mcp/tools/uploadAppToHq.ts` as `instructions`.
+- **The HQ import file.** `lib/publish/manualImportGuide.ts`'s `logo` step (the guide itself is pull request 3's: part 01, A6. The HQ import file as a ZIP with its guide) is this work item's, present exactly when the document has a logo. Title "Your app's logo". Lines: "The ZIP holds your logo as `logo<ext>`; it isn't part of the app file." and "To show it in apps built on CommCare HQ, you can add it in the imported app's settings there. That takes a plan with the Custom CommCare Logo Uploader (Advanced or Enterprise); on other plans, apps built on CommCare HQ carry no logo." Its `plan-features` step (C2) lists each `PlanFeatureDefinition` the app needs as "<label>: <plans>. <consequence>".
+- **`commcare_logo_uploader` is never confirmed.** Nothing fails without it; HQ's builds carry no logo, and the copy says so.
+- **What HQ shows until the logo is uploaded there.** HQ writes a logo into a build's profile only from an uploader entry and only under the privilege (`models/applications.py::Application.create_profile`), and Web Apps takes its banner from `logo_refs.hq_logo_web_apps.path` (`cloudcare/utils.py::format_app_doc`). So after the cleanup publish, builds made on HQ carry no logo and Web Apps shows no banner until the person uploads it in HQ. The notice, the publish outcome and the docs say this.
+- The builder's proactive warning on the logo setting (`components/builder/detail/appSettings/AppAppearanceSection.tsx`, today through `lib/doc/hooks/useUncarriedLogo.ts`) says the same thing for every logo, not only one used nowhere else: "A logo shows in Preview and in apps you download from Nova. Apps built on CommCare HQ show it once you add it in the app's settings there." `lib/domain/mediaRefs.ts::uncarriedLogoAsset` is removed and the file `lib/doc/hooks/useUncarriedLogo.ts` is deleted; `AppAppearanceSection.tsx` shows the sentence whenever the app has a logo.
+- **What the model is told.** `lib/agent/tools/media/setAppLogo.ts` describes the logo today as "shown on the web-apps login and home screens", which from step 2 holds only for apps downloaded from Nova. Its description and the `set_app_logo` row of `content/docs/mcp/tools.mdx` become: the logo is shown in Preview and in apps downloaded from Nova; apps built on CommCare HQ show it once it is added in the app's settings there. This is a tool description, so the implementer asks the person before running `npm run test:schema` (it bills), and `../nova-plugin` is swept for the old claim in the plugin's own pull request.
+
+**Files.**
+- Domain: `lib/domain/mediaRefs.ts` (`uncarriedLogoAsset` removed with its cases in `lib/domain/__tests__/mediaRefDescribe.test.ts`; no schema change).
+- Emitters: `lib/commcare/multimedia/logoEntry.ts`, `lib/commcare/expander.ts`, `lib/commcare/types.ts`, `lib/commcare/targetLogoRefs.ts` (new), `lib/commcare/hq/appSource.ts` (`HqAppSource.logoRefs` and its shape rule, an extension of pull request 3's type), `lib/commcare/multimedia/hqJsonExportArchive.ts`, `lib/media/uploadOutcome.ts`, `lib/commcare/validator/hqJsonOracle.ts` (`checkLogoRefs` and its call removed: no export holds `logo_refs`), `lib/commcare/validator/errors.ts` and `lib/commcare/validator/gate.ts` (the `HQJSON_BAD_LOGO_REF` code and its message removed).
+- Public vocabulary: `lib/publish/planFeatures.ts` (`LOGO_UPLOAD_STEP_TEXT`), `lib/publish/manualImportGuide.ts` (the `logo` step, with the lines above).
+- Publish: `lib/deployment/importApplication.ts`, `service.ts`, `store.ts`, `types.ts`, `setupArtifact.ts`. The column's row type in `lib/db/pg.ts` (`offered_logo_content_hash`) landed in pull request 2 (part 02, The ledger schema), with no change here.
+- Builder: `components/builder/PublishDialog.tsx`, `publishOutcome.ts`, `detail/appSettings/AppAppearanceSection.tsx`; `lib/doc/hooks/useUncarriedLogo.ts` (deleted).
+- SA and MCP tools: `lib/agent/tools/media/setAppLogo.ts` (description), `lib/mcp/tools/uploadAppToHq.ts` (`logo_step`).
+- Lane: `proof/corpus/publish.ts`, `proof/hq/test_publish.py`, `proof/known-defects.json`, `proof/fixed-defects.json`, the regenerated corpus `configurations.json` files (below).
+- Docs: `content/docs/publishing.mdx`, `content/docs/mcp/tools.mdx` (`logo_step`, and the `set_app_logo` row).
+- CLAUDE.md: `lib/commcare/CLAUDE.md` ("`logo_refs` is emitted only when the app has a Nova-authored logo" becomes: Nova writes no `logo_refs`, and an update removes only the path-only entries Nova once wrote), `lib/media/CLAUDE.md` (the "HQ upload" paragraph: the logo is left out of the bulk ZIP, so there is no unmatched logo file and no heads-up; `uncarriedLogoAsset` is gone and `carriesViaBulkUpload` is read by the ZIP filter), `lib/deployment/CLAUDE.md` (the logo step and its column).
+- Doc and mutations, validator, Preview: none. The manifest entry `application-and-settings/logo-refs-hq-logo-web-apps` keeps its disposition and its emission cell, which already reads "none".
+
+**Stored shape and migration.** `app_deployments.offered_logo_content_hash text` (nullable, additive, pull request 2's migration, with its row type; part 02, The ledger schema); a Project move re-tenants it with the row. No document change. The cutover writes the deployment notice reason `logo-upload-in-hq` (the registry's string: part 10, Changes that write nothing and still get a line) for every app with a logo and at least one deployment, naming each deployment: after its next publish, builds made on HQ carry no logo and Web Apps shows no banner until the logo is uploaded there.
+
+**Register.** Two entries move to `proof/fixed-defects.json`: `d14-logos-media-unmatched-logo-refs` (check bar) and `d14-logos-app-path-not-from-uploader` (check manifest), both on control `case-operation-sequence`.
+
+**Spelling rule.** None.
+
+**Identity.** None; `proof/identity-moves.json` gains no entry. A deployment's `logo_refs` in HQ loses Nova's path-only entries once, at its next publish; that is an app-level setting, not an entity identity, and it is named by the notice.
+
+**Control.** `case-operation-sequence`.
+
+**Nova tests.**
+- Pure (`lib/commcare/__tests__/targetLogoRefs.test.ts`): a Nova entry only; uploader entries only; mixed; none; a path-only entry in an Android slot.
+- Pure, on `hqImportApplication`: the update carries `logo_refs` exactly when the source holds a Nova entry, keeps every uploader entry, and a create carries none.
+- Pure: the ZIP filter leaves out a logo used only as the logo and keeps an image the logo shares with a question; `interpretMediaAttach` reports no logo line.
+- Controlled HQ responses over real Postgres (`publishGates.postgres.test.ts`): `logoStep.changed` is true on a first publish, false on a republish with the same logo, true after the logo's content changes, and stays false across a Project move; a source whose `logo_refs` is not an object refuses with `hq_app_state_unknown`, and one with no `logo_refs` key publishes.
+- Pure: `manualImportGuide` holds the `logo` step exactly for a document with a logo; `LOGO_UPLOAD_STEP_TEXT` is the text of the setup artifact's `logo` section and of `logo_step.instructions`.
+- Pure: the HQ JSON oracle's suite over the fuzz corpora passes with `checkLogoRefs` gone and no export holding `logo_refs`.
+- Playwright: the dialog shows the logo step with a working download after a publish that carries a new logo.
+
+**Lane.** Locally: `npm run proof -- -k "media-rich or case-extension-followup"` and `proof/hq/test_publish.py`, which gains one case: after the cleanup update, the stored app's `logo_refs` holds only uploader entries and `LinkedApplication.reapply_overrides` no longer raises on it. The corpus configurations of logo documents lose `COMMCARE_LOGO_UPLOADER`: `proof/checks/configurations.py::_needs_logo_uploader` reads the sent app's `logo_refs`, which no Nova export holds from this pull request, so the rule no longer fires for any corpus document. The regenerated `configurations.json` diff is expected and reviewed in the pull request; the rule and its case in `proof/corpus/hq/test_privileges.py` stay, since they state what HQ gates. CI's full lane shows no `logo_refs` in any captured body, no unmatched logo in any media record, and the two entries held on their control.
+
+## What this work item leaves to others
+
+- `readHqAppSource`, the shell create, `recordCreatedRemoteApp` and `remote_missing_at`: part 01, A3. The publish sequence.
+- The drift comparison inside `target-app`, `hq_changed`, the discard, and the rule that a shell's comparison reads `modules` only: part 02, Work item B: the drift check and its baselines.
+- The ledger migration, its row types in `lib/db/pg.ts`, its privilege lists and the `lib/db/CLAUDE.md` text: pull request 2 (part 02, The ledger schema).
+- `lib/publish/manualImportGuide.ts`, the always-ZIP import file, and `lib/commcare/versionFloor.ts` with `COMMCARE_VERSION_FLOOR`: part 01, A6. The HQ import file as a ZIP with its guide, whose callers format the `commcare-version` step's floor from that constant; this work item supplies its `plan-features` (C2), `logo` (C6) and `flat-location-fixture` (C5) steps.
+- The notice mechanism, its renderers and the one registry of reason strings: part 10, Work item F: the migration notice. This work item uses three of the registry's deployment reasons verbatim (`commcare-version-below-floor`, `next-publish-asks-more`, `logo-upload-in-hq`) and adds their renderers in pull request 13.
+- `caseListColumnTextShows`, and the three tile-cell entries with their control where the lane reports them: part 07, Hidden columns: defect 16's column half, findings 35 and 36, and part 07, Tile cells and finding 42.
+- `DONT_INDEX_SAME_CASETYPE`: step 5 (`docs/plans/hq-round-trip/5-case-writes-forms-navigation.md`).

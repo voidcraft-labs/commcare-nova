@@ -42,6 +42,17 @@ expression reads that the type does not list, with the least type its reads
 admit (text unless an expression orders it or does arithmetic on it), and names
 each in the app's notice.
 
+## Carried from step 2
+
+Finding 56 (`2-emission-and-publish.md`, "Finding 56"): an ordering comparison
+on a datetime never orders by instant on a device. A datetime held as text is
+not a number to Core (`commcare-core` `FunctionUtils.toNumeric`), so the
+comparison is always false, and a typed date orders by calendar day only. Step
+2 holds it in the register with its control; this step fixes it, because the
+typed model is what knows each operand's type: a lowering chosen per operand
+that compares instants in every device zone, or a refusal where none exists.
+This step's exit removes its entries.
+
 ## Contracts
 
 No row of the research's contracts table belongs to step 3. `lib/domain`,
