@@ -28,9 +28,12 @@ own settings the update replaced (``/update/workerSettings/<setting>``).
 them: each install's status and the apps the device then holds, whether the update was staged and installed,
 and whether it is the same app at no lower a version; and, of each path alone (``android@local.ccz``,
 ``android@B``), each form a worker left incomplete before the update that the device no longer opens after it
-(``/update/reopened/*``: before, how the device held the form; after, what it holds and shows).
+(``/update/reopened/*``: before, how the device held the form; after, what it holds and shows), or whose
+session, as Android itself stored it, home cannot read (``/update/reopened/*/session``).
 
-One symptom is one difference. A walk whose screens are not the same screens in the same order is that
+One symptom is one difference. Two walks that opened another case at a list are compared as far as that list
+(``/list/chose``), since every screen past it is of another case; a list that shows the same rows in another
+order is that (``/list/rowOrder``). A walk whose screens are not the same screens in the same order is that
 difference, named by where the two part (``/walks/*/screens/after-<the last screen both showed>:<the
 baseline's next>:<the other's next>``, each side's whole walk its value), and its steps are not compared one
 against another; a form that
@@ -49,6 +52,7 @@ device holds, and the media check's flags beside its reader (``CommCareApp.areMM
 from __future__ import annotations
 
 import copy
+import json
 
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.differences import Difference, pointer_token
@@ -147,6 +151,9 @@ def comparable_app(answer: dict | None) -> dict | None:
         if isinstance(hidden, list):
             home["StandardHomeActivityUIController.getHiddenButtons"] = {name: True for name in hidden}
     for walk in (found.get("walks") or {}).values():
+        # What the app raised is its class and its message; the frames under it name the reader's own classes.
+        if isinstance(walk.get("raised"), dict):
+            walk["raised"] = {name: value for name, value in walk["raised"].items() if name != "stack"}
         for step in walk.get("steps") or []:
             _list(step)
             _menu(step)
@@ -184,10 +191,40 @@ def _row_classes(held) -> str | None:
     return _joined(sorted({str(row.get("class")) for row in held["rows"]}))
 
 
+def _row_order(held) -> str | None:
+    if not isinstance(held, dict) or not isinstance(held.get("rows"), list):
+        return None
+    return _joined(json.dumps(row, sort_keys=True) for row in held["rows"])
+
+
+def _same_rows(before, after) -> bool:
+    a = sorted(json.dumps(row, sort_keys=True) for row in before["rows"])
+    return a == sorted(json.dumps(row, sort_keys=True) for row in after["rows"])
+
+
+def _chose(step: dict):
+    return step["list"].get("chose") if isinstance(step.get("list"), dict) else None
+
+
+def _to_first_other_choice(before: dict, after: dict) -> tuple[dict, dict]:
+    """Two walks cut after the first list at which each opened another case: what each showed from there on is
+    of another case, and says nothing more of the two apps than the choice does (``/list/chose``)."""
+    steps_a, steps_b = before.get("steps"), after.get("steps")
+    if not isinstance(steps_a, list) or not isinstance(steps_b, list):
+        return before, after
+    for index, (a, b) in enumerate(zip(steps_a, steps_b, strict=False)):
+        if a.get("screen") != b.get("screen"):
+            break
+        if _chose(a) != _chose(b):
+            return {**before, "steps": steps_a[: index + 1]}, {**after, "steps": steps_b[: index + 1]}
+    return before, after
+
+
 def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
     """Two steps of one screen with what would report one symptom many times reduced to that symptom: a form
-    that takes another path of screens is that path (``/form/path``), and a list whose rows are another kind of
-    view (a tile, a plain row) is that (``/list/rowClass``)."""
+    that takes another path of screens is that path (``/form/path``), a list whose rows are another kind of
+    view (a tile, a plain row) is that (``/list/rowClass``), and a list that shows the same rows in another
+    order is that (``/list/rowOrder``)."""
     a, b = _form_path(before.get("form")), _form_path(after.get("form"))
     if a is not None and b is not None and a != b:
         before = {**before, "form": {**{k: v for k, v in before["form"].items() if k != "screens"}, "path": a}}
@@ -197,6 +234,11 @@ def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
         kept = ("rows", "header")
         before = {**before, "list": {**{k: v for k, v in before["list"].items() if k not in kept}, "rowClass": a}}
         after = {**after, "list": {**{k: v for k, v in after["list"].items() if k not in kept}, "rowClass": b}}
+    elif a is not None and b is not None:
+        a, b = _row_order(before["list"]), _row_order(after["list"])
+        if a != b and _same_rows(before["list"], after["list"]):
+            before = {**before, "list": {**{k: v for k, v in before["list"].items() if k != "rows"}, "rowOrder": a}}
+            after = {**after, "list": {**{k: v for k, v in after["list"].items() if k != "rows"}, "rowOrder": b}}
     return before, after
 
 
@@ -208,7 +250,8 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
     before, after = dict(before), dict(after)
     before["walks"], after["walks"] = dict(before["walks"]), dict(after["walks"])
     for name in set(before["walks"]) & set(after["walks"]):
-        walk_a, walk_b = before["walks"][name], after["walks"][name]
+        walk_a, walk_b = _to_first_other_choice(before["walks"][name], after["walks"][name])
+        before["walks"][name], after["walks"][name] = walk_a, walk_b
         a, b = _screens(walk_a), _screens(walk_b)
         if a != b:
             parted = _parted(a.split(SEPARATOR), b.split(SEPARATOR))
@@ -371,9 +414,12 @@ def _held(records) -> list:
     )
 
 
-def not_reopened(update: dict | None) -> list[tuple[str, object, object]]:
+def not_reopened(update: dict | None) -> list[tuple[str, str, object, object]]:
     """Each form a worker left incomplete before an update that the device does not open after it:
-    ``(command, how the device held and opened it before, what it holds and shows after)``."""
+    ``(structural path, concrete path, before, after)``. Where home could not read the session Android itself
+    kept for the form, that is the symptom (``/update/reopened/*/session``: before, the session as Android
+    stored it; after, what home raised reading it), and it is the form's own, whatever the update was. Else
+    (``/update/reopened/*``) before is how the device held and opened the form, after what it holds and shows."""
     if not update or update.get("install") != INSTALLED:
         return []
     found = []
@@ -384,21 +430,29 @@ def not_reopened(update: dict | None) -> list[tuple[str, object, object]]:
             (step.get("loaded") for step in (before.get("walk") or {}).get("steps") or [] if "loaded" in step), None
         )
         form = after.get("form") or {}
-        if opened and not form.get("loaded"):
-            found.append(
-                (
-                    command,
-                    {"opened": True, "held": _held(before.get("records"))},
-                    {
-                        "opened": False,
-                        "held": _held(after.get("records")),
-                        "screen": after.get("screen"),
-                        "alert": (form.get("alert") or after.get("alert") or {}).get("title")
-                        if isinstance(form.get("alert") or after.get("alert"), dict)
-                        else None,
-                    },
-                )
+        if not opened or form.get("loaded"):
+            continue
+        at = f"/update/reopened/{pointer_token(command)}"
+        raised = after.get("homeRaised")
+        if isinstance(raised, dict):
+            kept = after.get("SessionStateDescriptor.getSessionDescriptor")
+            unread = {"raised": raised.get("class"), "message": raised.get("message")}
+            found.append(("/update/reopened/*/session", f"{at}/session", {"kept": kept}, unread))
+            continue
+        alert = form.get("alert") or after.get("alert")
+        found.append(
+            (
+                "/update/reopened/*",
+                at,
+                {"opened": True, "held": _held(before.get("records"))},
+                {
+                    "opened": False,
+                    "held": _held(after.get("records")),
+                    "screen": after.get("screen"),
+                    "alert": alert.get("title") if isinstance(alert, dict) else None,
+                },
             )
+        )
     return found
 
 
@@ -407,19 +461,8 @@ def identity(document: str, record: dict) -> list:
     local = record.get("local") or {}
 
     def reopened(update, artifact):
-        for command, before, after in not_reopened(update):
-            found.append(
-                Difference(
-                    "proof1",
-                    document,
-                    artifact,
-                    "/update/reopened/*",
-                    f"/update/reopened/{pointer_token(command)}",
-                    "changed",
-                    before,
-                    after,
-                )
-            )
+        for path, at, before, after in not_reopened(update):
+            found.append(Difference("proof1", document, artifact, path, at, "changed", before, after))
 
     reopened(local.get("update"), LOCAL)
     for name in sorted(record.get("configurations") or {}):

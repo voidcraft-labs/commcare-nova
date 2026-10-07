@@ -28,7 +28,6 @@ import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -48,6 +47,7 @@ final class Lists {
     /** The width a row is measured at, so the widths Android gives its columns are comparable. */
     private static final int ROW_WIDTH = 1000;
     private static final int MAX_ROWS = 4;
+    private static final int WORD_ROWS = 12;
     private static final int MAX_TERMS = 6;
     private static final String FUZZY = "cc-fuzzy-search-enabled";
     /** Terms the request names for every list, beside each list's own; null where it names none. */
@@ -105,10 +105,14 @@ final class Lists {
         list.put("header", headers);
         list.put("count", adapter.getCurrentCount());
         JSONArray shown = new JSONArray();
-        Set<String> words = new LinkedHashSet<>();
-        for (int i = 0; i < Math.min(adapter.getCurrentCount(), MAX_ROWS); i++) {
+        // The words searched for are the list's own, whatever order it shows its rows in: every word of its
+        // first rows, in the words' own order.
+        Set<String> words = new java.util.TreeSet<>();
+        for (int i = 0; i < Math.min(adapter.getCurrentCount(), WORD_ROWS); i++) {
             JSONObject row = Views.describe(measured(adapter.getView(i, null, listView)));
-            shown.put(row);
+            if (i < MAX_ROWS) {
+                shown.put(row);
+            }
             words(row, words);
         }
         list.put("rows", shown);
@@ -180,7 +184,11 @@ final class Lists {
             list.put("alertAfterChoice", Screens.orNull(Views.alert(activity)));
             return false;
         }
-        home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
+        // Which case the tap chose: the value the list hands home for the session.
+        Intent result = shadow.getResultIntent();
+        list.put("chose", Screens.orNull(result == null ? null
+                : result.getStringExtra(org.commcare.session.SessionFrame.STATE_DATUM_VAL)));
+        home.receiveResult(started, shadow.getResultCode(), result);
         ShadowLooper.idleMainLooper();
         return shadow.getResultCode() == Activity.RESULT_OK;
     }

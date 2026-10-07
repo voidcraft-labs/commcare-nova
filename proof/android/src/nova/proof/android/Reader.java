@@ -49,6 +49,7 @@ public class Reader {
         JSONObject response = new JSONObject();
         try {
             ProofClock.requireInstalled();
+            requireShippedLibraries();
             JSONObject request = new JSONObject(text(System.getProperty(REQUEST)));
             response.put("ok", answer(request));
         } catch (Throwable raised) {
@@ -100,6 +101,25 @@ public class Reader {
         JSONObject found = new JSONObject();
         found.put("installs", statuses);
         return found;
+    }
+
+    /**
+     * Refuses to read where the device's Guava is the unit tests' and not the app's. Gradle resolves the
+     * unit-test classpath to Guava's Android flavour, which lacks methods Core calls (Multimap.forEach, in
+     * StackFrameStep.defineStep), where the app's own runtime classpath holds the JRE flavour Core is compiled
+     * against; the runtime puts the app's libraries first (reader.init.gradle), and a session that pushed a
+     * search step would otherwise raise on the reader's device and on no worker's.
+     */
+    private static void requireShippedLibraries() {
+        try {
+            com.google.common.collect.Multimap.class.getMethod("forEach", java.util.function.BiConsumer.class);
+        } catch (NoSuchMethodException absent) {
+            throw new IllegalStateException("The reader's classpath gives the device the unit tests' Guava ("
+                    + com.google.common.collect.Multimap.class.getClassLoader()
+                    .getResource("com/google/common/collect/Multimap.class")
+                    + "), which lacks Multimap.forEach, and not the one the app ships. Build the runtime with this"
+                    + " checkout's reader.init.gradle, which lists the app's own runtime libraries first.");
+        }
     }
 
     static String text(String path) throws Exception {

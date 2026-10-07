@@ -82,7 +82,10 @@ final class Forms {
         String before = null;
         String ended = "screens";
         for (int count = 0; count < MAX_SCREENS; count++) {
+            settle(activity);
             if (activity.isFinishing()) {
+                // The form ended itself: a form with no question left to show is saved without a finish
+                // button (FormEntryActivityUIController.showNextView), as is one a repeat's dialog ended.
                 ended = "finished";
                 break;
             }
@@ -91,7 +94,8 @@ final class Forms {
             String event = screen.getString("event");
             String now = event + " " + screen.getString("index");
             if (event.equals("END_OF_FORM")) {
-                ended = "end";
+                // At its end and not saved: what holds it is on the screen.
+                ended = "end unsaved";
                 break;
             }
             if (event.equals("PROMPT_NEW_REPEAT")) {
@@ -152,8 +156,7 @@ final class Forms {
             if (finish != null) {
                 finish.performClick();
             }
-            RobolectricUtil.flushBackgroundThread(activity);
-            ShadowLooper.idleMainLooper();
+            settle(activity);
         }
         JSONObject saved = new JSONObject();
         form.put("saved", saved);
@@ -234,12 +237,17 @@ final class Forms {
                 question.put("text", String.valueOf(widget.getPrompt().getLongText()));
                 question.put("reference", String.valueOf(widget.getPrompt().getIndex().getReference()));
                 question.put("required", widget.getPrompt().isRequired());
-                IAnswerData held;
-                try {
-                    held = widget.getAnswer();
-                    question.put("answer", Screens.orNull(held == null ? null : held.getDisplayText()));
-                } catch (RuntimeException raised) {
-                    question.put("answerRaised", raised.getClass().getName());
+                // The widget's own reading of the answer the form holds. Where the form holds none, a date or
+                // time widget shows the device's present moment, which no record may hold.
+                if (widget.getPrompt().getAnswerValue() == null) {
+                    question.put("answer", JSONObject.NULL);
+                } else {
+                    try {
+                        IAnswerData held = widget.getAnswer();
+                        question.put("answer", Screens.orNull(held == null ? null : held.getDisplayText()));
+                    } catch (RuntimeException raised) {
+                        question.put("answerRaised", raised.getClass().getName());
+                    }
                 }
                 questions.put(question);
             }
@@ -294,6 +302,17 @@ final class Forms {
         }
         screen.put("answered", given);
         return answered;
+    }
+
+    /**
+     * Waits for what the activity started on its own threads (its save task among them) and for what that posts
+     * back to the main thread, until nothing is left running.
+     */
+    private static void settle(FormEntryActivity activity) {
+        for (int turn = 0; turn < 8; turn++) {
+            RobolectricUtil.flushBackgroundThread(activity);
+            ShadowLooper.idleMainLooper();
+        }
     }
 
     /** The three buttons of the choice dialog Android is showing, or null where it shows none. */

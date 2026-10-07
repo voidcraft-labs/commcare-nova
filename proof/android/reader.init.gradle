@@ -3,7 +3,8 @@
 //
 //   ./gradlew --no-daemon -I <this file> -PnovaAndroidClasspathFile=<path> :app:writeNovaAndroidClasspath
 //
-// `writeNovaAndroidClasspath` compiles the project's unit tests and records the classpath Gradle gives its
+// `writeNovaAndroidClasspath` compiles the project's unit tests and records the classpath the reader runs on:
+// each jar of the app's own runtime classpath (the libraries the app ships), then what Gradle gives its
 // unit-test task: the compiled app and its R class, the project's own test classes (its test application, its
 // SQLCipher and encryption shadows, its HTTP and sync mocks), every dependency, and the directory holding
 // `com/android/tools/test_config.properties`, through which Robolectric finds the merged manifest, resources and
@@ -35,7 +36,20 @@ allprojects { project ->
                             'Pass -PnovaAndroidClasspathFile=<path> to record the unit-test classpath.')
                     }
                     def entries = test.get().classpath.files.collect { it.absolutePath }
-                    new File(classpathFile).text = entries.join('\n') + '\n'
+                    // The libraries the app itself ships, ahead of the unit tests' own: Gradle resolves the
+                    // unit-test classpath with the tests' dependencies, which move some of the app's libraries
+                    // to other versions than the app's runtime classpath holds (Guava among them: the app ships
+                    // the JRE flavour Core is compiled against, the tests resolve the Android flavour, which
+                    // lacks methods Core calls). A device runs the app's, so each jar of the app's own runtime
+                    // classpath comes first.
+                    def shipped = project.configurations.getByName('commcareDebugRuntimeClasspath').incoming
+                        .artifactView { view ->
+                            view.attributes { it.attribute(
+                                org.gradle.api.artifacts.type.ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, 'jar') }
+                            view.lenient(true)
+                        }.files.files.findAll { it.name.endsWith('.jar') }.collect { it.absolutePath }
+                    def ordered = (shipped + entries).unique()
+                    new File(classpathFile).text = ordered.join('\n') + '\n'
                 }
             }
         }

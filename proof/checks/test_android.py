@@ -202,6 +202,32 @@ def test_a_list_of_another_kind_of_row_is_one_difference():
     assert _paths(_proof3(local)) == [("android@local.ccz", "/walks/*/steps/*/list/rowClass", "changed")]
 
 
+def test_the_same_rows_in_another_order_are_one_difference_and_another_case_opened_ends_the_comparison():
+    """A list sorted another way opens another first case: the order and the choice are the two differences,
+    and the form past them, answered over another case, is none."""
+    baseline, local = _app(), _app()
+    baseline["walks"]["m0/m0-f0"]["steps"][1]["list"]["chose"] = "case-ada"
+    held = local["walks"]["m0/m0-f0"]["steps"][1]["list"]
+    held["rows"].reverse()
+    held["chose"] = "case-bo"
+    local["walks"]["m0/m0-f0"]["steps"][2]["form"] = _form(screens=("/data/name[1]", "/data/age[1]"))
+    local["walks"]["m0/m0-f0"]["steps"].append({"screen": "MenuActivity"})
+    found = _proof3(local, a=baseline)
+    assert _paths(found) == [
+        ("android@local.ccz", "/walks/*/steps/*/list/chose", "changed"),
+        ("android@local.ccz", "/walks/*/steps/*/list/rowOrder", "changed"),
+    ]
+
+
+def test_a_walk_the_app_raised_in_is_compared_by_what_was_raised_and_not_by_its_frames():
+    baseline, local = _app(), _app()
+    baseline["walks"]["m0/m0-f0"] = {"raised": {"class": "X", "message": "no case", "stack": "X\n at a.B(B.java:1)"}}
+    local["walks"]["m0/m0-f0"] = {"raised": {"class": "X", "message": "no case", "stack": "X\n at a.B(B.java:2)"}}
+    assert _proof3(local, a=baseline) == []
+    local["walks"]["m0/m0-f0"]["raised"]["message"] = "no form"
+    assert _paths(_proof3(local, a=baseline)) == [("android@local.ccz", "/walks/*/raised/message", "changed")]
+
+
 def test_a_cells_layout_is_reported_at_the_cell():
     local = _app()
     local["walks"]["m0/m0-f0"]["steps"][1]["list"]["rows"][0]["children"][0]["textSize"] = 17
@@ -414,3 +440,22 @@ def test_an_incomplete_form_that_no_longer_opens_after_an_update_is_reported_on_
     assert _paths(_proof1(_installs("Installed", "DuplicateApp"), lost, kept)) == [
         ("android@local.ccz", "/update/reopened/*", "changed")
     ]
+
+
+def test_a_stored_session_home_cannot_read_is_that_forms_own_symptom():
+    """A menu with grouped tiles on a device: the session Android kept ends at a datum with no value, and home
+    raises reading it, on HQ's build and the local archive alike."""
+    unread = _update(**_reopening())
+    unread["reopened"]["m0-f0"] = {
+        "records": [{"status": "incomplete", "AndroidCommCarePlatform.getFormDefId": "held"}],
+        "SessionStateDescriptor.getSessionDescriptor": "COMMAND_ID m0-f0 CASE_ID case_id c CASE_ID case_id_parent_ids",
+        "homeRaised": {"class": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 7", "stack": "..."},
+    }
+    found = _proof1(_installs("Installed", "DuplicateApp"), unread, unread)
+    assert _paths(found) == [
+        ("android@B", "/update/reopened/*/session", "changed"),
+        ("android@local.ccz", "/update/reopened/*/session", "changed"),
+    ]
+    assert found[0].at == "/update/reopened/m0-f0/session"
+    assert found[0].before == {"kept": "COMMAND_ID m0-f0 CASE_ID case_id c CASE_ID case_id_parent_ids"}
+    assert found[0].after == {"raised": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 7"}

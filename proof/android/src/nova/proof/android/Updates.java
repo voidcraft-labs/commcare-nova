@@ -206,6 +206,17 @@ final class Updates {
     private static JSONObject reopen(int record) throws Exception {
         JSONObject found = new JSONObject();
         found.put("records", Forms.records());
+        // The session Android kept for the record, as it stored it (SessionStateDescriptor): what home loads
+        // to open the form again. An id the device drew is written as one.
+        for (org.commcare.android.database.user.models.SessionStateDescriptor kept
+                : CommCareApplication.instance().getUserStorage(
+                org.commcare.android.database.user.models.SessionStateDescriptor.class)) {
+            if (kept.getFormRecordId() == record) {
+                found.put("SessionStateDescriptor.getSessionDescriptor", kept.getSessionDescriptor().replaceAll(
+                        "[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}",
+                        "@device-uuid"));
+            }
+        }
         CommCareApplication.instance().getCurrentSessionWrapper().reset();
         StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();

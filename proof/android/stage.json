@@ -1,4 +1,4 @@
 {
 	"description": "How many jobs the lane's Android stage runs by default (.github/workflows/ci.yml, proof-lane.yml), each one static bin of the Android queue's blocks on a four-vCPU amd64 runner. proof/README.md, \"The Android stage\", holds the measurements it was chosen from.",
-	"shards": 8
+	"shards": 24
 }

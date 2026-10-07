@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
 /**
  * The cases the device's own case storage holds, written so two devices compare: each case's type, name,
  * whether it is closed, its owner, its properties and its indices, in the order of their ids. An id the device
- * drew for itself (a UUID no restore brought) is written by the order the device first held it, since a real
- * device draws another each time.
+ * drew for itself (a UUID no restore brought) is written by its place among the cases the device made, ordered
+ * by what each holds, since a real device draws another each time.
  */
 final class Cases {
     private static final Pattern UUID = Pattern.compile(
@@ -44,14 +44,20 @@ final class Cases {
         for (ACase held : CommCareApplication.instance().getUserStorage(ACase.STORAGE_KEY, ACase.class)) {
             cases.add(held);
         }
-        // The restore's cases by their ids; the device's own after them, in the order it made them.
+        // The restore's cases by their ids; the device's own after them, by what each holds (its type, its
+        // name, its properties), then by the order the device made them: two forms that make the same cases in
+        // another order make the same cases.
         Collections.sort(cases, (a, b) -> {
             boolean ownA = !restored.containsKey(a.getCaseId());
             boolean ownB = !restored.containsKey(b.getCaseId());
             if (ownA != ownB) {
                 return ownA ? 1 : -1;
             }
-            return ownA ? Integer.compare(a.getID(), b.getID()) : a.getCaseId().compareTo(b.getCaseId());
+            if (!ownA) {
+                return a.getCaseId().compareTo(b.getCaseId());
+            }
+            int held = signature(a).compareTo(signature(b));
+            return held != 0 ? held : Integer.compare(a.getID(), b.getID());
         });
         Map<String, String> drawn = new HashMap<>();
         for (ACase held : cases) {
@@ -89,6 +95,17 @@ final class Cases {
             found.put(entry);
         }
         return found;
+    }
+
+    /** What a case the device made holds, without any id the device drew. */
+    private static String signature(ACase held) {
+        TreeMap<String, String> ordered = new TreeMap<>();
+        for (Map.Entry<?, ?> property : ((Hashtable<?, ?>)held.getProperties()).entrySet()) {
+            ordered.put(String.valueOf(property.getKey()),
+                    UUID.matcher(String.valueOf(property.getValue())).replaceAll("@"));
+        }
+        return held.getTypeId() + "\u0000" + UUID.matcher(String.valueOf(held.getName())).replaceAll("@")
+                + "\u0000" + held.isClosed() + "\u0000" + ordered;
     }
 
     /** A value with each id the device drew written by its order, and any other UUID as one. */
