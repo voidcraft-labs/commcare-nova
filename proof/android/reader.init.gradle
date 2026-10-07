@@ -1,0 +1,43 @@
+// Builds what the Android reader runs on (proof/android/README.md) in commcare-android's own unit-test build, at
+// the pinned checkout, without changing a file of it (proof/android/build-runtime.sh runs it):
+//
+//   ./gradlew --no-daemon -I <this file> -PnovaAndroidClasspathFile=<path> :app:writeNovaAndroidClasspath
+//
+// `writeNovaAndroidClasspath` compiles the project's unit tests and records the classpath Gradle gives its
+// unit-test task: the compiled app and its R class, the project's own test classes (its test application, its
+// SQLCipher and encryption shadows, its HTTP and sync mocks), every dependency, and the directory holding
+// `com/android/tools/test_config.properties`, through which Robolectric finds the merged manifest, resources and
+// assets. The reader's own classes are not built here: the reader compiles them against this classpath when it
+// starts (proof/android/client.py), so a runtime is a function of the pins and this file alone.
+//
+// The compile SDK: the app asks for `compileSdk 37`, which the Android Gradle plugin at this pin (8.13.2) looks
+// up as the platform `android-37`. The SDK repository publishes API 37 as `platforms;android-37.0`, which the
+// plugin installs into `platforms/android-37.0` and then cannot find under the hash it asked for. The same
+// platform is named here by the hash the plugin gives it. It is what the app's code compiles against and
+// nothing the reader runs: Robolectric runs the project's tests on its own Android runtime
+// (unit-tests/resources/robolectric.properties, `sdk=23`).
+allprojects { project ->
+    project.plugins.withId('com.android.application') {
+        def properties = gradle.startParameter.projectProperties
+        project.extensions.getByName('androidComponents').finalizeDsl { extension ->
+            extension.compileSdkVersion('android-37.0')
+        }
+        project.afterEvaluate {
+            def classpathFile = properties.get('novaAndroidClasspathFile')
+            def test = project.tasks.named('testCommcareDebugUnitTest', Test)
+            project.tasks.register('writeNovaAndroidClasspath') {
+                // Everything the unit-test task itself waits for: the compiled sources, the merged resources,
+                // assets and manifest its configuration names.
+                dependsOn { test.get().taskDependencies.getDependencies(test.get()) }
+                doLast {
+                    if (!classpathFile) {
+                        throw new GradleException(
+                            'Pass -PnovaAndroidClasspathFile=<path> to record the unit-test classpath.')
+                    }
+                    def entries = test.get().classpath.files.collect { it.absolutePath }
+                    new File(classpathFile).text = entries.join('\n') + '\n'
+                }
+            }
+        }
+    }
+}

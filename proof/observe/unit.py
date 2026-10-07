@@ -477,6 +477,8 @@ class _Built:
     hq_build: object
     identities: dict | None
     doc: dict
+    # The archive a device installs of it (``proof.observe.build.device_archive``); None where it was not read.
+    archive: dict | None = None
 
 
 def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None, identities=True):
@@ -491,7 +493,7 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
     """
     from proof.hq.seams import build_seams
     from proof.observe import sensitivity
-    from proof.observe.build import admit_build
+    from proof.observe.build import admit_build, device_archive
     from proof.observe.identity import app_identity
 
     flags = settings = None
@@ -502,18 +504,23 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
             first = len(unit.record.flags)
             built = sensitivity.build(unit, unit.record, app_id, name, previous)
             flags = sorted({read.symbol or read.slug for read in unit.record.flags[first:]})
-        found = None
+        found = archive = None
         if identities:
             with build_seams(previous=previous):
                 admit_build(core_runner, built.app, built.outcome)
                 found = app_identity(built.app, built.outcome.files, unit.domain)
+                archive = device_archive(built.outcome, built.app)
         doc = _json(built.app.to_json())
-    return _Built(built.outcome, built.hq_build, found, doc), flags, settings
+    return _Built(built.outcome, built.hq_build, found, doc, archive), flags, settings
 
 
 def _state_record(built: _Built, blobs):
+    from proof.observe.build import archive_record
+
     return {
         "build": outcome_record(built.outcome, blobs),
+        # What a device installs of this state (HQ's archive download), for the Android reader.
+        "archive": archive_record(built.archive, blobs),
         "identities": built.identities,
         "doc": blobs.put_json(built.doc),
     }
