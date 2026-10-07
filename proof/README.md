@@ -1235,9 +1235,9 @@ pins, and nothing is called on a system's behalf:
   own id), with the worker's own credentials, and with a location fix
   written where the form holds the node (only CommCare Android writes one).
   Nova's local archive names no address, so its submissions are posted to
-  the project space's receiver with no app named, and once more under the
-  app's id, which shows what Connect would make of them if they named
-  their app.
+  the project space's receiver with no app named, and once more where HQ's
+  own build's profile sends a device, which shows what Connect would make
+  of them if they named their app.
 - **Each run is one worker's.** It meets HQ as the unit's fork leaves it
   and Connect as the opportunity stood, so no run reads what another's
   submission left in either. After it, Connect's queued tasks are run by

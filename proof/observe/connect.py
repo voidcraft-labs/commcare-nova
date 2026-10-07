@@ -29,9 +29,10 @@ it serves (``proof.observe.served``), each link its owner's code at the pins:
   device posts one: to the address the build's profile names
   (``proof.connect.hq.post_path``), with the worker's own credentials. Nova's
   local archive names no address, so its submissions go to the project
-  space's receiver with no app named (``core``), and once more under the
-  app's id (``core@app``), which is how the lane shows what Connect would
-  make of them if they named their app.
+  space's receiver with no app named (``core``), and once more where HQ's
+  own build's profile sends a device, which names the app (``core@app``):
+  that is how the lane shows what Connect would make of them if they named
+  their app.
 - **Each run is one worker's**: it meets HQ as the unit's fork leaves it and
   Connect as the opportunity stood (``Forwarder.begin`` goes back to
   ``ready``), so no run reads what another's submission left in either.
