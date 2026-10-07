@@ -326,7 +326,10 @@ def test_a_question_named_by_a_text_hq_merged_is_the_same_question_and_another_q
     local = _form("pick-label", {"note-label": "Note", "note-hint": "Score", "pick-label": "Score"})
     built = _form("note-hint", {"note-label": "Note", "note-hint": "Score"})
     assert compare.merged_text_ids({path: built}, {path: local}) == {"pick-label": "note-hint"}
-    # A reference HQ's build makes to texts that are not the local id's maps nothing.
+    # An id HQ's build of another form kept maps nothing (a message does not name its form), and neither does
+    # a reference HQ's build makes to an id whose texts are not the local id's.
+    kept = {"modules-1/forms-0.xml": local}
+    assert compare.merged_text_ids({path: built, **kept}, {path: local, **kept}) == {}
     other = _form("note-label", {"note-label": "Note", "note-hint": "Score"})
     assert compare.merged_text_ids({path: other}, {path: local}) == {}
 

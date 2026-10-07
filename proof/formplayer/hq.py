@@ -52,6 +52,9 @@ What the harness's HQ lacks is answered by a seam, each named where it is:
   is taken and kept nowhere, since nothing here reads one back; the forms
   and cases HQ processes reach their indexes through the change feed its
   pillows read, which the unit records (``index``);
+- **the order of a restore's cases** is HQ's database's, which HQ asks for
+  no order of: the harness hands them in the order of their ids in every
+  state (``cases_in_id_order``);
 - **Nova's local archive** is not something HQ holds, so a request for an
   app id named in ``archives`` is answered with those bytes. Nothing else
   is answered from outside HQ.
@@ -292,6 +295,7 @@ class HqViews:
             self.unit.committing(),
             self.unit.request(digest) as scope,
             index(self.unit),
+            cases_in_id_order(),
             _raised_by_views(raised),
             _Errors() as errors,
             _language_put_back(),
@@ -356,7 +360,7 @@ def _case_search_hits(unit, body):
         for case_type in wanted:
             case_ids += CommCareCase.objects.get_case_ids_in_domain(unit.domain, case_type)
         hits = []
-        for case in CommCareCase.objects.get_cases(sorted(set(case_ids)), unit.domain):
+        for case in CommCareCase.objects.get_cases(sorted(set(case_ids)), ordered=True):
             if case.is_deleted:
                 continue
             doc_id, source = case_search_adapter.from_python(case)
@@ -400,6 +404,38 @@ def _document_write(method, url):
     if len(parts) == 4 and parts[3] == "_update" and method == "POST":
         return parts[0], parts[2]
     return None
+
+
+@contextmanager
+def cases_in_id_order():
+    """HQ's reads of cases by their ids, for the block, in the order of the ids' text wherever HQ asks for no
+    order.
+
+    HQ's restore reads a worker's cases in batches with no order of its own
+    (``phone/data_providers/case/livequery.py::batch_cases``, through
+    ``CommCareCaseManager.get_cases``), so the order a restore lists them in
+    is the order Postgres happens to hand the rows back in: where each row
+    sits in the table, which depends on what was written and rolled back
+    before and on when Postgres's own vacuum last ran. Core keeps cases in
+    the order a restore lists them, and an unsorted list shows them in it.
+    Every order is one HQ may give; the harness gives the same one in every
+    state, so that two states' lists differ in their order only where the
+    app orders them differently.
+    """
+    from unittest import mock
+
+    from corehq.form_processor.models.cases import CommCareCaseManager
+
+    held = CommCareCaseManager.get_cases
+
+    def get_cases(self, case_ids, ordered=False, prefetched_indices=None):
+        cases = held(self, case_ids, ordered=ordered, prefetched_indices=prefetched_indices)
+        if not ordered:
+            cases.sort(key=lambda case: case.case_id)
+        return cases
+
+    with mock.patch.object(CommCareCaseManager, "get_cases", get_cases):
+        yield
 
 
 @contextmanager

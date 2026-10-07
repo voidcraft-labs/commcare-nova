@@ -276,8 +276,11 @@ or it fails the lane ("The registers", below).
   these left out. Elasticsearch is not in the image: a case search runs
   HQ's view whole and is handed every case of the requested types, so what
   a search's filter selects is not observed, and a document HQ writes to
-  an index is kept nowhere. The worker's sign-in form is not run (the
-  session is Django's own `login`). The client is shown a walk's lists,
+  an index is kept nowhere. HQ reads a restore's cases with no order of its
+  own, so the order is its database's; the harness hands them in the order
+  of their ids in every state (`proof/formplayer/hq.py::cases_in_id_order`),
+  and what order a production database gives is not observed. The worker's
+  sign-in form is not run (the session is Django's own `login`). The client is shown a walk's lists,
   searches and each form as it opens; a form's questions are answered and
   its submission made by Formplayer's walk, not through the page, so where
   the client lands after a submission is read from Formplayer's answer
@@ -1322,7 +1325,7 @@ unknown-question clause is not observed (also there).
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`) | proof 4; the bar | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids` |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
-| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | `targeted-list-first-web-apps` |
+| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
 | 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child | proof 4; proof 3 across the two paths | an extension child case |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7) | proof 4, then 3; manifest | query repeats in those places, `targeted-query-repeat-places` |

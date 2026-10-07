@@ -54,8 +54,9 @@ language and rewrites each reference to the others
 (``xform.py::XForm.normalize_itext``), so the same question of the same form
 is named by another id on HQ's build than on Nova's local archive.
 ``text_ids`` maps the local archive's id to HQ's (``merged_text_ids``, read
-from the two forms themselves: the same reference, in the same place, to
-texts that are the same), and the local side's messages are read with it. A
+from the two forms themselves: the reference in the same place of HQ's form
+names another id, and the local form holds the same texts under both), and
+the local side's messages are read with it. A
 message that names another question stays a difference.
 
 **The client's screens** (``webapps_differences``) are compared the same
@@ -436,8 +437,9 @@ def merged_text_ids(built, local) -> dict:
     """``{the local archive's text id: HQ's}`` for each text reference HQ's build rewrote to another id whose
     texts are the same (``XForm.normalize_itext``), read from the two builds' forms: ``built`` and ``local`` are
     each ``{path: bytes}``. Only a form both hold, whose bodies make the same references in the same places, is
-    read; a reference HQ's build makes to texts that are not the local id's maps nothing, and neither does an
-    id two forms would map two ways."""
+    read; a reference HQ's build makes to an id whose texts in the local form are not the local id's maps
+    nothing, and neither does an id two forms would map two ways or one that HQ's build of any form kept, since
+    a message does not say which form its question is of."""
     found, refused = {}, set()
     for path in sorted(set(built) & set(local)):
         try:
@@ -447,11 +449,17 @@ def merged_text_ids(built, local) -> dict:
         references_built, references_local = _text_references(root_built), _text_references(root_local)
         if [name for name, _ in references_built] != [name for name, _ in references_local]:
             continue
-        texts_built, texts_local = _texts(root_built), _texts(root_local)
+        texts_local = _texts(root_local)
         for (_, id_built), (_, id_local) in zip(references_built, references_local):
-            if id_built == id_local or id_local in refused:
+            if id_local in refused:
                 continue
-            same = texts_built.get(id_built) is not None and texts_built.get(id_built) == texts_local.get(id_local)
+            if id_built == id_local:
+                # A form whose reference to the id HQ's build kept: a message does not say which form it is of.
+                refused.add(id_local)
+                found.pop(id_local, None)
+                continue
+            # HQ merges two ids of one form whose texts are the same, and the local form holds both.
+            same = texts_local.get(id_built) is not None and texts_local.get(id_built) == texts_local.get(id_local)
             if not same or found.get(id_local, id_built) != id_built:
                 refused.add(id_local)
                 found.pop(id_local, None)
