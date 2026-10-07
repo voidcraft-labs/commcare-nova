@@ -460,9 +460,10 @@ Formplayer's own application does over HQ's builds of Nova's exports:
     and not run. *Harm:* none in Web Apps, which installs only what HQ
     builds. For a Connect app installed from the local archive, no
     submission reaches Connect as that app's, so finding 34's harm is met
-    only by a submission that does name the app. It bounds the lane:
-    Formplayer's sessions are walked on HQ's builds, never across the two
-    export paths. *Documents:* any local archive.
+    only by a submission that does name the app. The lane now walks the
+    local archive on Formplayer over HQ's own state on every document
+    (`formplayer@local.ccz`, proof 3), where each form's submission shows as
+    refused. *Documents:* any local archive.
 
 What the same runs show of earlier findings, each on Formplayer itself
 (`proof/formplayer/test_*.py`): finding 40's `cc-autosync-freq` reads alike
@@ -615,20 +616,79 @@ on Android, since both of its columns hold the same text, while
 that document's hidden sort column in the Sort menu, as finding 36 says of
 others.
 
+### Found by serving every state
+
+The lane now serves each state of every document to Formplayer and to the
+Web Apps client, with HQ's own views answering Formplayer (`proof/README.md`,
+"Served states"). What that showed that the readers' own tests had not:
+
+65. **Nova's local archive leaves out the texts HQ's build carries for a
+    list and a form.** HQ's build gives every case list a text for an empty
+    list and, where the app's version supports it, one for its select
+    button (`suite_xml/sections/details.py::add_no_items_text_to_detail`,
+    `add_select_text_to_detail`), and gives every form a submit label in
+    its app strings (`app_strings.py`, `id_strings.form_submit_label_locale`).
+    Nova's local `.ccz` writes none of the three. Formplayer reads each from
+    the installed app (`beans/menus/EntityListResponse.java::
+    getNoItemsTextLocaleString`, `getSelectTextLocaleString`, and a form's
+    `translations`), so on HQ's build it hands the client "List is empty.",
+    "Continue" and "Submit", and on the local archive nothing. *Harm:* none
+    in Web Apps, which installs only what HQ builds; what Android shows for
+    a list and a form with none of them is Android's to observe. It is a
+    difference between the two export paths that Core's sessions did not
+    read. *Documents:* every document with a case list or a form
+    (`formplayer@local.ccz`, proof 3).
+
+What the same runs show of earlier defects and findings, each on HQ's own
+views, Formplayer and the client, on the documents the register names:
+
+- **Defect 6 (CSQL) and defect 12 (related lookups).** HQ's own search view
+  answers Formplayer 400 for the search each document sends: "09:00:00 is
+  not a correctly formatted date or datetime" (`targeted-search-hq-compile`)
+  and "You cannot query related cases here" (`search-parent`), and the
+  worker is shown HQ's message in place of a list (`formplayer@A`,
+  `/hq/app_aware_remote_search/400`). The lane held both only as HQ's
+  compiler refusing a string; they are now a worker's screen.
+- **Finding 32.** On the local archive, Formplayer's search reaches HQ at
+  the address the archive names and HQ answers 404; the worker is shown an
+  error page's text (`formplayer@local.ccz`).
+- **Finding 59.** Every form of every local archive is refused at submit
+  ("Cannot invoke String.length() because this.input is null": the null
+  submission address), on every document.
+- **Finding 62.** The Incomplete Forms tile leaves the home screen after
+  the App Settings save on every document, not only the one its test read.
+- **Finding 54.** Formplayer hands the client a non-breaking space for the
+  description after the Case List save, and the client's screens on the
+  two states do not differ: the equivalence is what the lane itself shows.
+- **Defect 13 (guard blocks).** After a Vellum save Formplayer refuses the
+  form's submission ("The case_id attribute of a <case> wasn't set"), so a
+  worker in Web Apps cannot submit the form at all; Core's sessions showed
+  it as HQ's case processing refusing an empty id.
+- **A case claim.** HQ's own claim view makes a claim case for every case a
+  search's result claims, whoever owns it, and answers 201, so Formplayer
+  syncs after every claim. The harness's earlier answer for a claim (204,
+  "a case the worker already holds") was not what HQ answers.
+
 ### Found of the lane itself
 
-64. **No app the lane builds is one Web Apps lists.** HQ sets a new app's
+64. **No app the lane built was one Web Apps lists.** HQ sets a new app's
     `cloudcare_enabled` from the project space's `CLOUDCARE` privilege when
     Nova's upload lands (`models/applications.py::_create_app_from_doc`), and
     Web Apps lists only an app that has it
     (`cloudcare/utils.py::get_web_apps_available_to_user`). The lane's
-    configurations grant a privilege only where a document's content needs
-    it, and Nova sends no `cloudcare_enabled`, so every app of the corpus is
-    stored with it false. *Harm:* none to a worker; it bounds the lane: the
-    stored app the checks compare is never the one a project space with Web
-    Apps holds, and the Web Apps driver adds the privilege to read one
-    (`proof/webapps/test_session.py` shows HQ offering the app with it and
-    not without).
+    configurations granted a privilege only where a document's content
+    needed it, and Nova sends no `cloudcare_enabled`, so every app of the
+    corpus was stored with it false. *Harm:* none to a worker; it bounded
+    the lane: the stored app the checks compared was never the one a project
+    space with Web Apps holds. *Closed:* every app Nova sends is one a worker
+    opens in Web Apps, so the privilege derivation now gives `CLOUDCARE` to
+    every configuration (`proof/checks/configurations.py::_needs_cloudcare`),
+    and `proof/webapps/test_session.py` takes it away to show what it
+    decides. With Web Apps on, HQ's Case List page shows its search workflow
+    selector wherever a project space searches, so defect 21 (a list-first
+    menu turned search-first by the Case List save) shows on every document
+    with such a menu, where it showed on `targeted-list-first-web-apps`
+    alone.
     *Documents:* every document.
 
 ## Equivalences only another runtime reads

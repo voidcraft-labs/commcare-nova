@@ -287,9 +287,15 @@ or it fails the lane ("The registers", below).
   user signing in as a worker. The one request the page makes that nothing
   answers is for a web font on another host, so text is laid out in the
   browser's fallback face and no measured width or height is recorded.
-  The Core runner still answers the form validation HQ's build asks
-  Formplayer for (`XFormParser` with `JSONReporter`, the body of
-  Formplayer's `UtilController.validateForm`). The packages' own tests
+  Where the client shows nothing to click for a choice Formplayer's walk
+  made (within five seconds of the page being quiet), its record of that
+  run ends there, with `stopped` and the screen it stood on, and the next
+  run starts from the home screen; the two known places are a case chosen
+  from an inline search's results and a list whose case detail the client
+  does not open, neither of which is root-caused, so the client's screens
+  past those choices are not observed. The Core runner still answers the
+  form validation HQ's build asks Formplayer for (`XFormParser` with
+  `JSONReporter`, the body of Formplayer's `UtilController.validateForm`). The packages' own tests
   (`proof/formplayer/test_*.py`, `proof/webapps/test_*.py`) predate the
   served states and still answer Formplayer with the harness's own answers
   (`proof/formplayer/answers.py`, HQ's functions called on its behalf);
