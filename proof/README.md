@@ -1,8 +1,9 @@
 # The proof harness
 
 The proof lane holds Nova's exports to the code that reads them. CommCare HQ's
-own import, build, case processing and app editors, and CommCare Core's own
-form engine, session engine and archive installer, run at the upstream commits
+own import, build, case processing and app editors, CommCare Core's own
+form engine, session engine and archive installer, and Formplayer's own
+application run at the upstream commits
 `proof/pins.json` names, inside one pinned image, over a corpus of admitted
 Nova documents that Nova's real publish client and compilers export. Every
 pull request runs the lane in CI (`.github/workflows/ci.yml`), and
@@ -255,10 +256,23 @@ or it fails the lane ("The registers", below).
   `ProfileAndroidInstaller`, `HomeScreenBaseActivity`), so a register entry
   whose harm is on Android observes the artifact through Core's parse and
   names the Android predicate in its `android` field.
-- **Formplayer and the Web Apps client are not run.** Core runs the sessions
-  Formplayer would, and the Core runner answers the form validation HQ's build
-  asks Formplayer for (`XFormParser` with `JSONReporter`, the body of
-  Formplayer's `UtilController.validateForm`).
+- **Formplayer runs, and no check judges its sessions yet.** Formplayer's own
+  application runs over HQ's builds of Nova's exports ("The Formplayer
+  runner", below), its own tests hold what the register's entries say of
+  it (`proof/formplayer/test_*.py`), and a document's observation can keep
+  its sessions beside Core's (`proof.observe.unit.observe_document` with a
+  Formplayer runner). The lane's checks still compare Core's sessions alone:
+  proof 3 and proof 4 do not yet hold Formplayer's traces to each other or
+  to Core's, so a difference only Formplayer shows on a document outside
+  those tests is not reported. The Core runner still answers the form
+  validation HQ's build asks Formplayer for (`XFormParser` with
+  `JSONReporter`, the body of Formplayer's `UtilController.validateForm`).
+  Formplayer is not run over Nova's local archives past their menus and
+  forms: a local archive's profile names no submission URL, so Formplayer
+  cannot submit its forms, and Web Apps installs only what HQ builds
+  (finding 57).
+- **The Web Apps client is not run.** What Formplayer hands it is observed;
+  what its JavaScript shows a worker is not.
 - **Connect** runs only as its metadata extractors, in the native proofs.
 - **A configuration Nova's publish refuses is not checked.** Each document's
   configurations hold the flags and case search Nova's publish requires for
@@ -440,7 +454,10 @@ every run pulls; `--target full` builds everything the stages install, which
 the image workflow compares with it. The image holds HQ at its pin with its
 submodules and a virtualenv from HQ's own `uv.lock`, HQ's database schema as
 HQ's migrations leave it (`/opt/hq-schema/hq.sql`), JDK 17 and Gradle with
-Core compiled at its pin and its test classpath recorded, the Android sources
+Core compiled at its pin and its test classpath recorded, Formplayer at its
+pin with the Core it vendors, its boot jar built by its own Gradle build and
+unpacked with its classpath recorded (`/opt/formplayer`,
+`/opt/formplayer-app`), a `redis-server` for it, the Android sources
 at their pin, the HQ pin's commit time (`/opt/hq-pin-time`, HQ's clock), node,
 Playwright's Chromium (the slim image keeps only the headless shell every
 launch runs), and the editor bundles built from HQ's node packages
@@ -639,7 +656,11 @@ both records under the block's `witnesses/wire-equal-intent/` directory.
 `targeted-search-button-label` owns the three unchanged search-label defect
 classes; their retained `case-operation-query` control stays byte-identical.
 These documents join the emitted corpus without joining balanced edit
-assignment. The focused `stableWitnesses.test.ts` holds every emitted byte
+assignment. `targeted-form-link-hidden-target` is the Formplayer runner's:
+three forms each link to one target, a shown form, a form and a menu whose
+display condition is false for the lane's worker (Nova refuses a condition
+no worker could meet), which `proof/formplayer/test_end_of_form.py` runs on
+Formplayer and on Core (finding 56). The focused `stableWitnesses.test.ts` holds every emitted byte
 to an emission after an unrelated document advances the fixture counter and
 changes that balance.
 
@@ -674,7 +695,8 @@ its side's fingerprint:
 
 - **observation** (`proof/store/fingerprints.py::in_observation`): the
   observation partition (`proof/observe/partition.py::observes`), which is
-  every file under `proof/observe`, `proof/hq`, `proof/core`, `proof/editors`
+  every file under `proof/observe`, `proof/hq`, `proof/core`,
+  `proof/formplayer`, `proof/editors`
   (but its driver), `proof/lane`, `proof/store` and the comparators
   (`proof/checks/compare`), the files of the checks the observation runs but
   does not own (`proof/checks/corpus.py`, `differences.py`,
@@ -800,6 +822,83 @@ sessions run over its case database (`proof/observe/casedata.py`): cases of
 each of its case types with values whose text and numeric orders differ ("10"
 and "2"), written as a restore by HQ's own code; a remote search is answered
 with every case of the requested type.
+
+### The Formplayer runner
+
+`proof/formplayer` runs Formplayer's whole application, one per worker
+(`client.py`), started by Formplayer's own `main` on the classes and
+libraries of its boot jar in its launcher's order, which the image builds at
+the Formplayer pin with Formplayer's own Gradle build
+(`proof/image/formplayer/build.sh`). Its web server, security chain,
+aspects, controllers, services and JSON serialization are its own, and so are
+its services: a database of its own on the lane's Postgres, migrated by
+Formplayer's own Flyway migrations as it starts, and a real `redis-server`
+the runner starts on a loopback address of its own (Formplayer keeps each
+worker's last sync, each archive it installs and each form's volatility
+there). It runs the Core it vendors (`libs/commcare`, the commit
+Formplayer's tree records, which the runner announces), with that Core's
+three clock readers reading the request's clock, as the Core runner's do.
+
+The one address Formplayer is given in place of production's is HQ's
+(`commcarehq.host`). It is the runner's own loopback peer, which answers
+nothing itself: every request Formplayer makes of HQ is written to the
+client as a protocol line and answered there, so the harness answers each
+with HQ's own code or the bytes it names, and records every one. Formplayer
+runs in its own `replace-host` mode, so the URLs an app names (its
+submission URL, a search's, a claim's) reach the peer too. The runner speaks
+one JSON line per request, shaped as the Core runner's, with a deadline on
+each: `http` (one HTTP request to Formplayer's own server, with Core's
+random source seeded from the request's ordinal), `clock`, and `syncTimes`
+and `ageSync` (a worker's last sync as Formplayer keeps it, read and moved
+back through the same Redis template bean Formplayer writes it with, for
+what a worker's absence does, which no run can wait for).
+
+- **HQ's answers** (`answers.py`, `apps.py`): the session's user (only for
+  a body signed with the shared key), the app's archive (HQ's build as HQ's
+  archive download arranges it, zipped, under an id of its own for each
+  build, since Formplayer keeps an install by its id), HQ's restore of the
+  document's case database, a submission (kept, and answered as HQ answers
+  one it processed), a case search (the parameters read by HQ's own
+  `extract_search_request_config` and every case of the requested types
+  written by HQ's own `CaseDBFixture`, since the harness holds no case
+  index), and a case claim. Any other request raises, naming the route.
+- **The Web Apps client's requests** (`webapps.py`): each body holds the
+  fields HQ's client writes (`cloudcare/js/formplayer/menus/api.js`,
+  `cloudcare/js/form_entry/web_form_session.js`), with HQ's session cookie
+  and Formplayer's CSRF cookie as a browser holds them.
+- **The walk** (`walk.py`): scripted sessions as the Core runner's, derived
+  (every menu command, the first case of each list, each list action once,
+  each search) or replayed, each run starting as a worker starts after
+  clearing their data, each form answered from the Core runner's answer
+  table and submitted as the client submits it. The trace is Formplayer's
+  own JSON for every request, with what it asked HQ during each, the
+  submission HQ received and the screen Formplayer's end of form navigation
+  names next.
+- **Canonical JSON** (`canonical.py`): each id Formplayer or its Core drew
+  is marked by its first appearance, as the Core runner marks its traces, so
+  the same inputs give the same bytes.
+- **A document's record** (`observe.py`): `observe_document` given a
+  Formplayer runner keeps Formplayer's walk of `build(A)`, and of B aligned
+  to A where the raw builds differ, beside Core's sessions in the
+  `b_aligned` record (`sessions.formplayer`), each walk inside one operation
+  of the unit. The lane's own observation gives none until a check judges
+  those sessions, and an observation given one is refused a store, since a
+  part's key does not yet say which was observed.
+
+The runner costs each worker about four seconds once (its compile, its
+database, its Redis, and Formplayer's start, which is most of it), and a
+document's walk of one build between half a second and three seconds.
+
+What its own tests observe on HQ's builds of real Nova exports:
+
+| Claim | Observed | Test |
+| --- | --- | --- |
+| A form link whose target is hidden (finding 56) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
+| A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, which HQ's compiler takes | `test_search.py` |
+| The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | `test_search.py` |
+| `cc-autosync-freq` absent or `freq-never` (finding 40) | Formplayer asks HQ for no restore after eight days in either; with `freq-daily`, the control, it asks for one | `test_settings.py` |
+| `cc-fuzzy-search-enabled` absent or `yes` (finding 40) | a search one letter off a case's name finds nothing when absent and the case when `yes` | `test_settings.py` |
+| A custom tile's vertical alignment (finding 42) | Formplayer hands the client no alignment for Nova's export and `start` for the saved app, and nothing else of the list differs | `test_tiles.py` |
 
 ### The editor driver
 
@@ -1189,6 +1288,10 @@ reused is only what a key names whole, and the reuse is audited:
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends; `proof/hq/test_publish_capture.py`: an update applies only over the profile it was built from |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
+| What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
+| Formplayer's walk gives the same bytes and is faithful | an id or an install left unmarked; a trace that loses a difference | `proof/formplayer/test_walk.py`, `test_canonical.py`, `test_observe.py` |
+| HQ's answers to Formplayer answer only what they hold | an unanswered route answered empty; a session answered for an unsigned request | `proof/formplayer/test_answers.py` |
+| The Formplayer runner is always joined | a JVM, a Redis or a database left behind | `proof/formplayer/test_lifecycle.py` |
 | Proof 2 compares everything HQ builds | a file left out | `proof/checks/test_build_files.py`: a file no comparator reads refuses the comparison |
 | Each spelling rule is sound | a rule that hides a real difference | `proof/rules/test_<rule>.py`, and `test_closed_set.py` for an unlisted or untested rule |
 | The register is strict | a fixed defect left listed, or a new failure absorbed | `proof/checks/test_registers.py`: removing any one entry fails |
@@ -1750,11 +1853,14 @@ four vCPUs and more parallelism on a larger machine buys nothing there.
 ## Changing a pin
 
 `proof/pins.json` names the commit of each upstream the harness uses
-(commcare-hq, commcare-core, commcare-android, commcare-connect), and
-`proof/image.lock` the image built from them, with the pins it was built from.
-CI's `quality` job fails while the two disagree
-(`scripts/ci/check-proof-image-lock.mjs`). Formplayer is not pinned: nothing
-the lane runs is Formplayer's.
+(commcare-hq, commcare-core, commcare-android, commcare-connect, formplayer),
+and `proof/image.lock` the image built from them, with the pins it was built
+from. CI's `quality` job fails while the two disagree
+(`scripts/ci/check-proof-image-lock.mjs`). Formplayer runs the Core it
+vendors, the commit its own tree records for `libs/commcare`, whatever the
+Core pin is: the runner announces both, and where they differ the Core
+runner and Formplayer run two Cores, so a difference between their sessions
+may be Core's own.
 
 ### The weekly pin pull request
 
@@ -1819,8 +1925,10 @@ each is stated here as it is built.
    commcare-hq, commcare-core, commcare-android (its parsers, widgets and
    installers feed the surface) and commcare-connect (the Connect proof reads
    its extractors). Vellum is HQ's vendored build, held to the research's
-   Vellum pin by the image's self-test; Formplayer is not pinned, since the
-   Core runner answers the form validation HQ's build asks it for. Changing a
+   Vellum pin by the image's self-test. Formplayer was not pinned while the
+   lane ran none of it; it is the fifth pin now that its application runs
+   ("The Formplayer runner"), and the Core runner still answers the form
+   validation HQ's build asks Formplayer for. Changing a
    pin is a pull request that rebuilds the image and regenerates the surface.
 3. **One harness image**, public at
    `ghcr.io/voidcraft-labs/commcare-nova-proof`, built for linux/amd64 and
