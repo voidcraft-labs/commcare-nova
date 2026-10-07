@@ -1105,11 +1105,11 @@ class _Judged:
 
     def served_differences(self, editor, base, served, versions=None):
         """What Formplayer and the Web Apps client make of the saved app against the state it was saved over
-        (``proof.checks.compare.served``): Formplayer's sessions (``formplayer@<editor>``), the client's screens
+        (``proof.checks.served``): Formplayer's sessions (``formplayer@<editor>``), the client's screens
         where the observation showed them (``webapps@<editor>``: it shows them wherever Formplayer's answers or
         what HQ's page hands the client differ, and the same answers and page show the same screens), and a
         release whose archive is not the build compared above (``release@<editor>``)."""
-        from proof.checks.compare import served as compare
+        from proof.checks import served as compare
 
         found = compare.formplayer_differences(
             self._blob(base["formplayer"]["trace"]),
@@ -1235,9 +1235,9 @@ def judge_b(document, record, blobs, over: Over, b_build, lookup_upload=None):
 
 def edit_refusals(document, records, name, record):
     """Each request HQ's own views refused while Formplayer walked B-edit that they did not refuse while it
-    walked A (``formplayer``, ``compare.served.refusal_differences``): what the edit's publish made HQ refuse a
+    walked A (``formplayer``, ``served.refusal_differences``): what the edit's publish made HQ refuse a
     worker. A's own are proof 3's."""
-    from proof.checks.compare import served as compare
+    from proof.checks import served as compare
 
     held = record.get("served") or {}
     if not held.get("served"):

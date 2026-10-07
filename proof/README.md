@@ -1134,7 +1134,7 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   state's archive is held to the build's files entry for entry, but for the
   profile, which names the build itself (`release@<state>`,
   `/release-differs`).
-- **What is compared** (`proof/checks/compare/served.py`). Formplayer's
+- **What is compared** (`proof/checks/served.py`). Formplayer's
   traces as the client reads them: a list's rows by the case each selects
   with their order beside them, a form's instance and each submission as
   parsed XML, a form's version under proof 2's version clause, and one

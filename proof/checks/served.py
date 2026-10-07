@@ -22,7 +22,8 @@ the client reads it (``comparable_trace``):
   tree again);
 - each XML document Formplayer hands back or sends (a form's instance, a
   submission HQ received) is parsed and compared as a tree, its names read
-  as a form's data (``compare.xml_tree``);
+  as a form's data and whitespace-only text as none (``compare.xml_tree``;
+  Formplayer writes an instance indented);
 - what names a build and not what a worker reads is left out: the app's
   version in ``appVersion`` (each build HQ makes has its own, as proof 2's
   version clause holds), the address in a refused request's ``url`` (the
@@ -32,12 +33,14 @@ the client reads it (``comparable_trace``):
 - one symptom is one difference (``one_symptom``). Where the two sides
   answer one request with screens of two kinds (a list on one side, an
   error on the other), that is the difference, at the response's ``type``,
-  with each side's kind, status and what Formplayer said, and the screens'
-  fields are not compared one by one. Where one side's submission was
-  taken and the other's refused, that is the difference, at the submit's
-  ``status``, with what Formplayer said, and what follows from it (the
-  submission HQ did not receive, the screen that did not come next, how
-  the run ended) is not reported again.
+  with each side's kind and what Formplayer said, and the screens' fields
+  are not compared one by one; the same for the screen a submission leads
+  to. The run has then left the walk, so what either side did after it is
+  not compared. Where one side's submission was taken and the other's
+  refused, that is the difference, at the submit's ``status``, with what
+  Formplayer said, and what follows from it (the submission HQ did not
+  receive, the screen that did not come next, how the run ended) is not
+  reported again.
 
 Where the two sides' forms carry other namespaces (Nova's local archive
 against HQ's build: proof 1 holds identity), ``xmlns`` maps the other side's
@@ -45,7 +48,10 @@ to the baseline's, in the trace's values and in its XML documents.
 
 **The client's screens** (``webapps_differences``) are compared the same
 way: a case list's rows by the case each selects with their order beside
-them, and without the build's version, which the page writes into a corner.
+them, the client's own home tiles by their kind, without the build's
+version, which the page writes into a corner, and one symptom one
+difference (``one_screen``): two screens of two kinds are their kinds, and
+a run the client stopped following is where it stopped.
 
 **HQ's refusals** (``refusal_differences``) are absolute: each request an HQ
 view did not answer 2xx while a state was walked is a difference of that
@@ -191,35 +197,54 @@ def _first_line(text):
     return "<an HTML page>" if line.lower().startswith(("<!doctype", "<html")) else line[:300]
 
 
+def _one_kind(holder_a, holder_b, key):
+    """Where two sides hold screens of two kinds under ``key``, each side's kind in place of its fields; whether
+    they did."""
+    a, b = holder_a.get(key), holder_b.get(key)
+    if isinstance(a, dict) and isinstance(b, dict) and _kind(a) != _kind(b):
+        holder_a[key], holder_b[key] = _said(a), _said(b)
+        return True
+    return False
+
+
 def one_symptom(before, after):
-    """Two comparable traces with each symptom left as one difference (the module's last point): a response of
-    another kind is its kind alone on both sides, and a submission one side had taken and the other refused is
-    its status and what Formplayer said, with what follows from it taken out of both."""
+    """Two comparable traces with each symptom left as one difference (the module's last point).
+
+    A response of another kind is its kind alone on both sides, and so is the screen a submission leads to; the
+    run has then left the walk, so what either side did after that step is not compared (its later steps, its
+    script and how it ended). A submission one side had taken and the other refused is its status and what
+    Formplayer said, with what follows from it taken out of both.
+    """
     for run_a, run_b in zip(before.get("runs") or [], after.get("runs") or [], strict=False):
         if not isinstance(run_a, dict) or not isinstance(run_b, dict):
             continue
-        refused = False
-        for step_a, step_b in zip(run_a.get("steps") or [], run_b.get("steps") or [], strict=False):
+        steps_a, steps_b = run_a.get("steps") or [], run_b.get("steps") or []
+        left = None
+        for index, (step_a, step_b) in enumerate(zip(steps_a, steps_b, strict=False)):
             if not isinstance(step_a, dict) or not isinstance(step_b, dict):
                 continue
-            if "response" in step_a and "response" in step_b:
-                if _kind(step_a["response"]) != _kind(step_b["response"]):
-                    step_a["response"], step_b["response"] = _said(step_a["response"]), _said(step_b["response"])
+            if _one_kind(step_a, step_b, "response"):
+                left = index
+                break
             submit_a, submit_b = step_a.get("submit"), step_b.get("submit")
             if isinstance(submit_a, dict) and isinstance(submit_b, dict):
                 if submit_a.get("status") != submit_b.get("status"):
-                    refused = True
+                    left = index
                     for step, submit in ((step_a, submit_a), (step_b, submit_b)):
-                        notification = (
-                            submit.get("notification") if isinstance(submit.get("notification"), dict) else {}
-                        )
-                        said = notification.get("message")
+                        notification = submit.get("notification")
+                        said = notification.get("message") if isinstance(notification, dict) else None
                         step["submit"] = {"status": f"{submit.get('status')}: {said}" if said else submit.get("status")}
                         for consequence in ("submissions", "asked"):
                             step.pop(consequence, None)
-        if refused:
-            run_a.pop("end", None)
-            run_b.pop("end", None)
+                    break
+                if _one_kind(submit_a, submit_b, "nextScreen"):
+                    left = index
+                    break
+        if left is not None:
+            for run in (run_a, run_b):
+                run["steps"] = (run.get("steps") or [])[: left + 1]
+                run.pop("end", None)
+                run.pop("script", None)
     return before, after
 
 
@@ -270,6 +295,38 @@ def _tiles_by_kind(value):
     if isinstance(value, list):
         return [_tiles_by_kind(item) for item in value]
     return value
+
+
+def _screen_kind(screen):
+    """What a screen of the client shows: its form, a search, a case list, a menu or the home screen's tiles."""
+    if not isinstance(screen, dict):
+        return None
+    for kind in ("form", "query", "list", "commands", "apps", "tiles"):
+        if screen.get(kind) is not None:
+            return kind
+    return "none"
+
+
+def one_screen(before, after):
+    """Two comparable screen records with each symptom one difference: where the two sides show screens of two
+    kinds at one place of a run, each side's kind and alerts stand for the screen (``kind``), and the run has
+    left the walk, so its later screens are not compared; a run one side stopped following is where it stopped."""
+    for run_a, run_b in zip(before.get("runs") or [], after.get("runs") or [], strict=False):
+        screens_a, screens_b = run_a.get("screens") or [], run_b.get("screens") or []
+        for index, (a, b) in enumerate(zip(screens_a, screens_b, strict=False)):
+            if _screen_kind(a) != _screen_kind(b):
+                for run, screens, screen in ((run_a, screens_a, a), (run_b, screens_b, b)):
+                    said = {"kind": _screen_kind(screen), "alerts": (screen or {}).get("alerts") or []}
+                    run["screens"] = [*screens[:index], said]
+                    run.pop("stopped", None)
+                break
+        for run in (run_a, run_b):
+            if isinstance(run.get("stopped"), dict):
+                run["stopped"] = {
+                    "after": run["stopped"].get("after"),
+                    "kind": _screen_kind(run["stopped"].get("screen")),
+                }
+    return before, after
 
 
 def comparable_screens(record):
@@ -361,7 +418,6 @@ def formplayer_differences(before, after, *, check, document, artifact, xmlns=No
             check=check,
             document=document,
             artifact=artifact,
-            blank_text="exact",
             naming="data",
         )
         for difference in compared:
@@ -373,13 +429,9 @@ def formplayer_differences(before, after, *, check, document, artifact, xmlns=No
 
 def webapps_differences(before, after, *, check, document, artifact):
     """Every difference between the client's screens on two states, as ``artifact``: ``before`` the baseline's."""
+    shown_before, shown_after = one_screen(comparable_screens(before), comparable_screens(after))
     return compare_json(
-        comparable_screens(before),
-        comparable_screens(after),
-        check=check,
-        document=document,
-        artifact=artifact,
-        data_maps=SCREEN_DATA_MAPS,
+        shown_before, shown_after, check=check, document=document, artifact=artifact, data_maps=SCREEN_DATA_MAPS
     )
 
 

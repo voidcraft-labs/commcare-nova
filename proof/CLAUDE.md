@@ -66,7 +66,7 @@ harness keeps, each with its reason.
 - **A served state is judged like every other observation.** The unit serves
   A, B aligned to A, Nova's local archive, B and each editor save
   (`proof/observe/served.py`), and proofs 3 and 4 compare what Formplayer
-  and the client made of them (`proof/checks/compare/served.py`), one
+  and the client made of them (`proof/checks/served.py`), one
   difference a symptom. A saved state is always the one HQ's own editor page
   saved in proof 4, never an app document written by hand to look saved.
 - **Observation is separate from judgment.** The observation partition

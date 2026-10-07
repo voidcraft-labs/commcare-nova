@@ -60,3 +60,16 @@ def test_the_ids_an_archive_holds_are_its_text_entries_and_media_is_passed_over(
 def test_canonical_bytes_do_not_depend_on_key_order_and_keep_text_as_it_is():
     assert canonical.encode({"b": " ", "a": [1, None]}) == canonical.encode({"a": [1, None], "b": " "})
     assert canonical.encode({"b": " ", "a": [1, None]}) == '{"a":[1,null],"b":" "}'.encode()
+
+
+def test_an_undashed_id_cores_generator_drew_is_marked_and_one_an_input_holds_is_kept():
+    """Core's ``genUUID`` writes 32 hex digits with no dash (a form's ``instanceID``, an app's ``uuid()``). One
+    the trace alone holds is generated; the same shape in an input (HQ's own ids: an app's, a case's) is given.
+    The accepted case beside it: text that only looks hexadecimal, shorter or longer, is left alone."""
+    drawn, held = "3354f5c19f1c4e238ccbf0a1b2c3d4e5", "1e5bce538bfb44ddadd8b0a1b2c3d4e5"
+    given = canonical.given_ids([f"<case case_id='{held}'/>".encode()])
+    assert given == {held}
+    short, long = "abcdef0123456789abcdef012345678", "abcdef0123456789abcdef0123456789a"
+    value, generated = canonical.mark({"a": drawn, "b": held, "c": short, "d": long}, given)
+    assert value == {"a": f"{canonical.TOKEN}1", "b": held, "c": short, "d": long}
+    assert generated == 1

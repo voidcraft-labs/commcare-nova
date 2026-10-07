@@ -952,7 +952,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
 
     Where A is served (``proof.observe.served``): every request HQ's own
     views refused while Formplayer walked A (``formplayer@A``,
-    ``compare.served.refusal_differences``), and a release whose archive is
+    ``served.refusal_differences``), and a release whose archive is
     not the build the other checks read (``release@A``); Formplayer's
     sessions on Nova's local archive against A's, always
     (``formplayer@local.ccz``, the forms' namespaces mapped as Core's are);
@@ -960,7 +960,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     the build of B aligned to A, Formplayer's sessions and the client's
     screens on that build against A's (``formplayer@B``, ``webapps@B``).
     """
-    from proof.checks.compare import served
+    from proof.checks import served
 
     blobs = records.blobs
     a = _served_a(records, name)

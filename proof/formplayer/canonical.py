@@ -8,8 +8,9 @@ seeded random source in the order the JVM's requests reach it. ``mark``
 replaces each with ``@generated:uuid:N``, N counting the generated ids in the
 order they first appear in what is marked, as the Core runner marks its traces
 (``proof/core/src/nova/proof/core/Generated.java``): an id is generated when
-it is shaped as ``UUID.randomUUID`` and Core's ``genUUID`` shape one
-(8-4-4-4-12 lowercase hex, version 4, variant 8 to b), is a whole value (a
+it is shaped as ``UUID.randomUUID`` shapes one (8-4-4-4-12 lowercase hex,
+version 4, variant 8 to b) or as Core's ``genUUID`` does (32 lowercase hex
+digits), is a whole value (a
 JSON string, or the text or an attribute of an XML document a JSON string
 holds), and occurs nowhere in the inputs. An id an app or a restore authors
 stays as it is. Each generated id is then replaced wherever it occurs, also
@@ -35,7 +36,11 @@ TOKEN = "@generated:uuid:"
 
 
 def is_generated_shape(value: str) -> bool:
-    """Whether ``value`` is shaped as a version 4 UUID in lowercase, as the JVM's and Core's generators shape one."""
+    """Whether ``value`` is shaped as an id the JVM's or Core's generators draw: a version 4 UUID in lowercase
+    (``UUID.randomUUID``), or 32 lowercase hex digits with no dash, as Core's ``PropertyUtils.genUUID`` writes one
+    (the ids an app's ``uuid()`` and a form's ``instanceID`` hold)."""
+    if len(value) == 32:
+        return all(character in HEX for character in value)
     if len(value) != 36:
         return False
     for index, character in enumerate(value):
@@ -48,11 +53,20 @@ def is_generated_shape(value: str) -> bool:
 
 
 def ids_in_text(text: str) -> set[str]:
-    """Every id-shaped stretch of an input's text: an id found here was given, not generated."""
+    """Every id-shaped stretch of an input's text: an id found here was given, not generated. A dashed id is
+    found wherever it stands; an undashed one is a whole run of exactly 32 hex digits."""
     found = set()
     for start in range(0, len(text) - 35):
         if text[start + 8] == "-" and text[start + 13] == "-" and is_generated_shape(text[start : start + 36]):
             found.add(text[start : start + 36])
+    run = 0
+    for index, character in enumerate(text + " "):
+        if character in HEX:
+            run += 1
+            continue
+        if run == 32:
+            found.add(text[index - 32 : index])
+        run = 0
     return found
 
 

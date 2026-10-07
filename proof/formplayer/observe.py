@@ -56,8 +56,7 @@ def marked(trace, *, served, app_id=None, archives=()):
     """A served state's trace as a record keeps it: every id Formplayer generated marked, the ids HQ's restores
     and the archives hold left as they are, and the id Formplayer was given for the app written ``BUILD``."""
     given = canonical.given_ids(served.hq.restores, archives)
-    value, generated = canonical.mark(trace, given)
-    value = canonical.replace_text(value, {app_id or served.build_id: BUILD})
+    value, generated = canonical.mark(canonical.replace_text(trace, {app_id or served.build_id: BUILD}), given)
     return {**value, "generated": generated}
 
 

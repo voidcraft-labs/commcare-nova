@@ -1,6 +1,6 @@
 """A document's app served to Formplayer and the Web Apps client: what the lane's own two readers are held to.
 
-Contracts (``proof.observe.served``, ``proof.formplayer.hq``, ``proof.checks.compare.served``):
+Contracts (``proof.observe.served``, ``proof.formplayer.hq``, ``proof.checks.served``):
 
 - **What answers Formplayer is HQ.** Every request Formplayer makes of HQ
   while it walks a served state is answered by the view HQ's URLconf names
@@ -40,7 +40,7 @@ import copy
 import pytest
 
 from proof.checks import cases
-from proof.checks.compare import served as compare
+from proof.checks import served as compare
 from proof.observe.record import Blobs, canonical
 
 DOCUMENT = "targeted-survey-menu"
