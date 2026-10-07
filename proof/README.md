@@ -2480,7 +2480,9 @@ explicit diagnostic mode, and `proof_shards` selects another shard count.
   check the lane rather than a pull request, the Android stage after the
   shards (always on x64, whatever the shards' runner). It records a candidate
   image in the checkout's lock first (`proof/ci/candidate.mjs`), so every key
-  the run computes names the image it pulls.
+  the run computes names the image it pulls. `ci.yml`'s `lane_sample` input
+  runs it from a branch over a sample of that many documents, storing
+  nothing, to hold a change to it before main's audit runs it.
 - **`proof-android.yml`** runs the Android stage alone, again, over what an
   earlier CI run's proof shards observed, and the gate over that run's
   blocks and the stage's: for a change to the reader, its judges or the

@@ -42,6 +42,10 @@ on:
         description: Also run the Android stage again over this earlier CI run's proof shards (its run id; proof-android.yml)
         type: string
         default: ''
+      lane_sample:
+        description: Also run the audit's lane (proof-lane.yml, every group fresh) over a sample of this many documents, storing nothing
+        type: string
+        default: ''
 
 # A newer push to the same branch/PR cancels the in-flight run for it.
 concurrency:
@@ -931,6 +935,23 @@ jobs:
     with:
       run: ${{ inputs.android_from_run }}
       shards: ${{ inputs.android_shards != 'default' && inputs.android_shards || '0' }}
+
+  proof-lane-sample:
+    # A dispatch that names a sample size also runs the lane the nightly
+    # audit and the weekly comparisons run (proof-lane.yml: every group fresh
+    # with nothing shared between documents, then the Android stage and the
+    # gate) over the queue builder's fixed sample of that many documents at
+    # this ref, as the weekly baseline does, and stores nothing. It is the
+    # way to hold a change to that workflow before main runs it. It is
+    # beside this run's own lane and decides nothing of this run's verdict.
+    name: Audit lane over a sample of ${{ inputs.lane_sample }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.lane_sample != '' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: sample
+      documents: sample:${{ inputs.lane_sample }}
 
   proofs-gate:
     # One check for the whole proof lane, whatever its shard count. It runs
