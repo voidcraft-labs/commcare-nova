@@ -6148,7 +6148,7 @@
 		"path": "/modules/*/search_config/description/*",
 		"document": "case-list-browse",
 		"control": "case-operation-query",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), Android never reads it, and only Web Apps' client settles it, which the lane does not run (finding 54)."
+		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android never reads it (finding 54)."
 	},
 	{
 		"id": "d54-search-description-suite-remote-request",
@@ -6159,7 +6159,7 @@
 		"path": "/suite/remote-request[*]/session[*]/query[*]/description[*]",
 		"document": "case-list-browse",
 		"control": "case-operation-query",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), Android never reads it, and only Web Apps' client settles it, which the lane does not run (finding 54)."
+		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android never reads it (finding 54)."
 	},
 	{
 		"id": "d54-search-description-suite-entry",
@@ -6170,7 +6170,7 @@
 		"path": "/suite/entry[*]/session[*]/query[*]/description[*]",
 		"document": "case-list-inline",
 		"control": "case-list-inline",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), Android never reads it, and only Web Apps' client settles it, which the lane does not run (finding 54)."
+		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android never reads it (finding 54)."
 	},
 	{
 		"id": "d55-connect-work-area-form",

@@ -78,6 +78,7 @@ CORPUS_PACKAGES = (
     "proof/native",
     "proof/rules",
     "proof/store",
+    "proof/webapps",
 )
 SINGLE_GROUPS = ("proof", "surface", "hq-selfchecks")
 # The outcomes of one item's run (``proof.lane.plugin``) that fail the lane.
