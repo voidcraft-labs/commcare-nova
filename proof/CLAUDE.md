@@ -171,12 +171,22 @@ harness keeps, each with its reason.
   answer is kept under the archives, restore and options it read and the
   reader that read it, so put anything an answer depends on in that key
   (`proof/android/records.py`), and never read the wall clock on the
-  device: the app's clock is the lane's fixed instant. A walk follows the
+  device: the app's clock is the lane's fixed instant. A record holds
+  nothing two readings of one archive give differently: an id the device
+  drew is written by what its case holds, a widget's answer only where the
+  form holds one, and no two forms are opened in one second (Android names
+  a form's answer file by that second). The device's libraries are the
+  app's own, ahead of the unit tests' (`reader.init.gradle`): a method the
+  unit-test classpath lacks raises on the reader and on no worker's device.
+  A walk follows the
   app's own navigation (a menu's own click, a list's own tap, a form's own
   finish button); what the walk cannot do as a worker does it names and
   stops at. An entry whose artifact is `android@...` is that stage's, held
   on its document and its control like any other; the shards' checks hold
-  only their own. The stage's logic is held in the lane with a stand-in
+  only their own. Name a control for an Android entry only where the
+  control already keeps the files that check reads, and retain a new
+  control where none does: retaining an existing control again from
+  today's corpus would lose every fixed symptom it was kept for. The stage's logic is held in the lane with a stand-in
   reader (`proof/android/test_stage.py`); commcare-android's own code is
   held where it runs (`selfcheck.py`, `predicates.py`, which the lane's
   pytest does not collect).

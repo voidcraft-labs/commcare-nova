@@ -1351,8 +1351,9 @@ answers, each difference under an `android@...` artifact):
 
 One symptom is one difference: a walk whose screens part from the
 baseline's is named by where they part
-(`/walks/*/screens/after-<screen>:<the baseline's next>:<the other's next>`)
-and its steps are not compared; a form that takes another path of screens, a
+(`/walks/*/screens/after-<screen>:<the baseline's next>:<the other's next>`,
+the screen a walk stopped at named with the alert it holds for the worker,
+`FormEntryActivity!Error Saving your Form`) and its steps are not compared; a form that takes another path of screens, a
 list whose rows are another kind of view, an archive Android does not
 install, each is that. A list records which case each row is and which case
 the walk opened: two lists that show their cases in another order are that
@@ -1394,6 +1395,18 @@ The item `android::<group>::records` fails where the reader itself could not
 answer a request (never where Android refused something, which is an
 answer), and where a group the queue marks fresh made an answer that is not
 the one the store holds, both written under the output's `audit/`.
+
+**What it costs.** Measured on hosted four-vCPU x64 runners with nothing
+in the store, so every answer was made: 351 documents, 11,933 requests,
+11,234 of them made by the reader (the others an archive two documents
+share, read once), none the reader could not answer, in 38,144 job-seconds
+(10.6 runner-hours): about 3.4 seconds a request with four devices a job.
+In 24 bins a job took 17 to 36 minutes, and the account ran 20 x64 jobs at
+once, so four bins waited over twenty minutes for a runner. The default is
+therefore 20 jobs (`proof/android/stage.json`), all started together. The
+runtime's build, when a pin or the toolchain moves, takes about eleven
+minutes with the reader's own checks. A later run reads each unchanged
+archive's answer from the store and makes only the others.
 
 **Its tests.** `proof/android/test_stage.py` and
 `proof/checks/test_android.py` run in the lane with a stand-in reader: each

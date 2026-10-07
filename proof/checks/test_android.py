@@ -173,11 +173,28 @@ def test_a_walk_that_takes_other_screens_is_one_difference():
         {"screen": "home", "alert": {"title": "Session Refresh Required"}},
     ]
     found = _proof3(local)
-    assert _paths(found) == [
-        ("android@local.ccz", "/walks/*/screens/after-MenuActivity:EntitySelectActivity:home", "changed")
+    parted = "after-MenuActivity:EntitySelectActivity:home!Session Refresh Required"
+    assert _paths(found) == [("android@local.ccz", f"/walks/*/screens/{parted}", "changed")]
+    assert found[0].after == "MenuActivity | home!Session Refresh Required"
+    assert found[0].at == f"/walks/m0~1m0-f0/screens/{parted}"
+
+
+def test_a_walk_that_stops_at_a_form_is_named_by_the_alert_the_form_holds():
+    """Two saves that leave a form a device does not save are two symptoms where the device says two things."""
+    unsaved, stopped = _app(), _app()
+    for answer, title in ((unsaved, "Error Saving your Form"), (stopped, "Error Occurred")):
+        steps = answer["walks"]["m0/m0-f0"]["steps"]
+        del steps[3]
+        steps[2]["form"]["saved"]["alert"] = {"title": title, "msg": "..."}
+    first = _proof3(unsaved)
+    assert _paths(first) == [
+        (
+            "android@local.ccz",
+            "/walks/*/screens/after-EntitySelectActivity:FormEntryActivity:FormEntryActivity!Error Saving your Form",
+            "changed",
+        )
     ]
-    assert found[0].after == "MenuActivity | home"
-    assert found[0].at == "/walks/m0~1m0-f0/screens/after-MenuActivity:EntitySelectActivity:home"
+    assert _paths(_proof3(stopped)) != _paths(first)
 
 
 def test_a_sort_menu_a_sort_order_and_a_searchs_matches_are_each_one_value():

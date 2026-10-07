@@ -36,7 +36,7 @@ on:
       android_shards:
         description: Android stage jobs for a controlled comparison
         type: choice
-        options: [default, '1', '2', '4', '8', '12', '16', '24', '32']
+        options: [default, '1', '2', '4', '8', '12', '16', '20', '24', '32']
         default: default
       android_from_run:
         description: Also run the Android stage again over this earlier CI run's proof shards (its run id; proof-android.yml)

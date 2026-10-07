@@ -672,6 +672,99 @@ on Android, since both of its columns hold the same text, while
 that document's hidden sort column in the Sort menu, as finding 36 says of
 others.
 
+### Found by the Android stage
+
+The lane now has CommCare Android's own code read every archive a device
+installs of every document: Nova's local exports and HQ's builds of A, B,
+B-edit and every editor save, each walked from the first menu through every
+list, search, claim and form, installed twice, and updated with forms left
+incomplete (`proof/README.md`, "The Android stage"). Proofs 1, 3 and 4 judge
+what it read. What that showed that the reader's own tests had not:
+
+67. **An incomplete form in a menu with grouped tiles cannot be reopened
+    where its case has no parent.** A menu whose list groups its tiles gives
+    every form that loads a case a second datum, the ids of the case's
+    parents joined by spaces
+    (`suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`,
+    `<datum id="case_id_parent_ids" function="join(' ', distinct-values(…/index/parent))"/>`),
+    and Nova writes the same datum on both export paths
+    (`lib/commcare/session.ts::deriveSessionDatums`). Android keeps an
+    incomplete form's session as one line of words
+    (`SessionDescriptorUtil.createSessionDescriptor`: each step's type, id
+    and value, joined by spaces) and reads it back by splitting on the
+    spaces (`loadSessionFromDescriptor`). For a case with no parent the
+    datum's value is empty, so the line ends at the datum's id
+    (`COMMAND_ID m0-f0 CASE_ID case_id visit-2 CASE_ID case_id_parent_ids`),
+    and home raises `ArrayIndexOutOfBoundsException` reading it
+    (`HomeScreenBaseActivity.onActivityResultSessionSafe`,
+    `AndroidSessionWrapper.loadFromStateDescription`). *Harm:* a worker who
+    leaves such a form incomplete cannot open it again; the app stops when
+    they pick it from the incomplete forms. It is HQ's own shape and
+    Android's own reader, the same on HQ's build and on Nova's local
+    archive, so no export path avoids it; Nova could leave the datum out
+    only by giving up what HQ's build reads it for. *Documents:*
+    `tile-grouped-one`, `tile-grouped-two`, `tile-grouped-search`
+    (`android@B` and `android@local.ccz`, proof 1,
+    `/update/reopened/*/session`).
+
+What the stage shows of earlier defects and findings, each as a worker's
+device meets it, on the documents the register names:
+
+- **Defect 1 (ids and xmlns).** After a republish, a form a worker left
+  incomplete on the earlier build does not open: "No XForm definition
+  defined for this form with namespace …" (`android@B`,
+  `/update/reopened/*`). Every document with a form shows it.
+- **Defect 9 (the local app's id).** The two local exports of one app
+  install side by side as two apps where HQ's second build is refused as a
+  duplicate (`/installs/*`), and a device on the first export finds no
+  update in the second (`UpToDate`, `/update`).
+- **Defect 7.** The Saved and Incomplete buttons are on the local install's
+  home screen and hidden on HQ's.
+- **Defects 14 and 15, where HQ's build does not parse.** Android refuses to
+  install HQ's build of `targeted-close-condition-unparsable` ("Encountered a
+  problem with display condition for node [/data/case/close]") and of
+  `targeted-invalid-question-ids` ("Question bound to non-existent node:
+  [/data/Meta]"), and installs Nova's local archive of each (`/install`).
+- **Defect 13 (guard blocks).** After a Vellum save the device does not save
+  the form: "Error Saving your Form: The case_id attribute of a <case>
+  wasn't set", and the worker stays in the form
+  (`/walks/*/screens/…:FormEntryActivity!Error Saving your Form`). Defect
+  25's rewritten query repeat stops the form earlier: "Error Occurred:
+  Attempting to select element 2 of a list with only 1 elements."
+- **Defect 4 and finding 34 (location capture).** A form of HQ's build with
+  `auto_gps_capture` asks the device for the location permission as it
+  opens; B's form (defect 4) and the local archive's (finding 34) ask for
+  nothing.
+- **Defect 10.** A list with a label column or no sort shows its cases in
+  another order on the local install, so the first case a worker sees is
+  another one (`/list/order`, `/list/chose`), and a Sort choice orders them
+  otherwise (`/list/sorted/*`, the path finding 51's sort keys change too).
+- **Defect 12.** After the Case List save a custom tile's list is plain rows
+  (`/list/rowClass`), and a single-date prompt is a text box whose answer
+  is sent as typed.
+- **Defect 14 (search settings and tiles).** The Case List save renames the
+  list's search action ("Search" to "Search All Cases") and adds a cell to
+  every tile.
+- **Defect 20, findings 32, 36, 38, 39, 40, 42, 46, 48, 51 and 53** show as
+  their entries say: the session a form-entry sync refuses, the local search
+  address, the hidden sort column in the Sort menu, the image-map column's
+  width, the current language, the profile the App Settings save leaves and
+  the worker's own settings an update then replaces, a tile cell's
+  alignment, the renamed form's saved name, the mixed-quote search a device
+  sends and the "Client-side error (code 400)" it shows, what a misspelled
+  search finds with fuzzy search on, and the `match-all()` filter only HQ's
+  build sends.
+
+Two things the first whole-corpus run showed of the reader itself, fixed
+there and recorded so they are not taken for the app's: Gradle resolves
+commcare-android's unit-test classpath to another Guava than the app ships,
+and Core calls a method only the shipped one has, so every session that
+pushed a search step raised `NoSuchMethodError` on the reader alone
+(`proof/android/README.md`, "The app's libraries come first"); and Android
+names a form's answer file by the form's file name and the second it was
+opened in, so two menus' first forms opened within one second share a file,
+which no worker's hands do and the reader no longer does.
+
 ### Found by serving every state
 
 The lane now serves each state of every document to Formplayer and to the

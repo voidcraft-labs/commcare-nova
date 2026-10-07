@@ -74,10 +74,12 @@ ANDROID = "android:"
 # checks' own tests, the editors' corpus sample, HQ's branches and publish
 # capture, the lane's nested servers, every native family, the spelling
 # rules' own tests (the documents they spell two ways), the Connect proofs
-# (the Connect apps they run), and the evidence store's guarded observation
-# of a document. Like a document's group, each
+# (the Connect apps they run), the evidence store's guarded observation
+# of a document, and the Android stage's own tests (the corpus layout its
+# stand-in documents are laid out in). Like a document's group, each
 # runs in the main phase, once the corpus is in place.
 CORPUS_PACKAGES = (
+    "proof/android",
     "proof/checks",
     "proof/connect",
     "proof/editors",

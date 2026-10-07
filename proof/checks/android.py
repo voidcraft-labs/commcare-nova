@@ -36,12 +36,13 @@ One symptom is one difference. Two walks that opened another case at a list are 
 order is that (``/list/order``), and its rows are then compared case by case. A walk whose screens are not the
 same screens in the same order is that difference, named by where the two part
 (``/walks/*/screens/after-<the last screen both showed>:<the baseline's next>:<the other's next>``, each side's
-whole walk its value), and its steps are not compared one against another; a form that takes another path of
-screens is that (``/form/path``); a list whose rows are another kind of view is that (``/list/rowClass``); an
-archive Android does not install is that (``/install``) and nothing of its app is compared. What a reader keys
-by a name is compared by that name and never by position: a menu's items by their ids, a Sort choice's order by
-the choice, a search's matches by its term, the cases a device holds by their ids (each case one value), the
-home screen's hidden buttons by their names.
+whole walk its value; the screen a walk stopped at is named with the alert it holds for the worker,
+``FormEntryActivity!Error Saving your Form``), and its steps are not compared one against another. A form
+that takes another path of screens is that (``/form/path``); a list whose rows are another kind of view is
+that (``/list/rowClass``); an archive Android does not install is that (``/install``) and nothing of its app
+is compared. What a reader keys by a name is compared by that name and never by position: a menu's items by
+their ids, a Sort choice's order by the choice, a search's matches by its term, the cases a device holds by
+their ids (each case one value), the home screen's hidden buttons by their names.
 
 What is left out of a comparison, each because it names an install and not what a worker reads, or says again
 what a reader beside it says: the app's id and version (proof 1's), the profile's stored values (each
@@ -166,10 +167,29 @@ def comparable_app(answer: dict | None) -> dict | None:
     return found
 
 
+def _stopped_at(step: dict) -> str | None:
+    """The title of the alert the screen a walk stopped at holds for the worker: a form's (as it opens, or as
+    it refuses to save), a list's after a tap, home's."""
+    form = step.get("form") if isinstance(step.get("form"), dict) else {}
+    saved = form.get("saved") if isinstance(form.get("saved"), dict) else {}
+    held = step.get("list") if isinstance(step.get("list"), dict) else {}
+    for alert in (saved.get("alert"), form.get("alert"), held.get("alertAfterChoice"), step.get("alert")):
+        if isinstance(alert, dict) and alert.get("title"):
+            return str(alert["title"])
+    return None
+
+
 def _screens(walk: dict) -> str:
+    """A walk's screens in order; the one it stopped at with the alert it holds, where it holds one
+    (``FormEntryActivity!Error Saving your Form``)."""
     if "raised" in walk:
         return "raised"
-    return _joined(step.get("screen") for step in walk.get("steps") or [])
+    screens = [str(step.get("screen")) for step in walk.get("steps") or []]
+    if screens:
+        alert = _stopped_at(walk["steps"][-1])
+        if alert is not None:
+            screens[-1] = f"{screens[-1]}!{alert}"
+    return _joined(screens)
 
 
 def _parted(before: list, after: list) -> str:
