@@ -3,7 +3,8 @@
 The proof lane holds Nova's exports to the code that reads them. CommCare HQ's
 own import, build, case processing and app editors, CommCare Core's own
 form engine, session engine and archive installer, Formplayer's own
-application and HQ's own Web Apps client run at the upstream commits
+application, HQ's own Web Apps client and CommCare Connect's own form
+receiver run at the upstream commits
 `proof/pins.json` names, inside one pinned image, over a corpus of admitted
 Nova documents that Nova's real publish client and compilers export. Every
 pull request runs the lane in CI (`.github/workflows/ci.yml`), and
@@ -285,7 +286,15 @@ or it fails the lane ("The registers", below).
   one request the page makes that nothing answers is for a web font on
   another host, so text is laid out in the browser's fallback face and no
   measured width or height is recorded.
-- **Connect** runs only as its metadata extractors, in the native proofs.
+- **Connect runs over its own documents alone.** The Connect proof
+  (`proof/connect`, "The Connect proof", below) runs Connect's sync of an
+  app's build and its receiver over five corpus documents, and the native
+  proofs its metadata extractors. No other document's submissions are given
+  to Connect; the tasks its receiver queues (a visit's attachments, a scored
+  assessment's and a completed task's notifications) are recorded and not
+  run; and a device's location fix, which only CommCare Android writes
+  (`PollSensorAction`), is written into the submission where the form holds
+  its node.
 - **A configuration Nova's publish refuses is not checked.** Each document's
   configurations hold the flags and case search Nova's publish requires for
   it, so a symptom that shows only where Nova refuses to publish cannot reach
@@ -302,7 +311,7 @@ or it fails the lane ("The registers", below).
   defect 16's comments, dead code, copy and media slots; defect 20's
   `product_id` datum (Nova emits no advanced module); defect 23 without
   `MM_CASE_PROPERTIES` (a target Nova's publish refuses); defect 24's and
-  defect 30's export columns; defect 15's harm in Connect.
+  defect 30's export columns.
 - **Inputs Nova cannot produce:** a basic child case of its own menu's case
   type under `DONT_INDEX_SAME_CASETYPE` (defect 12, same-type child) and a
   form whose source holds the session's `supply_point_id` path under
@@ -359,6 +368,7 @@ npm run proof                                           # the whole harness
 npm run proof -- proof/checks/test_bar.py               # one check over every document
 npm run proof -- proof/checks -k targeted-time-ordering # every check of one document
 npm run proof -- proof/native                           # the native proofs
+npm run proof -- proof/connect                          # the Connect proof
 npm run proof -- --workers 4 proof/checks               # four forked workers
 npm run proof -- --bin 2/4                              # bin 2 of 4 of the collected groups
 ```
@@ -480,8 +490,21 @@ rest for the Web Apps page), and the `sass` that precompiler runs, among the
 image's own Node tools. It holds only public, licensed upstream sources and
 the harness's own
 code; Nova's checkout is mounted at run time. Connect's checkout carries no
-license file, so Connect is never in the image: the native Connect proof
-fetches it at its pin when it runs.
+license file, so none of Connect's source is in the image: the Connect proofs
+fetch it at its pin when they run (`proof/connect/checkout.py`). The image
+holds what Connect runs on (the `full` stage): Python 3.11, a virtualenv from
+Connect's own lock at its pin (`/opt/connect-venv`, the environment
+Connect's own tests run in), the libraries Connect's Dockerfile installs for
+GeoDjango, and the two services its `docker-compose.yml` starts, Postgres 15
+with PostGIS and Redis, which a Connect proof starts as its own processes.
+
+The Connect runtime is its own stage over everything else, so it can be built
+over an image this recipe already made, in about a minute:
+
+```bash
+docker build $(node proof/image/build-args.mjs) --build-arg FULL_BASE=<image> \
+  --target full -f proof/image/Dockerfile -t nova-proof:dev .
+```
 
 Vellum is not pinned on its own: the harness runs the build HQ vendors at its
 pin, and the image's self-test (`proof/hq/test_boot.py`) holds HQ's
@@ -1435,10 +1458,106 @@ reused is only what a key names whole, and the reuse is audited:
 | Judges are pure | a judge that runs HQ, so a stored record no longer stands for its observation | `proof/checks/test_judge_purity.py` |
 | A stored record stands for a fresh one | a key that misses an input | `proof/store/test_keys.py`, `test_guard.py`, the per-pull-request audit sample and the nightly audit |
 | Forked workers observe what one session does | state a fork shares | `proof/lane/test_forkserver.py` |
+| Connect runs at the pin, each scenario alone | a virtualenv from another commit's lock; a row or queued task one scenario leaves the next | `proof/connect/test_runtime.py` |
 | The manifest names only what exists | a dangling key or gate | `lib/commcare/surface/__tests__/manifest.test.ts`, in ordinary CI |
 | Nothing Nova emits is unclassified | an export using an item no entry names, or HQ reading a flag no gate entry names | the manifest check |
 | The surface matches the pins | a hand edit or a stale regeneration | the gate's surface section |
 | The weekly pin pull request reports every outcome once | no change, a second pull request, how CI starts left unsaid, pins without their image, a failure that reports nothing | `proof/upstream/__tests__/pins.test.ts`, with controlled `git` and `gh` |
+
+## The Connect proof
+
+`proof/connect` runs CommCare Connect's own code, at its pin, over what HQ
+forwards of a Nova Connect app's submissions. It runs in the lane as the
+package group `proof/connect`:
+
+```bash
+npm run proof -- proof/connect
+```
+
+### The chain
+
+Every link is its owner's code:
+
+1. **Nova** exports the app (the corpus document's captured publish and its
+   local `.ccz`), and for a document that carries the edit renaming its
+   Connect ids, the publish and the local archive of the edit.
+2. **HQ** imports and builds it (`proof/rules/conftest.py::published`, the
+   path every spelling rule's test takes), applies Nova's publish of the edit
+   over it and builds that, and builds the form as its own form designer
+   saves it (`proof.editors.vellum`).
+3. **Core** fills and submits the form on each build and on each local
+   archive (`proof.core`, the script derived on HQ's build and replayed on the
+   rest), on the lane's day and on the day after.
+4. **HQ** reads each submission as its receiver does and builds the payload
+   its Connect repeater posts (`proof/connect/hq.py::forwarded`:
+   `get_app_and_build_ids`, `process_xform_xml`,
+   `SubmissionPost._post_process_form`, then
+   `ConnectFormRepeaterPayloadGenerator.get_payload`), so the payload's shape
+   is HQ's.
+5. **Connect** reads the app's learn module, deliver unit and task from HQ's
+   archive (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
+   `app_xml.py::get_task_units_for_app`) and receives each payload through
+   its own URLconf, OAuth authentication, serializer and request transaction
+   (`/api/receiver/`, `form_receiver/views.py::FormReceiver`,
+   `processor.py::process_xform`).
+
+What stands in for a person or a machine the lane does not have is written
+down where it is done: the opportunity, its worker, a payment unit, the claim
+and an assigned task are made through Connect's models with the factories
+Connect's own tests use (`proof/connect/driver.py`); Connect's download of an
+app's archive is answered with the archive HQ built; and a device's location
+fix is written into the submission's own location node
+(`proof/connect/conftest.py::with_fix`).
+
+### The runtime
+
+`proof/connect/runtime.py::ConnectRuntime` fetches Connect at its pin, starts
+a Postgres 15 with PostGIS and a Redis from the image as processes of its own
+(`proof.processes`), and runs Connect's own `manage.py migrate` once into a
+template database. Each scenario is one run of `proof/connect/driver.py` on
+Connect's interpreter and virtualenv, with Connect's own test settings, in a
+clone of the template over an emptied Redis. A scenario is a list of steps
+(make the opportunity, sync, pay for deliver units, claim, set verification
+flags, assign a task, post a payload), and its result holds, after each step,
+every row the receiver reads or writes, by the names the app and HQ gave
+them, and the tasks Connect queued. Starting the runtime costs about thirteen
+seconds (the fetch two, the migrations ten), and a scenario under one.
+
+### What it holds
+
+`proof/connect/test_receiver.py` states each as a test, over
+`targeted-connect-deliver-rename` and `targeted-connect-learn-rename` (a
+deliver app and a learn app that each carry the edit renaming their Connect
+ids), and, for finding 56, `connect-deliver-default`,
+`targeted-connect-deliver-key-names` and `targeted-connect-learn-key-names`:
+
+- Connect reads exactly the authored learn module, deliver unit and task from
+  HQ's builds.
+- A learn submission and a delivery, from HQ's build and from Nova's local
+  archive, each received under the app's id, leave Connect the same rows: the
+  module completed and the assessment scored; the visit approved and paid.
+- Nova's local archive names no submission URL. Its submission, received with
+  no app named, is forwarded with a null app id and Connect refuses it.
+- Finding 34: with GPS verification on, a delivery with no location is
+  flagged and left pending, the local archive's always; the distance check
+  passes over it on both sides.
+- Finding 55: the empty `work_area_id` a Vellum save writes leaves the same
+  rows.
+- Defect 15: after a rename, deliveries are refused ("Payment unit is not
+  configured for the deliver unit") until a manager pays for the new unit; a
+  renamed learn module leaves a later learner at half, never finished; a
+  renamed task never completes the task a worker was assigned, which then
+  rejects each of the worker's deliveries.
+- Finding 56: a block whose id is one of the names the receiver looks for
+  (`task`, `deliver`, `work_area_update`, `module`, `assessment`) fails the
+  receiver on every submission of its form.
+- Finding 57: a deliver form that also holds a task loses its own visit while
+  the task is assigned.
+
+Each run leaves, under its block's `connect/`: each document's archives, each
+path's submission and HQ's payload for it (`<document>/`), every scenario's
+steps with the rows after each (`scenario.<name>.json`), the runtime's logs
+and its timings.
 
 ## Native proofs
 
@@ -1835,11 +1954,13 @@ remote download or rendering is claimed.
 #### Connect (`connect`)
 
 Connect's metadata extractors (`commcare_connect/opportunity/app_xml.py`) run
-at the pin `proof/pins.json` names. Connect is never in the harness image, so
-the session fetches exactly that commit, shallowly, with
+at the pin `proof/pins.json` names. Connect's source is never in the harness
+image, so the session fetches exactly that commit, shallowly, with
 `proof/image/fetch-commit.sh` run as a child process (the lane's one network
-reach; HQ's network guard refuses only the harness's own Python sockets), and
-removes it when the session ends. The module's unused database model, HQ API
+reach, which the Connect proof makes too; HQ's network guard refuses only the
+harness's own Python sockets), and removes it when the session ends.
+Connect's receiver over these apps' submissions is the Connect proof's ("The
+Connect proof", above). The module's unused database model, HQ API
 exception and HTTP client imports are stood in for, and the extractors read
 the same learn and deliver metadata from HQ's source, the CCZ form and HQ's
 regenerated form. `ConnectRuntimeTest` computes the metadata in Core on both
@@ -1995,7 +2116,10 @@ from. CI's `quality` job fails while the two disagree
 vendors, the commit its own tree records for `libs/commcare`, whatever the
 Core pin is: the runner announces both, and where they differ the Core
 runner and Formplayer run two Cores, so a difference between their sessions
-may be Core's own.
+may be Core's own. Connect's source is fetched at its pin when a proof runs,
+and the image's Connect virtualenv is built from that pin's lock, so moving
+Connect's pin rebuilds the image like any other
+(`proof/connect/test_runtime.py` holds the two to one commit).
 
 ### The weekly pin pull request
 
@@ -2070,7 +2194,8 @@ each is stated here as it is built.
    linux/arm64, holding only public, licensed upstream sources and the
    harness's own code ("Building the image"). Nova's checkout is mounted at
    run time, with its Linux `node_modules` in a volume keyed by
-   `package-lock.json`. Connect is never in the image.
+   `package-lock.json`. Connect's source is never in the image; the
+   interpreter, virtualenv and services it runs on are.
 4. **The image is rebuilt only when its inputs change**, by `proof-image.yml`,
    and `proof/image.lock` records its digest with the pins it was built from;
    CI's `quality` job fails while they differ from `proof/pins.json`.

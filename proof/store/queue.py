@@ -100,6 +100,7 @@ EVERY = "every"
 # index), ``native`` (the native products the corpus carries), or both. A package not named reads both, whole.
 PACKAGE_DATA = {
     "proof/checks": {"documents": EVERY},
+    "proof/connect": {"documents": ("proof/connect/conftest.py", "DOCUMENTS")},
     "proof/editors": {"documents": ("proof/editors/test_view_equivalence.py", "CORPUS_SAMPLE")},
     "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS")},
     "proof/hq": {"documents": ("proof/hq/test_branches.py", "DOCUMENTS"), "native": EVERY},

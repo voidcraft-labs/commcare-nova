@@ -88,6 +88,23 @@ corpus ids that show the symptom.
     delivery escapes the check that flags a visit within the set distance of
     another, both as the visit checked and as the other visit. *Documents:* `connect-deliver-default`, `connect-learn-custom` and the
     other Connect documents, `targeted-invalid-connect-ids`.
+    *Run in Connect* (`proof/connect/test_receiver.py`, Connect's receiver at
+    the lane's pin over HQ's own payloads): with GPS verification on, the
+    local archive's delivery is flagged "GPS data is missing" and left
+    pending where it would have been approved, and so is HQ's build's while
+    the device has no fix; with a fix, only HQ's build carries it. With the
+    distance check at 100 m, HQ's build's second visit four metres from the
+    first is flagged and the local archive's is not, on either side of the
+    comparison. All of that holds only for a submission HQ receives under the
+    app's id. Nova's local archive names no submission URL (its profile holds
+    no `PostURL`, where HQ's build's names the receiver under the app's id),
+    and a submission received with no app named is forwarded with a null app
+    id, which Connect's receiver refuses (400, `app_id`: "This field may not
+    be null.") and keeps nothing of. So from the local archive as Nova writes
+    it, no learn module, delivery or task reaches Connect at all. Which URL a
+    device posts to for a profile that names none is CommCare Android's to
+    say (`sync/FormSubmissionHelper.java`, `R.string.PostURL`), and is not
+    run here.
 
 ### Case lists
 
@@ -495,12 +512,58 @@ What the same runs show of earlier findings, each on the client
   cell for it. The plan's sentence for finding 38, that nothing but Android
   reads a column's width hint, does not hold for a hint of 0.
 
+### Found by running Connect's receiver
+
+The Connect proof (`proof/connect`) runs Connect's own sync and form receiver,
+at the Connect pin, over the payload HQ's own repeater builds from a submission
+Core made on HQ's build or Nova's local archive of a Nova export.
+
+56. **A Connect block named like one of Connect's own keys fails Connect's
+    receiver.** Nova names a Connect block's wrapper node by the block's id
+    (`lib/commcare/connectSlugs.ts`), and admits any element name as an id
+    (`lib/domain/forms.ts::connectIdSchema`). HQ's Connect repeater forwards
+    each block at its path (`repeater_generators.py::
+    ConnectFormRepeaterPayloadGenerator`), and Connect's receiver looks for
+    `module` and `assessment` in a learn form, and `deliver`, `task` and
+    `work_area_update` in a deliver form, at every depth, reading each
+    match's `@xmlns` (`commcare-connect form_receiver/processor.py::
+    _get_matching_blocks`). A block whose id is one of those names is
+    wrapped in a node of that name with no namespace, so the receiver raises
+    `KeyError('@xmlns')`, answers 500 and rolls the whole submission back.
+    *Harm:* Connect keeps nothing of any submission of that form (a
+    delivery's visit and pay included), from HQ's build and the local
+    archive alike, and HQ's repeater retries a record that can never
+    succeed. Run in Connect for each of the five names
+    (`proof/connect/test_receiver.py`), with the accepted case: the same
+    forms with blocks named otherwise. HQ's own form designer names the
+    wrapper by the question's id as well, so an app made there with such an
+    id fails alike. *Fix:* the validator refuses the five names as a Connect
+    id, each in the app type whose receiver reads it.
+    *Documents:* `connect-deliver-default`, `connect-deliver-custom` (the
+    task of both is `task`), `targeted-connect-learn-key-names`,
+    `targeted-connect-deliver-key-names`.
+
+57. **A deliver form that also holds a task loses its own visit while the
+    task is assigned.** Nova lets one form hold a deliver unit and a task
+    (`lib/domain/forms.ts`). Connect's receiver reads the deliver unit
+    first and rejects the visit while the worker has an assigned task of
+    the app ("Worker has an incomplete assigned task.",
+    `processor.py::process_deliver_unit`, `_has_blocking_pending_task`),
+    and only then completes the task from the same submission
+    (`process_deliver_form`). *Harm:* the delivery made in the submission
+    that completes a task is always rejected and unpaid; the next one is
+    approved. Run in Connect (`proof/connect/test_receiver.py`).
+    *Documents:* `targeted-connect-deliver-rename`, `connect-deliver-default`.
+
 ## Equivalences only another runtime reads
 
 These differences are no harm: every runtime that reads them reads both
 spellings alike. Their readers are runtimes the lane does not run (Android,
-Web Apps' client, Connect), so no spelling rule's test can prove them alike, and
-the register holds them, each entry marked with its `equivalence`. Beside the
+Web Apps' client), or were when the entry was written, so no spelling rule's
+test can prove them alike, and
+the register holds them, each entry marked with its `equivalence`. Connect's
+are now run by the Connect proof (`proof/connect`), which holds finding 55's
+two spellings to the same rows in Connect. Beside the
 findings below, the entries of findings 40 (ten profile settings written at the
 value their readers take when they are absent) and 42 (a vertical alignment of
 `start`) are marked the same way.
@@ -529,7 +592,10 @@ value their readers take when they are absent) and 42 (a vertical alignment of
     writes one, empty (`src/commcareConnect.js`). Connect reads it by its
     truth value (`commcare-connect form_receiver/processor.py::process_deliver_unit`,
     `if work_area_case_id := …`), so the empty id reads as none. Core's
-    submission differs, and only Connect reads it. *Harm:* none.
+    submission differs, and only Connect reads it. *Harm:* none: HQ forwards
+    the empty id as an empty string, and Connect's receiver leaves the same
+    rows for the saved form's delivery as for Nova's
+    (`proof/connect/test_receiver.py`).
     *Documents:* `connect-deliver-custom`, `connect-deliver-default`,
     `expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0`.
 

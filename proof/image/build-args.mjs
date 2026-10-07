@@ -19,6 +19,7 @@ const PINNED_SOURCES = {
 	CORE_COMMIT: "commcare-core",
 	ANDROID_COMMIT: "commcare-android",
 	FORMPLAYER_COMMIT: "formplayer",
+	CONNECT_COMMIT: "commcare-connect",
 };
 
 const FULL_COMMIT = /^[0-9a-f]{40}$/;
