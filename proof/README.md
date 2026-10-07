@@ -1077,10 +1077,9 @@ the client itself:
 The driver and a document's record run; no check judges the record yet. What
 joining the lane takes:
 
-- **The image** gains the Web Apps bundle, HQ's node packages whole (the
+- **The image** holds the Web Apps bundle, HQ's node packages whole (the
   stylesheets' sources, about 570 MB unpacked) and `sass`
-  (`proof/image/tools`). `proof/image.lock` must name an image built from
-  this recipe before CI runs the package.
+  (`proof/image/tools`).
 - **The unit.** A document's own unit cannot hold the observation as it
   stands: its configuration grants no `CLOUDCARE`, and granting it changes
   `cloudcare_enabled` on the app Nova's upload creates, and with it every
