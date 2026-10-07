@@ -1021,6 +1021,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             check=CHECK,
             document=document,
             artifact="formplayer@local.ccz",
+            rules=RULES,
             xmlns=xmlns,
             text_ids=served.merged_text_ids(observed.a.build.files or {}, _archive_forms(local_ccz))
             if local_ccz is not None
@@ -1050,6 +1051,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 check=CHECK,
                 document=document,
                 artifact="formplayer@B",
+                rules=RULES,
                 versions=content_versions(observed.a.build, observed.b_aligned),
             )
             if a.get("webapps") is not None and b.get("webapps") is not None:

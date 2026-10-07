@@ -1,7 +1,9 @@
 """The closed set of spelling rules the comparators apply (proof/README.md).
 
 A spelling rule erases exactly one difference in how an artifact is spelled
-that neither HQ's build output nor Core's run depends on. Each rule is a
+that no reader of it depends on: HQ's build output and Core's run, and,
+where a spelling's readers are others the lane runs (Formplayer, HQ's
+Connect repeater and Connect's receiver), those. Each rule is a
 module here, ``proof/rules/<rule>.py``, exporting
 ``RULE = SpellingRule(id, artifact_glob, description, normalize)``, where
 ``normalize(parsed_artifact) -> parsed_artifact`` takes the artifact as the
@@ -56,6 +58,7 @@ from proof.rules import (  # noqa: E402
     case_references_load,
     column_tab_keys,
     condition_operator_default,
+    connect_work_area_empty,
     detail_null_booleans,
     empty_binds,
     empty_media_maps,
@@ -97,6 +100,8 @@ RULES: tuple[SpellingRule, ...] = (
     itext_value_order.RULE,
     model_order.RULE,
     setvalue_order.RULE,
+    # A form's data as Connect reads it: the one rule whose readers are HQ's repeater and Connect's receiver.
+    connect_work_area_empty.RULE,
     # HQ's app document, and the suite where it builds the same reading.
     case_references_load.RULE,
     add_ons.RULE,

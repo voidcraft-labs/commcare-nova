@@ -157,7 +157,7 @@ from proof.observe.proof4 import (
     xpath_reading,
 )
 from proof.observe.runs import unbuildable
-from proof.rules import normalized, rules_for
+from proof.rules import RULES, normalized, rules_for
 
 CHECK = "proof4"
 # The two Bs: Nova's next publish of D, and its publish of D′ after the edit batch.
@@ -1118,6 +1118,7 @@ class _Judged:
             document=self.document,
             artifact="formplayer",
             versions=versions,
+            rules=RULES,
         )
         if served.get("webapps") is not None and base.get("webapps") is not None:
             found += compare.webapps_differences(
@@ -1277,7 +1278,19 @@ def connect_beyond_a(document, records, name, record, *, moved):
 
     a = ((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}
     held = record.get("served") or {}
-    if a.get("connect") is None or not held.get("served") or held.get("connect") is None:
+    if not held.get("served") or held.get("connect") is None:
+        return []
+    if held.get("opportunity") is not None:
+        # The app became a Connect app with this publish, and its opportunity was made from this release: what
+        # stands on its own here is all this state's.
+        return connect.absolute_differences(
+            records.blobs.get_json(held["connect"]),
+            held["opportunity"]["catalog"],
+            check=CHECK,
+            document=document,
+            artifact="connect",
+        )
+    if a.get("connect") is None:
         return []
     connect_a = (a.get("A") or {}).get("connect")
     return connect.absolute_differences(

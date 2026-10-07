@@ -1099,6 +1099,8 @@ class _Observation:
         # Core's sessions on B as their submissions are posted to it.
         self.connect = getattr(ctx, "connect", None)
         self.baseline_trace = None
+        # Whether the opportunity was made from this B's release (the app is a Connect app only from here).
+        self.opened_here = False
 
     # The whole B ---------------------------------------------------------------------------------------------
 
@@ -1208,6 +1210,11 @@ class _Observation:
         where the document has one."""
         from proof.observe import connect
 
+        if self.connect is not None and self.connect.opportunity is None and connect.is_connect(self.b_build.files):
+            # The app holds no Connect block at A and holds one here (an edit made it a Connect app): its
+            # opportunity is made from this release, the first there is to make one from.
+            self.connect.opportunity = connect.open_opportunity(held.served)
+            self.opened_here = True
         opportunity = self.connect.opportunity if self.connect is not None else None
         return connect.forwarded(held.served, opportunity, label)
 
@@ -1246,6 +1253,8 @@ class _Observation:
                 kept = self._forwards(forwarder, held, trace, self.baseline_trace)
                 if kept is not None:
                     record["connect"] = kept
+                if self.opened_here:
+                    record["opportunity"] = connect.opportunity_record(self.connect.opportunity)
         except ReleaseRefused as error:
             return served.refused(error)
         # What the client reads of the app, from the stored app as read once, as every save's is.

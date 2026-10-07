@@ -80,6 +80,7 @@ import re
 from dataclasses import replace
 
 from proof.checks.compare.json_tree import compare_json
+from proof.checks.compare.spelling import normalized
 from proof.checks.compare.trace import map_strings, renamespace
 from proof.checks.compare.xml_tree import XmlNotWellFormed, compare_xml_trees, parse_xml
 from proof.checks.differences import Difference, pointer_token
@@ -483,11 +484,15 @@ def _named_by(value, text_ids):
     return value
 
 
-def formplayer_differences(before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None):
+def formplayer_differences(
+    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=()
+):
     """Every difference between two of Formplayer's traces, as ``artifact``: ``before`` the baseline state's.
 
     ``versions`` is each side's ``{xmlns: version}`` of the forms whose built content differs between the two
     builds (``proof.checks.proof4.content_versions``), whose versions are read as one (``_content_version``).
+    ``rules`` are the spelling rules given (``compare.spelling``): those for ``instance`` are applied to each
+    XML document the traces hold (a form's instance as Formplayer hands it back, a submission HQ received).
     """
     xmlns = xmlns or {}
     versions = versions or ({}, {})
@@ -520,8 +525,8 @@ def formplayer_differences(before, after, *, check, document, artifact, xmlns=No
                 )
             continue
         compared = compare_xml_trees(
-            _content_version(root_before, versions[0]),
-            _content_version(renamespace(root_after, xmlns), versions[1]),
+            normalized("instance", _content_version(root_before, versions[0]), rules),
+            normalized("instance", _content_version(renamespace(root_after, xmlns), versions[1]), rules),
             check=check,
             document=document,
             artifact=artifact,

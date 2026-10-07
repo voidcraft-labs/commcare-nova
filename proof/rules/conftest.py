@@ -62,6 +62,7 @@ DOCUMENTS = (
     "nested-menu-parent",
     "nested-menu-same-multiple",
     "search-browse",
+    "targeted-connect-deliver-rename",
     "tile-boxed",
 )
 

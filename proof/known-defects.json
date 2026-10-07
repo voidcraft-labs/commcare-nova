@@ -6145,39 +6145,6 @@
 		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android never reads it (finding 54)."
 	},
 	{
-		"id": "d55-connect-work-area-form",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/deliver[@id=*]/work_area_id[*]",
-		"document": "connect-deliver-default",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, and Connect's own receiver leaves the same rows for both spellings (proof/connect/test_receiver.py, finding 55)."
-	},
-	{
-		"id": "d55-connect-work-area-source",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/deliver[@id=*]/work_area_id[*]",
-		"document": "connect-deliver-default",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, and Connect's own receiver leaves the same rows for both spellings (proof/connect/test_receiver.py, finding 55)."
-	},
-	{
-		"id": "d55-connect-work-area-trace",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/deliver[@id=*]/work_area_id[*]",
-		"document": "connect-deliver-default",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, and Connect's own receiver leaves the same rows for both spellings (proof/connect/test_receiver.py, finding 55)."
-	},
-	{
 		"id": "d53-zero-input-sentinel-trace-params",
 		"defect": 53,
 		"part": "zero-input search sentinel",
@@ -7156,16 +7123,6 @@
 		"control": "targeted-query-repeat-places"
 	},
 	{
-		"id": "d55-connect-work-area-id-formplayer-vellum-deliver-id-work-area-id",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/deliver[@id=*]/work_area_id[*]",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0"
-	},
-	{
 		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id",
 		"defect": 13,
 		"part": "guard blocks",
@@ -7284,16 +7241,6 @@
 		"path": "/runs/*/steps/*/response/type",
 		"document": "container-nested-query",
 		"control": "container-nested-query"
-	},
-	{
-		"id": "d55-connect-work-area-id-formplayer-vellum-deliver-id-work-area-id-2",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/*/deliver[@id=*]/work_area_id[*]",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-4",
