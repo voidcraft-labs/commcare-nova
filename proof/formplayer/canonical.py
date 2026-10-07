@@ -136,6 +136,12 @@ def mark(value, given: set[str]):
     return _replaced(value, tokens, sorted(tokens, key=len, reverse=True)), len(tokens)
 
 
+def replace_text(value, replacements: dict[str, str]):
+    """``value`` with each key of ``replacements`` written as its value wherever it occurs, also inside longer
+    text and in keys: an id HQ drew for a build, which names the same thing in two traces."""
+    return _replaced(value, replacements, sorted(replacements, key=len, reverse=True))
+
+
 def encode(value) -> bytes:
     """The canonical bytes of a JSON value."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

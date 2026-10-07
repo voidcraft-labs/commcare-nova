@@ -339,6 +339,28 @@ def _map_groups_by_user(doc):
             yield user, [_js(doc, "domain"), _js(doc, "name")]
 
 
+def _map_schemas_by_xmlns_or_case_type(doc):
+    # corehq/couchapps/schemas_by_xmlns_or_case_type/views/view/map.js (reduce: _count); the user case HQ
+    # makes for a worker adds its properties to the case type's inferred export schema
+    # (export/dbaccessors.py::get_case_inferred_schema).
+    if doc.get("doc_type") in ("FormExportDataSchema", "FormInferredSchema"):
+        yield (
+            [
+                _js_key(doc, "domain"),
+                _js_key(doc, "doc_type"),
+                _js_key(doc, "app_id"),
+                _js_key(doc, "xmlns"),
+                _js_key(doc, "created_on"),
+            ],
+            None,
+        )
+    elif doc.get("doc_type") in ("CaseExportDataSchema", "CaseInferredSchema"):
+        yield (
+            [_js_key(doc, "domain"), _js_key(doc, "doc_type"), _js_key(doc, "case_type"), _js_key(doc, "created_on")],
+            None,
+        )
+
+
 def _map_program_by_code(doc):
     # corehq/couchapps/program_by_code/views/view/map.js
     if doc.get("doc_type") == "Program":
@@ -367,6 +389,7 @@ VIEWS = {
     "groups/by_name": (_map_groups_by_name, None),
     "groups/by_user": (_map_groups_by_user, None),
     "program_by_code/view": (_map_program_by_code, None),
+    "schemas_by_xmlns_or_case_type/view": (_map_schemas_by_xmlns_or_case_type, "_count"),
     "hqmedia/by_hash": (_map_hqmedia_by_hash, None),
 }
 

@@ -1,79 +1,139 @@
-"""Formplayer's sessions for one configuration of a document, as a record (``proof/README.md``).
+"""Formplayer's sessions over one state of a document's app, as a record (``proof/README.md``).
 
-Where proof 3 runs Core's sessions (``proof.observe.sessions.observe``),
-this runs Formplayer's over the same builds and the same restores: its walk
-is derived on ``build(A)`` (``proof.formplayer.walk``) and replayed on B's
-build aligned to A wherever the raw builds differ, exactly where Core's
-sessions replay. Nova's local archive is not walked: Web Apps installs only
-what HQ builds, and a local archive's profile names no submission URL, so
-Formplayer cannot submit its forms (``FormSession.getPostUrl``).
+Where proof 3 runs Core's sessions (``proof.observe.sessions``), the unit
+runs Formplayer's over the same states, each served to it by HQ's own views
+(``proof.formplayer.hq``): the app released as HQ's Releases page releases
+it, a worker HQ made, the document's case database saved through HQ's
+receiver, and every request Formplayer makes of HQ answered by the view
+HQ's URLconf names. The walk is derived on the baseline state
+(``proof.formplayer.walk``: every menu command, the first case of each
+list, each list action once, each search) and replayed on every other, as
+Core's script is. Nova's local archive is walked too, with HQ answering
+everything but the archive itself, which HQ does not hold: Formplayer is
+handed Nova's bytes for it (``local``).
 
-Each side's walk runs inside one operation of the unit, since what HQ
-answers Formplayer with is HQ's own code over the unit's state: its reading
-of each search's request and its fixture of the results
-(``proof.formplayer.apps.search_results``). What is recorded, under
-``formplayer`` of the ``b_aligned`` record's ``sessions``:
+What a side's record holds (``walked``):
 
-- ``runtime``: Formplayer's commit and the Core it vendors, as the runner
-  announced them;
-- per side (``A``, ``B``): ``trace``, the marked trace as a blob
-  (``proof.formplayer.canonical``); ``asked``, how many times Formplayer
-  asked HQ for each thing but the app's archive (whether it asks for that
-  again depends on what the same Formplayer process installed before, so
-  the count is the process's history and not the build's); ``searches``,
-  each search's parameters as HQ's view reads them; and ``submissions``,
-  how many HQ received.
+- ``trace``: the marked trace as a blob (``proof.formplayer.canonical``;
+  the released build's id, which HQ draws, is written ``@build``): every
+  request the client sends, Formplayer's own JSON for each, what Formplayer
+  asked HQ during each (HQ's view by its URL name, and HQ's status), and
+  each submission HQ received;
+- ``hq``: every request an HQ view did not answer 2xx, by the view's URL
+  name, its status and what HQ said or raised, in order. An HQ view that
+  raises answers Formplayer a 500, as production's does;
+- ``asked``: how many times Formplayer asked each HQ view (the archive
+  download left out: whether Formplayer asks for it again depends on what
+  the same Formplayer process installed before);
+- ``searches``: each search's parameters as HQ's view received them.
 
-The record holds no id Formplayer drew and no path, so the same inputs give
-the same bytes (``proof/formplayer/test_walk.py``).
+``runtime`` is Formplayer's commit and the Core it vendors, as the runner
+announced them. The record holds no id Formplayer or HQ drew and no path,
+so the same inputs give the same bytes (``proof/formplayer/test_walk.py``).
 """
 
 from __future__ import annotations
 
 from collections import Counter
 
-from proof.formplayer import apps
-from proof.formplayer.walk import Walk, marked, script_of
-from proof.observe import casedata
-from proof.observe.record import digest
-from proof.observe.runs import unbuildable
+from proof.formplayer import apps, canonical
+from proof.formplayer.walk import Walk, script_of
+
+# What a trace writes for the released build's id, which HQ draws afresh for every build it makes.
+BUILD = "@build"
+LOCAL_APP = "nova-local-archive"
+# A saved build's profile names the build itself (its own id in the addresses it gives a runtime), where the
+# profile HQ writes for the app it is building names the app, so the two are never the same bytes.
+PROFILES = frozenset({"profile.ccpr", "profile.xml", "media_profile.ccpr", "media_profile.xml"})
 
 
-def _side(unit, runner, blobs, operation, *, side, app_id, files, restore, database, toggles, script=None):
-    """One build's walk, as a record, and its trace."""
-    archive = apps.build_archive(files)
-    build = apps.build_id(app_id, archive)
-    hq = apps.answers(unit, database, {build: archive}, restore, toggles=toggles)
-    with operation(f"formplayer:{side}", digest([build, digest(restore.hex()), script]).encode()):
-        trace = Walk(runner, hq, domain=unit.domain, app_id=build).run(script)
-    trace = marked(trace, archives=[archive], restore=restore)
+def runtime(runner) -> dict:
+    """Formplayer's commit and the Core it vendors, as the runner announced them."""
+    return dict((runner.ready or {}).get("formplayer") or {})
+
+
+def marked(trace, *, served, app_id=None, archives=()):
+    """A served state's trace as a record keeps it: every id Formplayer generated marked, the ids HQ's restores
+    and the archives hold left as they are, and the id Formplayer was given for the app written ``BUILD``."""
+    given = canonical.given_ids(served.hq.restores, archives)
+    value, generated = canonical.mark(trace, given)
+    value = canonical.replace_text(value, {app_id or served.build_id: BUILD})
+    return {**value, "generated": generated}
+
+
+def _refusals(hq) -> list:
+    """Every request an HQ view did not answer 2xx, as a record keeps it."""
+    found = []
+    for asked in hq.exchanges:
+        if 200 <= asked.status < 300:
+            continue
+        entry = {"view": asked.url_name, "method": asked.method, "status": asked.status}
+        if asked.raised:
+            entry["raised"] = asked.raised
+            entry["error"] = (asked.error or "").rstrip().splitlines()[-3:]
+        else:
+            entry["said"] = (asked.refusal or "")[:400]
+        found.append(entry)
+    return found
+
+
+def walked(served, runner, blobs, *, script=None, app_id=None, archives=()):
+    """Formplayer's walk of one served state, as a record, and the trace: derived where ``script`` is None, else
+    replayed. ``app_id`` names an archive HQ does not hold in place of the released build (the local archive)."""
+    hq = served.hq
+    first = len(hq.exchanges)
+    walk = Walk(runner, hq, domain=served.domain, app_id=app_id or served.build_id, scope=served.run)
+    trace = marked(walk.run(script), served=served, app_id=app_id, archives=archives)
+    asked = hq.exchanges[first:]
     recorded = {
         "trace": blobs.put_json(trace),
-        "asked": dict(sorted(Counter(what for what, _ in hq.asked if what != "archive").items())),
+        "hq": _refusals(hq),
+        "asked": dict(
+            sorted(
+                Counter(
+                    entry.url_name or "unresolved"
+                    for entry in asked
+                    if entry.url_name not in ("direct_ccz", "named-archive")
+                ).items()
+            )
+        ),
         "searches": [[[key, list(values)] for key, values in search.params] for search in hq.searches],
-        "submissions": len(hq.submissions),
     }
     return recorded, trace
 
 
-def observe(
-    unit, *, document, export, app_id, a_build, b_aligned, b_differs, restore_a, restore_b, runner, blobs, operation
-):
-    """Formplayer's sessions on ``build(A)``, and on B aligned to A where the raw builds differ; None where A
-    cannot be walked (no build, or no restore HQ served)."""
-    if a_build is None or unbuildable(a_build) is not None or restore_a is None:
-        return None
-    database = casedata.document_case_database(document)
-    toggles = tuple(sorted(export.configuration.flags))
-    ready = runner.ready or {}
-    recorded = {"runtime": dict(ready.get("formplayer") or {})}
-    shared = dict(unit=unit, runner=runner, blobs=blobs, operation=operation, database=database, toggles=toggles)
-    recorded["A"], baseline = _side(side="A", app_id=app_id, files=a_build.files, restore=restore_a, **shared)
-    if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
-        return recorded
-    if restore_b is None:
-        return recorded
-    recorded["B"], _ = _side(
-        side="B", app_id=app_id, files=b_aligned.files, restore=restore_b, script=script_of(baseline), **shared
+def release_is_the_build(served, files) -> dict | None:
+    """None where the archive HQ's download serves of the released build holds the files of the build the lane's
+    other checks read, entry for entry; else what differs. The release is made by HQ's ``make_build`` and the
+    lane's build by ``validate_app`` and ``create_all_files`` over the same stored app and previous build, so
+    the two are one build but for the profile (``PROFILES``); this holds that."""
+    import io
+    import zipfile
+
+    from proof.observe.build import arranged
+
+    built = {name: content for name, content in arranged(files)}
+    released = {}
+    with zipfile.ZipFile(io.BytesIO(served.archive())) as archive:
+        for name in archive.namelist():
+            released[name] = archive.read(name)
+    differing = sorted(
+        name for name in set(built) | set(released) if name not in PROFILES and built.get(name) != released.get(name)
     )
-    return recorded
+    return {"differing": differing} if differing else None
+
+
+def local(served, runner, blobs, document, *, script):
+    """Formplayer's walk of Nova's local archive over the served state's HQ: the archive is Nova's bytes, handed
+    to Formplayer where it asks HQ's download for the app; the worker, the restore, each search and each claim
+    are HQ's own."""
+    archive = document.local_ccz.read_bytes()
+    app_id = apps.build_id(LOCAL_APP, archive)
+    served.hq.archives[app_id] = archive
+    try:
+        return walked(served, runner, blobs, script=script, app_id=app_id, archives=[archive])
+    finally:
+        served.hq.archives.pop(app_id, None)
+
+
+__all__ = ["BUILD", "local", "marked", "release_is_the_build", "runtime", "script_of", "walked"]

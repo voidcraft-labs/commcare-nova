@@ -195,7 +195,11 @@ class _NetworkGuard:
         self._installed = True
 
     def _where(self):
-        frames = traceback.extract_stack()[:-3]
+        # The frames' files and functions alone: reading each frame's source line would open files of the
+        # checkout, which an observation's read guard holds to its partition (proof.store.guard).
+        frames = traceback.StackSummary.extract(traceback.walk_stack(None), lookup_lines=False)
+        frames.reverse()
+        frames = frames[:-3]
         return tuple(
             f"{frame.filename}::{frame.name}" for frame in frames[-8:] if "/proof/hq/boot.py" not in frame.filename
         )
@@ -571,9 +575,8 @@ def _move_caches_to_local_memory():
     from django.core.cache.backends.dummy import DummyCache
     from django.core.cache.backends.locmem import LocMemCache
     from django.test import override_settings
-    from quickcache.cache_helpers import CacheWithPresets, TieredCache
-
     from django_redis.cache import RedisCache
+    from quickcache.cache_helpers import CacheWithPresets, TieredCache
 
     discarded_connections = caches._connections
     before = {alias: caches[alias] for alias in settings.CACHES}

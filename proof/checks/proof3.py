@@ -937,6 +937,89 @@ def processed_runs(state, database, trace, xmlns=None):
     return observed(state, database, trace, xmlns)
 
 
+# Served states ----------------------------------------------------------------------
+
+
+def _served_a(records, name):
+    """A's served record (the ``served`` hook's, ``proof.observe.served.observe``), or None where the hook did
+    not run or HQ releases no build of A."""
+    held = ((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}
+    return held["A"] if held.get("served") else None
+
+
+def served_equivalence(document, records, name, observed, sessions, *, has_local):
+    """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
+
+    Where A is served (``proof.observe.served``): every request HQ's own
+    views refused while Formplayer walked A (``formplayer@A``,
+    ``compare.served.refusal_differences``), and a release whose archive is
+    not the build the other checks read (``release@A``); Formplayer's
+    sessions on Nova's local archive against A's, always
+    (``formplayer@local.ccz``, the forms' namespaces mapped as Core's are);
+    and, wherever proof 2 still finds a difference between A's build and
+    the build of B aligned to A, Formplayer's sessions and the client's
+    screens on that build against A's (``formplayer@B``, ``webapps@B``).
+    """
+    from proof.checks.compare import served
+
+    blobs = records.blobs
+    a = _served_a(records, name)
+    if a is None:
+        return []
+    found = served.refusal_differences(a["formplayer"]["hq"], check=CHECK, document=document, artifact="formplayer@A")
+    if a.get("releaseDiffers"):
+        found += _refused(document, "release@A", "/release-differs", a["releaseDiffers"])
+    aligned = (records.configurations[name].b_aligned or {}).get("served")
+    if aligned is None:
+        raise RecordIncomplete(
+            f"{document}'s b_aligned record under {name} holds no served states though A was served. The unit"
+            " (proof.observe.unit._Unit.observe_b_aligned) records them wherever the served hook ran at A."
+        )
+    trace_a = blobs.get_json(a["formplayer"]["trace"])
+    if has_local:
+        local = aligned.get("local")
+        if local is None:
+            raise RecordIncomplete(
+                f"{document}'s b_aligned record under {name} holds no Formplayer walk of the local archive, though"
+                " the document carries one and A was served (proof.observe.served.aligned)."
+            )
+        xmlns = None
+        if sessions is not None and sessions.get("baseline") and sessions.get("local"):
+            xmlns = xmlns_alignment(sessions["local"]["admission"], sessions["baseline"]["admission"])
+        found += served.formplayer_differences(
+            trace_a,
+            blobs.get_json(local["formplayer"]["trace"]),
+            check=CHECK,
+            document=document,
+            artifact="formplayer@local.ccz",
+            xmlns=xmlns,
+        )
+    b = aligned.get("B")
+    if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
+        if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
+            if b.get("releaseDiffers"):
+                found += _refused(document, "release@B", "/release-differs", b["releaseDiffers"])
+            from proof.checks.proof4 import content_versions
+
+            found += served.formplayer_differences(
+                trace_a,
+                blobs.get_json(b["formplayer"]["trace"]),
+                check=CHECK,
+                document=document,
+                artifact="formplayer@B",
+                versions=content_versions(observed.a.build, observed.b_aligned),
+            )
+            if a.get("webapps") is not None and b.get("webapps") is not None:
+                found += served.webapps_differences(
+                    blobs.get_json(a["webapps"]),
+                    blobs.get_json(b["webapps"]),
+                    check=CHECK,
+                    document=document,
+                    artifact="webapps@B",
+                )
+    return found
+
+
 def document_behavior(document, records):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records."""
     from proof.checks import observations
@@ -944,12 +1027,17 @@ def document_behavior(document, records):
     found = []
     local_admission = observations.local_reports(records).get("local.ccz")
     for name in sorted(document.exports):
+        observed = observations.republish_view(records, name)
+        sessions = observations.sessions_record(records, name)
         found += behavioral_equivalence(
             document.id,
-            observations.republish_view(records, name),
-            observations.sessions_record(records, name),
+            observed,
+            sessions,
             records.blobs,
             has_local=document.local_ccz is not None,
             local_admission=local_admission,
+        )
+        found += served_equivalence(
+            document.id, records, name, observed, sessions, has_local=document.local_ccz is not None
         )
     return found + observations.soft_assertion_differences(records, CHECK)

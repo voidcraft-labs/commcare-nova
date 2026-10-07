@@ -3,7 +3,8 @@
 pytest owns the lifetime of each service the checks share, whichever package
 they are in: one Core runner JVM for the whole session (``core_runner``), one
 Formplayer for the whole session (``formplayer_runner``: its JVM, its
-database on the lane's Postgres and its Redis), one editor driver (node and
+database on the lane's Postgres and its Redis, started the first time a test
+or a document's observation asks for it, ``lane_services``), one editor driver (node and
 Chromium) for the whole session (``editor_driver``), and HQ booted once per
 process (``hq``). A service that fails to start fails
 every check that needs it; nothing is skipped.
@@ -84,16 +85,31 @@ def core_runner() -> Iterator[CoreRunner]:
         yield runner
 
 
+def _formplayer_started(runner: FormplayerRunner) -> None:
+    if runner.timings.compile is not None:
+        record_timing("formplayer_runner_compile", runner.timings.compile)
+    record_timing("formplayer_database", runner.timings.database[0])
+    record_timing("formplayer_redis_start", runner.timings.redis[0])
+    record_timing("formplayer_start", runner.timings.starts[0])
+
+
+@pytest.fixture(scope="session", autouse=True)
+def lane_services() -> Iterator[None]:
+    """The session's Formplayer, which a document's observation is served to from inside its unit: started the
+    first time an observation or a test asks (``proof.observe.services.formplayer``), joined when the session
+    ends. A session that never asks starts none."""
+    from proof.observe import services
+
+    with services.session(on_start=_formplayer_started):
+        yield
+
+
 @pytest.fixture(scope="session")
-def formplayer_runner() -> Iterator[FormplayerRunner]:
-    """One Formplayer (its JVM, its database and its Redis) for the session, joined when the session ends."""
-    with FormplayerRunner() as runner:
-        if runner.timings.compile is not None:
-            record_timing("formplayer_runner_compile", runner.timings.compile)
-        record_timing("formplayer_database", runner.timings.database[0])
-        record_timing("formplayer_redis_start", runner.timings.redis[0])
-        record_timing("formplayer_start", runner.timings.starts[0])
-        yield runner
+def formplayer_runner(lane_services) -> FormplayerRunner:
+    """The session's one Formplayer (its JVM, its database and its Redis), the one observations are served to."""
+    from proof.observe import services
+
+    return services.formplayer()
 
 
 @pytest.fixture(scope="session")

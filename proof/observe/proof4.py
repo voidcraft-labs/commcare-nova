@@ -966,6 +966,11 @@ class Base:
         if hq_build is None and fallback is not None:
             self.previous, self.previous_key = fallback.previous, fallback.previous_key
         self._parsed = None
+        # What the state's readers made of it once served (``proof.observe.served``): the digest of Formplayer's
+        # trace, and of what HQ's Web Apps page hands the client of the app; None where it was not served.
+        self.served_trace = self.served_reads = None
+        if fallback is not None:
+            self.served_trace, self.served_reads = fallback.served_trace, fallback.served_reads
 
     def parsed(self):
         """The state's build parsed once (``ParsedBuild``), for the comparisons of saves over it."""
@@ -1096,6 +1101,12 @@ class _Observation:
         self.b = None
         self.held_b = None
         self.raw_b = None
+        # Whether each state is also served to Formplayer and the Web Apps client (the unit's served hook is
+        # there), the walk Formplayer derived on B, and what was kept of each served state by its build's files
+        # and what the client reads of its app.
+        self.serves = _serves()
+        self.walk = None
+        self.served_kept = {}
 
     # The whole B ---------------------------------------------------------------------------------------------
 
@@ -1112,6 +1123,8 @@ class _Observation:
         record["stored"] = self.blobs.put(self.held_b.canonical)
         record["baseline"] = self.baseline()
         self.b = Base(self.held_b, self.b_build, previous=previous, previous_key=previous_key)
+        if self.serves:
+            record["served"] = self.serve_b()
         return record
 
     def observe(self, views=None, forms=None):
@@ -1180,6 +1193,87 @@ class _Observation:
             self.script = script_of(run.trace)
         return found
 
+    # B and each save, served to Formplayer and the Web Apps client ------------------------------------------
+
+    def _serving(self, label, previous, change=None):
+        from proof.observe import served
+
+        return served.serving(
+            self.unit,
+            self.ctx.document,
+            self.app_id,
+            driver=self.driver,
+            blobs=self.blobs,
+            label=label,
+            previous=previous,
+            change=change,
+            edit=self.ctx.over == "B-edit",
+        )
+
+    def serve_b(self):
+        """B served (``proof.observe.served``): Formplayer's walk derived on B's release, and the client's
+        screens on it; ``{"served": False}`` where HQ releases no build of B."""
+        from proof.formplayer.observe import script_of
+        from proof.observe import served
+        from proof.observe.runs import unbuildable
+
+        if unbuildable(self.b_build) is not None:
+            return {"served": False}
+        with self._serving("proof4", self.ctx.previous_build) as held:
+            side, trace = held.formplayer()
+            self.walk = script_of(trace)
+            record = {"served": True, **served._state(held, side, trace, files=self.b_build.files)}
+        # What the client reads of the app, from the stored app as read once, as every save's is.
+        record["clientReads"] = served.client_reads(self.held_b.stored["doc"])
+        self.b.served_trace, self.b.served_reads = side["trace"], record["clientReads"]
+        return record
+
+    def served_after(self, over, held, outcome, differs):
+        """What Formplayer and the client make of a saved app, where it can differ from the state it was saved
+        over: its build differs, or what HQ's Web Apps page hands the client of the app does.
+
+        Formplayer replays B's walk on the saved app's release. The client is shown the walk only where
+        Formplayer's trace or what the page hands it is not the state's it was saved over: the client reads
+        nothing else, so the same answers and the same page show the same screens. A served state is kept by its
+        build's files and what the client reads of its app (HQ serves Formplayer the build, and its views read
+        nothing else of the app that the build's files do not hold); ``PROOF_VERIFY_MEMOS=1`` serves it again and
+        holds the two alike. Returns the record's entry (None where nothing is served) and the state's two digests.
+        """
+        from proof.observe import served
+        from proof.observe.runs import unbuildable
+
+        unchanged = (None, over.served_trace, over.served_reads)
+        if not self.serves or self.walk is None or over.served_trace is None:
+            return unchanged
+        if unbuildable(over.build) is not None or unbuildable(outcome) is not None:
+            return unchanged
+        reads = served.client_reads(held.stored["doc"])
+        if not differs and reads == over.served_reads:
+            return unchanged
+        key = (files_key(outcome), reads, over.served_trace, over.served_reads)
+        kept = self.served_kept.get(key)
+        if kept is not None and not self.verify:
+            return kept, kept["formplayer"]["trace"], reads
+        previous, _ = self.previous_of(over)
+        with self._serving("proof4-save", previous) as serving:
+            side, trace = serving.formplayer(self.walk)
+            record = {"formplayer": side, "clientReads": reads}
+            if side["trace"] != over.served_trace or reads != over.served_reads:
+                shown = serving.webapps(trace)
+                if shown is not None:
+                    record["webapps"] = shown
+            release = serving.release_differs(outcome.files)
+            if release is not None:
+                record["releaseDiffers"] = release
+        if kept is not None and kept != record:
+            raise MemoMismatch(
+                "Proof 4 kept what Formplayer and the Web Apps client made of a saved app by its build's files and"
+                " what HQ's Web Apps page hands the client of the app, and serving it again gave another record."
+                " A served state reads something the key does not name; compare the two records."
+            )
+        self.served_kept[key] = record
+        return record, side["trace"], reads
+
     # One save's stored app, build and trace ----------------------------------------------------------------
 
     def after_save(self, over, editor, *, keep=False):
@@ -1200,9 +1294,12 @@ class _Observation:
         found["archive"] = archive_record(device_archive(outcome, held.app), self.blobs) if differs else None
         answers = read_xpath(self.core_runner, xpath_pairs(over.held.stored, stored, over.build, outcome))
         found["xpath"] = self.blobs.put_json(answers) if answers else None
+        found["served"], served_trace, served_reads = self.served_after(over, held, outcome, differs)
         if not keep:
             return found, None
-        return found, Base(held, outcome, hq_build=hq_build, fallback=over)
+        left = Base(held, outcome, hq_build=hq_build, fallback=over)
+        left.served_trace, left.served_reads = served_trace, served_reads
+        return found, left
 
     def previous_of(self, over):
         """The build HQ keeps of ``over`` and what names it: B's made once (``prepare``), a first Vellum save's
@@ -1537,6 +1634,14 @@ class _Observation:
 @contextmanager
 def _nothing():
     yield {}
+
+
+def _serves():
+    """Whether the unit serves each state to Formplayer and the Web Apps client: its served hook is among the
+    hooks it runs (``proof.observe.unit.HOOKS``; a test that observes without it serves nothing here either)."""
+    from proof.observe import unit
+
+    return any(name == "served" for name, _, _, _ in unit.hook_modules())
 
 
 def transcripts_spec_digest(spec, state):

@@ -36,9 +36,11 @@ The record holds no id Formplayer drew, no time and no path: HQ's ids in it
 document (``proof.webapps.hq``), so the same inputs give the same bytes
 (``test_observe.py``).
 
-This is the observation only. No check judges it yet, so the lane's own
-observation of a document does not make it, and nothing stores it; "Web
-Apps in the lane" in ``proof/README.md`` says where it joins the unit.
+``observe`` makes the record over a build released into a check's own
+project (``proof.webapps.hq``), for this package's tests. ``shown`` is what
+a document's unit keeps (``proof.observe.served``): the same record over a
+state HQ serves with its own views, on the walk Formplayer already made of
+it, which proofs 3 and 4 then compare.
 """
 
 from __future__ import annotations
@@ -105,12 +107,7 @@ def replay(app_name: str, runs: Sequence[Mapping[str, Any]]) -> list[dict]:
     return made
 
 
-def observe(project: Project, release: Release, runner, driver) -> dict[str, Any]:
-    """The Web Apps observation of one released build of ``project``'s app."""
-    session = Session(project, release, runner, driver)
-    walk = Walk(runner, session.hq, domain=project.domain, app_id=release.build_id).run()
-    script = script_of(walk)
-    run = session.run(replay(release.doc["name"], walk["runs"]))
+def _recorded(runner, driver, version, script, run) -> dict[str, Any]:
     if run.page_errors:
         raise AssertionError(f"The Web Apps client raised while it replayed the walk: {run.page_errors}")
     screens = run.screens
@@ -119,7 +116,7 @@ def observe(project: Project, release: Release, runner, driver) -> dict[str, Any
             **dict((runner.ready or {}).get("formplayer") or {}),
             "chromium": (driver.ready or {}).get("chromium"),
         },
-        "build": {"version": release.version},
+        "build": {"version": version},
         "home": screens[0],
         "runs": [],
     }
@@ -134,3 +131,21 @@ def observe(project: Project, release: Release, runner, driver) -> dict[str, Any
             f"The Web Apps replay read {len(screens)} screens where the walk's {len(script)} runs call for {cursor}."
         )
     return recorded
+
+
+def observe(project: Project, release: Release, runner, driver) -> dict[str, Any]:
+    """The Web Apps observation of one released build of ``project``'s app."""
+    session = Session(project, release, runner, driver)
+    walk = Walk(runner, session.hq, domain=project.domain, app_id=release.build_id).run()
+    run = session.run(replay(release.doc["name"], walk["runs"]))
+    return _recorded(runner, driver, release.version, script_of(walk), run)
+
+
+def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
+    """The client's screens on a walk Formplayer already made of a state HQ serves with its own views
+    (``proof.formplayer.hq.Served``): the walk's runs replayed in the browser, in one run of the served state
+    (the worker signed in, HQ's state put back after it)."""
+    session = Session(served, served, served.runner, driver)
+    with served.run("webapps"):
+        run = session.run(replay(served.doc["name"], walk["runs"]))
+    return _recorded(served.runner, driver, served.version, script_of(walk), run)

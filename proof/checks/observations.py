@@ -210,6 +210,9 @@ OPERATION_CHECKS = {
     "case-processing": "proof3",
     "restore-proof4": "proof4",
 }
+# The check that holds what HQ noted in a hook's operations and requests, where it is not the hook's own name:
+# a state served to Formplayer and the Web Apps client at A or with B aligned to A is proof 3's.
+HOOK_CHECKS = {"served": "proof3"}
 # Each part's state, as an artifact names it. Under ``same_as`` a B-edit's part is B's record, which holds
 # exactly the operations B-edit's own observation runs (``proof.observe.unit._Unit.observe_b``).
 STATES = (("a", "A"), ("b", "B"), ("b_aligned", "B"), ("b_edit", "B-edit"))
@@ -218,7 +221,7 @@ STATES = (("a", "A"), ("b", "B"), ("b_aligned", "B"), ("b_edit", "B-edit"))
 def operation_check(entry):
     """The check an operation's (or a hook's request's) notes are held by."""
     if "hook" in entry:
-        return entry["hook"]
+        return HOOK_CHECKS.get(entry["hook"], entry["hook"])
     return OPERATION_CHECKS.get(entry["label"].partition(":")[0], "bar")
 
 

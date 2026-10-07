@@ -88,6 +88,7 @@ DOWNLOAD = "direct_ccz"
 RECEIVERS = frozenset({"receiver", "receiver_secure", "receiver_secure_with_app_id", "receiver_post_with_app_id"})
 SEARCHES = frozenset({"remote_search", "app_aware_remote_search"})
 CLAIM = "claim_case"
+RESTORE = "ota_restore"
 PASSWORD = "proof-worker-password"
 
 
@@ -128,6 +129,25 @@ def django_request(request: HqRequest):
     return RequestFactory().generic(
         request.method, target, data=request.body, content_type=content_type, secure=True, **extra
     )
+
+
+@contextmanager
+def _language_put_back():
+    """The thread's active language as it was before the block. Django's ``LocaleMiddleware`` activates each
+    request's language for its thread and leaves it active, which a server's next request replaces; here the
+    next thing the thread renders may be a page HQ answers with no middleware (``proof.editors.hq``), which
+    must not inherit a language Formplayer's request chose."""
+    from django.utils import translation
+    from django.utils.translation import trans_real
+
+    held = getattr(trans_real._active, "value", None)
+    try:
+        yield
+    finally:
+        if held is None:
+            translation.deactivate()
+        else:
+            trans_real._active.value = held
 
 
 @contextmanager
@@ -216,6 +236,8 @@ class HqViews:
     submissions: list = field(default_factory=list)
     searches: list = field(default_factory=list)
     claims: list = field(default_factory=list)
+    # Each restore HQ answered, whole: the ids it holds are the app's and HQ's, never Formplayer's.
+    restores: list = field(default_factory=list)
     # Every soft assertion HQ noted answering, with the request's label (its place in the run).
     noted: list = field(default_factory=list)
     _run: bytes = b""
@@ -240,13 +262,17 @@ class HqViews:
         if url_name == DOWNLOAD and request.method == "GET":
             app_id = (parse_qs(request.query).get("app_id") or [""])[0]
             if app_id in self.archives:
-                self.asked.append(("archive", "named"))
                 self.exchanges.append(Asked(request.method, request.path, "named-archive", 200))
                 return HqAnswer(200, self.archives[app_id], (("Content-Type", "application/zip"),))
         answer, asked = self._answered(request, url_name)
         self.exchanges.append(asked)
-        self.asked.append((url_name or "unresolved", str(answer.status)))
+        if url_name != DOWNLOAD:
+            # Whether Formplayer asks for an archive again depends on what the same Formplayer process installed
+            # before, so a walk's record of what a step asked HQ leaves the download out (``exchanges`` keeps it).
+            self.asked.append((url_name or "unresolved", str(answer.status)))
         self._kept(request, url_name)
+        if url_name == RESTORE and answer.status == 200:
+            self.restores.append(answer.body)
         return answer
 
     def _answered(self, request: HqRequest, url_name):
@@ -267,6 +293,7 @@ class HqViews:
             index(self.unit),
             _raised_by_views(raised),
             _Errors() as errors,
+            _language_put_back(),
         ):
             response = _handler().get_response(django_request(request))
             if hasattr(response, "render") and not getattr(response, "is_rendered", True):
@@ -499,6 +526,10 @@ def save_cases(unit, database, worker):
     from corehq.apps.hqcase.utils import submit_case_blocks
 
     for case in database.cases:
+        if case.case_id == casedata.USERCASE_ID:
+            # The worker's user case is HQ's to make, and HQ made it when it saved the worker, where the project
+            # has user cases (``callcenter/sync_usercase.py::sync_usercases``).
+            continue
         submit_case_blocks(
             [case_block(case, database)],
             unit.domain,
@@ -538,6 +569,28 @@ class Served:
     # The Formplayer runner the session is served to (its Redis is HQ's too), or None.
     runner: object = None
     _runs: int = 0
+    _archive: bytes | None = None
+
+    def archive(self) -> bytes:
+        """The released build as HQ's archive download serves it (``hqmedia/views.py::iter_index_files``),
+        zipped."""
+        from proof.hq import operations
+        from proof.webapps import hq as webapps_hq
+
+        if self._archive is None:
+            self._archive = webapps_hq._archive(operations.held_app(self.unit, self.build_id))
+        return self._archive
+
+    @property
+    def acting(self):
+        """Who a page request is answered for (``proof.hq.requests``): the project space and the worker."""
+        from proof.webapps.hq import Worker
+
+        return Worker(self.unit.domain, self.worker)
+
+    @property
+    def release(self):
+        return self
 
     @property
     def domain(self) -> str:
@@ -578,7 +631,17 @@ def _redis_of(runner):
 
 @contextmanager
 def serve(
-    unit, document, app_id, *, runner=None, operation=None, label="A", previous=None, change=None, archives=None, edit=False
+    unit,
+    document,
+    app_id,
+    *,
+    runner=None,
+    operation=None,
+    label="A",
+    previous=None,
+    change=None,
+    archives=None,
+    edit=False,
 ):
     """The app the unit holds, as HQ serves it to a Formplayer session, inside a fork that puts the unit back.
 

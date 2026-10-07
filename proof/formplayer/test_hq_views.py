@@ -8,7 +8,6 @@ from proof.formplayer import apps
 from proof.formplayer import hq as formplayer_hq
 from proof.formplayer.walk import Walk
 
-
 SCRATCH = (
     "case-operation-query",
     "search-browse",
@@ -34,9 +33,7 @@ def test_formplayer_walks_a_build_hqs_own_views_answer(hq, core_runner, formplay
     document = corpus.load(corpus.corpus_root()).document(document_id)
     with apps.published(document, core_runner) as published:
         with formplayer_hq.serve(published.unit, document, published.app_id, runner=formplayer_runner) as served:
-            walk = Walk(
-                formplayer_runner, served.hq, domain=served.domain, app_id=served.build_id, scope=served.run
-            )
+            walk = Walk(formplayer_runner, served.hq, domain=served.domain, app_id=served.build_id, scope=served.run)
             trace = walk.run()
             exchanges = [vars(asked) for asked in served.hq.exchanges]
     evidence("trace", trace)
@@ -45,3 +42,24 @@ def test_formplayer_walks_a_build_hqs_own_views_answer(hq, core_runner, formplay
     assert [run["end"] for run in trace["runs"]] and all(run["end"] != "refused" for run in trace["runs"]), [
         run["end"] for run in trace["runs"]
     ]
+
+
+def test_the_client_shows_a_served_state(hq, core_runner, formplayer_runner, editor_driver, evidence):
+    from proof.checks import corpus
+    from proof.observe import served as served_module
+    from proof.observe.record import Blobs
+
+    document = corpus.load(corpus.corpus_root()).document("targeted-survey-menu")
+    blobs = Blobs()
+    with apps.published(document, core_runner) as published:
+        with served_module.serving(
+            published.unit, document, published.app_id, driver=editor_driver, blobs=blobs, label="A"
+        ) as held:
+            side, trace = held.formplayer()
+            session_module = __import__("proof.webapps.session", fromlist=["Session"])
+            session = session_module.Session(held.served, held.served, held.served.runner, editor_driver)
+            from proof.webapps.observe import replay
+
+            with held.served.run("webapps"):
+                run = session.run(replay(held.served.doc["name"], trace["runs"]), deadline=25.0)
+    evidence("screens", run.screens)

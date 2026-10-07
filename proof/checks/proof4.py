@@ -999,6 +999,10 @@ class State:
     stored: Stored
     build: object
     sessions: dict
+    # What Formplayer and the Web Apps client made of the state once served (``proof.observe.served``): its
+    # Formplayer side record and the client's screens; a save's where it was served, else those of the state it
+    # was made over, which stand for it. None where the state was not served.
+    served: dict | None = None
 
 
 class _Judged:
@@ -1014,7 +1018,10 @@ class _Judged:
         self.b_build = b_build
         stored_json = blobs.get_json(record["stored"])
         self.baseline = record["baseline"]
-        self.b = State(stored_json, stored_from(stored_json), b_build, self.baseline)
+        served = record.get("served") or {}
+        self.b = State(
+            stored_json, stored_from(stored_json), b_build, self.baseline, served if served.get("served") else None
+        )
         self.differences = []
         self.saves = []
 
@@ -1075,10 +1082,50 @@ class _Judged:
                 behavior, save["ran"] = self.behavior_differences(editor, base, built, entry.get("trace"))
                 found += behavior
             trace = entry.get("trace")
-            left = State(stored_json, after, built, base.sessions if trace is None else trace)
+            served = entry.get("served")
+            if served is not None and base.served is not None:
+                found += self.served_differences(editor, base.served, served, content_versions(base.build, built))
+            left = State(
+                stored_json,
+                after,
+                built,
+                base.sessions if trace is None else trace,
+                base.served if served is None or base.served is None else {**base.served, **served},
+            )
         save["differences"] = len(found)
         self.differences.extend(self.over.named(difference) for difference in found)
         return left
+
+    def served_differences(self, editor, base, served, versions=None):
+        """What Formplayer and the Web Apps client make of the saved app against the state it was saved over
+        (``proof.checks.compare.served``): Formplayer's sessions (``formplayer@<editor>``), the client's screens
+        where the observation showed them (``webapps@<editor>``: it shows them wherever Formplayer's answers or
+        what HQ's page hands the client differ, and the same answers and page show the same screens), and a
+        release whose archive is not the build compared above (``release@<editor>``)."""
+        from proof.checks.compare import served as compare
+
+        found = compare.formplayer_differences(
+            self._blob(base["formplayer"]["trace"]),
+            self._blob(served["formplayer"]["trace"]),
+            check=CHECK,
+            document=self.document,
+            artifact="formplayer",
+            versions=versions,
+        )
+        if served.get("webapps") is not None and base.get("webapps") is not None:
+            found += compare.webapps_differences(
+                self._blob(base["webapps"]),
+                self._blob(served["webapps"]),
+                check=CHECK,
+                document=self.document,
+                artifact="webapps",
+            )
+        if served.get("releaseDiffers"):
+            cause = "/release-differs"
+            found.append(
+                Difference(CHECK, self.document, "release", cause, cause, "refused", None, served["releaseDiffers"])
+            )
+        return _named(found, editor)
 
     def behavior_differences(self, editor, base, built, trace):
         """The saved build run as proof 3 runs two HQ builds, against the build of the state it was made over
@@ -1179,6 +1226,28 @@ def judge_b(document, record, blobs, over: Over, b_build, lookup_upload=None):
 # A document ---------------------------------------------------------------------------
 
 
+def edit_refusals(document, records, name, record):
+    """Each request HQ's own views refused while Formplayer walked B-edit that they did not refuse while it
+    walked A (``formplayer``, ``compare.served.refusal_differences``): what the edit's publish made HQ refuse a
+    worker. A's own are proof 3's."""
+    from proof.checks.compare import served as compare
+
+    held = record.get("served") or {}
+    if not held.get("served"):
+        return []
+    a = ((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}
+    known = {
+        (entry.get("view"), entry.get("status"), entry.get("raised"))
+        for entry in ((a.get("A") or {}).get("formplayer") or {}).get("hq") or []
+    }
+    new = [
+        entry
+        for entry in held["formplayer"]["hq"]
+        if (entry.get("view"), entry.get("status"), entry.get("raised")) not in known
+    ]
+    return compare.refusal_differences(new, check=CHECK, document=document, artifact="formplayer")
+
+
 def _bs(document):
     """Each B proof 4 saves over, in the order the document's exports name their configurations."""
     for name in document.exports:
@@ -1211,4 +1280,6 @@ def document_editability(document, records):
         differences, judged = judge_b(document.id, record, records.blobs, over, b_build, view.lookup_uploads.get(state))
         found += differences
         saves += judged
+        if state == EDIT:
+            found += [over.named(d) for d in edit_refusals(document.id, records, name, record)]
     return found + observations.soft_assertion_differences(records, CHECK), saves

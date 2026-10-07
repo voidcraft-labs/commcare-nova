@@ -159,6 +159,11 @@ class Session:
     driver: EditorDriver
 
     def __post_init__(self):
+        served = getattr(self.project, "hq", None)
+        if served is not None:
+            # A state HQ serves with its own views (``proof.formplayer.hq.Served``): they answer Formplayer.
+            self.hq = served
+            return
         unit = self.project.unit
         self.hq = apps.answers(
             unit,
@@ -169,6 +174,12 @@ class Session:
         )
         # HQ names a mobile worker to Formplayer by their full username (session_details_endpoint/views.py).
         self.hq.username = self.project.worker.username
+
+    @property
+    def session_key(self) -> str:
+        """The Django session the worker's browser holds: the one HQ made for them where HQ's own views answer,
+        else the name the harness's answers know the worker by."""
+        return getattr(self.hq, "session_key", None) or SESSION_KEY
 
     @property
     def home(self) -> str:
@@ -190,7 +201,7 @@ class Session:
             domain=self.project.domain,
             username=self.hq.username,
             app_id=self.release.build_id,
-            session_key=SESSION_KEY,
+            session_key=self.session_key,
         )
         worker = {"domain": self.project.domain, "username": self.hq.username, "restoreAs": None}
         web.post("/clear_user_data", worker)
@@ -266,7 +277,7 @@ class Session:
         try:
             with override_settings(FORMPLAYER_URL_WEBAPPS=FORMPLAYER_PREFIX), static.compiled():
                 run = self.driver.run(
-                    steps, answer=answer, deadline=deadline, cookies={SESSION_COOKIE: SESSION_KEY}, seed=seed
+                    steps, answer=answer, deadline=deadline, cookies={SESSION_COOKIE: self.session_key}, seed=seed
                 )
         except EditorDriverError as error:
             refused = "".join(
@@ -279,6 +290,8 @@ class Session:
                 f"{EditorRunFailed('The Web Apps run', error, answers)}"
                 f"\nFormplayer's failed answers:{refused or ' none'}"
                 f"\nFormplayer's exchanges: {[(e.method, e.path, e.status) for e in exchanges]}"
+                f"\nHQ's answers: {[(e.method, e.path, e.status) for e in answers.exchanges]}"
+                f"\nStatic files: {statics}"
                 f"\nThe run so far: {json.dumps(outcomes, ensure_ascii=False)[:6000]}"
             ) from error
         answers.check()
