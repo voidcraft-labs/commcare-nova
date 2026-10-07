@@ -16,6 +16,15 @@
 
 ARG PYTHON_IMAGE=python:3.13-slim-bookworm@sha256:2325bb286ec344af3e5898cc224b5844e2707ac6e26b1632516fd3edc84a5e26
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.10.4@sha256:4cac394b6b72846f8a85a7a0e577c6d61d4e17fe2ccee65d9451a8b3c9efb4ac
+# Connect's Python (its pyproject.toml requires 3.11, and its own Dockerfile
+# runs python:3.11-slim-bookworm), on the same Debian as the image's.
+ARG CONNECT_PYTHON_IMAGE=python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
+# What the Connect runtime is laid over: the stage holding everything else
+# (`hq-full`), or an image already built from this recipe, which rebuilds the
+# Connect runtime alone:
+#   docker build $(node proof/image/build-args.mjs) --build-arg FULL_BASE=<image> \
+#     --target full -f proof/image/Dockerfile -t nova-proof:dev .
+ARG FULL_BASE=hq-full
 
 FROM ${UV_IMAGE} AS uv
 
@@ -57,6 +66,37 @@ COPY --from=sources /opt/hq/.python-version /opt/hq/pyproject.toml /opt/hq/uv.lo
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --group test --no-install-project --project /tmp/hq-project \
   && rm -rf /tmp/hq-project
+
+# ---------------------------------------------------------------------------
+# Connect's virtualenv, from Connect's own lock at its pin, on Connect's
+# Python: the environment Connect's own tests run in (its default groups),
+# which holds the factories the Connect proof makes an opportunity with
+# (proof/connect/driver.py). Connect's checkout carries no
+# license file, so only its lock is read here and none of its source reaches
+# the image: the lane fetches Connect at its pin when it runs
+# (proof/connect/runtime.py). The interpreter and the virtualenv keep these
+# paths in the final image, where `python3` is another version, so the
+# virtualenv names its interpreter by version.
+FROM ${CONNECT_PYTHON_IMAGE} AS connect-venv
+ARG CONNECT_COMMIT
+RUN test -n "$CONNECT_COMMIT"
+COPY --from=uv /uv /usr/local/bin/uv
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git build-essential libpq-dev \
+  && rm -rf /var/lib/apt/lists/*
+COPY proof/image/fetch-commit.sh /usr/local/bin/fetch-commit
+ENV UV_PROJECT_ENVIRONMENT=/opt/connect-venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+RUN --mount=type=cache,target=/root/.cache/uv \
+    sh /usr/local/bin/fetch-commit https://github.com/dimagi/commcare-connect.git "$CONNECT_COMMIT" /tmp/connect \
+  && mkdir /tmp/connect-project \
+  && cp /tmp/connect/pyproject.toml /tmp/connect/uv.lock /tmp/connect-project/ \
+  && uv sync --frozen --no-install-project --project /tmp/connect-project \
+  && rm -rf /tmp/connect /tmp/connect-project \
+  && ln -sfn /usr/local/bin/python3.11 /opt/connect-venv/bin/python \
+  && printf '%s\n' "$CONNECT_COMMIT" > /opt/connect-venv/proof-connect-pin
 
 # ---------------------------------------------------------------------------
 # CommCare Core compiled at its pin, with the Gradle cache that its tests
@@ -162,8 +202,8 @@ COPY proof/image/hq-schema/ /opt/proof-image/hq-schema/
 RUN /opt/proof-image/hq-schema/build.sh
 
 # ---------------------------------------------------------------------------
-# The full image.
-FROM ${PYTHON_IMAGE} AS full
+# Everything but the Connect runtime.
+FROM ${PYTHON_IMAGE} AS hq-full
 ARG JAVAPARSER_VERSION=3.28.2
 ARG JAVAPARSER_SHA256=b5499a3b1c40b16c0671fabe478c9aafeab38160c6fde74a6c13f42d86716ecd
 RUN apt-get update \
@@ -231,6 +271,33 @@ COPY --from=editors /opt/editors /opt/editors
 COPY --from=editors /opt/hq/webpack/_build /opt/hq/webpack/_build
 
 # ---------------------------------------------------------------------------
+# The full image: the Connect runtime over everything else. It holds what
+# Connect's form receiver runs on and none of Connect: its Python and its
+# virtualenv, the libraries its own Dockerfile installs for GeoDjango and
+# WeasyPrint, and the two services its docker-compose.yml starts beside it, a
+# Postgres 15 with PostGIS and a Redis, which the lane starts as its own
+# processes for a Connect group and stops with it (proof/connect/runtime.py).
+# No cluster is created here: each run makes its own in a temporary directory.
+FROM ${FULL_BASE} AS full
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-common \
+  && sed -i 's/^#\?create_main_cluster.*/create_main_cluster = false/' /etc/postgresql-common/createcluster.conf \
+  && grep -qx 'create_main_cluster = false' /etc/postgresql-common/createcluster.conf \
+  && apt-get install -y --no-install-recommends \
+     binutils libproj-dev gdal-bin \
+     libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+     postgresql-15 postgresql-15-postgis-3 redis-server \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=connect-venv /usr/local/bin/python3.11 /usr/local/bin/python3.11
+COPY --from=connect-venv /usr/local/lib/libpython3.11.so.1.0 /usr/local/lib/libpython3.11.so.1.0
+COPY --from=connect-venv /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=connect-venv /opt/connect-venv /opt/connect-venv
+RUN ldconfig \
+  && /opt/connect-venv/bin/python -c "import django, psycopg2, rest_framework, oauth2_provider, geopy, jsonpath_ng, factory; from django.contrib.gis import gdal, geos; print(django.get_version(), gdal.gdal_version().decode(), geos.geos_version().decode())"
+ENV PROOF_CONNECT_VENV=/opt/connect-venv \
+    PROOF_CONNECT_POSTGRES=/usr/lib/postgresql/15/bin
+
+# ---------------------------------------------------------------------------
 # The full image without what the lane never opens (a traced run of the lane,
 # its editors and the surface extraction opened none of it):
 # - the full Chromium: every launch the harness makes is headless with no
@@ -244,7 +311,10 @@ COPY --from=editors /opt/hq/webpack/_build /opt/hq/webpack/_build
 # - the JDK's jmods (jlink's input) and Node's C headers (native addons' input);
 # - Mesa's DRI drivers and GLX, and the LLVM and z3 they load: the headless
 #   shell renders with the SwiftShader it bundles and links only libgbm of
-#   Mesa, which stays.
+#   Mesa, which stays. Postgres's JIT is the one other thing that loads LLVM,
+#   and the Connect runtime's Postgres runs with it off
+#   (proof/connect/runtime.py); what the Connect runtime links is held whole
+#   below.
 FROM full AS pruned
 RUN set -eu; \
     rm -rf /opt/ms-playwright/chromium-[0-9]*; \
@@ -267,7 +337,9 @@ RUN set -eu; \
     rm -rf /usr/lib/*-linux-gnu/dri /usr/lib/*-linux-gnu/libLLVM-*.so* /usr/lib/*-linux-gnu/libz3.so* \
            /usr/lib/*-linux-gnu/libGLX_mesa.so* /usr/lib/*-linux-gnu/libglapi.so*; \
     ldconfig; \
-    ! ldd /opt/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell | grep 'not found'
+    ! ldd /opt/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell | grep 'not found'; \
+    ! ldd /usr/lib/postgresql/15/bin/postgres /usr/lib/postgresql/15/lib/postgis-3.so /usr/bin/redis-server | grep 'not found'; \
+    /opt/connect-venv/bin/python -c "from django.contrib.gis import gdal, geos; gdal.gdal_version(); geos.geos_version()"
 
 # The image every run pulls: the pruned tree as one layer, so nothing pruned
 # is downloaded, with the full image's configuration restated (a scratch
@@ -287,6 +359,8 @@ ENV PATH=/opt/hq-venv/bin:/opt/gradle/bin:/opt/node/bin:/usr/local/bin:/usr/loca
     PROOF_CORE=/opt/core \
     PROOF_ANDROID=/opt/android \
     PROOF_HQ_SCHEMA=/opt/hq-schema/hq.sql \
+    PROOF_CONNECT_VENV=/opt/connect-venv \
+    PROOF_CONNECT_POSTGRES=/usr/lib/postgresql/15/bin \
     PYTHONPATH=/opt/proof-py \
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
 CMD ["python3"]

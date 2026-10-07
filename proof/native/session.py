@@ -26,27 +26,21 @@ git's helpers, Core's test JVM), is stopped and reaped before the call that
 started it returns, however it ended (``proof.processes``).
 """
 
-import json
 import os
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from pathlib import Path
 
-from proof import processes
+from proof.connect import checkout as connect_checkout
+from proof.connect.checkout import Checkout, CheckoutFailed
 from proof.hq.boot import GUARD, HarnessRefusal, boot
 from proof.native import core_suite, produce
 from proof.native.families import CORE_CLASSES, FAMILIES, MEDIA_CERTIFICATE
 
 WORKTREE = Path(__file__).resolve().parents[2]
-# One shallow fetch of one commit.
-CHECKOUT_TIMEOUT_SECONDS = 300
-PINS = WORKTREE / "proof" / "pins.json"
-FETCH_COMMIT = WORKTREE / "proof" / "image" / "fetch-commit.sh"
 
 
 class ProducerFailed(RuntimeError):
@@ -59,16 +53,6 @@ class StepFailed(RuntimeError):
 
 class CoreArtifactMissing(AssertionError):
     """A Core class did not write the artifact an HQ check reads after it."""
-
-
-class CheckoutFailed(RuntimeError):
-    """An upstream the proofs read at run time could not be fetched at its pin."""
-
-
-@dataclass(frozen=True)
-class Checkout:
-    path: Path
-    commit: str
 
 
 def native_output_dir():
@@ -150,12 +134,10 @@ class NativeSession:
     def connect_checkout(self) -> Checkout:
         """commcare-connect at its pin (proof/pins.json), fetched once for the session.
 
-        Connect is never in the harness image (its checkout carries no
-        license file), so the Connect proof fetches exactly the pinned commit,
-        shallowly, with the image recipe's own ``fetch-commit.sh``, into the
-        session's scratch directory. ``git`` runs as a child process, so HQ's
-        network guard (which refuses this Python process's sockets) does not
-        stand in its way; this is the lane's only network reach.
+        Connect's source is never in the harness image (its checkout carries
+        no license file), so the Connect proof fetches exactly the pinned
+        commit into the session's scratch directory
+        (``proof.connect.checkout.fetch``).
         """
         if self._connect is None:
             started = time.perf_counter()
@@ -170,28 +152,9 @@ class NativeSession:
         return self._connect
 
     def _fetch_connect(self) -> Checkout:
-        pin = json.loads(PINS.read_text())["commcare-connect"]
-        directory = self._scratch / "commcare-connect"
-        log = self.out / "logs" / "commcare-connect.fetch.log"
-        command = ["sh", str(FETCH_COMMIT), pin["repository"], pin["commit"], str(directory)]
-        try:
-            with log.open("wb") as output:
-                returncode = processes.run(
-                    command, timeout=CHECKOUT_TIMEOUT_SECONDS, stdout=output, stderr=subprocess.STDOUT
-                )
-        except processes.TimedOut:
-            raise CheckoutFailed(
-                f"Fetching commcare-connect at {pin['commit']} took more than {CHECKOUT_TIMEOUT_SECONDS} s and was "
-                f"stopped, with every process it started. The Connect proof reads Connect's extractor at that pin; "
-                f"check the lane's network. The fetch's output is in {log}."
-            ) from None
-        if returncode != 0:
-            raise CheckoutFailed(
-                f"The Connect proof could not fetch commcare-connect at its pin {pin['commit']} from "
-                f"{pin['repository']} (fetch-commit.sh exited with status {returncode}). The lane needs "
-                f"network for this one fetch; its output ({log}) ends:\n{log.read_text(errors='replace')[-2000:]}"
-            )
-        return Checkout(directory, pin["commit"])
+        return connect_checkout.fetch(
+            self._scratch / "commcare-connect", self.out / "logs" / "commcare-connect.fetch.log"
+        )
 
     # HQ steps -------------------------------------------------------------
 

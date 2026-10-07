@@ -66,11 +66,13 @@ DOCUMENT_KINDS = ("corpus:", "control:")
 # (``proof.native.produce``), each through a test module or a conftest:
 # checks' own tests, the editors' corpus sample, HQ's branches and publish
 # capture, the lane's nested servers, every native family, the spelling
-# rules' own tests (the documents they spell two ways), and the evidence
-# store's guarded observation of a document. Like a document's group, each
+# rules' own tests (the documents they spell two ways), the Connect proofs
+# (the Connect apps they run), and the evidence store's guarded observation
+# of a document. Like a document's group, each
 # runs in the main phase, once the corpus is in place.
 CORPUS_PACKAGES = (
     "proof/checks",
+    "proof/connect",
     "proof/editors",
     "proof/hq",
     "proof/lane",

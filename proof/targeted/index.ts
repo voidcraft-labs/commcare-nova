@@ -12,6 +12,12 @@ import {
 	closeConditions,
 	closeConditionUnparsable,
 } from "./documents/closeConditions";
+import {
+	connectDeliverKeyNames,
+	connectDeliverRename,
+	connectLearnKeyNames,
+	connectLearnRename,
+} from "./documents/connectApps";
 import { customTile } from "./documents/customTile";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
@@ -76,6 +82,10 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	parentFormPreviousFrame,
 	wireEqualRepublish,
 	searchButtonLabel,
+	connectDeliverRename,
+	connectLearnRename,
+	connectLearnKeyNames,
+	connectDeliverKeyNames,
 ];
 
 /** Every targeted document, in a fixed order. */

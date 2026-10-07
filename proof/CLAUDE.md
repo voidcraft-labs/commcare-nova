@@ -110,7 +110,9 @@ harness keeps, each with its reason.
   never sleeps, and owns every process it starts: run commands through
   `proof/processes.py`, which stops and reaps a command's whole process group.
   Python in the image is CPython 3.13 with the standard library and HQ's
-  virtualenv, no new dependencies
+  virtualenv, no new dependencies; `proof/connect/driver.py` alone runs on
+  Connect's interpreter and virtualenv, and imports only the standard
+  library, Django and Connect
   (`uvx ruff check --line-length 120 --select F,E,W,I,B`,
   `uvx ruff format --line-length 120`). pytest tests are `test_*.py`; the
   TypeScript tests under `proof/**/__tests__/` run in ordinary CI's Vitest.
@@ -127,6 +129,15 @@ harness keeps, each with its reason.
   API newer than 3.12. `proof/lane/test_gate.py` holds the gate's imports to
   the standard library, but on the image's 3.13, so a 3.13-only API passes the
   lane's tests and breaks CI's gate.
+- **Connect runs as Connect.** The Connect proof (`proof/connect`) gives
+  Connect only what its owners' code made: HQ's archive of the app, and HQ's
+  own repeater payload of a submission Core made. Never write a payload or a
+  submission by hand to make a claim about Nova, and never import Connect or
+  Django into the harness's process, which is HQ's: Connect runs in its own
+  process, on its own interpreter, database and Redis
+  (`proof/connect/runtime.py`). What stands in for a person or a device is
+  named where it is done (the opportunity's rows, the archive download, a
+  location fix), and a new stand-in is a claim to justify there.
 - **The repository is public.** Nothing here describes an HQ route usable
   without a credential or any other HQ weakness, holds client data, or
   references a scratch directory or private script.

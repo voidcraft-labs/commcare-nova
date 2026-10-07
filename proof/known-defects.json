@@ -6181,7 +6181,7 @@
 		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/deliver[@id=*]/work_area_id[*]",
 		"document": "connect-deliver-default",
 		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
+		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, and Connect's own receiver leaves the same rows for both spellings (proof/connect/test_receiver.py, finding 55)."
 	},
 	{
 		"id": "d55-connect-work-area-source",
@@ -6192,7 +6192,7 @@
 		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/deliver[@id=*]/work_area_id[*]",
 		"document": "connect-deliver-default",
 		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
+		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, and Connect's own receiver leaves the same rows for both spellings (proof/connect/test_receiver.py, finding 55)."
 	},
 	{
 		"id": "d55-connect-work-area-trace",
@@ -6203,7 +6203,7 @@
 		"path": "/runs/*/trace/*/submission/data/*/deliver[@id=*]/work_area_id[*]",
 		"document": "connect-deliver-default",
 		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
+		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, and Connect's own receiver leaves the same rows for both spellings (proof/connect/test_receiver.py, finding 55)."
 	},
 	{
 		"id": "d53-zero-input-sentinel-trace-params",
