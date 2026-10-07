@@ -19,7 +19,8 @@ What HQ needs for that, each made with HQ's own code by ``serve``:
 
 - **the worker**: ``CommCareUser.create``, with the id and the user data
   the document's case database gives its worker, so HQ's own save signals
-  run (its user case, where the project has them);
+  run (its user case, where the project has them), after the project
+  space's default roles, which HQ makes with a project space;
 - **the worker's cases**: each case of the document's case database
   (``proof.observe.casedata``) written as a case block and submitted
   through HQ's own receiver as the worker
@@ -479,6 +480,18 @@ def worker_username(domain: str) -> str:
     return format_username(casedata.USERNAME, domain)
 
 
+def default_roles(unit):
+    """The project space's default roles, as HQ makes them when a project space is made
+    (``registration/utils.py::request_new_domain`` calls ``initialize_domain_with_default_roles``): a mobile
+    worker is given the default mobile worker role among them. The unit's project space is seeded as a document
+    (``proof.hq.state``), so they are made here, once, where the first worker is."""
+    from corehq.apps.users.models_role import UserRole
+    from corehq.apps.users.role_utils import initialize_domain_with_default_roles
+
+    if not UserRole.objects.filter(domain=unit.domain).exists():
+        initialize_domain_with_default_roles(unit.domain)
+
+
 def create_worker(unit, database):
     """The document's worker as HQ makes a mobile worker (``CommCareUser.create``), under the id the case
     database gives them, with its user data."""
@@ -561,6 +574,7 @@ class Served:
     unit: object
     operation: object
     worker: object
+    app_id: str
     build_id: str
     version: int
     hq: HqViews
@@ -658,12 +672,12 @@ def serve(
     from proof.webapps import hq as webapps_hq
 
     operation = operation or unit.operation
-    _redis_of(runner)
     database = casedata.document_case_database(document, edit=edit)
-    with unit.fork():
+    with hq_redis.shared(None if runner is None else runner.redis_address), unit.fork():
         hq_redis.flush()
         with unit.committing(), index(unit):
             with operation(f"formplayer:worker@{label}", casedata.database_digest(database).encode()):
+                default_roles(unit)
                 worker = create_worker(unit, database)
                 save_cases(unit, database, worker)
             stored = operations.held_app(unit, app_id).to_json()
@@ -679,4 +693,4 @@ def serve(
                 webapps_hq._release(unit, app_id, build._id)
                 build = operations.held_app(unit, build._id)
         hq = HqViews(unit, worker.username, archives=dict(archives or {}))
-        yield Served(unit, operation, worker, build._id, build.version, hq, build.to_json(), runner)
+        yield Served(unit, operation, worker, app_id, build._id, build.version, hq, build.to_json(), runner)

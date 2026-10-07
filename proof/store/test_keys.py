@@ -244,27 +244,34 @@ def test_a_part_key_names_its_inputs_and_no_fingerprint_so_every_image_draws_the
         keys.part_key("b", a.hex(), inputs)
 
 
-def test_only_proof_4s_parts_drive_the_browser_and_their_keys_name_its_code(tmp_path, corpus):
-    # The editor driver reaches an observation only through BContext, which the unit gives the hooks it calls
-    # with observe_b, at B and B-edit: the b and b_edit parts.
-    names = {field.name for field in dataclasses.fields(unit.HookContext)}
-    assert "editor_driver" not in names and "editor_driver" in {f.name for f in dataclasses.fields(unit.BContext)}
-    driving = [(name, states) for name, function, states in unit.HOOKS if function == "observe_b"]
-    assert driving == [("proof4", ("B", "B-edit"))]
-    proof4 = importlib.import_module("proof.observe.proof4")
-    # Its declared inputs at both states are the driver's code, which joins those parts' keys.
-    for state in ("B", "B-edit"):
-        assert proof4.browser_fingerprint() in json.dumps(proof4.inputs(document_of(corpus, "one"), state))
+def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_path, corpus):
+    # A browser reaches an observation only through the contexts the unit gives its hooks: the served hook's at A
+    # (the Web Apps client's screens) and proof 4's at B and B-edit (HQ's editors, and the client after a save).
+    assert "editor_driver" in {field.name for field in dataclasses.fields(unit.HookContext)}
+    assert "editor_driver" in {field.name for field in dataclasses.fields(unit.BContext)}
+    driving = {name: states for name, function, states in unit.HOOKS if name in ("served", "proof4")}
+    assert driving == {"served": ("A",), "proof4": ("B", "B-edit")}
+    browser = importlib.import_module("proof.observe.browser")
+    # Each declares the driver's code among what it reads, which joins those parts' keys.
+    for name, states in driving.items():
+        hook = importlib.import_module(f"proof.observe.{name}")
+        for state in states:
+            assert browser.browser_fingerprint() in json.dumps(hook.inputs(document_of(corpus, "one"), state))
     root = tmp_path / "checkout"
     shutil.copytree(fingerprints.WORKTREE / "proof/editors/driver", root / "proof/editors/driver")
-    before = proof4.browser_fingerprint(root)
+    before = browser.browser_fingerprint(root)
     _edit(root / "proof/editors/driver/driver.mjs", "// edited\n")
-    assert proof4.browser_fingerprint(root) != before
+    assert browser.browser_fingerprint(root) != before
     inputs = unit.document_inputs(document_of(corpus, "one"))
-    declared = {state: {"proof4": {"browser": before}} for state in ("A", "B", "B-edit")}
+    declared = {"A": {"served": {"browser": before}}, **{s: {"proof4": {"browser": before}} for s in ("B", "B-edit")}}
     held = unit.part_keys(inputs, "minimum", DATABASES, declared)
-    for state, changed in (("B", {"b", "b_aligned"}), ("B-edit", {"b_edit"})):
-        edited = unit.part_keys(inputs, "minimum", DATABASES, {**declared, state: {"proof4": {"browser": "edited"}}})
+    # A is every part's parent, so the browser's code at A names them all; at B, B and what is observed over it.
+    for state, hook, changed in (
+        ("A", "served", {"a", "b", "b_aligned", "b_edit"}),
+        ("B", "proof4", {"b", "b_aligned"}),
+        ("B-edit", "proof4", {"b_edit"}),
+    ):
+        edited = unit.part_keys(inputs, "minimum", DATABASES, {**declared, state: {hook: {"browser": "edited"}}})
         assert {part for part in held if held[part] != edited[part]} == changed
 
 

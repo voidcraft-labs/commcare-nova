@@ -27,7 +27,17 @@ the client reads it (``comparable_trace``):
   version in ``appVersion`` (each build HQ makes has its own, as proof 2's
   version clause holds), the address in a refused request's ``url`` (the
   runner's port), and how many ids a run generated (the difference is where
-  they are).
+  they are). An id Formplayer or Core drew is read as one drawn there
+  (``@generated``), whichever of a run's ids it was;
+- one symptom is one difference (``one_symptom``). Where the two sides
+  answer one request with screens of two kinds (a list on one side, an
+  error on the other), that is the difference, at the response's ``type``,
+  with each side's kind, status and what Formplayer said, and the screens'
+  fields are not compared one by one. Where one side's submission was
+  taken and the other's refused, that is the difference, at the submit's
+  ``status``, with what Formplayer said, and what follows from it (the
+  submission HQ did not receive, the screen that did not come next, how
+  the run ended) is not reported again.
 
 Where the two sides' forms carry other namespaces (Nova's local archive
 against HQ's build: proof 1 holds identity), ``xmlns`` maps the other side's
@@ -47,6 +57,7 @@ each as an error.
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import replace
 
 from proof.checks.compare.json_tree import compare_json
@@ -56,6 +67,9 @@ from proof.checks.differences import Difference, pointer_token
 
 # What stands where a pulled XML document was (the document itself is compared as a tree).
 XML = "<xml>"
+# A generated id's mark as a trace writes it (``proof.formplayer.canonical.TOKEN`` and its number), and as read.
+GENERATED_MARK = re.compile(r"@generated:uuid:[0-9]+")
+GENERATED = "@generated"
 # Where Formplayer's trace holds an XML document: a submission's instance, and a form's instance as an answer or
 # a submission's response hands it back (``instanceXml.output``).
 XML_KEYS = frozenset({"instance", "output"})
@@ -128,17 +142,90 @@ def _form_step(step):
         )
         if isinstance(response.get("tree"), list):
             tree = response["tree"]
-        if isinstance(response.get("instanceXml"), dict):
-            shown["instanceXml"] = response["instanceXml"]
     shown["answers"] = answers
     if tree is not None:
         shown["tree"] = tree
     return shown
 
 
+def _unnumbered(value):
+    """Each generated id's mark (``@generated:uuid:<n>``) read as ``GENERATED``: an id's number is its place among
+    the ids its own trace generated, which another trace's differences move."""
+    if isinstance(value, str):
+        return GENERATED_MARK.sub(GENERATED, value) if "@generated:uuid:" in value else value
+    if isinstance(value, dict):
+        return {_unnumbered(key): _unnumbered(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_unnumbered(item) for item in value]
+    return value
+
+
+def _kind(response):
+    """What a response shows: Formplayer's ``type`` for a screen, ``form`` for a form, ``error`` for a refusal."""
+    if not isinstance(response, dict):
+        return None
+    if response.get("status") == "error":
+        return "error"
+    if response.get("session_id") and isinstance(response.get("tree"), list):
+        return "form"
+    return response.get("type")
+
+
+def _said(response):
+    """A response's kind and, for an error, what Formplayer said, in place of its fields, where two sides' kinds
+    differ: one value, so the difference is one."""
+    if not isinstance(response, dict):
+        return response
+    kind = _kind(response)
+    if kind != "error":
+        return {"type": kind}
+    notification = response.get("notification") if isinstance(response.get("notification"), dict) else {}
+    return {"type": f"error: {notification.get('message') or _first_line(response.get('exception'))}"}
+
+
+def _first_line(text):
+    if not isinstance(text, str):
+        return None
+    line = text.strip().splitlines()[0] if text.strip() else ""
+    # An HQ page handed back whole (a 404 or a 500 as HQ renders it) is named, not quoted.
+    return "<an HTML page>" if line.lower().startswith(("<!doctype", "<html")) else line[:300]
+
+
+def one_symptom(before, after):
+    """Two comparable traces with each symptom left as one difference (the module's last point): a response of
+    another kind is its kind alone on both sides, and a submission one side had taken and the other refused is
+    its status and what Formplayer said, with what follows from it taken out of both."""
+    for run_a, run_b in zip(before.get("runs") or [], after.get("runs") or [], strict=False):
+        if not isinstance(run_a, dict) or not isinstance(run_b, dict):
+            continue
+        refused = False
+        for step_a, step_b in zip(run_a.get("steps") or [], run_b.get("steps") or [], strict=False):
+            if not isinstance(step_a, dict) or not isinstance(step_b, dict):
+                continue
+            if "response" in step_a and "response" in step_b:
+                if _kind(step_a["response"]) != _kind(step_b["response"]):
+                    step_a["response"], step_b["response"] = _said(step_a["response"]), _said(step_b["response"])
+            submit_a, submit_b = step_a.get("submit"), step_b.get("submit")
+            if isinstance(submit_a, dict) and isinstance(submit_b, dict):
+                if submit_a.get("status") != submit_b.get("status"):
+                    refused = True
+                    for step, submit in ((step_a, submit_a), (step_b, submit_b)):
+                        notification = (
+                            submit.get("notification") if isinstance(submit.get("notification"), dict) else {}
+                        )
+                        said = notification.get("message")
+                        step["submit"] = {"status": f"{submit.get('status')}: {said}" if said else submit.get("status")}
+                        for consequence in ("submissions", "asked"):
+                            step.pop(consequence, None)
+        if refused:
+            run_a.pop("end", None)
+            run_b.pop("end", None)
+    return before, after
+
+
 def comparable_trace(trace):
     """Formplayer's trace as it is compared (the module's first list)."""
-    shown = copy.deepcopy(trace)
+    shown = _unnumbered(copy.deepcopy(trace))
     for name in ("derived", "generated"):
         shown.pop(name, None)
     for run in shown.get("runs") or []:
@@ -242,8 +329,7 @@ def formplayer_differences(before, after, *, check, document, artifact, xmlns=No
     """
     xmlns = xmlns or {}
     versions = versions or ({}, {})
-    shown_before = comparable_trace(before)
-    shown_after = map_strings(comparable_trace(after), xmlns)
+    shown_before, shown_after = one_symptom(comparable_trace(before), map_strings(comparable_trace(after), xmlns))
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)
     shown_after = _pull_xml(shown_after, "", "", documents_after)

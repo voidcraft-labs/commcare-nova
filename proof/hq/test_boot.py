@@ -124,13 +124,19 @@ def test_the_lanes_postgres_is_reachable(hq):
     assert name == state.database
 
 
-LOCAL_BACKENDS = {"django.core.cache.backends.locmem.LocMemCache", "django.core.cache.backends.dummy.DummyCache"}
+LOCAL_BACKENDS = {
+    "django.core.cache.backends.locmem.LocMemCache",
+    "django.core.cache.backends.dummy.DummyCache",
+    "proof.hq.localcache.RedisShaped",
+}
 
 
 def test_no_cache_hq_holds_reaches_a_network_cache(hq, network):
     census = quickcache_census()
     assert census, "HQ registered no quickcache tiers, so the census proves nothing"
-    assert set(census) == {"django.core.cache.backends.locmem.LocMemCache"}, census
+    # Local memory alone: Django's own backend, and the harness's for the aliases HQ gives Redis
+    # (proof.hq.localcache, the same backend with the two calls HQ's rate counters make).
+    assert set(census) <= LOCAL_BACKENDS and "django.core.cache.backends.locmem.LocMemCache" in census, census
     assert hq.quickcache_tiers_rebound == hq.quickcache_tiers_total
     # Every backend alive, wherever HQ holds it (module globals such as the
     # rate counters' shared cache, instance attributes, default arguments).

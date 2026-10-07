@@ -48,7 +48,7 @@ CLIENT_KEYS = ("langs", "multimedia_map", "name", "profile", "upstream_app_id", 
 def inputs(document, state):
     """What the served observation reads beyond its part's own inputs: the browser's code, for the client's
     screens (the image holds Formplayer and the rest)."""
-    from proof.observe.proof4 import browser_fingerprint
+    from proof.observe.browser import browser_fingerprint
 
     return {"browser": browser_fingerprint()}
 

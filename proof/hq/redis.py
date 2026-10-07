@@ -45,6 +45,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from proof import processes
@@ -90,6 +91,23 @@ def adopt(address: str) -> str:
     GUARD.admit(address, REDIS_PORT)
     _STATE.update(owner=os.getpid(), group=None, address=address, cache=None, directory=None)
     return address
+
+
+@contextmanager
+def shared(address: str | None):
+    """HQ's Redis for the block: the one at ``address`` (a Formplayer runner's, ``adopt``), or one of HQ's own
+    where there is none; and, where HQ had no Redis before the block, none after it, so a path that reaches for
+    Redis outside a served state is refused as it always was."""
+    had = _STATE["owner"] == os.getpid() and _STATE["address"] is not None
+    if address is not None:
+        adopt(address)
+    else:
+        start()
+    try:
+        yield
+    finally:
+        if not had:
+            _stop()
 
 
 def start() -> str:

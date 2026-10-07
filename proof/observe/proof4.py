@@ -98,6 +98,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from proof.observe.browser import browser_fingerprint
 from proof.observe.build import archive_record, device_archive
 from proof.observe.record import bytes_digest, canonical, digest
 
@@ -132,10 +133,8 @@ VERIFY_ENVIRONMENT = "PROOF_VERIFY_MEMOS"
 TRANSCRIPTS_ENVIRONMENT = "PROOF_TRANSCRIPTS"
 
 # The editor driver's own files: the browser's code, fingerprinted apart from the observation partition
-# (``proof.observe.partition.OBSERVATION_EXCLUDED``), which a view's or Vellum run's outputs depend on.
-WORKTREE = Path(__file__).resolve().parents[2]
-BROWSER_PARTITION = "proof/editors/driver"
-
+# (``proof.observe.partition.OBSERVATION_EXCLUDED``), which a view's or Vellum run's outputs depend on
+# (``proof.observe.browser``).
 # How Core's parser reads an XForm's attributes (commcare-core ``xform/parse/XFormParser.java``): the attributes it
 # parses as XPath, each named as ``proof.checks.compare.xml_tree`` names it in a path, with the elements it parses
 # it on (``XPATH``, read through ``XPathParseTool.parseXPath`` or ``XPathReference.getPathExpr``):
@@ -191,17 +190,6 @@ def _json(value):
 
 
 # What the observation reads beyond its part's own inputs ---------------------------------------------------
-
-
-def browser_fingerprint(root=WORKTREE):
-    """The sha256 of the editor driver's files (``proof/editors/driver/**``): each path and its bytes' digest."""
-    base = Path(root, BROWSER_PARTITION)
-    entries = [
-        [path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()]
-        for path in sorted(base.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    ]
-    return "sha256:" + hashlib.sha256(canonical(entries)).hexdigest()
 
 
 def inputs(document, state):
@@ -1101,10 +1089,10 @@ class _Observation:
         self.b = None
         self.held_b = None
         self.raw_b = None
-        # Whether each state is also served to Formplayer and the Web Apps client (the unit's served hook is
-        # there), the walk Formplayer derived on B, and what was kept of each served state by its build's files
-        # and what the client reads of its app.
-        self.serves = _serves()
+        # Whether each state is also served to Formplayer and the Web Apps client (``BContext.serve``: the
+        # unit's served hook runs), the walk Formplayer derived on B, and what was kept of each served state by
+        # its build's files and what the client reads of its app.
+        self.serves = bool(getattr(ctx, "serve", False))
         self.walk = None
         self.served_kept = {}
 
@@ -1634,14 +1622,6 @@ class _Observation:
 @contextmanager
 def _nothing():
     yield {}
-
-
-def _serves():
-    """Whether the unit serves each state to Formplayer and the Web Apps client: its served hook is among the
-    hooks it runs (``proof.observe.unit.HOOKS``; a test that observes without it serves nothing here either)."""
-    from proof.observe import unit
-
-    return any(name == "served" for name, _, _, _ in unit.hook_modules())
 
 
 def transcripts_spec_digest(spec, state):

@@ -13,10 +13,13 @@ the key's kind, so no two kinds of key can meet. Standard library only.
   what the part's record also depends on (``record_scope``): the observation
   code, the image, the Postgres image, the architecture and the
   observation's environment (``environment``). The browser's code is not in
-  it: only proof 4's observation drives the editor driver, inside the ``b``
-  and ``b_edit`` parts, and it names the driver's code in those parts' keys
-  (``proof.observe.proof4.inputs``), so a ``b`` or ``b_edit`` part misses when
-  the driver changes and every other part is kept.
+  it: the observations that drive a browser name the driver's code in their
+  parts' keys themselves (``proof.observe.browser``): the served hook at A,
+  for the Web Apps client's screens (``proof.observe.served.inputs``), and
+  proof 4 at B and B-edit, for HQ's editors
+  (``proof.observe.proof4.inputs``). A is every part's parent, so each part
+  of a unit misses when the driver changes; the ``local`` part, which
+  drives none, is kept.
 - ``document_key(scope, group, files)``: one corpus document or control as
   the observation reads it: its group, every file of its directory
   (``files_digest``), and the document scope (``document_scope``: the record

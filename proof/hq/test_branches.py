@@ -946,9 +946,7 @@ def _unseen_permission(content_type_id):
         )
 
 
-def test_a_row_the_unit_did_not_see_at_a_commit_is_refused_as_its_scope_or_the_unit_ends(
-    hq, core_runner, monkeypatch
-):
+def test_a_row_the_unit_did_not_see_at_a_commit_is_refused_as_its_scope_or_the_unit_ends(hq, core_runner, monkeypatch):
     """A statement run past Django's cursor is no commit point the unit sees: a row it leaves that breaks a deferred
     constraint is refused as its operation ends, or, outside every operation, as the unit ends; with its parent
     saved first, it is accepted. A check's unit, which lets writes outside its operations through, refuses an

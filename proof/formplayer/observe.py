@@ -83,10 +83,12 @@ def walked(served, runner, blobs, *, script=None, app_id=None, archives=()):
     hq = served.hq
     first = len(hq.exchanges)
     walk = Walk(runner, hq, domain=served.domain, app_id=app_id or served.build_id, scope=served.run)
-    trace = marked(walk.run(script), served=served, app_id=app_id, archives=archives)
+    reference = blobs.put_json(marked(walk.run(script), served=served, app_id=app_id, archives=archives))
+    # The trace as its record holds it (JSON's own values), which is what a judge reads.
+    trace = blobs.get_json(reference)
     asked = hq.exchanges[first:]
     recorded = {
-        "trace": blobs.put_json(trace),
+        "trace": reference,
         "hq": _refusals(hq),
         "asked": dict(
             sorted(
@@ -114,9 +116,12 @@ def release_is_the_build(served, files) -> dict | None:
 
     built = {name: content for name, content in arranged(files)}
     released = {}
+    # A build's files name the app they were built from by its id (the addresses of its searches and claims);
+    # HQ builds a release on a copy of the app with an id of its own, so that id is read as the app's.
+    build_id, app_id = served.build_id.encode(), served.app_id.encode()
     with zipfile.ZipFile(io.BytesIO(served.archive())) as archive:
         for name in archive.namelist():
-            released[name] = archive.read(name)
+            released[name] = archive.read(name).replace(build_id, app_id)
     differing = sorted(
         name for name in set(built) | set(released) if name not in PROFILES and built.get(name) != released.get(name)
     )

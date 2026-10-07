@@ -429,6 +429,9 @@ class BContext:
     restore_outcome: dict
     # The build HQ compared this B's forms with when it built it: saved(build(A)).
     previous_build: object = None
+    # Whether B and each save over it are also served to Formplayer and the Web Apps client
+    # (``proof.observe.served``): where the unit's served hook runs.
+    serve: bool = False
 
 
 # Observation -----------------------------------------------------------------------
@@ -729,6 +732,7 @@ class _Unit:
             store=self.store,
             restore_outcome=outcome,
             previous_build=self.saved_a,
+            serve=any(hook == "served" for hook, _, _, _ in self.hooks),
         )
 
     # B and B-edit --------------------------------------------------------------
