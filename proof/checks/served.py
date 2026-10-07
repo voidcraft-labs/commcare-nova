@@ -319,6 +319,7 @@ def one_screen(before, after):
                     said = {"kind": _screen_kind(screen), "alerts": (screen or {}).get("alerts") or []}
                     run["screens"] = [*screens[:index], said]
                     run.pop("stopped", None)
+                    run.pop("script", None)
                 break
         for run in (run_a, run_b):
             if isinstance(run.get("stopped"), dict):

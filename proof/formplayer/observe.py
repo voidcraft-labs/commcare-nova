@@ -15,7 +15,8 @@ handed Nova's bytes for it (``local``).
 What a side's record holds (``walked``):
 
 - ``trace``: the marked trace as a blob (``proof.formplayer.canonical``;
-  the released build's id, which HQ draws, is written ``@build``): every
+  the released build's id and the worker's user case's, which HQ draws
+  for each state it serves, are written ``@build`` and ``@usercase``): every
   request the client sends, Formplayer's own JSON for each, what Formplayer
   asked HQ during each (HQ's view by its URL name, and HQ's status), and
   each submission HQ received;
@@ -41,6 +42,8 @@ from proof.formplayer.walk import Walk, script_of
 
 # What a trace writes for the released build's id, which HQ draws afresh for every build it makes.
 BUILD = "@build"
+# And for the id of the user case HQ made for the worker, which HQ also draws afresh for every state it serves.
+USERCASE = "@usercase"
 LOCAL_APP = "nova-local-archive"
 # A saved build's profile names the build itself (its own id in the addresses it gives a runtime), where the
 # profile HQ writes for the app it is building names the app, so the two are never the same bytes.
@@ -56,7 +59,11 @@ def marked(trace, *, served, app_id=None, archives=()):
     """A served state's trace as a record keeps it: every id Formplayer generated marked, the ids HQ's restores
     and the archives hold left as they are, and the id Formplayer was given for the app written ``BUILD``."""
     given = canonical.given_ids(served.hq.restores, archives)
-    value, generated = canonical.mark(canonical.replace_text(trace, {app_id or served.build_id: BUILD}), given)
+    drawn = {app_id or served.build_id: BUILD}
+    if served.usercase_id:
+        # HQ draws the worker's user case an id of its own each time it makes the worker.
+        drawn[served.usercase_id] = USERCASE
+    value, generated = canonical.mark(canonical.replace_text(trace, drawn), given)
     return {**value, "generated": generated}
 
 

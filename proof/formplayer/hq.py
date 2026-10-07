@@ -591,6 +591,9 @@ class Served:
     doc: dict
     # The Formplayer runner the session is served to (its Redis is HQ's too), or None.
     runner: object = None
+    # The id of the user case HQ made for the worker, which HQ draws afresh for each worker it makes; None
+    # where the project space has no user cases.
+    usercase_id: str | None = None
     _runs: int = 0
     _archive: bytes | None = None
 
@@ -662,6 +665,19 @@ def _released(unit, app, app_id):
     return operations.held_app(unit, build._id)
 
 
+@contextmanager
+def _drawn_for(people: bytes):
+    """HQ's entropy and clock for the block drawn from the case database's own digest, not from the state the
+    unit is in. The worker and their cases are the same in every state a document is served in, so the ids HQ
+    draws making them (the worker's user case, each case's form) are the same in every state too, and HQ's
+    restores of two states list the same cases in the same order: what two states' walks differ in is then the
+    app's, never the order HQ happened to hand a worker their cases in."""
+    from proof.hq import determinism
+
+    with determinism.operation(hashlib.sha256(b"formplayer-worker|" + people).digest(), 1):
+        yield
+
+
 def _redis_of(runner):
     """HQ's Redis: the Formplayer runner's own, which the two share in production, or one of HQ's own where no
     runner is given."""
@@ -703,10 +719,12 @@ def serve(
     with hq_redis.shared(None if runner is None else runner.redis_address), unit.fork():
         hq_redis.flush()
         with unit.committing(), index(unit):
-            with operation(f"formplayer:worker@{label}", casedata.database_digest(database).encode()):
+            people = casedata.database_digest(database).encode()
+            with operation(f"formplayer:worker@{label}", people), _drawn_for(people):
                 default_roles(unit)
                 worker = create_worker(unit, database)
                 save_cases(unit, database, worker)
+                usercase_id = worker.get_usercase_id()
             stored = operations.held_app(unit, app_id).to_json()
             if change is not None:
                 change(stored)
@@ -718,4 +736,6 @@ def serve(
                     app = operations.held_app(unit, app_id)
                 build = _released(unit, app, app_id)
         hq = HqViews(unit, worker.username, archives=dict(archives or {}))
-        yield Served(unit, operation, worker, app_id, build._id, build.version, hq, build.to_json(), runner)
+        yield Served(
+            unit, operation, worker, app_id, build._id, build.version, hq, build.to_json(), runner, usercase_id
+        )
