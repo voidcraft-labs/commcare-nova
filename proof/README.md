@@ -276,9 +276,10 @@ or it fails the lane ("The registers", below).
   reads every archive a device installs of every document, and proofs 1, 3
   and 4 judge what it read ("The Android stage", below), with these left
   out. A device's own sensors and services are not run: no location fix
-  reaches a form (`PollSensorAction` asks the device's location service), so
-  a Connect visit's location on Android is still written by the harness
-  into Core's submission; and no file is given to an image, audio, video,
+  reaches a form (`PollSensorAction` asks the device's location service;
+  the permission a form asks the device for is recorded, `deviceAsked`, and
+  not granted), so a Connect visit's location on Android is still written
+  by the harness into Core's submission; and no file is given to an image, audio, video,
   signature or document question, so a walk leaves one unanswered and ends
   at one that is required. Nothing is sent: a form is saved and applied to
   the device's own case database, and where Android posts a form of an
@@ -1344,15 +1345,23 @@ answers, each difference under an `android@...` artifact):
   stopped, and, where both installed one, whether it is the same app at no
   lower a version); and, of each path alone, each form a worker left
   incomplete before the update that the device no longer opens after it
-  (`/update/reopened/*`, under `android@local.ccz` and `android@B`).
+  (`/update/reopened/*`, under `android@local.ccz` and `android@B`), or
+  whose session, as Android itself stored it, home cannot read
+  (`/update/reopened/*/session`).
 
 One symptom is one difference: a walk whose screens part from the
 baseline's is named by where they part
 (`/walks/*/screens/after-<screen>:<the baseline's next>:<the other's next>`)
 and its steps are not compared; a form that takes another path of screens, a
 list whose rows are another kind of view, an archive Android does not
-install, each is that. What a reader keys by a name is compared by that name
-(a menu's items, a Sort choice, a search's term, a case, a hidden button).
+install, each is that. A list records which case each row is and which case
+the walk opened: two lists that show their cases in another order are that
+once (`/list/order`), with each row compared against the same case's row,
+and where the two walks opened another case (`/list/chose`) nothing past the
+choice is compared, since every screen there is of another case. What a
+reader keys by a name is compared by that name (a menu's items, a Sort
+choice, a search's term, a hidden button, and a case a form left, each case
+one value).
 Left out, because it names an install and not what a worker reads, or says
 again what a reader beside it says: the app's id and version (proof 1's), the
 profile's stored values (each reader's answer is compared, so a stored value

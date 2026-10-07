@@ -51,7 +51,20 @@ final class Forms {
     private Forms() {
     }
 
-    static FormEntryActivity open(Intent started) {
+    /** The second, on the device's own clock, in which the last form was opened; none since the device was made. */
+    static long openedIn = -1;
+
+    /**
+     * Opens the form home started. Android keeps a form's answers in a file named by the form's own file and
+     * the second it was opened in (FormEntryInstanceState.initFormRecordPath), so two forms whose files share a
+     * name (forms-0.xml of two menus) opened in one second would share one file, the second saved over the
+     * first. A worker opens no two forms in a second; the reader waits for the next where it would.
+     */
+    static FormEntryActivity open(Intent started) throws InterruptedException {
+        if (System.currentTimeMillis() / 1000 == openedIn) {
+            Thread.sleep(1000 - System.currentTimeMillis() % 1000 + 5);
+        }
+        openedIn = System.currentTimeMillis() / 1000;
         FormEntryActivity activity =
                 Robolectric.buildActivity(FormEntryActivity.class, started).create().start().resume().get();
         RobolectricUtil.flushBackgroundThread(activity);
@@ -70,6 +83,9 @@ final class Forms {
         }
         form.put("loaded", true);
         describe(activity, started, form);
+        // What the form asks the device for as it opens (the location permission, for a form that captures
+        // one).
+        Screens.deviceAsks(home, form);
 
         Object controller = Screens.field(activity, "uiController");
         Method next = controller.getClass().getDeclaredMethod("showNextView");

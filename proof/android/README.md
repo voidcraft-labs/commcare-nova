@@ -52,13 +52,15 @@ logs in is on a real device. The requests (`Reader.java`):
   - a **case list** (`EntitySelectActivity`, `Lists.java`): its header row and
     first rows as `EntityView` or `EntityViewTile` lay them out (each cell's
     class, text, gravity, text size, image scale type and the width a
-    1000-pixel row gives it), its Sort menu (`getSortOptionsList`) and the
-    order each choice gives, and what a search finds
-    (`EntityListAdapter.filterByString`) for each word the list shows and
-    that word misspelled, with fuzzy search as installed, on and off. The
-    first case is opened as a tap opens it; where the list has a case detail
-    the detail screen's tabs and fields are read (`Details.java`) and its own
-    button confirms. Each action the list offers (a search behind the list)
+    1000-pixel row gives it), which case each row is (the value a tap on it
+    hands the session, `DatumUtil.getReturnValueFromSelection`), its Sort
+    menu (`getSortOptionsList`) and the order each choice gives, and what a
+    search finds (`EntityListAdapter.filterByString`) for each word the
+    list's rows show and that word misspelled, with fuzzy search as
+    installed, on and off. The first case is opened as a tap opens it, and
+    the case the list hands home is recorded; where the list has a case
+    detail the detail screen's tabs and fields are read (`Details.java`) and
+    its own button confirms. Each action the list offers (a search behind the list)
     is a walk of its own;
   - a **search** (`QueryRequestActivity`, `Queries.java`): its prompts, what
     it sends, and what it sends and shows for an answer holding both quote
@@ -67,15 +69,21 @@ logs in is on a real device. The requests (`Reader.java`):
   - a **claim** (`PostRequestActivity`, `Posts.java`): what it posts, then
     the sync the screen runs with the app's own data pull;
   - a **form** (`FormEntryActivity`, `Forms.java`): its header, its title and
-    the name a completed save carries; each screen
+    the name a completed save carries; what it asks the device for as it
+    opens (`deviceAsked`: the location permission, for a form that captures
+    one; the device here grants nothing); each screen
     `FormEntryActivityUIController.showNextView` moves to, each question
     answered from the lane's answer table (`proof/core/answers.json`, as the
     Core runner reads it) through the form's own controller and read back by
-    its own widget; a repeat's "add another?" dialog answered by its own
+    its own widget (a question the form holds no answer for is recorded
+    unanswered, whatever its widget shows: a date widget shows today); a
+    repeat's "add another?" dialog answered by its own
     choices; then the worker's finish button and the app's own save, which
     applies the form's case blocks to the device's case database as it
     saves (`FormRecord.updateAndProcessRecord`), and home handed the result.
-    Nothing is sent. What home starts next is part of the same walk, so a
+    The cases the device then holds are recorded, each one it made itself
+    named by its place among them, ordered by what each holds. Nothing is
+    sent. What home starts next is part of the same walk, so a
     walk shows where a worker lands after a form.
 
   A walk ends where home starts nothing (with the alert home holds for the
@@ -90,7 +98,9 @@ logs in is on a real device. The requests (`Reader.java`):
   `UpdateTask` and `InstallStagedUpdateTask` (`Updates.java`), over a worker's
   own settings: the profile before and after, and, for every form of the
   suite (or the one a request names), a form saved incomplete before the
-  update and what home does when the worker reopens it after.
+  update, the session Android stored for it
+  (`SessionStateDescriptor.getSessionDescriptor`), and what home does when
+  the worker reopens it after.
 
 An answer holds what Android gave: a status Android reports, a screen's own
 alert, what the app itself raised on a walk. A request the reader itself could

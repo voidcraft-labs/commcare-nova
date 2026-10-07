@@ -216,6 +216,7 @@ final class Device {
         if (restorePath != null) {
             restore(restorePath);
         }
+        Forms.openedIn = -1;
         dirty = false;
     }
 }

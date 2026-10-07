@@ -168,6 +168,8 @@ final class Screens {
         int forms = 0;
         Lists.action = null;
         for (int count = 0; ; count++) {
+            // What the last screen asked the device for is that screen's.
+            deviceAsks(shadow, steps.length() == 0 ? found : steps.getJSONObject(steps.length() - 1));
             Intent started = shadow.getNextStartedActivity();
             drain(shadow);
             JSONObject step = new JSONObject();
@@ -247,6 +249,30 @@ final class Screens {
             }
         }
         return found;
+    }
+
+    /**
+     * Takes, from what the app has started, each intent that asks the device for something and names no screen
+     * of the app (a permission the app requests, which a device answers with a dialog of its own), into
+     * {@code holder}'s {@code deviceAsked}; it stops at the first that names a screen. The device here grants
+     * nothing.
+     */
+    static void deviceAsks(ShadowActivity shadow, JSONObject holder) throws Exception {
+        Intent next;
+        while ((next = shadow.peekNextStartedActivity()) != null && next.getComponent() == null) {
+            shadow.getNextStartedActivity();
+            JSONObject asked = new JSONObject();
+            asked.put("action", orNull(next.getAction()));
+            asked.put("data", orNull(next.getDataString()));
+            String[] permissions = next.getStringArrayExtra("android.content.pm.extra.REQUEST_PERMISSIONS_NAMES");
+            if (permissions != null) {
+                asked.put("permissions", new JSONArray(java.util.Arrays.asList(permissions)));
+            }
+            if (!holder.has("deviceAsked")) {
+                holder.put("deviceAsked", new JSONArray());
+            }
+            holder.getJSONArray("deviceAsked").put(asked);
+        }
     }
 
     static void drain(ShadowActivity shadow) {
