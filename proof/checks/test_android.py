@@ -221,6 +221,43 @@ def test_a_form_that_takes_another_path_is_one_difference_and_a_case_is_compared
     assert _paths(_proof3(made)) == [("android@local.ccz", "/walks/*/steps/*/form/saved/cases/*", "added")]
 
 
+def test_a_search_that_sends_the_query_hq_refuses_stands_on_its_own_and_one_core_stopped_does_not():
+    """Finding 48 on a device: the screen sends the suite's placeholder for a value no XPath string holds."""
+
+    def searching(errors, sent):
+        app = _app()
+        app["walks"]["m0/m0-f0"]["steps"].insert(
+            1,
+            {
+                "screen": "QueryRequestActivity",
+                "query": {
+                    "opened": True,
+                    "withAnswer": {
+                        "answer": 'it\'s "x"',
+                        "RemoteQuerySessionManager.getErrors": errors,
+                        "RemoteQuerySessionManager.getRawQueryParams": {"_xpath_query": sent, "case_type": ["p"]},
+                        "afterServerAnswers400": {
+                            "errorShown": True,
+                            "errorText": "Client-side error",
+                            "finishing": False,
+                        },
+                    },
+                },
+            },
+        )
+        return app
+
+    sent = searching({}, ["age > 3", android.UNQUOTABLE])
+    found = _proof3(copy.deepcopy(sent), a=sent)
+    assert _paths(found) == [("android@A", "/walks/*/steps/*/query/withAnswer/sent-unquotable-search", "error")]
+    assert found[0].at == "/walks/m0~1m0-f0/steps/1/query/withAnswer/sent-unquotable-search"
+    assert found[0].after == {"sent": ["age > 3", android.UNQUOTABLE], "shown": "Client-side error"}
+    stopped = searching({"name": "The value holds both quote marks."}, ["age > 3", android.UNQUOTABLE])
+    assert _proof3(copy.deepcopy(stopped), a=stopped) == []
+    quoted = searching({}, ["age > 3", 'name = "it\'s"'])
+    assert _proof3(copy.deepcopy(quoted), a=quoted) == []
+
+
 def test_b_is_compared_with_a_as_the_local_archive_is():
     b = _app()
     b["profile"]["locale"]["Localization.getCurrentLocale"] = "default"

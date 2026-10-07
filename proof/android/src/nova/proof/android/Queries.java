@@ -62,6 +62,7 @@ import javax.xml.transform.stream.StreamResult;
 final class Queries {
     /** Set by the reader for the request it is answering; null where the request names none. */
     static String answer;
+    private static final java.util.Set<String> probed = new java.util.HashSet<>();
 
     private Queries() {
     }
@@ -70,7 +71,8 @@ final class Queries {
     static boolean read(Intent started, JSONObject step, ShadowActivity home) throws Exception {
         JSONObject query = new JSONObject();
         step.put("query", query);
-        if (answer != null) {
+        if (answer != null && probed.add(String.valueOf(step.opt("session")))) {
+            // Once a request for each search a session asks for: the walks that pass it again send it and go on.
             QueryRequestActivity probe = open(started);
             RemoteQuerySessionManager manager = manager(probe);
             if (manager != null) {

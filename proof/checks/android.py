@@ -13,7 +13,10 @@ absent where the document has no such archive. Nothing here runs the reader: eve
 
 **Proof 3** (``behavior``): what a worker's device shows of Nova's local archive against HQ's build of A
 (``android@local.ccz``), and of HQ's build of B against A's (``android@B``), per configuration: the install, the
-profile as each of Android's readers gives it, the home screen, and every walk (``comparable_app``).
+profile as each of Android's readers gives it, the home screen, and every walk (``comparable_app``). And what
+stands on its own of HQ's build of A (``android@A``): each search screen that sent, for an answer holding both
+quote marks, the query HQ refuses (``/walks/*/steps/*/query/withAnswer/sent-unquotable-search``,
+``refused_searches``).
 
 **Proof 4** (``editability``): what a device shows of the app each editor save left against the state it was
 saved over (``android@<editor>@<state>@<configuration>``), and, where the save's profile is not the one it was
@@ -233,6 +236,32 @@ def app_differences(before, after, *, check, document, artifact) -> list:
 # Proof 3 ------------------------------------------------------------------------------------------------------
 
 
+# What Nova's suite sends in place of a search value that holds both quote marks, which no XPath string can
+# hold: a function HQ's query compiler knows none of, so HQ refuses the search (finding 48).
+UNQUOTABLE = "search-value-mixes-quote-marks()"
+A = "android@A"
+
+
+def refused_searches(answer: dict | None) -> list[tuple[str, str, dict]]:
+    """Each search screen of an ``app`` answer that sent, for an answer holding both quote marks, the query HQ
+    refuses, with no error of its own: ``(structural path, concrete path, what it sent and then showed)``. It
+    stands on its own of one archive: Formplayer stops the same search at the screen, and a device sends it."""
+    found = []
+    for name, walk in sorted(((answer or {}).get("walks") or {}).items()):
+        for index, step in enumerate(walk.get("steps") or []):
+            probe = (step.get("query") or {}).get("withAnswer") if isinstance(step.get("query"), dict) else None
+            if not probe or probe.get("RemoteQuerySessionManager.getErrors"):
+                continue
+            sent = (probe.get("RemoteQuerySessionManager.getRawQueryParams") or {}).get("_xpath_query") or []
+            if UNQUOTABLE in sent:
+                shown = (probe.get("afterServerAnswers400") or {}).get("errorText")
+                at = f"/walks/{pointer_token(name)}/steps/{index}/query/withAnswer/sent-unquotable-search"
+                found.append(
+                    ("/walks/*/steps/*/query/withAnswer/sent-unquotable-search", at, {"sent": sent, "shown": shown})
+                )
+    return found
+
+
 def behavior(document: str, record: dict) -> list:
     found = []
     local = (record.get("local") or {}).get("app")
@@ -241,6 +270,9 @@ def behavior(document: str, record: dict) -> list:
         a = (held.get("A") or {}).get("app")
         if a is None:
             continue
+        found += [
+            Difference("proof3", document, A, path, at, "error", None, value) for path, at, value in refused_searches(a)
+        ]
         if local is not None:
             found += app_differences(a, local, check="proof3", document=document, artifact=LOCAL)
         b = (held.get("B") or {}).get("app")

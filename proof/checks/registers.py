@@ -4,7 +4,7 @@
 a symptom class::
 
     {"id", "defect", "part", "check", "artifact", "path", "document",
-     "kind"?, "values"?, "android"?, "equivalence"?, "control"}
+     "kind"?, "values"?, "equivalence"?, "control"}
 
 - ``check``, ``artifact``, ``path`` and ``kind`` name the class: a
   difference is in it when its check is the entry's, its artifact matches
@@ -24,14 +24,18 @@ a symptom class::
   seed draw.
 - ``values`` (``{"before", "after"}``), only on an entry whose document is a
   targeted one, pins the exact values; such an entry matches only there.
-- ``android`` names the Android predicate the harm rests on (decision 18).
-- ``equivalence`` marks a class that is no harm: two spellings every reader
-  reads alike, held only because one of those readers is a runtime no test
-  of the lane runs (Android), so no spelling rule's test can prove them
-  alike (``proof/CLAUDE.md``); where a test runs every reader, the class is
-  a spelling rule and no entry. It names those readers and why each reads
-  the two alike. Such an entry is held and verified as any
-  other, and the defect or finding it is filed under owns its removal.
+- An entry whose artifact is ``android@...`` is the Android stage's (``stage``): a difference in what
+  CommCare Android's own code read of two archives (``proof.checks.android``), which that stage's judge of
+  the entry's check reports and holds, on the entry's document and on its control. Every other entry is the
+  shards'. What a defect does on a device is such an entry, never a citation of Android's source.
+- ``equivalence`` marks a class that is no harm: two spellings of an artifact that every reader of it reads
+  alike. It is an entry and no spelling rule where one of those readers is CommCare Android, which no test
+  inside the lane's image can run (a rule's own test runs every reader on both spellings there,
+  ``proof/CLAUDE.md``); the lane itself then shows the equivalence, since the Android stage compares that
+  reader's answer on the two states of every document and reports none
+  (``proof/android/predicates.py`` holds the reader itself on both spellings). It names those readers and
+  why each reads the two alike. Such an entry is held and verified as any other, and the defect or finding
+  it is filed under owns its removal.
 - A ``manifest`` entry never names an undecided use
   (``/<key>/undecided/<value class>``, ``proof.checks.manifest_usage.standing``):
   the check could not place the use in or out of a REFUSED value class, a gap
@@ -98,7 +102,7 @@ IDENTITY_MOVES = PROOF_DIR / "identity-moves.json"
 CONTROLS = PROOF_DIR / "controls"
 
 ENTRY_KEYS = frozenset({"id", "defect", "part", "check", "artifact", "path", "document", "control"})
-OPTIONAL_KEYS = frozenset({"kind", "values", "android", "equivalence"})
+OPTIONAL_KEYS = frozenset({"kind", "values", "equivalence"})
 MOVE_KEYS = frozenset({"defect", "entity", "path"})
 
 
@@ -128,7 +132,6 @@ class Entry:
     control: str
     kind: str | None = None
     values: dict | None = None
-    android: str | None = None
     equivalence: str | None = None
 
     @property
@@ -269,12 +272,9 @@ def load_known_defects(
                 )
         if "kind" in raw and raw["kind"] not in KINDS:
             problems.append(f"{where}: kind {raw['kind']!r} is one of {sorted(KINDS)}, or left out for every kind.")
-        if "android" in raw and (not isinstance(raw["android"], str) or not raw["android"]):
-            problems.append(f"{where}: android names the Android predicate the harm rests on.")
         if "equivalence" in raw and (not isinstance(raw["equivalence"], str) or not raw["equivalence"]):
             problems.append(
-                f"{where}: equivalence names the runtimes that read the two spellings alike and why, where no test"
-                " the lane runs can prove it."
+                f"{where}: equivalence names the runtimes that read the two spellings alike and why."
             )
         if documents is not None and raw.get("document") not in documents:
             problems.append(f"{where} names the document {raw.get('document')!r}, which the corpus does not hold.")
