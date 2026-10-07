@@ -41,7 +41,7 @@ takes another path of screens is that (``/form/path``); a list whose rows are an
 (``/list/rowClass``); an archive Android does not install is that (``/install``) and nothing of its app is
 compared. What a reader keys by a name is compared by that name and never by position: a menu's items by
 their ids, a Sort choice's order by the choice, a search's matches by its term, the cases a device holds by
-their ids, the home screen's hidden buttons by their names.
+their ids (each case one value), the home screen's hidden buttons by their names.
 
 What is left out of a comparison, each because it names an install and not what a worker reads, or says again
 what a reader beside it says: the app's id and version (proof 1's), the profile's stored values (each
@@ -75,8 +75,6 @@ DATA_MAPS = frozenset(
         "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getErrors",
         "/walks/*/steps/*/post/params",
         "/walks/*/steps/*/form/saved/cases",
-        "/walks/*/steps/*/form/saved/cases/*/properties",
-        "/walks/*/steps/*/form/saved/cases/*/indices",
     }
 )
 # What names an install, never what a worker reads of it.
@@ -124,11 +122,15 @@ def _menu(step: dict) -> None:
 
 
 def _form(step: dict) -> None:
-    """A form as compared: the cases the device holds after it by their ids."""
+    """A form as compared: the cases the device holds after it by their ids, each case one value (a case a form
+    left otherwise is one symptom, whichever of its type, name, properties and indices say so)."""
     saved = (step.get("form") or {}).get("saved") if isinstance(step.get("form"), dict) else None
     if isinstance(saved, dict) and isinstance(saved.get("cases"), list):
         saved["cases"] = {
-            entry["id"]: {name: value for name, value in entry.items() if name != "id"} for entry in saved["cases"]
+            entry["id"]: json.dumps(
+                {name: value for name, value in entry.items() if name != "id"}, sort_keys=True, ensure_ascii=False
+            )
+            for entry in saved["cases"]
         }
 
 

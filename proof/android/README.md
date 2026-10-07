@@ -149,7 +149,8 @@ PROOF_ANDROID_RUNTIME=<directory> python3 -m unittest proof.android.selfcheck pr
 `build-runtime.sh` fetches commcare-android and commcare-core at their pins
 (or copies the checkouts it is given, at the pins), runs the project's own
 Gradle build of its unit tests with `reader.init.gradle`, which records the
-unit-test task's classpath, and fetches Robolectric's Android runtime. The
+classpath a device is read with (the app's own runtime libraries, then the
+unit-test task's classpath), and fetches Robolectric's Android runtime. The
 reader's own Java (`src/`) is compiled against that classpath when a reader
 starts, in about a second, so a runtime is a function of the pins and the
 toolchain alone, and a change to the reader needs no new one.
@@ -169,14 +170,28 @@ Everything a build downloads is named exactly (`toolchain.json`):
   plugin installs into: empty but for the license acceptances of an SDK a
   person or a runner image already accepted. Nothing here accepts a license;
 - every dependency Gradle resolves, held to `verification-metadata.xml`
-  beside the script where that file exists (Gradle's own dependency
-  verification).
+  beside the script (Gradle's own dependency verification: the sha256 of
+  each artifact a build on linux/amd64 or on macOS resolves, as the first
+  builds on each wrote them). A moved pin that resolves an artifact the file
+  does not hold fails the build; `--write-verification <file>` writes the
+  file that build needs, to review and commit.
 
 A runtime is kept in CI under the digest of all of that
 (`toolchain.py key`), so it is built once a pin.
 
-Three things about the build that are not in commcare-android's own
+Four things about the build that are not in commcare-android's own
 documentation:
+
+- **The app's libraries come first.** Gradle resolves the unit-test
+  classpath to Guava's Android flavour (33.4.8-android), and the app's own
+  runtime classpath to the JRE flavour (31.1-jre) Core is compiled against.
+  Core calls a method only the second has (`Multimap.forEach`, in
+  `StackFrameStep.defineStep`), so on the unit-test classpath alone every
+  session that pushes a step with extras (a search, a link to a form that
+  takes one) raises `NoSuchMethodError`, on the reader and on no worker's
+  device. `reader.init.gradle` lists the app's runtime libraries ahead of
+  the unit tests', and the reader refuses to start where the method is
+  missing (`Reader.requireShippedLibraries`).
 
 - **The compile SDK.** The app asks for `compileSdk 37`, which the Android
   Gradle plugin at the pin (8.13.2) looks up as the platform `android-37`. The

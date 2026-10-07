@@ -245,6 +245,10 @@ def test_a_form_that_takes_another_path_is_one_difference_and_a_case_is_compared
     made["walks"]["m0/m0-f0"]["steps"][2]["form"] = _form(cases=[extra])
     made["walks"]["m0/m0-f0"]["steps"][2]["form"]["saved"]["cases"].reverse()
     assert _paths(_proof3(made)) == [("android@local.ccz", "/walks/*/steps/*/form/saved/cases/*", "added")]
+    other = _app()
+    held = other["walks"]["m0/m0-f0"]["steps"][2]["form"]["saved"]["cases"][0]
+    held.update(closed=True, properties={"age": "8", "note": "x"})
+    assert _paths(_proof3(other)) == [("android@local.ccz", "/walks/*/steps/*/form/saved/cases/*", "changed")]
 
 
 def test_a_search_that_sends_the_query_hq_refuses_stands_on_its_own_and_one_core_stopped_does_not():
