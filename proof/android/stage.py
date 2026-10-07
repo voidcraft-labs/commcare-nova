@@ -78,8 +78,10 @@ def items(group: str, checks) -> list[str]:
 
 
 def control_checks(entries, control: str) -> tuple[str, ...]:
-    """The checks whose Android entries name the control: the ones the stage judges it by."""
-    return tuple(sorted({entry.check for entry in entries if entry.control == control and entry.check in CHECKS}))
+    """The checks whose Android entries name the control: the ones the stage judges it by. A check only the
+    shards' entries name it for is the shards' to show there, and the stage has no entry to hold it to."""
+    named = registers.of_stage(entries, STAGE)
+    return tuple(sorted({entry.check for entry in named if entry.control == control and entry.check in CHECKS}))
 
 
 def group_checks(entries, group: str) -> tuple[str, ...]:

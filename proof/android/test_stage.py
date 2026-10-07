@@ -299,7 +299,10 @@ def test_a_planted_difference_fails_its_check_until_an_android_entry_holds_it(tm
 
 def test_a_control_is_judged_by_the_checks_whose_android_entries_name_it(tmp_path, monkeypatch):
     entry = _entry("save", "proof4", "android@app settings@*", "/profile/readers/Profile.text")
-    _register(tmp_path, monkeypatch, [entry])
+    # The shards' own entry names the same control for proof 3, which is theirs to show there and no check of
+    # the stage's.
+    theirs = _entry("lane", "proof3", "trace@local.ccz", "/runs/*/trace")
+    _register(tmp_path, monkeypatch, [entry, theirs])
     lane, corpus, document = _lane(tmp_path, saved="forced", group=f"control:{CONTROL}")
     queue = _queue(tmp_path, {f"control:{CONTROL}": document})
     _run(tmp_path, "shown", queue, corpus, [lane])
