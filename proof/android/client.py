@@ -58,9 +58,10 @@ JVM_OPTIONS = (
     "-Dfile.encoding=UTF-8",
     "-Drobolectric.offline=true",
 )
-# Where Robolectric's own SQLite runs: it ships its native runtime for these alone
+# Where the reader's native libraries exist. Robolectric ships its native runtime for these alone
 # (org.robolectric:nativeruntime-dist-compat, native/<os>/<arch>), and commcare-android's tests open every
-# database through it.
+# database through it; on linux/arm64 a device does not even start, for want of Conscrypt's library
+# (UnsatisfiedLinkError: conscrypt_openjdk_jni-linux-aarch_64).
 NATIVE_PLATFORMS = frozenset({("Linux", "x86_64"), ("Darwin", "arm64"), ("Darwin", "x86_64")})
 
 
@@ -92,8 +93,9 @@ def unavailable(directory: Path | None = None) -> str | None:
     here = (platform.system(), platform.machine())
     if here not in NATIVE_PLATFORMS:
         return (
-            f"Robolectric ships no native runtime for {here[0]} on {here[1]}, and commcare-android's tests open"
-            " their databases through it. The Android reader runs on linux/amd64 and on macOS"
+            f"The Android reader has no native libraries for {here[0]} on {here[1]}: Conscrypt, which Robolectric"
+            " loads as the device starts, and Robolectric's own native runtime, through which commcare-android's"
+            " tests open their databases, ship none for it. The reader runs on linux/amd64 and on macOS"
             " (proof/android/README.md)."
         )
     return None

@@ -144,14 +144,20 @@ documentation:
 
 ### Where it runs
 
-Robolectric ships its native runtime (the SQLite every commcare-android
-database opens through) for Linux on x86-64, macOS and Windows
-(`org.robolectric:nativeruntime-dist-compat`), in every published version up
-to 1.0.19. So the reader runs on linux/amd64 and on macOS, and not on
-linux/arm64, where the lane's shards run today. The Android Gradle plugin's
-resource compiler is also an x86-64 binary on Linux, so the runtime is built
-on amd64 too. `client.unavailable()` says so in words where the reader cannot
-run.
+The reader runs on linux/amd64 and on macOS, and not on linux/arm64, where
+the lane's shards run today. Run there, a device does not start: Robolectric
+loads Conscrypt as it builds the application, and Conscrypt ships no library
+for it (`UnsatisfiedLinkError: no conscrypt_openjdk_jni-linux-aarch_64`).
+Behind that, Robolectric's own native runtime (the SQLite every
+commcare-android database opens through) ships for Linux on x86-64, macOS and
+Windows only (`org.robolectric:nativeruntime-dist-compat`, in every published
+version up to 1.0.19). The Android Gradle plugin's resource compiler is an
+x86-64 binary on Linux too, so the runtime is built on amd64.
+`client.unavailable()` says so in words where the reader cannot run.
+
+Built and self-checked on linux/amd64 from an empty directory, the runtime is
+2.7 GB (Gradle home 1.9 GB, the two built checkouts 0.7 GB, Robolectric's
+Android runtime 76 MB) beside a 0.5 GB SDK that only the build reads.
 
 ## Checks
 
