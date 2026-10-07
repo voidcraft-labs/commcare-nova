@@ -26,10 +26,11 @@ a symptom class::
   targeted one, pins the exact values; such an entry matches only there.
 - ``android`` names the Android predicate the harm rests on (decision 18).
 - ``equivalence`` marks a class that is no harm: two spellings every reader
-  reads alike, held only because those readers are runtimes the lane does
-  not run (Android, Web Apps' client, Connect), so no spelling rule's test
-  can prove them alike (``proof/CLAUDE.md``). It names those readers and
-  why each reads the two alike. Such an entry is held and verified as any
+  reads alike, held only because one of those readers is a runtime no test
+  of the lane runs (Android), so no spelling rule's test can prove them
+  alike (``proof/CLAUDE.md``); where a test runs every reader, the class is
+  a spelling rule and no entry. It names those readers and why each reads
+  the two alike. Such an entry is held and verified as any
   other, and the defect or finding it is filed under owns its removal.
 - A ``manifest`` entry never names an undecided use
   (``/<key>/undecided/<value class>``, ``proof.checks.manifest_usage.standing``):
