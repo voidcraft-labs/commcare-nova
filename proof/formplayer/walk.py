@@ -30,7 +30,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,7 @@ from proof.core.client import DEFAULT_CLOCK
 from proof.formplayer import canonical
 from proof.formplayer.answers import HqAnswers
 from proof.formplayer.client import FormplayerRunner
-from proof.formplayer.webapps import FormplayerRefused, WebApps
+from proof.formplayer.webapps import SESSION_KEY, FormplayerRefused, WebApps
 
 ANSWERS_PATH = Path(__file__).resolve().parents[1] / "core" / "answers.json"
 MAX_RUNS = 500
@@ -108,13 +109,27 @@ class Walk:
     locale: str | None = None
     answer_table: Mapping[str, Any] = field(default_factory=load_answer_table)
     clock: str = DEFAULT_CLOCK
+    # What each run happens inside: a context manager made from the run's name. Where HQ answers with its own
+    # views over a unit's state (``proof.formplayer.hq.Served.run``) it is a fork of that state with the worker
+    # signed in, so no run reads what another's submission left in HQ.
+    scope: Callable[[str], Any] = lambda name: nullcontext()
 
     # -- one execution -----------------------------------------------------
 
-    def _web(self) -> WebApps:
-        web = WebApps(
-            self.runner, self.hq, domain=self.domain, username=self.hq.username, app_id=self.app_id, locale=self.locale
+    def _client(self) -> WebApps:
+        """The worker's browser: the session HQ holds for them, where ``hq`` names one."""
+        return WebApps(
+            self.runner,
+            self.hq,
+            domain=self.domain,
+            username=self.hq.username,
+            app_id=self.app_id,
+            locale=self.locale,
+            session_key=getattr(self.hq, "session_key", None) or SESSION_KEY,
         )
+
+    def _web(self) -> WebApps:
+        web = self._client()
         # A worker starting over: their restore and search results are read afresh.
         web.post("/clear_user_data", {"domain": self.domain, "username": self.hq.username, "restoreAs": None})
         return web
@@ -123,9 +138,7 @@ class Walk:
         """Formplayer's own route for dropping an installed app (what Web Apps sends when a worker clears an
         app's data, and before an update): every walk then starts from the app as Formplayer installs it,
         whatever this Formplayer ran on it before."""
-        web = WebApps(
-            self.runner, self.hq, domain=self.domain, username=self.hq.username, app_id=self.app_id, locale=self.locale
-        )
+        web = self._client()
         web.post(
             "/delete_application_dbs",
             {"app_id": self.app_id, "domain": self.domain, "username": self.hq.username, "restoreAs": None},
@@ -178,7 +191,15 @@ class Walk:
         return web.submit(form["session_id"], answers)
 
     def execute(self, script: Sequence[Mapping[str, Any]], derive: bool):
-        """One run of ``script``; or, while deriving, the choices to branch on at the menu the script ends at."""
+        """One run of ``script``, inside the walk's scope for it; or, while deriving, the choices to branch on
+        at the menu the script ends at."""
+        with self.scope(json.dumps(list(script), sort_keys=True)):
+            # Core's random source is seeded from each request's place in the run, whatever the same Formplayer
+            # answered before it.
+            self.runner.reseed()
+            return self._execute(script, derive)
+
+    def _execute(self, script: Sequence[Mapping[str, Any]], derive: bool):
         web = self._web()
         steps: list[dict] = []
         selections: list[str] = []
@@ -318,7 +339,8 @@ class Walk:
         """Every run's trace: derived where ``script`` is None, else each of its runs replayed."""
         runs = []
         started = time.perf_counter()
-        self._forget_app()
+        with self.scope("forget-app"):
+            self._forget_app()
         if script is not None:
             for steps in script:
                 runs.append(self.execute(list(steps), derive=False)[0])

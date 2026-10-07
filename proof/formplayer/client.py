@@ -271,6 +271,12 @@ class FormplayerRunner:
         return self._redis
 
     @property
+    def redis_address(self) -> str | None:
+        """The loopback address of the current Redis, which HQ shares with Formplayer as in production
+        (``proof.hq.redis.adopt``); None when none is running."""
+        return self._redis_address
+
+    @property
     def reader_threads(self) -> tuple[threading.Thread, ...]:
         return tuple(self._threads)
 
@@ -629,6 +635,11 @@ class FormplayerRunner:
             body=base64.b64decode(result["bodyBase64"]),
         )
         return Exchange(response=response, hq=tuple(asked), log=self.last_log)
+
+    def reseed(self) -> None:
+        """The next request's seed is the first again: a run's requests seed Core's random source by their place
+        in the run, so the ids an app's logic draws in it do not depend on what this JVM answered before."""
+        self._next_seed = 1
 
     def set_clock(self, instant: str = DEFAULT_CLOCK) -> None:
         """The instant now(), today() and dow() read in an app's logic, until set again."""

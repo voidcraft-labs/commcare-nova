@@ -85,7 +85,9 @@ Guards, each a ``HarnessRefusal`` that ends the check loudly:
 - ``transaction.on_commit`` in a rollback unit: its transaction never
   commits, so the function would never run (``OnCommitRefused``). Native
   callbacks run only in the existing nonrollback mode over a fresh database
-  whose owner drops it at exit; a reusable worker database still refuses them;
+  whose owner drops it at exit; a reusable worker database still refuses
+  them. Inside ``Unit.committing()`` a rollback unit runs them itself, where
+  production's commit runs them (below);
 - after every operation and request, and when the unit ends without an
   error, a connection that is closed, marked for rollback or in an aborted
   transaction (``AbortedTransaction``). HQ's production requests run in
@@ -111,6 +113,22 @@ Guards, each a ``HarnessRefusal`` that ends the check loudly:
   unit does not see there (a statement run past Django's cursor) is checked
   as each operation and request ends without an error, and as the unit
   ends.
+
+Commit callbacks. HQ's receiver saves a submission's form and cases in one
+atomic block and writes what follows from it (the form's attachments, the
+changes its pillows read) in functions it asks Django to run when that
+block commits (``transaction.on_commit``). Inside ``Unit.committing()`` the
+unit runs each such function exactly where production's commit runs it:
+Django keeps them as it always does (``BaseDatabaseWrapper.on_commit``
+appends to ``run_on_commit`` inside an atomic block, and a savepoint's
+rollback drops the ones registered under it), and the unit runs and clears
+them, as ``run_and_clear_commit_hooks`` does, each time HQ's work reaches
+the unit's own atomic depth without an error: as HQ's outermost atomic
+block closes, as a statement outside every atomic block of HQ's ends, and
+at once for a function registered there (production's autocommit, where
+Django calls it immediately). A function that raises propagates unless HQ
+registered it ``robust``, as in production. They run inside the scope that
+registered them, so what they write is that operation's or request's.
 
 The unit refuses what it cannot keep exact (``UnitRefused``): a second unit
 opened in the process while one is open (a unit's state is the process's one
@@ -659,6 +677,8 @@ class Unit:
         # HQ's connection, and the atomic depth of the unit's own transaction: production's autocommit.
         self._connection = None
         self._base_atomic = 0
+        # How many ``committing()`` blocks are open: inside one, the unit runs HQ's commit callbacks itself.
+        self._committing = 0
         couch.write_listeners.append(self._couch_write)
         blob_db.write_listeners.append(self._blob_write)
 
@@ -685,7 +705,7 @@ class Unit:
             with ExitStack() as stack:
                 stack.enter_context(_refusing_new_connections())
                 if self._transactional or not database.is_fresh_database(self.database):
-                    stack.enter_context(_refusing_on_commit(connection, rollback=self._transactional))
+                    stack.enter_context(_refusing_on_commit(connection, rollback=self._transactional, unit=self))
                 stack.enter_context(connection.execute_wrapper(self._watch_sql))
                 if self._transactional:
                     stack.enter_context(_rolled_back())
@@ -815,13 +835,61 @@ class Unit:
         return f"in its {scope.kind} {scope.label}"
 
     def _at_commit(self, connection, describe):
-        """Where production would commit, at the unit's own atomic depth, check the deferred constraints."""
+        """Where production would commit, at the unit's own atomic depth, check the deferred constraints, and
+        inside ``committing()`` run the functions HQ asked to run on that commit."""
         if (
             connection is self._connection
             and len(connection.atomic_blocks) == self._base_atomic
             and transaction_problem() is None
         ):
             self._check_deferred(describe)
+            self._run_commit_callbacks()
+
+    @contextmanager
+    def committing(self):
+        """Inside the block, a function HQ asks to run when its transaction commits (``transaction.on_commit``)
+        runs where production's commit would run it, in place of being refused (the module's "Commit
+        callbacks"). Only a rollback unit takes it: any other already runs or refuses them itself."""
+        self._require_open("commit callbacks")
+        if not self._transactional:
+            raise UnitRefused(
+                "Only a rollback unit runs HQ's commit callbacks itself; a unit over a fresh database commits and"
+                " Django runs them, and a unit over a reusable worker database refuses them."
+            )
+        self._committing += 1
+        try:
+            yield self
+        finally:
+            self._committing -= 1
+
+    def _registered_on_commit(self, original, func, robust):
+        """``transaction.on_commit`` inside ``committing()``: kept by Django itself, and run at once where HQ is
+        outside every atomic block of its own, as production's autocommit runs it."""
+        original(func, robust)
+        if len(self._connection.atomic_blocks) == self._base_atomic:
+            self._run_commit_callbacks()
+
+    def _run_commit_callbacks(self):
+        """Run and clear the commit callbacks Django holds, as ``BaseDatabaseWrapper.run_and_clear_commit_hooks``
+        does once a transaction commits: in the order registered, one that raises propagating unless it was
+        registered ``robust``, which Django logs and passes over."""
+        if not self._committing or self._internal or not self._open:
+            return
+        import logging
+
+        connection = self._connection
+        pending, connection.run_on_commit = connection.run_on_commit, []
+        while pending:
+            _, func, robust = pending.pop(0)
+            if robust:
+                try:
+                    func()
+                except Exception as error:  # noqa: BLE001 - Django's own handling of a robust callback
+                    logging.getLogger("django.db.backends.base").error(
+                        "Error calling %s in on_commit() (%s).", getattr(func, "__qualname__", func), error
+                    )
+            else:
+                func()
 
     def _check_deferred(self, describe):
         """Check every deferred constraint as a commit would; a violation is refused, naming ``describe()``."""
@@ -1084,8 +1152,12 @@ def _refusing_new_connections():
 
 
 @contextmanager
-def _refusing_on_commit(connection, *, rollback=True):
+def _refusing_on_commit(connection, *, rollback=True, unit=None):
     def refuse(func, robust=False):
+        if rollback and unit is not None and unit._committing:
+            # Django's own registration, on the connection itself (``connection`` is Django's proxy for it).
+            wrapper = unit._connection
+            return unit._registered_on_commit(lambda f, r: type(wrapper).on_commit(wrapper, f, r), func, robust)
         name = f"{getattr(func, '__module__', '?')}.{getattr(func, '__qualname__', repr(func))}"
         reason = (
             "The unit's transaction is always rolled back, so the function would never run, where production "
@@ -1095,7 +1167,8 @@ def _refusing_on_commit(connection, *, rollback=True):
         )
         raise OnCommitRefused(
             f"HQ asked to run {name} when its transaction commits, while an HQ unit was open. {reason} "
-            "Use the existing fresh-database nonrollback mode to execute the real callback."
+            "Use the existing fresh-database nonrollback mode to execute the real callback, or run the step inside"
+            " the rollback unit's committing() block, which runs it where production's commit would."
         )
 
     had = "on_commit" in vars(connection)

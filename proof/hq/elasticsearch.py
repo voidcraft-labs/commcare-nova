@@ -20,7 +20,8 @@ places, recorded here with the reason an empty answer is faithful:
   privilege (``views/apps.py::get_apps_base_context`` and
   ``get_app_view_context``, for the practice user select). It lists the
   project space's mobile workers in practice mode from the user index; a
-  check's project space has no mobile workers.
+  check's project space has no mobile worker but the lane's own, made where
+  Formplayer is served (``proof.formplayer.hq``), who is in no practice mode.
 
 Every other Elasticsearch request is refused at the client's transport
 (``elasticsearch6.transport.Transport.perform_request``) and recorded, so a
@@ -51,6 +52,14 @@ def elasticsearch(record: SeamRecord):
     def get_practice_mode_mobile_workers(domain):
         record.elasticsearch_reads.append(("get_practice_mode_mobile_workers", domain))
         return []
+
+    # Two of HQ's functions are quickcaches, and HQ asks each what it holds and clears it: a mobile worker's
+    # save the practice workers (``users/models.py::CommCareUser.clear_quickcache_for_user``), and every case
+    # HQ saves the case types (``reports/signals.py::clear_case_type_cache``). A stand-in keeps nothing, so it
+    # holds nothing (quickcache's own answer for a value it does not hold) and has nothing to clear.
+    for uncached in (get_practice_mode_mobile_workers, get_case_types_for_domain_es):
+        uncached.get_cached_value = lambda *args, **kwargs: Ellipsis
+        uncached.clear = lambda *args, **kwargs: None
 
     def perform_request(self, method, url, headers=None, params=None, body=None):
         record.elasticsearch_refusals.append((method, url))

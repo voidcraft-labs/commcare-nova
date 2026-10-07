@@ -26,7 +26,9 @@ boot takes (``corehq/tests/pytest_hooks.py::pytest_load_initial_conftests``:
    (a settings override alone reaches none of them). No backend from before
    the boot stays reachable. HQ's helper for a raw Redis client
    (``dimagi/utils/couch/cache/cache_core::get_redis_client``, for locks and
-   Redis commands no local cache serves) is refused like a Redis connection.
+   Redis commands no local cache serves) is refused like a Redis connection,
+   except while this process runs the Redis the harness starts for HQ's
+   locks (``proof.hq.redis``), whose backend it then returns.
 
 6. HQ runs at production speed with ``DEBUG`` left on (``proof.hq.speed``):
    the template engine is set before Django builds it, the other seams
@@ -146,6 +148,8 @@ class _NetworkGuard:
         self._installed = False
         self._allowed_hosts: set[str] = set()
         self._allowed_port: int | None = None
+        # Loopback services the harness itself started for HQ (``admit``).
+        self._admitted: set[tuple[str, int]] = set()
 
     def install(self, postgres_host, postgres_port):
         if self._installed:
@@ -197,7 +201,14 @@ class _NetworkGuard:
         )
 
     def _allows(self, host, port):
-        return host in self._allowed_hosts and port == self._allowed_port
+        return (host in self._allowed_hosts and port == self._allowed_port) or (host, port) in self._admitted
+
+    def admit(self, host, port):
+        """Admit one more address: a service the harness itself started for HQ on a loopback address of this
+        process's own (``proof.hq.redis``, HQ's lock service). Never a host name, and never beyond loopback."""
+        if ipaddress.ip_address(host) not in ipaddress.ip_network("127.0.0.0/8"):
+            raise ValueError(f"The network guard admits only loopback addresses the harness serves; {host} is not one.")
+        self._admitted.add((host, int(port)))
 
     def _check(self, kind, address):
         if isinstance(address, tuple) and len(address) >= 2:
@@ -562,6 +573,8 @@ def _move_caches_to_local_memory():
     from django.test import override_settings
     from quickcache.cache_helpers import CacheWithPresets, TieredCache
 
+    from django_redis.cache import RedisCache
+
     discarded_connections = caches._connections
     before = {alias: caches[alias] for alias in settings.CACHES}
     override_settings(
@@ -571,7 +584,13 @@ def _move_caches_to_local_memory():
                 settings.CACHES[alias]
                 if isinstance(backend, DummyCache)
                 else {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    # A Redis alias also answers the two django-redis calls HQ's rate counters make
+                    # (proof.hq.localcache).
+                    "BACKEND": (
+                        "proof.hq.localcache.RedisShaped"
+                        if isinstance(backend, RedisCache)
+                        else "django.core.cache.backends.locmem.LocMemCache"
+                    ),
                     "LOCATION": LOCAL_CACHE_LOCATION.format(alias=alias),
                 }
             )
@@ -704,12 +723,19 @@ def _refuse_redis_clients():
     With the caches in local memory, HQ's own helper would raise its
     ``RedisClientError``, an ``Exception`` a broad handler can swallow; the
     refusal is a ``NetworkRefused`` and is recorded with the guard's attempts.
+    While the harness's own Redis for HQ runs in this process
+    (``proof.hq.redis.start``), the helper returns that server's backend.
     """
     from dimagi.utils.couch.cache import cache_core
 
     original = cache_core.get_redis_client
 
     def get_redis_client():
+        from proof.hq import redis as hq_redis
+
+        held = hq_redis.client()
+        if held is not None:
+            return held
         GUARD.refuse_service(REDIS_CLIENT_SERVICE)
 
     for module in list(sys.modules.values()):

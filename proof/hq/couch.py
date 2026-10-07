@@ -286,6 +286,18 @@ def _map_users_by_username(doc):
         yield _js_key(doc, "username"), None
 
 
+def _map_users_by_domain(doc):
+    # corehq/apps/users/_design/views/by_domain/map.js (reduce: _count). A WebUser without memberships makes
+    # the JavaScript throw, and CouchDB leaves a document whose map throws out of the view.
+    if doc.get("base_doc") == "CouchUser":
+        active = "active" if doc.get("is_active") else "inactive"
+        if doc.get("doc_type") == "WebUser":
+            for membership in doc.get("domain_memberships") or []:
+                yield [active, membership.get("domain"), _js_key(doc, "doc_type"), _js_key(doc, "username")], None
+        elif doc.get("doc_type") == "CommCareUser":
+            yield [active, _js_key(doc, "domain"), _js_key(doc, "doc_type"), _js_key(doc, "username")], None
+
+
 def _map_users_by_location_id(doc):
     # corehq/couchapps/users_extra/views/users_by_location_id/map.js (reduce: _count)
     if doc.get("base_doc") == "CouchUser":
@@ -319,6 +331,14 @@ def _map_groups_by_name(doc):
             yield ["^Reporting", _js_key(doc, "domain"), _js_key(doc, "name")], None
 
 
+def _map_groups_by_user(doc):
+    # corehq/apps/groups/_design/views/by_user/map.js (no reduce): a group without ``users`` makes the
+    # JavaScript throw, and CouchDB leaves a document whose map throws out of the view.
+    if doc.get("doc_type") == "Group":
+        for user in doc.get("users") or []:
+            yield user, [_js(doc, "domain"), _js(doc, "name")]
+
+
 def _map_program_by_code(doc):
     # corehq/couchapps/program_by_code/views/view/map.js
     if doc.get("doc_type") == "Program":
@@ -342,8 +362,10 @@ VIEWS = {
     "domain/domains": (_map_domains, "_count"),
     "domain/by_status": (_map_domains_by_status, "_count"),
     "users/by_username": (_map_users_by_username, "_count"),
+    "users/by_domain": (_map_users_by_domain, "_count"),
     "users_extra/users_by_location_id": (_map_users_by_location_id, "_count"),
     "groups/by_name": (_map_groups_by_name, None),
+    "groups/by_user": (_map_groups_by_user, None),
     "program_by_code/view": (_map_program_by_code, None),
     "hqmedia/by_hash": (_map_hqmedia_by_hash, None),
 }
