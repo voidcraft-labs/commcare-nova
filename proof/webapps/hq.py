@@ -232,13 +232,16 @@ def _archive(build) -> bytes:
 
 
 @contextmanager
-def project(document, core_runner, configuration="minimum", *, restore=None):
+def project(document, core_runner, configuration="minimum", *, restore=None, web_apps=True):
     """``document`` as Nova's first publish leaves it in a project space that has Web Apps, with its worker.
 
     The worker's cases are the lane's case database for the document, as
     HQ's own restore writes them over the tables the publish uploaded; or,
     given ``restore``, the bytes of a restore a targeted document fixes by
     hand (its ``restore.xml``), where a test turns on one case's values.
+    With ``web_apps`` false the project space is the document's own
+    configuration as the lane's checks hold it, for the test that shows what
+    the privilege decides.
     """
     from corehq.apps.users.models import CommCareUser
     from django.contrib.auth.models import User
@@ -248,7 +251,8 @@ def project(document, core_runner, configuration="minimum", *, restore=None):
     from proof.observe.sessions import hq_restore
 
     export = document.exports[configuration]
-    with hq_check(web_apps_configuration(export.configuration.hq()), validate=core_runner.validate_form) as (unit, _):
+    held = export.configuration.hq()
+    with hq_check(web_apps_configuration(held) if web_apps else held, validate=core_runner.validate_form) as (unit, _):
         # One operation, its digest the document's: what HQ draws while it applies the publish (the app's id,
         # each media file's) is then this document's own and the same on every run.
         with unit.operation("webapps:publish", document.id.encode()):

@@ -2,8 +2,8 @@
 
 The proof lane holds Nova's exports to the code that reads them. CommCare HQ's
 own import, build, case processing and app editors, CommCare Core's own
-form engine, session engine and archive installer, and Formplayer's own
-application run at the upstream commits
+form engine, session engine and archive installer, Formplayer's own
+application and HQ's own Web Apps client run at the upstream commits
 `proof/pins.json` names, inside one pinned image, over a corpus of admitted
 Nova documents that Nova's real publish client and compilers export. Every
 pull request runs the lane in CI (`.github/workflows/ci.yml`), and
@@ -271,8 +271,20 @@ or it fails the lane ("The registers", below).
   forms: a local archive's profile names no submission URL, so Formplayer
   cannot submit its forms, and Web Apps installs only what HQ builds
   (finding 57).
-- **The Web Apps client is not run.** What Formplayer hands it is observed;
-  what its JavaScript shows a worker is not.
+- **The Web Apps client runs, and no check judges its screens yet.** HQ's
+  own client runs in the lane's Chromium against Formplayer over a released
+  build of a Nova export ("The Web Apps driver", below), its own tests hold
+  what the register and the findings say of it (`proof/webapps/test_*.py`),
+  and `proof.webapps.observe` records every screen of a document's walk. No
+  check compares those records yet, so a difference only the client shows
+  on a document outside those tests is not reported. Not run in it: a form's
+  questions answered through the page (the tests submit forms that need no
+  answer, and Formplayer's walk answers the rest), a language other than
+  the worker's default, a small screen's layout, App Preview (the same
+  client under another HQ page), and a web user signing in as a worker. The
+  one request the page makes that nothing answers is for a web font on
+  another host, so text is laid out in the browser's fallback face and no
+  measured width or height is recorded.
 - **Connect** runs only as its metadata extractors, in the native proofs.
 - **A configuration Nova's publish refuses is not checked.** Each document's
   configurations hold the flags and case search Nova's publish requires for
@@ -460,9 +472,13 @@ unpacked with its classpath recorded (`/opt/formplayer`,
 `/opt/formplayer-app`), a `redis-server` for it, the Android sources
 at their pin, the HQ pin's commit time (`/opt/hq-pin-time`, HQ's clock), node,
 Playwright's Chromium (the slim image keeps only the headless shell every
-launch runs), and the editor bundles built from HQ's node packages
-(`/opt/editors`); HQ's `node_modules` keeps only what HQ's XPath validator
-runs. It holds only public, licensed upstream sources and the harness's own
+launch runs), the page bundles built from HQ's node packages
+(`/opt/editors`: the editor pages' and the Web Apps page's), HQ's node
+packages themselves where HQ finds them (`/opt/hq/node_modules`: HQ's XPath
+validator reads two, and HQ's static finders and stylesheet precompiler the
+rest for the Web Apps page), and the `sass` that precompiler runs, among the
+image's own Node tools. It holds only public, licensed upstream sources and
+the harness's own
 code; Nova's checkout is mounted at run time. Connect's checkout carries no
 license file, so Connect is never in the image: the native Connect proof
 fetches it at its pin when it runs.
@@ -660,7 +676,10 @@ assignment. `targeted-form-link-hidden-target` is the Formplayer runner's:
 three forms each link to one target, a shown form, a form and a menu whose
 display condition is false for the lane's worker (Nova refuses a condition
 no worker could meet), which `proof/formplayer/test_end_of_form.py` runs on
-Formplayer and on Core (finding 56). The focused `stableWitnesses.test.ts` holds every emitted byte
+Formplayer and on Core (finding 56). `targeted-empty-list-no-english` is the
+Web Apps driver's: an app written in Spanish alone, whose empty-list message
+`proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
+module settings save (finding 41). The focused `stableWitnesses.test.ts` holds every emitted byte
 to an emission after an unrelated document advances the fixture counter and
 changes that balance.
 
@@ -696,7 +715,7 @@ its side's fingerprint:
 - **observation** (`proof/store/fingerprints.py::in_observation`): the
   observation partition (`proof/observe/partition.py::observes`), which is
   every file under `proof/observe`, `proof/hq`, `proof/core`,
-  `proof/formplayer`, `proof/editors`
+  `proof/formplayer`, `proof/webapps`, `proof/editors`
   (but its driver), `proof/lane`, `proof/store` and the comparators
   (`proof/checks/compare`), the files of the checks the observation runs but
   does not own (`proof/checks/corpus.py`, `differences.py`,
@@ -943,6 +962,120 @@ and `PROOF_EDITOR_AUDIT` reruns a share of live runs the fresh way in every
 run. `test_control.py` is the driver's control: a Case List save of a
 single-date search input keeps it under `CASE_SEARCH_ADVANCED` and drops it
 without, as HQ's template gates decide.
+
+### The Web Apps driver
+
+`proof/webapps` runs HQ's Web Apps client, the JavaScript a worker's browser
+runs, in the editor driver's Chromium, against the lane's Formplayer, over a
+build HQ released of a Nova export. Nothing of the client is copied or called:
+a step clicks what a worker clicks, or reads what the page shows.
+
+- **The project space and the release** (`hq.py`). Web Apps lists an app only
+  where the project space has Web Apps (the `CLOUDCARE` privilege, from which
+  HQ sets a new app's `cloudcare_enabled` when Nova's upload lands) and the
+  app has a released build. The lane's configurations grant a privilege only
+  where a document's content needs it, so none of its apps is one Web Apps
+  lists (finding 59); the driver takes the document's configuration with that
+  one privilege added. The build is made as HQ's Releases page makes one
+  (`Application.make_build` and the build's save, then HQ's own
+  `release_build` view), optionally after HQ's own editor pages saved the app
+  in the same Chromium (`released(saves=...)`, `proof.editors.pages`), so a
+  test reads Web Apps over Nova's export and over the app a person's save
+  leaves. Each release's operation is keyed by the stored app's content, so
+  each build has an id of its own, as HQ's builds do and Formplayer's kept
+  installs need. The page is answered for a mobile worker, the one the
+  lane's restore names, stored as HQ stores one.
+- **The page** (`session.py`). HQ's `FormplayerMain` view answers the
+  navigation through HQ's URLconf, decorators and templates; the script is
+  the bundle the image builds from HQ's `cloudcare/js/formplayer/main` entry
+  under HQ's webpack configuration (`proof/image/editors/build.mjs`). The
+  page is told Formplayer lives at `/formplayer` on HQ's own origin, where a
+  deployment's proxy serves it, and each request the client sends there
+  goes, headers and body as the browser wrote them, to Formplayer's own web
+  server, whose answer and cookies go back to the page. The lane has two
+  names for HQ where a deployment has one (the browser's origin, and the
+  address Formplayer reaches HQ at), so the `Origin` and `Referer` the
+  browser wrote are sent under Formplayer's name for HQ, and Formplayer's own
+  CORS rule and CSRF token then judge the request as they judge
+  production's. Every run starts as a worker who cleared their data, on
+  Formplayer's own install of the build.
+- **Stylesheets** (`static.py`). What a worker sees is the client's markup
+  under HQ's stylesheets, so the page has them: HQ's own precompiler compiles
+  the SCSS the page names (HQ's test settings switch it off, and HQ's own
+  note there says how a test turns it on), and HQ's static finders serve the
+  compiled files and every other static file the page asks for. The one
+  request nothing answers is for a web font on another host.
+- **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
+  a selector and a text name, text typed into an input, a form's Submit and
+  Formplayer's answer to it, and `screen.js`, which reads the screen the
+  client rendered: the home screen's tiles, a menu's rows, a case list
+  (headers, rows, the empty-list message, and each tile cell's grid area,
+  alignment and font size as the browser computed them), a search screen
+  and its description, a form's title and questions, and the client's
+  alerts.
+- **A document's record** (`observe.py`): Formplayer's own walk of the
+  release, replayed in the browser run by run in one page, the screen read
+  after every click. It holds no id Formplayer drew, no time and no path, so
+  the same inputs give the same bytes.
+
+The page's clock is fixed and its randomness seeded, as an editor page's are.
+A session costs between one and two seconds (a document's publish and release
+about one more, its record three to four); about 0.7 s of each page load is
+HQ compiling the page's four stylesheets again.
+
+What its own tests observe on released builds of real Nova exports, each on
+the client itself:
+
+| Claim | Observed | Test |
+| --- | --- | --- |
+| A tile cell's vertical alignment, absent or the `start` the Case List save writes (finding 42) | `align-self: start` for both | `test_tiles.py` |
+| Its horizontal alignment, absent or `left` (finding 42) | `start` for Nova's export, `left` for the saved app, alike left to right and apart right to left | `test_tiles.py` |
+| Its font size, absent or the `medium` the save writes (defect 14) | 12px under HQ's stylesheet for Nova's export, 16px for the saved app | `test_tiles.py` |
+| The empty search description the Case List save writes (finding 54) | no description element for `""` or for a non-breaking space, on a search opened from a list, one the menu opens and an inline one; a description with text is shown | `test_search.py` |
+| List-first turned search-first by the Case List save (defect 21) | the menu opens the list for Nova's export and the search for the saved app | `test_search.py` |
+| A column hidden from a list (defect 16) | a list search for its value finds no case; a shown value finds the case | `test_search.py` |
+| A sort-only column | no header and no cell for the column Formplayer hands with a width hint of 0 | `test_search.py` |
+| The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
+| The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
+| `cc-show-incomplete` after the App Settings save (finding 58) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
+| An after-submit link to a hidden target, end to end (finding 56) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; one submission reaches HQ each time | `test_links.py` |
+
+#### Web Apps in the lane
+
+The driver and a document's record run; no check judges the record yet. What
+joining the lane takes:
+
+- **The image** gains the Web Apps bundle, HQ's node packages whole (the
+  stylesheets' sources, about 570 MB unpacked) and `sass`
+  (`proof/image/tools`). `proof/image.lock` must name an image built from
+  this recipe before CI runs the package.
+- **The unit.** A document's own unit cannot hold the observation as it
+  stands: its configuration grants no `CLOUDCARE`, and granting it changes
+  `cloudcare_enabled` on the app Nova's upload creates, and with it every
+  record of the document. Two ways, one to choose. Either the Web Apps
+  observation is a unit of its own per document and configuration (the
+  configuration with `CLOUDCARE`), a part keyed by the document's inputs,
+  the configuration, the observation and browser fingerprints and the
+  image; or every configuration grants `CLOUDCARE`, as every project space
+  with Web Apps has it, the corpus's records are observed again once, and
+  the release and the walk run in a fork of the document's unit beside
+  Formplayer's (`sessions.webapps` of the `b_aligned` record). The second
+  makes every app the lane builds one a worker could open, and is the one
+  to prefer.
+- **What is compared.** The record of `build(A)`'s release against B's
+  aligned build's, where the builds differ, as proof 3 compares Core's
+  traces; and, in proof 4, the record after each editor save whose stored
+  app or build changed against B's. The second is where a difference only
+  the stored app holds shows (finding 58 changed no file of the build), so
+  the release must follow the save whether or not the build changed. A
+  difference is `webapps@<state>`, its path the screen's (`/runs/*/screens/*
+  /list/cells/*/fontSize`), held by the register as any other.
+- **Cost.** A release and a record cost four to five seconds a document and
+  state, so the whole corpus with its saved states does not fit the
+  five-minute target on every pull request. The package's own tests do (a
+  minute on one worker); the per-document records belong to a sample on
+  each pull request and the whole corpus weekly, as the editors' audits
+  are.
 
 ## The registers
 
@@ -1292,6 +1425,8 @@ reused is only what a key names whole, and the reuse is audited:
 | Formplayer's walk gives the same bytes and is faithful | an id or an install left unmarked; a trace that loses a difference | `proof/formplayer/test_walk.py`, `test_canonical.py`, `test_observe.py` |
 | HQ's answers to Formplayer answer only what they hold | an unanswered route answered empty; a session answered for an unsigned request | `proof/formplayer/test_answers.py` |
 | The Formplayer runner is always joined | a JVM, a Redis or a database left behind | `proof/formplayer/test_lifecycle.py` |
+| What a Web Apps session runs is HQ's own page, bundle and stylesheets on Formplayer's own answers, each build under its own id | a stubbed answer, a page with no stylesheet, a request around Formplayer's security chain, an earlier build's install | `proof/webapps/test_session.py` |
+| A document's Web Apps record reads every screen and gives the same bytes | a screen read before its click's answer rendered; an id or a time reaching a screen | `proof/webapps/test_observe.py` |
 | Proof 2 compares everything HQ builds | a file left out | `proof/checks/test_build_files.py`: a file no comparator reads refuses the comparison |
 | Each spelling rule is sound | a rule that hides a real difference | `proof/rules/test_<rule>.py`, and `test_closed_set.py` for an unlisted or untested rule |
 | The register is strict | a fixed defect left listed, or a new failure absorbed | `proof/checks/test_registers.py`: removing any one entry fails |

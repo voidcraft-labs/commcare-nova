@@ -1,5 +1,6 @@
-// Builds the JavaScript of HQ's editor pages for the proof harness's editor
-// driver (proof/editors), at image build time, from HQ's own node packages.
+// Builds the JavaScript of HQ's editor pages and of its Web Apps page for the
+// proof harness's editor driver (proof/editors, proof/webapps), at image
+// build time, from HQ's own node packages.
 //
 // HQ ships its page JavaScript as webpack bundles (`yarn build`:
 // webpack/generateDetails.js, then webpack/webpack.prod.js). The harness
@@ -10,7 +11,13 @@
 // - resolve.alias, with webpack's matching (a key is the whole request or its
 //   first segments; aliases apply again to what they produce);
 // - resolve.fallback (`false` is an empty module), resolve's default
-//   extensions, main fields and condition names for a web target;
+//   extensions, main fields and condition names for a web target; and, where
+//   esbuild's resolver finds no file for a request, webpack's own resolver's
+//   answer (enhanced-resolve, from HQ's node packages): webpack completes a
+//   package `exports` target with its extensions where esbuild takes the
+//   target as written (Web Apps' `markdown-it/dist/markdown-it`), and reads a
+//   package's `browser` field mapping a request to `false` as an empty
+//   module (crypto-js's `crypto`);
 // - externals: every request of the page graphs is put to the
 //   configuration's externals, and one they make external fails the build
 //   (HQ's only external applies to a Vellum checkout beside HQ, which the

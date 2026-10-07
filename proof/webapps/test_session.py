@@ -9,6 +9,12 @@ Contracts (``proof.webapps.session``, ``proof.webapps.hq``):
   Formplayer's own answers to the client's own requests, each of which
   asked HQ who the worker is. The plausible failure is a page that renders
   from anything but those (a stubbed answer, a script of the harness's own).
+- **HQ offers Web Apps the app only where the project space has Web Apps.**
+  Under the document's own configuration HQ stores the app with
+  ``cloudcare_enabled`` false and offers the worker no app; with the
+  privilege the driver adds, HQ stores it true and offers the released
+  build. The plausible failure is a driver that adds the privilege for
+  nothing, or an app HQ would list either way.
 - **The page is laid out under HQ's stylesheets, found by HQ's finders.**
   HQ's own precompiler compiles the page's SCSS and HQ's static finders
   serve what they hold; a path none holds, or one that climbs out of the
@@ -76,6 +82,19 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
     ]
     # The client names the app in its route by the app's own id, and asks Formplayer for the build.
     assert run.screens[1]["route"]["appId"] == app_id != build_id
+
+
+def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(hq, core_runner, webapps_documents):
+    """Finding 59: the lane's own configuration of a document makes an app HQ never offers Web Apps."""
+    from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
+
+    offered = {}
+    for name, web_apps in (("the lane's configuration", False), ("with Web Apps", True)):
+        with webapps_hq.project(webapps_documents[TILES], core_runner, web_apps=web_apps) as project:
+            with project.released() as release:
+                listed = get_web_apps_available_to_user(project.domain, project.worker)
+                offered[name] = (release.doc["cloudcare_enabled"], [app["_id"] == release.build_id for app in listed])
+    assert offered == {"the lane's configuration": (False, []), "with Web Apps": (True, [True])}
 
 
 def test_hqs_finders_serve_the_static_files_they_hold_and_nothing_else(hq):
