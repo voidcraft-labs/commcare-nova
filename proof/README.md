@@ -549,9 +549,11 @@ image's own Node tools. It holds only public, licensed upstream sources and
 the harness's own code; Nova's checkout is mounted at run time. The Android
 reader's runtime is not in it (`proof/android/README.md`): Robolectric's
 native runtime has no linux/arm64 build, and the runtime holds SDK-derived
-and Google libraries, so the reader builds its runtime from the pins on
-linux/amd64 (`proof/android/build-runtime.sh`), and nothing the image builds
-or the lane imports reaches `proof/android`. Connect's checkout carries no
+and Google libraries, so the Android stage builds its runtime from the pins
+on linux/amd64 (`proof/android/build-runtime.sh`) and keeps it in the
+repository's Actions cache, and nothing the image builds reaches it. What of
+`proof/android` the lane's own tests import (the stage's logic, held with a
+stand-in reader) is standard library alone. Connect's checkout carries no
 license file, so none of Connect's source is in the image: the Connect proofs
 fetch it at its pin when they run (`proof/connect/checkout.py`). The image
 holds what Connect runs on (the `full` stage): Python 3.11, a virtualenv from
@@ -1424,21 +1426,26 @@ spellings of its difference.
   fail whenever the sample shrank past it or the corpus seed changed.
 - `values` (`{"before", "after"}`) pins the exact values, only on an entry
   whose document is targeted.
-- `android` names the Android predicate the harm rests on ("What the lane does
-  not observe", above).
-- `equivalence` marks a class that is no harm: two spellings every reader
-  reads alike, one of whose readers no test of the lane runs (Android), so
-  no spelling rule's test can prove them alike. It names those readers and
-  why each reads the two alike. Formplayer and the client read every state
-  the lane serves, so for them the lane itself is the proof: the build
-  differs and neither reader's record of the two states does (a difference
-  either shows is an entry of its own). An equivalence whose every reader a
-  test runs is no entry at all: it is a spelling rule with that test as its
-  proof ("Spelling rules": finding 55's empty work area id, whose readers
-  are HQ, Core, Formplayer and Connect). Such an entry is held
-  and verified as any other, and the fix of the defect or finding it is filed
-  under removes it (`harness-findings.md`, "Equivalences only another runtime
-  reads").
+- An entry whose artifact is `android@...` is the Android stage's: a
+  difference in what CommCare Android's own code read of two archives ("The
+  Android stage", above), reported and held by that stage's judge of the
+  entry's check, on the entry's document and on its control. Every other
+  entry is the shards'. What a defect does on a device is such an entry,
+  never a citation of Android's source.
+- `equivalence` marks a class that is no harm: two spellings of an artifact
+  that every reader of it reads alike. Formplayer, the client and Android
+  read every state the lane builds, so for them the lane itself is the
+  proof: the build differs and no reader's record of the two states does (a
+  difference any shows is an entry of its own). An equivalence whose every
+  reader a test inside the image runs is no entry at all: it is a spelling
+  rule with that test as its proof ("Spelling rules": finding 55's empty
+  work area id, whose readers are HQ, Core, Formplayer and Connect). One of
+  whose readers is Android stays an entry, since a rule's own test runs
+  where Android's code cannot; `proof/android/predicates.py` holds that
+  reader on both spellings where the reader runs. The entry names the
+  readers and why each reads the two alike, is held and verified as any
+  other, and the fix of the defect or finding it is filed under removes it
+  (`harness-findings.md`, "Equivalences only another runtime reads").
 - `control` names the entry's control under `proof/controls/`.
 - A manifest entry never names an undecided use: that is a gap in the check.
 
@@ -1571,11 +1578,17 @@ it corrects, if any.
 1. Settle at source that the class is a defect and which: a numbered one, or a
    new finding in `harness-findings.md` with what goes wrong, its source
    evidence, where its harm shows and what research claim it corrects. A
-   class every reader reads alike is a spelling rule where a test can run
-   every one of those readers on both spellings (HQ's build, Core,
-   Formplayer, HQ's Connect repeater and Connect), and otherwise (a reader no
-   test of the lane runs: Android) an entry marked `equivalence`, filed under
-   the defect or finding whose fix removes it.
+   class every reader reads alike is a spelling rule where a test inside
+   the image can run every one of those readers on both spellings (HQ's
+   build, Core, Formplayer, HQ's Connect repeater and Connect), and otherwise
+   (one of its readers is Android, whose code runs in the Android stage
+   alone) an entry marked `equivalence`, filed under the defect or finding
+   whose fix removes it, with the reader held on both spellings in
+   `proof/android/predicates.py`. A difference in what Android reads is an
+   entry of the Android stage (an `android@...` artifact): the stage's
+   failing item prints the class, and
+   `python3 -m proof.android.stage show --out <its output>` lists every
+   class with an example.
 2. Name a non-fuzz document that shows it, or write a targeted document that
    does. Pin `values` only on a targeted document.
 3. Retain that document from an emitted corpus, unless a control already
@@ -1637,8 +1650,9 @@ To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
 `RULES` where its artifact's rules apply, and add any document its test reads
 to `DOCUMENTS`. `test_closed_set.py` fails while a module is unlisted or
 untested. A difference no such proof can show equivalent (one of whose
-readers is Android, which no spelling rule's test runs) is not a rule: it is a
-register entry. When an emitter starts writing the editor's spelling, the
+readers is Android, whose code no test inside the image can run) is not a
+rule: it is a register entry marked `equivalence`, which the Android stage
+shows on every document. When an emitter starts writing the editor's spelling, the
 rule that erased Nova's former spelling goes in the same change.
 
 `connect-work-area-empty` is the rule whose readers reach past HQ's build and
@@ -2633,9 +2647,13 @@ each is stated here as it is built.
     value-level checks only on targeted documents.
 17. **HQ's feature-matrix apps belong to step 6**, whose reader is their first
     consumer.
-18. **Android is cited, not run**, in the lane. The Android reader
-    (`proof/android`) now runs it beside the lane ("What the lane does not
-    observe").
+18. **Android is run, and judged.** The decision was that Android be cited
+    and not run; it no longer stands. CommCare Android's own code reads every
+    archive a device installs of every document, in a stage of the lane on
+    amd64 after the shards, and proofs 1, 3 and 4 judge what it read and hold
+    it to the register ("The Android stage"). What a defect does on a device
+    is an entry of that stage, with a document and a control, never a
+    citation of Android's source.
 19. **A check runs only against a target Nova's publish accepts.**
 
 These were settled while the lane was built, and stand where the plan's first

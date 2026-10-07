@@ -5,8 +5,9 @@ upstream commits: HQ's import, build, case processing, editors, receiver,
 restore and Connect repeater, CommCare Core's runtime, Formplayer's
 application, HQ's Web Apps client and CommCare Connect's own server, over a
 reproducible corpus, on
-every pull request; commcare-android's own code reads the same archives in a reader of
-its own (`proof/android`), outside the image.
+every pull request; commcare-android's own code reads every archive a
+device installs, in the lane's Android stage (`proof/android`), outside the
+image.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -112,13 +113,13 @@ harness keeps, each with its reason.
   Connect's own receiver, as `proof/rules/test_connect_work_area_empty.py`
   runs them). An equivalence every reader of which a test runs is a rule
   with that test as its proof, never a register entry. A difference one of
-  whose readers no test of the lane runs (Android) is a register entry,
-  never a rule, marked `equivalence` with those readers where it is no
-  harm, so the register never presents it as one. Where the lane runs a
-  reader on every document (Formplayer, Web Apps' client, and Connect on
-  every Connect document), an equivalence is also what the lane itself
-  shows: the two spellings differ in the build and that reader's record of
-  the two states does not.
+  whose readers is Android, whose code no test inside the image can run, is
+  a register entry, never a rule, marked `equivalence` with those readers
+  where it is no harm, so the register never presents it as one. Where the
+  lane runs a reader on every document (Formplayer, Web Apps' client,
+  Android, and Connect on every Connect document), an equivalence is also
+  what the lane itself shows: the two spellings differ in the build and that
+  reader's record of the two states does not.
 - **A precise witness writes its precise edit.** The fixed producers' edits
   are balanced together, so an unrelated document can change which admitted
   edit another gets. A harness test or registered symptom that needs one
@@ -157,16 +158,28 @@ harness keeps, each with its reason.
   fixed cost. Never buy speed with more shards, workers or processes than a
   four-vCPU job serves, and never with a seam that computes something HQ would
   not.
-- **Android is read by its own code, and the lane does not judge it yet**
-  (step 1's decision 18). The Android reader (`proof/android`) runs
-  commcare-android's own classes over the archive each state's record keeps
-  for it, one JVM and one device a request, on linux/amd64 and macOS only
-  (Robolectric's native runtime). Until its answers are records, an entry
-  whose harm is on Android observes the artifact through Core's parse and
-  names the Android predicate in its `android` field. Never copy or rewrite
-  an Android class to observe it: call the app's own, by reflection where it
-  is private. The reader's self-check is `proof/android/selfcheck.py`, which
-  the lane's pytest does not collect.
+- **Android is read by its own code, in a stage the gate judges** (step 1's
+  decision 18, which said cited and no longer stands). The Android reader
+  (`proof/android`) runs commcare-android's own classes over the archive
+  each state's record keeps for it, one JVM and one device a request, on
+  linux/amd64 and macOS only (Robolectric's native runtime), so the Android
+  stage runs after the shards, from their records, on amd64
+  (`proof/android/stage.py`), and its output is an output like a shard's.
+  A claim about what a device does is observed there: never cite an Android
+  symbol in place of a run, and never copy or rewrite an Android class to
+  observe it (call the app's own, by reflection where it is private). Each
+  answer is kept under the archives, restore and options it read and the
+  reader that read it, so put anything an answer depends on in that key
+  (`proof/android/records.py`), and never read the wall clock on the
+  device: the app's clock is the lane's fixed instant. A walk follows the
+  app's own navigation (a menu's own click, a list's own tap, a form's own
+  finish button); what the walk cannot do as a worker does it names and
+  stops at. An entry whose artifact is `android@...` is that stage's, held
+  on its document and its control like any other; the shards' checks hold
+  only their own. The stage's logic is held in the lane with a stand-in
+  reader (`proof/android/test_stage.py`); commcare-android's own code is
+  held where it runs (`selfcheck.py`, `predicates.py`, which the lane's
+  pytest does not collect).
 - **A check runs only against a target Nova's publish accepts** (step 1's
   decision 19). A symptom that shows only where Nova refuses to publish
   reaches no one, so a configuration lacking a flag or confirmation Nova
