@@ -8175,5 +8175,16 @@
 		"kind": "changed",
 		"document": "localization-bilingual",
 		"control": "localization-bilingual"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed",
+		"defect": 59,
+		"part": "local archive names no server (where a device posts a form)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/profile/readers/FormSubmissionHelper.getFormPostURL",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
 	}
 ]

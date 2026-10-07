@@ -485,3 +485,23 @@ def test_a_stored_session_home_cannot_read_is_that_forms_own_symptom():
     assert found[0].at == "/update/reopened/m0-f0/session"
     assert found[0].before == {"kept": "COMMAND_ID m0-f0 CASE_ID case_id c CASE_ID case_id_parent_ids"}
     assert found[0].after == {"raised": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 7"}
+
+
+def test_a_form_the_device_refused_and_yet_applied_is_reported_of_that_archive_alone():
+    """Android applies a form's case blocks in one transaction: a refused form that changed the device's cases
+    is a difference of its own, on whichever archive shows it, and one that left them as they were is none."""
+    kept, half = _app(), _app()
+    for answer, as_opened in ((kept, True), (half, False)):
+        saved = answer["walks"]["m0/m0-f0"]["steps"][2]["form"]["saved"]
+        saved.update(finishing=False, alert={"title": "Error Saving your Form"}, casesAsTheFormOpened=as_opened)
+        del answer["walks"]["m0/m0-f0"]["steps"][3]
+    assert _proof3(kept, a=kept) == []
+    found = _proof3(half, a=kept)
+    assert ("android@local.ccz", "/walks/*/steps/*/form/saved/applied-though-refused", "error") in _paths(found)
+    refused = next(d for d in found if d.path.endswith("applied-though-refused"))
+    assert refused.at == "/walks/m0~1m0-f0/steps/2/form/saved/applied-though-refused"
+    assert refused.after["alert"] == "Error Saving your Form"
+    save = {"label": "vellum:m0.f0", "editor": "vellum", "over": None, "app": half, "update": None}
+    assert ("android@vellum@B@minimum", "/walks/*/steps/*/form/saved/applied-though-refused", "error") in _paths(
+        _proof4(save, base=kept)
+    )

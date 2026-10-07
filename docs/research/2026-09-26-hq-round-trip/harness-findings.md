@@ -480,9 +480,15 @@ Formplayer's own application does over HQ's builds of Nova's exports:
     again (`connect@local.ccz`, `/runs/*/posts/*/answer`). HQ's build's
     profile sends a device to the receiver under the build's own id, from
     which HQ reads the app and the build. commcare-android's own default
-    for a profile with no `PostURL` is a fixed address of its own
-    (`app/res/values/strings.xml`, `PostURL`), which names no project space
-    of the app's; cited, not run. *Documents:* any local archive.
+    for a profile with no `PostURL` is a fixed address of its own, which
+    names no project space of the app's: the Android stage reads the
+    address a device would post to by Android's own reader
+    (`FormSubmissionHelper.getFormPostURL`), and on the local archive it is
+    `https://staging.commcarehq.org/receiver/submit/pf` where HQ's build
+    gives the project space's receiver under the app's id
+    (`android@local.ccz`, proof 3,
+    `/profile/readers/FormSubmissionHelper.getFormPostURL`). *Documents:*
+    any local archive.
 
 What the same runs show of earlier findings, each on Formplayer itself
 (`proof/formplayer/test_*.py`): finding 40's `cc-autosync-freq` reads alike
@@ -731,6 +737,13 @@ device meets it, on the documents the register names:
   (`/walks/*/screens/…:FormEntryActivity!Error Saving your Form`). Defect
   25's rewritten query repeat stops the form earlier: "Error Occurred:
   Attempting to select element 2 of a list with only 1 elements."
+- **A form the device refuses leaves no mark.** Each time a device does not
+  save a form (defect 13's, and defect 25's), it holds the cases it held as
+  the form opened, and keeps the form's record aside (`limbo`): Android
+  applies a form's case blocks in one transaction
+  (`FormRecord.updateAndProcessRecord`). The stage reports any refused form
+  that left a case changed (`…/form/saved/applied-though-refused`), and no
+  run has.
 - **Defect 4 and finding 34 (location capture).** A form of HQ's build with
   `auto_gps_capture` asks the device for the location permission as it
   opens; B's form (defect 4) and the local archive's (finding 34) ask for
@@ -857,10 +870,11 @@ views, Formplayer and the client, on the documents the register names:
 ## Equivalences only another runtime reads
 
 These differences are no harm: every runtime that reads them reads both
-spellings alike. One of their readers is a runtime no test of the lane runs
-(Android), or was when the entry was written, so no spelling rule's test can
-prove them alike, and the register holds them, each entry marked with its
-`equivalence`. Finding 55 is no longer one of them: every reader of its
+spellings alike. One of their readers is Android, whose code no test inside
+the lane's image can run, so no spelling rule's test can prove them alike,
+and the register holds them, each entry marked with its `equivalence`. The
+lane's Android stage now reads each on both spellings and reports no
+difference between them, which is what holds each entry's sentence. Finding 55 is no longer one of them: every reader of its
 spelling is run, so it is a spelling rule. Beside the
 findings below, the entries of findings 40 (ten profile settings written at the
 value their readers take when they are absent) and 42 (a vertical alignment of

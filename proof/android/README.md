@@ -33,7 +33,8 @@ logs in is on a real device. The requests (`Reader.java`):
   installed app (`Profile.java`: `HiddenPreferences`,
   `MainConfigurablePreferences`, `CommCareApp.areMMResourcesValidated`,
   `UpdateHelper`, `PendingCalcs`, `PurgeStaleArchivedFormsTask`,
-  `SyncDetailCalculations`, the current locale and what the language picker
+  `SyncDetailCalculations`, where a completed form is posted
+  (`FormSubmissionHelper.getFormPostURL`), the current locale and what the language picker
   offers, and which of the recorded settings Android's own settings screen
   lets a worker change); the home screen's hidden buttons
   (`StandardHomeActivityUIController.getHiddenButtons`, `Home.java`); and
@@ -82,8 +83,9 @@ logs in is on a real device. The requests (`Reader.java`):
     applies the form's case blocks to the device's case database as it
     saves (`FormRecord.updateAndProcessRecord`), and home handed the result.
     The cases the device then holds are recorded, each one it made itself
-    named by its place among them, ordered by what each holds. Nothing is
-    sent. What home starts next is part of the same walk, so a
+    named by its place among them, ordered by what each holds; where the
+    device does not save the form, so are its cases then, and whether they
+    are the ones it held as the form opened. Nothing is sent. What home starts next is part of the same walk, so a
     walk shows where a worker lands after a form.
 
   A walk ends where home starts nothing (with the alert home holds for the

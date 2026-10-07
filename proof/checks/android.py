@@ -16,7 +16,9 @@ absent where the document has no such archive. Nothing here runs the reader: eve
 profile as each of Android's readers gives it, the home screen, and every walk (``comparable_app``). And what
 stands on its own of HQ's build of A (``android@A``): each search screen that sent, for an answer holding both
 quote marks, the query HQ refuses (``/walks/*/steps/*/query/withAnswer/sent-unquotable-search``,
-``refused_searches``).
+``refused_searches``). And of every archive of proofs 3 and 4 on its own: each form the device did not save
+and yet left a mark of (``/walks/*/steps/*/form/saved/applied-though-refused``, ``applied_though_refused``),
+which Android's one transaction a form should never give.
 
 **Proof 4** (``editability``): what a device shows of the app each editor save left against the state it was
 saved over (``android@<editor>@<state>@<configuration>``), and, where the save's profile is not the one it was
@@ -343,9 +345,34 @@ def refused_searches(answer: dict | None) -> list[tuple[str, str, dict]]:
     return found
 
 
+def applied_though_refused(answer: dict | None) -> list[tuple[str, str, dict]]:
+    """Each form of an ``app`` answer the device did not save and yet left a mark of: the cases it holds after
+    are not the cases it held as the form opened (``(structural path, concrete path, what the device said and
+    holds)``). Android applies a form's case blocks in one transaction, so a refused form should leave none;
+    this stands on its own of one archive, and a run that reports it has found a device that keeps half a form."""
+    found = []
+    for name, walk in sorted(((answer or {}).get("walks") or {}).items()):
+        for index, step in enumerate(walk.get("steps") or []):
+            saved = (step.get("form") or {}).get("saved") if isinstance(step.get("form"), dict) else None
+            if isinstance(saved, dict) and saved.get("casesAsTheFormOpened") is False:
+                alert = saved.get("alert") if isinstance(saved.get("alert"), dict) else {}
+                at = f"/walks/{pointer_token(name)}/steps/{index}/form/saved/applied-though-refused"
+                value = {"alert": alert.get("title"), "cases": saved.get("cases")}
+                found.append(("/walks/*/steps/*/form/saved/applied-though-refused", at, value))
+    return found
+
+
+def _applied(check: str, document: str, artifact: str, answer: dict | None) -> list:
+    return [
+        Difference(check, document, artifact, path, at, "error", None, value)
+        for path, at, value in applied_though_refused(answer)
+    ]
+
+
 def behavior(document: str, record: dict) -> list:
     found = []
     local = (record.get("local") or {}).get("app")
+    found += _applied("proof3", document, LOCAL, local)
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
         a = (held.get("A") or {}).get("app")
@@ -354,10 +381,12 @@ def behavior(document: str, record: dict) -> list:
         found += [
             Difference("proof3", document, A, path, at, "error", None, value) for path, at, value in refused_searches(a)
         ]
+        found += _applied("proof3", document, A, a)
         if local is not None:
             found += app_differences(a, local, check="proof3", document=document, artifact=LOCAL)
         b = (held.get("B") or {}).get("app")
         if b is not None:
+            found += _applied("proof3", document, REPUBLISH, b)
             found += app_differences(a, b, check="proof3", document=document, artifact=REPUBLISH)
     return found
 
@@ -392,6 +421,7 @@ def editability(document: str, record: dict) -> list:
                     continue
                 artifact = f"android@{save['editor']}@{state}@{name}"
                 over = left.get(save.get("over"), base)
+                found += _applied("proof4", document, artifact, save["app"])
                 found += app_differences(over, save["app"], check="proof4", document=document, artifact=artifact)
                 left[save["label"]] = save["app"]
                 update = save.get("update")

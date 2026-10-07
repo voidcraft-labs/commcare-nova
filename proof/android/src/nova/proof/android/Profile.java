@@ -97,6 +97,11 @@ final class Profile {
                 PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays(app));
         found.put("SyncDetailCalculations.unsentFormNumberLimitExceeded", numberLimit());
         found.put("SyncDetailCalculations.unsentFormTimeLimitExceeded", timeLimit());
+        // Where the device sends a completed form: the profile's address, or the app's own default where the
+        // profile names none (FormSubmissionHelper.getFormPostURL).
+        found.put("FormSubmissionHelper.getFormPostURL", String.valueOf(call(
+                org.commcare.sync.FormSubmissionHelper.class, "getFormPostURL",
+                new Class<?>[]{android.content.Context.class}, CommCareApplication.instance())));
         return found;
     }
 

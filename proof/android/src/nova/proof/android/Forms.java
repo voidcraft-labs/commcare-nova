@@ -83,6 +83,8 @@ final class Forms {
         }
         form.put("loaded", true);
         describe(activity, started, form);
+        // The cases the device holds as the form opens, to say whether a form it then refuses left any mark.
+        String casesBefore = Cases.read().toString();
         // What the form asks the device for as it opens (the location permission, for a form that captures
         // one).
         Screens.deviceAsks(home, form);
@@ -180,7 +182,15 @@ final class Forms {
         saved.put("finishing", activity.isFinishing());
         saved.put("alert", Screens.orNull(Views.alert(activity)));
         if (!activity.isFinishing()) {
-            // The form is left as the worker's back button and "do not save" leave it, so home is where it was.
+            // The device did not save the form. Whether anything of it was applied all the same: Android
+            // processes a form's case blocks in one transaction (FormRecord.updateAndProcessRecord), so the
+            // device should hold the cases it held as the form opened. The form is left as the worker's back
+            // button and "do not save" leave it, so home is where it was.
+            Device.dirty = true;
+            saved.put("records", records());
+            JSONArray held = Cases.read();
+            saved.put("cases", held);
+            saved.put("casesAsTheFormOpened", held.toString().equals(casesBefore));
             return false;
         }
         saved.put("resultCode", shadow.getResultCode());

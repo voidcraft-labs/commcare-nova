@@ -282,8 +282,9 @@ or it fails the lane ("The registers", below).
   by the harness into Core's submission; and no file is given to an image, audio, video,
   signature or document question, so a walk leaves one unanswered and ends
   at one that is required. Nothing is sent: a form is saved and applied to
-  the device's own case database, and where Android posts a form of an
-  archive whose profile names no address is not run. A search is answered
+  the device's own case database; where a device would post it is read by
+  Android's own reader (`FormSubmissionHelper.getFormPostURL`), and nothing
+  is posted there. A search is answered
   with every case of the asked types the device holds, so what a search's
   filter selects is not read (as on Formplayer). Robolectric lays views out
   and does not draw them: a cell's class, text, gravity, text size, scale
@@ -1348,6 +1349,13 @@ answers, each difference under an `android@...` artifact):
   (`/update/reopened/*`, under `android@local.ccz` and `android@B`), or
   whose session, as Android itself stored it, home cannot read
   (`/update/reopened/*/session`).
+- **Of each archive alone**, under proofs 3 and 4: a search that sent, for
+  an answer holding both quote marks, the query HQ refuses (`android@A`,
+  `…/query/withAnswer/sent-unquotable-search`), and a form the device did
+  not save and yet left a mark of
+  (`…/form/saved/applied-though-refused`: the cases it holds are not the
+  ones it held as the form opened), which Android's one transaction a form
+  should never give.
 
 One symptom is one difference: a walk whose screens part from the
 baseline's is named by where they part
@@ -2310,8 +2318,11 @@ On Android, a form's case processing runs in one user-database transaction
 marked successful only after `FormRecordProcessor.process` returns
 (`FormRecord.updateAndProcessRecord`,
 `FormSubmissionHelper.checkFormRecordStatus`, at the Android pin), so the
-invalid-case guard keeps a refused form from committing. That is a source
-reading, not an Android run.
+invalid-case guard keeps a refused form from committing. The Android stage
+runs it: wherever a device does not save a form, it records whether the
+device still holds the cases it held as the form opened, and reports a
+refused form that changed one
+(`/walks/*/steps/*/form/saved/applied-though-refused`, "The Android stage").
 
 #### Media (`media`)
 
