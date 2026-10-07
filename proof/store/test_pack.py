@@ -92,6 +92,9 @@ def test_a_snapshot_packed_from_a_run_round_trips_byte_for_byte(tmp_path, corpus
         "judgments": 4,
         "transcripts": 1,
         "groups": 2,
+        # The Android stage's answers, which a run of the shards alone holds none of (proof/android/test_stage.py
+        # packs a stage's output).
+        "android": 0,
     }
     # Each judgment is the evidence its check wrote, as canonical JSON.
     written = {path.read_bytes() for path in (tmp_path / "out" / "blocks").glob("*/checks/*/*.json")}
