@@ -1095,6 +1095,10 @@ class _Observation:
         self.serves = bool(getattr(ctx, "serve", False))
         self.walk = None
         self.served_kept = {}
+        # The unit's Connect opportunity (``proof.observe.connect``), which B and each save forward to, and
+        # Core's sessions on B as their submissions are posted to it.
+        self.connect = getattr(ctx, "connect", None)
+        self.baseline_trace = None
 
     # The whole B ---------------------------------------------------------------------------------------------
 
@@ -1179,6 +1183,7 @@ class _Observation:
         found, run, _ = self.sessions(self.b_build, None)
         if run.trace is not None:
             self.script = script_of(run.trace)
+            self.baseline_trace = run.trace
         return found
 
     # B and each save, served to Formplayer and the Web Apps client ------------------------------------------
@@ -1198,11 +1203,31 @@ class _Observation:
             edit=self.ctx.over == "B-edit",
         )
 
+    def _forwarded(self, held, label):
+        """The served state forwarding to the unit's Connect opportunity (``proof.observe.connect.forwarded``),
+        where the document has one."""
+        from proof.observe import connect
+
+        opportunity = self.connect.opportunity if self.connect is not None else None
+        return connect.forwarded(held.served, opportunity, label)
+
+    def _forwards(self, forwarder, held, trace, core):
+        """What a served state forwarded, as its record keeps it: the walk's runs named, Core's submissions of
+        ``core`` (its trace on the state's build, or None) posted where the release's profile sends them."""
+        from proof.observe import connect
+
+        if forwarder is None:
+            return None
+        forwarder.walked(trace)
+        if core is not None:
+            forwarder.devices(core, path=connect.release_post_path(held.served))
+        return forwarder.take(self.blobs)
+
     def serve_b(self):
         """B served (``proof.observe.served``): Formplayer's walk derived on B's release, and the client's
         screens on it; ``{"served": False}`` where HQ releases no build of B."""
         from proof.formplayer.observe import script_of
-        from proof.observe import served
+        from proof.observe import connect, served
         from proof.observe.runs import unbuildable
 
         if unbuildable(self.b_build) is not None:
@@ -1210,10 +1235,17 @@ class _Observation:
         from proof.webapps.hq import ReleaseRefused
 
         try:
-            with self._serving("proof4", self.ctx.previous_build) as held:
-                side, trace = held.formplayer()
+            with (
+                self._serving("proof4", self.ctx.previous_build) as held,
+                self._forwarded(held, "proof4") as forwarder,
+            ):
+                with connect.reading(forwarder, "formplayer"):
+                    side, trace = held.formplayer()
                 self.walk = script_of(trace)
                 record = {"served": True, **served._state(held, side, trace, files=self.b_build.files)}
+                kept = self._forwards(forwarder, held, trace, self.baseline_trace)
+                if kept is not None:
+                    record["connect"] = kept
         except ReleaseRefused as error:
             return served.refused(error)
         # What the client reads of the app, from the stored app as read once, as every save's is.
@@ -1221,7 +1253,7 @@ class _Observation:
         self.b.served_trace, self.b.served_reads = side["trace"], record["clientReads"]
         return record
 
-    def served_after(self, over, held, outcome, differs):
+    def served_after(self, over, held, outcome, differs, traced=None):
         """What Formplayer and the client make of a saved app, where it can differ from the state it was saved
         over: its build differs, or what HQ's Web Apps page hands the client of the app does.
 
@@ -1232,7 +1264,7 @@ class _Observation:
         nothing else of the app that the build's files do not hold); ``PROOF_VERIFY_MEMOS=1`` serves it again and
         holds the two alike. Returns the record's entry (None where nothing is served) and the state's two digests.
         """
-        from proof.observe import served
+        from proof.observe import connect, served
         from proof.observe.runs import unbuildable
 
         unchanged = (None, over.served_trace, over.served_reads)
@@ -1251,9 +1283,17 @@ class _Observation:
 
         previous, _ = self.previous_of(over)
         try:
-            with self._serving("proof4-save", previous) as serving:
-                side, trace = serving.formplayer(self.walk)
+            with (
+                self._serving("proof4-save", previous) as serving,
+                self._forwarded(serving, "proof4-save") as forwarder,
+            ):
+                with connect.reading(forwarder, "formplayer"):
+                    side, trace = serving.formplayer(self.walk)
                 record = {"formplayer": side, "clientReads": reads}
+                core = self.blobs.get_json(traced["trace"]) if traced and traced.get("trace") else None
+                kept_connect = self._forwards(forwarder, serving, trace, core)
+                if kept_connect is not None:
+                    record["connect"] = kept_connect
                 if side["trace"] != over.served_trace or reads != over.served_reads:
                     shown = serving.webapps(trace)
                     if shown is not None:
@@ -1294,7 +1334,7 @@ class _Observation:
         found["archive"] = archive_record(device_archive(outcome, held.app), self.blobs) if differs else None
         answers = read_xpath(self.core_runner, xpath_pairs(over.held.stored, stored, over.build, outcome))
         found["xpath"] = self.blobs.put_json(answers) if answers else None
-        found["served"], served_trace, served_reads = self.served_after(over, held, outcome, differs)
+        found["served"], served_trace, served_reads = self.served_after(over, held, outcome, differs, found["trace"])
         if not keep:
             return found, None
         left = Base(held, outcome, hq_build=hq_build, fallback=over)

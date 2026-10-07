@@ -623,8 +623,9 @@ class Served:
 
     def run_queued(self):
         import redis
-        from config import celery_app
         from django.conf import settings
+
+        from config import celery_app
 
         client = redis.Redis.from_url(settings.CELERY_BROKER_URL)
         ran = []

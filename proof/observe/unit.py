@@ -386,6 +386,10 @@ class HookContext:
     # The session's editor driver, in whose Chromium the Web Apps client runs; None where the observation was
     # given none.
     editor_driver: object = None
+    # A's restore for proof 3's sessions (None where HQ serves none), and the unit's Connect opportunity holder
+    # (``proof.observe.connect.Holder``), which the served hook fills at A for a Connect app.
+    restore_a: bytes | None = None
+    connect: object = None
 
 
 @dataclass
@@ -432,6 +436,8 @@ class BContext:
     # Whether B and each save over it are also served to Formplayer and the Web Apps client
     # (``proof.observe.served``): where the unit's served hook runs.
     serve: bool = False
+    # The unit's Connect opportunity holder (``proof.observe.connect.Holder``).
+    connect: object = None
 
 
 # Observation -----------------------------------------------------------------------
@@ -581,6 +587,11 @@ class _Unit:
         self.mark_a = None
         self.b_built = None
         self.mark_b = None
+        # A's restore for proof 3's sessions, and the unit's Connect opportunity (proof.observe.connect).
+        self.restore_a = None
+        from proof.observe.connect import Holder
+
+        self.connect = Holder()
 
     def ops(self, part):
         return OperationLog(self.unit, self.unit.record, self.timings.setdefault(part, {}))
@@ -636,6 +647,7 @@ class _Unit:
 
         database = casedata.document_case_database(self.document)
         outcome, restore = sessions.hq_restore(self.unit, database, self.export.create.lookups, "restore-a", ops)
+        self.restore_a = restore
         return {"lookups": outcome, "restore": None if restore is None else self.blobs.put(restore)}
 
     def observe_a(self):
@@ -672,6 +684,18 @@ class _Unit:
         if self.a_built is not None and a_record.get("state") is not None:
             held = _built_from(a_record["state"], self.blobs, "A")
             self.a_built.outcome, self.a_built.doc = held.outcome, held.doc
+            if any(name == "served" for name, _, _, _ in self.hooks):
+                from proof.observe import served
+
+                # A Connect app's opportunity, made again while A is served: every later state is received by it.
+                served.reopen(
+                    HookUnit(self.unit, self.ops("recreate"), served.HOOK),
+                    document=self.document,
+                    app_id=self.app_id,
+                    a_record=a_record,
+                    holder=self.connect,
+                    blobs=self.blobs,
+                )
 
     # Hooks ---------------------------------------------------------------------
 
@@ -693,6 +717,8 @@ class _Unit:
                 self.configuration,
                 self.export.configuration.name,
                 self.editor_driver,
+                self.restore_a,
+                self.connect,
             )
             started = time.perf_counter()
             found[name] = getattr(module, function)(ctx)
@@ -733,6 +759,7 @@ class _Unit:
             restore_outcome=outcome,
             previous_build=self.saved_a,
             serve=any(hook == "served" for hook, _, _, _ in self.hooks),
+            connect=self.connect,
         )
 
     # B and B-edit --------------------------------------------------------------
@@ -852,6 +879,8 @@ class _Unit:
                 previous=self.saved_a,
                 driver=self.editor_driver,
                 blobs=self.blobs,
+                connect=self.connect,
+                sessions=record.get("sessions"),
             )
             if found is not None:
                 record["served"] = found
@@ -905,6 +934,18 @@ def _settle(store, key, record, blobs, held):
     if held is not None:
         store.audit(key, record)
     store.put(key, record, blobs.named_by(record))
+
+
+@contextmanager
+def _connect_closed():
+    """Each Connect opportunity holder appended to the block's list is closed as the block ends, however it ends:
+    a unit's served Connect does not outlive the unit."""
+    holders = []
+    try:
+        yield holders
+    finally:
+        for holder in holders:
+            holder.close()
 
 
 def observe_configuration(
@@ -961,6 +1002,7 @@ def observe_configuration(
     with (
         guard.observing(document, name, "configuration", hooks),
         hq_unit(configuration, root_key=keys["a"], validate=core_runner.validate_form) as unit,
+        _connect_closed() as closing,
     ):
         state = _Unit(
             document,
@@ -973,6 +1015,7 @@ def observe_configuration(
             blobs,
             timings,
         )
+        closing.append(state.connect)
         if "a" in wanted:
             settled("a", state.observe_a)
         else:

@@ -45,7 +45,6 @@ from pathlib import Path
 import pytest
 
 from proof.connect.hq import HQ_XMLNS, META_XMLNS, with_fix  # noqa: F401 - the tests read them here
-from proof.connect.runtime import ConnectRuntime
 
 # Every corpus document a Connect proof reads, by id: Nova's deliver app and learn app that each carry the edit
 # renaming their Connect ids, and the apps whose blocks are named like Connect's own keys (the deliver app whose

@@ -24,6 +24,11 @@ build differs from A's, exactly where Core's sessions replay. Proof 4's own
 observation (``proof.observe.proof4``) calls ``baseline`` at B and ``saved``
 after each save, through the same functions.
 
+Where the document's app holds Connect blocks, each served state also
+forwards what HQ receives to CommCare Connect, and what Connect then holds
+is kept with it (``connect``, ``proof.observe.connect``): ``observe`` makes
+the opportunity while A is served, and every later state is received by it.
+
 Each served state is one fork of the unit, and each run of a walk a fork
 inside it, so nothing a submission leaves in HQ is there for the next run or
 the next state. Every HQ step is an operation or a request of the unit, the
@@ -156,26 +161,75 @@ def observe(ctx):
     if unbuildable(ctx.build) is not None:
         # HQ releases no build of it (``Application.make_build`` raises), so nothing is served; the bar reports why.
         return {"served": False}
+    from proof.observe import connect
     from proof.webapps.hq import ReleaseRefused
 
     try:
         with serving(ctx.unit, ctx.document, ctx.app_id, driver=ctx.editor_driver, blobs=ctx.blobs, label="A") as held:
-            side, trace = held.formplayer()
-            return {
-                "served": True,
-                "runtime": formplayer.runtime(held.runner),
-                "A": _state(held, side, trace, files=ctx.build.files),
-            }
+            # A Connect app's opportunity is made here, from A's release, and receives every later state.
+            holder = getattr(ctx, "connect", None)
+            if holder is not None and holder.opportunity is None and connect.is_connect(ctx.build.files):
+                holder.opportunity = connect.open_opportunity(held.served)
+            opportunity = holder.opportunity if holder is not None else None
+            with connect.forwarded(held.served, opportunity, "A") as forwarder:
+                with connect.reading(forwarder, "formplayer"):
+                    side, trace = held.formplayer()
+                state = _state(held, side, trace, files=ctx.build.files)
+                if forwarder is not None:
+                    forwarder.walked(trace)
+                    restore = getattr(ctx, "restore_a", None)
+                    if restore is not None:
+                        core = connect.core_sessions(ctx.core_runner, ctx.build.files, restore)
+                        forwarder.devices(core, path=connect.release_post_path(held.served))
+                    kept = forwarder.take(ctx.blobs)
+                    if kept is not None:
+                        state["connect"] = kept
+            record = {"served": True, "runtime": formplayer.runtime(held.runner), "A": state}
+            if opportunity is not None:
+                record["connect"] = connect.opportunity_record(opportunity)
+            return record
     except ReleaseRefused as error:
         # HQ's own make_build refuses the app (a build profile it cannot build, say), which the bar reports.
         return refused(error)
 
 
-def aligned(unit, *, document, app_id, a_record, a_build, b_aligned, differs, change, previous, driver, blobs):
+def reopen(unit, *, document, app_id, a_record, holder, blobs):
+    """The opportunity of a Connect document whose ``a`` part the store held, made again as it was made: while A
+    is served, from the release HQ's own view serves Connect. Nothing where A's record holds none."""
+    from proof.observe import connect
+
+    held_a = ((a_record or {}).get("hooks") or {}).get(HOOK) or {}
+    if not held_a.get("served") or "connect" not in held_a or holder.opportunity is not None:
+        return
+    with serving(unit, document, app_id, driver=None, blobs=blobs, label="A") as held:
+        holder.opportunity = connect.open_opportunity(held.served)
+
+
+def aligned(
+    unit,
+    *,
+    document,
+    app_id,
+    a_record,
+    a_build,
+    b_aligned,
+    differs,
+    change,
+    previous,
+    driver,
+    blobs,
+    connect=None,
+    sessions=None,
+):
     """What the unit records with ``b_aligned``: the local archive's walk over HQ's state, and, where the raw
     builds of A and of B aligned to A differ, that build's walk and the client's screens on it. None where A
-    was not served (its hook did not run, or HQ releases no build of A)."""
+    was not served (its hook did not run, or HQ releases no build of A).
+
+    ``connect`` is the unit's opportunity holder (``proof.observe.connect.Holder``) and ``sessions`` proof 3's
+    sessions as the part records them: for a Connect app, each state also forwards what HQ receives to the
+    opportunity, Formplayer's submissions as its walk makes them and Core's as its sessions made them."""
     from proof.formplayer.observe import script_of
+    from proof.observe import connect as connect_
 
     held_a = ((a_record or {}).get("hooks") or {}).get(HOOK) or {}
     if not held_a.get("served"):
@@ -183,6 +237,12 @@ def aligned(unit, *, document, app_id, a_record, a_build, b_aligned, differs, ch
     script = script_of(blobs.get_json(held_a["A"]["formplayer"]["trace"]))
     walks_b = b_aligned is not None and b_aligned.files is not None and differs and unbuildable(b_aligned) is None
     from proof.webapps.hq import ReleaseRefused
+
+    opportunity = connect.opportunity if connect is not None else None
+
+    def core_trace(side):
+        held_side = (sessions or {}).get(side) or {}
+        return blobs.get_json(held_side["trace"]) if held_side.get("trace") else None
 
     recorded = {}
     try:
@@ -196,11 +256,30 @@ def aligned(unit, *, document, app_id, a_record, a_build, b_aligned, differs, ch
             previous=previous,
             change=change if walks_b else None,
         ) as held:
-            if walks_b:
-                side, trace = held.formplayer(script)
-                recorded["B"] = _state(held, side, trace, files=b_aligned.files)
-            if document.local_ccz is not None:
-                recorded["local"] = {"formplayer": held.local(document, script)[0]}
+            with connect_.forwarded(held.served, opportunity, "B" if walks_b else "local") as forwarder:
+                if walks_b:
+                    with connect_.reading(forwarder, "formplayer"):
+                        side, trace = held.formplayer(script)
+                    recorded["B"] = _state(held, side, trace, files=b_aligned.files)
+                    if forwarder is not None:
+                        forwarder.walked(trace)
+                        forwarder.devices(core_trace("b"), path=connect_.release_post_path(held.served))
+                        kept = forwarder.take(blobs)
+                        if kept is not None:
+                            recorded["B"]["connect"] = kept
+                if document.local_ccz is not None:
+                    with connect_.reading(forwarder, "formplayer"):
+                        local_side, local_trace = held.local(document, script)
+                    recorded["local"] = {"formplayer": local_side}
+                    if forwarder is not None:
+                        forwarder.walked(local_trace)
+                        # As the archive arranges it (no app named), and under the app's id.
+                        local_core = core_trace("local")
+                        forwarder.devices(local_core, path=connect_.local_post_path(document, held.served))
+                        forwarder.devices(local_core, path=connect_.release_post_path(held.served), reader="core@app")
+                        kept = forwarder.take(blobs, archives=[document.local_ccz.read_bytes()])
+                        if kept is not None:
+                            recorded["local"]["connect"] = kept
     except ReleaseRefused as error:
         recorded["refused"] = refused(error)["refused"]
     return recorded

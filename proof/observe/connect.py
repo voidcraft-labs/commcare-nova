@@ -192,6 +192,7 @@ class Forwarder:
         self.runs: dict = {}
         self._reader = None
         self._received = []
+        self._exchanges = 0
         self._name = None
 
     # A run of the served state (``proof.formplayer.hq.Served.run``) -------------------------------------------
@@ -201,23 +202,31 @@ class Forwarder:
         self.opportunity.views = self.views
         self.opportunity.put_back()
         self._received = []
+        self._exchanges = len(self.served.hq.exchanges)
 
     def end(self, label: bytes):
         from proof.connect import hq as connect_hq
+        from proof.formplayer.hq import RECEIVERS
 
         collected = self.opportunity.session.step("collect")
         if collected["exchanges"] or collected["tasks"]:
             self.opportunity.moved = True
         forwards = connect_hq.forwards(self.served.unit)
         self.opportunity.views = None
+        # What HQ's receiver answered Formplayer in this run, where the run was a walk's.
+        received = self._received + [
+            {"status": asked.status}
+            for asked in self.served.hq.exchanges[self._exchanges :]
+            if asked.url_name in RECEIVERS
+        ]
         posts = [exchange for exchange in collected["exchanges"] if exchange["path"] == RECEIVER]
-        if self._reader is None or not (posts or forwards or self._received):
+        if self._reader is None or not (posts or forwards or received):
             return
         name = self._name or hashlib.sha256(label).hexdigest()[:16]
         self.runs.setdefault(self._reader, []).append(
             {
                 "run": name,
-                "received": self._received,
+                "received": received,
                 "forwards": forwards,
                 "posts": [
                     {
@@ -232,6 +241,26 @@ class Forwarder:
                 "state": collected["state"],
             }
         )
+
+    def walked(self, trace, reader: str = "formplayer"):
+        """Name each run kept of a walk by its place in the walk's trace (``walk-<n>``): a walk's runs are named
+        by what each ran, and a derived run and its replay are told what to run in two ways, so the place a run
+        holds among the trace's runs is what two states' walks share."""
+        kept = self.runs.get(reader) or []
+        submitted = [
+            index
+            for index, run in enumerate((trace or {}).get("runs") or [])
+            if any(isinstance(step, dict) and step.get("submissions") for step in run.get("steps") or [])
+        ]
+        if len(kept) != len(submitted):
+            raise AssertionError(
+                f"Formplayer's walk made a submission in {len(submitted)} of its runs, and HQ's receiver was"
+                f" reached in {len(kept)} runs of it. The two are read from the walk's trace and from HQ's own"
+                " exchanges (proof.observe.connect.Forwarder); look at which run reached the receiver without"
+                " the walk keeping its submission."
+            )
+        for run, index in zip(kept, submitted, strict=True):
+            run["run"] = f"walk-{index}"
 
     @contextmanager
     def reading(self, reader: str):
@@ -326,3 +355,38 @@ def local_post_path(document, served) -> str:
     with zipfile.ZipFile(document.local_ccz) as archive:
         profile = archive.read("profile.ccpr") if "profile.ccpr" in archive.namelist() else None
     return connect_hq.post_path(profile, served.domain)
+
+
+@contextmanager
+def reading(forwarder, reader: str):
+    """``Forwarder.reading`` where the state forwards (``forwarder`` is one), and nothing where it does not."""
+    if forwarder is None:
+        yield
+        return
+    with forwarder.reading(reader):
+        yield
+
+
+class Holder:
+    """A unit's opportunity, where its document is a Connect app: opened while A is served, closed with the unit."""
+
+    def __init__(self):
+        self.opportunity = None
+
+    def close(self):
+        opportunity, self.opportunity = self.opportunity, None
+        if opportunity is not None:
+            opportunity.close()
+
+
+def core_sessions(core_runner, files, restore):
+    """Core's sessions on a build's files over ``restore``, derived as proof 3 derives them
+    (``proof.observe.sessions``): the trace, or None where Core does not admit the build."""
+    import tempfile
+    from pathlib import Path
+
+    from proof.observe.build import arrange
+    from proof.observe.sessions import run_sessions
+
+    with tempfile.TemporaryDirectory(prefix="proof-observe-connect-") as scratch:
+        return run_sessions(core_runner, "A", arrange(files, Path(scratch, "A")), restore).trace

@@ -29,6 +29,7 @@ WORKTREE = Path(__file__).resolve().parents[2]
 # Every file under these directories (repository-relative, ``/``-terminated), but under an excluded one.
 OBSERVATION_DIRECTORIES = (
     "proof/checks/compare/",
+    "proof/connect/",
     "proof/core/",
     "proof/editors/",
     "proof/formplayer/",
@@ -48,6 +49,8 @@ OBSERVATION_FILES = frozenset(
         "proof/checks/differences.py",
         "proof/checks/sharding.py",
         "proof/conftest.py",
+        # The Connect pin, which the unit's Connect runtime fetches Connect at (proof.connect.checkout).
+        "proof/pins.json",
         "proof/processes.py",
         "proof/pytest.ini",
     }
