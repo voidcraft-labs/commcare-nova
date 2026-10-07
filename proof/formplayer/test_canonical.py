@@ -26,7 +26,9 @@ def test_a_generated_id_is_marked_everywhere_and_an_id_an_input_holds_is_kept():
         "session_id": GENERATED,
         "selections": ["0", AUTHORED],
         "title": f"Session {GENERATED}",
-        "instanceXml": {"output": f'<data id="{OTHER}"><case>{AUTHORED}</case><instanceID>{GENERATED}</instanceID></data>'},
+        "instanceXml": {
+            "output": f'<data id="{OTHER}"><case>{AUTHORED}</case><instanceID>{GENERATED}</instanceID></data>'
+        },
         "other": OTHER,
     }
     marked, count = canonical.mark(value, canonical.given_ids([f"<restore><case_id>{AUTHORED}</case_id></restore>"]))

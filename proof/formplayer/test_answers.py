@@ -80,7 +80,10 @@ def test_a_submission_keeps_its_instance_and_its_files_and_gets_what_submit_answ
         f"--{boundary}--\r\n"
     ).encode()
     request = _request(
-        "POST", "/a/space/receiver/app-1/", body, headers=[("Content-Type", f"multipart/form-data; boundary={boundary}")]
+        "POST",
+        "/a/space/receiver/app-1/",
+        body,
+        headers=[("Content-Type", f"multipart/form-data; boundary={boundary}")],
     )
     assert answers(request) == HqAnswer(201, b"<ok/>")
     (submission,) = received

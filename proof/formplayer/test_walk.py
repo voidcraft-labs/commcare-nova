@@ -41,7 +41,11 @@ def _differences(before, after, path=""):
     if isinstance(before, list):
         if len(before) != len(after):
             return [path]
-        return [d for index, pair in enumerate(zip(before, after, strict=True)) for d in _differences(*pair, f"{path}/{index}")]
+        return [
+            d
+            for index, pair in enumerate(zip(before, after, strict=True))
+            for d in _differences(*pair, f"{path}/{index}")
+        ]
     return [] if before == after else [path]
 
 

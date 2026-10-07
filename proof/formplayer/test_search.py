@@ -29,7 +29,7 @@ from proof.formplayer.walk import screen_kind
 from proof.observe.sessions import csql_compile
 
 SEARCH = ["0", "action 0"]
-MIXED = "it's \"x\""
+MIXED = 'it\'s "x"'
 ONE_MARK = "it's"
 
 

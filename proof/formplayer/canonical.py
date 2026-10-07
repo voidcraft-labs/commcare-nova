@@ -114,7 +114,9 @@ def _whole_values(value):
 
 def _replaced(value, tokens, longest_first):
     if isinstance(value, dict):
-        return {_replaced(key, tokens, longest_first): _replaced(item, tokens, longest_first) for key, item in value.items()}
+        return {
+            _replaced(key, tokens, longest_first): _replaced(item, tokens, longest_first) for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_replaced(item, tokens, longest_first) for item in value]
     if isinstance(value, str):

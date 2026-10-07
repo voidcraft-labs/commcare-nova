@@ -16,7 +16,9 @@ received and the screen Formplayer's end of form navigation names next.
 Every run starts as a worker starts after clearing their data in Web Apps
 (Formplayer's ``clear_user_data``), so each reads the restore afresh and none
 sees the cases an earlier run's submission made, as every Core run starts
-from the request's case data.
+from the request's case data. Every walk starts by having Formplayer drop the
+app's install (``delete_application_dbs``), so each starts from the app as
+Formplayer installs it, whatever the same Formplayer ran on it before.
 
 The trace is Formplayer's own JSON for every request, in order, with what it
 asked HQ during each (``asked``), marked and encoded by
@@ -84,9 +86,7 @@ def fresh_actions(response, actions, ran):
     """A list's actions as script choices, but those the run already took from a list of the same title."""
     title = response.get("title")
     return [
-        {"action": index, "list": title}
-        for index in range(len(actions))
-        if {"action": index, "list": title} not in ran
+        {"action": index, "list": title} for index in range(len(actions)) if {"action": index, "list": title} not in ran
     ]
 
 
@@ -118,6 +118,18 @@ class Walk:
         # A worker starting over: their restore and search results are read afresh.
         web.post("/clear_user_data", {"domain": self.domain, "username": self.hq.username, "restoreAs": None})
         return web
+
+    def _forget_app(self) -> None:
+        """Formplayer's own route for dropping an installed app (what Web Apps sends when a worker clears an
+        app's data, and before an update): every walk then starts from the app as Formplayer installs it,
+        whatever this Formplayer ran on it before."""
+        web = WebApps(
+            self.runner, self.hq, domain=self.domain, username=self.hq.username, app_id=self.app_id, locale=self.locale
+        )
+        web.post(
+            "/delete_application_dbs",
+            {"app_id": self.app_id, "domain": self.domain, "username": self.hq.username, "restoreAs": None},
+        )
 
     def _values(self, question: Mapping[str, Any]) -> list[str]:
         if question.get("datatype") == "info":
@@ -289,7 +301,14 @@ class Walk:
                 end = "too-many-screens"
         except FormplayerRefused as refused:
             exchange = refused.exchange
-            steps.append({"refused": {"status": exchange.response.status, "body": exchange.response.body.decode("utf-8", "replace")}})
+            steps.append(
+                {
+                    "refused": {
+                        "status": exchange.response.status,
+                        "body": exchange.response.body.decode("utf-8", "replace"),
+                    }
+                }
+            )
             end = "refused"
         return {"script": ran, "steps": steps, "end": end}, None, ran
 
@@ -299,6 +318,7 @@ class Walk:
         """Every run's trace: derived where ``script`` is None, else each of its runs replayed."""
         runs = []
         started = time.perf_counter()
+        self._forget_app()
         if script is not None:
             for steps in script:
                 runs.append(self.execute(list(steps), derive=False)[0])

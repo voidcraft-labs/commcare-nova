@@ -671,8 +671,7 @@ def _clock_readers(formplayer_dir: Path, work: Path) -> list[str]:
             text = original.read_text(encoding="utf-8")
         except OSError as error:
             raise FormplayerStartError(
-                f"The Formplayer runner freezes the clock by recompiling {original}, which it could not read"
-                f" ({error})."
+                f"The Formplayer runner freezes the clock by recompiling {original}, which it could not read ({error})."
             ) from error
         if text.count(CLOCK_READ) != 1:
             raise FormplayerStartError(

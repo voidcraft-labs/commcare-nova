@@ -60,19 +60,27 @@ def test_a_request_of_hq_the_caller_does_not_answer_raises_the_callers_error_and
     runner = FormplayerRunner()
     try:
         runner.start()
-        process, redis, database, threads = runner.process, runner.redis_process, runner._database, runner.reader_threads
+        process, redis, database, threads = (
+            runner.process,
+            runner.redis_process,
+            runner._database,
+            runner.reader_threads,
+        )
         # Formplayer asks HQ who the session is before it serves a navigation; this runner answers nothing.
         with pytest.raises(FormplayerRunnerError, match="asked HQ for POST /hq/admin/session_details/"):
             runner.http("/navigate_menu", NAVIGATION, headers=SESSION)
         assert process.poll() is not None
         # The accepted case: the same request, with HQ answering that it knows no such session, is Formplayer's
         # own refusal, on a fresh JVM.
-        refused = runner.http(
-            "/navigate_menu", NAVIGATION, headers=SESSION, hq=lambda request: client.HqAnswer(404)
-        )
+        refused = runner.http("/navigate_menu", NAVIGATION, headers=SESSION, hq=lambda request: client.HqAnswer(404))
         assert refused.response.status in (401, 403)
         assert [request.path for request, _ in refused.hq] == ["/hq/admin/session_details/"]
-        process, redis, database, threads = runner.process, runner.redis_process, runner._database, runner.reader_threads
+        process, redis, database, threads = (
+            runner.process,
+            runner.redis_process,
+            runner._database,
+            runner.reader_threads,
+        )
     finally:
         runner.close()
     assert process.poll() is not None

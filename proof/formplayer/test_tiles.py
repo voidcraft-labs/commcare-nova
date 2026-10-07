@@ -1,4 +1,4 @@
-"""The custom tile's cell alignment Formplayer hands Web Apps, on Nova's export and on the app the Case List save leaves.
+"""The custom tile's cell alignment Formplayer hands Web Apps, for Nova's export and for the app a save leaves.
 
 Finding 42: the Case List save writes a vertical alignment of ``start`` into
 every cell of a custom tile Nova leaves unaligned, and HQ's build carries it

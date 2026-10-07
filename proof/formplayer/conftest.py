@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
     "case-operation-query",
