@@ -2082,17 +2082,71 @@ async function runSteps(page, run, steps) {
 	// `unlessUnsent`.
 	let dialogsAtClick = 0;
 	let unsent = false;
+	// A wait a step allows to miss (`within`, with `orSkipTo` or `optional`):
+	// once one with `orSkipTo` has missed, every step up to the one labelled
+	// so is skipped, and `missed` stays set until a `recover` step puts the
+	// page back.
+	let skipTo = null;
+	let missed = false;
 	for (const [index, step] of steps.entries()) {
 		const started = Date.now();
 		const outcome = { step: index };
 		trace(`step ${index}: ${JSON.stringify(step).slice(0, 200)}`);
+		if (skipTo !== null) {
+			if (step.label === skipTo) {
+				skipTo = null;
+			} else {
+				outcome.skipped = true;
+				outcomes.push(outcome);
+				continue;
+			}
+		}
 		if (step.unlessUnsent && unsent) {
 			outcome.skipped = true;
 			outcomes.push(outcome);
 			continue;
 		}
 		try {
-			if (step.goto !== undefined) {
+			if (step.label !== undefined && step.recover === undefined) {
+				// A place a missed wait skips to; nothing to do.
+				outcome.label = step.label;
+			} else if (step.recover !== undefined) {
+				// The page back where a run starts: by the click a person makes
+				// when nothing missed and the element is there, else by loading
+				// the address again.
+				const clicked =
+					!missed &&
+					(await pageValue(run.cdp, clickExpression(step.recover.click)));
+				if (!clicked) {
+					await page.goto(new URL(step.recover.goto, ORIGIN).toString(), {
+						waitUntil: "load",
+						timeout: run.remaining(),
+					});
+					outcome.reloaded = true;
+				}
+				missed = false;
+			} else if (step.until !== undefined && step.within !== undefined) {
+				// A wait that may miss: the page is given `within` ms to hold it.
+				try {
+					await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.until) },
+						step.arg,
+						{
+							polling: step.polling ?? "raf",
+							timeoutMs: Math.min(step.within, run.remaining()),
+						},
+					);
+				} catch (error) {
+					if (error?.name !== "TimeoutError" || run.remaining() <= 0)
+						throw error;
+					outcome.missed = true;
+					if (step.orSkipTo !== undefined) {
+						skipTo = step.orSkipTo;
+						missed = true;
+					}
+				}
+			} else if (step.goto !== undefined) {
 				const response = await page.goto(
 					new URL(step.goto, ORIGIN).toString(),
 					{

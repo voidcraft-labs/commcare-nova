@@ -976,6 +976,10 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             " (proof.observe.unit._Unit.observe_b_aligned) records them wherever the served hook ran at A."
         )
     trace_a = blobs.get_json(a["formplayer"]["trace"])
+    if aligned.get("refused"):
+        # HQ's make_build refused the state the unit held with b_aligned (B, or B aligned to A), which the bar
+        # reports of B's build; nothing was served there to compare.
+        return found
     if has_local:
         local = aligned.get("local")
         if local is None:

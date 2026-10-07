@@ -61,7 +61,10 @@ def _returning_worker(formplayer_runner, session):
     web.post("/clear_user_data", {"domain": session.unit.domain, "username": session.hq.username, "restoreAs": None})
     web.navigate([])
     first_visit = [what for what, _ in session.hq.asked]
-    (key,) = formplayer_runner.sync_times()
+    # The session's Formplayer keeps every worker it served: this worker's own record is the one it wrote for
+    # this visit (``RestoreFactory.lastSyncKey``, by the project space and the worker's name), the latest.
+    times = formplayer_runner.sync_times()
+    key = max((key for key in times if key.startswith(f"last-sync-time:{session.unit.domain}:")), key=times.get)
     formplayer_runner.age_sync(key, EIGHT_DAYS)
     before = len(session.hq.asked)
     listed = web.navigate(["0"])

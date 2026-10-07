@@ -1083,7 +1083,14 @@ class _Judged:
                 found += behavior
             trace = entry.get("trace")
             served = entry.get("served")
-            if served is not None and base.served is not None:
+            if served is not None and "refused" in served:
+                # HQ releases no build of the saved app, so a worker is never served it: by what HQ raised.
+                cause = f"/release-refused/{pointer_token(served['refused'])}"
+                found += _named(
+                    [Difference(CHECK, self.document, "release", cause, cause, "refused", None, served)], editor
+                )
+                served = None
+            elif served is not None and base.served is not None:
                 found += self.served_differences(editor, base.served, served, content_versions(base.build, built))
             left = State(
                 stored_json,

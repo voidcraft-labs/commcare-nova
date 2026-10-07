@@ -128,6 +128,11 @@ def serving(unit, document, app_id, *, driver, blobs, label, previous=None, chan
     return opened()
 
 
+def refused(error) -> dict:
+    """A state HQ releases no build of, as a record: what HQ raised making one, by its class."""
+    return {"served": False, "refused": getattr(error, "raised", None) or "AppValidationError"}
+
+
 def _state(serving_, side, trace, *, files=None):
     """One served state's record: Formplayer's side record, the client's screens on its walk, what the client
     reads of the app, and whether the release is the build the other checks read."""
@@ -151,13 +156,19 @@ def observe(ctx):
     if unbuildable(ctx.build) is not None:
         # HQ releases no build of it (``Application.make_build`` raises), so nothing is served; the bar reports why.
         return {"served": False}
-    with serving(ctx.unit, ctx.document, ctx.app_id, driver=ctx.editor_driver, blobs=ctx.blobs, label="A") as held:
-        side, trace = held.formplayer()
-        return {
-            "served": True,
-            "runtime": formplayer.runtime(held.runner),
-            "A": _state(held, side, trace, files=ctx.build.files),
-        }
+    from proof.webapps.hq import ReleaseRefused
+
+    try:
+        with serving(ctx.unit, ctx.document, ctx.app_id, driver=ctx.editor_driver, blobs=ctx.blobs, label="A") as held:
+            side, trace = held.formplayer()
+            return {
+                "served": True,
+                "runtime": formplayer.runtime(held.runner),
+                "A": _state(held, side, trace, files=ctx.build.files),
+            }
+    except ReleaseRefused as error:
+        # HQ's own make_build refuses the app (a build profile it cannot build, say), which the bar reports.
+        return refused(error)
 
 
 def aligned(unit, *, document, app_id, a_record, a_build, b_aligned, differs, change, previous, driver, blobs):
@@ -171,20 +182,25 @@ def aligned(unit, *, document, app_id, a_record, a_build, b_aligned, differs, ch
         return None
     script = script_of(blobs.get_json(held_a["A"]["formplayer"]["trace"]))
     walks_b = b_aligned is not None and b_aligned.files is not None and differs and unbuildable(b_aligned) is None
+    from proof.webapps.hq import ReleaseRefused
+
     recorded = {}
-    with serving(
-        unit,
-        document,
-        app_id,
-        driver=driver,
-        blobs=blobs,
-        label="B" if walks_b else "local",
-        previous=previous,
-        change=change if walks_b else None,
-    ) as held:
-        if walks_b:
-            side, trace = held.formplayer(script)
-            recorded["B"] = _state(held, side, trace, files=b_aligned.files)
-        if document.local_ccz is not None:
-            recorded["local"] = {"formplayer": held.local(document, script)[0]}
+    try:
+        with serving(
+            unit,
+            document,
+            app_id,
+            driver=driver,
+            blobs=blobs,
+            label="B" if walks_b else "local",
+            previous=previous,
+            change=change if walks_b else None,
+        ) as held:
+            if walks_b:
+                side, trace = held.formplayer(script)
+                recorded["B"] = _state(held, side, trace, files=b_aligned.files)
+            if document.local_ccz is not None:
+                recorded["local"] = {"formplayer": held.local(document, script)[0]}
+    except ReleaseRefused as error:
+        recorded["refused"] = refused(error)["refused"]
     return recorded

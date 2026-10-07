@@ -1207,10 +1207,15 @@ class _Observation:
 
         if unbuildable(self.b_build) is not None:
             return {"served": False}
-        with self._serving("proof4", self.ctx.previous_build) as held:
-            side, trace = held.formplayer()
-            self.walk = script_of(trace)
-            record = {"served": True, **served._state(held, side, trace, files=self.b_build.files)}
+        from proof.webapps.hq import ReleaseRefused
+
+        try:
+            with self._serving("proof4", self.ctx.previous_build) as held:
+                side, trace = held.formplayer()
+                self.walk = script_of(trace)
+                record = {"served": True, **served._state(held, side, trace, files=self.b_build.files)}
+        except ReleaseRefused as error:
+            return served.refused(error)
         # What the client reads of the app, from the stored app as read once, as every save's is.
         record["clientReads"] = served.client_reads(self.held_b.stored["doc"])
         self.b.served_trace, self.b.served_reads = side["trace"], record["clientReads"]
@@ -1242,17 +1247,24 @@ class _Observation:
         kept = self.served_kept.get(key)
         if kept is not None and not self.verify:
             return kept, kept["formplayer"]["trace"], reads
+        from proof.webapps.hq import ReleaseRefused
+
         previous, _ = self.previous_of(over)
-        with self._serving("proof4-save", previous) as serving:
-            side, trace = serving.formplayer(self.walk)
-            record = {"formplayer": side, "clientReads": reads}
-            if side["trace"] != over.served_trace or reads != over.served_reads:
-                shown = serving.webapps(trace)
-                if shown is not None:
-                    record["webapps"] = shown
-            release = serving.release_differs(outcome.files)
-            if release is not None:
-                record["releaseDiffers"] = release
+        try:
+            with self._serving("proof4-save", previous) as serving:
+                side, trace = serving.formplayer(self.walk)
+                record = {"formplayer": side, "clientReads": reads}
+                if side["trace"] != over.served_trace or reads != over.served_reads:
+                    shown = serving.webapps(trace)
+                    if shown is not None:
+                        record["webapps"] = shown
+                release = serving.release_differs(outcome.files)
+                if release is not None:
+                    record["releaseDiffers"] = release
+        except ReleaseRefused as error:
+            # HQ releases no build of the saved app: what it raised is the save's difference, and the state the
+            # save was made over stands for what a worker is still served.
+            return {"refused": served.refused(error)["refused"]}, over.served_trace, over.served_reads
         if kept is not None and kept != record:
             raise MemoMismatch(
                 "Proof 4 kept what Formplayer and the Web Apps client made of a saved app by its build's files and"

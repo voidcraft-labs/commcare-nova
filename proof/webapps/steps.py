@@ -20,9 +20,32 @@ LIST_ACTION = "#menu-region .case-list-action-button button"
 BREADCRUMB = "#breadcrumb-region .breadcrumb-item a"
 
 
-def click(selector: str, text: str | None = None) -> list[dict]:
-    """A click on the one element ``selector`` finds (with the text ``text``), then the page quiet."""
-    return [{"until": "webapps/click", "arg": {"selector": selector, "text": text}}, SETTLE]
+# How long the client is given to show what a replayed choice clicks, once the page is quiet (``within``).
+WITHIN_MS = 5000
+
+
+def click(
+    selector: str,
+    text: str | None = None,
+    *,
+    visible: bool = False,
+    within: int | None = None,
+    or_skip_to: str | None = None,
+) -> list[dict]:
+    """A click on the one element ``selector`` finds (with the text ``text``; with ``visible``, among those the
+    browser lays out), then the page quiet.
+
+    With ``within`` the client is given that many milliseconds to show the element, and a click that misses is
+    recorded (``missed``) in place of failing the run: with ``or_skip_to`` the steps up to the one labelled so are
+    skipped (the rest of a replayed run), without it the run goes on (an element the client shows only
+    sometimes).
+    """
+    step = {"until": "webapps/click", "arg": {"selector": selector, "text": text, "visible": visible}}
+    if within is not None:
+        step["within"] = within
+        if or_skip_to is not None:
+            step["orSkipTo"] = or_skip_to
+    return [step, SETTLE]
 
 
 def open_app(name: str) -> list[dict]:

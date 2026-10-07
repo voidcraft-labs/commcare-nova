@@ -52,6 +52,7 @@ from proof.hq.configuration import Configuration
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 
+
 def _stored(state, app_id):
     """HQ's stored app, as its Couch document."""
     return json.dumps(state.couch.mock_docs[app_id], sort_keys=True)

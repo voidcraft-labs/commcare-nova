@@ -69,24 +69,33 @@ def _responses(run: Mapping[str, Any]) -> list[Any]:
     ]
 
 
-def clicks(run: Mapping[str, Any]) -> list[dict]:
-    """The steps that replay one run of Formplayer's walk in the browser, the screen read after each choice."""
+def clicks(run: Mapping[str, Any], end: str | None = None) -> list[dict]:
+    """The steps that replay one run of Formplayer's walk in the browser, the screen read after each choice.
+
+    With ``end`` (a label the caller places after the run), a choice the client shows nothing to click for
+    within ``steps.WITHIN_MS`` is recorded as missed and the rest of the run is skipped, in place of failing the
+    whole replay.
+    """
     made: list[dict] = []
     responses = _responses(run)
+    within = None if end is None else steps.WITHIN_MS
     for position, choice in enumerate(run["script"]):
         # The screen the choice is made on is Formplayer's answer before it.
         screen = responses[position] if position < len(responses) else None
         if "menu" in choice:
-            made += steps.click(f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})")
+            made += steps.click(f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})", within=within, or_skip_to=end)
         elif "entity" in choice:
             row = f"#menu-region [id='row-{choice['entity']}']"
-            made += steps.click(row)
+            made += steps.click(row, within=within, or_skip_to=end)
             if isinstance(screen, dict) and screen.get("hasDetails"):
-                made += steps.click("#select-case")
+                # The client opens a case's detail where it has one to show and takes the case itself where
+                # it has none (``menus/controller.js::showDetail``), so Continue is clicked where it is shown.
+                made += steps.click("#select-case", visible=True, within=within) if end else steps.click("#select-case")
         elif "action" in choice:
-            made += steps.click(f"{steps.LIST_ACTION}[data-index='{choice['action']}']")
+            action = f"{steps.LIST_ACTION}[data-index='{choice['action']}']"
+            made += steps.click(action, within=within, or_skip_to=end)
         elif "search" in choice:
-            made += steps.run_search()
+            made += steps.click("#query-submit-button", within=within, or_skip_to=end)
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"
@@ -105,6 +114,34 @@ def replay(app_name: str, runs: Sequence[Mapping[str, Any]]) -> list[dict]:
         made += clicks(run)
         made += steps.click(HOME)
     return made
+
+
+def tolerant_replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str) -> tuple[list[dict], list[tuple]]:
+    """``replay`` for a document's record: a run the client cannot follow ends where it stops, and the next
+    starts from the home screen all the same. Returns the steps and, beside each, what it is: ``("home",)``,
+    ``("screen", run)``, ``("end", run)`` (the screen a run ended on) or None."""
+    made: list[dict] = [steps.SCREEN]
+    plan: list[tuple | None] = [("home",)]
+
+    def add(more, what=None):
+        made.extend(more)
+        plan.extend([what] * len(more))
+
+    for index, run in enumerate(runs):
+        end = f"run-{index}"
+        add(steps.click(steps.APP_TILE, app_name, within=steps.WITHIN_MS, or_skip_to=end))
+        add([steps.SCREEN], ("screen", index))
+        for step in clicks(run, end):
+            add([step], ("screen", index) if step == steps.SCREEN else None)
+        add([{"label": end}])
+        add([steps.SCREEN], ("end", index))
+        # Home by the client's own breadcrumb, or, where a run stopped or the client shows none, its address.
+        add([{"recover": {"click": HOME, "goto": home}}, steps.SETTLE])
+    return made, plan
+
+
+def _first_line(text) -> str:
+    return str(text).strip().splitlines()[0] if str(text).strip() else ""
 
 
 def _recorded(runner, driver, version, script, run) -> dict[str, Any]:
@@ -144,8 +181,46 @@ def observe(project: Project, release: Release, runner, driver) -> dict[str, Any
 def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     """The client's screens on a walk Formplayer already made of a state HQ serves with its own views
     (``proof.formplayer.hq.Served``): the walk's runs replayed in the browser, in one run of the served state
-    (the worker signed in, HQ's state put back after it)."""
+    (the worker signed in, HQ's state put back after it).
+
+    A run the client shows nothing to click for at some choice (within ``steps.WITHIN_MS`` of the page being
+    quiet) is recorded as far as it went, with ``stopped`` and the screen it ended on, and the next run starts
+    from the home screen; an error the client's own script raised is recorded by its message
+    (``pageErrors``). So one screen the replay cannot follow costs a document that screen, never its record.
+    """
+    from proof.webapps.session import recorded as screen_record
+
     session = Session(served, served, served.runner, driver)
+    script = script_of(walk)
+    made, plan = tolerant_replay(served.doc["name"], walk["runs"], session.home)
     with served.run("webapps"):
-        run = session.run(replay(served.doc["name"], walk["runs"]))
-    return _recorded(served.runner, driver, served.version, script_of(walk), run)
+        run = session.run(made)
+    if len(run.outcomes) != len(plan):
+        raise AssertionError(
+            f"The Web Apps replay ran {len(run.outcomes)} steps where it planned {len(plan)}; a step's outcome is"
+            " missing, so no screen can be placed."
+        )
+    found = {
+        "runtime": {
+            **dict((served.runner.ready or {}).get("formplayer") or {}),
+            "chromium": (driver.ready or {}).get("chromium"),
+        },
+        "build": {"version": served.version},
+        "home": None,
+        "runs": [{"script": list(choices), "screens": []} for choices in script],
+        "pageErrors": sorted({_first_line(error) for error in run.page_errors}),
+    }
+    for what, outcome in zip(plan, run.outcomes, strict=True):
+        if what is None or outcome.get("skipped") or "value" not in outcome:
+            continue
+        screen = screen_record(outcome["value"])
+        if what[0] == "home":
+            found["home"] = screen
+        elif what[0] == "screen":
+            found["runs"][what[1]]["screens"].append(screen)
+        else:
+            held = found["runs"][what[1]]
+            if len(held["screens"]) != 1 + len(held["script"]):
+                # The client did not follow the walk to its end: where it stood when the run ended.
+                held["stopped"] = {"after": len(held["screens"]), "screen": screen}
+    return found

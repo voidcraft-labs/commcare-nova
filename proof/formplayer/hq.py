@@ -410,10 +410,11 @@ def index(unit):
     HQ's search view builds its query with its own compiler and sends it to
     the case search index (``case_search/utils.py::get_case_search_results``,
     ``es/case_search.py::CaseSearchES``). The harness has no Elasticsearch,
-    so the one request the search itself makes (a ``_search`` of the case
-    search index) is answered here with every case of the case types the
-    query names, written as HQ's own pillow writes a case for that index;
-    the filter HQ compiled is not applied.
+    so the requests the search itself makes (a ``_search`` of the case
+    search index, and a ``_count`` of the same query) are answered here
+    with every case of the case types the query names, written as HQ's own
+    adapter writes a case for that index; the filter HQ compiled is not
+    applied.
 
     HQ also writes to its indexes as it saves: a user's save sends the user
     (``users/signals.py::update_user_in_es``). No path here reads such a
@@ -433,7 +434,15 @@ def index(unit):
 
     def perform_request(self, method, url, headers=None, params=None, body=None):
         named = url.strip("/").split("/")[0] if isinstance(url, str) else ""
-        if str(url).split("?")[0].rstrip("/").endswith("/_search") and named == case_search:
+        last = str(url).split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+        if last == "_count" and named == case_search:
+            # How many cases the search matched, which HQ asks beside the page of results it shows.
+            query = body if isinstance(body, dict) else json.loads(body or "{}")
+            count = len(_case_search_hits(unit, query))
+            if unit.record is not None:
+                unit.record.elasticsearch_reads.append(("case_search_count", unit.domain, count))
+            return {"count": count, "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0}}
+        if last == "_search" and named == case_search:
             query = body if isinstance(body, dict) else json.loads(body or "{}")
             hits = _case_search_hits(unit, query)
             start = int(query.get("from") or 0)
@@ -634,6 +643,25 @@ class Served:
                 self.hq.begin(b"", None)
 
 
+def _released(unit, app, app_id):
+    """The app built and released as HQ's Releases page does it (``proof.webapps.hq``); ``ReleaseRefused`` where
+    HQ makes no build of it, whatever HQ raised making one: a build HQ's own ``make_build`` raises on is one HQ
+    never releases, and no worker is served it."""
+    from proof.hq import operations
+    from proof.webapps import hq as webapps_hq
+
+    try:
+        build = webapps_hq._make_build(unit, app)
+    except webapps_hq.ReleaseRefused:
+        raise
+    except Exception as error:
+        refused = webapps_hq.ReleaseRefused(f"HQ's make_build raised {type(error).__name__}: {error}")
+        refused.raised = f"{type(error).__module__}.{type(error).__qualname__}"
+        raise refused from error
+    webapps_hq._release(unit, app_id, build._id)
+    return operations.held_app(unit, build._id)
+
+
 def _redis_of(runner):
     """HQ's Redis: the Formplayer runner's own, which the two share in production, or one of HQ's own where no
     runner is given."""
@@ -669,7 +697,6 @@ def serve(
     from proof.hq import operations
     from proof.hq import redis as hq_redis
     from proof.hq.seams import build_seams
-    from proof.webapps import hq as webapps_hq
 
     operation = operation or unit.operation
     database = casedata.document_case_database(document, edit=edit)
@@ -689,8 +716,6 @@ def serve(
                 if change is not None:
                     type(app).wrap(stored).save()
                     app = operations.held_app(unit, app_id)
-                build = webapps_hq._make_build(unit, app)
-                webapps_hq._release(unit, app_id, build._id)
-                build = operations.held_app(unit, build._id)
+                build = _released(unit, app, app_id)
         hq = HqViews(unit, worker.username, archives=dict(archives or {}))
         yield Served(unit, operation, worker, app_id, build._id, build.version, hq, build.to_json(), runner)

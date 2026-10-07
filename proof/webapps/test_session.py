@@ -138,7 +138,7 @@ def test_a_click_on_nothing_fails_the_run_by_name_and_the_same_click_on_what_is_
         with project.released() as release:
             session = Session(project, release, formplayer_runner, editor_driver)
             with pytest.raises(WebAppsRunFailed, match="No such app") as refused:
-                session.run(steps.open_app("No such app"), deadline=4.0)
+                session.run(steps.open_app("No such app"), deadline=20.0)
             run = session.run([*steps.open_app("Visit tiles"), steps.SCREEN])
     assert "webapps/click" in str(refused.value)
     assert run.screens[0]["title"] == "Visit tiles"

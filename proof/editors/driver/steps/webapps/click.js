@@ -5,11 +5,16 @@
 // driver looks again, and once the element is there it clicks it and
 // answers true, so the click happens once. More than one match is an error:
 // a step names exactly what is clicked.
-({ selector, text }) => {
+({ selector, text, visible }) => {
 	const shown = (element) =>
 		element.textContent.replace(/[ \t\r\n\f]+/g, " ").replace(/^ | $/g, "");
+	// With `visible`, only an element the browser lays out counts: the client
+	// keeps some controls in the document while it shows none of them (a case
+	// detail's Continue before any detail was opened).
 	const found = [...document.querySelectorAll(selector)].filter(
-		(element) => text === undefined || text === null || shown(element) === text,
+		(element) =>
+			(text === undefined || text === null || shown(element) === text) &&
+			(!visible || element.getClientRects().length > 0),
 	);
 	if (found.length === 0) return false;
 	if (found.length > 1) {
