@@ -77,15 +77,26 @@ def evidence(check, document, differences, **extra):
 
 
 def hold(check, document, differences, entries, **extra):
-    """Hold one check's differences on one document (or control) to the register."""
+    """Hold one check's differences on one document (or control) to the register.
+
+    These are the shards' own differences, so they are held to the entries the shards' checks show
+    (``registers.LANE``): an entry of the Android stage (an ``android@...`` artifact) is held by that stage's
+    own judge of this check over what CommCare Android read (``proof.android.stage``), which reads the records
+    this check's document observed. A control only such entries name is run here for those records, and holds
+    nothing of this stage.
+    """
     if check not in registers.HELD_CHECKS:
         raise AssertionError(
             f"{check} holds its differences to the register, and registers.HELD_CHECKS does not list it, so the"
             " register would refuse every entry naming it. List it there with its test."
         )
     evidence(check, document, differences, **extra)
+    named = [entry for entry in entries if entry.control == document.id and entry.check == check]
+    entries = registers.of_stage(entries, registers.LANE)
     if document.kind == "control":
         owners = [entry for entry in entries if entry.control == document.id and entry.check == check]
+        if named and not owners:
+            return
         # A control retains its targeted document's inputs, so an entry's pinned values hold there too.
         unseen = [
             entry

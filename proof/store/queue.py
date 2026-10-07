@@ -4,6 +4,8 @@
         --out FILE
     python3 -m proof.store.queue main --corpus DIR [--store DIR]... [--timings FILE] [--arch A] [--image I]
         [--audit-seed TEXT] [--audit-units N] [--fresh] [--no-dedupe] [--documents all|sample:N] --out FILE
+    python3 -m proof.store.queue android --corpus DIR [--store DIR]... [--timings FILE] [--arch A] [--image I]
+        [--android-platform P] [--observed OUTPUT]... [--fresh] --out FILE
 
 The early queue holds the groups whose tests read no corpus
 (``proof.lane.blocks.reads_corpus``): the surface block and every other
@@ -12,6 +14,13 @@ package with tests. The main queue holds every document of the corpus
 every control the known-defect register names (``control:<id>``), and the
 packages in ``proof.lane.blocks.CORPUS_PACKAGES``. A group no test belongs to
 (``hq-selfchecks``) is never queued: the lane would find nothing of it.
+
+The Android queue holds each document's Android group (``android:corpus:<id>``)
+and that of each control an entry of the Android stage names
+(``android_groups``): built with the main queue, from the same corpus (after
+any sample is taken, so it lists the same documents), and run by the Android
+stage once the main queue's shards have observed the documents
+(``proof.android.stage``).
 
 Each group is one of three classes, from the snapshots ``--store`` names
 (merged; an absent one holds nothing) and the fingerprints of this checkout
@@ -133,6 +142,8 @@ class Group:
     observed_estimate: float = 0.0
     # The (document, configuration) units it observes: a document's configurations.
     units: int = 0
+    # An Android group's document: the key its record parts are kept under.
+    document: str | None = None
 
     def __post_init__(self):
         self.observed_estimate = self.estimate
@@ -379,6 +390,8 @@ def queue_value(groups: list[Group], found: dict, *, dedupe: bool = True, unsamp
         for queued in block["groups"]:
             if by_name[queued["group"]].key is not None:
                 queued["key"] = by_name[queued["group"]].key
+            if by_name[queued["group"]].document is not None:
+                queued["document"] = by_name[queued["group"]].document
     value["classes"] = {
         status: sorted(group.name for group in groups if group.status == status)
         for status in ("cached", "judged", "observed")
@@ -422,6 +435,64 @@ def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR) -> 
     return groups
 
 
+def android_controls(known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS) -> list[str]:
+    """The controls an entry of the Android stage names (an ``android@...`` artifact,
+    ``proof.checks.registers.stage_of``) whose directories exist: the stage runs each for the checks naming it."""
+    try:
+        entries = json.loads(known_defects.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    named = {
+        entry.get("control")
+        for entry in entries
+        if isinstance(entry, dict) and str(entry.get("artifact", "")).startswith("android@")
+    }
+    return sorted(f"control:{name}" for name in named if isinstance(name, str) and (controls / name).is_dir())
+
+
+def android_groups(
+    builder: Builder, corpus: Path, reader: str, proof_dir: Path = PROOF_DIR, *, observed=None
+) -> list[Group]:
+    """Each document's Android group (``android:corpus:<id>``, and ``android:control:<id>`` for each control an
+    Android entry names): cached where the store holds its outcome, every item passed, and each judge's
+    evidence whole, under its key; else run by the Android stage (``proof.android.stage``).
+
+    Its key names the document's key (so every record its archives are read from), the reader
+    (``proof.android.records.fingerprint``, on the platform the stage runs on) and the judge's code with both
+    registers. ``document`` on a group is its document's key, which the stage finds its records under.
+    """
+    corpus = Path(corpus)
+    documents = {f"corpus:{identifier}": corpus / identifier for identifier in keys.corpus_documents(corpus)}
+    for name in android_controls(proof_dir / "known-defects.json", proof_dir / "controls"):
+        documents[name] = proof_dir / "controls" / name.partition(":")[2]
+    if observed is not None:
+        # A run over part of the corpus on one machine: only the documents its outputs hold records of.
+        # Each is read under the key that run kept it under, whatever this checkout's own would be.
+        held = {
+            entry["group"]: key
+            for output in observed
+            for key, entry in disk.Delta(Path(output) / disk.DELTA).entries("documents").items()
+        }
+        documents = {name: root for name, root in documents.items() if name in held}
+    groups = []
+    for name, root in sorted(documents.items()):
+        document = (
+            held[name]
+            if observed is not None
+            else keys.document_key(builder.document_scope, name, keys.files_digest(root))
+        )
+        group = Group(f"{lane_blocks.ANDROID}{name}", builder.estimate(name), fresh=builder.fresh)
+        group.key = keys.hashed("android-group", keys.VERSION, document, reader, builder.fingerprints["judge"])
+        group.document = document
+        outcome = None if builder.fresh else builder.store.index["groups"].get(group.key)
+        if _passed(outcome) and all(
+            builder._whole(builder.store.index["judgments"].get(key)) for key in outcome["judgments"].values()
+        ):
+            group.status, group.judgments = "cached", {**outcome["judgments"], "outcome": group.key}
+        groups.append(group)
+    return groups
+
+
 def write_queue(path: Path, value: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -430,7 +501,7 @@ def write_queue(path: Path, value: dict) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python3 -m proof.store.queue", description=__doc__.splitlines()[0])
-    parser.add_argument("phase", choices=["early", "main"])
+    parser.add_argument("phase", choices=["early", "main", "android"])
     parser.add_argument("--corpus", type=Path, help="the emitted corpus (main)")
     parser.add_argument("--store", action="append", type=Path, default=[], help="a store snapshot to read")
     parser.add_argument("--timings", type=Path, default=sharding.TIMINGS)
@@ -442,12 +513,26 @@ def main(argv=None) -> int:
     parser.add_argument("--fresh", action="store_true", help="every group fresh, nothing read from the store")
     parser.add_argument("--no-dedupe", action="store_true", help="no two documents share a block for their inputs")
     parser.add_argument("--documents", default="all", help="all, or sample:N")
+    parser.add_argument(
+        "--observed",
+        action="append",
+        type=Path,
+        help="a lane run's output (android): queue only the documents it holds records of, for a run on one"
+        " machine over part of the corpus",
+    )
+    parser.add_argument(
+        "--android-platform",
+        default="linux-amd64",
+        help="where the Android stage runs its reader (android), as the reader's fingerprint names it",
+    )
     parser.add_argument("--out", required=True, type=Path)
     arguments = parser.parse_args(argv)
     started = time.perf_counter()
     try:
-        if arguments.phase == "main" and arguments.corpus is None:
-            raise QueueBuildError("The main queue holds the corpus's documents: name the corpus with --corpus.")
+        if arguments.phase in ("main", "android") and arguments.corpus is None:
+            raise QueueBuildError(
+                f"The {arguments.phase} queue holds the corpus's documents: name the corpus with --corpus."
+            )
         if arguments.documents != "all":
             kind, _, count = arguments.documents.partition(":")
             if kind != "sample" or not count.isdecimal() or int(count) < 1 or arguments.phase != "main":
@@ -461,12 +546,20 @@ def main(argv=None) -> int:
         unsampled = ()
         if arguments.phase == "early":
             groups = early(builder, proof_dir)
+        elif arguments.phase == "android":
+            from proof.android import records as android_records
+
+            reader = android_records.fingerprint(arguments.android_platform, root=proof_dir / "android")
+            groups = android_groups(builder, arguments.corpus, reader, proof_dir, observed=arguments.observed)
+            unsampled = lane_blocks.unsampled_documents(arguments.corpus)
+            found = {**found, "android": reader}
         else:
             groups = main_groups(builder, arguments.corpus, proof_dir)
             unsampled = lane_blocks.unsampled_documents(arguments.corpus)
             if arguments.audit_seed and not arguments.fresh:
                 audit_sample(groups, arguments.audit_seed, arguments.audit_units)
-        value = queue_value(groups, found, dedupe=not arguments.no_dedupe, unsampled=unsampled)
+        dedupe = not arguments.no_dedupe and arguments.phase != "android"
+        value = queue_value(groups, found, dedupe=dedupe, unsampled=unsampled)
         write_queue(arguments.out, value)
     except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
         print(error, file=sys.stderr)

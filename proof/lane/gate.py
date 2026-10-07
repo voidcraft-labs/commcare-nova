@@ -1,7 +1,7 @@
 """``python -m proof.lane.gate``: the proof lane's verdict from every shard's output, on the standard library alone.
 
-    python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--store DIR]
-        [--surface FILE] [--summary FILE]
+    python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--android-queue FILE]
+        [--store DIR] [--surface FILE] [--summary FILE]
 
 It runs where the shards' outputs and the queues were downloaded, on the
 runner's own Python (3.12 or later) with no image: everything it imports is
@@ -9,7 +9,11 @@ the standard library or the proof's own standard-library modules
 (``proof.lane.blocks``, ``proof.lane.reader``, ``proof.checks.sharding``,
 ``proof.checks.registers``, ``proof.checks.differences``). With no queue
 named, it reads the ``queue.json`` a run on one machine writes into its
-output. Four sections, each with its problems:
+output. The Android stage's outputs (``proof.android.stage``) are outputs
+like a shard's, and its queue (``--android-queue``) a queue like the other
+two: each document's Android group is a block that ran exactly once or is
+read from the store, its items passed, and its judges' evidence is held to
+the register beside the shards' own. Four sections, each with its problems:
 
 1. Exactly once (``proof.checks.sharding.verify``): every queued block ran
    exactly once (a block two shards ran fails, whatever they wrote), every
@@ -61,7 +65,10 @@ def _section(problems, notes=(), **extra) -> dict:
 def _cached_dir(records, directory: Path) -> Path:
     """The cached groups' evidence written as checks write theirs, for the register to read beside the blocks'."""
     for record in records:
-        path = directory / "checks" / record["check"] / f"{record['kind']}-{record['document']}.json"
+        # A stage's evidence beside the shards' own of the same check on the same document, each a file.
+        stage = record.get("stage")
+        name = f"{record['kind']}-{record['document']}{'.' + stage if stage else ''}.json"
+        path = directory / "checks" / record["check"] / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent="\t", ensure_ascii=False) + "\n", encoding="utf-8")
     return directory
@@ -172,7 +179,11 @@ def _markdown(result: dict) -> str:
 def _queues(arguments, outputs) -> list:
     named = [
         (phase, path)
-        for phase, path in (("early", arguments.early_queue), ("main", arguments.queue))
+        for phase, path in (
+            ("early", arguments.early_queue),
+            ("main", arguments.queue),
+            ("android", arguments.android_queue),
+        )
         if path is not None
     ]
     if not named:
@@ -193,6 +204,7 @@ def main(argv=None) -> int:
     parser.add_argument("outputs", nargs="+", type=Path, help="every shard's output directory")
     parser.add_argument("--early-queue", type=Path, help="the early queue the shards ran")
     parser.add_argument("--queue", type=Path, help="the main queue the shards ran")
+    parser.add_argument("--android-queue", type=Path, help="the Android queue the Android stage ran")
     parser.add_argument("--store", type=Path, help="the evidence store, for the groups the queues cache")
     parser.add_argument("--surface", type=Path, default=COMMITTED_SURFACE, help="the committed surface to compare")
     parser.add_argument("--summary", type=Path, help="where to write the verdict as JSON")

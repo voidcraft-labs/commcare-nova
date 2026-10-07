@@ -33,6 +33,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -141,6 +142,8 @@ class AndroidReader:
         self.compile_seconds: float | None = None
         self.last_log = ""
         self._next = 1
+        # Requests may be made from several threads at once, each a JVM of its own.
+        self._lock = threading.Lock()
         # What each request took, in seconds, for the lane's budget.
         self.seconds: list[float] = []
 
@@ -250,7 +253,8 @@ class AndroidReader:
         """One request's answer: what Android read, on a device of its own."""
         if self._work is None:
             raise AndroidReaderError("The Android reader is not started; use it as a context manager.")
-        number, self._next = self._next, self._next + 1
+        with self._lock:
+            number, self._next = self._next, self._next + 1
         scratch = self._work / f"request-{number}"
         temporary = scratch / "tmp"
         temporary.mkdir(parents=True)
@@ -269,10 +273,11 @@ class AndroidReader:
                         f"The Android reader did not answer the {op} request within {deadline} s and was stopped.",
                         log=_tail(log_path),
                     ) from error
-            self.seconds.append(round(time.perf_counter() - started, 3))
-            # What the JVM wrote answering the last request (Android's own log among it), for a person reading
-            # why Android gave the answer it did.
-            self.last_log = _tail(log_path)
+            with self._lock:
+                self.seconds.append(round(time.perf_counter() - started, 3))
+                # What the JVM wrote answering the last request (Android's own log among it), for a person
+                # reading why Android gave the answer it did.
+                self.last_log = _tail(log_path)
             if status != 0 or not answer_path.is_file():
                 raise AndroidReaderError(
                     f"The Android reader's JVM exited with status {status} answering the {op} request"

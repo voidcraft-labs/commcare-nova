@@ -47,6 +47,7 @@ final class Profile {
         found.put("readers", readers(app));
         found.put("stored", stored(app.getAppPreferences()));
         found.put("locale", locale());
+        found.put("settings", settings());
         return found;
     }
 
@@ -144,6 +145,39 @@ final class Profile {
             found.put(key, all.containsKey(key) ? String.valueOf(all.get(key)) : JSONObject.NULL);
         }
         return found;
+    }
+
+    /**
+     * Which of the recorded profile settings a worker can change on the device: the keys Android's own settings
+     * screen declares (MainConfigurablePreferences, R.xml.main_preferences), read by Android's own inflater.
+     */
+    private static JSONObject settings() throws JSONException {
+        android.content.Context context = androidx.test.core.app.ApplicationProvider.getApplicationContext();
+        androidx.preference.PreferenceScreen screen = new androidx.preference.PreferenceManager(context)
+                .inflateFromResource(context, org.commcare.dalvik.R.xml.main_preferences, null);
+        java.util.Set<String> declared = new java.util.TreeSet<>();
+        declared(screen, declared);
+        JSONObject found = new JSONObject();
+        JSONArray settable = new JSONArray();
+        for (String key : KEYS) {
+            if (declared.contains(key)) {
+                settable.put(key);
+            }
+        }
+        found.put("MainConfigurablePreferences", settable);
+        return found;
+    }
+
+    private static void declared(androidx.preference.PreferenceGroup group, java.util.Set<String> keys) {
+        for (int i = 0; i < group.getPreferenceCount(); i++) {
+            androidx.preference.Preference preference = group.getPreference(i);
+            if (preference.getKey() != null) {
+                keys.add(preference.getKey());
+            }
+            if (preference instanceof androidx.preference.PreferenceGroup) {
+                declared((androidx.preference.PreferenceGroup)preference, keys);
+            }
+        }
     }
 
     private static JSONObject locale() throws JSONException {

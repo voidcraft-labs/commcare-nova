@@ -5,8 +5,11 @@
     python3 -m proof.store.pack delta --base DIR --scope DIR --out DIR OUTPUT... [--queue FILE]...
 
 ``pack`` writes the snapshot (``proof.store.disk``) of what the shard
-outputs hold (``gather``): every record part, document and transcript their
-runs' deltas kept; every check's evidence on a document whose records the
+outputs hold (``gather``): every record part, document, transcript and
+Android record their runs' deltas kept (the Android stage's outputs are
+outputs like a shard's, ``proof.android.stage``, and each document's Android
+group is kept under the key the Android queue names for it, with its judges'
+evidence as judgments under that key); every check's evidence on a document whose records the
 run kept, as a judgment under its key (``proof.store.keys.group_key``,
 ``judgment_key``), as the check wrote it; and each group's outcome from the
 block manifests: a document's under its group key, a package group's and the
@@ -196,7 +199,7 @@ def gather(outputs, queues=()) -> Gathered:
         if written is not None:
             judges.add(written["fingerprints"]["judge"])
             gathered.sources.append(delta)
-            for kind in ("parts", "documents", "transcripts"):
+            for kind in ("parts", "documents", "transcripts", "android"):
                 for key, value in delta.entries(kind).items():
                     gathered.put(kind, key, value)
         found = selection(output)
@@ -250,6 +253,19 @@ def gather(outputs, queues=()) -> Gathered:
                     judgments[check] = judgment
                 outcome["judgments"] = judgments
                 gathered.put("groups", group_key, outcome)
+            elif name.startswith(lane_blocks.ANDROID):
+                # A document's Android group, under the key the Android queue names for it, with the evidence
+                # the stage's judges wrote for it as judgments under that key.
+                if name not in package_keys:
+                    continue
+                kind, identifier = _document(lane_blocks.android_document(name))
+                judgments = {}
+                for path in sorted(Path(directory, "checks").glob(f"*/{kind}-{identifier}.json")):
+                    judgment = keys.judgment_key(package_keys[name], path.parent.name)
+                    gathered.put("judgments", judgment, gathered.keep_blob(judged_evidence(path.read_bytes())))
+                    judgments[path.parent.name] = judgment
+                outcome["judgments"] = judgments
+                gathered.put("groups", package_keys[name], outcome)
             elif name in package_keys and packages:
                 if name == SURFACE:
                     extraction = Path(directory, "surface", "surface.json")

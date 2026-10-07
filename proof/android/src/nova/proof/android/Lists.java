@@ -52,6 +52,8 @@ final class Lists {
     private static final String FUZZY = "cc-fuzzy-search-enabled";
     /** Terms the request names for every list, beside each list's own; null where it names none. */
     static JSONArray searches;
+    /** Set where a request reads lists only to pass them (a form saved before an update): no Sort, no search. */
+    static boolean brief;
 
     private Lists() {
     }
@@ -59,7 +61,7 @@ final class Lists {
     static boolean read(Intent started, JSONObject step, ShadowActivity home) throws Exception {
         EntitySelectActivity activity =
                 Robolectric.buildActivity(EntitySelectActivity.class, started).setup().get();
-        ShadowLooper.idleMainLooper();
+        loaded(activity);
         ShadowActivity shadow = Shadows.shadowOf((Activity)activity);
         if (activity.isFinishing()) {
             // A list that answers home without showing itself (a case chosen for the worker).
@@ -109,8 +111,10 @@ final class Lists {
         // this one stays as it opened: the Sort menu's choices in turn, then the searches with fuzzy search as
         // installed, and on lists opened with the worker's own setting on and off (the list reads the setting
         // when it opens, EntityListAdapter).
-        list.put("sorted", sorted(started));
-        list.put("searches", searched(started, words));
+        if (!brief) {
+            list.put("sorted", sorted(started));
+            list.put("searches", searched(started, words));
+        }
 
         if (adapter.getCurrentCount() == 0) {
             return false;
@@ -140,6 +144,22 @@ final class Lists {
         home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
         ShadowLooper.idleMainLooper();
         return shadow.getResultCode() == Activity.RESULT_OK;
+    }
+
+    /**
+     * Waits for the list's cases: the activity loads them on a task of its own (EntityLoaderTask) and shows the
+     * list when the task's result reaches the main thread.
+     */
+    private static void loaded(EntitySelectActivity activity) throws Exception {
+        for (int turn = 0; turn < 20; turn++) {
+            ShadowLooper.idleMainLooper();
+            Object loader = Screens.field(activity, "loader");
+            if (loader == null) {
+                return;
+            }
+            ((android.os.AsyncTask<?, ?, ?>)loader).get(120, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        ShadowLooper.idleMainLooper();
     }
 
     /** The detail screen home itself opens (a case chosen for the worker, to confirm). */
@@ -190,7 +210,7 @@ final class Lists {
     private static Object[] probe(Intent started) throws Exception {
         EntitySelectActivity activity =
                 Robolectric.buildActivity(EntitySelectActivity.class, new Intent(started)).setup().get();
-        ShadowLooper.idleMainLooper();
+        loaded(activity);
         ListView listView = (ListView)((Activity)activity).findViewById(R.id.screen_entity_select_list);
         if (listView == null || !(listView.getAdapter() instanceof EntityListAdapter)) {
             return null;

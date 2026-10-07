@@ -3,7 +3,7 @@
 A snapshot is what a GitHub cache entry restores and ``PROOF_STORE`` names::
 
     index.json                {"version": 1, "parts": {...}, "documents": {...}, "judgments": {...},
-                               "transcripts": {...}, "groups": {...}}
+                               "transcripts": {...}, "groups": {...}, "android": {...}}
     blobs/<2 hex>/<64 hex>    each blob's bytes, named by their sha256
 
 Its index maps each key (``proof.store.keys``) to an entry:
@@ -16,7 +16,10 @@ Its index maps each key (``proof.store.keys``) to an entry:
   record the judges read for the part (a B-edit recorded as B's reads B's);
 - ``judgments``: a judgment key to the digest of the evidence its check wrote;
 - ``transcripts``: a transcript key to the transcript's digest;
-- ``groups``: a group key (a document's judgment, or a package group's key) to
+- ``android``: an Android record's key (``proof.android.records.Request.key``: the archives and restore a
+  request reads, its options and the reader) to the digest of the reader's answer, as the Android stage
+  keeps it;
+- ``groups``: a group key (a document's judgment, a package group's key, or a document's Android group's) to
   its outcome, ``{"group", "items": {<node id>: <outcome>}, "failure",
   "judgments": {<check>: <judgment key>}}``, with ``"surface": <digest>`` for
   the surface block's extraction.
@@ -51,7 +54,7 @@ BLOBS = "blobs"
 ENTRIES = "entries"
 FINGERPRINTS = "fingerprints.json"
 DELTA = "store"
-KINDS = ("parts", "documents", "judgments", "transcripts", "groups")
+KINDS = ("parts", "documents", "judgments", "transcripts", "groups", "android")
 # A newer transcript replaces an older one under the same key: either is replayed only where HQ answers alike.
 REPLACEABLE = frozenset({"transcripts"})
 PREFIX = "sha256:"
@@ -257,11 +260,11 @@ def _linked(source, path: str) -> bool:
 
 
 def entry_blobs(kind: str, value) -> set[str]:
-    """The blobs an entry needs: a part's record and the blobs it names, a judgment's evidence, a transcript, the
-    surface block's extraction."""
+    """The blobs an entry needs: a part's record and the blobs it names, a judgment's evidence, a transcript, an
+    Android record, the surface block's extraction."""
     if kind == "parts":
         return {value["record"], *value["blobs"]}
-    if kind in ("judgments", "transcripts"):
+    if kind in ("judgments", "transcripts", "android"):
         return {value}
     if kind == "groups" and value.get("surface"):
         return {value["surface"]}

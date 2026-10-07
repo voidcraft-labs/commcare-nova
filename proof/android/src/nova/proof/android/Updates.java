@@ -38,6 +38,8 @@ import org.robolectric.shadows.ShadowLooper;
  * its incomplete-forms list hands it.
  */
 final class Updates {
+    private static final int MAX_INCOMPLETE = 12;
+
     private Updates() {
     }
 
@@ -53,12 +55,51 @@ final class Updates {
             found.put("restore", Device.restore(request.getString("restore")));
         }
         Device.prefer(request.optJSONObject("preferences"));
+        // The worker's own settings the request made, by name, so a reader of the answer knows which were theirs.
+        java.util.Set<String> own = new java.util.TreeSet<>();
+        JSONArray names = request.optJSONObject("preferences") == null ? null
+                : request.getJSONObject("preferences").names();
+        for (int i = 0; names != null && i < names.length(); i++) {
+            own.add(names.getString(i));
+        }
+        found.put("workerSettings", new JSONArray(own));
+        Lists.brief = true;
         found.put("before", Profile.read());
-        Integer record = null;
+        // The forms a worker left incomplete before the update: the command the request names, or, where it
+        // asks for every form (``incompleteForms``), each form the installed suite gives an entry.
+        java.util.Map<String, Integer> records = new java.util.LinkedHashMap<>();
+        java.util.List<String> commands = new java.util.ArrayList<>();
         if (request.has("incomplete")) {
+            commands.add(request.getString("incomplete"));
+        }
+        if (request.optBoolean("incompleteForms")) {
+            for (String command : new java.util.TreeSet<>(
+                    CommCareApplication.instance().getCommCarePlatform().getCommandToEntryMap().keySet())) {
+                if (commands.size() < MAX_INCOMPLETE && CommCareApplication.instance().getCommCarePlatform()
+                        .getEntry(command).getXFormNamespace() != null) {
+                    commands.add(command);
+                }
+            }
+        }
+        JSONObject incomplete = new JSONObject();
+        for (String command : commands) {
             JSONObject saved = new JSONObject();
-            found.put("incomplete", saved);
-            record = saveIncomplete(request.getString("incomplete"), saved);
+            incomplete.put(command, saved);
+            Integer record;
+            try {
+                record = saveIncomplete(command, saved);
+            } catch (Throwable raised) {
+                saved.put("raised", Reader.raised(raised));
+                record = null;
+            }
+            if (record != null && !records.containsValue(record)) {
+                records.put(command, record);
+            }
+        }
+        if (request.has("incomplete")) {
+            found.put("incomplete", incomplete.get(request.getString("incomplete")));
+        } else if (!commands.isEmpty()) {
+            found.put("incompleteForms", incomplete);
         }
 
         String reference = Device.archiveReference(request.getString("update"));
@@ -88,8 +129,22 @@ final class Updates {
         task.clearTaskInstance();
         found.put("after", Profile.read());
 
-        if (record != null) {
-            found.put("reopened", reopen(record));
+        if (request.has("incomplete")) {
+            if (records.containsKey(request.getString("incomplete"))) {
+                found.put("reopened", reopen(records.get(request.getString("incomplete"))));
+            }
+        } else if (!commands.isEmpty()) {
+            JSONObject reopened = new JSONObject();
+            for (java.util.Map.Entry<String, Integer> entry : records.entrySet()) {
+                try {
+                    reopened.put(entry.getKey(), reopen(entry.getValue()));
+                } catch (Throwable raised) {
+                    JSONObject failed = new JSONObject();
+                    failed.put("raised", Reader.raised(raised));
+                    reopened.put(entry.getKey(), failed);
+                }
+            }
+            found.put("reopened", reopened);
         }
         return found;
     }
@@ -105,8 +160,13 @@ final class Updates {
      */
     static Integer save(String command, JSONObject saved, boolean complete) throws Exception {
         final Integer[] record = new Integer[1];
+        java.util.Set<Integer> before = new java.util.HashSet<>();
+        for (FormRecord held : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
+            before.add(held.getID());
+        }
         JSONObject walk = Screens.walk(command, (started, step, shadow) -> {
             FormEntryActivity activity = Forms.open(started);
+            step.put("loaded", FormEntryActivity.mFormController != null);
             QuestionsView view = activity.getODKView();
             if (view != null) {
                 for (QuestionWidget widget : view.getWidgets()) {
@@ -135,7 +195,7 @@ final class Updates {
         saved.put("walk", walk);
         saved.put("records", Forms.records());
         for (FormRecord candidate : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
-            if (FormRecord.STATUS_INCOMPLETE.equals(candidate.getStatus())) {
+            if (FormRecord.STATUS_INCOMPLETE.equals(candidate.getStatus()) && !before.contains(candidate.getID())) {
                 record[0] = candidate.getID();
             }
         }

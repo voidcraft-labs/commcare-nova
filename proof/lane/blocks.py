@@ -14,9 +14,12 @@ for a run without one, by the server from its own collection
      "cached": [{"group": <group>, "judgments": {<check>: <judgment key>}}, ...],
      "unsampled": [<document id>, ...]}
 
-A lane has two queues: the early queue, of groups whose tests need no corpus
-(from ``proof-plan``), and the main queue (from ``quality``, once the corpus is
-emitted). A group is every item of one corpus document (``corpus:<id>``), of
+A lane has three queues: the early queue, of groups whose tests need no corpus
+(from ``proof-plan``), the main queue (from ``quality``, once the corpus is
+emitted), and the Android queue, of each document's Android group
+(``android:corpus:<id>``, ``android:control:<id>``), which the Android stage
+runs once the main queue's shards have observed the documents
+(``proof.android.stage``). A group is every item of one corpus document (``corpus:<id>``), of
 one document under one configuration (``corpus:<id>@<configuration>``, for a
 document heavy enough to split), of one control (``control:<id>``), of one
 package (``proof``, ``proof/<package>``), the surface block (``surface``), or
@@ -61,6 +64,10 @@ BLOCKS = "blocks"
 MANIFEST = "block.json"
 SERVE = "serve.json"
 DOCUMENT_KINDS = ("corpus:", "control:")
+# The Android stage's group of a document (``proof.android.stage``): CommCare Android's reading of every
+# archive a device installs of it, and proofs 1, 3 and 4 judged over that. It runs after the document's own
+# group, on a runner Android's reader runs on, in the lane's third queue.
+ANDROID = "android:"
 # The packages whose tests read the corpus (``proof.checks.cases``,
 # ``proof.checks.corpus``) or the native products it carries as ``native/``
 # (``proof.native.produce``), each through a test module or a conftest:
@@ -104,6 +111,11 @@ def group_problem(name) -> str | None:
         if package and "/" not in package and package.isidentifier():
             return None
         return f"{name!r} names no package directly under proof/"
+    if name.startswith(ANDROID):
+        document = android_document(name)
+        if document is None or "@" in document or any(character.isspace() for character in document):
+            return f"{name!r} names no document's Android group (android:corpus:<id>, android:control:<id>)"
+        return None
     for kind in DOCUMENT_KINDS:
         if name.startswith(kind):
             rest = name[len(kind) :]
@@ -114,9 +126,20 @@ def group_problem(name) -> str | None:
                 return f"{name!r} names a configuration where only one corpus document's may be named"
             return None
     return (
-        f"{name!r} is none of corpus:<id>, corpus:<id>@<configuration>, control:<id>, proof, proof/<package>,"
-        " surface or hq-selfchecks"
+        f"{name!r} is none of corpus:<id>, corpus:<id>@<configuration>, control:<id>, android:corpus:<id>,"
+        " android:control:<id>, proof, proof/<package>, surface or hq-selfchecks"
     )
+
+
+def android_document(name: str) -> str | None:
+    """The document group (``corpus:<id>``, ``control:<id>``) whose archives the Android group ``name`` reads;
+    None where ``name`` is no Android group of a document."""
+    if not name.startswith(ANDROID):
+        return None
+    rest = name[len(ANDROID) :]
+    if not rest.startswith(DOCUMENT_KINDS) or not rest.partition(":")[2]:
+        return None
+    return rest
 
 
 def reads_corpus(name: str) -> bool:

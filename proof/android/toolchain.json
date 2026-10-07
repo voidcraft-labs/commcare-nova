@@ -1,0 +1,39 @@
+{
+	"description": "What the Android reader's runtime is built with beside the pins (proof/pins.json), each named exactly, so one build of the runtime is every build of it. build-runtime.sh fetches Gradle's distribution and Robolectric's Android runtime by these checksums, refuses an Android SDK package at another revision, and holds every dependency Gradle resolves to verification-metadata.xml where that file is beside this one. The stage's workflow installs this JDK and these SDK packages (.github/workflows/proof-android.yml). The reader's fingerprint names this file (proof/android/records.py), so a change here reads every archive again.",
+	"jdk": {
+		"distribution": "temurin",
+		"version": "17.0.13+11"
+	},
+	"gradle": {
+		"version": "8.14.4",
+		"url": "https://services.gradle.org/distributions/gradle-8.14.4-bin.zip",
+		"sha256": "f1771298a70f6db5a29daf62378c4e18a17fc33c9ba6b14362e0cdf40610380d"
+	},
+	"robolectricAndroid": {
+		"file": "android-all-instrumented-6.0.1_r3-robolectric-r1-i7.jar",
+		"url": "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/6.0.1_r3-robolectric-r1-i7/android-all-instrumented-6.0.1_r3-robolectric-r1-i7.jar",
+		"sha256": "bc9148d548ce6875f0df9aadb0535ef2e3a5a8cf385f47a5c6c4060a7aab4e75"
+	},
+	"androidSdk": [
+		{
+			"package": "platforms;android-37.0",
+			"directory": "platforms/android-37.0",
+			"revision": "2"
+		},
+		{
+			"package": "platforms;android-36",
+			"directory": "platforms/android-36",
+			"revision": "2"
+		},
+		{
+			"package": "build-tools;35.0.0",
+			"directory": "build-tools/35.0.0",
+			"revision": "35.0.0"
+		},
+		{
+			"package": "platform-tools",
+			"directory": "platform-tools",
+			"revision": "37.0.1"
+		}
+	]
+}
