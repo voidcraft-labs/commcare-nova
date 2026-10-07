@@ -426,6 +426,42 @@ def test_the_register_holds_the_stages_evidence_beside_the_shards_own_each_to_it
     assert len(alone) == 1 and "no shard ran proof3 on doc" in alone[0]
 
 
+def test_the_shards_own_check_holds_only_the_shards_entries_and_still_runs_a_control_an_android_entry_names(
+    tmp_path, monkeypatch
+):
+    """``proof.checks.cases.hold`` is the shards' side of the same split: an Android entry on the document must
+    not fail the shards' check, which can never show it, and a control only Android entries name is run for
+    its records and holds nothing there; a shards' entry is still held on both."""
+    from proof.checks import cases
+    from proof.checks.corpus import Document
+    from proof.checks.differences import Difference
+
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path / "out"))
+    _register(
+        tmp_path,
+        monkeypatch,
+        [
+            _entry("android", "proof3", "android@local.ccz", "/profile/readers/Profile.text"),
+            _entry("lane", "proof3", "trace@local.ccz", "/runs/*/trace"),
+        ],
+    )
+    entries = registers.load_known_defects()
+    theirs = Difference("proof3", "doc", "trace@local.ccz", "/runs/*/trace", "/runs/0/trace", "changed", 1, 2)
+    document = Document(id="doc", source="targeted", root=tmp_path)
+    cases.hold("proof3", document, [theirs], entries)
+    with pytest.raises(AssertionError, match="no longer shows it there"):
+        cases.hold("proof3", document, [], entries)
+    control = Document(id=CONTROL, source="control", root=tmp_path, kind="control")
+    cases.hold("proof3", control, [theirs], entries)
+    with pytest.raises(AssertionError, match="no longer shows the symptom"):
+        cases.hold("proof3", control, [], entries)
+    android_only = [entry for entry in entries if entry.stage == registers.ANDROID]
+    cases.hold("proof3", control, [], android_only)
+    # A control no entry names for the check at all is still refused: nothing could show there.
+    with pytest.raises(AssertionError, match="no longer shows the symptom"):
+        cases.hold("proof3", control, [], ())
+
+
 def test_the_gate_holds_the_android_queue_to_exactly_once_and_reads_a_cached_group_from_the_store(
     tmp_path, monkeypatch
 ):
