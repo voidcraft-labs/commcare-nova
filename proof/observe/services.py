@@ -10,6 +10,11 @@ and each service starts the first time an observation or a test asks for it
 there is none, and asking raises.
 
 - ``formplayer()``: the session's one Formplayer runner.
+- ``connect()``: the session's one Connect runtime (``proof.connect.runtime``:
+  Connect at its pin, its Postgres and Redis, its migrated database), which
+  a Connect document's observation serves an opportunity from
+  (``proof.observe.connect``). Its logs go under the run's output
+  (``$PROOF_OUT/connect-unit``).
 - ``client_browser()``: an editor driver (node and Chromium) of the Web
   Apps client's own. Proof 4 shows a saved app in the client while the
   editor page that saved it is still open in the session's editor driver,
@@ -22,7 +27,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-_SESSION: dict = {"open": False, "formplayer": None, "browser": None}
+_SESSION: dict = {"open": False, "formplayer": None, "browser": None, "connect": None}
 
 
 class NoSession(RuntimeError):
@@ -34,19 +39,24 @@ def session(on_start=None):
     """The lifetime of the session's services; ``on_start(runner)`` is told each runner as it starts."""
     if _SESSION["open"]:
         raise NoSession("The session's services are already open in this process; one session owns them.")
-    _SESSION.update(open=True, formplayer=None, browser=None, on_start=on_start)
+    _SESSION.update(open=True, formplayer=None, browser=None, connect=None, on_start=on_start)
     try:
         yield
     finally:
         runner, _SESSION["formplayer"] = _SESSION["formplayer"], None
         browser, _SESSION["browser"] = _SESSION["browser"], None
+        connect_runtime, _SESSION["connect"] = _SESSION["connect"], None
         _SESSION["open"] = False
         try:
             if browser is not None:
                 browser.close()
         finally:
-            if runner is not None:
-                runner.close()
+            try:
+                if connect_runtime is not None:
+                    connect_runtime.close()
+            finally:
+                if runner is not None:
+                    runner.close()
 
 
 def _require_session(what):
@@ -90,3 +100,21 @@ def formplayer():
         if _SESSION.get("on_start") is not None:
             _SESSION["on_start"](runner)
     return _SESSION["formplayer"]
+
+
+def connect():
+    """The session's Connect runtime, started on first use (its fetch and its migrations, once a session)."""
+    _require_session("Connect")
+    if _SESSION["connect"] is None:
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from proof.connect.runtime import ConnectRuntime
+
+        out = os.environ.get("PROOF_OUT")
+        logs = Path(out) / "connect-unit" if out else Path(tempfile.mkdtemp(prefix="proof-connect-unit-"))
+        runtime = ConnectRuntime(logs)
+        runtime.__enter__()
+        _SESSION["connect"] = runtime
+    return _SESSION["connect"]

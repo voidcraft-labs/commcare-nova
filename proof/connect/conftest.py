@@ -44,6 +44,7 @@ from pathlib import Path
 
 import pytest
 
+from proof.connect.hq import HQ_XMLNS, META_XMLNS, with_fix  # noqa: F401 - the tests read them here
 from proof.connect.runtime import ConnectRuntime
 
 # Every corpus document a Connect proof reads, by id: Nova's deliver app and learn app that each carry the edit
@@ -59,8 +60,6 @@ DOCUMENTS = (
 DELIVER, LEARN, TASK_NAMED_TASK, DELIVER_KEY_NAMES, LEARN_KEY_NAMES = DOCUMENTS
 CONFIGURATION = "minimum"
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
-META_XMLNS = "http://openrosa.org/jr/xforms"
-HQ_XMLNS = "http://commcarehq.org/xforms"
 # The day after the lane's own (``proof.core.client.DEFAULT_CLOCK``), for a worker's second visit.
 NEXT_DAY_CLOCK = "2026-01-16T10:30:00.000Z"
 # Three fixes as a device writes them (latitude, longitude, altitude, accuracy): one place, a place about four
@@ -85,15 +84,17 @@ def connect_out() -> Path:
 
 
 @pytest.fixture(scope="session")
-def connect_runtime(connect_out):
-    """Connect at its pin with its services and its migrated database, for the session."""
+def connect_runtime(connect_out, lane_services):
+    """Connect at its pin with its services and its migrated database, for the session: the one a Connect
+    document's observation serves its opportunity from (``proof.observe.services.connect``)."""
     from proof.conftest import record_timing
+    from proof.observe import services
 
-    with ConnectRuntime(connect_out / "logs") as runtime:
-        for name, seconds in runtime.timings.items():
-            record_timing(f"connect_{name}", seconds)
-        yield runtime
-        (connect_out / "timings.json").write_text(json.dumps(runtime.timings, indent="\t", sort_keys=True) + "\n")
+    runtime = services.connect()
+    for name, seconds in runtime.timings.items():
+        record_timing(f"connect_{name}", seconds)
+    yield runtime
+    (connect_out / "timings.json").write_text(json.dumps(runtime.timings, indent="\t", sort_keys=True) + "\n")
 
 
 @dataclass(frozen=True)
@@ -161,21 +162,6 @@ def connect_ids(archive: bytes) -> dict:
                 if tag.namespace == CONNECT_XMLNS and element.get("id"):
                     found[tag.localname] = element.get("id")
     return found
-
-
-def with_fix(submission: bytes, fix: str) -> bytes:
-    """``submission`` with ``fix`` written into its meta's location node; the same bytes where it holds none."""
-    from lxml import etree
-
-    from proof.checks.compare.xml_tree import parse_xml
-
-    root = parse_xml(submission)
-    nodes = root.findall(f"{{{META_XMLNS}}}meta/{{{HQ_XMLNS}}}location")
-    if not nodes:
-        return submission
-    for node in nodes:
-        node.text = fix
-    return etree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def _in_another_session(submission: bytes, tokens: dict, session: str) -> bytes:

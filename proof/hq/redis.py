@@ -21,6 +21,9 @@ validate_origin_token``). So where a Formplayer runner serves the session,
 HQ's Redis is that runner's (``adopt``); ``start`` runs one of HQ's own
 where no Formplayer does.
 
+While the service is shared with a served state (``shared``), HQ's count of
+the devices a worker submits from lives there too (``_device_limiter``).
+
 ``client()`` is what HQ's ``get_redis_client`` returns while the service
 runs; while it does not, the boot refuses the helper as it always did, so a
 path that reaches for Redis without having asked for the service still
@@ -104,10 +107,31 @@ def shared(address: str | None):
     else:
         start()
     try:
-        yield
+        with _device_limiter():
+            yield
     finally:
         if not had:
             _stop()
+
+
+@contextmanager
+def _device_limiter():
+    """HQ's count of the devices a worker submits from, over this process's Redis for the block.
+
+    HQ's receiver counts each device a worker submits from in a Redis set
+    (``users/device_rate_limiter.py::DeviceRateLimiter``, which Formplayer's own submissions pass by), through
+    a raw connection of the default cache's Redis that the module makes as it is imported
+    (``django_redis.get_redis_connection``). The harness's caches are local memory, so that connection names
+    an address nothing serves; while HQ has its Redis, the count lives there, as production's does.
+    """
+    from corehq.apps.users.device_rate_limiter import device_rate_limiter
+
+    held = device_rate_limiter.client
+    device_rate_limiter.client = client().client.get_client()
+    try:
+        yield
+    finally:
+        device_rate_limiter.client = held
 
 
 def start() -> str:

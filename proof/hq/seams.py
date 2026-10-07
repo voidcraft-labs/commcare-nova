@@ -436,6 +436,29 @@ def flags(configuration: Configuration, record: SeamRecord):
         yield record
 
 
+# Privileges the project space's plan grants beside its configuration's, while ``also_granted`` holds them.
+ALSO_GRANTED: set[str] = set()
+
+
+@contextmanager
+def also_granted(slug: str):
+    """For the block, the project space's plan also grants the privilege ``slug``.
+
+    A configuration grants what a document's content needs to build and be edited
+    (``proof.checks.configurations``). A privilege that decides something else about the project space, which a
+    part of the lane states of it, is granted here for that part alone and recorded as every privilege read is:
+    HQ forwards a form to Connect only where the project space can forward data (``DATA_FORWARDING``,
+    ``motech/repeaters/models.py::domain_can_forward``), which the project space of a Connect opportunity can.
+    """
+    held = slug in ALSO_GRANTED
+    ALSO_GRANTED.add(slug)
+    try:
+        yield
+    finally:
+        if not held:
+            ALSO_GRANTED.discard(slug)
+
+
 @contextmanager
 def privileges(configuration: Configuration, record: SeamRecord):
     import corehq.privileges as privilege_constants
@@ -454,7 +477,7 @@ def privileges(configuration: Configuration, record: SeamRecord):
                 f"HQ asked whether the project space {domain!r} has the privilege "
                 f"{slug!r}; the check's configuration describes {configuration.domain!r} only."
             )
-        verdict = slug in granted
+        verdict = slug in granted or slug in ALSO_GRANTED
         record.privileges.append(PrivilegeRead(slug, symbol_by_slug.get(slug), domain, via, verdict))
         return verdict
 

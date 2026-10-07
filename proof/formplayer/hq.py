@@ -89,7 +89,15 @@ _TRANSPORT_HEADERS = {"host", "connection", "content-length", "accept-encoding",
 # Django reads these two from the environment under their own names.
 _UNPREFIXED = {"content-type": "CONTENT_TYPE", "content-length": "CONTENT_LENGTH"}
 DOWNLOAD = "direct_ccz"
-RECEIVERS = frozenset({"receiver", "receiver_secure", "receiver_secure_with_app_id", "receiver_post_with_app_id"})
+RECEIVERS = frozenset(
+    {
+        "receiver",
+        "receiver_post",
+        "receiver_secure",
+        "receiver_secure_with_app_id",
+        "receiver_post_with_app_id",
+    }
+)
 SEARCHES = frozenset({"remote_search", "app_aware_remote_search"})
 CLAIM = "claim_case"
 RESTORE = "ota_restore"
@@ -630,6 +638,9 @@ class Served:
     # The id of the user case HQ made for the worker, which HQ draws afresh for each worker it makes; None
     # where the project space has no user cases.
     usercase_id: str | None = None
+    # Where the project space forwards what it receives (``proof.observe.connect.Forwarder``): told as each
+    # run begins and ends, inside the run's fork; None where it forwards nowhere.
+    forwarding: object = None
     _runs: int = 0
     _archive: bytes | None = None
 
@@ -676,8 +687,13 @@ class Served:
             with self.unit.committing(), index(self.unit), self.operation("formplayer:sign-in", label):
                 session_key = sign_in(self.worker)
             self.hq.begin(label, session_key)
+            forwarding = self.forwarding
+            if forwarding is not None:
+                forwarding.begin(label)
             try:
                 yield self
+                if forwarding is not None:
+                    forwarding.end(label)
             finally:
                 self.hq.begin(b"", None)
 

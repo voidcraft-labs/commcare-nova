@@ -23,6 +23,15 @@ receiver reads: the password hasher, the template debug flag, the static
 files storage and the Redis database). Nothing here imports Connect or
 Django: the harness's process is HQ's.
 
+``ConnectRuntime.run`` runs one scenario's steps to their end in one such
+process. ``ConnectRuntime.session`` is Connect as a deployment runs it, for
+as long as an opportunity is observed (``ConnectSession``): Connect's own
+WSGI application answering on a loopback address of this process's own,
+where HQ's Connect repeater posts each form over a real connection, and the
+driver's steps taken one at a time. A session keeps named copies of its
+database (``checkpoint``) and goes back to one (``restore``), so each run of
+a walk meets the opportunity as it stood, as each run meets HQ as it stood.
+
 Postgres refuses to run as root, which the lane's container is, so there its
 processes run as the ``postgres`` user the package made and the cluster's
 directory is that user's.
@@ -30,8 +39,10 @@ directory is that user's.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import select
 import shutil
 import subprocess
 import tempfile
@@ -53,6 +64,11 @@ COMMAND_TIMEOUT_SECONDS = 60
 # Redis's loopback ports, one per runtime: this process's id picks one of 20000 above the registered range.
 REDIS_PORT_BASE = 20000
 REDIS_PORTS = 20000
+# Where a session's Connect answers HTTP: a loopback address this process's id names (127.2.<a>.<b>, apart from
+# the addresses HQ's and Formplayer's Redis take, proof.hq.redis), on the port a web server answers at.
+HTTP_PORT = 80
+SESSION_START_SECONDS = 120
+STEP_SECONDS = 300
 
 
 class ConnectRuntimeMissing(RuntimeError):
@@ -344,3 +360,165 @@ class ConnectRuntime:
         if "failed" in outcome:
             raise ConnectRuntimeFailed(f"Connect's driver failed in {name}:\n{outcome['failed']}")
         return outcome["steps"]
+
+    # Connect, served -----------------------------------------------------------------------------------------
+
+    def session(self, answer_hq) -> ConnectSession:
+        """Connect served on an address of its own, in a database of its own (a clone of the migrated one) over
+        an emptied Redis; ``answer_hq(method, url, headers, body) -> (status, headers, body)`` answers each
+        request Connect makes of its HQ server. The caller closes it."""
+        self._scenarios += 1
+        session = ConnectSession(self, f"session_{self._scenarios}", answer_hq)
+        try:
+            session.start()
+        except BaseException:
+            session.close()
+            raise
+        return session
+
+
+class ConnectSession:
+    """One served Connect (``proof/connect/driver.py serve``): its address, its steps and its database's copies."""
+
+    def __init__(self, runtime, name, answer_hq):
+        self._runtime, self.name, self._answer_hq = runtime, name, answer_hq
+        self._group = None
+        self._log = None
+        self._to_driver = self._from_driver = None
+        self._buffer = b""
+        self._databases = []
+        self._database = None
+        self._copies = 0
+        slot = os.getpid() % 40000
+        self.host = f"127.2.{slot // 200 + 1}.{slot % 200 + 2}"
+        self.port = HTTP_PORT
+        self.seconds = 0.0
+
+    @property
+    def url(self) -> str:
+        return f"http://{self.host}" if self.port == 80 else f"http://{self.host}:{self.port}"
+
+    def start(self):
+        runtime = self._runtime
+        self._database = self._copy(TEMPLATE)
+        runtime._command("redis-flush", ["redis-cli", "-h", "127.0.0.1", "-p", str(runtime._redis_port), "flushall"])
+        self._log = (runtime.logs / f"connect.{self.name}.log").open("wb")
+        to_driver_read, self._to_driver = os.pipe()
+        self._from_driver, from_driver_write = os.pipe()
+        try:
+            self._group = processes.ProcessGroup(
+                [str(runtime._python), str(DRIVER), "serve", str(runtime.checkout.path), self.host, str(self.port)],
+                env=runtime._environment(self._database),
+                cwd=runtime.checkout.path,
+                stdin=to_driver_read,
+                stdout=from_driver_write,
+                stderr=self._log,
+            )
+        finally:
+            os.close(to_driver_read)
+            os.close(from_driver_write)
+        ready = self._read(SESSION_START_SECONDS)
+        if "ready" not in ready:
+            raise ConnectRuntimeFailed(f"Connect's driver did not start serving: {ready}")
+
+    def _fail(self, what):
+        log = self._runtime.logs / f"connect.{self.name}.log"
+        return ConnectRuntimeFailed(f"{what} Its output ({log}) ends:\n{log.read_text(errors='replace')[-3000:]}")
+
+    def _read(self, timeout):
+        """The driver's next line, waited for on its pipe and on its exit."""
+        deadline = time.perf_counter() + timeout
+        while b"\n" not in self._buffer:
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                raise self._fail(f"Connect's driver ({self.name}) did not answer within {timeout} s.")
+            readable, _, _ = select.select([self._from_driver, self._group.fileno()], [], [], remaining)
+            if self._from_driver in readable:
+                chunk = os.read(self._from_driver, 1 << 16)
+                if not chunk:
+                    raise self._fail(f"Connect's driver ({self.name}) closed its output.")
+                self._buffer += chunk
+            elif readable:
+                raise self._fail(f"Connect's driver ({self.name}) exited.")
+        line, self._buffer = self._buffer.split(b"\n", 1)
+        return json.loads(line)
+
+    def _write(self, message):
+        os.write(self._to_driver, json.dumps(message).encode("utf-8") + b"\n")
+
+    def step(self, do, **fields):
+        """One step of the driver, each request Connect makes of HQ meanwhile answered by ``answer_hq``."""
+        started = time.perf_counter()
+        try:
+            self._write({"do": do, **fields})
+            while True:
+                message = self._read(STEP_SECONDS)
+                if "ask" in message:
+                    ask = message["ask"]
+                    status, headers, body = self._answer_hq(
+                        ask["method"], ask["url"], ask["headers"], base64.b64decode(ask["body"])
+                    )
+                    self._write(
+                        {
+                            "answer": {
+                                "status": status,
+                                "headers": [list(header) for header in headers],
+                                "body": base64.b64encode(body).decode("ascii"),
+                            }
+                        }
+                    )
+                    continue
+                if "failed" in message:
+                    raise ConnectRuntimeFailed(f"Connect's driver failed its {do} step:\n{message['failed']}")
+                return message["result"]
+        finally:
+            self.seconds += time.perf_counter() - started
+
+    # The database's copies -----------------------------------------------------------------------------------
+
+    def _copy(self, source):
+        self._copies += 1
+        name = f"{self.name}_{self._copies}"
+        self._runtime._sql("postgres", f'CREATE DATABASE "{name}" TEMPLATE "{source}"')
+        self._databases.append(name)
+        return name
+
+    def _drop(self, name):
+        self._runtime._sql("postgres", f'DROP DATABASE IF EXISTS "{name}"')
+        if name in self._databases:
+            self._databases.remove(name)
+
+    def checkpoint(self) -> str:
+        """A copy of Connect's database as it stands, by name, which ``restore`` goes back to."""
+        started = time.perf_counter()
+        self.step("release")
+        name = self._copy(self._database)
+        self.step("use", database=self._database)
+        self.seconds += time.perf_counter() - started
+        return name
+
+    def restore(self, checkpoint: str):
+        """Connect's database is a fresh copy of ``checkpoint`` from here on; the one it left is dropped."""
+        started = time.perf_counter()
+        self.step("release")
+        left, self._database = self._database, self._copy(checkpoint)
+        self.step("use", database=self._database)
+        self._drop(left)
+        self.seconds += time.perf_counter() - started
+
+    def close(self):
+        if self._group is not None:
+            self._group.stop()
+            self._group = None
+        for descriptor in (self._to_driver, self._from_driver):
+            if descriptor is not None:
+                os.close(descriptor)
+        self._to_driver = self._from_driver = None
+        if self._log is not None:
+            self._log.close()
+            self._log = None
+        for name in list(self._databases):
+            try:
+                self._drop(name)
+            except ConnectRuntimeFailed:
+                pass
