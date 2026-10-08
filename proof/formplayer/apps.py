@@ -208,12 +208,21 @@ def core_sessions(core_runner, files, restore, *, script=None, after_submit=Fals
 
 
 def web(runner, session: Installed, **options):
-    """The Web Apps client's session with one installed build, as the lane's worker."""
+    """The Web Apps client's session with one installed build, as the lane's worker starting over.
+
+    One Formplayer serves every test of a session and keeps a worker's restore by their name, so the worker
+    clears their data first (Formplayer's ``clear_user_data``) and Formplayer's caches are emptied
+    (``FormplayerRunner.forget_caches``), as every run of a walk starts: what a session reads then never depends
+    on which test used the same worker before it.
+    """
     from proof.formplayer.webapps import WebApps
 
-    return WebApps(
+    client = WebApps(
         runner, session.hq, domain=session.unit.domain, username=session.hq.username, app_id=session.app_id, **options
     )
+    client.post("/clear_user_data", {"domain": session.unit.domain, "username": session.hq.username, "restoreAs": None})
+    runner.forget_caches()
+    return client
 
 
 def walked(runner, session: Installed, script=None):
