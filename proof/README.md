@@ -995,7 +995,15 @@ client as a protocol line and answered there, by HQ's own views over the
 unit's state wherever the lane serves a state (`hq.py`, below), and every
 one is recorded. Formplayer
 runs in its own `replace-host` mode, so the URLs an app names (its
-submission URL, a search's, a claim's) reach the peer too. The runner speaks
+submission URL, a search's, a claim's) reach the peer too. That mode covers
+only Formplayer's RestTemplate; Core's `JavaHttpReference`, which an install
+reads a form from at the remote location HQ's profile names under the
+build's own address when the archive's copy cannot be installed, opens a URL
+connection of its own, and it left for the address HQ's settings name over
+the network (a hosted run waited on one past the request's deadline). The
+runner sends every http and https URL connection the way replace-host sends
+the rest (`src/.../PeerUrls.java`, through Tomcat's own handler factory), so
+HQ's download view answers it (`test_observe.py`). The runner speaks
 one JSON line per request, shaped as the Core runner's, with a deadline on
 each: `http` (one HTTP request to Formplayer's own server, with Core's
 random source seeded from the request's ordinal), `clock`, `syncTimes`

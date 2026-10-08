@@ -124,6 +124,8 @@ public final class Runner {
         peer = new HqPeer(this, wait);
         peer.start();
         System.setProperty("COMMCARE_HOST", peer.origin());
+        // Before Formplayer starts, so every URL connection it opens is answered by HQ's peer (PeerUrls).
+        PeerUrls.install(peer.origin());
         // Formplayer binds whatever port is free; Started reads which.
         System.setProperty("SERVER_PORT", "0");
         org.commcare.formplayer.Application.main(args);

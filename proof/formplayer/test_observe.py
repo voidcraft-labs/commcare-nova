@@ -33,6 +33,8 @@ from proof.observe.unit import observe_document
 DOCUMENT = "targeted-form-link-hidden-target"
 # A search whose results a form's end-of-form link fetches again by the case chosen (HQ's case_fixture).
 FETCHED_AGAIN = "search-hidden-link"
+# A form HQ builds that Core cannot install from the archive, so Formplayer reads it at its remote location.
+REMOTE_RESOURCE = "targeted-invalid-question-ids"
 
 
 def _served(found):
@@ -104,3 +106,19 @@ def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records
         "url": f"{observe.FORMPLAYER}/navigate_menu",
         "other": "http://127.0.0.1:9/navigate_menu",
     }
+
+
+def test_a_resource_formplayer_reads_at_its_remote_location_is_answered_by_hqs_own_view(
+    hq, core_runner, editor_driver, formplayer_runner, formplayer_documents
+):
+    """Where the archive's copy of a form cannot be installed, Core reads it at the remote location HQ's profile
+    names under the build's own address (``JavaHttpReference``, a URL connection Formplayer's RestTemplate never
+    sees). The runner sends that connection to HQ's peer, as Formplayer's replace-host mode sends its other
+    requests (``PeerUrls.java``), so HQ's own download view answers it; before, it left for the address HQ's
+    settings name, over the network, and one hosted run waited on it past the request's deadline."""
+    found = observe_document(
+        formplayer_documents[REMOTE_RESOURCE], core_runner=core_runner, editor_driver=editor_driver
+    )
+    at_a = _served(found)[0]["A"]["formplayer"]
+    assert at_a["asked"].get("app_download_file", 0) >= 1, at_a["asked"]
+    assert at_a["hq"] == [], at_a["hq"]

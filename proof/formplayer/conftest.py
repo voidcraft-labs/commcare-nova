@@ -20,6 +20,7 @@ DOCUMENTS = (
     "search-hidden-link",
     "targeted-custom-tile",
     "targeted-form-link-hidden-target",
+    "targeted-invalid-question-ids",
     "targeted-search-hq-compile",
 )
 
