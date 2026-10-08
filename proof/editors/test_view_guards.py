@@ -46,9 +46,14 @@ def test_a_write_alone_passes_and_a_write_beside_another_request_is_refused():
     alone = [{"forwarded": 1, "replied": 2}, {"forwarded": 3, "replied": 6}, {"forwarded": 4, "replied": 5}]
     pages._check_writes_alone([_exchange(1, True), _exchange(3, False), _exchange(4, False)], alone)
     # A save (7) that wrote while a read (8) was forwarded and unanswered.
-    racing = alone + [{"forwarded": 7, "replied": 10}, {"forwarded": 8, "replied": 9}]
-    with pytest.raises(pages.ConcurrentWrite, match="wrote while 1 other request"):
+    racing = alone + [
+        {"forwarded": 7, "replied": 10},
+        {"forwarded": 8, "replied": 9, "method": "GET", "url": "http://hq.proof.test/a/p/poll/", "phase": "load"},
+    ]
+    # The refusal names the request that was in flight, so a run that meets one says which request it was.
+    with pytest.raises(pages.ConcurrentWrite, match="wrote while 1 other request") as refused:
         pages._check_writes_alone([_exchange(7, True), _exchange(8, False)], racing)
+    assert "GET http://hq.proof.test/a/p/poll/ (load, forwarded 8, replied 9)" in str(refused.value)
 
 
 def _asked(phase):

@@ -644,11 +644,17 @@ def _check_writes_alone(exchanges: list[Exchange], requests: list[Mapping]) -> N
             if forwarded != exchange.forwarded and other_start < end and start < other_end
         ]
         if others:
+            by_number = {request.get("forwarded"): request for request in requests}
+            named = "; ".join(
+                f"{by_number[number].get('method')} {by_number[number].get('url') or by_number[number].get('path')}"
+                f" ({by_number[number].get('phase')}, forwarded {number},"
+                f" replied {by_number[number].get('replied', 'never')})"
+                for number in sorted(others)
+            )
             raise ConcurrentWrite(
-                f"HQ's answer to {exchange.method} {exchange.path} ({exchange.phase}) wrote while"
-                f" {len(others)} other request(s) of the page were in flight, so HQ's state would depend on the"
-                " order those reached it. The view's requests (with their forwarded and replied numbers) show"
-                " which."
+                f"HQ's answer to {exchange.method} {exchange.path} ({exchange.phase}, forwarded {start}, replied"
+                f" {end}) wrote while {len(others)} other request(s) of the page were in flight, so HQ's state"
+                f" would depend on the order those reached it: {named}."
             )
 
 
