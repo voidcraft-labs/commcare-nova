@@ -427,6 +427,33 @@ def test_the_register_holds_the_stages_evidence_beside_the_shards_own_each_to_it
     # The stage's evidence alone: the shards' entry was never shown.
     alone = problems([android_block])
     assert len(alone) == 1 and "no shard ran proof3 on doc" in alone[0]
+    # A run that holds the shards' stage alone (an unseeded lane, which runs no Android stage) needs only theirs.
+    lane_only = registers.verify_evidence([shard_block], entries, stages=(registers.LANE,))
+    assert [p for p in lane_only if "retains its control" not in p] == []
+    assert all("the Android stage" not in p for p in lane_only)
+
+
+def test_the_gate_holds_android_entries_unless_every_shard_ran_with_hqs_determinism_off(tmp_path):
+    """An unseeded lane's shards keep no document's records under a key, so its Android queue is empty; the gate
+    reads that from what each shard recorded of its environment, and from nothing a caller could pass it."""
+
+    made = iter(range(100))
+
+    def outputs(*values):
+        found = []
+        for value in values:
+            output = tmp_path / f"shard-{next(made)}"
+            output.mkdir()
+            selection = {"environment": {"PROOF_HQ_DETERMINISM": value}}
+            (output / "serve.json").write_text(json.dumps({"selection": selection}), encoding="utf-8")
+            found.append(output)
+        return found
+
+    assert gate._unseeded(outputs("0", "0"))
+    assert not gate._unseeded(outputs(None, None))
+    # One shard seeded is a seeded run, and a run with no shard output is no unseeded run.
+    assert not gate._unseeded(outputs("0", None))
+    assert not gate._unseeded([])
 
 
 def test_the_shards_own_check_holds_only_the_shards_entries_and_still_runs_a_control_an_android_entry_names(
@@ -534,9 +561,10 @@ def test_the_android_queue_holds_each_document_and_each_control_an_android_entry
 
 
 def test_an_android_group_names_its_documents_key_under_the_environment_the_shards_run_in(tmp_path):
-    """A lane run with a lane-env that changes what the shards record (HQ's determinism or speed seams off) keeps
-    each document's records under a key naming it; the stage finds them by the key its group names, so the queue
-    must be built under the same environment, and a variable that changes nothing recorded changes no key."""
+    """A lane run with a lane-env that changes what the shards record (HQ's speed seams off) keeps each document's
+    records under a key naming it; the stage finds them by the key its group names, so the queue must be built
+    under the same environment, and a variable that changes nothing recorded changes no key. An unseeded lane
+    keeps none (``proof.store.runtime``), so its stage has no document to read."""
     corpus = tmp_path / "corpus"
     (corpus / "doc").mkdir(parents=True)
     (corpus / "doc" / "document.json").write_text("{}", encoding="utf-8")
@@ -549,11 +577,14 @@ def test_an_android_group_names_its_documents_key_under_the_environment_the_shar
         (group,) = store_queue.android_groups(builder, corpus, "reader-1", proof)
         return group.document
 
-    unseeded = {"PROOF_HQ_DETERMINISM": "0"}
-    shard_scope = keys.document_scope(FINGERPRINTS, {**keys.LANE_ENVIRONMENT, **unseeded})
-    assert document(unseeded) == keys.document_key(shard_scope, "corpus:doc", keys.files_digest(corpus / "doc"))
-    assert document(unseeded) != document({})
+    unseamed = {"PROOF_HQ_SPEED": "0"}
+    shard_scope = keys.document_scope(FINGERPRINTS, {**keys.LANE_ENVIRONMENT, **unseamed})
+    assert document(unseamed) == keys.document_key(shard_scope, "corpus:doc", keys.files_digest(corpus / "doc"))
+    assert document(unseamed) != document({})
     assert document({"PROOF_VERIFY_MEMOS": "1", "PROOF_BRANCH_DOCUMENTS": "all"}) == document({})
+    # An unseeded lane keeps no document's records under a key, so its stage is given nothing to look for.
+    unseeded = store_queue.Builder([], FINGERPRINTS, {}, fresh=True, environ={"PROOF_HQ_DETERMINISM": "0"})
+    assert store_queue.android_groups(unseeded, corpus, "reader-1", proof) == []
 
 
 def test_a_queue_built_for_another_reader_is_refused(tmp_path, monkeypatch):

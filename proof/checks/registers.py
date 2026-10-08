@@ -394,7 +394,7 @@ def _evidence(directories):
     return records, stages, problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset()):
+def verify_evidence(directories, entries, *, unsampled=frozenset(), stages=(LANE, ANDROID)):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -403,8 +403,11 @@ def verify_evidence(directories, entries, *, unsampled=frozenset()):
     (``reconcile``), and every entry was seen on its document and on its
     control, which fails when the check never ran on either. ``unsampled``
     names the corpus documents a run over a sample left out: an entry naming
-    one is held on its control alone, and none ran on its document.
+    one is held on its control alone, and none ran on its document. ``stages`` names the stages whose entries
+    the run holds (an unseeded lane runs no Android stage, ``proof.lane.gate``).
     """
+    held_stages = frozenset(stages)
+    entries = [entry for entry in entries if entry.stage in held_stages]
     records, stages, problems = _evidence(directories)
     if not records:
         return ["No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run."]

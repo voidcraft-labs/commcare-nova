@@ -137,26 +137,50 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
     entries = registers.load_known_defects()
+    unseeded = _unseeded(outputs)
+    stages = (registers.LANE,) if unseeded else (registers.LANE, registers.ANDROID)
     records, problems = reader.cached_evidence(cached, store)
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        problems += registers.verify_evidence(directories, entries, unsampled=unsampled)
-    on_control_alone = sum(entry.document in unsampled for entry in entries)
+        problems += registers.verify_evidence(directories, entries, unsampled=unsampled, stages=stages)
+    held = [entry for entry in entries if entry.stage in stages]
+    on_control_alone = sum(entry.document in unsampled for entry in held)
     notes = (
         [
             f"This run checked a sample of the corpus, leaving {len(unsampled)} documents out, so {on_control_alone}"
-            f" of the register's {len(entries)} entries name a document it did not run and were held on their"
-            f" controls alone; the other {len(entries) - on_control_alone} were held on their documents and controls."
+            f" of the register's {len(held)} entries name a document it did not run and were held on their"
+            f" controls alone; the other {len(held) - on_control_alone} were held on their documents and controls."
         ]
         if unsampled
         else []
     )
+    if unseeded:
+        notes.append(
+            f"This run's shards ran with HQ's determinism off, so they kept no document's records under a key and"
+            f" the Android stage had none to read (proof.store.queue.android_groups); the register's"
+            f" {len(entries) - len(held)} Android entries are held by the seeded runs."
+        )
     sections["register"] = _section(
         problems, notes, cached=len(cached), unsampled=len(unsampled), heldOnControlAlone=on_control_alone
     )
 
     sections["surface"] = _surface(queues, verdict, store, committed)
     return {"holds": all(section["holds"] for section in sections.values()), "sections": sections}
+
+
+def _unseeded(outputs) -> bool:
+    """Whether the shards ran with HQ's determinism off, as each shard's output records its environment
+    (``serve.json``'s ``selection``): every one of them, or the run is read as seeded."""
+    found = []
+    for output in outputs:
+        serve = Path(output) / "serve.json"
+        if not serve.is_file():
+            continue
+        record = json.loads(serve.read_text(encoding="utf-8"))
+        if "android" in record:
+            continue
+        found.append(((record.get("selection") or {}).get("environment") or {}).get("PROOF_HQ_DETERMINISM"))
+    return bool(found) and all(value == "0" for value in found)
 
 
 TITLES = {

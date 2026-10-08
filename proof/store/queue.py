@@ -465,6 +465,11 @@ def android_groups(
     (``proof.android.records.fingerprint``, on the platform the stage runs on) and the judge's code with both
     registers. ``document`` on a group is its document's key, which the stage finds its records under.
     """
+    if keys.environment(builder.environ)["PROOF_HQ_DETERMINISM"] == "off":
+        # An unseeded lane keeps no document's records under a key (``proof.store.runtime``): what each of its
+        # observations drew names nothing another run reads, so the stage would find no archive to read. Its
+        # shards' records are compared with a seeded run's (proof-audit.yml), whose own stage reads every archive.
+        return []
     corpus = Path(corpus)
     documents = {f"corpus:{identifier}": corpus / identifier for identifier in keys.corpus_documents(corpus)}
     for name in android_controls(proof_dir / "known-defects.json", proof_dir / "controls"):

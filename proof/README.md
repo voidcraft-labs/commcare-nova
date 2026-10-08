@@ -1906,8 +1906,14 @@ reused is only what a key names whole, and the reuse is audited:
   the sample left out on its control alone ("Known defects", above). The
   fourth runs the whole corpus with every memo verified, every editor view
   rerun the slow way and every document's HQ branches held to fresh states,
-  and must pass on its own, as each of the four must. `proof-image.yml`
-  compares the slim image with the full one and arm64 with amd64.
+  and must pass on its own, as each of the four must. Each runs the Android
+  stage over what its shards observed, its queues keyed under the lane's own
+  environment (`--lane-env`), but the unseeded one: its shards keep no
+  document's records under a key (`proof/store/runtime.py`), so its Android
+  queue is empty and its gate holds the shards' entries alone, as it reads
+  from the shards' own record of their environment; the other three hold the
+  Android entries. `proof-image.yml` compares the slim image with the full one
+  and arm64 with amd64.
 
 ## How the harness proves itself
 
