@@ -836,6 +836,33 @@ def _exchange(exchange):
     }
 
 
+def _answered_alike(exchanges):
+    """The exchanges in an order every run gives: as HQ answered them, but each run of reads that no write or
+    phase separates in a fixed order of their own. The page sends several reads at once as it loads (a module's
+    validation beside its case types), and they reach HQ in either order; the writes-alone guard
+    (``pages._check_writes_alone``) holds every write apart from them, so no read's answer depends on that order.
+    A hosted run recorded one such pair in each order on two architectures."""
+    ordered, reads = [], []
+
+    def flush():
+        ordered.extend(sorted(reads, key=lambda exchange: json.dumps(_exchange(exchange), sort_keys=True)))
+        reads.clear()
+
+    phase = object()
+    for exchange in exchanges:
+        # A request no unit watched (``wrote`` None) may have written, so it keeps its place like a write.
+        read = exchange.wrote is False
+        if not read or exchange.phase != phase:
+            flush()
+        phase = exchange.phase
+        if read:
+            reads.append(exchange)
+        else:
+            ordered.append(exchange)
+    flush()
+    return ordered
+
+
 def page_report(saved, shown_before=None):
     """What one section's save showed and HQ answered, as data (``proof.editors.pages.PageSave``).
 
@@ -848,7 +875,7 @@ def page_report(saved, shown_before=None):
     report = {
         "kind": "page",
         "save": None if saved.save is None else {**_exchange(saved.save), "body": _text(saved.save.response)},
-        "exchanges": [_exchange(exchange) for exchange in saved.exchanges],
+        "exchanges": [_exchange(exchange) for exchange in _answered_alike(saved.exchanges)],
         "alerts": list(saved.alerts),
         "alertsShownBefore": None if shown_before is None else list(shown_before),
         "barState": saved.bar_state,

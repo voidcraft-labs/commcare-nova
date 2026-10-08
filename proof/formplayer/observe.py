@@ -44,6 +44,9 @@ from proof.formplayer.walk import Walk, script_of
 BUILD = "@build"
 # And for the id of the user case HQ made for the worker, which HQ also draws afresh for every state it serves.
 USERCASE = "@usercase"
+# And for the address of Formplayer's own web server, a loopback port drawn as each runner starts, which Formplayer
+# writes into an error's answer (``BaseExceptionResponseBean.url``, the request's URL).
+FORMPLAYER = "@formplayer"
 LOCAL_APP = "nova-local-archive"
 # A saved build's profile names the build itself (its own id in the addresses it gives a runtime), where the
 # profile HQ writes for the app it is building names the app, so the two are never the same bytes.
@@ -55,11 +58,21 @@ def runtime(runner) -> dict:
     return dict((runner.ready or {}).get("formplayer") or {})
 
 
-def marked(trace, *, served, app_id=None, archives=()):
+def runner_origin(runner) -> str | None:
+    """Where the runner asks Formplayer's own web server (``Runner.java``: the loopback port it announced)."""
+    port = (getattr(runner, "ready", None) or {}).get("port")
+    return f"http://127.0.0.1:{port}" if port else None
+
+
+def marked(trace, *, served, app_id=None, archives=(), runner=None):
     """A served state's trace as a record keeps it: every id Formplayer generated marked, the ids HQ's restores
-    and the archives hold left as they are, and the id Formplayer was given for the app written ``BUILD``."""
+    and the archives hold left as they are, the id Formplayer was given for the app written ``BUILD``, and the
+    runner's own address written ``FORMPLAYER``."""
     given = canonical.given_ids(served.hq.restores, archives)
     drawn = {app_id or served.build_id: BUILD}
+    origin = runner_origin(runner)
+    if origin:
+        drawn[origin] = FORMPLAYER
     if served.usercase_id:
         # HQ draws the worker's user case an id of its own each time it makes the worker.
         drawn[served.usercase_id] = USERCASE
@@ -89,7 +102,7 @@ def walked(served, runner, blobs, *, script=None, app_id=None, archives=()):
     hq = served.hq
     first = len(hq.exchanges)
     walk = Walk(runner, hq, domain=served.domain, app_id=app_id or served.build_id, scope=served.run)
-    reference = blobs.put_json(marked(walk.run(script), served=served, app_id=app_id, archives=archives))
+    reference = blobs.put_json(marked(walk.run(script), served=served, app_id=app_id, archives=archives, runner=runner))
     # The trace as its record holds it (JSON's own values), which is what a judge reads.
     trace = blobs.get_json(reference)
     asked = hq.exchanges[first:]

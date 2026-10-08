@@ -83,3 +83,24 @@ def test_what_a_run_asks_hq_does_not_depend_on_an_earlier_observation_of_the_sam
     assert at_a["A"]["formplayer"]["asked"].get("case_fixture", 0) >= 1, at_a["A"]["formplayer"]["asked"]
     again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
     assert _served(again) == _served(first)
+
+
+def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records_it_alike():
+    """Formplayer writes the URL it was asked at into an error's answer, and each runner's web server listens on
+    a port drawn as it starts: two lane runs kept different records for every such answer until the address was
+    written as a mark. Another address in the same answer is kept as it is."""
+    from types import SimpleNamespace
+
+    from proof.formplayer import observe
+
+    served = SimpleNamespace(hq=SimpleNamespace(restores=[]), build_id="build", usercase_id=None)
+
+    def recorded(port, other="http://127.0.0.1:9/navigate_menu"):
+        trace = {"runs": [{"steps": [{"response": {"url": f"http://127.0.0.1:{port}/navigate_menu", "other": other}}]}]}
+        return observe.marked(trace, served=served, runner=SimpleNamespace(ready={"port": port}))
+
+    assert recorded(41000) == recorded(42000)
+    assert recorded(41000)["runs"][0]["steps"][0]["response"] == {
+        "url": f"{observe.FORMPLAYER}/navigate_menu",
+        "other": "http://127.0.0.1:9/navigate_menu",
+    }

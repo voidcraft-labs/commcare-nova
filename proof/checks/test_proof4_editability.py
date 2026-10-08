@@ -1475,6 +1475,56 @@ RESPELLINGS = {
 }
 
 
+def test_a_sections_reads_are_recorded_alike_in_whichever_order_they_reached_hq():
+    """A page sends several reads at once as it loads, and they reach HQ in either order (a hosted run recorded a
+    module's validation and its case types both ways); the record holds them in one order. A write keeps its place,
+    reads on either side of it stay on their side, and a phase keeps its own reads."""
+
+    def asked(url_name, *, wrote=False, phase="load", method="GET"):
+        return SimpleNamespace(
+            method=method,
+            url_name=url_name,
+            status=200,
+            messages=[],
+            raised=None,
+            refusal=None,
+            error=None,
+            wrote=wrote,
+            phase=phase,
+        )
+
+    def recorded(*exchanges):
+        return [
+            (exchange["method"], exchange["urlName"])
+            for exchange in observed.page_report(
+                SimpleNamespace(save=None, exchanges=list(exchanges), alerts=[], bar_state="saved", run={}, unsent=None)
+            )["exchanges"]
+        ]
+
+    validate, types = asked("validate_module_for_build"), asked("existing_case_types")
+    assert recorded(validate, types) == recorded(types, validate)
+    save = asked("edit_module_attr", wrote=True, method="POST", phase="section:0")
+    after = asked("validate_module_for_build", phase="section:0")
+    assert recorded(types, validate, save, after)[2:] == [
+        ("POST", "edit_module_attr"),
+        ("GET", "validate_module_for_build"),
+    ]
+    # The control: a read on the other side of the write is not moved across it.
+    before_write = asked("view_module")
+    assert recorded(before_write, save, types) == [
+        ("GET", "view_module"),
+        ("POST", "edit_module_attr"),
+        ("GET", "existing_case_types"),
+    ]
+    # A read no unit watched may have written, so it keeps its place.
+    unwatched = asked("current_app_version", wrote=None)
+    assert recorded(types, unwatched, validate) == [
+        ("GET", "existing_case_types"),
+        ("GET", "current_app_version"),
+        ("GET", "validate_module_for_build"),
+    ]
+
+
 def _clean_page_report(url_name):
     # What a page reports for a save HQ took with nothing to say (proof.observe.proof4.page_report).
     return {
