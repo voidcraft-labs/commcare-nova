@@ -33,6 +33,7 @@ from proof.hq import buildcache, determinism, operations, seams, speed
 from proof.hq.boot import clear_caches, soft_assertions
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
+from proof.hq.conftest import captured_queries
 from proof.hq.determinism import operation
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
@@ -322,7 +323,6 @@ def test_a_saved_builds_attachments_are_its_own_bytes_while_the_blob_store_holds
     from corehq.blobs.mixin import BlobMixin
     from couchdbkit.exceptions import ResourceNotFound
     from django.db import connection
-    from django.test.utils import CaptureQueriesContext
 
     with speed.on(), hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
         app_id = publish_hq_app(state, SUITE_APP)
@@ -335,7 +335,7 @@ def test_a_saved_builds_attachments_are_its_own_bytes_while_the_blob_store_holds
         assert any(name.startswith("files/") for name in names)
         hq_fetch = BlobMixin.fetch_attachment.__wrapped__
         for name in names:
-            with CaptureQueriesContext(connection) as queries:
+            with captured_queries(connection) as queries:
                 kept = saved.fetch_attachment(name)
             assert not queries.captured_queries  # answered without the BlobMeta query
             assert kept == hq_fetch(saved, name)
@@ -357,7 +357,6 @@ def test_an_attachment_read_again_is_given_while_its_blobs_row_and_file_are_as_t
     from corehq.sql_db.routers import HINT_PARTITION_VALUE
     from couchdbkit.exceptions import ResourceNotFound
     from django.db import connection, connections, router
-    from django.test.utils import CaptureQueriesContext
 
     table = BlobMeta._meta.db_table
     with speed.on(), hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
@@ -371,7 +370,7 @@ def test_an_attachment_read_again_is_given_while_its_blobs_row_and_file_are_as_t
         again = operations.held_app(state, app_id)  # another object naming the same blob
         # The database HQ's MetaDB.get reads the row from.
         metadata = connections[router.db_for_read(BlobMeta, **{HINT_PARTITION_VALUE: app_id})]
-        with CaptureQueriesContext(metadata) as queries:
+        with captured_queries(metadata) as queries:
             assert again.fetch_attachment(name) == source
         assert buildcache.ATTACHMENTS.hits == hits + 1
         assert [query["sql"].split(" FROM ")[0] for query in queries.captured_queries] == [

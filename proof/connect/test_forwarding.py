@@ -99,6 +99,7 @@ def test_a_devices_form_reaches_connect_through_hqs_own_receiver_and_repeater(fo
     assert (visit["deliverUnit"], visit["location"]) == ("home_visit", "12.97160 77.59460 920.0 5.0")
 
 
+@pytest.mark.under_determinism
 def test_each_run_meets_the_opportunity_as_it_stood(forwarded_delivery):
     """The second run posts the same form again and Connect holds exactly what it held after the first: one
     visit, not two, and no duplicate refused."""

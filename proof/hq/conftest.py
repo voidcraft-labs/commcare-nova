@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from proof.conftest import timed  # noqa: F401  (HQ's tests time their operations with it)
@@ -60,3 +61,25 @@ def nova_shaped_upload(app_json: dict, app_name: str, app_id: str | None = None)
         body += disposition.encode() + b"\r\n\r\n" + content + b"\r\n"
     body += f"--{boundary}--\r\n".encode()
     return Upload(body, f"multipart/form-data; boundary={boundary}")
+
+
+@contextmanager
+def captured_queries(connection):
+    """Django's ``CaptureQueriesContext`` over ``connection``, with its query log emptied first.
+
+    The context captures the log's entries between its start and its end, and the log keeps at most
+    ``connection.queries_limit`` of them, dropping the oldest. With HQ's speed seams off (``PROOF_HQ_SPEED=0``) and
+    DEBUG on, every query of the process is logged, so after a document's observation the log is full, its length
+    no longer moves, and the context captures nothing: an assertion that no query ran would pass whatever ran. A
+    capture that itself fills the log is refused for the same reason.
+    """
+    from django.test.utils import CaptureQueriesContext
+
+    connection.queries_log.clear()
+    with CaptureQueriesContext(connection) as captured:
+        yield captured
+    if len(connection.queries_log) >= connection.queries_limit:
+        raise AssertionError(
+            f"The capture over {connection.alias} filled Django's query log ({connection.queries_limit} queries), so"
+            " what it captured is not every query that ran. Capture a smaller block."
+        )

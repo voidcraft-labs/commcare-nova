@@ -76,7 +76,8 @@ PART_KINDS = frozenset({"a", "b", "b_aligned", "local"})
 ENVIRONMENT_VARIABLES = ("PYTHONHASHSEED", "TZ", "PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM")
 # Switches read as on unless set to "0".
 SWITCHES = frozenset({"PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM"})
-# The environment proof/compose.yaml gives the harness, which the queue builder's keys assume.
+# The environment proof/compose.yaml gives the harness, which the queue builder's keys assume, with what a run sets
+# beyond it (proof-lane.yml's lane-env, the builder's --lane-env).
 LANE_ENVIRONMENT = {"PYTHONHASHSEED": "0", "TZ": "UTC"}
 # What a lane run records of its environment beside its selection (proof.lane.serve's serve.json): what its
 # observations record differently under (ENVIRONMENT_VARIABLES), and which documents HQ's branch proof runs over

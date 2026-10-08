@@ -273,9 +273,12 @@ def _edit_build(app, document):
 def _vellum_saved_build(app, editor_driver, form_unique_id):
     """HQ's build of the app after HQ's form designer opens and saves the form."""
     from proof.editors import vellum
+    from proof.editors.hq import HQAnswers
 
     def change():
-        run = vellum.open_and_save(editor_driver, app.unit, app.app_id, form_unique_id)
+        # Answered inside the unit, as proof 4's runs are, so the editor audit (PROOF_EDITOR_AUDIT) can rerun the
+        # form in a fork of it.
+        run = vellum.open_and_save(editor_driver, HQAnswers(app.unit, app.unit), app.app_id, form_unique_id)
         assert run.saved, f"Vellum did not save the form: {run.save_refusal or run.load_error}"
 
     return _build_in_fork(app, "vellum", change)

@@ -139,18 +139,25 @@ jobs:
             exit 1
           fi
           mv -T "$RUNNER_TEMP/native" "$RUNNER_TEMP/corpus/native"
+      # Keyed under the environment the shards run in (lane-env), so the Android
+      # stage finds each document's records under the key the shards kept them by.
       - name: Build the fresh queues
         env:
           DOCUMENTS: ${{ inputs.documents }}
           ARCH: ${{ inputs.arch }}
+          LANE_ENV: ${{ inputs.lane-env }}
         run: |
-          python3 -m proof.store.queue early --fresh --timings proof/timings.json --arch "$ARCH" \
+          lane_env=()
+          while IFS= read -r assignment; do
+            [ -n "$assignment" ] && lane_env+=(--lane-env "$assignment")
+          done <<< "$LANE_ENV"
+          python3 -m proof.store.queue early --fresh --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
             --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           python3 -m proof.store.queue main --fresh --no-dedupe --documents "$DOCUMENTS" \
-            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" \
+            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
             --out "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           python3 -m proof.store.queue android --fresh \
-            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" \
+            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
             --android-platform linux-amd64 \
             --out "$RUNNER_TEMP/lane/proof-android-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           tar -C "$RUNNER_TEMP/corpus" -cf - . |

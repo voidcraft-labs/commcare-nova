@@ -253,19 +253,22 @@ def _passed(outcome) -> bool:
 class Builder:
     """What one queue is built from: the store, the fingerprints, the timings."""
 
-    def __init__(self, stores, found, timings, *, fresh=False):
+    def __init__(self, stores, found, timings, *, fresh=False, environ=None):
         self.store = pack.merged([] if fresh else stores)
         self.fingerprints = found
         self.estimate = sharding.estimate(timings)
-        self.scope = keys.record_scope(found, keys.LANE_ENVIRONMENT)
-        self.document_scope = keys.document_scope(found, keys.LANE_ENVIRONMENT)
+        # The environment the lane's shards run in: proof/compose.yaml's, with what a run sets beyond it
+        # (proof-lane.yml's lane-env, ``--lane-env``), which the keys their records are kept under name.
+        self.environ = {**keys.LANE_ENVIRONMENT, **(environ or {})}
+        self.scope = keys.record_scope(found, self.environ)
+        self.document_scope = keys.document_scope(found, self.environ)
         self.fresh = fresh
 
     def package(self, name: str, data: dict) -> Group:
         group = Group(name, self.estimate(name), fresh=self.fresh)
         if any(value is None for value in data.values()):
             return group
-        group.key = keys.package_key(self.fingerprints, keys.LANE_ENVIRONMENT, name, data)
+        group.key = keys.package_key(self.fingerprints, self.environ, name, data)
         outcome = None if self.fresh else self.store.index["groups"].get(group.key)
         if _passed(outcome) and (name != SURFACE or self._whole(outcome.get("surface"))):
             group.status, group.judgments = "cached", {"outcome": group.key}
@@ -482,7 +485,8 @@ def android_groups(
             if observed is not None
             else keys.document_key(builder.document_scope, name, keys.files_digest(root))
         )
-        group = Group(f"{lane_blocks.ANDROID}{name}", builder.estimate(f"{lane_blocks.ANDROID}{name}"), fresh=builder.fresh)
+        android = f"{lane_blocks.ANDROID}{name}"
+        group = Group(android, builder.estimate(android), fresh=builder.fresh)
         group.key = keys.hashed("android-group", keys.VERSION, document, reader, builder.fingerprints["judge"])
         group.document = document
         outcome = None if builder.fresh else builder.store.index["groups"].get(group.key)
@@ -527,6 +531,14 @@ def main(argv=None) -> int:
         help="where the Android stage runs its reader (android), as the reader's fingerprint names it; host for"
         " this machine's",
     )
+    parser.add_argument(
+        "--lane-env",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="a variable the lane's shards run with beyond proof/compose.yaml's (proof-lane.yml's lane-env): the"
+        " keys their records are kept under name it, and the Android stage finds a document's records by its key",
+    )
     parser.add_argument("--out", required=True, type=Path)
     arguments = parser.parse_args(argv)
     started = time.perf_counter()
@@ -542,8 +554,22 @@ def main(argv=None) -> int:
                     f"--documents is all or sample:N for the main queue; got {arguments.documents!r}."
                 )
             sampled(arguments.corpus, int(count))
+        environ = {}
+        for assignment in arguments.lane_env:
+            name, equals, value = assignment.partition("=")
+            if not equals or not name:
+                raise QueueBuildError(
+                    f"--lane-env takes NAME=VALUE, as a lane-env line is written; got {assignment!r}."
+                )
+            environ[name] = value
         found = fingerprints.compute(arguments.root, arch=arguments.arch, image=arguments.image)
-        builder = Builder(arguments.store, found, sharding.load_timings(arguments.timings), fresh=arguments.fresh)
+        builder = Builder(
+            arguments.store,
+            found,
+            sharding.load_timings(arguments.timings),
+            fresh=arguments.fresh,
+            environ=environ,
+        )
         proof_dir = Path(arguments.root) / "proof"
         unsampled = ()
         if arguments.phase == "early":

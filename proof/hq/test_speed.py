@@ -37,6 +37,7 @@ from proof.hq import determinism, operations, speed
 from proof.hq import requests as hq_requests
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
+from proof.hq.conftest import captured_queries
 from proof.hq.determinism import operation
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
@@ -221,13 +222,12 @@ def test_the_manifest_memo_equals_a_fresh_read(hq):
 def test_queries_are_logged_only_when_a_test_asks_for_them(hq, core_runner):
     from django.conf import settings
     from django.db import connection
-    from django.test.utils import CaptureQueriesContext
 
     assert settings.DEBUG is True
     with hq_check(CONFIGURATION, validate=core_runner.validate_form):
         with speed.on():
             assert connection.queries_logged is False
-            with CaptureQueriesContext(connection) as captured:
+            with captured_queries(connection) as captured:
                 assert connection.queries_logged is True
                 with connection.cursor() as cursor:
                     cursor.execute("select 1")

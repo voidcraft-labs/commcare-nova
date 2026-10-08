@@ -144,6 +144,7 @@ def test_a_click_on_nothing_fails_the_run_by_name_and_the_same_click_on_what_is_
     assert run.screens[0]["title"] == "Visit tiles"
 
 
+@pytest.mark.under_determinism
 def test_each_build_has_an_id_of_its_own_and_its_session_runs_it(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents
 ):

@@ -1457,7 +1457,11 @@ a stage job (its block record's `seconds`: the stage runs one group at a
 time with every device of the box), `node proof/run.mjs --timings` reads
 them from the stage jobs' outputs beside the shards', and the queue packs
 the stage's bins from them (`proof/checks/sharding.py::estimate`): the same
-groups in 20 such bins come to about 36 minutes each. The runtime's build,
+groups in 20 such bins come to about 36 minutes each. The next hosted run
+packed so still took 24 to 41 minutes of stage time a job, with each job
+making about as many requests as the others (553 to 633) at 2.5 to 4.0
+seconds a request: what is left is how fast each hosted runner is, which no
+packing changes. The runtime's build,
 when a pin or the toolchain moves, takes about eleven minutes with the
 reader's own checks. A later run reads each unchanged archive's answer from
 the store and makes only the others.

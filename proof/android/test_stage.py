@@ -533,6 +533,29 @@ def test_the_android_queue_holds_each_document_and_each_control_an_android_entry
         assert lane_blocks.group_problem(name) is not None
 
 
+def test_an_android_group_names_its_documents_key_under_the_environment_the_shards_run_in(tmp_path):
+    """A lane run with a lane-env that changes what the shards record (HQ's determinism or speed seams off) keeps
+    each document's records under a key naming it; the stage finds them by the key its group names, so the queue
+    must be built under the same environment, and a variable that changes nothing recorded changes no key."""
+    corpus = tmp_path / "corpus"
+    (corpus / "doc").mkdir(parents=True)
+    (corpus / "doc" / "document.json").write_text("{}", encoding="utf-8")
+    (corpus / "index.json").write_text(json.dumps({"documents": [{"id": "doc"}]}), encoding="utf-8")
+    proof = tmp_path / "proof"
+    proof.mkdir()
+
+    def document(environ):
+        builder = store_queue.Builder([], FINGERPRINTS, {}, fresh=True, environ=environ)
+        (group,) = store_queue.android_groups(builder, corpus, "reader-1", proof)
+        return group.document
+
+    unseeded = {"PROOF_HQ_DETERMINISM": "0"}
+    shard_scope = keys.document_scope(FINGERPRINTS, {**keys.LANE_ENVIRONMENT, **unseeded})
+    assert document(unseeded) == keys.document_key(shard_scope, "corpus:doc", keys.files_digest(corpus / "doc"))
+    assert document(unseeded) != document({})
+    assert document({"PROOF_VERIFY_MEMOS": "1", "PROOF_BRANCH_DOCUMENTS": "all"}) == document({})
+
+
 def test_a_queue_built_for_another_reader_is_refused(tmp_path, monkeypatch):
     _register(tmp_path, monkeypatch, [])
     lane, corpus, document = _lane(tmp_path)
