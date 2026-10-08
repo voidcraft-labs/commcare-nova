@@ -17,6 +17,7 @@ import pytest
 DOCUMENTS = (
     "case-operation-query",
     "search-browse",
+    "search-hidden-link",
     "targeted-custom-tile",
     "targeted-form-link-hidden-target",
     "targeted-search-hq-compile",

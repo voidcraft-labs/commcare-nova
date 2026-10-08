@@ -998,10 +998,22 @@ runs in its own `replace-host` mode, so the URLs an app names (its
 submission URL, a search's, a claim's) reach the peer too. The runner speaks
 one JSON line per request, shaped as the Core runner's, with a deadline on
 each: `http` (one HTTP request to Formplayer's own server, with Core's
-random source seeded from the request's ordinal), `clock`, and `syncTimes`
+random source seeded from the request's ordinal), `clock`, `syncTimes`
 and `ageSync` (a worker's last sync as Formplayer keeps it, read and moved
 back through the same Redis template bean Formplayer writes it with, for
-what a worker's absence does, which no run can wait for).
+what a worker's absence does, which no run can wait for), and
+`forgetCaches`, which empties every cache of Formplayer's own
+`CacheManager`. Formplayer keeps what a query fetched, each form
+definition and each session in memory for five minutes of the machine's
+time (`application.properties`, `caching.specs.*`), and a worker's
+`clear_user_data` leaves them, so a run started within five minutes of an
+earlier one read that one's answers without asking HQ, and one started
+later asked: on a loaded hosted runner one key held both for
+`search-hidden-link`, whose end-of-form link fetches the chosen case again
+(HQ's `case_fixture`). Every run of a walk and of the Web Apps client now
+starts with them empty, as on a fresh Formplayer
+(`test_observe.py` observes that document twice and holds both alike; with
+the caches left, the second omits the fetch).
 
 - **HQ's own views** (`hq.py`): where the lane serves a state, each request
   Formplayer makes of HQ is built from the bytes Formplayer sent, handed to
@@ -1031,7 +1043,7 @@ what a worker's absence does, which no run can wait for).
 - **The walk** (`walk.py`): scripted sessions as the Core runner's, derived
   (every menu command, the first case of each list, each list action once,
   each search) or replayed, each run starting as a worker starts after
-  clearing their data, each form answered from the Core runner's answer
+  clearing their data and with Formplayer's caches empty, each form answered from the Core runner's answer
   table and submitted as the client submits it. The trace is Formplayer's
   own JSON for every request, with what it asked HQ during each, the
   submission HQ received and the screen Formplayer's end of form navigation

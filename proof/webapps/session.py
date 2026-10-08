@@ -27,7 +27,8 @@ worker clicks, or reads what the page shows (``driver/steps/webapps``).
 
 Every run starts as a worker starts after clearing their data in Web Apps
 (Formplayer's ``clear_user_data``), since one Formplayer serves every
-session of a lane worker and keeps a worker's restore by their name.
+session of a lane worker and keeps a worker's restore by their name, and
+with Formplayer's in-memory caches empty (``FormplayerRunner.forget_caches``).
 
 The browser's randomness is seeded from the run's steps and its clock is
 fixed at the HQ pin's commit time, as an editor page's is
@@ -206,6 +207,9 @@ class Session:
         worker = {"domain": self.project.domain, "username": self.hq.username, "restoreAs": None}
         web.post("/clear_user_data", worker)
         web.post("/delete_application_dbs", {"app_id": self.release.build_id, **worker})
+        # Nothing an earlier session left in Formplayer's five-minute caches answers this run's requests
+        # (FormplayerRunner.forget_caches).
+        self.runner.forget_caches()
 
     def _formplayer_headers(self, headers: Mapping[str, str]) -> list[tuple[str, str]]:
         """The page's request headers as Formplayer is sent them: the browser's own, with HQ named as Formplayer

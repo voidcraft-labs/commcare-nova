@@ -3,6 +3,8 @@ package nova.proof.formplayer;
 import org.javarosa.core.util.MathUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -69,7 +71,7 @@ public final class Runner {
     /** Exit status of a process that halted because a request outlived its deadline. */
     static final int DEADLINE_EXIT = 75;
     private static final int LOG_LIMIT = 256 * 1024;
-    static final List<String> OPS = List.of("http", "clock", "syncTimes", "ageSync");
+    static final List<String> OPS = List.of("http", "clock", "syncTimes", "ageSync", "forgetCaches");
 
     private final PrintStream protocol;
     private final Capture captured;
@@ -241,6 +243,9 @@ public final class Runner {
                 case "syncTimes":
                     result = syncTimes();
                     break;
+                case "forgetCaches":
+                    result = forgetCaches();
+                    break;
                 default:
                     result = ageSync(request);
                     break;
@@ -381,6 +386,32 @@ public final class Runner {
             times.put(key, value == null ? JSONObject.NULL : ((Number)value).longValue());
         }
         return times;
+    }
+
+    /**
+     * Empties every cache of Formplayer's own CacheManager (its Caffeine
+     * caches, CacheConfiguration: case search results, form definitions, form
+     * and menu sessions, virtual data instances, media metadata), as a fresh
+     * Formplayer holds them. Each keeps an entry for five minutes of the
+     * machine's time (application.properties, caching.specs.*), so without
+     * this a session that starts within five minutes of another of the same
+     * worker reads that one's search results without asking HQ, and one that
+     * starts later asks: what it records would depend on how long the earlier
+     * sessions took. Every cache an entry is read from also writes it to
+     * Formplayer's database or asks for it again, so an empty cache changes
+     * what a session reads only by when it was written.
+     */
+    private JSONObject forgetCaches() {
+        CacheManager caches = Started.context().getBean(CacheManager.class);
+        JSONArray names = new JSONArray();
+        for (String name : new java.util.TreeSet<>(caches.getCacheNames())) {
+            Cache cache = caches.getCache(name);
+            if (cache != null) {
+                cache.clear();
+                names.put(name);
+            }
+        }
+        return new JSONObject().put("cleared", names);
     }
 
     /**

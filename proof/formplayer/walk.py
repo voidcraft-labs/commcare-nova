@@ -16,7 +16,10 @@ received and the screen Formplayer's end of form navigation names next.
 Every run starts as a worker starts after clearing their data in Web Apps
 (Formplayer's ``clear_user_data``), so each reads the restore afresh and none
 sees the cases an earlier run's submission made, as every Core run starts
-from the request's case data. Every walk starts by having Formplayer drop the
+from the request's case data, and with Formplayer's in-memory caches empty
+(``FormplayerRunner.forget_caches``): they keep a search's results for five
+minutes of the machine's time, which ``clear_user_data`` leaves, so a run
+would otherwise ask HQ or not by how long ago an earlier one ran. Every walk starts by having Formplayer drop the
 app's install (``delete_application_dbs``), so each starts from the app as
 Formplayer installs it, whatever the same Formplayer ran on it before.
 
@@ -132,6 +135,9 @@ class Walk:
         web = self._client()
         # A worker starting over: their restore and search results are read afresh.
         web.post("/clear_user_data", {"domain": self.domain, "username": self.hq.username, "restoreAs": None})
+        # And nothing an earlier session left in Formplayer's five-minute caches answers this one's requests, so
+        # what it asks HQ does not depend on how long ago that session ran (FormplayerRunner.forget_caches).
+        self.runner.forget_caches()
         return web
 
     def _forget_app(self) -> None:

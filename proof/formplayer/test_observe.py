@@ -11,6 +11,16 @@ Plausible failures: a served state observed outside the unit's operations
 and requests (HQ would draw unseeded values and the record would differ run
 to run), a record that names an id Formplayer, HQ or the browser drew, or a
 walk that silently did not run where Core's did.
+
+And what a run asks HQ does not depend on the runs before it: Formplayer
+keeps what a query fetched for five minutes of the machine's time
+(``caching.specs.*``), which a worker's ``clear_user_data`` leaves, so a
+second observation of ``search-hidden-link`` started within five minutes of
+the first read the case its end-of-form link fetches (HQ's
+``case_fixture``) from the first's cache and asked HQ nothing, while one
+started later asked: a hosted run recorded both for one key. Each run starts
+with Formplayer's caches empty (``FormplayerRunner.forget_caches``), so both
+observations ask.
 """
 
 from __future__ import annotations
@@ -21,6 +31,8 @@ from proof.formplayer.walk import screen_kind
 from proof.observe.unit import observe_document
 
 DOCUMENT = "targeted-form-link-hidden-target"
+# A search whose results a form's end-of-form link fetches again by the case chosen (HQ's case_fixture).
+FETCHED_AGAIN = "search-hidden-link"
 
 
 def _served(found):
@@ -59,3 +71,15 @@ def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_ea
     again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
     assert _served(again) == (at_a, aligned, at_b)
     assert again.digests() == first.digests()
+
+
+@pytest.mark.under_determinism
+def test_what_a_run_asks_hq_does_not_depend_on_an_earlier_observation_of_the_same_document(
+    hq, core_runner, editor_driver, formplayer_runner, formplayer_documents
+):
+    document = formplayer_documents[FETCHED_AGAIN]
+    first = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
+    at_a = _served(first)[0]
+    assert at_a["A"]["formplayer"]["asked"].get("case_fixture", 0) >= 1, at_a["A"]["formplayer"]["asked"]
+    again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
+    assert _served(again) == _served(first)

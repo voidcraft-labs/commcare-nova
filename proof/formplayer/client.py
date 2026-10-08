@@ -657,6 +657,13 @@ class FormplayerRunner:
         result, _ = self.request("syncTimes", deadline=30.0)
         return result
 
+    def forget_caches(self) -> list[str]:
+        """Empties Formplayer's in-memory caches, as a fresh Formplayer holds them: each keeps an entry for five
+        minutes of the machine's time, so a session that follows another within five minutes would read that one's
+        search results without asking HQ, and a later one would ask. Returns the caches emptied."""
+        result, _ = self.request("forgetCaches", deadline=30.0)
+        return list(result["cleared"])
+
     def age_sync(self, key: str, seconds: float) -> dict[str, Any]:
         """Moves one user's last sync back, as their record holds after that long away."""
         result, _ = self.request("ageSync", deadline=30.0, key=key, millis=int(seconds * 1000))
