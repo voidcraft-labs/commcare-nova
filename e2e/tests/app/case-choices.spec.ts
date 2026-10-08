@@ -45,13 +45,27 @@ test("case choice sources stage atomically and Preview filters choices when an e
 	await expect(
 		main.getByRole("radio", { name: "East clinic", exact: true }),
 	).toBeVisible({ timeout: 20_000 });
-	await main.getByText("East clinic", { exact: true }).click();
+	await main
+		.locator("label")
+		.filter({ hasText: /^East clinic$/ })
+		.click();
 	await expect(main.getByRole("checkbox")).toHaveCount(30);
 	const alex = main.getByRole("checkbox", { name: "Alex", exact: true });
 	await expect(alex).toHaveCount(2);
-	await main.getByText("Alex", { exact: true }).nth(0).click();
-	await main.getByText("Alex", { exact: true }).nth(1).click();
-	await main.getByText("West clinic", { exact: true }).click();
+	await main
+		.locator("label")
+		.filter({ hasText: /^Alex$/ })
+		.nth(0)
+		.click();
+	await main
+		.locator("label")
+		.filter({ hasText: /^Alex$/ })
+		.nth(1)
+		.click();
+	await main
+		.locator("label")
+		.filter({ hasText: /^West clinic$/ })
+		.click();
 	await expect(main.getByRole("checkbox")).toHaveCount(1);
 	await expect(
 		main.getByRole("checkbox", { name: "West member", exact: true }),
@@ -75,16 +89,31 @@ test(
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
 		await expect(main.getByRole("checkbox")).toHaveCount(30);
 		const alex = main.getByRole("checkbox", { name: "Alex", exact: true });
-		await main.getByText("Alex", { exact: true }).nth(0).click();
-		await main.getByText("Alex", { exact: true }).nth(1).click();
+		await main
+			.locator("label")
+			.filter({ hasText: /^Alex$/ })
+			.nth(0)
+			.click();
+		await main
+			.locator("label")
+			.filter({ hasText: /^Alex$/ })
+			.nth(1)
+			.click();
 		await main.getByRole("button", { name: "Next", exact: true }).click();
 		await expect(
 			main.getByText("Your attendance is ready to save", { exact: true }),
 		).toBeVisible();
 		await main.getByRole("button", { name: "Back", exact: true }).click();
 		await expect(alex.nth(0)).toBeChecked();
-		await main.getByText("Alex", { exact: true }).nth(0).click();
-		await main.getByText("Member 30", { exact: true }).click();
+		await main
+			.locator("label")
+			.filter({ hasText: /^Alex$/ })
+			.nth(0)
+			.click();
+		await main
+			.locator("label")
+			.filter({ hasText: /^Member 30$/ })
+			.click();
 		await expect(main.getByRole("checkbox")).toHaveCount(30);
 		await expect(main.getByRole("button", { name: /Add.*row/ })).toHaveCount(0);
 		await page.screenshot({
