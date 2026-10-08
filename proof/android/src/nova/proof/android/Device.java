@@ -59,18 +59,43 @@ final class Device {
         return (CommCareTestApplication)CommCareApplication.instance();
     }
 
-    /** The reference InstallArchiveActivity hands back for the archive at {@code path}, unzipped by the app. */
+    // How long the app's unzip may take before the reader says it did not finish.
+    private static final long UNZIP_MILLIS = 120_000;
+
+    /**
+     * The reference InstallArchiveActivity hands back for the archive at {@code path}, unzipped by the app.
+     *
+     * The activity starts its UnzipTask from a message on the main looper, which Robolectric runs only when the
+     * looper idles, and hands its result back from another once the task's background thread ends. So the task
+     * may not be the activity's current one when the reader first waits for it, and its result may arrive after
+     * the looper last idled: the reader waits for whatever task is current and idles the looper, again, until
+     * the activity has handed back its result or finished, as the app's own looper would run on a device.
+     */
     static String archiveReference(String path) {
         Intent intent = new Intent(ApplicationProvider.getApplicationContext(), InstallArchiveActivity.class);
         intent.putExtra(InstallArchiveActivity.ARCHIVE_FILEPATH, path);
         InstallArchiveActivity activity =
                 Robolectric.buildActivity(InstallArchiveActivity.class, intent).setup().get();
-        RobolectricUtil.flushBackgroundThread(activity);
-        ShadowLooper.idleMainLooper();
-        Intent result = Shadows.shadowOf(activity).getResultIntent();
+        long deadline = System.nanoTime() + UNZIP_MILLIS * 1_000_000L;
+        Intent result = null;
+        while (true) {
+            RobolectricUtil.flushBackgroundThread(activity);
+            ShadowLooper.idleMainLooper();
+            result = Shadows.shadowOf(activity).getResultIntent();
+            if (result != null || activity.isFinishing() || System.nanoTime() > deadline) {
+                break;
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         if (result == null || !result.hasExtra(InstallArchiveActivity.ARCHIVE_JR_REFERENCE)) {
             throw new IllegalStateException("Android's archive install did not unzip " + path
-                    + ": InstallArchiveActivity returned no archive reference.");
+                    + ": InstallArchiveActivity returned no archive reference"
+                    + (result == null && !activity.isFinishing() ? " within " + UNZIP_MILLIS / 1000 + " s." : "."));
         }
         return result.getStringExtra(InstallArchiveActivity.ARCHIVE_JR_REFERENCE);
     }

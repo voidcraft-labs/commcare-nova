@@ -67,8 +67,10 @@ final class Forms {
         openedIn = System.currentTimeMillis() / 1000;
         FormEntryActivity activity =
                 Robolectric.buildActivity(FormEntryActivity.class, started).create().start().resume().get();
-        RobolectricUtil.flushBackgroundThread(activity);
-        ShadowLooper.idleMainLooper();
+        // The activity loads its form on a task (FormLoaderTask) it may start from a message the main looper runs
+        // only as it idles, after the first wait for the current task has passed: one wait read the form as never
+        // loaded on a loaded runner, and the walk then saved fewer forms. Settled as a save is.
+        settle(activity);
         return activity;
     }
 
