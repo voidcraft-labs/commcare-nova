@@ -193,6 +193,11 @@ export function caseChoiceDoc() {
 			},
 		],
 	});
+	// The fixture builder supplies labels by default. This automatic roster
+	// has no worker-facing content: only the checklist above is presented.
+	const roster = doc.fields[choiceUuid("roster")];
+	if (roster.kind !== "repeat") throw new Error("Expected the stable roster");
+	delete roster.label;
 	doc.forms[choiceUuid("attendance")].caseOperations = [
 		{
 			uuid: choiceUuid("operation"),

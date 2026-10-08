@@ -116,6 +116,10 @@ test(
 			.click();
 		await expect(main.getByRole("checkbox")).toHaveCount(30);
 		await expect(main.getByRole("button", { name: /Add.*row/ })).toHaveCount(0);
+		await expect(main.getByText("roster", { exact: true })).toHaveCount(0);
+		await expect(main.getByText("30 instances", { exact: true })).toHaveCount(
+			0,
+		);
 		await page.screenshot({
 			path: info.outputPath("attendance-checklist.png"),
 			fullPage: true,
@@ -123,7 +127,7 @@ test(
 		await main.getByRole("button", { name: "Next", exact: true }).click();
 		await main.getByRole("button", { name: "Submit", exact: true }).click();
 		await expect(
-			main.getByRole("button", { name: /^View details for East clinic/ }),
+			main.getByRole("button", { name: "Attendance", exact: true }),
 		).toBeVisible({ timeout: 20_000 });
 	},
 );
