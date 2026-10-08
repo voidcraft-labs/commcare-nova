@@ -255,6 +255,87 @@ it("returns concrete navigation from private create, update and read while quali
 			fields: [{ kind: "text", id: "notes", label: "Notes" }],
 		},
 	});
+	const note = Object.values(f.workspace.currentSnapshot().doc.fields).find(
+		(item) => item.id === "notes",
+	);
+	if (!note) throw new Error("Missing note field");
+	await f.workspace.stageDispatch({
+		toolName: "editField",
+		requestId: "unrelated-writer",
+		input: {
+			fieldUuid: note.uuid,
+			updates: { caseWrite: { caseType: "member", property: "case_name" } },
+		},
+	});
+	const finding = {
+		code: "CASE_WRITE_NOT_DIRECT_CHILD",
+		moduleUuid: module.uuid,
+		formUuid: review.uuid,
+		fieldUuid: note.uuid,
+	};
+	const unavailable = {
+		afterSubmit: { fallback: { screen: "unavailable", findings: [finding] } },
+	};
+	const invalidRead = await f.workspace.stageDispatch({
+		toolName: "getForm",
+		requestId: "read-invalid-writer",
+		input: { moduleUuid: module.uuid, formUuid: review.uuid },
+	});
+	expect(invalidRead.result).toMatchObject({
+		kind: "read",
+		data: {
+			form: { name: "Review" },
+			navigation: unavailable,
+		},
+	});
+	const invalidUpdate = await f.workspace.stageDispatch({
+		toolName: "updateForm",
+		requestId: "describe-invalid-writer",
+		input: {
+			moduleUuid: module.uuid,
+			formUuid: review.uuid,
+			purpose: "Review a loan",
+		},
+	});
+	expect(invalidUpdate.receipt?.disposition).toBe("staged");
+	expect(invalidUpdate.result).toMatchObject({
+		kind: "mutate",
+		result: { ok: true, navigation: unavailable },
+	});
+	const sibling = await f.workspace.stageDispatch({
+		toolName: "createForm",
+		requestId: "sibling",
+		input: { moduleUuid: module.uuid, name: "Second review", type: "followup" },
+	});
+	expect(sibling.receipt?.disposition).toBe("staged");
+	expect(sibling.result).toMatchObject({
+		kind: "mutate",
+		result: { ok: true, navigation: unavailable },
+	});
+	await f.workspace.stageDispatch({
+		toolName: "addFields",
+		requestId: "sibling-fields",
+		input: {
+			moduleUuid: module.uuid,
+			formUuid: "Second review",
+			fields: [{ kind: "text", id: "comment", label: "Comment" }],
+		},
+	});
+	expect((await f.commit()).kind).toBe("gate-rejected");
+	await f.workspace.stageDispatch({
+		toolName: "editField",
+		requestId: "repair-writer",
+		input: { fieldUuid: note.uuid, updates: { caseWrite: null } },
+	});
+	const repaired = await f.workspace.stageDispatch({
+		toolName: "getForm",
+		requestId: "read-repaired-writer",
+		input: { moduleUuid: module.uuid, formUuid: review.uuid },
+	});
+	expect(repaired.result).toMatchObject({
+		kind: "read",
+		data: { navigation: { afterSubmit: { fallback: { screen: "menu" } } } },
+	});
 	await f.workspace.stageDispatch({
 		toolName: "createForm",
 		requestId: "register",
@@ -276,7 +357,9 @@ it("returns concrete navigation from private create, update and read while quali
 				afterSubmit: {
 					fallback: {
 						screen: "unavailable",
-						reason: expect.stringContaining("record name"),
+						findings: [
+							{ code: "CASE_CREATE_NAME_MISSING", formUuid: register.uuid },
+						],
 					},
 				},
 			},
@@ -328,6 +411,7 @@ it("returns concrete navigation from private create, update and read while quali
 		kind: "read",
 		data: { navigation: { afterSubmit: { fallback: destination } } },
 	});
+	expect((await f.commit()).kind).toBe("committed");
 });
 
 it("keeps private edits invisible, retains choice identities, and replays the exact semantic result after reopening", async () => {

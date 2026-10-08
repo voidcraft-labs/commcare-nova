@@ -113,9 +113,11 @@ complete call scope; unresolved or ambiguous references refuse before mutation.
 `lib/preview/engine/navigationProjection.ts`. Its `previous` read comes from
 the same owner projection as Preview and App Tests: it names the exact record
 selector or module menu and retained record selections. It never promises a
-visited screen or Details. A private empty registration neighbor has no
-compilable entry until its record name exists; the read explicitly qualifies
-that destination as unavailable while runtime and export remain strict.
+visited screen or Details. Private forms and their menu-path neighbors may carry case-write findings.
+Their reads and staged create/update feedback retain the form and qualify
+navigation as unavailable, with canonical finding codes and owning form/field
+identities. Runtime, save and export remain strict; unexpected projection errors
+are not classified as unfinished authoring.
 
 One list-taking operation handles both one and several additions. Do not add a
 singular twin. Preserve nested identities and attached media during read/edit
