@@ -90,7 +90,7 @@ export function rewriteFieldReferenceSlots(
 				// `caseWrite.caseType` names a case TYPE. A property rename
 				// never changes it.
 				break;
-			case "lookup-carrier": {
+			case "options-source": {
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
 					field.optionsSource.kind === "cases"

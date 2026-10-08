@@ -1125,7 +1125,7 @@ function buildFieldParts(
 		field.optionsSource.kind === "lookup"
 			? field.optionsSource
 			: undefined;
-	if (lookupSource !== undefined && lookupSelects === undefined) {
+	if (lookupSource !== undefined && lookupSelects?.naming === undefined) {
 		throw new Error(
 			"buildXForm: a lookup-backed select reached XForm emission with no lookup wire naming. The local-CCZ compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
 		);

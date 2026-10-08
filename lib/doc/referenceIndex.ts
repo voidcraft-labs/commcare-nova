@@ -618,7 +618,7 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 					}
 				}
 				break;
-			case "lookup-carrier":
+			case "options-source":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
 					field.optionsSource.kind === "cases"

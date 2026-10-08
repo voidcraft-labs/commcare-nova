@@ -523,7 +523,7 @@ function collectFieldReferences(
 				}
 				break;
 			}
-			case "lookup-carrier":
+			case "options-source":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
 					field.optionsSource.kind !== "inline" &&
@@ -533,8 +533,8 @@ function collectFieldReferences(
 							predicateRefsCaseType(field.optionsSource.filter, caseType)))
 				) {
 					out.push({
-						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its lookup-options filter`,
-						concise: `field "${field.id}" in ${where} uses it in its options filter`,
+						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its choice source`,
+						concise: `field "${field.id}" in ${where} uses it in its choice source`,
 					});
 				}
 				break;
