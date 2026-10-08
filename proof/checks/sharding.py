@@ -31,7 +31,10 @@ workers that shared the box (``proof.lane.timings``; ``node proof/run.mjs
 --timings`` writes them). A document or control it does not list counts the
 median of those it lists, since a sample's documents change with its size and
 seed; any other group it does not list counts ``DEFAULT_SECONDS``
-(``estimate``).
+(``estimate``). An Android stage group (``android:<document>``) is measured
+by its own seconds on a stage job, which runs one group at a time with every
+device of its box; one it does not list counts the median Android group it
+lists, or, where it lists none, its document's estimate.
 
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
 claimed by one shard. ``static_bins`` splits the blocks across ``n`` shards
@@ -160,13 +163,20 @@ def load_timings(path: Path = TIMINGS):
 
 def estimate(timings):
     """Each group's box-seconds: measured where ``timings`` lists it, else the median measured document for a
-    document or control, else ``DEFAULT_SECONDS``."""
+    document or control, the median measured Android group for an Android group (its document's estimate where
+    none is measured), else ``DEFAULT_SECONDS``."""
     documents = sorted(seconds for group, seconds in timings.items() if group.startswith(DOCUMENT_KINDS))
     document = documents[len(documents) // 2] if documents else DEFAULT_SECONDS
+    androids = sorted(seconds for group, seconds in timings.items() if group.startswith(lane_blocks.ANDROID))
+    android = androids[len(androids) // 2] if androids else None
 
     def seconds(group):
         if group in timings:
             return float(timings[group])
+        if group.startswith(lane_blocks.ANDROID):
+            if android is not None:
+                return float(android)
+            return seconds(group.removeprefix(lane_blocks.ANDROID))
         if group.startswith(DOCUMENT_KINDS):
             # A document split by configuration: half its whole measure, since every document is exported under
             # two configurations (its minimum and its maximum).

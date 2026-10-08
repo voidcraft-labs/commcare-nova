@@ -482,7 +482,7 @@ def android_groups(
             if observed is not None
             else keys.document_key(builder.document_scope, name, keys.files_digest(root))
         )
-        group = Group(f"{lane_blocks.ANDROID}{name}", builder.estimate(name), fresh=builder.fresh)
+        group = Group(f"{lane_blocks.ANDROID}{name}", builder.estimate(f"{lane_blocks.ANDROID}{name}"), fresh=builder.fresh)
         group.key = keys.hashed("android-group", keys.VERSION, document, reader, builder.fingerprints["judge"])
         group.document = document
         outcome = None if builder.fresh else builder.store.index["groups"].get(group.key)

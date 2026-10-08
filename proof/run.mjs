@@ -841,6 +841,38 @@ function mean(values) {
 }
 
 /**
+ * Each group's seconds in one Android stage job's output: what its block
+ * records (`blocks/<id>/block.json`, phase `android`) say each group took.
+ */
+async function androidGroupSeconds(root, directory) {
+	const blocks = join(root, "blocks");
+	const found = [];
+	for (const id of existsSync(blocks) ? (await readdir(blocks)).sort() : []) {
+		const path = join(blocks, id, "block.json");
+		if (!existsSync(path)) continue;
+		const block = JSON.parse(await readFile(path, "utf8"));
+		if (block.phase !== "android") continue;
+		for (const group of block.groups ?? []) {
+			if (
+				typeof group.group !== "string" ||
+				typeof group.seconds !== "number"
+			) {
+				throw new Error(
+					`${join(directory, "blocks", id, "block.json")} records a group without its name and seconds (${JSON.stringify({ group: group.group, seconds: group.seconds })}). An Android stage job's block record names each group it ran and how long it took.`,
+				);
+			}
+			found.push([group.group, group.seconds]);
+		}
+	}
+	if (found.length === 0) {
+		throw new Error(
+			`${directory} is an Android stage job's output, but its blocks/ records no group it ran, so it measures none. Name the output of a finished Android stage job.`,
+		);
+	}
+	return found;
+}
+
+/**
  * proof/timings.json with each group's box-seconds measured by the runs whose
  * output directories are given: each worker's record (`timings/*.json`)
  * holds its groups' seconds and how many workers shared its box, and a
@@ -848,6 +880,12 @@ function mean(values) {
  * several runs measured it). The mean of what a worker's session shares and
  * of the servers' fixed costs (serve.json) are kept beside them, with the
  * execution settings as they were.
+ *
+ * An Android stage job's output (`python3 -m proof.android.stage run`, its
+ * serve.json naming `android`) holds no worker records: the stage runs its
+ * groups one at a time, each with every device of the box, so a group's
+ * seconds in its block record (`blocks/<id>/block.json`) are its
+ * box-seconds.
  */
 export async function refreshTimings(directories, previous) {
 	if (directories.length === 0) {
@@ -861,13 +899,24 @@ export async function refreshTimings(directories, previous) {
 	let sessions = 0;
 	for (const directory of directories) {
 		const root = resolve(process.cwd(), directory);
+		const serve = join(root, "serve.json");
+		const served = existsSync(serve)
+			? JSON.parse(await readFile(serve, "utf8"))
+			: {};
+		if (served.android) {
+			const stage = await androidGroupSeconds(root, directory);
+			for (const [group, seconds] of stage) {
+				measured.set(group, [...(measured.get(group) ?? []), seconds]);
+			}
+			continue;
+		}
 		const folder = join(root, "timings");
 		const files = existsSync(folder)
 			? (await readdir(folder)).filter((name) => name.endsWith(".json"))
 			: [];
 		if (files.length === 0) {
 			throw new Error(
-				`${directory} holds no timings/ from a lane run, so it measures no group. Name the output directory of a finished \`npm run proof\` run or CI shard.`,
+				`${directory} holds no timings/ from a lane run, so it measures no group. Name the output directory of a finished \`npm run proof\` run, CI shard or Android stage job.`,
 			);
 		}
 		for (const file of files) {
@@ -882,13 +931,9 @@ export async function refreshTimings(directories, previous) {
 				]);
 			}
 		}
-		const serve = join(root, "serve.json");
-		if (existsSync(serve)) {
-			const record = JSON.parse(await readFile(serve, "utf8"));
-			for (const [name, seconds] of Object.entries(record.fixed ?? {})) {
-				if (typeof seconds === "number") {
-					fixed.set(name, [...(fixed.get(name) ?? []), seconds]);
-				}
+		for (const [name, seconds] of Object.entries(served.fixed ?? {})) {
+			if (typeof seconds === "number") {
+				fixed.set(name, [...(fixed.get(name) ?? []), seconds]);
 			}
 		}
 	}

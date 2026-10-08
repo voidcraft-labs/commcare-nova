@@ -818,6 +818,65 @@ it("writes each group's box-seconds the workers measured, averaging runs, with t
 	);
 });
 
+it("measures each Android stage group by the seconds its block record gives it", async () => {
+	const shard = join(scratch, "shard");
+	await mkdir(join(shard, "timings"), { recursive: true });
+	await writeFile(
+		join(shard, "timings", "shard-1-w1.json"),
+		JSON.stringify({ worker: 1, workers: 4, groups: { "corpus:a": 8 } }),
+	);
+	const android = (n: number) => join(scratch, `android-${n}`);
+	const block = async (
+		n: number,
+		id: string,
+		phase: string,
+		groups: unknown[],
+	) => {
+		await mkdir(join(android(n), "blocks", id), { recursive: true });
+		await writeFile(
+			join(android(n), "blocks", id, "block.json"),
+			JSON.stringify({ block: id, phase, groups }),
+		);
+	};
+	for (const n of [1, 2]) {
+		await mkdir(android(n), { recursive: true });
+		await writeFile(
+			join(android(n), "serve.json"),
+			JSON.stringify({ android: { shard: `${n}/2`, seconds: 99 } }),
+		);
+	}
+	await block(1, "b1", "android", [
+		{ group: "android:corpus:a", seconds: 120 },
+		{ group: "android:control:x", seconds: 30 },
+	]);
+	await block(2, "b2", "android", [{ group: "android:corpus:a", seconds: 80 }]);
+	// Another phase's record is no stage group's measure.
+	await block(2, "b3", "main", [{ group: "corpus:a", seconds: 1000 }]);
+	const refreshed = await refreshTimings([shard, android(1), android(2)], {
+		execution: { shards: 16, workers: 4, runner: "ubuntu-24.04-arm" },
+	});
+	expect(refreshed.groups).toEqual({
+		"android:control:x": 30,
+		"android:corpus:a": 100,
+		"corpus:a": 2,
+	});
+	// A stage job holds no worker session.
+	expect(refreshed.measured.sessions).toBe(1);
+	await block(1, "b4", "android", [{ group: "android:corpus:b" }]);
+	await expect(refreshTimings([android(1)], {})).rejects.toThrow(
+		"records a group without its name and seconds",
+	);
+	const empty = join(scratch, "android-empty");
+	await mkdir(empty, { recursive: true });
+	await writeFile(
+		join(empty, "serve.json"),
+		JSON.stringify({ android: { shard: "1/1" } }),
+	);
+	await expect(refreshTimings([empty], {})).rejects.toThrow(
+		"records no group it ran",
+	);
+});
+
 /** `npm run surface`, writing the extraction into the test's own `output` and the surface to `destination`. */
 async function regenerate(destination: string, output: string) {
 	const call = JSON.stringify([RUNNER, "surface", [{ destination, output }]]);

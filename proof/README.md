@@ -1427,10 +1427,19 @@ share, read once), none the reader could not answer, in 38,144 job-seconds
 (10.6 runner-hours): about 3.4 seconds a request with four devices a job.
 In 24 bins a job took 17 to 36 minutes, and the account ran 20 x64 jobs at
 once, so four bins waited over twenty minutes for a runner. The default is
-therefore 20 jobs (`proof/android/stage.json`), all started together. The
-runtime's build, when a pin or the toolchain moves, takes about eleven
-minutes with the reader's own checks. A later run reads each unchanged
-archive's answer from the store and makes only the others.
+therefore 20 jobs (`proof/android/stage.json`), all started together. A
+later whole run (376 groups, about 43,000 job-seconds) took 25 to 44
+minutes a job in 20 bins, because the bins were packed by what each
+document cost the proof shards, which says little of what a device does
+with its archives. Each Android group is now measured by its own seconds on
+a stage job (its block record's `seconds`: the stage runs one group at a
+time with every device of the box), `node proof/run.mjs --timings` reads
+them from the stage jobs' outputs beside the shards', and the queue packs
+the stage's bins from them (`proof/checks/sharding.py::estimate`): the same
+groups in 20 such bins come to about 36 minutes each. The runtime's build,
+when a pin or the toolchain moves, takes about eleven minutes with the
+reader's own checks. A later run reads each unchanged archive's answer from
+the store and makes only the others.
 
 **Its tests.** `proof/android/test_stage.py` and
 `proof/checks/test_android.py` run in the lane with a stand-in reader: each
@@ -2596,7 +2605,9 @@ The lane shares CI's five-minute target for the whole workflow
 holds each group's measured cost in box-seconds and CI's default `execution`
 (shards, runner, workers per shard); the queue builder packs blocks from it,
 and a group it does not list counts the median document's or a default.
-`node proof/run.mjs --timings <output>...` refreshes it from runs' outputs.
+`node proof/run.mjs --timings <output>...` refreshes it from runs' outputs,
+the proof shards' and the Android stage jobs' (an Android group's
+box-seconds are its seconds on a stage job).
 Choose the default shard count the way `docs/testing.md` chooses the smoke
 lane's: three hosted runs per candidate (`ci.yml`'s `proof_shards` input),
 counting setup, the image pull and the gate. The costs `proof/timings.json`
@@ -2615,12 +2626,17 @@ moved the floor: a document's group costs about ten times what it did
 walks and the client's page, neither of which more workers on a four-vCPU
 job make cheaper. The lane no longer fits five minutes at ten shards, and
 `ci.yml`'s shard timeout is raised to hold it. `proof/timings.json` holds
-the costs a hosted run of sixteen shards measured with every state served
-(about 16,700 box-seconds in all, seventeen to nineteen minutes a shard).
-Connect in the unit is a small part of that: each of the sixteen Connect
-documents costs about ten box-seconds more than it did, and its three
-controls about forty-three each. What the lane's target is now, and how
-many shards it runs on, is the person's to set (decision 11).
+the costs a hosted run of sixteen shards and twenty Android jobs measured
+with every state served and every reader running: about 16,800
+box-seconds over 448 groups for the shards (eighteen to twenty-five minutes
+a shard, counting setup and the image pull) and about 43,000 over 376
+groups for the Android stage. Connect in the unit is a small part of that:
+each of the sixteen Connect documents costs about ten box-seconds more than
+it did, and its three controls about forty-three each. The default is
+sixteen shards: the account runs about twenty jobs at once across CI, so
+more shards only wait for a runner beside the test and smoke jobs, and the
+Android stage, which starts when the last shard ends, is the longer half.
+What the lane's target is now is the person's to set (decision 11).
 
 ## Changing a pin
 
