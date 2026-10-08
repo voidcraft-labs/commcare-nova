@@ -138,6 +138,7 @@ const COVERAGE_COUNT_NOUNS: Readonly<
 	Record<TranslationCoverageDiagnosticCode, readonly [string, string]>
 > = {
 	"lookup-labels-need-localized-data": ["field", "fields"],
+	"case-labels-need-localized-data": ["field", "fields"],
 	"connect-text-has-no-locale-carrier": ["form", "forms"],
 	"media-is-shared-across-locales": ["file", "files"],
 	"automation-language-is-recipient-owned": ["automation", "automations"],

@@ -407,3 +407,19 @@ Form-readable references use `toReachableIndex`: declared properties plus the
 canonical standard case properties at every reachable depth. Registration
 forms still read only their new record ID before submission, and surveys read
 no selected record. Do not require custom definitions to read built-in metadata.
+
+## Choices from available cases
+
+`SelectOptionsSource` has three arms: inline, lookup and cases. A cases source
+names a declared `caseType`, a `labelProperty`, and an optional typed Predicate.
+Its values are always exact case IDs; no value-property setting exists. Omitted
+filter means every available case of that type, including locally retained closed
+cases. Builder creation adds an explicit status=open predicate; tool preparation
+defaults only the label to case_name. Labels are case data, not translation units.
+
+Within a case-choice filter, `prop` is the candidate record (or related record in
+a nested relationship), while `form-case` is the scalar selected form record or
+one of its ancestors. `formRecordScope` supplies the exact admitted types;
+registration, survey and multiple-selection forms have no scalar selected record.
+Case labels, filters and selected-record leaves participate in reference indexing,
+property renames, retirement checks and source replacement like other carriers.

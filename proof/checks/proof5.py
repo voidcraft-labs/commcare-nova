@@ -55,7 +55,10 @@ What is compared is Nova's emitted wire, never what HQ makes of it:
   strings key by the place of its ``locale`` in the paired elements, and a
   stack step's value by the string Core reads it as (the ``local`` record's
   ``stackValues``; a step whose value Core reads as one string is compared as
-  that string, mapped). An element no entity owns (a menu Core reads no
+  that string, mapped). The no-matches return guard also compares a session
+  datum with the offered menu command. Its exact Core-lexed guard shape maps
+  only that command literal; changed conditions and other data stay intact.
+  An element no entity owns (a menu Core reads no
   module for, an endpoint whose stack opens no known command) is the app's.
 
   A detail, entry or remote request no runtime reads (``unread``: nothing a
@@ -146,6 +149,7 @@ from proof.checks.differences import Difference
 from proof.observe.alignment import Alignment, AlignmentIncomplete, map_values, renamespace_xform
 from proof.observe.identity import data_namespace
 from proof.rules import normalized
+from proof.rules._xpath import tokens
 
 APP = "app"
 # The entity holding the suite elements no runtime reads and no entity owns, with every module of D and D':
@@ -772,6 +776,32 @@ def _is_stack_step(element):
     return stack is not None and qname(stack.tag)[1] == "stack" and qname(frame.tag)[1] in ("create", "push", "clear")
 
 
+def _return_menu_identity(value, mapping):
+    """Align only the menu reference in Nova's no-matches return guard.
+
+    HQ ``WorkflowHelper.get_if_clause`` compares ``session/data/return_to`` with the offered menu's command;
+    Core ``StackOperation.isOperationTriggered`` evaluates it as XPath. Other literals remain authored data. Read
+    the exact guard shape with the Core-checked lexer, not text substitution, and preserve every other byte.
+    """
+    path = "instance('commcaresession')/session/data/return_to"
+    prefix = tokens(f"count({path}) = 1 and {path} =")
+    read = tokens(value)
+    if read is None or len(read) != len(prefix) + 1 or read[-1].kind != "STR":
+        return value
+
+    def key(token):
+        return token.kind, token.text[1:-1] if token.kind == "STR" else token.text
+
+    if [key(token) for token in read[:-1]] != [key(token) for token in prefix]:
+        return value
+    literal = read[-1].text
+    target = mapping.get(literal[1:-1])
+    if target is None or literal[0] in target:
+        return value
+    end = len(value.rstrip())
+    return value[: end - len(literal)] + literal[0] + target + literal[0] + value[end:]
+
+
 def _as_read(element, suite, mapping):
     """A copy of ``element`` as proof 5 compares it: each stack step value Core reads as one string written as
     that string, and every value ``mapping`` names (D''s ids) as D's."""
@@ -782,6 +812,11 @@ def _as_read(element, suite, mapping):
         if not isinstance(node.tag, str):
             continue
         for attribute, value in list(node.attrib.items()):
+            if attribute == "if" and qname(node.tag)[1] == "create":
+                parent = node.getparent()
+                if parent is not None and qname(parent.tag)[1] == "stack":
+                    node.set(attribute, _return_menu_identity(value, mapping))
+                    continue
             if attribute == "value" and _is_stack_step(node):
                 literal = _literal(suite.readings.get(value), suite.hole)
                 if literal is not None:

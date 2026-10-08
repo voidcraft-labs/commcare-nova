@@ -2706,3 +2706,20 @@ timestamp string. Explicit native `date(custom_value)` changes that comparison.
 Nova's existing typed SQL comparisons retain their typed contract; mixed
 calendar/datetime operands are promoted in the worker timezone so the database
 connection timezone cannot introduce a new result difference.
+
+### Case choices inside forms
+
+Single- and multiple-choice questions can use the worker's available cases as a
+source, with a declared type, a label property and an optional typed filter.
+The source saves exact case IDs and emits standard casedb itemsets in both local
+and HQ exports. Candidate records and the form's scalar selected record have
+distinct typed references. Filters admit earlier eligible answers, worker values
+and existing case relationships; no filter expands restore scope. Preview uses
+its existing captured device snapshot.
+
+A batch attendance workflow uses a stable roster query, per-row identity, and
+explicit updates conditioned on final checklist membership. It does not bind
+repeat membership to the changing answer: initialized repeat rows survive
+deselection. The native case-choice proof exercises changing answers and actual
+Core case processing for both export paths. Mobile reports and arbitrary
+choice-source nodesets are outside this source contract.

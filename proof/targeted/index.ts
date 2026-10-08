@@ -27,6 +27,7 @@ import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
+import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import {
 	listFirstWebApps,
@@ -76,6 +77,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	parentFormPreviousFrame,
 	wireEqualRepublish,
 	searchButtonLabel,
+	noMatchesReturnIdentity,
 ];
 
 /** Every targeted document, in a fixed order. */

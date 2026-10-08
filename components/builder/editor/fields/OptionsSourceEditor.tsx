@@ -27,7 +27,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
-import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type {
@@ -42,6 +42,7 @@ import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import type { Predicate } from "@/lib/domain/predicate";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { CaseOptionsEditor } from "./CaseOptionsEditor";
 import { OptionsEditorWidget } from "./OptionsEditor";
 import {
 	beginOptionsSource,
@@ -68,7 +69,7 @@ export function OptionsSourceEditor<
 	const formContext = useSelectedFormContext();
 	const formUuid = formContext?.form.uuid;
 	const entries = useFormFieldEntries(formUuid ?? field.uuid);
-	const caseTypes = useCaseTypes();
+	const caseTypes = useEffectiveCaseTypes();
 	const userProperties = useUserProperties();
 	const source = value as SelectOptionsSource;
 	const [draft, setDraft] = useState<SourceDraft | null>(null);
@@ -112,10 +113,11 @@ export function OptionsSourceEditor<
 		[onChange],
 	);
 
-	const selectedSource = active.kind === "inline" ? INLINE : active.tableId;
+	const selectedSource =
+		active.kind === "lookup" ? active.tableId : active.kind;
 
 	const beginSource = (next: string | null): void => {
-		const transition = beginOptionsSource(source, next, tables);
+		const transition = beginOptionsSource(source, next, tables, caseTypes);
 		if (transition.kind === "unchanged") return;
 		if (transition.kind === "refused") {
 			setRejection(transition.reason);
@@ -163,7 +165,7 @@ export function OptionsSourceEditor<
 				<Label htmlFor={modeId} className="text-[13px]">
 					Where the choices come from
 				</Label>
-				<Select
+				<Select<string>
 					value={selectedSource}
 					disabled={!canEdit}
 					onValueChange={beginSource}
@@ -172,6 +174,8 @@ export function OptionsSourceEditor<
 						<SelectValue>
 							{(selected) => {
 								if (selected === INLINE) return "Options in this question";
+								if (selected === "cases")
+									return "Cases available to the worker";
 								const selectedTable = tables.find(
 									(candidate) => candidate.id === selected,
 								);
@@ -188,6 +192,7 @@ export function OptionsSourceEditor<
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
+						<SelectItem value="cases">Cases available to the worker</SelectItem>
 						{/* Keep a missing saved identity represented. Base UI otherwise
 						 * treats catalog removal as a value change and restores the initial
 						 * inline option, which would incorrectly stage a new source. */}
@@ -270,6 +275,25 @@ export function OptionsSourceEditor<
 						</div>
 					) : null}
 				</>
+			) : active.kind === "cases" ? (
+				<CaseOptionsEditor
+					source={active}
+					caseTypes={caseTypes}
+					formContext={formContext}
+					formFields={formFields}
+					userProperties={userProperties}
+					tables={tables}
+					staged={draft?.kind === "cases"}
+					onChange={(next) => {
+						if (draft?.kind === "cases") setDraft(next);
+						else commit(next);
+					}}
+					onCommit={() => commit(active)}
+					onCancel={() => {
+						setDraft(null);
+						setRejection(null);
+					}}
+				/>
 			) : table === undefined ? (
 				catalog.kind === "ready" ? (
 					<p

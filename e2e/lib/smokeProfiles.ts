@@ -13,6 +13,7 @@ export const SMOKE_PROFILES = [
 	"organization",
 	"workspace",
 	"case-changes",
+	"case-choices",
 	"form-links",
 	"previous-task",
 	"deep-links",

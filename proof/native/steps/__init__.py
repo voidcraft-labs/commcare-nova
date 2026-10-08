@@ -31,6 +31,7 @@ class Step:
 
 STEPS = {
     "case": Step("case", case_emission.cases),
+    "case-choice": Step("case-choice", form_emission.case_choices),
     "relation-instance": Step("relation-instance", case_emission.relation_instances),
     "case-list": Step("case-list", suite_emission.case_lists),
     "connect": Step("connect", form_emission.connect_forms),

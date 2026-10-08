@@ -1,3 +1,4 @@
+import { walkTerms } from "@/lib/domain/predicate";
 /**
  * Duplicating a field, planned as ordinary adds.
  *
@@ -44,12 +45,14 @@ export function duplicateFieldMutations(
 	if (parentUuid === undefined) return undefined;
 
 	const cloned: ClonedField[] = [];
+	const clonedIds = new Map<Uuid, Uuid>();
 	const cloneInto = (sourceUuid: Uuid, intoParent: Uuid): Uuid | undefined => {
 		const field = doc.fields[sourceUuid];
 		if (field === undefined) return undefined;
 		const cloneUuid = asUuid(crypto.randomUUID());
 		const copy = structuredClone(field);
 		copy.uuid = cloneUuid;
+		clonedIds.set(sourceUuid, cloneUuid);
 		cloned.push({ parentUuid: intoParent, field: copy });
 		for (const childUuid of doc.fieldOrder[sourceUuid] ?? []) {
 			cloneInto(childUuid, cloneUuid);
@@ -59,6 +62,19 @@ export function duplicateFieldMutations(
 
 	const cloneUuid = cloneInto(uuid, parentUuid);
 	if (cloneUuid === undefined) return undefined;
+
+	for (const { field } of cloned) {
+		if (
+			(field.kind === "single_select" || field.kind === "multi_select") &&
+			field.optionsSource.kind !== "inline" &&
+			field.optionsSource.filter
+		) {
+			walkTerms(field.optionsSource.filter, (term) => {
+				if (term.kind === "field")
+					term.uuid = clonedIds.get(term.uuid) ?? term.uuid;
+			});
+		}
+	}
 
 	// Only the ROOT clone can collide: every descendant lands under a cloned
 	// parent, where the source's own children are the only other members and

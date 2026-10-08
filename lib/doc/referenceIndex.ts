@@ -618,10 +618,23 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 					}
 				}
 				break;
-			case "lookup-carrier":
+			case "options-source":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.kind === "cases"
+				) {
+					sink.edge(caseTypeTargetKey(field.optionsSource.caseType), slot.slot);
+					sink.edge(
+						casePropertyTargetKey(
+							field.optionsSource.caseType,
+							field.optionsSource.labelProperty,
+						),
+						slot.slot,
+					);
+				}
+				if (
+					(field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource.kind !== "inline" &&
 					field.optionsSource.filter !== undefined
 				) {
 					predicateEdges(sink, slot.slot, field.optionsSource.filter);
@@ -935,6 +948,11 @@ function termEdges(sink: EdgeSink, slot: string, term: Term): void {
 	if (term.kind === "owner-location-at-level") {
 		sink.edge(entityTargetKey(term.levelUuid), slot);
 		sink.edge(caseTypeTargetKey(term.ownerCaseType), slot);
+		return;
+	}
+	if (term.kind === "form-case") {
+		sink.edge(caseTypeTargetKey(term.caseType), slot);
+		sink.edge(casePropertyTargetKey(term.caseType, term.property), slot);
 		return;
 	}
 	if (term.kind !== "prop") return;

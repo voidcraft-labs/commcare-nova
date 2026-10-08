@@ -37,7 +37,7 @@ export function SelectOneField({
 	// live filtered choices (already in authored row order); while the
 	// fixture snapshot is still loading they are undefined and the list
 	// shows its loading state.
-	const lookupBacked = field.optionsSource.kind === "lookup";
+	const dynamicChoices = field.optionsSource.kind !== "inline";
 	// The engine only resolves option labels for a field whose label or hint
 	// already carries a reference, so an option that references something on a
 	// plainly-labelled question arrives here unresolved: spell it against the
@@ -51,7 +51,7 @@ export function SelectOneField({
 		value: string;
 		label: string;
 		media?: SelectOption["media"];
-	}> = lookupBacked
+	}> = dynamicChoices
 		? (state.choices ?? [])
 		: field.optionsSource.kind === "inline"
 			? field.optionsSource.options.map((opt) => ({
@@ -64,7 +64,7 @@ export function SelectOneField({
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 
-	if (lookupBacked && state.choices === undefined) {
+	if (dynamicChoices && state.choices === undefined) {
 		return <LookupChoicesLoading />;
 	}
 	return (
@@ -74,7 +74,7 @@ export function SelectOneField({
 			onBlur={onBlur}
 		>
 			<div className="space-y-1.5">
-				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
+				{dynamicChoices && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
 					/* A blank value cell must not render pre-selected: the engine
 					 * stores "" for an unanswered field, and the device treats an

@@ -124,8 +124,14 @@ def _needs_lookup_tables(content):
     """``helpers/validators.py::ApplicationValidator._validate_fixtures`` fails the build for
     a form whose source reads a lookup table (``FormBase.has_fixtures``), and HQ's lookup
     upload (``fixtures/views.py::upload_fixture_api``, through
-    ``fixtures/dispatcher.py::require_can_edit_fixtures``) refuses Nova's workbook push."""
-    return content.lookup_push or any(form.has_fixtures for form in _forms(content))
+    ``fixtures/dispatcher.py::require_can_edit_fixtures``) refuses Nova's workbook push.
+    Vellum's ``src/itemset.js::Itemset.itemsetData.validationFunc`` also rejects every
+    itemset without ``features.lookup_tables``, including a casedb itemset with no fixture."""
+    return (
+        content.lookup_push
+        or any(form.has_fixtures for form in _forms(content))
+        or any(root.find(f".//{{{XFORMS_NS}}}itemset") is not None for root in _parsed_sources(content))
+    )
 
 
 def _needs_intents(content):
@@ -271,7 +277,8 @@ PRIVILEGE_RULES: tuple[PrivilegeRule, ...] = (
     ),
     PrivilegeRule(
         "privilege/lookup_tables",
-        "corehq/apps/app_manager/helpers/validators.py::ApplicationValidator._validate_fixtures",
+        "corehq/apps/app_manager/helpers/validators.py::ApplicationValidator._validate_fixtures; "
+        "Vellum/src/itemset.js::Itemset.itemsetData.validationFunc",
         _one("LOOKUP_TABLES", _needs_lookup_tables),
     ),
     PrivilegeRule(

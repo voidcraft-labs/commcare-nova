@@ -158,3 +158,16 @@ def connect_forms(session):
         "connectCommit": checkout.commit,
         "connectSourceSha256": sha256(extractor_source.read_bytes()),
     }
+
+
+def case_choices(session):
+    domain = "nova-case-choice-evidence"
+    exports = session.family("case-choice")
+    records = []
+    with native_check(domain, validate=session.validate_form):
+        app = import_source((exports / "app.json").read_bytes(), domain)
+        for index, name in enumerate(("directory", "attendance")):
+            native = regenerate_form(app.get_module(index).get_form(0), domain)
+            (exports / f"{name}.hq.xml").write_bytes(native)
+            records.append({"form": name, "hqXmlSha256": sha256(native)})
+    return records

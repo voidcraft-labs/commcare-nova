@@ -54,7 +54,10 @@ import {
 } from "../fields/repeat";
 import { secretFieldSchema } from "../fields/secret";
 import { sectionFieldSchema } from "../fields/section";
-import { inlineOptionsSourceSchema } from "../fields/selectOptionsSource";
+import {
+	caseOptionsSourceSchema,
+	inlineOptionsSourceSchema,
+} from "../fields/selectOptionsSource";
 import { signatureFieldSchema } from "../fields/signature";
 import { singleSelectFieldSchema } from "../fields/singleSelect";
 import { textFieldSchema } from "../fields/text";
@@ -156,6 +159,7 @@ const SUBTREE_LEAF_SCHEMAS = new Set<z.ZodType>([
 	xpathExpressionSchema,
 	proseTemplateSchema,
 	lookupOptionsSourceSchema,
+	caseOptionsSourceSchema,
 	mediaSchema,
 ]);
 
@@ -208,7 +212,7 @@ function collectLeaves(
 	out: Map<string, z.ZodType[]>,
 ): void {
 	const s = unwrap(schema);
-	// The lookup arm is opaque, but its inline sibling still owns reference
+	// Dynamic source arms are opaque, but their inline sibling owns reference
 	// atoms on options. Stopping at the mixed union hid those nested keys.
 	if (
 		s instanceof z.ZodUnion &&

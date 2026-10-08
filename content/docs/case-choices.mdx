@@ -1,0 +1,65 @@
+---
+title: Choose existing records in a form
+description: Offer cases available to the worker as single-choice lists or checklists, with filters that follow the form's answers.
+---
+
+A form can offer existing records as answer choices. A clinic question can list
+available clinics; an attendance checklist can show the members of the selected
+clinic. Each answer saves the record's unique ID, so two people with the same
+name remain separate choices.
+
+## Set up the choices
+
+In a single-choice or multiple-choice question, **Cases available to the worker**
+is a choice source alongside a typed list and a Project data table. Choose the
+record type and the property people will read as its label. Record name is the
+starting label.
+
+Nova starts a new case source with an open-record rule. You can change that rule
+or choose **Offer all available records** to include every available record of
+the type, including closed records still held on the device.
+
+Changing the choice source opens a staged configuration. Applying it saves the
+whole source together; **Cancel** keeps the question's current source.
+
+## Narrow the list
+
+Filters can use the candidate record's properties and relationships, worker
+information, and earlier answers in this form. In a repeating section, an answer
+can come from the same row or an enclosing row.
+
+A form that opens on one selected record can also use that record and its
+ancestors. For example, **Children of the selected record** limits a member list
+to children of the selected clinic. A survey or registration form can use an
+earlier clinic answer instead.
+
+When an earlier answer changes, Preview updates the list and clears selections
+that are no longer offered. Record labels keep their saved wording in every app
+language; they are data rather than translated question text.
+
+## Which records are available
+
+Choices use the cases already available to the worker. A filter narrows that
+set; it does not fetch additional cases or change access. If location-based
+sharing delivers one clinic, an all-clinics question still offers only that
+clinic.
+
+Preview uses its captured worker case snapshot, and exported forms read the
+device's case database. Testing with a representative worker and location
+assignment shows what that worker can actually choose.
+
+CommCare HQ's form designer also needs the **Lookup Tables** privilege to edit
+these dynamic choices, even though the choices come from cases rather than a
+data table.
+
+## Save attendance for existing members
+
+You can ask Nova for one checklist that updates each selected member. The
+workflow uses [case changes](/docs/case-changes) to update existing records.
+Choosing members alone does not create or update them.
+
+For attendance, Nova can retain a roster when the form opens and check each
+member against the final checklist at submission. Returning to the checklist
+and clearing a member then leaves that member unchanged. This matters because
+repeating rows remain once created, even when the answer that created them
+later becomes smaller.

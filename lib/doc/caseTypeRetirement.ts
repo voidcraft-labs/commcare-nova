@@ -523,16 +523,18 @@ function collectFieldReferences(
 				}
 				break;
 			}
-			case "lookup-carrier":
+			case "options-source":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource.kind === "lookup" &&
-					field.optionsSource.filter !== undefined &&
-					predicateRefsCaseType(field.optionsSource.filter, caseType)
+					field.optionsSource.kind !== "inline" &&
+					((field.optionsSource.kind === "cases" &&
+						field.optionsSource.caseType === caseType) ||
+						(field.optionsSource.filter !== undefined &&
+							predicateRefsCaseType(field.optionsSource.filter, caseType)))
 				) {
 					out.push({
-						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its lookup-options filter`,
-						concise: `field "${field.id}" in ${where} uses it in its options filter`,
+						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its choice source`,
+						concise: `field "${field.id}" in ${where} uses it in its choice source`,
 					});
 				}
 				break;
@@ -885,6 +887,7 @@ function termRefsCaseType(term: Term, caseType: string): boolean {
 	if (term.kind === "owner-location-at-level") {
 		return term.ownerCaseType === caseType;
 	}
+	if (term.kind === "form-case") return term.caseType === caseType;
 	if (term.kind !== "prop") return false;
 	if (term.caseType === caseType) return true;
 	return viaNamesCaseType(term.via, caseType);

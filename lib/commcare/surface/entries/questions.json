@@ -2662,7 +2662,7 @@
 		],
 		"valueClass": "advanced-data-source",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `optionsSource: query` (choices from a casedb or fixture nodeset)",
+		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources. Typed `optionsSource: cases` now supports worker-available casedb choices; arbitrary report and fixture nodesets remain out of scope.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

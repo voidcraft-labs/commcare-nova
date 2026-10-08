@@ -354,6 +354,9 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: "soundness",
+	CASE_SELECT_SOURCE_INVALID: "soundness",
+	CASE_SELECT_FILTER_INVALID: "soundness",
+	CASE_SELECT_FILTER_NOT_ON_DEVICE: "soundness",
 	LOOKUP_SELECT_FILTER_TYPE_ERROR: "soundness",
 	LOOKUP_SELECT_FILTER_NOT_ON_DEVICE: "soundness",
 	// ── XForm parse-time oracle ──────────────────────────────────────

@@ -229,6 +229,10 @@ function addTermInstance(
 	searchInputInstanceId: SearchInputInstanceId,
 ): void {
 	switch (term.kind) {
+		case "form-case":
+			instances.add("commcaresession");
+			instances.add("casedb");
+			return;
 		case "prop":
 			instances.add("casedb");
 			return;

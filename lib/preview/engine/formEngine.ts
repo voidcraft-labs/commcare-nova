@@ -24,6 +24,8 @@
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { JsonObject, JsonValue } from "@/lib/case-store";
+import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import {
 	assertAndProjectCaseWriteInventory,
 	type ProjectedCaseWriteInventory,
@@ -35,6 +37,7 @@ import {
 import { repeatCountNodeName } from "@/lib/commcare/xform/repeatCountNode";
 import type {
 	BlueprintDoc,
+	CaseOptionsSource,
 	CaseProperty,
 	CasePropertyDataType,
 	CaseSelectionCardinality,
@@ -82,6 +85,7 @@ import {
 	type XPathInitializationContext,
 } from "../xpath/initializationContext";
 import { javaRosaSplitOnSpaces } from "../xpath/javaString";
+import type { XPathNode } from "../xpath/runtimeValues";
 import {
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,
@@ -124,6 +128,7 @@ import {
 	evaluateLookupChoices,
 	lookupOptionsSourceCovered,
 	type PreviewLookupData,
+	predicateLookupsCovered,
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
@@ -562,6 +567,8 @@ export class FormEngine {
 	private readonly presentationLanguage: LanguageTag | undefined;
 	/** `#search/<name>` reads; empty outside an admitted no-matches launch. */
 	private readonly searchAnswers: ReadonlyMap<string, string>;
+	private readonly hasCaseSnapshot: boolean;
+	private readonly choiceCaseNodes = new Map<string, XPathNode>();
 
 	constructor(
 		input: FormEngineInput,
@@ -573,6 +580,7 @@ export class FormEngine {
 		runtimeOptions: FormEngineRuntimeOptions = {},
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
+		this.hasCaseSnapshot = caseDatabase != null;
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
 		this.moduleCaseType = moduleCaseType;
@@ -591,6 +599,16 @@ export class FormEngine {
 				? {}
 				: { searchAnswers: runtimeOptions.searchAnswers }),
 		});
+		for (const node of this.secondaryInstances
+			.get("casedb")
+			?.root()
+			.children("casedb")[0]
+			?.children("case") ?? []) {
+			this.choiceCaseNodes.set(
+				xpathToString(node.attributes("case_id")[0]?.value() ?? ""),
+				node,
+			);
+		}
 		this.secondaryWorkerSnapshots = [...this.secondaryInstances.values()].map(
 			snapshotXPathWorkerInstance,
 		);
@@ -3142,14 +3160,21 @@ export class FormEngine {
 					if (
 						field === undefined ||
 						(field.kind !== "single_select" && field.kind !== "multi_select") ||
-						field.optionsSource.kind !== "lookup"
+						field.optionsSource.kind === "inline"
 					) {
 						break;
 					}
-					const next = this.computeLookupChoices(
-						field.optionsSource,
-						this.createEvalContext(path, updates),
-					);
+					const next =
+						field.optionsSource.kind === "cases"
+							? await this.computeCaseChoicesAsync(
+									field.optionsSource,
+									path,
+									evaluateAsync,
+								)
+							: this.computeLookupChoices(
+									field.optionsSource,
+									this.createEvalContext(path, updates),
+								);
 					if (next === undefined) break;
 					if (!lookupChoicesEqual(next, choices)) {
 						choices = next;
@@ -3341,9 +3366,12 @@ export class FormEngine {
 					if (
 						f !== undefined &&
 						(f.kind === "single_select" || f.kind === "multi_select") &&
-						f.optionsSource.kind === "lookup"
+						f.optionsSource.kind !== "inline"
 					) {
-						const next = this.computeLookupChoices(f.optionsSource, ctx);
+						const next =
+							f.optionsSource.kind === "cases"
+								? this.computeCaseChoices(f.optionsSource, ctx)
+								: this.computeLookupChoices(f.optionsSource, ctx);
 						/* `undefined` is the typed loading state: no snapshot captured
 						 * yet (the cold-load race before the builder session's fetch
 						 * settles). The renderer shows loading, and the controller's
@@ -4394,7 +4422,10 @@ export class FormEngine {
 				const f = node.field;
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource.kind === "lookup"
+					(f.optionsSource.kind === "lookup" ||
+						(f.optionsSource.kind === "cases" &&
+							f.optionsSource.filter !== undefined &&
+							!predicateLookupsCovered(f.optionsSource.filter, undefined)))
 				) {
 					found = true;
 					return;
@@ -4425,11 +4456,13 @@ export class FormEngine {
 				const f = node.field;
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource.kind === "lookup" &&
-					!lookupOptionsSourceCovered(
-						f.optionsSource,
-						this.lookupData ?? undefined,
-					)
+					((f.optionsSource.kind === "lookup" &&
+						!lookupOptionsSourceCovered(
+							f.optionsSource,
+							this.lookupData ?? undefined,
+						)) ||
+						(f.optionsSource.kind === "cases" &&
+							!this.caseChoiceDataCovered(f.optionsSource)))
 				) {
 					covered = false;
 					return;
@@ -4449,6 +4482,109 @@ export class FormEngine {
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
 	 *  Only a COVERED snapshot evaluates, so `evaluateLookupChoices`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
+	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
+		return (
+			source.filter === undefined ||
+			predicateLookupsCovered(source.filter, this.lookupData ?? undefined)
+		);
+	}
+
+	private caseChoiceQuery(
+		source: CaseOptionsSource,
+		questionPath: string,
+	): string {
+		// Itemset predicates change the context to a candidate case. Keep
+		// earlier answers anchored on the question's own repeat iteration.
+		const from = stripIndices(questionPath).split("/").filter(Boolean);
+		const fieldReference = (path: string) => {
+			const to = path.split("/").filter(Boolean);
+			let shared = 0;
+			while (
+				shared < from.length &&
+				shared < to.length &&
+				from[shared] === to[shared]
+			)
+				shared++;
+			return `current()/${[...Array<string>(from.length - shared).fill(".."), ...to.slice(shared)].join("/") || "."}`;
+		};
+		return caseOptionsNodeset(source, this.caseWriteDoc.caseTypes ?? [], {
+			formFields: new Map(
+				[...this.fieldPathsByUuid()].map(([uuid, path]) => [
+					uuid,
+					fieldReference(path),
+				]),
+			),
+			formCaseProperty: (caseType, property) => `#${caseType}/${property}`,
+			userPropertySlugs: previewUserPropertySlugMap(
+				previewSessionValues(this.previewIdentity),
+			),
+			...(this.lookupData && {
+				lookup: {
+					naming: this.lookupData.naming,
+					instanceScope: "xform" as const,
+				},
+			}),
+		});
+	}
+
+	private caseChoicesForIds(
+		source: CaseOptionsSource,
+		ids: readonly string[],
+	): readonly LookupChoice[] {
+		const labelPath = emitCasePropertyWirePath(source.labelProperty);
+		return ids.map((value) => {
+			const node = this.choiceCaseNodes.get(value);
+			if (!node)
+				throw new Error(
+					`Case choice ${value} is missing from the captured case database.`,
+				);
+			const label = labelPath.startsWith("@")
+				? node.attributes(labelPath.slice(1))[0]
+				: node.children(labelPath)[0];
+			return { key: value, value, label: xpathToString(label?.value() ?? "") };
+		});
+	}
+
+	private computeCaseChoices(
+		source: CaseOptionsSource,
+		ctx: EvalContext,
+	): readonly LookupChoice[] | undefined {
+		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
+			return undefined;
+		const result = evaluateRuntime(
+			`${this.caseChoiceQuery(source, ctx.contextPath ?? "/data")}/@case_id`,
+			ctx,
+		);
+		if (!isXPathNodeSet(result))
+			throw new Error("Case choices did not produce a nodeset.");
+		return this.caseChoicesForIds(
+			source,
+			result.nodes.map((node) => xpathToString(node.value())),
+		);
+	}
+
+	private async computeCaseChoicesAsync(
+		source: CaseOptionsSource,
+		path: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<readonly LookupChoice[] | undefined> {
+		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
+			return undefined;
+		const result = await evaluateAsync(
+			`${this.caseChoiceQuery(source, path)}/@case_id`,
+			path,
+			"nodeset-values-or-scalar",
+		);
+		if (
+			typeof result !== "object" ||
+			result === null ||
+			!("kind" in result) ||
+			result.kind !== "nodeset-values"
+		)
+			throw new Error("Case choices did not produce a nodeset.");
+		return this.caseChoicesForIds(source, result.values);
+	}
+
 	private computeLookupChoices(
 		source: LookupOptionsSource,
 		ctx: EvalContext,
