@@ -399,7 +399,7 @@ is held:
 | --- | --- | --- |
 | Defect 3's unknown-question clause | `targeted-save-to-case-read`, proof 4 | Vellum warns "Unknown question" on a read of a property only a Save to Case block writes, and not on the same read of a property an ordinary field writes |
 | Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ is offered by HQ's module page, and gone from it after Nova's next publish |
-| Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py` | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table |
+| Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports an upload that may have landed |
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, and its Case List page holds the control for each only under the flag |
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
@@ -1469,7 +1469,10 @@ where it is done: the "Upgrade Required" page's own script is named by HQ's
 webpack manifest, which the image's build writes only for the pages its
 browsers run, so that test names the base page's entry in the manifest for
 the block (`test_lookup_upload.py::base_page_script`); the answer's status,
-type and text are HQ's.
+type and text are HQ's. That answer's status and type are retained
+(`proof/views/retained/`), held to HQ by the lane, and handed to Nova's own
+client over real HTTP by the package's Vitest test in ordinary CI, so what
+Nova reports of it is observed on Nova's code too.
 
 ## The registers
 

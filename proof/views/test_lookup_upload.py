@@ -14,7 +14,10 @@ the bytes Nova's own client sent (the corpus's captured request).
   failures: a 402, as the decorator's own comment says it answers; a JSON
   refusal; a table written all the same. The accepted counterpart is the
   same request in the document's own project space, which HQ answers with
-  the API's JSON and a table.
+  the API's JSON and a table. The answer's status and type are retained
+  (``retained/lookup-upload-without-privilege.json``) and handed to Nova's
+  own client by ``__tests__/lookupUploadAnswer.test.ts``, which shows what
+  Nova then reports: an upload that may have landed.
 - **A 32-character tag.** Contract: HQ's workbook reader takes a table
   whose tag, and so whose sheet name, holds 32 characters
   (``fixtures/upload/workbook.py``), one more than a spreadsheet program
@@ -38,11 +41,14 @@ import dataclasses
 import io
 import json
 from contextlib import contextmanager
+from pathlib import Path
 from unittest import mock
 
 from proof.views.conftest import api_key, ask
 
 DOCUMENT = "lookup-app"
+# HQ's answer without the privilege, as Nova's client is handed it by the package's Vitest test.
+RETAINED = Path(__file__).resolve().parent / "retained" / "lookup-upload-without-privilege.json"
 PRIVILEGE = "LOOKUP_TABLES"
 # The entry every HQ page's base template names (``hqwebapp/base.html``).
 BASE_ENTRY = "hqwebapp/js/base"
@@ -100,9 +106,10 @@ def test_hq_answers_the_push_with_its_upgrade_page_and_status_200_where_the_plan
     with published(document, "minimum", core_runner, configuration=withheld, create=False) as (unit, _, export):
         with base_page_script():
             answer = _push(unit, export.create.lookups)
-        assert answer.status == 200, answer.status
-        assert answer.content_type.startswith("text/html"), answer.content_type
-        assert b"Upgrade Required" in answer.body
+        # What Nova's own client is then handed, in ordinary CI (``__tests__/lookupUploadAnswer.test.ts``).
+        retained = json.loads(RETAINED.read_text(encoding="utf-8"))
+        assert (answer.status, answer.content_type) == (retained["status"], retained["contentType"]), answer
+        assert retained["holds"].encode() in answer.body
         assert _tags(unit) == []
 
 

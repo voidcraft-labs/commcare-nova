@@ -66,7 +66,9 @@ def ask(unit, method, path, *, body=b"", headers=(), query="", label="request") 
     from proof.formplayer.client import HqRequest
 
     digest = hashlib.sha256(f"views|{label}|{method}|{path}|{query}|".encode() + body).digest()
-    with unit.committing(), unit.request(digest):
+    # HQ's locale middleware leaves the request's language active on the thread; the next page the thread
+    # renders (an editor page, answered with no middleware) must not inherit it.
+    with unit.committing(), unit.request(digest), formplayer_hq._language_put_back():
         response = formplayer_hq._handler().get_response(
             formplayer_hq.django_request(HqRequest(method, path, query, tuple(headers), body))
         )
