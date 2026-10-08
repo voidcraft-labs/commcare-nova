@@ -9,12 +9,24 @@ import {
 	memberId,
 } from "@/lib/__tests__/caseChoiceFixture";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { eq, formField, prop } from "@/lib/domain/predicate";
+import {
+	wireRow,
+	wireTable,
+} from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
+import {
+	eq,
+	formField,
+	literal,
+	prop,
+	tableColumn,
+	tableLookup,
+} from "@/lib/domain/predicate";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import { FormEngine, type FormEngineAsyncEvaluator } from "../formEngine";
+import { previewLookupData } from "../lookupEvaluation";
 import { caseDatabaseRequirements } from "../useCaseDatabaseSnapshot";
 
 function workerFor(engine: FormEngine) {
@@ -248,6 +260,65 @@ describe("case choices in the captured device world", () => {
 				await answer("/data/visits[0]/region", "west");
 				expect(engine.getState("/data/visits[0]/clinic").value).toBe("");
 				expect(engine.getState("/data/visits[1]/clinic").value).toBe(CLINIC_B);
+			} finally {
+				runtime.dispose();
+			}
+		},
+	);
+
+	it.each([false, true])(
+		"waits for nested lookup data and evaluates it in the captured worker world (worker=%s)",
+		async (stagedAsync) => {
+			const table = wireTable("clinics", [{ name: "id", type: "text" }]);
+			const doc = caseChoiceDoc();
+			const field = doc.fields[choiceUuid("clinic")];
+			if (
+				field.kind !== "single_select" ||
+				field.optionsSource.kind !== "cases"
+			)
+				throw new Error("Expected case choices");
+			field.optionsSource.filter = eq(
+				prop("clinic", "case_id"),
+				tableLookup(
+					table.id,
+					table.columns[0].id,
+					eq(tableColumn(table.id, table.columns[0].id), literal(CLINIC_A)),
+				),
+			);
+			const data = previewLookupData({
+				projectRevision: "1",
+				definitions: [table],
+				rowsByTable: new Map([
+					[table.id, [wireRow(table, "east", { id: CLINIC_A })]],
+				]),
+			});
+			const loading = new FormEngine(
+				caseChoiceInput(doc),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				caseChoiceSnapshot(),
+			);
+			expect(loading.usesLookupData()).toBe(true);
+			expect(loading.lookupDataCoversForm()).toBe(false);
+			expect(loading.getState("/data/clinic").choices).toBeUndefined();
+			const engine = new FormEngine(
+				caseChoiceInput(doc),
+				undefined,
+				undefined,
+				undefined,
+				data,
+				caseChoiceSnapshot(),
+				{ stagedAsync },
+			);
+			const { runtime, evaluateAsync } = workerFor(engine);
+			try {
+				if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+				expect(engine.lookupDataCoversForm()).toBe(true);
+				expect(
+					engine.getState("/data/clinic").choices?.map((c) => c.value),
+				).toEqual([CLINIC_A]);
 			} finally {
 				runtime.dispose();
 			}

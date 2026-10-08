@@ -128,6 +128,7 @@ import {
 	evaluateLookupChoices,
 	lookupOptionsSourceCovered,
 	type PreviewLookupData,
+	predicateLookupsCovered,
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
@@ -4421,7 +4422,10 @@ export class FormEngine {
 				const f = node.field;
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource.kind === "lookup"
+					(f.optionsSource.kind === "lookup" ||
+						(f.optionsSource.kind === "cases" &&
+							f.optionsSource.filter !== undefined &&
+							!predicateLookupsCovered(f.optionsSource.filter, undefined)))
 				) {
 					found = true;
 					return;
@@ -4452,11 +4456,13 @@ export class FormEngine {
 				const f = node.field;
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource.kind === "lookup" &&
-					!lookupOptionsSourceCovered(
-						f.optionsSource,
-						this.lookupData ?? undefined,
-					)
+					((f.optionsSource.kind === "lookup" &&
+						!lookupOptionsSourceCovered(
+							f.optionsSource,
+							this.lookupData ?? undefined,
+						)) ||
+						(f.optionsSource.kind === "cases" &&
+							!this.caseChoiceDataCovered(f.optionsSource)))
 				) {
 					covered = false;
 					return;
@@ -4476,6 +4482,13 @@ export class FormEngine {
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
 	 *  Only a COVERED snapshot evaluates, so `evaluateLookupChoices`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
+	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
+		return (
+			source.filter === undefined ||
+			predicateLookupsCovered(source.filter, this.lookupData ?? undefined)
+		);
+	}
+
 	private caseChoiceQuery(
 		source: CaseOptionsSource,
 		questionPath: string,
@@ -4536,7 +4549,8 @@ export class FormEngine {
 		source: CaseOptionsSource,
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
-		if (!this.hasCaseSnapshot) return undefined;
+		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
+			return undefined;
 		const result = evaluateRuntime(
 			`${this.caseChoiceQuery(source, ctx.contextPath ?? "/data")}/@case_id`,
 			ctx,
@@ -4554,7 +4568,8 @@ export class FormEngine {
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<readonly LookupChoice[] | undefined> {
-		if (!this.hasCaseSnapshot) return undefined;
+		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
+			return undefined;
 		const result = await evaluateAsync(
 			`${this.caseChoiceQuery(source, path)}/@case_id`,
 			path,
