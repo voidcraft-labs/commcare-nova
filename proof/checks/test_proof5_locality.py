@@ -44,8 +44,10 @@ Every difference must fall in a class of ``proof/known-defects.json``.
 
 from __future__ import annotations
 
+import base64
 import json
 import shutil
+import zipfile
 
 import pytest
 
@@ -303,6 +305,82 @@ def _rewritten(archive, name, change):
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as written:
         for entry, content in entries.items():
             written.writestr(entry, content)
+
+
+def test_a_no_matches_return_guard_keeps_its_menu_identity_and_a_changed_target_is_reported(core_runner, tmp_path):
+    """Moving the sibling menu renumbers a guard, but leaves its target unchanged. Core reads both guards
+    against their actual session instances; retaining the old command after the move is a real changed target
+    and must remain a locality failure, not disappear through identity alignment.
+    """
+    from lxml import etree
+
+    from proof.observe.unit import observe_local
+
+    document = cases.load_corpus().document("targeted-no-matches-return-identity")
+    local = observations.local_records_for(document, core_runner).local
+    assert proof5.locality(document, local=local)[0] == []
+    guards = []
+    for archive_path, module_index in ((document.local_ccz, 0), (document.edit.local_ccz, 1)):
+        with zipfile.ZipFile(archive_path) as archive:
+            root = parse_xml(archive.read("suite.xml"))
+            (frame,) = root.xpath("./entry/stack/create[@if]")
+            guard = frame.get("if")
+            guards.append(guard)
+            # The registration form declares the actual session instance read by its return guard.
+            source = archive.read("modules-2/forms-0.xml")
+        for target, expected in ((f"m{module_index}", "true"), (f"m{1 - module_index}", "false")):
+            result = core_runner.evaluate(
+                formBase64=base64.b64encode(source).decode(),
+                restoreBase64=base64.b64encode((document.root / "restore.xml").read_bytes()).decode(),
+                session={
+                    "data": {
+                        "return_to": target,
+                        "case_id_new_patient_0": "new-patient",
+                        "parent_id": "household",
+                    }
+                },
+                expressions=[guard],
+            )
+            assert [value["value"] for value in result["values"]] == [expected]
+    assert guards[0] != guards[1]
+    assert proof5._return_menu_identity(guards[1], {"m1": "m0"}) == guards[0]
+
+    root = tmp_path / document.id
+    shutil.copytree(document.root, root)
+    changed = corpus.Document(id=document.id, source=document.source, root=root)
+
+    def stale_target(content):
+        parsed = parse_xml(content)
+        (frame,) = parsed.xpath("./entry/stack/create[@if]")
+        frame.set("if", guards[0])
+        return etree.tostring(parsed, xml_declaration=True, encoding="utf-8")
+
+    _rewritten(changed.edit.local_ccz, "suite.xml", stale_target)
+    changed = _reread(changed)
+    local, _, _ = observe_local(changed, core_runner=core_runner)
+    found, _ = proof5.locality(changed, local=local)
+    assert {(d.artifact, d.path, d.kind) for d in found} == {
+        (proof5.SUITE, "/suite/entry[*]/stack[*]/create[*]/@if", "changed")
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "'m1'",
+        "/data/return_to = 'm1'",
+        "count(instance('commcaresession')/session/data/other) = 1 and "
+        "instance('commcaresession')/session/data/other = 'm1'",
+        "count(instance('commcaresession')/session/data/return_to) = 2 and "
+        "instance('commcaresession')/session/data/return_to = 'm1'",
+        "count(instance('commcaresession')/session/data/return_to) = 1 or "
+        "instance('commcaresession')/session/data/return_to = 'm1'",
+        "count(instance('commcaresession')/session/data/return_to) = 1 and "
+        "instance('commcaresession')/session/data/return_to = 'unmapped'",
+    ],
+)
+def test_return_menu_alignment_leaves_other_literals_and_conditions_unchanged(value):
+    assert proof5._return_menu_identity(value, {"m1": "m0"}) == value
 
 
 def test_a_change_to_an_unowned_element_is_reported_unless_the_footprint_reaches_it(core_runner, tmp_path):

@@ -21,6 +21,7 @@ import type { CorpusDocument } from "../../corpus/documents";
 import { storedDocument } from "../../corpus/documents";
 import { emitCorpus } from "../../corpus/emitCorpus";
 import { targetedUuid } from "../build";
+import { noMatchesReturnIdentity } from "../documents/noMatchesReturnIdentity";
 import { searchButtonLabel } from "../documents/searchApps";
 import {
 	parentFormPreviousFrame,
@@ -33,6 +34,7 @@ const makers = [
 	parentFormPreviousFrame,
 	wireEqualRepublish,
 	searchButtonLabel,
+	noMatchesReturnIdentity,
 ];
 
 async function files(root: string): Promise<Map<string, Buffer>> {
