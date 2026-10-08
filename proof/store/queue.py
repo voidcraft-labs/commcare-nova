@@ -117,6 +117,7 @@ PACKAGE_DATA = {
     "proof/native": {"native": EVERY},
     "proof/rules": {"documents": ("proof/rules/conftest.py", "DOCUMENTS")},
     "proof/store": {"documents": EVERY},
+    "proof/views": {"documents": ("proof/views/conftest.py", "DOCUMENTS")},
     "proof/webapps": {"documents": ("proof/webapps/conftest.py", "DOCUMENTS")},
 }
 CORPUS_DATA = {"documents": EVERY, "native": EVERY}

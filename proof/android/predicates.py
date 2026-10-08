@@ -163,7 +163,9 @@ class Predicates(unittest.TestCase):
         self.assertEqual(len(ten), 10)
         self.assertEqual(set(self.plain["profile"]["settings"]["MainConfigurablePreferences"]), WORKER_SETTABLE)
         forced = "".join(
-            f'<property key="{key}" value="{value}"' + ("" if key == "cc-maps-default-layer" else ' force="true"') + "/>"
+            f'<property key="{key}" value="{value}"'
+            + ("" if key == "cc-maps-default-layer" else ' force="true"')
+            + "/>"
             for key, value, _ in ten
         )
         held = {
@@ -186,7 +188,9 @@ class Predicates(unittest.TestCase):
                 self.assertEqual((answer["staged"], answer["updated"]), ("UpdateStaged", "Installed"))
                 after[label, device] = answer["after"]["readers"]
         self.assertEqual(after["absent", "fresh"], after["forced", "fresh"])
-        moved = {name for name in after["absent", "held"] if after["absent", "held"][name] != after["forced", "held"][name]}
+        moved = {
+            name for name in after["absent", "held"] if after["absent", "held"][name] != after["forced", "held"][name]
+        }
         self.assertEqual(
             moved,
             {

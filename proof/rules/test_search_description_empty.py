@@ -96,9 +96,7 @@ def test_core_runs_the_search_and_its_forms_alike(rule_documents, hq, core_runne
 @pytest.fixture(scope="module")
 def read(rule_documents, hq, core_runner, lane_services):
     with published(rule_documents[DOCUMENT], core_runner) as app:
-        return served_readings(
-            app, {"nova": None, "saved": _described(""), "text": _described(TEXT)}
-        )
+        return served_readings(app, {"nova": None, "saved": _described(""), "text": _described(TEXT)})
 
 
 def test_formplayer_hands_white_space_for_the_empty_description_and_nothing_else_differs(read):

@@ -36,6 +36,7 @@ import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
+import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
 	listFirstWebApps,
 	searchButtonLabel,
@@ -50,6 +51,7 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { supplyPointRead } from "./documents/supplyPointRead";
 import { timeOrdering } from "./documents/timeOrdering";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
@@ -90,6 +92,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnRename,
 	connectLearnKeyNames,
 	connectDeliverKeyNames,
+	saveToCaseRead,
+	supplyPointRead,
 ];
 
 /** Every targeted document, in a fixed order. */

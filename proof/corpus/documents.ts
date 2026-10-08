@@ -126,6 +126,8 @@ export interface CorpusDocument {
 export interface ProjectSettings {
 	/** HQ's sync cases on form entry (`CaseSearchConfig.sync_cases_on_form_entry`). */
 	readonly syncCasesOnFormEntry?: boolean;
+	/** CommTrack on for the project space (`Domain.commtrack_enabled`). */
+	readonly commtrack?: boolean;
 }
 
 /** A targeted document's edit: the batch Nova's planner made from D to D′, and D′ as the gate committed it. */

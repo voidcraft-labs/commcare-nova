@@ -98,9 +98,7 @@ def test_formplayer_hands_start_or_none_and_nothing_else_differs(read):
 
 
 def _alignments(reading):
-    return [
-        cell["alignSelf"] for screen in screens(reading) for cell in (screen.get("list") or {}).get("cells") or []
-    ]
+    return [cell["alignSelf"] for screen in screens(reading) for cell in (screen.get("list") or {}).get("cells") or []]
 
 
 def test_the_client_lays_the_cell_out_alike_and_moves_it_for_another_alignment(read):
@@ -126,7 +124,9 @@ def test_the_rule_leaves_every_other_alignment():
         {"horz-align": "left"},
         {"vert-align": "center"},
     ]
-    app = {"modules": [{"case_details": {"short": {"columns": [{"vertical_align": "start"}, {"vertical_align": "end"}]}}}]}
+    app = {
+        "modules": [{"case_details": {"short": {"columns": [{"vertical_align": "start"}, {"vertical_align": "end"}]}}}]
+    }
     assert normalize(app)["modules"][0]["case_details"]["short"]["columns"] == [{}, {"vertical_align": "end"}]
     handed = {"runs": [{"steps": [{"response": {"styles": [{"verticalAlign": "start"}, {"verticalAlign": "end"}]}}]}]}
     assert normalize(handed)["runs"][0]["steps"][0]["response"]["styles"] == [

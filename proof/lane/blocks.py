@@ -89,6 +89,7 @@ CORPUS_PACKAGES = (
     "proof/native",
     "proof/rules",
     "proof/store",
+    "proof/views",
     "proof/webapps",
 )
 SINGLE_GROUPS = ("proof", "surface", "hq-selfchecks")
