@@ -99,6 +99,15 @@ export function moduleLanding(args: {
 	return landing.kind === "form-menu" ? "form-menu" : "case-list";
 }
 
+/** Known construction findings that prevent a private task from resolving. */
+export interface NavigationReadFinding {
+	readonly code: string;
+	readonly message: string;
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
+	readonly fieldUuid?: Uuid;
+}
+
 export type NavigationDestination =
 	| { readonly screen: "home" }
 	| {
@@ -121,7 +130,11 @@ export type NavigationDestination =
 			readonly formUuid: Uuid;
 			readonly name: string;
 	  }
-	| { readonly screen: "unavailable"; readonly reason?: string };
+	| {
+			readonly screen: "unavailable";
+			readonly reason?: string;
+			readonly findings?: readonly NavigationReadFinding[];
+	  };
 
 type NavigationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 

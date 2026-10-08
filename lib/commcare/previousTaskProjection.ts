@@ -4,9 +4,10 @@ import {
 	deriveCaseWriteInventory,
 	moduleParent,
 	moduleUuidOfForm,
+	type NavigationReadFinding,
 	type Uuid,
 } from "@/lib/domain";
-import { caseWriteAdmissionIssues } from "./caseWriteAdmission";
+import { caseWriteAdmissionFindings } from "./caseWriteFindings";
 import { emissionPlan } from "./emissionPlan";
 import {
 	entryFrameDatums,
@@ -99,16 +100,21 @@ export function projectTaskFormSelections(
 	});
 }
 
-/** Private assembly permits creating an empty form before adding its name
- * writer. Such a neighbor participates in the common entry prefix, but has
- * no compilable entry yet. Qualify the read; runtime/export stay strict. */
+/** Private forms can carry case-write findings while their author repairs
+ * them. Every neighboring form contributes to the common entry prefix, so
+ * qualify the same menu path before lowering it. Runtime/export stay strict. */
 export function readPreviousTaskProjection(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ):
 	| { readonly kind: "resolved"; readonly projection: PreviousTaskProjection }
-	| { readonly kind: "incomplete"; readonly reason: string } {
+	| {
+			readonly kind: "incomplete";
+			readonly reason: string;
+			readonly findings: readonly NavigationReadFinding[];
+	  } {
 	doc = emissionPlan(doc).doc;
+	const findings: NavigationReadFinding[] = [];
 	let moduleUuid = moduleUuidOfForm(doc, formUuid);
 	const visited = new Set<Uuid>();
 	while (moduleUuid !== undefined && !visited.has(moduleUuid)) {
@@ -116,19 +122,30 @@ export function readPreviousTaskProjection(
 		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 		for (const uuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[uuid];
-			if (
-				caseWriteAdmissionIssues(
-					deriveCaseWriteInventory(doc, uuid, { caseType }, form.type),
-				).some((issue) => issue.kind === "create-name-missing")
-			)
-				return {
-					kind: "incomplete",
-					reason:
-						"A form in this task's menu path still needs a record name before its next task can be resolved.",
-				};
+			for (const issue of caseWriteAdmissionFindings(
+				{
+					moduleUuid,
+					moduleName: doc.modules[moduleUuid].name,
+					formUuid: uuid,
+					formName: form.name,
+				},
+				deriveCaseWriteInventory(doc, uuid, { caseType }, form.type),
+			)) {
+				findings.push({
+					code: issue.code,
+					message: issue.message,
+					moduleUuid,
+					formUuid: uuid,
+					...(issue.location.fieldUuid && {
+						fieldUuid: issue.location.fieldUuid,
+					}),
+				});
+			}
 		}
 		moduleUuid = moduleParent(doc, moduleUuid) ?? undefined;
 	}
+	if (findings.length > 0)
+		return { kind: "incomplete", reason: findings[0].message, findings };
 	return { kind: "resolved", projection: projectPreviousTask(doc, formUuid) };
 }
 
