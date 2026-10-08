@@ -8007,5 +8007,438 @@
 		"kind": "changed",
 		"document": "case-capture-followup",
 		"control": "case-capture-followup"
+	},
+	{
+		"id": "d3-save-to-case-read-proof4-editor-vellum-again-case-1-error-0",
+		"defect": 3,
+		"part": "unknown question for a property only a Save to Case block writes",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/constraintAttr/logic-bad-path-warning/#case~1*",
+		"kind": "error",
+		"document": "targeted-save-to-case-read",
+		"values": {
+			"before": null,
+			"after": {
+				"level": "warning",
+				"message": "Unknown question: #case/risk_level",
+				"type": "Text",
+				"reference": "#case/risk_level"
+			}
+		},
+		"control": "targeted-save-to-case-read"
+	},
+	{
+		"id": "d3-save-to-case-read-proof4-editor-vellum-case-1-error-1",
+		"defect": 3,
+		"part": "unknown question for a property only a Save to Case block writes",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/constraintAttr/logic-bad-path-warning/#case~1*",
+		"kind": "error",
+		"document": "targeted-save-to-case-read",
+		"values": {
+			"before": null,
+			"after": {
+				"level": "warning",
+				"message": "Unknown question: #case/risk_level",
+				"type": "Text",
+				"reference": "#case/risk_level"
+			}
+		},
+		"control": "targeted-save-to-case-read"
+	},
+	{
+		"id": "d20-supply-point-manifest-form-supply-point-id-outside-a-computed-datum-refused-0",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "manifest",
+		"artifact": "form:*",
+		"path": "/session-path:session~1data~1*/refused/supply-point-id-outside-a-computed-datum",
+		"kind": "refused",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": {
+				"key": "session-path:session/data/*",
+				"surfaceItem": true,
+				"uses": 1,
+				"at": ["/h:html/h:head[1]/model[1]/bind[1]/@calculate"],
+				"entries": [
+					{
+						"id": "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
+						"disposition": "REFUSED",
+						"valueClass": "supply-point-id-outside-a-computed-datum"
+					}
+				]
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-assertions-added-1",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/assertions[*]",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "<assertions>\n      <assert test=\"count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/user/data/commtrack-supply-point]) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-datum-id-added-2",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/session[*]/datum[@id=*]",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "<datum id=\"supply_point_id\" function=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-datum-id-added-3",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/stack[*]/create[*]/datum[@id=*]",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "<datum id=\"supply_point_id\" value=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-org-javarosa-xpath-xpathnodeset-getinval-changed-4",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/end/form-did-not-open/assertion-failed/org.javarosa.xpath.XPathTypeMismatchException/org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "form-did-not-open",
+			"after": "assertion-failed"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-added-5",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": {
+				"screen": "assertion",
+				"text": "This form requires access to the user's location, but none was found."
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-badges-added-6",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/badges",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": [""]
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-badges-removed-7",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/badges",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": [""],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-choices-added-8",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/choices",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": [
+				{
+					"audio": null,
+					"command": "m0-f0",
+					"image": null,
+					"text": "Visit"
+				}
+			]
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-choices-removed-9",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/choices",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": [
+				{
+					"audio": null,
+					"command": "m0-f0",
+					"image": null,
+					"text": "Visit"
+				}
+			],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-chosen-added-10",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/chosen",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "m0-f0"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-chosen-removed-11",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/chosen",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "m0-f0",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-datum-added-12",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/datum",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "supply_point_id"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-org-javarosa-xpath-xpathnodeset-getinval-removed-13",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/error/org.javarosa.xpath.XPathTypeMismatchException/org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": {
+				"class": "org.javarosa.xpath.XPathTypeMismatchException",
+				"message": "Calculation Error: Error in calculation for /data/supply_point\nLogic references instance(commcaresession)/session/data/supply_point_id which is not a valid question or value.",
+				"site": "org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)"
+			},
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-hidden-added-14",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/hidden",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": []
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-hidden-removed-15",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/hidden",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": [],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-added-16",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/root",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "m0"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-removed-17",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/root",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "m0",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-screen-changed-18",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "form",
+			"after": "menu"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-screen-changed-19",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "menu",
+			"after": "computed"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-step-added-20",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/step",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": {
+				"id": "supply_point_id",
+				"type": "CASE_ID",
+				"value": ""
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-xmlns-removed-21",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/xmlns",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "http://openrosa.org/formdesigner/444aa554bd6ce79e",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-xmlns-removed-22",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/xmlns",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "http://openrosa.org/formdesigner/6d589420121f63ba",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-android-proof4-vellum-screens-after-menuactivity-formentryactivity-error-occurred-home-unrecoverable-error-changed",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/screens/after-MenuActivity:FormEntryActivity!Error Occurred:home!Unrecoverable Error",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
 	}
 ]

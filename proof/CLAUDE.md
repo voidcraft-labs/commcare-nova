@@ -106,20 +106,25 @@ harness keeps, each with its reason.
   other entry holds on its document and still show on its control (step 1's
   decision 12, `proof/README.md`). A fix removes its entry in the same pull
   request. Never skip, mark, loosen a comparator or widen a path to make the
-  lane pass. A spelling rule erases exactly one spelling, and its own test
-  builds or runs both spellings on every reader of it to show none depends
-  on it: HQ's build and Core's trace, and, where its readers are others,
-  those too, run for real (Formplayer's walk, HQ's own Connect repeater and
-  Connect's own receiver, as `proof/rules/test_connect_work_area_empty.py`
-  runs them). An equivalence every reader of which a test runs is a rule
-  with that test as its proof, never a register entry. A difference one of
-  whose readers is Android, whose code no test inside the image can run, is
-  a register entry, never a rule, marked `equivalence` with those readers
-  where it is no harm, so the register never presents it as one. Where the
-  lane runs a reader on every document (Formplayer, Web Apps' client,
-  Android, and Connect on every Connect document), an equivalence is also
-  what the lane itself shows: the two spellings differ in the build and that
-  reader's record of the two states does not.
+  lane pass. A spelling rule erases exactly one spelling, and tests run both
+  spellings on every reader of it to show none depends on it: HQ's build
+  and Core's trace in the rule's own test, and, where its readers are
+  others, each of those too, run for real and named by the rule
+  (`SpellingRule.readers`): Formplayer's walk of both spellings served by
+  HQ's own views, the Web Apps client's screens on them, HQ's own Connect
+  repeater and Connect's own receiver, and CommCare Android, whose test is
+  a method of `proof/android/predicates.py` that installs both spellings on
+  a device (it runs where the reader's runtime is, on every run of the
+  runtime's job, never in the image). `test_closed_set.py` refuses a rule
+  naming a test that is not there. An equivalence is a rule or it is
+  nothing: the register holds no entry marked as one, and its loader
+  refuses the field. Before calling two spellings equivalent, look for the
+  state in which a reader reads them apart, and run it: a forced profile
+  default reads as an absent one on a device that never held another value
+  and replaces the value on one that did (finding 40), which makes it a
+  defect, never a rule. A rule that normalizes what one reader hands the
+  next (Formplayer's answer, which the client reads) must name the test of
+  the reader that reads it.
 - **A precise witness writes its precise edit.** The fixed producers' edits
   are balanced together, so an unrelated document can change which admitted
   edit another gets. A harness test or registered symptom that needs one
@@ -165,8 +170,10 @@ harness keeps, each with its reason.
   linux/amd64 and macOS only (Robolectric's native runtime), so the Android
   stage runs after the shards, from their records, on amd64
   (`proof/android/stage.py`), and its output is an output like a shard's.
-  A claim about what a device does is observed there: never cite an Android
-  symbol in place of a run, and never copy or rewrite an Android class to
+  A claim about what a device does is observed there, or on both spellings
+  of one difference in `proof/android/predicates.py`: never cite an Android
+  symbol in place of a run (the register's loader refuses an `android`
+  field), and never copy or rewrite an Android class to
   observe it (call the app's own, by reflection where it is private). Each
   answer is kept under the archives, restore and options it read and the
   reader that read it, so put anything an answer depends on in that key
@@ -243,6 +250,23 @@ harness keeps, each with its reason.
   (the opportunity's rows, HQ's repeater's rows, Data Forwarding on the
   plan, a device's location fix, ConnectID), and a new stand-in is a claim
   to justify there.
+- **What reaches a person through another of HQ's pages or views is run
+  there.** A harm the per-document checks cannot show (what a page offers,
+  what an upload answers, which fixture a restore hands a worker) is a test
+  of `proof/views` over a real Nova export: the request a client sends,
+  answered by HQ's URLconf, middleware and the view's own decorators
+  (`ask`), or HQ's page loaded in Chromium and read for what it holds
+  (`offered`). Never call the view's inner function, never read a template
+  for what a page offers, and pair every observation with its counterpart
+  (the flag on, the privilege granted), so a page or a view that answered
+  nothing cannot pass. "No system the lane runs shows it" is a hole to
+  close there, never a reason to leave a harm to a citation.
+- **The harness never changes how a stored form source is spelled.** HQ
+  reads a stored source as text in one place (its CommTrack test for the
+  session's supply point is a substring test), and a source written again
+  by a serializer spells its apostrophes another way. A state the harness
+  makes of B (aligned to A) keeps B's own bytes but for the namespace's
+  name (`proof/observe/alignment.py::renamespace_xform`).
 - **The repository is public.** Nothing here describes an HQ route usable
   without a credential or any other HQ weakness, holds client data, or
   references a scratch directory or private script.

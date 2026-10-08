@@ -1,0 +1,157 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"risk_level",
+							"proof text"
+						],
+						[
+							"visit_count",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"risk_level",
+							"10"
+						],
+						[
+							"visit_count",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"risk_level",
+							"2"
+						],
+						[
+							"visit_count",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Risk review",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {
+								"patient": {
+									"visit_count": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": false,
+							"operationWrites": {
+								"patient": [
+									"risk_level"
+								]
+							},
+							"uuid": "461bee79-f000-54cd-ae5d-339fa28f0309",
+							"validations": {},
+							"writes": {
+								"patient": {
+									"risk_level": "value",
+									"visit_count": "value"
+								}
+							}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "9eedcd9b-ab13-5fc7-a3e5-126d7d9a398b",
+							"validations": {
+								"2cfb8c33-e330-5587-a9a3-70892c9ea0a3": "/counted",
+								"5ea0ef93-ae0a-511f-a4fb-d0a135a6e3c3": "/agreed"
+							},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"461bee79-f000-54cd-ae5d-339fa28f0309",
+						"9eedcd9b-ab13-5fc7-a3e5-126d7d9a398b"
+					],
+					"uuid": "9848290f-2069-5e4b-a7dd-05a920128b3f"
+				}
+			]
+		}
+	}
+}

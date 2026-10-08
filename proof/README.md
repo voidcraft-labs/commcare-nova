@@ -265,8 +265,9 @@ read: `<output>/corpus` where the run emitted it, or the directory
 ### Spelling rules and the registers
 
 A spelling rule erases one difference in how an artifact is spelled that no
-reader of it depends on, and its own test proves that by building or running
-both spellings on those readers ("Spelling rules", below). Every other
+reader of it depends on, and tests prove that by running both spellings on
+every one of those readers: HQ's build, Core, Formplayer, the Web Apps
+client, Connect and CommCare Android ("Spelling rules", below). Every other
 difference is a symptom: it is held by an entry of the known-defect register
 or it fails the lane ("The registers", below).
 
@@ -352,59 +353,64 @@ or it fails the lane ("The registers", below).
   neither is the distance check between two visits. HQ's Connect payload
   carries no attachments, so Connect's download of a visit's attachments
   runs and asks HQ for nothing.
-- **A configuration Nova's publish refuses is not checked.** Each document's
-  configurations hold the flags and case search Nova's publish requires for
-  it, so a symptom that shows only where Nova refuses to publish cannot reach
-  anyone and is not a defect. Configuration sensitivity alone still builds a
+- **A configuration Nova's publish refuses is not checked** (decision 19).
+  Each document's configurations hold the flags and case search Nova's
+  publish requires for it, so a symptom that shows only where Nova refuses to
+  publish reaches no one and is not a defect: defect 23 without
+  `MM_CASE_PROPERTIES` is one. Configuration sensitivity alone still builds a
   flip into such a configuration, since a gate's effects are what HQ's build
   changes wherever that is, and holds its differences to the gate's effects,
   never to the register.
-- **Harm in no system the lane runs:** defect 4's `add_ons` (only HQ's pages
-  read them); defect 5's "Upgrade Required" report and 32-character refusal
-  (Nova's own); defect 12's inline search, multi-select case lists and
-  `exclude` (HQ's saves keep them without `CASE_SEARCH_ADVANCED`) and its
-  `VIEW_FORM_ATTACHMENT` over-requirement (a Nova publish check); defect 14's
-  `both_fixtures` (saves keep it) and its logos' loss on a linked-app pull;
-  defect 16's comments, dead code, copy and media slots; defect 20's
-  `product_id` datum (Nova emits no advanced module); defect 23 without
-  `MM_CASE_PROPERTIES` (a target Nova's publish refuses); defect 24's and
-  defect 30's export columns.
-- **Inputs Nova cannot produce:** a basic child case of its own menu's case
-  type under `DONT_INDEX_SAME_CASETYPE` (defect 12, same-type child) and a
-  form whose source holds the session's `supply_point_id` path under
-  CommTrack (defect 20, CommTrack).
-- **HQ's case search request reading over a document's searches.**
-  `proof/hq/operations.py` runs HQ's compiler (`compile_case_search`:
-  `build_filter_from_xpath` in a case search context) and its request reading
-  (`search_request_config`: `extract_search_request_config`); the HQ
-  package's tests run both and the native proofs run the compiler. The
-  manifest check reads
-  each search's CSQL with HQ's own CSQL parser, and each of its keys as HQ's
-  search reads it, so defect 6's CSQL part shows as uses of the REFUSED
-  classes of the comparisons HQ's compiler refuses, and defect 14's reserved
-  input names as uses of the search keys HQ's search reads as its own. The
-  intent check compiles every CSQL string a run sends: each literal
-  `_xpath_query` of build(A)'s suite and each one proof 3's sessions send
-  (`proof/observe/sessions.py::search_compiles`), so defect 6's CSQL part and
-  defect 12's related lookups show as HQ's compiler refusing them. Not
-  observed: a string a search builds from a prompt's answer, which the
-  sessions' scripts leave unanswered, and HQ's request reading over a
-  session's parameters.
-- **Vellum's unknown-question warning for a property only Nova's Save to Case
-  blocks write** (defect 3's last clause). HQ's case schema learns Save to
-  Case properties only from `case_references_data.save`, which Nova leaves
-  empty (`models/forms.py::get_save_references`), so a form reading
-  `#case/<property>` for such a property draws Vellum's "Unknown question".
-  No corpus document reads one: the entries of finding 47 hold reads of
-  properties no form writes.
+- **Not yet run, and nothing stands in the way but the work.** Each names
+  the reader that would settle it:
+  - defect 12's `VIEW_FORM_ATTACHMENT` over-requirement: HQ's attachment
+    view (`reports/views.py::_can_view_form_attachment`) opened by a person
+    with and without the Submission History permission, with the flag on
+    and off;
+  - defect 14's logos on a linked-app pull
+    (`models/applications.py::LinkedApplication.reapply_overrides` over a
+    master holding Nova's `logo_refs`);
+  - defect 16's comments, dead code and copy, and its media slots (hint,
+    group label and validation message media on Android, Formplayer and
+    the client);
+  - defect 24's and defect 30's export columns (HQ's form and case export
+    over each path's submission; `proof/hq/test_report_retention.py` already
+    runs HQ's export writer over saved forms);
+  - a CSQL string a search builds from a prompt's answer. Every search of
+    every document is sent, by Core's sessions and by Formplayer's walk, with
+    its prompts as the app leaves them, and HQ's own search view answers
+    Formplayer's (its request reading and its compiler run whole over the
+    session's own parameters, "Served states"); no walk types an answer
+    into a prompt, so the strings an answer would build are compiled only
+    for the native families' own apps (`quote`, `function`, `prompt`);
+  - the form validation HQ's build asks Formplayer for, which the Core
+    runner still answers (`XFormParser` with `JSONReporter`, the body of
+    Formplayer's `UtilController.validateForm`) in place of the Formplayer
+    the lane now runs.
+- **Defect 20's `product_id` datum** needs an advanced module, and no Nova
+  document holds one: the manifest check reads every export for the surface
+  it uses and holds no use of an advanced module's fields.
+
+What the earlier text of this section listed as harm in no system the lane
+runs, or as inputs Nova cannot produce, is now run or proven, each where it
+is held:
+
+| What | Held by | What it shows |
+| --- | --- | --- |
+| Defect 3's unknown-question clause | `targeted-save-to-case-read`, proof 4 | Vellum warns "Unknown question" on a read of a property only a Save to Case block writes, and not on the same read of a property an ordinary field writes |
+| Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ is offered by HQ's module page, and gone from it after Nova's next publish |
+| Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py` | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table |
+| Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
+| Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, and its Case List page holds the control for each only under the flag |
+| Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
+| "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
+| "20, CommTrack" | `targeted-supply-point-read`, the manifest check and proof 4; the same vitest file | Nova's gate admits a read of the session's supply point (finding 68) |
 
 Step 1's exit asks the register for an entry for every row of its defect table
-("The defect rows", below). The harm in no system the lane runs was never a
-row, and step 1's decisions drop the two inputs Nova cannot produce; every
-other row has entries that reproduce on their controls, and only defect 3's
-unknown-question clause (above) shows nowhere, which stays open until the lane
-observes it or a recorded decision leaves it to defect 3's fix's own tests
-(`docs/plans/hq-round-trip/2-emission-and-publish.md`, work item H).
+("The defect rows", below). Every row now has entries that reproduce on their
+controls or a test of `proof/views` that runs HQ's own page or view; the one
+row that has neither, "12, same-type child", is an input no Nova document
+holds, which a test of Nova's planner and gate shows.
 
 ## Running the lane
 
@@ -426,6 +432,7 @@ npm run proof -- proof/checks/test_bar.py               # one check over every d
 npm run proof -- proof/checks -k targeted-time-ordering # every check of one document
 npm run proof -- proof/native                           # the native proofs
 npm run proof -- proof/connect                          # the Connect proof
+npm run proof -- proof/views                            # HQ's own pages and views over Nova's exports
 npm run proof -- --workers 4 proof/checks               # four forked workers
 npm run proof -- --bin 2/4                              # bin 2 of 4 of the collected groups
 ```
@@ -608,8 +615,8 @@ What a failure calls for:
 
 - **A defect in Nova**: fix it; or, where the fix is a later step's, register
   its class ("Adding a register entry and its control", below).
-- **A spelling neither HQ's build nor Core's run depends on**: a spelling
-  rule, with the test that proves it ("Spelling rules", below).
+- **A spelling no reader of it depends on**: a spelling rule, with the tests
+  that run each reader on both spellings ("Spelling rules", below).
 - **The harness's own fault** (a comparison that reads a position its reader
   does not, a name kept that is the app's, a refusal that names no cause): fix
   the comparator or the observation, never the register.
@@ -703,8 +710,9 @@ the highest minimum version HQ's feature support names:
 - a single-flag configuration, the minimum and one flag, for each flag a
   reproduction names.
 
-Sync cases on form entry is off in each, but where a reproduction turns it on
-for the document (`CorpusDocument.projectSettings`), and CommTrack is off.
+Sync cases on form entry and CommTrack are each off, but where a reproduction
+turns one on for the document (`CorpusDocument.projectSettings`:
+`targeted-sync-on-form-entry`, `targeted-supply-point-read`).
 
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
@@ -762,6 +770,12 @@ and update have identical bytes with a real case-writing form. The intent
 self-check independently observes B and B-edit with matching complete keys,
 requires a parsed form and its authored data-dictionary property, and retains
 both records under the block's `witnesses/wire-equal-intent/` directory.
+`targeted-save-to-case-read` is defect 3's last clause: one form writes a
+property through a case operation alone and another validates an answer
+against it and against a property an ordinary field writes, so HQ's form
+builder warns about the first read and not the second.
+`targeted-supply-point-read` reads the session's supply point in a project
+space with CommTrack on (finding 68).
 `targeted-search-button-label` owns the three unchanged search-label defect
 classes; their retained `case-operation-query` control stays byte-identical.
 These documents join the emitted corpus without joining balanced edit
@@ -1374,8 +1388,8 @@ one value).
 Left out, because it names an install and not what a worker reads, or says
 again what a reader beside it says: the app's id and version (proof 1's), the
 profile's stored values (each reader's answer is compared, so a stored value
-no reader reads differently is no difference, which is how the lane shows an
-equivalence on Android), and the media check's flags beside its reader.
+no reader reads differently is no difference on a device that installs
+either), and the media check's flags beside its reader.
 
 **How it sits in the lane.** Each document has an Android group
 (`android:corpus:<id>`, and `android:control:<id>` for each control an
@@ -1427,6 +1441,36 @@ the reader held to itself, the stage end to end with a planted difference
 Android must show, and each Android predicate the register rests on over both
 spellings of its difference.
 
+### HQ's own pages and views
+
+`proof/views` holds what reaches a person only through one of HQ's pages or
+views that no per-document check runs, each test over a real Nova export
+published into a check's own project space
+(`proof/views/conftest.py`):
+
+- **A request as a client sends it** (`ask`): resolved by HQ's URLconf and
+  answered by the view that URL names, behind HQ's own middleware and that
+  view's own decorators, by the handler that answers Formplayer's requests.
+  Nova's lookup push is the bytes Nova's own client sent (the corpus's
+  capture), with an API key HQ's own model made; a device's restore is asked
+  at the address the released build's profile names, with the worker's own
+  credentials.
+- **A page read for what it offers** (`offered`): HQ's module page loaded in
+  the editor driver's Chromium by HQ's own page view, its JavaScript run,
+  and each control counted in the document
+  (`proof/editors/driver/steps/pages/offered.js`). A control HQ's template
+  leaves out under a flag or an add-on is not in the document; each test
+  also reads a control no gate holds back, so a page that offered nothing
+  would not pass.
+
+Each test pairs what it shows with its counterpart: the flag on, the
+privilege granted, the project space's setting on. One thing stands in, named
+where it is done: the "Upgrade Required" page's own script is named by HQ's
+webpack manifest, which the image's build writes only for the pages its
+browsers run, so that test names the base page's entry in the manifest for
+the block (`test_lookup_upload.py::base_page_script`); the answer's status,
+type and text are HQ's.
+
 ## The registers
 
 ### Known defects
@@ -1462,20 +1506,11 @@ spellings of its difference.
   entry's check, on the entry's document and on its control. Every other
   entry is the shards'. What a defect does on a device is such an entry,
   never a citation of Android's source.
-- `equivalence` marks a class that is no harm: two spellings of an artifact
-  that every reader of it reads alike. Formplayer, the client and Android
-  read every state the lane builds, so for them the lane itself is the
-  proof: the build differs and no reader's record of the two states does (a
-  difference any shows is an entry of its own). An equivalence whose every
-  reader a test inside the image runs is no entry at all: it is a spelling
-  rule with that test as its proof ("Spelling rules": finding 55's empty
-  work area id, whose readers are HQ, Core, Formplayer and Connect). One of
-  whose readers is Android stays an entry, since a rule's own test runs
-  where Android's code cannot; `proof/android/predicates.py` holds that
-  reader on both spellings where the reader runs. The entry names the
-  readers and why each reads the two alike, is held and verified as any
-  other, and the fix of the defect or finding it is filed under removes it
-  (`harness-findings.md`, "Equivalences only another runtime reads").
+- An entry is a symptom, never an equivalence. Two spellings every reader
+  of which reads alike are a spelling rule, proven by tests that run each
+  of those readers on both ("Spelling rules"), and the register holds no
+  entry for them; the loader refuses an `equivalence` field, and an
+  `android` field that cites a class in place of a run.
 - `control` names the entry's control under `proof/controls/`.
 - A manifest entry never names an undecided use: that is a gap in the check.
 
@@ -1546,10 +1581,9 @@ class; the table names it where it shows what the row's other checks do not.
 "Correction n" is the research claim `harness-findings.md` corrects under that
 number.
 
-The rows the lane does not reproduce are in "What the lane does not observe"
-(above): "12, same-type child" and "20, CommTrack", which step 1's decisions
-drop. Every other row has entries, and of their parts only defect 3's
-unknown-question clause is not observed (also there).
+One row is not reproduced: "12, same-type child", whose input no Nova document
+holds ("What the lane does not observe", above). "20, CommTrack", which step 1
+left out the same way, is a row again: Nova's gate admits the read it needs.
 
 | Defect, part | Symptom | Shown by | Documents |
 |---|---|---|---|
@@ -1561,6 +1595,12 @@ unknown-question clause is not observed (also there).
 | 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-state` |
 | 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`) | the bar | a form display condition on the loaded case's status, id, type or owner |
 | 3 | the case properties HQ learns each form writes (`FormBase.get_all_case_updates`) and the data dictionary rows its save writes (`refresh_data_dictionary_from_app`) lack the properties Nova's Save to Case blocks write, and a Vellum save rewrites `case_references_data.save` | intent (HQ); proof 4 | a form with case operations, under a configuration with `save_to_case`, which HQ's refresh requires |
+| 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it | proof 4 (Vellum's report) | `targeted-save-to-case-read` |
+| 4, add-ons | an add-on a person turned on in HQ (`views/apps.py::edit_add_ons`) is gone after Nova's next publish, whose upload writes its own ten, and HQ's module page no longer offers the section | `proof/views/test_add_ons.py` (HQ's page in Chromium) | `search-multiple` |
+| 5, the upload's answers | without the Lookup Tables privilege HQ's upload API answers Nova's push with its "Upgrade Required" page, status 200, and writes nothing; it takes a 32-character tag and fails with a 500 on a 33-character one | `proof/views/test_lookup_upload.py` (HQ's view, to Nova's captured request) | `lookup-app` |
+| 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish does not ask for | `proof/views/test_case_list_offers.py` (HQ's page in Chromium) | `case-list-inline`, `search-multiple`, an expander search document |
+| 14, `both_fixtures` | a device restores the flat location fixture by the app's own choice, and Web Apps by the project space's setting, so with that setting off the same app has its places on Android and none in Web Apps, where its form moves no case (finding 69) | `proof/views/test_location_fixture.py` (HQ's restore view, as a device and as Formplayer ask it) | `location-direct` |
+| 20, CommTrack | Nova's gate admits a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68) | manifest; proof 4, then 2 and 3 | `targeted-supply-point-read` |
 | 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`) | intent (Core); manifest (the instance source Core gives the table) | `targeted-lookup-reserved-tags` |
 | 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified` | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes | `targeted-search-hq-compile` |
 | 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it | intent (Core); manifest | `targeted-time-ordering` |
@@ -1608,15 +1648,12 @@ it corrects, if any.
 1. Settle at source that the class is a defect and which: a numbered one, or a
    new finding in `harness-findings.md` with what goes wrong, its source
    evidence, where its harm shows and what research claim it corrects. A
-   class every reader reads alike is a spelling rule where a test inside
-   the image can run every one of those readers on both spellings (HQ's
-   build, Core, Formplayer, HQ's Connect repeater and Connect), and otherwise
-   (one of its readers is Android, whose code runs in the Android stage
-   alone) an entry marked `equivalence`, filed under the defect or finding
-   whose fix removes it, with the reader held on both spellings in
-   `proof/android/predicates.py`. A difference in what Android reads is an
-   entry of the Android stage (an `android@...` artifact): the stage's
-   failing item prints the class, and
+   class every reader reads alike is a spelling rule, never an entry: its
+   proof runs every one of those readers on both spellings ("Spelling
+   rules"), and where one of them reads the two apart in any state a device
+   or a project space can be in, it is a defect and an entry. A difference
+   in what Android reads is an entry of the Android stage (an `android@...`
+   artifact): the stage's failing item prints the class, and
    `python3 -m proof.android.stage show --out <its output>` lists every
    class with an example.
 2. Name a non-fuzz document that shows it, or write a targeted document that
@@ -1638,21 +1675,19 @@ until a step decides one.
 ## Spelling rules
 
 A spelling rule erases one difference in how an artifact is spelled that no
-reader of it depends on: HQ's build and Core's run, and, for a spelling whose
-readers are others the lane runs, those (Formplayer, HQ's Connect repeater,
-Connect's receiver). The rules are a closed set in
-`proof/rules/`: each is a module, `proof/rules/<rule>.py`, exporting
-`RULE = SpellingRule(id, artifact_glob, description, normalize)`, and `RULES`
-in `proof/rules/__init__.py` lists them in the order the comparators apply
-them. The comparators apply those and no others; the observation compares raw
-builds without them, so registering a rule changes judgments only. A rule that
-holds only under a condition (an empty update only beside other actions, a
-tile cell only outside a custom tile) states the condition in its docstring
-and leaves the artifact as it is elsewhere. A rule reads an XPath expression's
-shape (a path of plain steps, a value that reads no node, the functions it
-calls) only through `proof/rules/_xpath.py`, a port of Core's XPath lexer that
-`proof/rules/test_xpath_reading.py` holds to Core's own parser, and leaves an
-expression the port does not read as it stands.
+reader of it depends on. The rules are a closed set in `proof/rules/`: each is
+a module, `proof/rules/<rule>.py`, exporting
+`RULE = SpellingRule(id, artifact_glob, description, normalize, readers)`, and
+`RULES` in `proof/rules/__init__.py` lists them in the order the comparators
+apply them. The comparators apply those and no others; the observation
+compares raw builds without them, so registering a rule changes judgments
+only. A rule that holds only under a condition (an empty update only beside
+other actions, a tile cell only outside a custom tile) states the condition in
+its docstring and leaves the artifact as it is elsewhere. A rule reads an
+XPath expression's shape (a path of plain steps, a value that reads no node,
+the functions it calls) only through `proof/rules/_xpath.py`, a port of Core's
+XPath lexer that `proof/rules/test_xpath_reading.py` holds to Core's own
+parser, and leaves an expression the port does not read as it stands.
 
 The `setvalue-order` rule also reads the exact
 `format-date(now() or today(), string literal)` shape as reading no node.
@@ -1661,40 +1696,75 @@ rule's proof runs both clock spellings before and after the other actions;
 field reads, nested calls, wrappers and random or uuid date arguments stay
 outside that shape and retain their order.
 
-Each rule has its own proof test, `proof/rules/test_<rule>.py`, run in the
-lane as the `proof/rules` package. It publishes a corpus document into HQ as
-Nova's publish leaves it, writes the app document or a form's source both ways
-in forks of that state (`proof/rules/conftest.py`), and shows that HQ builds
-both alike or, where HQ's build carries the spelling, that Core's sessions
-over both builds and HQ's processing of their submissions compare equal, and
-that the rule erases exactly the spelled difference. Where the rule's
-condition does not hold, the test builds or runs the two spellings there and
-shows that they differ and that the rule leaves them. Where a rule leaves a
-spelling only to stay narrow (a neighbour HQ reads alike, such as a preload's
-`if` condition, or a case the source settles and no corpus document holds,
-such as a `send` between two setvalues), the test shows on the parsed artifact
-that the rule leaves it. `conftest.py`'s `DOCUMENTS` names every corpus
-document the tests read, and its `rule_documents` hands a test those alone.
+**A rule is proven by running every reader of its spelling on both
+spellings.** Each rule has its own proof test, `proof/rules/test_<rule>.py`,
+run in the lane as the `proof/rules` package. It publishes a corpus document
+into HQ as Nova's publish leaves it, writes the app document or a form's
+source both ways in forks of that state (`proof/rules/conftest.py`), and shows
+that HQ builds both alike or, where HQ's build carries the spelling, that
+Core's sessions over both builds and HQ's processing of their submissions
+compare equal, and that the rule erases exactly the spelled difference. Where
+the rule's condition does not hold, the test builds or runs the two spellings
+there and shows that they differ and that the rule leaves them. Where a rule
+leaves a spelling only to stay narrow (a neighbour HQ reads alike, such as a
+preload's `if` condition, or a case the source settles and no corpus document
+holds, such as a `send` between two setvalues), the test shows on the parsed
+artifact that the rule leaves it. `conftest.py`'s `DOCUMENTS` names every
+corpus document the tests read, and its `rule_documents` hands a test those
+alone.
+
+Where the spelling's readers reach past HQ's build and Core, the rule names
+each in `readers`, with the test that runs that reader on both spellings
+(`proof.rules.READERS`):
+
+| Reader | How a rule's test runs it | Where the test is |
+| --- | --- | --- |
+| `formplayer` | each spelling released as HQ's Releases page releases a build and served by HQ's own views; Formplayer's own walk of each, compared by the lane's judge (`conftest.py::served_readings`, `formplayer_differences`) | the rule's own test module |
+| `webapps` | HQ's Web Apps client shown the same walks in Chromium, under HQ's own stylesheets; its screens compared by the lane's judge (`client_differences`) | the rule's own test module |
+| `connect` | HQ's own receiver and Connect repeater forwarding each spelling's submissions to one opportunity in CommCare Connect, whose answers, tasks and rows are compared (`proof.observe.connect`) | the rule's own test module |
+| `android` | both spellings installed on a device and read by commcare-android's own code: the install, every profile reader, the home screen and every walk | a method of `proof/android/predicates.py`, which runs where the reader's runtime is (the `proof-android-runtime` job, on every run) |
+
+`test_closed_set.py` fails while a module is unlisted or untested, while a
+rule names a reader whose test does not exist, and while a rule that reads
+what Formplayer hands on (the `formplayer` artifact, a Formplayer trace as it
+is compared) names no test of the client that reads it. Android's method is
+found by reading `predicates.py`, never by importing it: nothing in the image
+runs it.
+
+The rules whose readers reach past HQ's build and Core:
+
+- **`connect-work-area-empty`** (finding 55): a Vellum save writes an empty
+  `work_area_id` into a Connect deliver unit. Its test writes the form both
+  ways, builds both in HQ, runs Core's sessions and Formplayer's walk over
+  both, and has HQ's own receiver and Connect repeater forward each
+  submission to one opportunity in Connect, which answers and holds the same
+  for both; an id that names a work area is refused by Connect, and the
+  rule leaves it. A device opens, walks and saves the form with the node as
+  without it. Formplayer's traces take the rules for an `instance` (each XML
+  document a trace holds).
+- **`search-description-empty`** (finding 54): the Case List save writes a
+  search description of no text. HQ's build gives the search a
+  `<description>` for it, Formplayer hands the client a non-breaking space
+  where it handed nothing, the client shows no description for either and
+  the same screens throughout, and a device's search screen is the same; a
+  description that holds text is shown, and the rule leaves it.
+- **`tile-vertical-align-start`** (finding 42): the Case List save writes a
+  vertical alignment of `start` into every tile cell. HQ's build writes the
+  attribute, Formplayer hands the client `start` where it handed none, the
+  client computes `align-self: start` for both, and Android's tile lays a
+  text cell and an image cell out the same; `center` moves the cell, and
+  the rule leaves it.
 
 To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
-`RULES` where its artifact's rules apply, and add any document its test reads
-to `DOCUMENTS`. `test_closed_set.py` fails while a module is unlisted or
-untested. A difference no such proof can show equivalent (one of whose
-readers is Android, whose code no test inside the image can run) is not a
-rule: it is a register entry marked `equivalence`, which the Android stage
-shows on every document. When an emitter starts writing the editor's spelling, the
-rule that erased Nova's former spelling goes in the same change.
-
-`connect-work-area-empty` is the rule whose readers reach past HQ's build and
-Core: a Vellum save writes an empty `work_area_id` into a Connect deliver
-unit (finding 55). Its test (`proof/rules/test_connect_work_area_empty.py`)
-writes the form both ways, builds both in HQ, runs Core's sessions and
-Formplayer's walk over both, and has HQ's own receiver and Connect repeater
-forward each submission to one opportunity in Connect, which answers and
-holds the same for both; an id that names a work area is refused by
-Connect, and the rule leaves it. Formplayer's traces take the rules for an
-`instance` (each XML document a trace holds: a form's instance as
-Formplayer hands it back, a submission HQ received).
+`RULES` where its artifact's rules apply, name each reader beyond HQ's build
+and Core with its test, and add any document its test reads to `DOCUMENTS`.
+Two spellings are a rule only where every reader reads them alike in every
+state it can be in: the ten profile settings HQ's settings save writes at
+their readers' defaults read alike on a device that never held another
+value, and apart on one an earlier profile gave another, so they are
+entries and a defect (finding 40), not a rule. When an emitter starts
+writing the editor's spelling, the rule that erased Nova's former spelling
+goes in the same change.
 
 ## The surface extractor
 
@@ -1816,6 +1886,12 @@ reused is only what a key names whole, and the reuse is audited:
 | A document's Web Apps record reads every screen and gives the same bytes | a screen read before its click's answer rendered; an id or a time reaching a screen | `proof/webapps/test_observe.py` |
 | Proof 2 compares everything HQ builds | a file left out | `proof/checks/test_build_files.py`: a file no comparator reads refuses the comparison |
 | Each spelling rule is sound | a rule that hides a real difference | `proof/rules/test_<rule>.py`, and `test_closed_set.py` for an unlisted or untested rule |
+| A rule's readers beyond HQ's build and Core are each run on both spellings | a rule proven for HQ and Core alone that Formplayer, the client, Connect or a device reads apart; a rule naming a test that is not there | `test_closed_set.py` (each named test exists; a rule reading Formplayer's answers names a client test), the named tests of `proof/rules`, and the named methods of `proof/android/predicates.py` |
+| What reads a device's archives is commcare-android's own code at its pin | a reader that answers from something other than the app's classes; a runtime built from another commit; a classpath the app does not ship | `proof/android/selfcheck.py` (the reader held to itself, and a planted difference Android must show), on every run of the `proof-android-runtime` job |
+| Each Android predicate a register entry or a rule rests on holds on both spellings | an entry claiming a harm a device does not show; a rule erasing what a device reads apart | `proof/android/predicates.py`, on every run of the same job |
+| The Android stage reads each archive once and judges like a shard | an archive read twice or never; a planted difference passing; a control judged by another stage's entries | `proof/android/test_stage.py`, `proof/checks/test_android.py` (a stand-in reader, in the lane) |
+| HQ's own pages and views answer a real Nova export | a page read before its bindings ran; a view answered around its decorators; a request other than the one Nova's client sent | `proof/views/test_*.py`: each pairs what it shows with its counterpart (the flag on, the privilege granted, the project setting on) |
+| An aligned source keeps its own spelling | HQ's build of B aligned to A reading a source another way than it reads B's own (its CommTrack test is a substring test on the stored text) | `proof/checks/test_alignment.py` |
 | The register is strict | a fixed defect left listed, or a new failure absorbed | `proof/checks/test_registers.py`: removing any one entry fails |
 | The editor driver saves as HQ does | a page rendered without HQ's template gates | `proof/editors/test_control.py` |
 | A reused page and a warm Vellum host save as fresh ones | state one view or form leaves for the next | `proof/editors/test_view_equivalence.py`, `test_vellum_warm_equivalence.py`, and the in-band audit |
@@ -2711,10 +2787,11 @@ for a unit its option owns; every module and form and the app's own record for
 a language-catalog or Connect-type edit; the modules holding an edited form;
 the module a no-matches registration form is lowered into, and its host
 module) and every entity whose wire Nova derives from what the batch edits;
-the lane runs on arm64; the inputs of two defect rows ("12, same-type child",
-"20, CommTrack") cannot come from a Nova document, so they are not reproduced
-(no other row is dropped: the one clause step 1 is done but for is open, "What
-the lane does not observe"); the `hq-api` family records each view's decorators
+the lane runs on arm64; the input of one defect row ("12, same-type child")
+cannot come from a Nova document, which a test of Nova's planner and gate
+shows, so it is not reproduced (the same was said of "20, CommTrack", whose
+read Nova's gate admits: it is a row again, "What the lane does not
+observe"); the `hq-api` family records each view's decorators
 with their arguments and the module constants a view returns; and the weekly
 pin pull request is opened with the workflow's own token, and the workflow
 never merges.

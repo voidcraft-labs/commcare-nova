@@ -87,18 +87,18 @@ export function supplyPointRead() {
 		expected: {
 			intent: [
 				{
-					id: "no-supply-point-in-the-session",
+					id: "the-session-supply-point-is-read",
 					export: "local",
 					form,
 					restore: "restore.xml",
 					request: {
 						session: {
 							command: "m0-f0",
-							data: { case_id: "targeted-amina" },
+							data: { case_id: "targeted-amina", supply_point_id: "depot-7" },
 						},
 						expressions: ["/data/supply_point"],
 					},
-					expect: [{ pointer: "/values/0/value", value: "" }],
+					expect: [{ pointer: "/values/0/value", value: "depot-7" }],
 				},
 			],
 		},

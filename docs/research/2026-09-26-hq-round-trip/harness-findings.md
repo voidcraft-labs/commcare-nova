@@ -2,11 +2,11 @@
 
 What the proof lane (plan step 1) found that the research did not: the defects
 in Nova its checks show, numbered on from the research's thirty, the research
-claims they proved wrong, and the differences only another runtime reads, which
-no test the lane runs can prove equivalent. Every difference the lane reports is
-held by a register entry (`proof/known-defects.json`), whose `defect` is the
-research's number or one of these; an entry holding a difference every reader
-reads alike says so, and why, in its `equivalence`.
+claims they proved wrong, and the differences every reader reads alike, each
+proven so by tests that run those readers. Every difference the lane reports
+is held by a register entry (`proof/known-defects.json`), whose `defect` is
+the research's number or one of these, or erased by a spelling rule
+(`proof/rules`); the register holds no entry for an equivalence.
 
 The sources are the lane's whole-corpus runs (316 documents, two
 configurations each) after the register round's phase A, sorted at source by
@@ -187,8 +187,7 @@ corpus ids that show the symptom.
     they are absent, but are now forced at every update over a worker's own
     choice (Core's `ProfileInstaller` calls `Profile.initializeProperties`
     with forcing on at every upgrade). Ten more are written at exactly the
-    value their readers take when they are absent and none is a worker's
-    preference, so devices read them alike (`cc-autosync-freq`,
+    value their readers take when they are absent (`cc-autosync-freq`,
     `cc-days-form-retain`, `cc-inflation-target-density`,
     `cc-label-required-questions-with-asterisk`, `cc-login-duration-seconds`,
     `cc-maps-default-layer`, `cc-resize-images`, `logenabled`,
@@ -200,9 +199,13 @@ corpus ids that show the symptom.
     `PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays`,
     `SyncDetailCalculations.unsentFormNumberLimitExceeded` and
     `unsentFormTimeLimitExceeded`; Formplayer's
-    `RestoreFactory.getSyncFreqency`); only Android and Formplayer read
-    them, so no spelling rule can prove it, and they are held with this
-    finding, which removes them too, each entry marked as an equivalence. The research plans the fix (the
+    `RestoreFactory.getSyncFreqency`), all but `cc-maps-default-layer`
+    forced. These ten were held as equivalences, and they are not on every
+    device (see the correction below): Android's settings screen lets a
+    worker change none of them, so a device holds another value of one only
+    from an earlier profile of the app, and such a device keeps that value
+    where the next profile names none and loses it where the next profile
+    forces the default. The research plans the fix (the
     inventory's application settings rows: every setting written explicitly)
     but catalogs no defect.
     *Harm:* the first harmless settings save turns case list search fuzzy,
@@ -210,10 +213,21 @@ corpus ids that show the symptom.
     within 5 metres where it stopped at 10,
     `PollSensorController.onLocationResult`), skips media checks and
     overrides workers' preferences. Run on Android (`proof/android`), each of the three readers
-    gives the changed value on the saved app's build, each of the ten gives
-    the same value on both, and a device whose worker turned text to speech
-    on and chose daily updates reads both back at the profile's values once
-    it updates to the saved app. *Documents:* every document.
+    gives the changed value on the saved app's build, and a device whose
+    worker turned text to speech on and chose daily updates reads both back
+    at the profile's values once it updates to the saved app. Each of the
+    ten gives the same value on both profiles on a device that installs
+    either, or updates to either from Nova's own; on a device an earlier
+    profile gave another value (a login that lasts 100 seconds, logging off,
+    a daily sync, forms kept seven days, one unsent form allowed), an update
+    to the profile that names none keeps it and an update to the saved
+    app's resets every one (`proof/android/predicates.py::
+    test_a_default_forced_over_a_value_an_earlier_profile_gave_replaces_it`).
+    Only a setting a person saved in HQ and Nova's next publish dropped
+    (defect 4) leaves a device in that state, so the ten are that defect's
+    second half: the device kept the person's value, HQ's page showed the
+    default, and the next save of that page, changing nothing, takes the
+    person's value off every device. *Documents:* every document.
 
 41. **The empty-list text goes blank in an app without English.** Nova writes
     no `no_items_text`, so HQ's model default holds `en` alone
@@ -248,11 +262,13 @@ corpus ids that show the symptom.
     image view's default `FIT_CENTER` otherwise); text cells change only in
     right-to-left languages (`EntityViewTile.computeGravity`, Web Apps'
     `getValidFieldAlignment`). The same save writes a vertical alignment of
-    `start` into every cell (`vertical_align`, `@vert-align`), which Android
-    reads as none (`computeGravity` has no case for it) and Web Apps reads
-    absence as; only those two runtimes read it, so no spelling rule can
-    prove it, and it is held with this finding, marked as an equivalence
-    (correction 4). The research's
+    `start` into every cell (`vertical_align`, `@vert-align`), which every
+    reader lays out as it lays out none: Formplayer hands the client `start`
+    where it handed nothing, the client computes `align-self: start` for
+    both, and Android's tile has no case for it. Each of those readers is
+    run on both spellings, so it is the spelling rule
+    `tile-vertical-align-start` and no entry (correction 4, and
+    "Equivalences, each proven by running its readers", below). The research's
     tile bullet (defect 14) names font size and placement only, and its fix
     leaves this. *Documents:* `fuzz-suite-20260930-3`, `-5`, `-7`,
     `targeted-custom-tile`.
@@ -845,6 +861,73 @@ views, Formplayer and the client, on the documents the register names:
   syncs after every claim. The harness's earlier answer for a claim (204,
   "a case the worker already holds") was not what HQ answers.
 
+### Found by running what the lane had left to citations
+
+The lane's README listed, under "What the lane does not observe", harm it
+called out of reach of every system it ran and two inputs it said no Nova
+document could hold. Each was run (`proof/views`, two targeted documents, a
+test of Nova's planner and gate). What that showed beyond the research's own
+statements:
+
+68. **Nova's gate admits a read of the session's supply point, which no
+    session of a Nova app holds.** A hidden value may read
+    `instance('commcaresession')/session/data/supply_point_id`
+    (`proof/targeted/__tests__/unproducedInputs.test.ts`; step 1 had left
+    the row "20, CommTrack" out as an input Nova cannot produce). The
+    manifest holds that read as refused, and nothing in Nova refuses it.
+    *Harm:* the form does not open: Core raises "Logic references
+    instance(commcaresession)/session/data/supply_point_id which is not a
+    valid question or value" as the form loads, on Nova's local archive and
+    on HQ's build alike, and a device shows "Error Occurred" where the form
+    should be. Under CommTrack, HQ gives a form whose stored source holds
+    that path a datum from the worker's `commtrack-supply-point` user data
+    and an assertion that it is there
+    (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, a
+    substring test on the stored text). Nova's export spells the path's
+    apostrophes `&apos;`, so the source Nova uploads does not hold HQ's
+    text and HQ's build of it holds no datum; a save in HQ's form builder
+    writes them plainly, and from then HQ's build holds the datum and the
+    assertion, and a worker with no supply point is refused the form
+    ("This form requires access to the user's location, but none was
+    found."; on a device, "Unrecoverable Error" at home). So whether HQ
+    supplies the datum the form needs turns on how its source is spelled.
+    *Documents:* `targeted-supply-point-read` (the manifest check; proof 4
+    after the Vellum save, in HQ's build, Core's sessions and on Android).
+    The harness itself respelled sources where it aligned B to A, which
+    this document was the first to show (an aligned B held the datum B's
+    own build did not); it now keeps B's own bytes
+    (`proof/observe/alignment.py::renamespace_xform`).
+
+69. **A device and Web Apps read an app's location fixture choice
+    differently.** HQ's restore hands a worker the flat location fixture by
+    the app's `location_fixture_restore` only where the restore names the
+    app (`locations/fixtures.py::should_sync_flat_fixture`,
+    `ota/views.py::restore`). A device restores at the address its
+    profile names, which names the app; Formplayer restores at the address
+    that names none (`RestoreFactory.getUserRestoreUrl`), so for Web Apps
+    HQ asks the project space, whatever the app says. Nova writes
+    `both_fixtures` (defect 14), which HQ's settings page does not offer.
+    *Harm:* in a project space whose flat fixture is off, a Nova app that
+    reads places has them on Android and none in Web Apps, where the form
+    that reads them moves no case; with the setting on, both have them.
+    The research's `project_default` fix makes the two alike. *Documents:*
+    `location-direct` (`proof/views/test_location_fixture.py`, HQ's own
+    restore view asked as a device asks it and as Formplayer asks it).
+
+What the same runs confirmed as the research states it: an add-on a person
+turned on in HQ is gone from HQ's module page after Nova's next publish
+(defect 4, `proof/views/test_add_ons.py`); HQ's Case List page holds the
+control for an inline search, a multi-select list and an excluded search
+input only under `CASE_SEARCH_ADVANCED`, though HQ stores each without it
+(defect 12, `test_case_list_offers.py`); HQ answers Nova's lookup push with
+its "Upgrade Required" page and HTTP status 200 where the plan lacks lookup
+tables, and writes nothing (defect 5, `test_lookup_upload.py`); HQ's form
+builder warns "Unknown question" on a read of a property only a Save to
+Case block writes, and not on the same read of a property an ordinary field
+writes (defect 3, `targeted-save-to-case-read`); and no document can hold a
+basic child case of its own menu's case type, since a write of the menu's
+own type is the menu's own case (`unproducedInputs.test.ts`).
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's
@@ -867,18 +950,30 @@ views, Formplayer and the client, on the documents the register names:
     alone.
     *Documents:* every document.
 
-## Equivalences only another runtime reads
+## Equivalences, each proven by running its readers
 
-These differences are no harm: every runtime that reads them reads both
-spellings alike. One of their readers is Android, whose code no test inside
-the lane's image can run, so no spelling rule's test can prove them alike,
-and the register holds them, each entry marked with its `equivalence`. The
-lane's Android stage now reads each on both spellings and reports no
-difference between them, which is what holds each entry's sentence. Finding 55 is no longer one of them: every reader of its
-spelling is run, so it is a spelling rule. Beside the
-findings below, the entries of findings 40 (ten profile settings written at the
-value their readers take when they are absent) and 42 (a vertical alignment of
-`start`) are marked the same way.
+These differences are no harm: every reader of the spelling reads both
+spellings alike, and tests run each of those readers on both. Each is a
+spelling rule (`proof/rules`), named with the tests that prove it, and the
+register holds no entry for it. A rule's own test builds both spellings in
+HQ, runs Core over both, serves both to Formplayer with HQ's own views and
+shows both to the Web Apps client in Chromium; commcare-android's own code
+installs both in `proof/android/predicates.py`; and where Connect reads the
+spelling, HQ's own repeater forwards both to it.
+
+Three were once held as register entries marked `equivalence`, on the
+ground that one of their readers was Android, which no test in the image
+could run. Android now runs, and what it showed sorted them:
+
+- finding 54 (below) and finding 42's vertical `start` are rules
+  (`search-description-empty`, `tile-vertical-align-start`): Formplayer
+  hands the client another value for each, and the client, a device and
+  Core read both spellings alike;
+- finding 55 (below) is the rule `connect-work-area-empty`;
+- finding 40's ten profile settings are not equivalences. A device that
+  never held another value reads the two profiles alike; a device an
+  earlier profile gave another value reads them apart. They are entries of
+  finding 40, as a defect.
 
 54. **The Case List save writes an empty search description.** HQ's Case
     List page saves the search's description for the page language as the
@@ -896,8 +991,18 @@ value their readers take when they are absent) and 42 (a vertical alignment of
     Formplayer hands that to Web Apps (`QueryResponseBean`), which trims it
     to nothing and shows no description either way
     (`formplayer/menus/views/query.js` and `views.js`, `templateContext`),
-    and Android does not read it. *Harm:* none a worker sees.
-    *Documents:* `case-list-browse` and 72 others.
+    and Android does not read it. *Harm:* none a worker sees. Every reader
+    is run on both spellings: `proof/rules/test_search_description_empty.py`
+    builds both in HQ over a search a menu opens and an inline one, runs
+    Core's sessions through the search, serves both to Formplayer (whose
+    answers differ only in the description, `""` against a non-breaking
+    space) and shows both to the client in Chromium (no description
+    element for either, the same screens throughout, and a description that
+    holds text shown); a device's install, search screen and walks are the
+    same with the element and without (`proof/android/predicates.py::
+    test_a_search_description_changes_nothing_a_device_shows`). So the
+    spelling is the rule `search-description-empty`, and its seven entries
+    left the register. *Documents:* `case-list-browse` and 72 others.
 
 55. **A Vellum save writes an empty work area id into a Connect deliver
     unit.** Nova's Connect deliver unit has no `work_area_id`; Vellum's save
@@ -914,6 +1019,9 @@ value their readers take when they are absent) and 42 (a vertical alignment of
     and Connect repeater, and Connect's receiver, with an id that names a
     work area as the case Connect reads otherwise), so the spelling is the
     rule `connect-work-area-empty` and the register holds no entry for it.
+    A device opens, walks and saves the form with the empty node as without
+    it, and holds the same cases after (`proof/android/predicates.py::
+    test_an_empty_work_area_id_changes_nothing_a_device_shows_or_saves`).
     The lane shows the same on each Vellum save of a deliver form
     (`connect@vellum@…` reports nothing).
     *Documents:* `connect-deliver-custom`, `connect-deliver-default`,
@@ -940,9 +1048,9 @@ value their readers take when they are absent) and 42 (a vertical alignment of
    moves is the sort key a fuzzy search reads (finding 51).
 4. **Defect 14's tile rewrite also aligns cells.** Its fix (a position for
    every column, a size for every cell) leaves the alignment the save writes:
-   defect 42. The vertical alignment it writes (`start`) renders as absence
-   does on both runtimes, but only those runtimes read it, so no spelling
-   rule can prove it, and defect 42 holds it.
+   defect 42. The vertical alignment it writes (`start`) is laid out as
+   absence is by every reader, each run on both spellings, so it is the
+   spelling rule `tile-vertical-align-start`.
 5. **A question named `meta` or `Meta` breaks HQ's build, not only its form
    builder** (defect 15, which names `meta` in any case among the ids Vellum
    refuses). HQ's build removes a data node of either name in the form's own
@@ -1012,7 +1120,38 @@ value their readers take when they are absent) and 42 (a vertical alignment of
     `DateUtils.format` raises on an escape it does not read. Row 2′ now
     refuses only that, and an empty pattern, which shows no date.
 
+12. **Ten of finding 40's settings are not equivalences on every device.**
+    This document held them as differences every reader reads alike. A
+    device that an earlier profile of the app gave another value keeps it
+    where the next profile names none and loses it where the next profile
+    forces the default (run on Android, `proof/android/predicates.py`), so
+    they are entries of finding 40 as a defect.
+13. **`both_fixtures` is not inert in Web Apps because HQ's saves keep it;
+    it is unread there** (README, defect 14). The research says HQ's
+    restore gives the flat fixture to an app whose value is `both_fixtures`
+    without reading the project space's setting. That holds for a restore
+    that names the app, which a device's does; Formplayer's names none
+    (finding 69).
+14. **"Nova cannot produce" a form that reads the session's supply point**
+    (the lane's own step 1 decision, not the research's). Nova's gate
+    admits the read (finding 68).
+15. **HQ's upload does not stop at 32 characters by refusing a longer tag.**
+    The research says HQ's upload reads a 32-character sheet name, which it
+    does. A 33-character tag is not refused: the upload checks no length,
+    its column holds 32 characters, and the view fails with a database
+    error HQ answers as a 500. So removing Nova's 31-character cap needs a
+    cap of 32 in its place, held by Nova.
+
 ## What HQ does itself
+
+HQ's lookup table upload API answers a successful upload with its message
+split one character a line (`fixtures/upload/definitions.py::
+FixtureUploadResult.get_display_message` splits its text on a pattern that
+matches the empty string), and names its "Upgrade Required" fallback a 402
+in its own comment while answering 200
+(`accounting/decorators.py::requires_privilege_with_fallback`).
+`fixtures/const.py::LOOKUP_TABLE_TAG_MAX_LENGTH` is 31, which HQ's own table
+page enforces and its upload does not.
 
 An ID-mapping cell reads with a leading space for every entry but the first:
 HQ joins every entry's text with a space

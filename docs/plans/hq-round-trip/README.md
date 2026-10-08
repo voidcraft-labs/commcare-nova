@@ -11,7 +11,7 @@ changes" table.
 
 | Step | Plan | Depth |
 |---|---|---|
-| 1 | The manifest and the harness | done but for one clause (below): [`proof/README.md`](../../../proof/README.md) |
+| 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
 | 2 | [Emission and publish fixes](2-emission-and-publish.md) | work items, planned in full next |
 | 3 | [Expressions](3-expressions.md) | outline |
 | 4 | [Platforms](4-platforms.md) | outline |
@@ -19,7 +19,7 @@ changes" table.
 | 6 | [Import](6-import.md) | outline |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline |
 
-## Step 1 is done but for one clause
+## Step 1 is done
 
 Step 1 built the evidence every later step stands on, and its plan has left
 this directory. What endures lives where it is read:
@@ -31,30 +31,41 @@ this directory. What endures lives where it is read:
   reads its flags' identities from the gate entries, and the weekly pin pull
   request (`.github/workflows/upstream-pins.yml`) brings upstream changes in
   as one reviewed pull request.
-- **The proof lane**, `proof/`: HQ's own import, build, case processing and
-  editors, and CommCare Core's runtime, at the pinned commits, over a
-  reproducible corpus, on every pull request. `proof/README.md` holds what it
-  proves (the bar, the intent, manifest and sensitivity checks, proofs 1 to
-  5), the corpus, the registers, the spelling rules, the defect rows of the
-  plan's work item 12, and step 1's decisions; `proof/CLAUDE.md` holds the
-  rules that bind changes to it; `docs/architecture/contracts.md` the delivery
+- **The proof lane**, `proof/`: CommCare's own code reading Nova's exports at
+  the pinned commits, over a reproducible corpus, on every pull request:
+  HQ's import, build, case processing, editors, receiver, restore, search
+  views and Connect repeater; CommCare Core's runtime; Formplayer's own
+  application; HQ's Web Apps client in Chromium; CommCare Connect's own
+  server; and commcare-android's own code, in a stage of its own.
+  `proof/README.md` holds what it proves (the bar, the intent, manifest and
+  sensitivity checks, proofs 1 to 5, each judged over every reader), the
+  corpus, the registers, the spelling rules, the defect rows of the plan's
+  work item 12, and step 1's decisions; `proof/CLAUDE.md` holds the rules
+  that bind changes to it; `docs/architecture/contracts.md` the delivery
   contract it enforces.
 - **The known-defect register**, `proof/known-defects.json`: one entry per
   symptom the lane reproduces, each with its document and its retained
-  control. Its `defect` is the research's number or one of the harness's own
-  findings, numbered from 31 in
+  control, each resting on a record a real reader made (an entry of a
+  reader names it in its artifact: `formplayer@`, `webapps@`, `connect@`,
+  `android@`). Its `defect` is the research's number or one of the
+  harness's own findings, numbered from 31 in
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
-  which also records the research claims the harness corrected.
+  which also records the research claims the harness corrected. It holds no
+  entry for an equivalence: two spellings every reader reads alike are a
+  spelling rule, proven by tests that run each of those readers on both.
 
-`proof/README.md` ("What the lane does not observe") names every part of a
-defect the lane does not reproduce, and why. A part whose harm is in no system
-the lane runs was never one of step 1's rows: the step that fixes it proves it
-with tests of its own. Two rows' inputs cannot come from a Nova document, and
-step 1's decisions drop them ("12, same-type child", "20, CommTrack"). Every
-other row of its defect table has register entries that reproduce on their
-controls, and one clause of a row shows nowhere: defect 3's unknown-question
-warnings, which no corpus document draws. Step 2's work item H takes it up
-before defect 3's fix is planned in full.
+Every row of step 1's defect table now has register entries that reproduce on
+their controls or a test that runs HQ's own page or view over a Nova export
+(`proof/views`), with one exception that a test settles the other way:
+"12, same-type child", whose input no Nova document holds
+(`proof/targeted/__tests__/unproducedInputs.test.ts`). The clause step 1 was
+once done but for, defect 3's unknown-question warning, shows on
+`targeted-save-to-case-read`; and "20, CommTrack", which step 1 had left out
+as an input Nova cannot produce, is a row again, since Nova's gate admits the
+read it needs (finding 68). `proof/README.md` ("What the lane does not
+observe") names what is still not run, each with the reader that would
+settle it: none is out of reach, and step 2's work takes each up where it
+fixes the defect it belongs to.
 
 ## Why each later step is planned when the one before it exits
 

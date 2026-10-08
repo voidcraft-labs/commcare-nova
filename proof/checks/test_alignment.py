@@ -121,3 +121,27 @@ def test_renamespacing_moves_only_the_data_namespace(document):
         back = renamespace_xform(moved, old)
         assert etree.tostring(etree.fromstring(back), method="c14n2") == etree.tostring(original, method="c14n2"), name
         assert etree.tostring(etree.fromstring(back)) == etree.tostring(original), name
+
+
+def test_renamespacing_keeps_the_sources_own_spelling_where_only_the_namespace_moves():
+    """Contract: an aligned source is B's own bytes with the data namespace's name replaced, so what HQ reads of
+    a stored source as text (its CommTrack test for the session's supply point is a substring test) reads the
+    same before and after the alignment. Failure it catches: a source written again by a serializer, whose
+    apostrophes are spelled another way, so HQ's build of the aligned app held a datum B's own build does not.
+    The counterpart: where the namespace's name is also part of something else the source holds, the bytes
+    with it replaced are another document, and the structural rewrite is what is returned."""
+    old, new = "http://openrosa.org/formdesigner/b", "http://openrosa.org/formdesigner/a"
+    source = (
+        '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model>'
+        f'<instance><data xmlns="{old}"><held/></data></instance>'
+        '<bind nodeset="/data/held" calculate="instance(&apos;commcaresession&apos;)/session/data/supply_point_id"/>'
+        "</model></h:head></h:html>"
+    )
+    moved = renamespace_xform(source, new).decode("utf-8")
+    assert moved == source.replace(old, new)
+    assert "instance(&apos;commcaresession&apos;)" in moved
+
+    naming = source.replace("<held/>", f"<held>{old}</held>")
+    rewritten = etree.fromstring(renamespace_xform(naming, new))
+    held = next(element for element in rewritten.iter() if etree.QName(element).localname == "held")
+    assert (etree.QName(held).namespace, held.text) == (new, old)
