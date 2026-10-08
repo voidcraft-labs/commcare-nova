@@ -95,7 +95,7 @@ export function prepareToolOptionsSource(
 	source: ProjectedOptionsSource,
 	previous?: SelectOptionsSource,
 ): SelectOptionsSource {
-	if (source.kind === "lookup") return source;
+	if (source.kind !== "inline") return source;
 	const existing = previous?.kind === "inline" ? previous.options : [];
 	return {
 		kind: "inline",

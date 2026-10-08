@@ -77,6 +77,8 @@ export { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
 /** Form-submission-only XPath bindings for identity-backed expression leaves. */
 export interface OnDeviceExpressionBindings {
 	readonly formFields?: ReadonlyMap<Uuid, string>;
+	/** Selected form record, independent of any candidate-row scope. */
+	readonly formCaseProperty?: (caseType: string, property: string) => string;
 	readonly operationIds?: ReadonlyMap<Uuid, string>;
 	/** Case-id expression that replaces `current()/@case_id` at a form
 	 *  expression's root. Related-case predicate scopes intentionally ignore
@@ -344,6 +346,13 @@ export function emitTerm(
 	casePropertyScope: "root" | "related" = "root",
 ): string {
 	switch (term.kind) {
+		case "form-case": {
+			if (!context.formCaseProperty)
+				throw new Error(
+					"Selected form record is unavailable in this expression context.",
+				);
+			return context.formCaseProperty(term.caseType, term.property);
+		}
 		case "prop": {
 			if (
 				context.emitSelfProperty !== undefined &&
@@ -689,6 +698,7 @@ export function emitTermSegment(
 		}
 		case "session-context":
 			return { kind: "runtime", xpath: emitSessionContextXPath(t) };
+		case "form-case":
 		case "field":
 			throw new Error(
 				"emitTermSegment: form-field terms are form-submission values and cannot be emitted into server-side CSQL.",

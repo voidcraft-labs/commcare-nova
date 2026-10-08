@@ -106,7 +106,10 @@ export function resolveCaseListTemporalType(
 	const authored = checkExpression(expression, context, errors, []);
 	if (errors.length !== 0) return undefined;
 	const portable = inferStructuralTemporalType(expression, (term) => {
-		if (term.kind === "prop" && isCalendarCaseProperty(term.property))
+		if (
+			(term.kind === "prop" || term.kind === "form-case") &&
+			isCalendarCaseProperty(term.property)
+		)
 			return "date";
 		return asTemporalType(
 			checkExpression({ kind: "term", term }, context, [], []),

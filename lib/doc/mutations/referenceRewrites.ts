@@ -93,7 +93,21 @@ export function rewriteFieldReferenceSlots(
 			case "lookup-carrier": {
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.kind === "cases"
+				) {
+					const source = field.optionsSource;
+					const next = ops.resolveCaseProperty(
+						source.caseType,
+						source.labelProperty,
+					);
+					if (next !== undefined && next !== source.labelProperty) {
+						source.labelProperty = next;
+						changed++;
+					}
+				}
+				if (
+					(field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource.kind !== "inline" &&
 					field.optionsSource.filter !== undefined
 				) {
 					changed += mapCasePropertiesInPredicate(

@@ -134,6 +134,8 @@ export type TypeContext = {
 	currentCaseType?: string;
 	/** Form-local values admitted only by form-scoped expression surfaces. */
 	formFields?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
+	/** Selected form record and readable ancestors. Absent outside choice filters. */
+	formCaseTypes?: ReadonlySet<string>;
 	/** Create-operation ids admitted only after their producer is in scope. */
 	operationIds?: ReadonlySet<Uuid>;
 	/** Submission-local owner sentinels admitted only by owner-value slots. */
@@ -632,7 +634,8 @@ function checkComparison(
 const CASE_STATUS_VALUES = new Set(["open", "closed"]);
 
 function directProperty(expression: ValueExpression): string | undefined {
-	return expression.kind === "term" && expression.term.kind === "prop"
+	return expression.kind === "term" &&
+		(expression.term.kind === "prop" || expression.term.kind === "form-case")
 		? expression.term.property
 		: undefined;
 }
@@ -1615,6 +1618,22 @@ export function resolveTermType(
 	path: CheckPath,
 ): ResolvedType | undefined {
 	switch (term.kind) {
+		case "form-case": {
+			if (!ctx.formCaseTypes?.has(term.caseType)) {
+				errors.push({
+					path,
+					code: "property-scope",
+					message: `Form record '${term.caseType}' is not available in this scope.`,
+				});
+				return undefined;
+			}
+			return resolveTermType(
+				{ ...term, kind: "prop" },
+				{ ...ctx, currentCaseType: term.caseType },
+				errors,
+				path,
+			);
+		}
 		case "prop": {
 			// `caseType` names the originating scope (the predicate's
 			// "self" position), per the contract on

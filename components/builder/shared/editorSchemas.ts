@@ -175,6 +175,7 @@ export interface PredicateEditContext {
 	/** Form answers this slot may read, already narrowed to the ones its
 	 *  surface admits. Absent means the slot reads no form answers. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly formCaseTypes?: ReadonlySet<string>;
 	/** Rows-free definitions used to resolve lookup identities and types. */
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	/** The active lookup row; direct table-column terms are authorable only

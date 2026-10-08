@@ -3,6 +3,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 
+import {
+	caseChoiceDoc,
+	caseChoiceSnapshot,
+	choiceUuid,
+} from "@/lib/__tests__/caseChoiceFixture";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
@@ -872,6 +877,67 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
+		"case-choices": async () => {
+			const { appId, baseSeq } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: "Clinic attendance", status: "complete" },
+			);
+			const doc = caseChoiceDoc();
+			doc.appId = appId;
+			const blueprint = toPersistableDoc(doc);
+			await appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: baseSeq,
+				targetDoc: blueprint,
+				authority: { kind: "user", actorUserId: SEED.userId },
+			});
+			await materializeCaseStoreSchemas({
+				appId,
+				blueprint,
+				syncedSeq: baseSeq + 1,
+			});
+			const rows = caseChoiceSnapshot().rows;
+			const ids = new Map(rows.map((row) => [row.case_id, randomUUID()]));
+			for (const row of rows)
+				await caseStore.insert({
+					appId,
+					row: {
+						case_id: ids.get(row.case_id),
+						case_type: row.case_type,
+						case_name: row.case_name,
+						status: row.status,
+						parent_case_id: row.parent_case_id
+							? ids.get(row.parent_case_id)
+							: null,
+						properties: row.properties,
+					},
+				});
+			const route = (module: string, form?: string, field?: string) =>
+				buildUrl(
+					`/build/${appId}`,
+					form
+						? {
+								kind: "form",
+								moduleUuid: choiceUuid(module),
+								formUuid: choiceUuid(form),
+								...(field ? { selectedUuid: choiceUuid(field) } : {}),
+							}
+						: { kind: "module", moduleUuid: choiceUuid(module) },
+				);
+			return {
+				caseChoices: {
+					appId,
+					routes: {
+						directory: route("directory-module", "directory"),
+						clinic: route("directory-module", "directory", "clinic"),
+						attendance: route("attendance-module"),
+					},
+				},
+			};
+		},
+
 		"previous-task": async () => {
 			const { appId, baseSeq } = await createExplicitBlankApp(
 				SEED.userId,

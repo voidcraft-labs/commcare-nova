@@ -99,6 +99,7 @@ export interface ExpressionEditContext {
 	/** Form answers this slot may read, already narrowed to the ones its
 	 *  surface admits. Absent means the slot reads no form answers. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own

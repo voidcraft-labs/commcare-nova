@@ -1275,3 +1275,12 @@ form-preload accessors remain unchanged. Calculated columns use the same
 portable SQL context, and their display type follows value branches without
 changing authored admission. A custom datetime retains its clock; metadata
 columns cannot recover time by adding a clock pattern.
+
+Case-backed single/multiple-choice questions join the same choices DAG and
+retention path as table choices. They require the existing device-scoped captured
+case database even without a filter. The shared itemset emitter runs through the
+ordinary XPath worker; the engine indexes its existing immutable secondary case
+nodes once for labels. It does not fetch Project-wide cases, approximate ownership,
+clone the snapshot per candidate or interpret predicates in another evaluator.
+Absent snapshot remains loading; an available empty snapshot produces no choices;
+evaluation errors use the existing runtime error boundary.

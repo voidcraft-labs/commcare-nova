@@ -14,6 +14,7 @@ import {
 	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
+import { formRecordScope } from "@/lib/domain/formRecordScope";
 import {
 	type CheckError,
 	checkRelationPath,
@@ -61,8 +62,27 @@ export function authoringValueScope(
 	path: readonly (string | number)[],
 	searchValidation = false,
 ): AuthoringScope {
+	let enclosing = input;
+	let candidateCaseType: string | undefined;
+	for (const segment of path) {
+		if (enclosing !== null && typeof enclosing === "object") {
+			if (
+				"kind" in enclosing &&
+				enclosing.kind === "cases" &&
+				"caseType" in enclosing &&
+				typeof enclosing.caseType === "string"
+			)
+				candidateCaseType = enclosing.caseType;
+			enclosing = (enclosing as Record<string | number, unknown>)[segment];
+		}
+	}
 	return new AuthoringScope({
 		...options,
+		...(candidateCaseType && {
+			candidateCaseType,
+			selectedCaseType: options.currentCaseType,
+			currentCaseType: candidateCaseType,
+		}),
 		tableId: enclosingAuthoringTable(input, path, options.tableId),
 		...(searchValidation &&
 			path.some((part) => part === "required" || part === "validation") && {
@@ -84,6 +104,8 @@ export interface AuthoringScopeOptions {
 	locations?: readonly { uuid: Uuid; name: string; siteCode?: string }[];
 	operations?: readonly { uuid: Uuid; name: string }[];
 	tableId?: string;
+	candidateCaseType?: string;
+	selectedCaseType?: string;
 	patternMatching?: true;
 	ownerValues?: boolean;
 }
@@ -151,6 +173,10 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		this.typeContext = {
 			caseTypes: [...(options.caseTypes ?? effectiveCaseTypes(doc))],
 			currentCaseType: options.currentCaseType,
+			...(options.candidateCaseType &&
+				formUuid && {
+					formCaseTypes: formRecordScope(doc, formUuid).caseTypes,
+				}),
 			patternMatching: options.patternMatching,
 			ownerValues: options.ownerValues,
 			knownInputs: [...this.inputs],
@@ -253,6 +279,28 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			throw new AuthoringInputError(
 				`Worker information ${name} is not declared. Choose an app worker property, session('userid') or session('username') for built-in identity, or external-user(${quote(name)}) for custom data supplied outside this app.`,
 			);
+		}
+		if (
+			value === "row" &&
+			this.options.candidateCaseType &&
+			!this.options.tableId
+		) {
+			return termSchema.parse({
+				kind: "prop",
+				caseType: this.typeContext.currentCaseType,
+				property: name,
+			});
+		}
+		if (
+			this.options.candidateCaseType &&
+			(value === "case" || this.typeContext.formCaseTypes?.has(value))
+		) {
+			const caseType = value === "case" ? this.options.selectedCaseType : value;
+			if (!caseType || !this.typeContext.formCaseTypes?.has(caseType))
+				throw new AuthoringInputError(
+					"This form has no selected record in that scope.",
+				);
+			return termSchema.parse({ kind: "form-case", caseType, property: name });
 		}
 		if (value === "row") {
 			if (!this.options.tableId)
@@ -396,6 +444,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		});
 	}
 	private printReference(term: Term): string | undefined {
+		if (term.kind === "form-case")
+			return `#${term.caseType === this.options.selectedCaseType ? "case" : term.caseType}/${term.property}`;
 		if (term.kind === "field") {
 			const field = this.fields.find(
 				(field) =>
@@ -421,7 +471,9 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			!term.via &&
 			term.caseType === this.typeContext.currentCaseType
 		)
-			return `#case/${term.property}`;
+			return this.options.candidateCaseType && this.options.tableId
+				? `#record/${term.caseType}/${term.property}`
+				: `#${this.options.candidateCaseType ? "row" : "case"}/${term.property}`;
 		if (term.kind === "table-column" && term.tableId === this.options.tableId) {
 			const column = this.table(term.tableId).columns.find(
 				(column) => column.id === term.columnId,

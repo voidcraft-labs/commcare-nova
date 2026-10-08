@@ -54,6 +54,7 @@ import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
+import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { formDisplayCondition } from "./displayConditions";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
 import {
@@ -1083,6 +1084,7 @@ export function runFormRules(
 	if (lookupTables !== undefined) {
 		errors.push(
 			...validateLookupOptionsSources(doc, formUuid, moduleUuid, lookupTables),
+			...validateCaseOptionsSources(doc, formUuid, moduleUuid, lookupTables),
 		);
 	}
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));

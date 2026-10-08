@@ -209,3 +209,18 @@ When the controls need more space, document actions move to a row beneath them.
 A wider Preview language and worker group can use its own row as well. Controls
 keep their touch targets and identity when the layout changes; resizing must not
 restart saving or dismiss an account control by rebuilding it.
+
+## Choices from existing records
+
+The question's choice-source control names **Cases available to the worker**
+alongside typed choices and Project data. Switching sources stages one complete
+replacement with Apply and Cancel. Record type and visible label belong together;
+the saved ID is explained once and is never a configurable value field. New
+sources visibly start with an open-record rule. Removing the rule explicitly
+offers all available records, including closed records still on the device.
+
+The filter editor distinguishes candidate record information from selected form
+record information. A children-of-selected-record shortcut is available only when
+the form selects one parent and the source type declares that relationship. Copy
+describes availability and filtering without implying that a choice list fetches
+cases, grants access, or translates saved record names.

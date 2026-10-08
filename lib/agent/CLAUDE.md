@@ -221,3 +221,11 @@ with a retained checkpoint even if its prose is optimistic. An ordinary new
 user turn can create one deterministic successor bound to current revisions;
 reconnect/holder replacement cannot. See `docs/architecture/agent-authoring.md`
 for lineage, immutable original-call receipts and the diagnostic evaluator policy.
+
+Case-backed question choices use the shared select-source schema in add/edit/set
+operations and shared reads. Tool preparation defaults labelProperty to case_name;
+values are always exact record IDs. In this source's filter, #row reads the
+candidate, #case reads the form's scalar selected record, and typed selected
+ancestor references retain that distinct meaning through read/edit round trips.
+The shared-data authoring guide describes restore scope and stable-roster checklist
+updates. Filters do not expand worker access.

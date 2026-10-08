@@ -1615,6 +1615,7 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 				: true;
 		case "prop":
 			return value.term.property.length > 0 || value.term.via !== undefined;
+		case "form-case":
 		case "field":
 			return true;
 		case "input":

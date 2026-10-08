@@ -245,6 +245,10 @@ export function compileTerm(
 	ctx: TermCompileContext,
 ): AliasableExpression<unknown> {
 	switch (term.kind) {
+		case "form-case":
+			throw new Error(
+				"Selected form records are unavailable in a server case query.",
+			);
 		case "prop":
 			return compilePropertyRef(term, ctx);
 		case "literal":

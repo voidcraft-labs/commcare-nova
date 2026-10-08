@@ -103,6 +103,8 @@ export function queryPrinter(context: QueryPrintContext) {
 		switch (value.kind) {
 			case "literal":
 				return literal(value);
+			case "form-case":
+				return `#${value.caseType}/${value.property}`;
 			case "prop":
 				return value.via === undefined
 					? call("property", quote(value.caseType), quote(value.property))

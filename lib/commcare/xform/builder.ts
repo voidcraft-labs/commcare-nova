@@ -1,3 +1,5 @@
+import { caseOptionsNodeset } from "../caseOptions";
+import { emitCasePropertyWirePath } from "../casePropertyWire";
 import { repeatCountNodeName } from "./repeatCountNode";
 /**
  * XForm XML emitter.
@@ -1422,10 +1424,49 @@ function buildFieldParts(
 	// itext id, plus an optional `<hint>` and `<help>` (each emitted when its
 	// text or media slot is present). The control element + any kind-specific
 	// attributes are decided by `buildLeafControl`.
-	const itemset =
-		lookupSource !== undefined && lookupSelects !== undefined
-			? buildLookupItemset(lookupSource, lookupSelects, nodePath, instances)
+	const caseSource =
+		(field.kind === "single_select" || field.kind === "multi_select") &&
+		field.optionsSource.kind === "cases"
+			? field.optionsSource
 			: undefined;
+	let caseItemset: Element | undefined;
+	if (caseSource) {
+		instances.require("casedb");
+		const nodeset = caseOptionsNodeset(caseSource, effectiveCaseTypes(doc), {
+			formFields: lookupSelects?.filterFieldPaths(nodePath),
+			formCaseProperty: (caseType, property) =>
+				expand(`#${caseType}/${property}`),
+			userPropertySlugs: userPropertySlugsByUuid(doc),
+			...(lookupSelects?.naming && {
+				lookup: {
+					naming: lookupSelects.naming,
+					instanceScope: "xform" as const,
+				},
+			}),
+		});
+		if (caseSource.filter)
+			for (const id of collectPredicateInstances(
+				caseSource.filter,
+				lookupSelects?.naming,
+				"xform",
+			)) {
+				if (id === "casedb" || id === "commcaresession") instances.require(id);
+				else
+					instances.requireFixture(
+						id,
+						instanceSourceFor(id, lookupSelects?.naming),
+					);
+			}
+		caseItemset = el("itemset", { nodeset }, [
+			el("label", { ref: emitCasePropertyWirePath(caseSource.labelProperty) }),
+			el("value", { ref: "@case_id" }),
+		]);
+	}
+	const itemset =
+		caseItemset ??
+		(lookupSource !== undefined && lookupSelects !== undefined
+			? buildLookupItemset(lookupSource, lookupSelects, nodePath, instances)
+			: undefined);
 	bodyElements.push(
 		buildLeafControl(
 			field,
@@ -1465,7 +1506,7 @@ function buildFieldParts(
  * path.
  */
 interface LookupSelectEmissionKit {
-	readonly naming: LookupWireNaming;
+	readonly naming: LookupWireNaming | undefined;
 	readonly userPropertySlugs: ReadonlyMap<Uuid, string>;
 	readonly filterFieldPaths: (
 		questionPath: FormPath,
@@ -1478,8 +1519,7 @@ function deriveLookupSelectKit(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	naming: LookupWireNaming | undefined,
-): LookupSelectEmissionKit | undefined {
-	if (naming === undefined) return undefined;
+): LookupSelectEmissionKit {
 	let fieldLocations: ReadonlyMap<Uuid, FieldLocation> | undefined;
 	return {
 		naming,
@@ -1509,6 +1549,8 @@ function buildLookupItemset(
 	nodePath: FormPath,
 	instances: InstanceTracker,
 ): Element {
+	if (!lookupSelects.naming)
+		throw new Error("Lookup choices need a wire naming catalog.");
 	const table = lookupSelects.naming.tableFor(source.tableId);
 	instances.requireFixture(
 		table.xformInstanceId,

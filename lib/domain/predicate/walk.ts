@@ -341,7 +341,11 @@ export function walkPropertyRefs(
 export function expressionReadsCaseData(expression: ValueExpression): boolean {
 	let readsCaseData = false;
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
+		if (
+			term.kind === "prop" ||
+			term.kind === "form-case" ||
+			term.kind === "owner-location-at-level"
+		) {
 			readsCaseData = true;
 		}
 	});
@@ -366,7 +370,11 @@ export function expressionReadsCaseData(expression: ValueExpression): boolean {
 export function predicateReadsCaseData(predicate: Predicate): boolean {
 	let readsCaseData = false;
 	walkTerms(predicate, (term) => {
-		if (term.kind === "prop" || term.kind === "owner-location-at-level") {
+		if (
+			term.kind === "prop" ||
+			term.kind === "form-case" ||
+			term.kind === "owner-location-at-level"
+		) {
 			readsCaseData = true;
 		}
 	});
