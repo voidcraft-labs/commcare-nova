@@ -1090,6 +1090,15 @@ from HQ's webpack configuration.
   `Date` reads HQ's epoch, `Math.random` and `crypto.getRandomValues` draw
   from a generator seeded from the run's spec, and the origin's storage and
   cookies are cleared before each load.
+- **Polls** (`driver/steps/page/polls.js`, `test_polls.py`): every document
+  of every page the driver opens, seeded or not, holds each repeating timer
+  of ten seconds or more. HQ's app manager asks `current_app_version` every
+  20 seconds of real time (`app_manager/js/menu.js`), so a slow run's
+  records gained a second check, and on a loaded runner one landed while an
+  App Settings section's save was in flight and the writes-alone guard
+  refused the view (`ConcurrentWrite`). The check the page makes as it
+  loads still runs, and so do shorter repeating timers and every one-off
+  timer.
 - **Transcripts** (`transcripts.py`): a view or Vellum run keeps what it asked
   HQ and what it showed. A replay has HQ answer every recorded request again
   and stands for a live run only when every answer is byte for byte the one
@@ -1885,6 +1894,7 @@ reused is only what a key names whole, and the reuse is audited:
 | A unit's branches are fresh states | a restore that leaves a row, a sequence, a document or a blob behind | `proof/hq/test_branches.py`, against fresh databases |
 | A seam changes only what it names | a flag read leaking from one check into another | `proof/hq/test_seams.py` |
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
+| What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends; `proof/hq/test_publish_capture.py`: an update applies only over the profile it was built from |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |

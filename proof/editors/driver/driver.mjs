@@ -44,7 +44,8 @@
 //   until the redirected document has loaded) and "settle" (until none of
 //   the page's requests is in flight, a frame and a task later still). With
 //   "seed" ({seed, epoch}) the context runs steps/page/seed.js before each
-//   document's own scripts.
+//   document's own scripts. Every document of every page the driver opens
+//   first runs steps/page/polls.js, which holds the page's polls.
 // - "view": one load of an app-manager page on the driver's reused view
 //   page, every offered section's save held and then released into its own
 //   phase (see below).
@@ -677,6 +678,11 @@ class ReusedPage {
 		// The seed script is added through this session, which runs it only
 		// with the Page domain on.
 		await cdp.send("Page.enable");
+		// Every document of the page holds its polls (steps/page/polls.js),
+		// whatever seed a load then adds.
+		await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+			source: stepCall("page/polls"),
+		});
 		const inFlight = await PageRequests.attach(cdp, () =>
 			this.serving?.notify(),
 		);
@@ -2286,6 +2292,7 @@ async function runOperation(message) {
 				cookies.map(({ name, value }) => ({ name, value, url: ORIGIN })),
 			);
 		}
+		await context.addInitScript({ content: stepCall("page/polls") });
 		if (message.seed) {
 			await context.addInitScript({
 				content: stepCall("page/seed", message.seed),
