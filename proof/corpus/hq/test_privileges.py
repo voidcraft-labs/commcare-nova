@@ -37,7 +37,7 @@ ODK = "http://opendatakit.org/xforms"
 VELLUM = "http://commcarehq.org/xforms/vellum"
 
 
-def source(*, instances=(), intents=(), role=None, lock=None, appearance=None):
+def source(*, instances=(), intents=(), role=None, lock=None, appearance=None, itemset=False):
     """A one-question form source holding the content under test."""
     from lxml import etree
 
@@ -61,10 +61,14 @@ def source(*, instances=(), intents=(), role=None, lock=None, appearance=None):
     for intent in intents:
         etree.SubElement(head, f"{{{ODK}}}intent", id=f"intent-{len(intent)}", **{"class": intent})
     body = etree.SubElement(html, f"{{{XHTML}}}body")
-    control = etree.SubElement(body, f"{{{XFORMS}}}input", ref="/data/name")
+    control = etree.SubElement(body, f"{{{XFORMS}}}{'select1' if itemset else 'input'}", ref="/data/name")
     if appearance is not None:
         control.set("appearance", appearance)
     etree.SubElement(control, f"{{{XFORMS}}}label").text = "Name"
+    if itemset:
+        choices = etree.SubElement(control, f"{{{XFORMS}}}itemset", nodeset="instance('casedb')/casedb/case")
+        etree.SubElement(choices, f"{{{XFORMS}}}label", ref="case_name")
+        etree.SubElement(choices, f"{{{XFORMS}}}value", ref="@case_id")
     return etree.tostring(html, encoding="unicode")
 
 
@@ -87,6 +91,14 @@ def _usercase(factory, module, form):
 
 def _lookup_source(factory, module, form):
     form.source = source(instances=[("regions", "jr://fixture/item-list:regions")])
+
+
+def _case_instance(factory, module, form):
+    form.source = source(instances=[("casedb", "jr://instance/casedb")])
+
+
+def _case_itemset(factory, module, form):
+    form.source = source(instances=[("casedb", "jr://instance/casedb")], itemset=True)
 
 
 def _custom_intent(factory, module, form):
@@ -160,6 +172,8 @@ CASES = [
     ("user_case", _usercase, ["USERCASE"], False),
     ("lookup_tables_form", _lookup_source, ["LOOKUP_TABLES"], False),
     ("lookup_tables_push", None, ["LOOKUP_TABLES"], True),
+    ("case_itemset", _case_itemset, ["LOOKUP_TABLES"], False),
+    ("case_instance_without_itemset", _case_instance, [], False),
     ("custom_intents", _custom_intent, ["CUSTOM_INTENTS"], False),
     ("templated_intents", _templated_intent, ["TEMPLATED_INTENTS"], False),
     ("child_cases", _child_case, ["CHILD_CASES"], False),

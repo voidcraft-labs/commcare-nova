@@ -1407,3 +1407,8 @@ source. Core's ItemSetUtils::populateDynamicChoices evaluates the nodeset in the
 question context and the label/value in each candidate context; CaseInstanceTreeElement
 reads local case storage. The native case-choice family checks CCZ and HQ-regenerated
 forms with duplicate names, changed earlier answers and final-only attendance effects.
+
+Vellum's `src/itemset.js::Itemset.itemsetData.validationFunc` requires the
+`lookup_tables` privilege for every dynamic itemset, including casedb sources.
+HQ's build-only `FormBase.has_fixtures` check does not detect those; the proof
+configuration derives the editor privilege from the emitted itemset element too.
