@@ -24,6 +24,15 @@ comparators for what HQ stores, ``proof.checks.compare.trace`` for traces,
 explicitly: none for what the spelling must not change, the rule alone for
 what it erases.
 
+Where a spelling's readers reach past HQ's build and Core (a rule's
+``readers``, ``proof.rules.READERS``), the rule's test also serves each
+spelling as HQ serves an app to Web Apps and reads it with those readers
+(``served_readings``): Formplayer's own walk of the release, answered by
+HQ's own views, and the Web Apps client's screens on that walk, compared by
+the lane's own judges (``formplayer_differences``, ``client_differences``).
+CommCare Android's reading of the two spellings is a method of
+``proof/android/predicates.py``, where its runtime is.
+
 ``DOCUMENTS`` names every corpus document a rule's test reads, which keys the
 package's outcome in the evidence store (``proof.store.queue.PACKAGE_DATA``).
 """
@@ -53,6 +62,7 @@ DOCUMENTS = (
     "case-capture-multiple",
     "case-capture-repeat",
     "case-extension-registration",
+    "case-list-inline",
     "case-operation-sequence",
     "expander-conditional-required-generates-required-xpath-ae4797f7-0",
     "expander-expanddoc-hq-json-projection-sort-elements-1e1c54c0-0",
@@ -63,6 +73,7 @@ DOCUMENTS = (
     "nested-menu-same-multiple",
     "search-browse",
     "targeted-connect-deliver-rename",
+    "targeted-custom-tile",
     "tile-boxed",
 )
 
@@ -329,3 +340,59 @@ def with_blank_case(database, case_type, properties):
         + tuple((name, "") for name in properties if name not in dict(template.properties)),
     )
     return replace(database, cases=(*database.cases, blank))
+
+
+# The other readers, run -----------------------------------------------------------------------------------------
+
+
+def served_readings(app, spellings, *, client=True):
+    """Each spelling of the app served and read: ``{name: {"doc", "formplayer", "webapps"}}``.
+
+    ``spellings`` maps a name to a change of the stored app's JSON (None: Nova's publish as it stands). Each is
+    released in a fork of the published state as HQ's Releases page releases a build and served by HQ's own
+    views (``proof.formplayer.hq.serve``); Formplayer walks it (the walk derived on the first spelling and
+    replayed on the rest, as the lane's is), and, with ``client``, the Web Apps client is shown the same walk in
+    its own browser (``proof.webapps.observe.shown``). ``doc`` is the released build's document.
+    """
+    from proof.formplayer import hq as formplayer_hq
+    from proof.formplayer import observe as formplayer_observe
+    from proof.observe import services
+    from proof.observe.record import Blobs
+    from proof.webapps import observe as webapps_observe
+
+    blobs, found, walk = Blobs(), {}, None
+    runner = services.formplayer()
+    for name, change in spellings.items():
+        with formplayer_hq.serve(
+            app.unit, app.document, app.app_id, runner=runner, label=name, change=change
+        ) as served:
+            _, trace = formplayer_observe.walked(served, runner, blobs, script=walk)
+            walk = walk or formplayer_observe.script_of(trace)
+            found[name] = {"doc": served.doc, "formplayer": trace}
+            if client:
+                found[name]["webapps"] = webapps_observe.shown(served, services.client_browser(), trace)
+    return found
+
+
+def formplayer_differences(first, second, *, rules=()):
+    """The differences between two served spellings' Formplayer traces, as the lane's judge compares them."""
+    from proof.checks import served
+
+    return served.formplayer_differences(
+        first["formplayer"], second["formplayer"], check=CHECK, document="-", artifact="formplayer", rules=rules
+    )
+
+
+def client_differences(first, second):
+    """The differences between the Web Apps client's screens on two served spellings, as the lane's judge
+    compares them. No rule reads a screen: the client is the reader."""
+    from proof.checks import served
+
+    return served.webapps_differences(
+        first["webapps"], second["webapps"], check=CHECK, document="-", artifact="webapps"
+    )
+
+
+def screens(reading):
+    """Every screen the client showed on a served spelling's walk, in order."""
+    return [screen for run in reading["webapps"]["runs"] for screen in run["screens"]]

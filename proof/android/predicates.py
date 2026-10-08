@@ -1,9 +1,11 @@
-"""The Android predicates the known-defect register names, each run over both spellings of its difference.
+"""What CommCare Android reads of a difference the register or a spelling rule rests on, each run over both
+spellings of it.
 
     python3 -m unittest proof.android.predicates -v
 
-A register entry whose harm is on Android names the Android predicate in its ``android`` field, and its
-difference is two spellings of one artifact (a profile property present or absent, a tile cell's style, a
+A register entry whose harm is on a device, and a spelling rule one of whose readers is Android
+(``proof.rules.SpellingRule.readers``, which names its test here), each rest on what Android's own code reads of
+two spellings of one artifact (a profile property present or absent, a tile cell's style, a
 form's ``xmlns``). Each test here installs both spellings on Android and holds what Android's own code reads of
 each: the spelling Nova exports is a retained control's archive (``proof/controls``), and the other is that
 archive with exactly the entry's difference written into it. So each test says, by a run of Android's own
@@ -44,10 +46,14 @@ OPERATION_QUERY_RESTORE = FIXTURES / "case-operation-query.restore.xml"
 SYNC_ON_ENTRY = CONTROLS / "targeted-sync-on-form-entry" / "local.ccz"
 SYNC_ON_ENTRY_RESTORE = FIXTURES / "targeted-sync-on-form-entry.restore.xml"
 SEARCH_COMPILE = CONTROLS / "targeted-search-hq-compile" / "local.ccz"
+CONNECT_DELIVER = CONTROLS / "targeted-connect-deliver-rename" / "local.ccz"
+# The settings Android's own settings screen lets a worker change, of those the reader records.
+WORKER_SETTABLE = {"cc-fuzzy-search-enabled", "cc-enable-tts", "cc-autoup-freq"}
 
 # Each profile setting an entry's difference is, with the value HQ's profile gives it: the readers it moves from
 # what Android gives where the setting is absent (Nova's local profile) to what it gives where it is present,
-# and the readers that give the same either way (an entry marked ``equivalence``, or forced at an update only).
+# and the readers that give the same on a device that installs either (forced at an update only, or written at
+# the value its reader gives where it is absent).
 MOVES = (
     ("cc-show-saved", "no", {"HiddenPreferences.isSavedFormsEnabled": (True, False)}),
     ("cc-show-incomplete", "no", {"HiddenPreferences.isIncompleteFormsEnabled": (True, False)}),
@@ -133,10 +139,10 @@ class Predicates(unittest.TestCase):
                 self.assertEqual(differing(self.plain, present), wanted)
 
     def test_a_profile_setting_written_at_its_readers_default_reads_alike(self):
-        """Defect 40's equivalences. Contract: where HQ's app settings save writes one of these settings at the
-        value its reader gives when it is absent, Android reads the two profiles alike: the stored value differs
-        and no reader does. Failure it catches: an entry marked ``equivalence`` whose two spellings Android reads
-        apart."""
+        """Finding 40. Contract: where HQ's app settings save writes one of these settings at the value its
+        reader gives when it is absent, a device that installs either profile reads the two alike: the stored
+        value differs and no reader does. Failure it catches: a setting whose default is not the value HQ
+        writes."""
         for key, value, readers in SAME:
             with self.subTest(key=key):
                 present = self.profile_with(key, value)
@@ -144,6 +150,56 @@ class Predicates(unittest.TestCase):
                     self.assertEqual(self.plain["profile"]["readers"][name], reading)
                     self.assertEqual(present["profile"]["readers"][name], reading)
                 self.assertEqual(differing(self.plain, present), {f"/profile/stored/{key}"})
+
+    def test_a_default_forced_over_a_value_an_earlier_profile_gave_replaces_it(self):
+        """Finding 40, the ten settings HQ's save writes at their readers' defaults. Contract: Android's own
+        settings screen lets a worker change none of the ten, so a device holds another value of one only from
+        an earlier profile of the app; a device that holds none reads an update that forces the default as it
+        reads an update that names none, and a device that holds another keeps it where the update names none
+        and loses it where the update forces the default. So the two profiles are one to a device that never
+        held another value and two to a device that did. Failure it catches: calling the two spellings
+        equivalent on every device, or a worker's own setting being among the ten."""
+        ten = [(key, value, readers) for key, value, readers in SAME if key not in WORKER_SETTABLE]
+        self.assertEqual(len(ten), 10)
+        self.assertEqual(set(self.plain["profile"]["settings"]["MainConfigurablePreferences"]), WORKER_SETTABLE)
+        forced = "".join(
+            f'<property key="{key}" value="{value}"' + ("" if key == "cc-maps-default-layer" else ' force="true"') + "/>"
+            for key, value, _ in ten
+        )
+        held = {
+            "cc-autosync-freq": "freq-daily",
+            "cc-days-form-retain": "7",
+            "cc-login-duration-seconds": "100",
+            "logenabled": "Disabled",
+            "unsent-number-limit": "1",
+        }
+        after = {}
+        for label, settings in (("absent", ""), ("forced", forced)):
+            update = edited(
+                SURVEY,
+                self.work / f"defaults-{label}.ccz",
+                "profile.ccpr",
+                [(PROFILE_VERSION_1, PROFILE_VERSION_2), ("<features>", settings + "<features>")],
+            )
+            for device, stored in (("fresh", {}), ("held", held)):
+                answer = self.reader.request("update", archive=str(SURVEY), update=str(update), preferences=stored)
+                self.assertEqual((answer["staged"], answer["updated"]), ("UpdateStaged", "Installed"))
+                after[label, device] = answer["after"]["readers"]
+        self.assertEqual(after["absent", "fresh"], after["forced", "fresh"])
+        moved = {name for name in after["absent", "held"] if after["absent", "held"][name] != after["forced", "held"][name]}
+        self.assertEqual(
+            moved,
+            {
+                "HiddenPreferences.getLoginDuration",
+                "HiddenPreferences.getLogsEnabled",
+                "HiddenPreferences.isLoggingEnabled",
+                "PendingCalcs.getPendingSyncStatus",
+                "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays",
+                "SyncDetailCalculations.unsentFormNumberLimitExceeded",
+            },
+        )
+        self.assertEqual(after["absent", "held"]["HiddenPreferences.getLoginDuration"], 100)
+        self.assertEqual(after["forced", "held"]["HiddenPreferences.getLoginDuration"], 86400)
 
     def test_the_media_check_is_skipped_where_the_profile_calls_its_content_valid(self):
         """Defect 40, ``cc-content-valid``. Contract: Android counts an app's media validated, from the moment
@@ -496,6 +552,54 @@ class Predicates(unittest.TestCase):
             self.assertIs(refused["errorShown"], True)
             self.assertIs(refused["finishing"], False)
             self.assertEqual(refused["errorText"], "Client-side error (code 400) received from network request.")
+
+    # The spelling rules one of whose readers is Android ---------------------------------------------------------
+
+    def test_a_search_description_changes_nothing_a_device_shows(self):
+        """The rule ``search-description-empty``. Contract: Android's search screen shows no description, so a
+        search whose ``<query>`` holds the ``<description>`` HQ's build writes for a description of no text
+        (its text the non-breaking space HQ's app strings hold) is, on a device, the search without one: the
+        install, every profile reader, the home screen and every walk are the same. Failure it catches: a
+        search screen that shows the description, or an install the element changes."""
+        title = '<title><text><locale id="case_search.m0.inputs"/></text></title>'
+        described = title + '<description><text><locale id="case_search.m0.description"/></text></description>'
+        with zipfile.ZipFile(SEARCH_COMPILE) as zipped:
+            suite = zipped.read("suite.xml").decode()
+            strings = {name: zipped.read(name).decode() for name in ("default/app_strings.txt", "en/app_strings.txt")}
+        self.assertIn(title, suite)
+        self.assertNotIn("<description>", suite)
+        with_description = variant(
+            SEARCH_COMPILE,
+            self.work / "description.ccz",
+            {
+                "suite.xml": suite.replace(title, described).encode(),
+                **{
+                    name: (text.rstrip("\n") + "\ncase_search.m0.description=\u00a0\n").encode()
+                    for name, text in strings.items()
+                },
+            },
+        )
+        plain, other = self.walked(SEARCH_COMPILE), self.walked(with_description)
+        self.assertTrue(self.steps(plain, "QueryRequestActivity"))
+        self.assertEqual(differing(plain, other), set())
+
+    def test_an_empty_work_area_id_changes_nothing_a_device_shows_or_saves(self):
+        """The rule ``connect-work-area-empty``. Contract: the empty ``work_area_id`` a Vellum save writes into
+        a Connect deliver unit is a node of the form's data with no bind and no question, so a device opens,
+        walks and saves the form with it as without it, and holds the same cases after. Failure it catches: a
+        form Android refuses, or a screen or a save the node changes."""
+        form = "modules-0/forms-0.xml"
+        unit = "<entity_id/><entity_name/></deliver>"
+        with_node = edited(
+            CONNECT_DELIVER,
+            self.work / "work-area.ccz",
+            form,
+            [(unit, "<entity_id/><entity_name/><work_area_id/></deliver>")],
+        )
+        plain, other = self.walked(CONNECT_DELIVER), self.walked(with_node)
+        forms = self.steps(plain, "FormEntryActivity")
+        self.assertTrue(forms and all(step["form"]["saved"]["finishing"] for step in forms))
+        self.assertEqual(differing(plain, other), set())
 
     def test_a_fuzzy_search_matches_a_columns_sort_key_and_only_where_it_has_one(self):
         """Finding 51. Contract: with fuzzy search on, Android matches a misspelled term against each column's

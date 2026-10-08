@@ -88,4 +88,9 @@ RULE = SpellingRule(
     "An empty work_area_id in a Connect deliver unit, which Connect reads by its truth value as it reads none"
     " (process_deliver_unit) and nothing else reads.",
     normalize,
+    readers=(
+        ("formplayer", "test_formplayer_hands_the_two_forms_alike_but_for_the_element"),
+        ("connect", "test_hq_forwards_the_empty_id_and_connect_makes_the_same_rows_of_it_as_of_none"),
+        ("android", "test_an_empty_work_area_id_changes_nothing_a_device_shows_or_saves"),
+    ),
 )

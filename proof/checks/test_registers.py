@@ -87,7 +87,10 @@ def unheld(monkeypatch):
         ({"document": "producer.plain", "values": {"before": "a", "after": "b"}}, "not a targeted document"),
         ({"values": {"before": "a"}}, "exactly before and after"),
         ({"kind": "moved"}, "or left out for every kind"),
-        ({"equivalence": ""}, "equivalence names the runtimes"),
+        # Two spellings every reader reads alike are a spelling rule, and what a device does is an entry of the
+        # Android stage: neither is a field an entry carries.
+        ({"equivalence": "Android's and Web Apps' readers take the value its absence gives"}, "beyond them"),
+        ({"android": "HiddenPreferences.isSavedFormsEnabled (absent reads yes)"}, "beyond them"),
     ],
     ids=[
         "unknown-key",
@@ -100,7 +103,8 @@ def unheld(monkeypatch):
         "values-untargeted",
         "values-shape",
         "unknown-kind",
-        "empty-equivalence",
+        "equivalence-field",
+        "android-citation-field",
     ],
 )
 def test_the_register_loader_refuses_an_entry_it_cannot_hold_to(tmp_path, change, refusal, unheld):
@@ -113,9 +117,6 @@ def test_the_register_loader_refuses_an_entry_it_cannot_hold_to(tmp_path, change
     }
     accepted = registers.load_known_defects(_write(tmp_path / "good.json", [GOOD]), controls=controls, **corpus)
     assert [entry.id for entry in accepted] == [GOOD["id"]]
-    named = {**GOOD, "equivalence": "Android's and Web Apps' readers take the value its absence gives"}
-    (held,) = registers.load_known_defects(_write(tmp_path / "named.json", [named]), controls=controls, **corpus)
-    assert held.equivalence == named["equivalence"]
     with pytest.raises(registers.RegisterError) as refused:
         registers.load_known_defects(_write(tmp_path / "bad.json", [{**GOOD, **change}]), controls=controls, **corpus)
     assert refusal in str(refused.value)

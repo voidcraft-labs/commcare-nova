@@ -87,6 +87,8 @@ from proof.checks.differences import Difference, pointer_token
 
 # What stands where a pulled XML document was (the document itself is compared as a tree).
 XML = "<xml>"
+# The artifact a spelling rule names to read Formplayer's trace as it is compared (``proof.rules``).
+FORMPLAYER = "formplayer"
 # A generated id's mark as a trace writes it (``proof.formplayer.canonical.TOKEN`` and its number), and as read.
 GENERATED_MARK = re.compile(r"@generated:uuid:[0-9]+")
 GENERATED = "@generated"
@@ -491,14 +493,18 @@ def formplayer_differences(
 
     ``versions`` is each side's ``{xmlns: version}`` of the forms whose built content differs between the two
     builds (``proof.checks.proof4.content_versions``), whose versions are read as one (``_content_version``).
-    ``rules`` are the spelling rules given (``compare.spelling``): those for ``instance`` are applied to each
-    XML document the traces hold (a form's instance as Formplayer hands it back, a submission HQ received).
+    ``rules`` are the spelling rules given (``compare.spelling``): those for ``formplayer`` are applied to each
+    trace as it is compared (what Formplayer hands the client), and those for ``instance`` to each XML document
+    the traces hold (a form's instance as Formplayer hands it back, a submission HQ received).
     """
     xmlns = xmlns or {}
     versions = versions or ({}, {})
     if text_ids:
         after = _named_by(after, text_ids)
-    shown_before, shown_after = one_symptom(comparable_trace(before), map_strings(comparable_trace(after), xmlns))
+    shown_before, shown_after = one_symptom(
+        normalized(FORMPLAYER, comparable_trace(before), rules),
+        normalized(FORMPLAYER, map_strings(comparable_trace(after), xmlns), rules),
+    )
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)
     shown_after = _pull_xml(shown_after, "", "", documents_after)

@@ -5449,8 +5449,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-autosync-freq",
@@ -5460,8 +5459,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-autosync-freq",
@@ -5471,8 +5469,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-autosync-freq",
@@ -5482,8 +5479,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-autosync-freq",
@@ -5493,8 +5489,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-autosync-freq",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-days-form-retain",
@@ -5504,8 +5499,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-days-form-retain",
@@ -5515,8 +5509,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-days-form-retain",
@@ -5526,8 +5519,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-days-form-retain",
@@ -5537,8 +5529,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-days-form-retain",
@@ -5548,8 +5539,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-days-form-retain",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-inflation-target-density",
@@ -5559,8 +5549,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-inflation-target-density",
@@ -5570,8 +5559,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-inflation-target-density",
@@ -5581,8 +5569,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-inflation-target-density",
@@ -5592,8 +5579,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-inflation-target-density",
@@ -5603,8 +5589,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-inflation-target-density",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-label-required-questions-with-asterisk",
@@ -5614,8 +5599,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-label-required-questions-with-asterisk",
@@ -5625,8 +5609,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-label-required-questions-with-asterisk",
@@ -5636,8 +5619,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-label-required-questions-with-asterisk",
@@ -5647,8 +5629,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-label-required-questions-with-asterisk",
@@ -5658,8 +5639,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-label-required-questions-with-asterisk",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-login-duration-seconds",
@@ -5669,8 +5649,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-login-duration-seconds",
@@ -5680,8 +5659,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-login-duration-seconds",
@@ -5691,8 +5669,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-login-duration-seconds",
@@ -5702,8 +5679,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-login-duration-seconds",
@@ -5713,8 +5689,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-login-duration-seconds",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-maps-default-layer",
@@ -5724,8 +5699,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-maps-default-layer",
@@ -5735,8 +5709,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-maps-default-layer",
@@ -5746,8 +5719,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-maps-default-layer",
@@ -5757,8 +5729,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-maps-default-layer",
@@ -5768,8 +5739,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-maps-default-layer",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-resize-images",
@@ -5779,8 +5749,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-resize-images",
@@ -5790,8 +5759,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-resize-images",
@@ -5801,8 +5769,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-resize-images",
@@ -5812,8 +5779,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-resize-images",
@@ -5823,8 +5789,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-resize-images",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-logenabled",
@@ -5834,8 +5799,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-logenabled",
@@ -5845,8 +5809,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-logenabled",
@@ -5856,8 +5819,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-logenabled",
@@ -5867,8 +5829,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-logenabled",
@@ -5878,8 +5839,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/logenabled",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-unsent-number-limit",
@@ -5889,8 +5849,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-unsent-number-limit",
@@ -5900,8 +5859,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-unsent-number-limit",
@@ -5911,8 +5869,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-unsent-number-limit",
@@ -5922,8 +5879,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-unsent-number-limit",
@@ -5933,8 +5889,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/unsent-number-limit",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-unsent-time-limit",
@@ -5944,8 +5899,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-unsent-time-limit",
@@ -5955,8 +5909,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-unsent-time-limit",
@@ -5966,8 +5919,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-unsent-time-limit",
@@ -5977,8 +5929,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-unsent-time-limit",
@@ -5988,63 +5939,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/unsent-time-limit",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike: the Android stage reads that reader on the app this save left and on the one it was saved over, on every document, and reports no difference at it, and proof/android/predicates.py holds the reader on both spellings (finding 40)."
-	},
-	{
-		"id": "d42-tile-alignment-app-vertical-align",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/vertical_align",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile",
-		"equivalence": "Android reads a vertical alignment of start as none (EntityViewTile.computeGravity has no case for it) and Web Apps reads an absent one as start, so both runtimes render the cell alike: the Android stage lays the tile out on the app this save left and on the one it was saved over and reports no difference in the cell's vertical gravity, proof/android/predicates.py holds Android's tile view on both spellings, and the Web Apps client computes start for both (correction 4)."
-	},
-	{
-		"id": "d42-tile-alignment-suite-style-vert-align",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/detail[@id=*]/field[*]/style[*]/@vert-align",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile",
-		"equivalence": "Android reads a vertical alignment of start as none (EntityViewTile.computeGravity has no case for it) and Web Apps reads an absent one as start, so both runtimes render the cell alike: the Android stage lays the tile out on the app this save left and on the one it was saved over and reports no difference in the cell's vertical gravity, proof/android/predicates.py holds Android's tile view on both spellings, and the Web Apps client computes start for both (correction 4)."
-	},
-	{
-		"id": "d54-search-description-app-description",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/search_config/description/*",
-		"document": "case-list-browse",
-		"control": "case-operation-query",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
-	},
-	{
-		"id": "d54-search-description-suite-remote-request",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/remote-request[*]/session[*]/query[*]/description[*]",
-		"document": "case-list-browse",
-		"control": "case-operation-query",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
-	},
-	{
-		"id": "d54-search-description-suite-entry",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/entry[*]/session[*]/query[*]/description[*]",
-		"document": "case-list-inline",
-		"control": "case-list-inline",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), which the lane observes on the client itself, run against Formplayer on both builds (proof/webapps/test_search.py), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d53-zero-input-sentinel-trace-params",
@@ -6580,17 +6475,6 @@
 		"control": "targeted-close-conditions"
 	},
 	{
-		"id": "d54-empty-search-description-formplayer-case-list-response-description",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/description",
-		"document": "search-browse",
-		"control": "search-browse",
-		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
-	},
-	{
 		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
 		"defect": 12,
 		"part": "custom tile",
@@ -6651,16 +6535,6 @@
 		"control": "tile-persistent"
 	},
 	{
-		"id": "d14-tiles-formplayer-case-list-styles-verticalalign",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/verticalAlign",
-		"document": "tile-persistent",
-		"control": "tile-persistent"
-	},
-	{
 		"id": "d14-tiles-formplayer-case-list-persistentcasetile-tiles",
 		"defect": 14,
 		"part": "tiles",
@@ -6681,17 +6555,6 @@
 		"control": "tile-persistent"
 	},
 	{
-		"id": "d54-empty-search-description-formplayer-case-list-response-queryresponse-description",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/queryResponse/description",
-		"document": "search-browse",
-		"control": "search-browse",
-		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
-	},
-	{
 		"id": "d14-tiles-formplayer-case-list-styles-fontsize-2",
 		"defect": 14,
 		"part": "tiles",
@@ -6708,16 +6571,6 @@
 		"check": "proof4",
 		"artifact": "formplayer@case list@*",
 		"path": "/runs/*/steps/*/response/styles/*/horizontalAlign",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-styles-verticalalign-2",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/response/styles/*/verticalAlign",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -6782,17 +6635,6 @@
 		"control": "targeted-custom-tile"
 	},
 	{
-		"id": "d54-empty-search-description-formplayer-case-list-submit-nextscreen-description",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/description",
-		"document": "case-list-inline",
-		"control": "case-list-inline",
-		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
-	},
-	{
 		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-maxheight",
 		"defect": 12,
 		"part": "custom tile",
@@ -6823,17 +6665,6 @@
 		"control": "targeted-custom-tile"
 	},
 	{
-		"id": "d54-empty-search-description-formplayer-case-list-nextscreen-queryresponse-description",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/queryResponse/description",
-		"document": "case-list-match-none",
-		"control": "case-list-match-none",
-		"equivalence": "Formplayer hands the client a non-breaking space for the description where it handed an empty text (QueryResponseBean.description), and the client shows no description for either: its screens on the saved app do not differ from those on the app it was saved over (the lane shows the client both, and no webapps difference is at this save's description), and Android reads no description: its search screen on the two states does not differ in the Android stage (finding 54)."
-	},
-	{
 		"id": "d14-tiles-formplayer-case-list-styles-fontsize-3",
 		"defect": 14,
 		"part": "tiles",
@@ -6850,16 +6681,6 @@
 		"check": "proof4",
 		"artifact": "formplayer@case list@*",
 		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/horizontalAlign",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile"
-	},
-	{
-		"id": "d14-tiles-formplayer-case-list-styles-verticalalign-3",
-		"defect": 14,
-		"part": "tiles",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/verticalAlign",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
