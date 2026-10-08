@@ -324,9 +324,7 @@ or it fails the lane ("The registers", below).
   open), which no record can hold, and it is not root-caused. Where the
   client shows nothing to click for an earlier choice, its record of that
   run ends there, with `stopped` and the screen it stood on.
- The Core runner still answers the
-  form validation HQ's build asks Formplayer for (`XFormParser` with
-  `JSONReporter`, the body of Formplayer's `UtilController.validateForm`). The packages' own tests
+ The packages' own tests
   (`proof/formplayer/test_*.py`, `proof/webapps/test_*.py`) predate the
   served states and still answer Formplayer with the harness's own answers
   (`proof/formplayer/answers.py`, HQ's functions called on its behalf);
@@ -383,10 +381,14 @@ or it fails the lane ("The registers", below).
     session's own parameters, "Served states"); no walk types an answer
     into a prompt, so the strings an answer would build are compiled only
     for the native families' own apps (`quote`, `function`, `prompt`);
-  - the form validation HQ's build asks Formplayer for, which the Core
-    runner still answers (`XFormParser` with `JSONReporter`, the body of
-    Formplayer's `UtilController.validateForm`) in place of the Formplayer
-    the lane now runs.
+  - the form validation HQ's build asks Formplayer for, on every form of
+    the corpus. The Core runner answers it in every build (`XFormParser`
+    with `JSONReporter`, the body of Formplayer's
+    `UtilController.validateForm`), and `proof/formplayer/test_validation.py`
+    holds its report to Formplayer's own controller, asked as HQ asks it,
+    on every form HQ's build sends for that package's five documents and on
+    a form both refuse; the builds themselves are not yet answered by
+    Formplayer.
 - **Defect 20's `product_id` datum** needs an advanced module, and no Nova
   document holds one: the manifest check reads every export for the surface
   it uses and holds no use of an advanced module's fields.
@@ -1877,6 +1879,7 @@ reused is only what a key names whole, and the reuse is audited:
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends; `proof/hq/test_publish_capture.py`: an update applies only over the profile it was built from |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
+| The Core runner's answer to HQ's form validation is Formplayer's own | a report that differs between the Core runner and Formplayer's controller; a request its security chain answers another way | `proof/formplayer/test_validation.py` |
 | Formplayer's walk gives the same bytes and is faithful | an id or an install left unmarked; a trace that loses a difference | `proof/formplayer/test_walk.py`, `test_canonical.py`, `test_observe.py` |
 | HQ's answers to Formplayer answer only what they hold | an unanswered route answered empty; a session answered for an unsigned request | `proof/formplayer/test_answers.py` |
 | What answers Formplayer in the lane is HQ | a request answered from outside HQ, a submission acknowledged and not processed, a walk that passes with no worker signed in | `proof/checks/test_served.py` |
