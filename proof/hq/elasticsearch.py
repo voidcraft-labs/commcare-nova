@@ -91,8 +91,9 @@ START_SECONDS = 120.0
 # Loopback addresses tried, in order from the one this process's id names: 127.2.<a>.<b>, apart from HQ's Redis
 # (127.1.<a>.<b>, proof.hq.redis) and a Formplayer runner's (127.0.<a>.<b>, proof.formplayer.client).
 ADDRESSES = 200
-# Heap enough for a document's indexes, which hold a few dozen documents each.
-HEAP = "-Xms256m -Xmx256m"
+# Heap enough for a document's indexes, which hold a few dozen documents each, touched only as it is used (the
+# tarball's options touch the whole heap as the server starts, which every worker of a shard would pay in memory).
+HEAP = "-Xms256m -Xmx256m -XX:-AlwaysPreTouch"
 # Elasticsearch's own refresh timer, held (the module's "What is held").
 REFRESH_HELD = {"index.refresh_interval": "-1"}
 

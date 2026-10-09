@@ -420,7 +420,11 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
         plain_outcomes[case.get("classname").rsplit(".", 1)[-1], case.get("name")] = {"failure": "failed"}.get(
             outcome, outcome
         )
-    assert plain_outcomes == forked_outcomes and forked_outcomes
+    # Where the two disagree, each side's own output says why its item failed.
+    assert plain_outcomes == forked_outcomes and forked_outcomes, (
+        f"{plain_outcomes} != {forked_outcomes}\nThe unforked session's output ends:\n{plain.tail()}"
+        f"\nThe fork server's output ends:\n{forked.tail()}"
+    )
 
     # Both runs observed every document themselves, so the evidence below is two observations', not one store's.
     for out in (plain_out, forked_out):
@@ -518,9 +522,7 @@ def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_
 
 # One cheap item using the Core runner in each of two packages (pytest's -k, through PYTEST_ADDOPTS, which the
 # server's collection and every worker's session read alike).
-CORE_RUNNER_ITEMS = (
-    "test_a_missing_archive_entry_is_named or test_a_build_reads_the_same_filter_errors_from_either"
-)
+CORE_RUNNER_ITEMS = "test_a_missing_archive_entry_is_named or test_a_build_reads_the_same_filter_errors_from_either"
 # Claims the first block at once, and the second only once the first block's manifest is written.
 SLOW_CLAIM = """#!/bin/sh
 if [ "$1" = "{first}" ]; then exit 0; fi
