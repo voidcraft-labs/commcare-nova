@@ -1650,6 +1650,7 @@ describe("loaders", () => {
 			target: { kind: "app", appId: APP },
 			activeStreamId: "stream-1",
 			runId: "run-1",
+			inputRound: null,
 		});
 		expect(await resolveThreadStream("nope")).toBeNull();
 	});
