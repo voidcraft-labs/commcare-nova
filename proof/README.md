@@ -324,14 +324,24 @@ or it fails the lane ("The registers", below).
   user signing in as a worker. The one request the page makes that nothing
   answers is for a web font on another host, so text is laid out in the
   browser's fallback face and no measured width or height is recorded.
-  The client is shown every run of the walk whole, by what a worker
-  clicks (each menu, each case of a list, by its checkbox and Continue in
-  a multi-select list, a case's detail and its Continue where the client
-  opens one, each list action and each search), to the form the run
-  reaches or the screen it ends on. Where the client shows nothing to
-  click for a choice of the walk, its record of that run ends there, with
-  `stopped` and the screen it stood on, which proofs 3 and 4 compare like
-  any other screen.
+  The client is shown each run of the walk up to the first case a worker
+  would choose (the home screen's tiles, each menu, each list with its
+  cells, empty text and actions, each search and its description, and a
+  form no case leads to); a case's detail and what follows a case are read
+  from Formplayer's trace alone. Where the client shows nothing to click
+  for a choice, its record of that run ends there, with `stopped` and the
+  screen it stood on. Not yet run in the client, and not impossible: the
+  rest of each run. Replayed past the case on 108 documents locally, twice
+  each, the client gave the same screens both times; on hosted runners, 33
+  documents' records differed between two states that show the same thing,
+  one side reading, after the click on a case's row, the list it was
+  leaving with its version line blank and its address unchanged, the other
+  the next screen. Waiting for Formplayer's answer to a request made after
+  the click did not settle it: on a second visit to the same case the click
+  made no request at all, so the client answers a row's click from
+  something it kept from the first. What settles it is reading what the
+  client's own router does with the click (its case detail cache and its
+  handling of a list it is still drawing) and waiting on that.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
   below), with these left out. ConnectID, the service Connect sends a
@@ -1177,10 +1187,7 @@ a step clicks what a worker clicks, or reads what the page shows.
   compiled files and every other static file the page asks for. The one
   request nothing answers is for a web font on another host.
 - **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
-  a selector and a text name (where it takes the worker to another screen,
-  followed by Formplayer's answer to the request it made: the client asks a
-  moment after the click, so the page can be quiet before the request
-  starts, `steps.py::navigate`), text typed into an input, a form's Submit and
+  a selector and a text name, text typed into an input, a form's Submit and
   Formplayer's answer to it, and `screen.js`, which reads the screen the
   client rendered: the home screen's tiles, a menu's rows, a case list
   (headers, rows, the empty-list message, and each tile cell's grid area,
@@ -1233,8 +1240,8 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   fork of the unit with the worker signed in afresh, so a submission HQ's
   receiver processed is in HQ while its run lasts and gone for the next.
 - **The Web Apps client** is shown the same walk in a browser of its own
-  (`proof/observe/services.py::client_browser`), every run whole, and its
-  screens are read after every click. It is shown a state only where Formplayer's trace or
+  (`proof/observe/services.py::client_browser`), each run up to the first
+  case a worker would choose, and its screens are read after every click. It is shown a state only where Formplayer's trace or
   what HQ's page hands it of the app is not the baseline's: the client
   reads nothing else, so the same answers and the same page show the same
   screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).

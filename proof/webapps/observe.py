@@ -53,9 +53,6 @@ from proof.webapps import steps
 from proof.webapps.session import Session
 
 HOME = "#breadcrumb-region .js-home a"
-# A multi-select list's Continue below its cases (``partials/case_list/list.html``); the list's header holds a
-# second one that does the same (``menu_header.html``).
-MULTI_SELECT_CONTINUE = "#menu-region .case-list-actions.d-md-block > .multi-select-continue-btn"
 
 
 class Unreplayable(AssertionError):
@@ -85,31 +82,19 @@ def clicks(run: Mapping[str, Any], end: str | None = None) -> list[dict]:
         # The screen the choice is made on is Formplayer's answer before it.
         screen = responses[position] if position < len(responses) else None
         if "menu" in choice:
-            made += steps.navigate(f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})", within=within, or_skip_to=end)
-        elif "entity" in choice and isinstance(screen, dict) and screen.get("multiSelect"):
-            # A worker picks a case of a multi-select list by its row's checkbox and goes on with the list's own
-            # Continue (``menus/views.js``, ``selectRowAction`` and ``continueAction``), as Formplayer's walk
-            # sends the case as the list's selected values.
-            row = f"#menu-region [id='row-{choice['entity']}'] .select-row-checkbox"
-            made += steps.click(row, within=within, or_skip_to=end)
-            made += steps.navigate(MULTI_SELECT_CONTINUE, visible=True, within=within, or_skip_to=end)
+            made += steps.click(f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})", within=within, or_skip_to=end)
         elif "entity" in choice:
             row = f"#menu-region [id='row-{choice['entity']}']"
-            # The row's click asks Formplayer for the case's detail where the list has one, else for the next screen.
-            made += steps.navigate(row, within=within, or_skip_to=end)
+            made += steps.click(row, within=within, or_skip_to=end)
             if isinstance(screen, dict) and screen.get("hasDetails"):
                 # The client opens a case's detail where it has one to show and takes the case itself where
                 # it has none (``menus/controller.js::showDetail``), so Continue is clicked where it is shown.
-                made += (
-                    steps.navigate("#select-case", visible=True, within=within)
-                    if end
-                    else steps.navigate("#select-case")
-                )
+                made += steps.click("#select-case", visible=True, within=within) if end else steps.click("#select-case")
         elif "action" in choice:
             action = f"{steps.LIST_ACTION}[data-index='{choice['action']}']"
-            made += steps.navigate(action, within=within, or_skip_to=end)
+            made += steps.click(action, within=within, or_skip_to=end)
         elif "search" in choice:
-            made += steps.navigate("#query-submit-button", within=within, or_skip_to=end)
+            made += steps.click("#query-submit-button", within=within, or_skip_to=end)
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"
@@ -143,9 +128,9 @@ def tolerant_replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str)
 
     for index, run in enumerate(runs):
         end = f"run-{index}"
-        add(steps.navigate(steps.APP_TILE, app_name, within=steps.WITHIN_MS, or_skip_to=end))
+        add(steps.click(steps.APP_TILE, app_name, within=steps.WITHIN_MS, or_skip_to=end))
         add([steps.SCREEN], ("screen", index))
-        for step in clicks(run, end):
+        for step in clicks(to_the_first_case(run), end):
             add([step], ("screen", index) if step == steps.SCREEN else None)
         add([{"label": end}])
         add([steps.SCREEN], ("end", index))
@@ -154,42 +139,22 @@ def tolerant_replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str)
     return made, plan
 
 
-# What a record writes for the id Formplayer draws for a multi-select list's chosen cases, which the client then
-# names in its route in place of the cases (Formplayer keeps the cases under that id).
-SELECTION = "<selection {}>"
+def to_the_first_case(run: Mapping[str, Any]) -> dict:
+    """A run of the walk as far as the client is shown it for a document's record: up to the first case a worker
+    would choose, that choice left out.
 
-
-def _drawn_selections(run) -> dict[str, str]:
-    """Each id Formplayer drew for a multi-select list's chosen cases in ``run``, by the mark a record writes for
-    it: the selection the client sent as ``use_selected_values``, as Formplayer answered it at the same place
-    (``MultiSelectEntityScreen``, which stores the cases and names them by a fresh id)."""
-    from proof.formplayer.walk import USE_SELECTED_VALUES
-
-    drawn: dict[str, str] = {}
-    for exchange in run.formplayer:
-        try:
-            sent, answered = exchange.request_json(), exchange.json()
-        except ValueError:
-            continue
-        if not isinstance(sent, dict) or not isinstance(answered, dict):
-            continue
-        selections, named = sent.get("selections") or [], answered.get("selections") or []
-        for index, selection in enumerate(selections):
-            if selection == USE_SELECTED_VALUES and index < len(named) and named[index] != USE_SELECTED_VALUES:
-                drawn.setdefault(named[index], SELECTION.format(len(drawn) + 1))
-    return drawn
-
-
-def _marked(value, drawn: dict[str, str]):
-    """``value`` with each drawn id written as its mark, wherever a string holds it."""
-    if isinstance(value, dict):
-        return {key: _marked(item, drawn) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_marked(item, drawn) for item in value]
-    if isinstance(value, str):
-        for held, mark in drawn.items():
-            value = value.replace(held, mark)
-    return value
+    What only the client decides is on the screens before a case is taken: the home screen's tiles, a menu, a
+    list with its cells, its empty text and its actions, a search and its description. What a chosen case leads
+    to (its detail, the forms after it, a form's questions) is Formplayer's to answer and is read from its trace;
+    and the client's own steps there (a detail it opens or not, a claim's sync) are where its replay stopped
+    following the walk one run and followed it the next, which a record cannot hold.
+    """
+    choices = []
+    for choice in run["script"]:
+        if "entity" in choice:
+            break
+        choices.append(choice)
+    return {**run, "script": choices}
 
 
 def _first_line(text) -> str:
@@ -219,7 +184,7 @@ def _recorded(runner, driver, version, script, run) -> dict[str, Any]:
         raise AssertionError(
             f"The Web Apps replay read {len(screens)} screens where the walk's {len(script)} runs call for {cursor}."
         )
-    return _marked(recorded, _drawn_selections(run))
+    return recorded
 
 
 def observe(served, driver) -> dict[str, Any]:
@@ -236,15 +201,15 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     (``proof.formplayer.hq.Served``): the walk's runs replayed in the browser, in one run of the served state
     (the worker signed in, HQ's state put back after it).
 
-    Each run is shown whole, to the form it reaches or the screen it ends on. A run the client shows nothing
-    to click for at some choice (within ``steps.WITHIN_MS`` of the page being quiet) is recorded as far as it
-    went, with ``stopped`` and the screen it ended on, and the next run starts from the home screen; an error
-    the client's own script raised is recorded by its message (``pageErrors``).
+    Each run is shown up to the first case a worker would choose (``to_the_first_case``). A run the client
+    shows nothing to click for at some choice before that (within ``steps.WITHIN_MS`` of the page being quiet)
+    is recorded as far as it went, with ``stopped`` and the screen it ended on, and the next run starts from
+    the home screen; an error the client's own script raised is recorded by its message (``pageErrors``).
     """
     from proof.webapps.session import recorded as screen_record
 
     session = Session(served, driver)
-    script = [run["script"] for run in walk["runs"]]
+    script = [to_the_first_case(run)["script"] for run in walk["runs"]]
     made, plan = tolerant_replay(served.doc["name"], walk["runs"], session.home)
     run = session.run(made, name="webapps")
     if len(run.outcomes) != len(plan):
@@ -275,4 +240,4 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
             if len(held["screens"]) != 1 + len(held["script"]):
                 # The client did not follow the walk to its end: where it stood when the run ended.
                 held["stopped"] = {"after": len(held["screens"]), "screen": screen}
-    return _marked(found, _drawn_selections(run))
+    return found

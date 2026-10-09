@@ -16,11 +16,7 @@ Contracts:
   clock or an id drawn outside an operation reaching a screen.
 - **A choice the replay has no click for is refused by name**, never
   skipped, so a walk that grows a new kind of choice ends the observation
-  instead of thinning it; and a choice it has a click for is read only
-  once Formplayer has answered the request the click made (the client asks
-  a moment after the click, so a screen read when the page is first quiet
-  can be the one the worker is leaving, which hosted runners showed on 33
-  documents of one run, at a case a list's row took).
+  instead of thinning it.
 """
 
 from __future__ import annotations
@@ -30,7 +26,7 @@ import json
 import pytest
 
 from proof.webapps import hq as webapps_hq
-from proof.webapps import observe, steps
+from proof.webapps import observe
 
 # Each document, and whether some run of its walk reaches a form (the second is a case list with no form).
 DOCUMENTS = (("targeted-custom-tile", True), ("case-list-browse", False))
@@ -65,15 +61,7 @@ def test_a_documents_web_apps_observation_reads_every_screen_of_the_walk_and_is_
 def test_a_choice_the_replay_has_no_click_for_is_refused_and_a_known_one_is_replayed():
     known = {"script": [{"menu": 1}], "steps": [{"request": {}, "response": {"type": "commands"}}]}
     replayed = observe.clicks(known)
-    # The click is marked, made, and followed by Formplayer's answer to the request it made after the mark, then the
-    # page quiet, and only then is the screen read: a screen read before that answer is the one the worker leaves.
-    mark, click, awaited, settle, screen = replayed
-    assert mark == {"mark": True} and click["arg"]["selector"].endswith("tr:nth-child(2)")
-    assert awaited == {"awaitRequest": {"method": "POST", "pathnamePrefix": "/formplayer/"}, "sinceMark": True}
-    assert settle == steps.SETTLE and screen == steps.SCREEN
-    # A click a run allows to miss skips the wait where it missed, and the rest of the run with it.
-    tolerant = observe.clicks(known, end="run-0")
-    assert tolerant[1]["orSkipTo"] == "run-0" and tolerant[2]["unlessMissed"] is True
+    assert replayed[0]["arg"]["selector"].endswith("tr:nth-child(2)")
     unknown = {"script": [{"swipe": "left"}], "steps": [{"request": {}, "response": {"type": "commands"}}]}
     with pytest.raises(observe.Unreplayable, match="swipe"):
         observe.clicks(unknown)

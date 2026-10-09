@@ -36,11 +36,7 @@
 //   "until" (a step file of proof/editors/driver/steps called with "arg":
 //   once, its value kept, or until it holds), "dispatch" (an event on the
 //   elements a selector finds), "click" (the element's own click),
-//   "mark" (the page's answered requests counted, for an "awaitRequest"
-//   with "sinceMark", which then waits for one answered after the mark, and
-//   with "unlessMissed" is skipped where the wait before it missed),
-//   "awaitRequest" (until the page's request to a path, or to any path
-//   under "pathnamePrefix", has been answered;
+//   "awaitRequest" (until the page's request to a path has been answered;
 //   with "orDialog", or until the page answers the last click with a dialog
 //   and sends nothing, the outcome's "unsent" naming the dialog, after which
 //   every step marked "unlessUnsent" is skipped),
@@ -2053,7 +2049,7 @@ class PageRun {
 				reject(
 					new StepFailed(
 						"deadline",
-						`The page made no ${want.method ?? ""} request to ${want.pathname ?? `${want.pathnamePrefix}...`} before the deadline.`,
+						`The page made no ${want.method ?? ""} request to ${want.pathname} before the deadline.`,
 					),
 				);
 			}, this.remaining());
@@ -2069,9 +2065,7 @@ class PageRun {
 			.find(
 				(entry) =>
 					entry.method === (want.method ?? entry.method) &&
-					(want.pathnamePrefix === undefined
-						? new URL(entry.url).pathname === want.pathname
-						: new URL(entry.url).pathname.startsWith(want.pathnamePrefix)) &&
+					new URL(entry.url).pathname === want.pathname &&
 					entry.answeredBy !== undefined,
 			);
 	}
@@ -2094,13 +2088,6 @@ async function runSteps(page, run, steps) {
 	// `unlessUnsent`.
 	let dialogsAtClick = 0;
 	let unsent = false;
-	// The page's answered requests when the last "mark" step ran, which an
-	// "awaitRequest" with "sinceMark" looks past (a request the step before it
-	// caused, never one answered earlier); and whether the last wait a step
-	// allowed to miss did miss, which skips an "awaitRequest" marked
-	// "unlessMissed" (no click was made, so no request follows).
-	let answeredAtMark = 0;
-	let lastMissed = false;
 	// A wait a step allows to miss (`within`, with `orSkipTo` or `optional`):
 	// once one with `orSkipTo` has missed, every step up to the one labelled
 	// so is skipped, and `missed` stays set until a `recover` step puts the
@@ -2129,16 +2116,6 @@ async function runSteps(page, run, steps) {
 			if (step.label !== undefined && step.recover === undefined) {
 				// A place a missed wait skips to; nothing to do.
 				outcome.label = step.label;
-			} else if (step.mark !== undefined) {
-				answeredAtMark = run.answered.length;
-				lastMissed = false;
-				outcome.mark = answeredAtMark;
-			} else if (
-				step.awaitRequest !== undefined &&
-				step.unlessMissed &&
-				lastMissed
-			) {
-				outcome.skipped = true;
 			} else if (step.recover !== undefined) {
 				// The page back where a run starts: by the click a person makes
 				// when nothing missed and the element is there, else by loading
@@ -2166,12 +2143,10 @@ async function runSteps(page, run, steps) {
 							timeoutMs: Math.min(step.within, run.remaining()),
 						},
 					);
-					lastMissed = false;
 				} catch (error) {
 					if (error?.name !== "TimeoutError" || run.remaining() <= 0)
 						throw error;
 					outcome.missed = true;
-					lastMissed = true;
 					if (step.orSkipTo !== undefined) {
 						skipTo = step.orSkipTo;
 						missed = true;
@@ -2240,7 +2215,7 @@ async function runSteps(page, run, steps) {
 			} else if (step.awaitRequest !== undefined) {
 				const entry = await run.awaitRequest(
 					step.awaitRequest,
-					step.sinceMark ? answeredAtMark : (step.from ?? 0),
+					step.from ?? 0,
 					step.orDialog ? dialogsAtClick : null,
 				);
 				if (entry.dialog !== undefined) {
