@@ -4610,15 +4610,11 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("textbox", { name: "Find in app" }),
 		).toBeDisabled();
-		await page
-			.getByRole("button", { name: "Attach a file", exact: true })
-			.click();
-		const reloadedPicker = page.getByRole("dialog", { name: "Attach media" });
+		// This seed reloads as actively generating with no waiting question,
+		// so its composer remains busy while Project Files stays available.
 		await expect(
-			reloadedPicker.getByRole("tab", { name: "Upload", exact: true }),
-		).toBeVisible();
-		await page.keyboard.press("Escape");
-		await expect(reloadedPicker).not.toBeVisible();
+			page.getByRole("button", { name: "Attach a file", exact: true }),
+		).toBeDisabled();
 		await page.getByRole("button", { name: "Account menu" }).click();
 		await page.getByRole("button", { name: "Files", exact: true }).click();
 		await expect(
