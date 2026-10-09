@@ -19,6 +19,7 @@ DOCUMENTS = (
     "expander-expanddoc-hq-json-projection-case-search-4d53ba11-0",
     "location-direct",
     "lookup-app",
+    "media-only",
     "search-multiple",
 )
 

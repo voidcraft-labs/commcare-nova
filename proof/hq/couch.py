@@ -374,6 +374,42 @@ def _map_hqmedia_by_hash(doc):
         yield _js_key(doc, "file_hash"), None
 
 
+def _map_by_domain_doc_type_date(doc):
+    # corehq/couchapps/by_domain_doc_type_date/views/view/map.js (reduce: _count), which
+    # domain/dbaccessors.py::get_docs_in_domain_by_class queries for a project space's documents of a class.
+    if not doc.get("domain"):
+        return
+    doc_type = doc.get("doc_type")
+    if doc_type in ("CommCareCase", "CommCareCase-Deleted"):
+        date = _js_key(doc, "opened_on")
+    elif doc_type in (
+        "XFormInstance",
+        "XFormInstance-Deleted",
+        "XFormError",
+        "XFormDuplicate",
+        "XFormDeprecated",
+        "XFormArchived",
+        "SubmissionErrorLog",
+    ):
+        date = _js_key(doc, "received_on")
+    elif doc_type in ("CommCareUser", "WebUser"):
+        date = _js_key(doc, "created_on")
+    elif doc_type in ("MessageLog", "CallLog", "SMSLog", "EventLog"):
+        date = _js_key(doc, "date")
+    elif doc_type in (
+        "Application",
+        "Application-Deleted",
+        "RemoteApp",
+        "RemoteApp-Deleted",
+        "LinkedApplication",
+        "LinkedApplication-Deleted",
+    ):
+        date = _js_key(doc, "built_on") if doc.get("copy_of") else None
+    else:
+        date = None
+    yield [_js_key(doc, "domain"), doc_type, date], None
+
+
 # view name -> (map function, reduce), the reduce being CouchDB's built-in
 # _count or None when the view has no reduce.
 VIEWS = {
@@ -391,6 +427,7 @@ VIEWS = {
     "program_by_code/view": (_map_program_by_code, None),
     "schemas_by_xmlns_or_case_type/view": (_map_schemas_by_xmlns_or_case_type, "_count"),
     "hqmedia/by_hash": (_map_hqmedia_by_hash, None),
+    "by_domain_doc_type_date/view": (_map_by_domain_doc_type_date, "_count"),
 }
 
 # The query parameters the computed views implement. ``stale`` is accepted
