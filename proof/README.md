@@ -917,8 +917,10 @@ app, restore and trace) are blobs named by their sha256.
   repeating timers are, and each index a scope wrote is refreshed and merged
   to one segment as the scope ends, so what a search scores against and the
   order it gives documents that score alike (HQ's case search sorts by score,
-  then by `_doc`) never depend on when Elasticsearch's own merges ran. Each
-  related-case lookup HQ's search compiler runs while it compiles, each case
+  then by `_doc`) never depend on when Elasticsearch's own merges ran. Its
+  disk watermarks are off: they measure the host's whole volume, and past
+  the flood stage the server makes every index read-only, which would make
+  a lane on a fuller machine read differently. Each related-case lookup HQ's search compiler runs while it compiles, each case
   search Formplayer sends, Vellum's question of whether a form has
   submissions, the practice workers the app manager's pages list and the
   case types the data dictionary refresh clears are HQ's own queries of

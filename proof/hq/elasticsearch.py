@@ -239,6 +239,12 @@ def start() -> str:
                     # HQ's own configuration of its server (docker/files/elasticsearch_6.yml).
                     "-E",
                     "action.auto_create_index=.watches,.triggered_watches,.watcher-history-*",
+                    # The disk watermarks measure the whole volume the data directory is on, not the server's own
+                    # few megabytes: past the flood stage (95% of the volume used) the server makes every index
+                    # read-only, so a lane on a fuller machine would read differently. What HQ's code reads of an
+                    # index is never a function of the host's disk, so the watermarks are off.
+                    "-E",
+                    "cluster.routing.allocation.disk.threshold_enabled=false",
                 ],
                 cwd=str(run),
                 env=environment,
