@@ -83,7 +83,8 @@ def typed_inputs(displays, answers) -> dict[str, str]:
     if not answers:
         return typed
     for display in displays:
-        if not isinstance(display, dict) or not display.get("id"):
+        # A prompt the screen hides (the suite's ``hidden``) takes nothing a worker types.
+        if not isinstance(display, dict) or not display.get("id") or str(display.get("hidden")).lower() == "true":
             continue
         name = display.get("input") or "text"
         if name == "text":
