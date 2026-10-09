@@ -143,7 +143,13 @@ jobs:
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
           cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
+          # The registry sometimes resets a connection mid-download (ECONNRESET), which npm does not
+          # retry; a reset is tried again, and any other failure, or a third reset, fails the step.
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts 2> "$RUNNER_TEMP/npm-self-install.log"; then break; fi
+            cat "$RUNNER_TEMP/npm-self-install.log" >&2
+            if [ "$attempt" = 3 ] || ! grep -q ECONNRESET "$RUNNER_TEMP/npm-self-install.log"; then exit 1; fi
+          done
       - name: Cache npm downloads
         uses: actions/cache@v6
         with:
@@ -328,7 +334,13 @@ jobs:
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
           cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
+          # The registry sometimes resets a connection mid-download (ECONNRESET), which npm does not
+          # retry; a reset is tried again, and any other failure, or a third reset, fails the step.
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts 2> "$RUNNER_TEMP/npm-self-install.log"; then break; fi
+            cat "$RUNNER_TEMP/npm-self-install.log" >&2
+            if [ "$attempt" = 3 ] || ! grep -q ECONNRESET "$RUNNER_TEMP/npm-self-install.log"; then exit 1; fi
+          done
       - name: Cache npm downloads
         uses: actions/cache@v6
         with:
@@ -439,7 +451,13 @@ jobs:
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
           cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
+          # The registry sometimes resets a connection mid-download (ECONNRESET), which npm does not
+          # retry; a reset is tried again, and any other failure, or a third reset, fails the step.
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts 2> "$RUNNER_TEMP/npm-self-install.log"; then break; fi
+            cat "$RUNNER_TEMP/npm-self-install.log" >&2
+            if [ "$attempt" = 3 ] || ! grep -q ECONNRESET "$RUNNER_TEMP/npm-self-install.log"; then exit 1; fi
+          done
       - name: Cache npm downloads
         uses: actions/cache@v6
         with:
@@ -533,7 +551,13 @@ jobs:
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
           cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
+          # The registry sometimes resets a connection mid-download (ECONNRESET), which npm does not
+          # retry; a reset is tried again, and any other failure, or a third reset, fails the step.
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts 2> "$RUNNER_TEMP/npm-self-install.log"; then break; fi
+            cat "$RUNNER_TEMP/npm-self-install.log" >&2
+            if [ "$attempt" = 3 ] || ! grep -q ECONNRESET "$RUNNER_TEMP/npm-self-install.log"; then exit 1; fi
+          done
       - name: Cache npm downloads
         uses: actions/cache@v6
         with:
@@ -576,7 +600,13 @@ jobs:
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
           cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
+          # The registry sometimes resets a connection mid-download (ECONNRESET), which npm does not
+          # retry; a reset is tried again, and any other failure, or a third reset, fails the step.
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts 2> "$RUNNER_TEMP/npm-self-install.log"; then break; fi
+            cat "$RUNNER_TEMP/npm-self-install.log" >&2
+            if [ "$attempt" = 3 ] || ! grep -q ECONNRESET "$RUNNER_TEMP/npm-self-install.log"; then exit 1; fi
+          done
       - name: Cache npm downloads
         uses: actions/cache@v6
         with:
