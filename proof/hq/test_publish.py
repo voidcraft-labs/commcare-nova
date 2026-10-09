@@ -97,7 +97,7 @@ def test_publish_creates_then_updates_the_app_hq_holds(hq, core_runner):
         assert [f["xmlns"] for m in served["modules"] for f in m["forms"]] == uploaded_xmlns
 
     assert "cloudcare" in record.privilege_slugs_read()
-    assert record.elasticsearch_reads  # the refresh's cache-clearing read, answered empty
+    assert record.elasticsearch_reads  # the refresh's cache-clearing read of the project space's case types
 
 
 def test_an_app_that_maps_media_claims_its_media_and_validates_its_forms_on_import(hq, core_runner):

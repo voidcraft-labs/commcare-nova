@@ -691,8 +691,9 @@ def project_space(configuration: Configuration):
 def check_seams(configuration: Configuration, record: SeamRecord, *, validate):
     """The seams every path runs under.
 
-    Flags, privileges, the project-space settings and Elasticsearch answer
-    from the configuration, and Formplayer's form validation is
+    Flags, privileges and the project-space settings answer from the
+    configuration, HQ's Elasticsearch client is watched (``proof.hq.elasticsearch``, whose server and indexes
+    the unit holds), and Formplayer's form validation is
     ``validate``'s (Formplayer's own, ``formplayer_validation``): HQ asks Formplayer to validate forms while
     it builds, while it renders a form's settings page, and while it imports
     an app that maps media (``hqmedia/models.py::ApplicationMediaMixin.all_media``

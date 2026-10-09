@@ -18,8 +18,13 @@ harness keeps, each with its reason.
   views, decorators, templates and models over a real Postgres (HQ's own
   migrated schema) and its own in-memory Couch; the seams answer only what HQ
   reads from outside its state (flags, privileges, project settings, the
-  previous build, resource overrides, Elasticsearch), each recorded, and
-  every other read is HQ's. The form validation HQ asks Formplayer for is
+  previous build, resource overrides), each recorded, and every other read
+  is HQ's. Elasticsearch is HQ's own server at HQ's version, one a worker,
+  its indexes written only by HQ's own code (a user's save, and the
+  Elasticsearch processors of HQ's own pillows over every change the unit
+  records) and held to each unit's marks as Postgres is
+  (`proof/hq/elasticsearch.py`); HQ's client is refused outside a unit and on
+  an index the lane keeps nothing in, never answered by the harness. The form validation HQ asks Formplayer for is
   answered by Formplayer's own application, sent the request HQ wrote
   (`proof/hq/seams.py::formplayer_validation`). A speed seam computes exactly what HQ computes and can be switched
   off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
@@ -42,10 +47,7 @@ harness keeps, each with its reason.
   the lane's records (`proof/formplayer/apps.py::served`). What HQ lacks
   here is named where it
   is answered, and stays that narrow: the worker's sign-in form (the session
-  is Django's own `login`), Elasticsearch (a case search runs HQ's view
-  whole and is handed every case of the requested types from Postgres at the
-  transport, its filter compiled and not applied; a document HQ writes to an
-  index is taken and kept nowhere), and Nova's local archive, which HQ does
+  is Django's own `login`), and Nova's local archive, which HQ does
   not hold and Formplayer is handed as bytes. HQ's locks are real (HQ shares
   Formplayer's Redis, as production does, and relies on it), and what HQ
   runs when a transaction commits runs where the commit would

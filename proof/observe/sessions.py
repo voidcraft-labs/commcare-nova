@@ -337,20 +337,18 @@ def _raise_site(error):
 
 def csql_compile(unit, query, case_types):
     """HQ's compile of one CSQL string in a case search's context (``operations.compile_case_search``):
-    ``{"compiled": true}``; ``{"readsIndex": true}`` where compiling it reads the case index (a related lookup
-    past its flag's gate, ``xpath_functions/ancestor_functions.py``), which the harness has none of; or
-    ``{"raised": {"class", "site", "message"}}`` where HQ refuses it (``CaseFilterError`` and its subclasses,
-    ``CaseSearchException``), the site being where it raised (``_raise_site``). Anything else HQ raises is the
+    ``{"compiled": true}`` (a related lookup past its flag's gate runs its own query of HQ's case search index
+    while it compiles, ``xpath_functions/ancestor_functions.py``, over the unit's indexes,
+    ``proof.hq.elasticsearch``); or ``{"raised": {"class", "site", "message"}}`` where HQ refuses it
+    (``CaseFilterError`` and its subclasses, ``CaseSearchException``), the site being where it raised
+    (``_raise_site``). Anything else HQ raises is the
     harness's, and propagates."""
     from corehq.apps.case_search.exceptions import CaseFilterError, CaseSearchException
 
     from proof.hq import operations
-    from proof.hq.seams import SeamRefused
 
     try:
         operations.compile_case_search(unit, query, case_types)
-    except SeamRefused:
-        return {"readsIndex": True}
     except (CaseFilterError, CaseSearchException) as error:
         return {"raised": {"class": type(error).__name__, "site": _raise_site(error), "message": str(error)}}
     return {"compiled": True}

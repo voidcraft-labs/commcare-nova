@@ -303,14 +303,7 @@ or it fails the lane ("The registers", below).
   Formplayer one.
 - **What a served state does not show.** Formplayer and the Web Apps
   client read every state the lane builds ("Served states", below), with
-  these left out. Elasticsearch is not yet in the lane: a case search runs
-  HQ's view whole and is handed every case of the requested types, so what
-  a search's filter selects is not observed, and a document HQ writes to
-  an index is kept nowhere. What settles it is HQ's own Elasticsearch
-  (version 6, `docker/hq-compose.yml`) beside the lane's Postgres, its
-  indexes written by HQ's own adapters as HQ's pillows write them, and
-  held to each unit's forks as Postgres is (a fork's writes gone when it
-  is put back). HQ reads a restore's cases with no order of its
+  these left out. HQ reads a restore's cases with no order of its
   own, so the order is its database's; the harness hands them in the order
   of their ids in every state (`proof/formplayer/hq.py::cases_in_id_order`),
   and what order a production database gives is not observed. The worker's
@@ -910,7 +903,7 @@ app, restore and trace) are blobs named by their sha256.
   refused in a rollback unit, whose transaction never commits. The existing
   fresh-database mode (`open_unit(transactional=False)`) commits HQ's actual
   transactions and runs their real callbacks; its database is dropped at exit.
-- **Seams** (`seams.py`, `elasticsearch.py`) answer what HQ reads from outside
+- **Seams** (`seams.py`) answer what HQ reads from outside
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
   test utilities, the previous build, HQ's resource overrides, and the
@@ -920,12 +913,36 @@ app, restore and trace) are blobs named by their sha256.
   sent the headers and the digest HQ wrote). One privilege a
   part of the lane states of the project space beyond what the document's
   content needs is granted for that part alone (`also_granted`: Data
-  Forwarding, where a Connect app's forms are forwarded). Elasticsearch
-  answers the three reads the paths make as an empty index and refuses any
-  other; while a state is served it also answers a case search with the
-  cases Postgres holds and takes each document HQ writes to an index
-  (`proof/formplayer/hq.py::index`). Every other read is HQ's, against HQ's
-  state.
+  Forwarding, where a Connect app's forms are forwarded). Every other read
+  is HQ's, against HQ's state.
+- **Elasticsearch** (`elasticsearch.py`) is HQ's own: the version and the
+  plugin HQ's image of it holds (`docker/files/Dockerfile.es.6`, 6.8.23 with
+  `analysis-phonetic`, held to the image by `test_elasticsearch.py`), one
+  server a worker on a loopback address of its own, and the four indexes the
+  lane's paths read (cases, case search, forms and users), each created as
+  HQ's own test suite creates one (`es_test`'s `CreateIndex`). HQ writes
+  them with its own code: a user's save writes the user, and every change
+  HQ publishes for its pillows (which the unit records in place of Kafka) is
+  read as HQ's change feed reads a Kafka message and handed to the
+  Elasticsearch processors of the pillows that read its topic, as HQ
+  constructs them (the case pillow's cases and case search processors, the
+  form pillow's forms processor), as each operation or request ends, under
+  its own key and clock: a pillow runs behind production's requests, and
+  here it has caught up before the next one. HQ's client answers only inside
+  a unit opened with its seams, and is refused on any other index. What a
+  unit holds is held to its marks as Postgres is: each unit starts with
+  every index empty, a mark keeps what each index holds (its documents in
+  the order it holds them), and a restore puts back each index a write
+  touched since. Elasticsearch's own refresh timer is held, as the pages'
+  repeating timers are, and each index a scope wrote is refreshed and merged
+  to one segment as the scope ends, so what a search scores against and the
+  order it gives documents that score alike (HQ's case search sorts by score,
+  then by `_doc`) never depend on when Elasticsearch's own merges ran. Each
+  related-case lookup HQ's search compiler runs while it compiles, each case
+  search Formplayer sends, Vellum's question of whether a form has
+  submissions, the practice workers the app manager's pages list and the
+  case types the data dictionary refresh clears are HQ's own queries of
+  these indexes.
 - **What HQ's receiver needs** (`redis.py`, `localcache.py`,
   `branch.py::Unit.committing`): HQ takes a lock in Redis around each form,
   case and user it writes, and admits a mobile endpoint's request by finding
@@ -957,9 +974,8 @@ HQ's SQL processor and attachment writer in a fresh database, then reads new
 domain-scoped form models. It checks their stored XML and answers, distinct
 rows from HQ's `TableConfiguration`, a workbook from its export writer, and
 zero cases. The paired rollback-unit test refuses the real attachment commit
-callback. This proves storage and row generation from known saved forms;
-indexed export discovery and actor permissions remain outside it, with the
-Elasticsearch seam unchanged. Run it with
+callback. This proves storage and row generation from known saved forms; indexed
+export discovery and actor permissions are held by `proof/views/test_exports.py`. Run it with
 `npm run proof -- proof/hq/test_report_retention.py`.
 
 ### The Core runner
@@ -1043,8 +1059,8 @@ the caches left, the second omits the fetch).
   HQ's restore of the cases HQ holds, with the tables Nova's push uploaded
   and the user case HQ made), a submission (HQ's receiver whole:
   `SubmissionPost.run`, its locks, its case processing and what it does on
-  commit), a case search (`app_aware_search`, down to the Elasticsearch
-  transport) and a claim (`claim`, which makes the claim case HQ makes).
+  commit), a case search (`app_aware_search`, its query applied by HQ's own
+  Elasticsearch to the cases HQ's pillows indexed as its receiver saved them) and a claim (`claim`, which makes the claim case HQ makes).
   `serve` makes what HQ needs for that with HQ's own code: the project
   space's default roles, the worker (`CommCareUser.create`), the document's
   cases submitted through HQ's receiver as the worker, and a build released
@@ -2844,8 +2860,9 @@ each is stated here as it is built.
 
 These were settled while the lane was built, and stand where the plan's first
 text said otherwise: HQ's database is a clone of the schema HQ's own
-migrations create, not a list of models; Elasticsearch is one seam answering
-the reads the paths make as an empty index; app-manager pages render through
+migrations create, not a list of models; Elasticsearch is HQ's own server at
+HQ's version, its indexes written by HQ's own code and held to each unit's
+marks; app-manager pages render through
 HQ's own page views (`view_generic`), their JavaScript bundled at image build
 time with an esbuild configuration derived from HQ's webpack configuration;
 `DEBUG` stays on, with only its speed effects as seams; HQ's soft assertions

@@ -6,8 +6,9 @@ CommCare version HQ builds at (``NATIVE_COMMCARE_VERSION``, which HQ reads as
 its default build through the check's build configuration). Everything else
 HQ reads from outside its state goes through the seams ``hq_check`` opens:
 every flag not named is off, every privilege not named is refused,
-Formplayer's form validation is the Core runner, and Elasticsearch, Couch,
-Redis and the network are the harness's.
+Formplayer's form validation is the Core runner, Elasticsearch is HQ's own
+server held to the unit (``proof.hq.elasticsearch``), and Couch, Redis and the
+network are the harness's.
 
 The rest are HQ's own calls the proofs share: importing an app the way
 ``Application.from_source`` does, regenerating a form's case and meta blocks,

@@ -605,6 +605,8 @@ class Mark:
     # ``Unit._couch_writes``).
     sql_writes: int = 0
     couch_writes: int = 0
+    # What the unit's Elasticsearch indexes held (``proof.hq.elasticsearch.UnitIndexes.mark``), or None.
+    indexes: tuple | None = None
     live: bool = True
 
 
@@ -656,6 +658,8 @@ class Unit:
         self.database = database
         self.web_user = None
         self.record = None
+        # HQ's Elasticsearch as the unit holds it (``proof.hq.elasticsearch.UnitIndexes``), where seams are open.
+        self.indexes = None
         self.key = _check_key(root_key)
         self.depth = 0
         self.writes = 0
@@ -927,6 +931,10 @@ class Unit:
         try:
             with soft_assertions(scope.soft_assertions), determinism.operation(scope.key, scope.depth):
                 yield scope
+                # What a pillow does behind the scope's writes, done before the next scope reads them, under the
+                # scope's own key and clock (proof.hq.elasticsearch).
+                if self.indexes is not None:
+                    self.indexes.settle()
             finished = True
         finally:
             if not self._scopes or self._scopes[-1] is not scope:
@@ -1000,6 +1008,16 @@ class Unit:
         problem = transaction_problem()
         if problem is not None:
             raise AbortedTransaction(f"The unit was asked to take a mark while its database connection was {problem}.")
+        indexes = None
+        if self.indexes is not None:
+            # A lenient unit may have written outside every scope; what follows from that is settled now, under
+            # the unit's own key and clock.
+            if self.indexes.unsettled():
+                from proof.hq import determinism
+
+                with determinism.operation(self.key, self.depth):
+                    self.indexes.settle()
+            indexes = self.indexes.mark()
         with self._internal_sql():
             savepoint = transaction.savepoint()
             sequences = self._sequences_now(connection)
@@ -1015,6 +1033,7 @@ class Unit:
             writes=self.writes,
             sql_writes=self._sql_writes,
             couch_writes=self._couch_writes,
+            indexes=indexes,
         )
         self._marks.append(mark)
         return mark
@@ -1100,6 +1119,8 @@ class Unit:
         self._known_couch = (self._couch_writes, mark.couch)
         self.blob_db.restore_snapshot(mark.files)
         del self.changes[mark.changes :]
+        if self.indexes is not None and mark.indexes is not None:
+            self.indexes.restore(mark.indexes)
         clear_caches()
         self.key, self.depth, self.writes = mark.key, mark.depth, mark.writes
         for later in self._marks[index + 1 :]:

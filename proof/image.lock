@@ -1,5 +1,5 @@
 {
-	"image": "ghcr.io/voidcraft-labs/commcare-nova-proof@sha256:c9fcb17f656acca05d3cd9ff1b49a677e23208c8f5034e6ac42d6709967af1e2",
+	"image": "ghcr.io/voidcraft-labs/commcare-nova-proof@sha256:b94f7f2ee17be4540257f0ca8e1abe8dee261300b659c21e3fe45ca2b3b80f5f",
 	"pins": {
 		"commcare-hq": "d6c6e16d8ae12a5d0680fe6cce5c51a8b4c8708b",
 		"commcare-core": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
