@@ -123,6 +123,7 @@ final class Screens {
 
     private static JSONObject guarded(String command, List<String> choices, Deque<List<String>> pending,
                                       FormStep form) throws Exception {
+        Device.settle();
         if (Device.dirty) {
             Device.reset();
         }
