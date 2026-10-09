@@ -519,7 +519,7 @@ def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_
 # One cheap item using the Core runner in each of two packages (pytest's -k, through PYTEST_ADDOPTS, which the
 # server's collection and every worker's session read alike).
 CORE_RUNNER_ITEMS = (
-    "test_unknown_markup_is_a_warning_not_a_failure or test_a_build_reads_the_same_filter_errors_from_either"
+    "test_a_missing_archive_entry_is_named or test_a_build_reads_the_same_filter_errors_from_either"
 )
 # Claims the first block at once, and the second only once the first block's manifest is written.
 SLOW_CLAIM = """#!/bin/sh

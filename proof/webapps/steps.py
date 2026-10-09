@@ -48,24 +48,54 @@ def click(
     return [step, SETTLE]
 
 
+# Every request the client sends Formplayer (``session.FORMPLAYER_PREFIX``).
+FORMPLAYER = "/formplayer/"
+
+
+def navigate(
+    selector: str,
+    text: str | None = None,
+    *,
+    visible: bool = False,
+    within: int | None = None,
+    or_skip_to: str | None = None,
+) -> list[dict]:
+    """``click`` on what takes the worker to another screen, then Formplayer's answer to the request the click made,
+    then the page quiet.
+
+    The client asks Formplayer for the next screen a moment after the click
+    (its router updates the address and then asks), so the page can be quiet
+    before the request starts: read then, the screen is the one the worker
+    is leaving, half taken down. Every navigation the client makes is a
+    request to Formplayer, so the step waits for one answered after the
+    click, and only then for the page. Where a click allowed to miss did
+    miss, no request follows and none is waited for.
+    """
+    [step, settle] = click(selector, text, visible=visible, within=within, or_skip_to=or_skip_to)
+    awaited = {"awaitRequest": {"method": "POST", "pathnamePrefix": FORMPLAYER}, "sinceMark": True}
+    if within is not None:
+        awaited["unlessMissed"] = True
+    return [{"mark": True}, step, awaited, settle]
+
+
 def open_app(name: str) -> list[dict]:
     """The app's tile on Web Apps' home screen."""
-    return click(APP_TILE, name)
+    return navigate(APP_TILE, name)
 
 
 def choose(text: str) -> list[dict]:
     """A menu's row: a menu or a form, by the name the menu shows."""
-    return click(MENU_ROW, text)
+    return navigate(MENU_ROW, text)
 
 
 def select_case(case_id: str) -> list[dict]:
     """A case in a case list, then Continue on the case detail the client opens."""
-    return [*click(f"#menu-region [id='row-{case_id}']"), *click("#select-case")]
+    return [*navigate(f"#menu-region [id='row-{case_id}']"), *navigate("#select-case")]
 
 
 def list_action(text: str) -> list[dict]:
     """One of a case list's action buttons (a search, a registration form)."""
-    return click(LIST_ACTION, text)
+    return navigate(LIST_ACTION, text)
 
 
 def fill(selector: str, value: str) -> list[dict]:
@@ -75,12 +105,12 @@ def fill(selector: str, value: str) -> list[dict]:
 
 def search_list(text: str) -> list[dict]:
     """A case list's own search box: the text typed, then its search button."""
-    return [*fill("#searchText", text), *click("#case-list-search-button")]
+    return [*fill("#searchText", text), *navigate("#case-list-search-button")]
 
 
 def run_search() -> list[dict]:
     """A search screen's Search button."""
-    return click("#query-submit-button")
+    return navigate("#query-submit-button")
 
 
 def submit_form() -> list[dict]:

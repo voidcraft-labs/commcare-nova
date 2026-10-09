@@ -85,26 +85,31 @@ def clicks(run: Mapping[str, Any], end: str | None = None) -> list[dict]:
         # The screen the choice is made on is Formplayer's answer before it.
         screen = responses[position] if position < len(responses) else None
         if "menu" in choice:
-            made += steps.click(f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})", within=within, or_skip_to=end)
+            made += steps.navigate(f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})", within=within, or_skip_to=end)
         elif "entity" in choice and isinstance(screen, dict) and screen.get("multiSelect"):
             # A worker picks a case of a multi-select list by its row's checkbox and goes on with the list's own
             # Continue (``menus/views.js``, ``selectRowAction`` and ``continueAction``), as Formplayer's walk
             # sends the case as the list's selected values.
             row = f"#menu-region [id='row-{choice['entity']}'] .select-row-checkbox"
             made += steps.click(row, within=within, or_skip_to=end)
-            made += steps.click(MULTI_SELECT_CONTINUE, visible=True, within=within, or_skip_to=end)
+            made += steps.navigate(MULTI_SELECT_CONTINUE, visible=True, within=within, or_skip_to=end)
         elif "entity" in choice:
             row = f"#menu-region [id='row-{choice['entity']}']"
-            made += steps.click(row, within=within, or_skip_to=end)
+            # The row's click asks Formplayer for the case's detail where the list has one, else for the next screen.
+            made += steps.navigate(row, within=within, or_skip_to=end)
             if isinstance(screen, dict) and screen.get("hasDetails"):
                 # The client opens a case's detail where it has one to show and takes the case itself where
                 # it has none (``menus/controller.js::showDetail``), so Continue is clicked where it is shown.
-                made += steps.click("#select-case", visible=True, within=within) if end else steps.click("#select-case")
+                made += (
+                    steps.navigate("#select-case", visible=True, within=within)
+                    if end
+                    else steps.navigate("#select-case")
+                )
         elif "action" in choice:
             action = f"{steps.LIST_ACTION}[data-index='{choice['action']}']"
-            made += steps.click(action, within=within, or_skip_to=end)
+            made += steps.navigate(action, within=within, or_skip_to=end)
         elif "search" in choice:
-            made += steps.click("#query-submit-button", within=within, or_skip_to=end)
+            made += steps.navigate("#query-submit-button", within=within, or_skip_to=end)
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"
@@ -138,7 +143,7 @@ def tolerant_replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str)
 
     for index, run in enumerate(runs):
         end = f"run-{index}"
-        add(steps.click(steps.APP_TILE, app_name, within=steps.WITHIN_MS, or_skip_to=end))
+        add(steps.navigate(steps.APP_TILE, app_name, within=steps.WITHIN_MS, or_skip_to=end))
         add([steps.SCREEN], ("screen", index))
         for step in clicks(run, end):
             add([step], ("screen", index) if step == steps.SCREEN else None)
