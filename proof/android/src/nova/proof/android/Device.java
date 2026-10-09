@@ -148,6 +148,8 @@ final class Device {
         CommCareApp app = CommCareApplication.instance().getCurrentApp();
         DemoUserBuilder.buildTestUser(ApplicationProvider.getApplicationContext(), app, USERNAME, PASSWORD);
         TestAppInstaller.login(USERNAME, PASSWORD);
+        // A worker's phone has its location switched on before any form asks for it.
+        Sensors.switchOn();
     }
 
     /**
@@ -234,6 +236,52 @@ final class Device {
             editor.putString(names.getString(i), preferences.getString(names.getString(i)));
         }
         editor.commit();
+    }
+
+    // How long the reader waits for what an earlier walk set running to end.
+    private static final long SETTLE_MILLIS = 120_000;
+
+    /**
+     * Waits until nothing an earlier walk set running is still running: every task the app keeps in its own list
+     * of running tasks (ManagedAsyncTask, its form loads and saves, its list loads) has ended and handed its
+     * result to the main thread. A list's load the walk left behind is otherwise still pending when the next walk
+     * opens the same list, which takes the pending load over (EntityLoaderTask.pendingTask) and reads cases from
+     * the storage the reset has since closed; a worker's device has long finished such a load before its data is
+     * cleared or the list opened again.
+     */
+    @SuppressWarnings("unchecked")
+    static void settle() throws Exception {
+        java.lang.reflect.Field field =
+                org.commcare.tasks.templates.ManagedAsyncTask.class.getDeclaredField("livingTasks");
+        field.setAccessible(true);
+        java.util.List<android.os.AsyncTask<?, ?, ?>> living =
+                (java.util.List<android.os.AsyncTask<?, ?, ?>>)field.get(null);
+        long deadline = System.nanoTime() + SETTLE_MILLIS * 1_000_000L;
+        while (true) {
+            ShadowLooper.idleMainLooper();
+            java.util.List<android.os.AsyncTask<?, ?, ?>> running = new java.util.ArrayList<>();
+            synchronized (living) {
+                for (android.os.AsyncTask<?, ?, ?> task : living) {
+                    if (task.getStatus() != android.os.AsyncTask.Status.FINISHED) {
+                        running.add(task);
+                    }
+                }
+            }
+            if (running.isEmpty()) {
+                return;
+            }
+            for (android.os.AsyncTask<?, ?, ?> task : running) {
+                long left = deadline - System.nanoTime();
+                try {
+                    task.get(Math.max(1, left / 1_000_000L), java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.CancellationException | java.util.concurrent.ExecutionException ended) {
+                    // The task ended either way; its end reaches the main thread below.
+                } catch (java.util.concurrent.TimeoutException running_) {
+                    throw new IllegalStateException("A task an earlier walk set running (" + task.getClass().getName()
+                            + ") did not end within " + SETTLE_MILLIS / 1000 + " s.");
+                }
+            }
+        }
     }
 
     /**

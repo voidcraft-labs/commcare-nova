@@ -80,7 +80,7 @@ final class Cases {
                 ordered.put(String.valueOf(property.getKey()), String.valueOf(property.getValue()));
             }
             for (Map.Entry<String, String> property : ordered.entrySet()) {
-                properties.put(property.getKey(), named(property.getValue(), drawn));
+                properties.put(property.getKey(), Captures.recorded(named(property.getValue(), drawn)));
             }
             entry.put("properties", properties);
             JSONObject indices = new JSONObject();

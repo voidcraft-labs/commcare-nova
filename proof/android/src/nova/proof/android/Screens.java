@@ -78,6 +78,8 @@ final class Screens {
         Lists.searches = request.optJSONArray("searches");
         Queries.answer = request.has("queryAnswer") ? request.getString("queryAnswer") : null;
         Answers.table = request.optJSONObject("answers");
+        Forms.views = request.optBoolean("views");
+        Forms.typeRefused = request.optBoolean("typeRefused");
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
         if (commands != null) {
@@ -121,9 +123,11 @@ final class Screens {
 
     private static JSONObject guarded(String command, List<String> choices, Deque<List<String>> pending,
                                       FormStep form) throws Exception {
+        Device.settle();
         if (Device.dirty) {
             Device.reset();
         }
+        Sensors.forget();
         try {
             return walk(command, choices, pending, form);
         } catch (Throwable raised) {
@@ -257,10 +261,16 @@ final class Screens {
      * {@code holder}'s {@code deviceAsked}; it stops at the first that names a screen. The device here grants
      * nothing.
      */
+    /** The last permission request a screen made of the device, which a worker's answer goes back to. */
+    static Intent permissionRequest;
+
     static void deviceAsks(ShadowActivity shadow, JSONObject holder) throws Exception {
         Intent next;
         while ((next = shadow.peekNextStartedActivity()) != null && next.getComponent() == null) {
             shadow.getNextStartedActivity();
+            if (next.getStringArrayExtra(Sensors.REQUESTED) != null) {
+                permissionRequest = next;
+            }
             JSONObject asked = new JSONObject();
             asked.put("action", orNull(next.getAction()));
             asked.put("data", orNull(next.getDataString()));

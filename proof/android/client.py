@@ -41,6 +41,9 @@ RUNTIME_ENVIRONMENT = "PROOF_ANDROID_RUNTIME"
 DEFAULT_RUNTIME = Path("/opt/android-reader")
 MAIN_CLASS = "nova.proof.android.Runner"
 SOURCE_DIR = Path(__file__).resolve().parent / "src"
+# The real small files a walk gives a form's capture questions (Captures.java), named to the JVM by a system
+# property, never in a request: a request's key names what it reads, and the files are the reader's own.
+CAPTURES_DIR = Path(__file__).resolve().parent / "captures"
 COMPILE_SECONDS = 300.0
 REQUEST_SECONDS = 300.0
 LOG_LIMIT = 256 * 1024
@@ -240,6 +243,7 @@ class AndroidReader:
             "java",
             *JVM_OPTIONS,
             f"-Drobolectric.dependency.dir={self._runtime / runtime['robolectric']}",
+            f"-Dnova.proof.android.captures={CAPTURES_DIR}",
             f"-Djava.io.tmpdir={temporary}",
             "-cp",
             os.pathsep.join([str(self._classes), *self._classpath()]),

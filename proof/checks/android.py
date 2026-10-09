@@ -77,6 +77,9 @@ DATA_MAPS = frozenset(
         "/walks/*/steps/*/query/RemoteQuerySessionManager.getRawQueryParams",
         "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getRawQueryParams",
         "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getErrors",
+        "/walks/*/steps/*/query/typed/given",
+        "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams",
+        "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getErrors",
         "/walks/*/steps/*/post/params",
         "/walks/*/steps/*/form/saved/cases",
     }

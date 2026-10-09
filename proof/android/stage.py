@@ -175,6 +175,16 @@ def write_evidence(directory: Path, check: str, kind: str, identifier: str, diff
 # The run ------------------------------------------------------------------------------------------------------
 
 
+class _Answering:
+    """One request key's answer while the stage makes it: set once by the thread making it (``owner``)."""
+
+    def __init__(self, owner: str):
+        self.owner = owner
+        self.done = threading.Event()
+        self.answer = None
+        self.failure: str | None = None
+
+
 class Run:
     """One run of the stage: the queue's blocks of one bin, read and judged, written as a shard's output is."""
 
@@ -211,7 +221,10 @@ class Run:
             self.shard = f"{index}/{count}"
         self.reader = reader
         self.lock = threading.Lock()
-        self.counts = {"requests": 0, "read": 0, "made": 0, "failed": 0}
+        # Each request key this run is answering or has answered: the answer, made once whatever number of
+        # requests share the key (``_answer``).
+        self.answering: dict[str, _Answering] = {}
+        self.counts = {"requests": 0, "read": 0, "shared": 0, "made": 0, "failed": 0}
         self.problems: list[str] = []
 
     # Answers
@@ -231,22 +244,56 @@ class Run:
         return None
 
     def _answer(self, request, scratch: Path, *, fresh: bool, failures: list):
+        """One request's answer and the seconds the reader took making it.
+
+        Requests of one document can share a key (the same archives, restore and options under two names, such
+        as one save's build under two configurations), and they run on ``jobs`` threads at once. The key is
+        answered once: the first thread to ask makes the answer in a scratch directory of the key's own, and
+        every other request with the key waits for it. Two threads making one key's answer would each write the
+        key's archive into that one directory, and the second write rewrites the file while the first device
+        is unzipping it: InstallArchiveActivity's UnzipTask then reads a truncated archive, unzips nothing, and
+        leaves the activity open with no result, so the reader waits out its deadline."""
         key = request.key(self.source, self.fingerprint)
         with self.lock:
             self.counts["requests"] += 1
             record = self._held(key, fresh=fresh)
+            if record is None:
+                answering = self.answering.get(key)
+                if answering is None:
+                    answering = self.answering[key] = _Answering(owner=request.name)
+                    owner = True
+                else:
+                    owner = False
         if record is not None:
             with self.lock:
                 self.counts["read"] += 1
             return record["answer"], 0.0
+        if not owner:
+            answering.done.wait()
+            with self.lock:
+                self.counts["shared"] += 1
+                if answering.failure is not None:
+                    failures.append(
+                        f"{request.name}: the reader could not answer {answering.owner}, which this"
+                        f" request shares a key with: {answering.failure}"
+                    )
+            return answering.answer, 0.0
+        try:
+            return self._make(request, key, scratch, fresh=fresh, failures=failures, answering=answering)
+        finally:
+            answering.done.set()
+
+    def _make(self, request, key: str, scratch: Path, *, fresh: bool, failures: list, answering):
         started = time.perf_counter()
         record = records.run(self.reader, request, self.source, scratch / key[:24])
         seconds = round(time.perf_counter() - started, 3)
         if "answer" not in record:
             with self.lock:
                 self.counts["failed"] += 1
+                answering.failure = record["readerFailed"]
                 failures.append(f"{request.name}: {record['readerFailed']}\n{record.get('log', '')[-3000:]}")
             return None, seconds
+        answering.answer = record["answer"]
         content = disk.canonical(record)
         with self.lock:
             self.counts["made"] += 1
@@ -405,6 +452,7 @@ class Run:
         print(
             f"[android] {len(self.blocks)} blocks in {time.perf_counter() - started:.1f} s:"
             f" {self.counts['requests']} requests, {self.counts['read']} read from the store,"
+            f" {self.counts['shared']} given the answer of another request with their key,"
             f" {self.counts['made']} made by the reader, {self.counts['failed']} the reader could not answer.",
             flush=True,
         )

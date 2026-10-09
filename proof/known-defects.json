@@ -7714,13 +7714,43 @@
 	{
 		"id": "d51-android-proof3-local-ccz-list-sorted-changed",
 		"defect": 51,
-		"part": "sort keys, and defect 10's label-column order (the order a Sort choice gives)",
+		"part": "sort keys (the order a Sort choice gives)",
 		"check": "proof3",
 		"artifact": "android@local.ccz",
 		"path": "/walks/*/steps/*/list/sorted/*",
 		"kind": "changed",
 		"document": "case-list-browse",
 		"control": "case-list-browse"
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-sorted-zone-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "targeted-label-sort",
+		"control": "targeted-label-sort",
+		"values": {
+			"before": "proof text | proof text | 10 | 10 | 2",
+			"after": "10 | 10 | 2 | proof text | proof text"
+		}
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-sorted-level-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "targeted-label-sort",
+		"control": "targeted-label-sort",
+		"values": {
+			"before": "2 | proof text | 10 | 10 | proof text",
+			"after": "10 | 10 | 2 | proof text | proof text"
+		}
 	},
 	{
 		"id": "d36-android-proof3-local-ccz-list-sorted-removed",
@@ -8440,5 +8470,82 @@
 		"kind": "changed",
 		"document": "targeted-supply-point-read",
 		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d34-android-proof3-local-ccz-form-devicegave-removed",
+		"defect": 34,
+		"part": "Connect location capture (the location fix)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/deviceGave",
+		"kind": "removed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d34-android-proof3-local-ccz-form-saved-records-metalocation-removed",
+		"defect": 34,
+		"part": "Connect location capture (the location the saved form holds)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+		"kind": "removed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d4-android-proof3-b-form-devicegave-removed",
+		"defect": 4,
+		"part": "auto_gps_capture (the location fix)",
+		"check": "proof3",
+		"artifact": "android@B",
+		"path": "/walks/*/steps/*/form/deviceGave",
+		"kind": "removed",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d4-android-proof3-b-form-saved-records-metalocation-removed",
+		"defect": 4,
+		"part": "auto_gps_capture (the location the saved form holds)",
+		"check": "proof3",
+		"artifact": "android@B",
+		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+		"kind": "removed",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d53-android-proof3-local-ccz-query-typed-getrawqueryparams-removed",
+		"defect": 53,
+		"part": "zero-input search sentinel (a typed search)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams/*",
+		"kind": "removed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-getrawqueryparams-changed",
+		"defect": 12,
+		"part": "single-date prompt (what a typed search sends)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams/*/*",
+		"kind": "changed",
+		"document": "navigation-search-date-add",
+		"control": "navigation-search-date-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-given-added",
+		"defect": 12,
+		"part": "single-date prompt (a prompt a worker can type into)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/given/*",
+		"kind": "added",
+		"document": "navigation-search-date-add",
+		"control": "navigation-search-date-add"
 	}
 ]

@@ -95,6 +95,18 @@ def edited(archive: Path, target: Path, name: str, replacements) -> Path:
     return variant(archive, target, {name: text.encode("utf-8")})
 
 
+def with_entries(archive: Path, target: Path, entries: dict) -> Path:
+    """The archive with more entries (each name to its bytes), none of which it holds already."""
+    with zipfile.ZipFile(archive) as original, zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as copy:
+        held = {info.filename for info in original.infolist()}
+        assert not held & set(entries), f"{archive} already holds {sorted(held & set(entries))}"
+        for info in original.infolist():
+            copy.writestr(info, original.read(info.filename))
+        for name, content in sorted(entries.items()):
+            copy.writestr(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), content)
+    return target
+
+
 def cells(view) -> list[dict]:
     """Each text or image view under ``view``, as Android built it."""
     found = []
@@ -307,7 +319,10 @@ class Predicates(unittest.TestCase):
     def tile(self, label, replacements):
         archive = edited(TILE / "local.ccz", self.work / f"tile-{label}.ccz", "suite.xml", replacements)
         answer = self.reader.request("app", archive=str(archive), restore=str(TILE / "restore.xml"), commands=["m0-f0"])
-        return cells(answer["walks"]["m0-f0"]["steps"][0]["list"]["rows"][0])
+        walk = answer["walks"]["m0-f0"]
+        raised = walk.get("raised") or {}
+        self.assertIn("steps", walk, f"the walk raised {raised.get('class')}: {raised.get('stack', '')[:3000]}")
+        return cells(walk["steps"][0]["list"]["rows"][0])
 
     def test_a_tile_cells_style_reaches_androids_tile_view(self):
         """Defect 14's tile font size and finding 42. Contract: on Android's tile (``EntityViewTile``), a
@@ -365,6 +380,124 @@ class Predicates(unittest.TestCase):
         # Leaving the last repeat ends this form, which the dialog's own choice then saves.
         self.assertEqual(form["ended"], "finished")
         self.assertIs(form["saved"]["finishing"], True)
+
+    def test_hint_and_group_label_media_show_nowhere_a_device_draws(self):
+        """Defect 16 (the media slots Nova offers). Contract: Android lays out a question's hint as its text
+        alone and a group's label as its text alone (``QuestionWidget``, ``QuestionsView``), so a form whose hint
+        and group label also name an image shows the worker exactly the screen the form without them shows,
+        while an image named by a question's own label is laid out beside its text. Failure it catches: either
+        slot shown on a device, which would make Nova's removal of it a loss a worker sees, or a comparison of
+        screens that sees no media at all (the label's image)."""
+        form = "modules-0/forms-0.xml"
+        image = (Path(__file__).resolve().parent / "captures" / "proof-image.jpg").read_bytes()
+        hint = (
+            '<input ref="/data/household/address"><label ref="jr:itext(&apos;household-address-label&apos;)"/>',
+            '<input ref="/data/household/address"><label ref="jr:itext(&apos;household-address-label&apos;)"/>'
+            '<hint ref="jr:itext(&apos;household-address-hint&apos;)"/>',
+        )
+        hint_text = (
+            '<text id="household-address-label">',
+            '<text id="household-address-hint"><value>Write the street</value></text>'
+            '<text id="household-address-label">',
+        )
+        hinted = edited(LABELLED_REPEAT, self.work / "hinted.ccz", form, [hint, hint_text])
+        with_media = with_entries(
+            edited(
+                hinted,
+                self.work / "hinted-media.ccz",
+                form,
+                [
+                    (
+                        "<value>Write the street</value>",
+                        '<value>Write the street</value><value form="image">jr://file/commcare/image/hint.jpg</value>',
+                    ),
+                    (
+                        "<value>Household</value>",
+                        '<value>Household</value><value form="image">jr://file/commcare/image/group.jpg</value>',
+                    ),
+                ],
+            ),
+            self.work / "hinted-media-files.ccz",
+            {"commcare/image/hint.jpg": image, "commcare/image/group.jpg": image},
+        )
+        labelled = with_entries(
+            edited(
+                hinted,
+                self.work / "labelled-media.ccz",
+                form,
+                [
+                    (
+                        "<value>Address</value>",
+                        '<value>Address</value><value form="image">jr://file/commcare/image/label.jpg</value>',
+                    )
+                ],
+            ),
+            self.work / "labelled-media-files.ccz",
+            {"commcare/image/label.jpg": image},
+        )
+
+        def screens(archive):
+            answer = self.walked(archive, commands=["m0-f0"], views=True)
+            return [screen.get("view") for screen in answer["walks"]["m0-f0"]["steps"][0]["form"]["screens"]]
+
+        plain = screens(hinted)
+        self.assertTrue(plain and all(view is not None for view in plain))
+        self.assertIn("Write the street", json.dumps(plain))
+        self.assertEqual(screens(with_media), plain)
+        self.assertNotEqual(screens(labelled), plain)
+
+    def test_a_validation_messages_media_shows_nowhere_a_device_draws(self):
+        """Defect 16 (validation message media). Contract: where a worker's answer breaks a question's constraint,
+        Android shows the form's message for it as its text alone (``FormEntryActivityUIController
+        .showConstraintWarning``, ``QuestionWidget.notifyInvalid``), so a message that also names an image shows
+        the same screen as one that does not. Failure it catches: the message's image shown on a device, or a walk
+        that never shows the message at all (its text is on the screen)."""
+        form = "modules-0/forms-0.xml"
+        image = (Path(__file__).resolve().parent / "captures" / "proof-image.jpg").read_bytes()
+        constrained = edited(
+            LABELLED_REPEAT,
+            self.work / "constrained.ccz",
+            form,
+            [
+                (
+                    '<bind nodeset="/data/household/address" type="xsd:string"/>',
+                    '<bind nodeset="/data/household/address" type="xsd:string" constraint=". = &apos;ok&apos;"'
+                    ' jr:constraintMsg="jr:itext(&apos;household-address-constraintMsg&apos;)"/>',
+                ),
+                (
+                    '<text id="household-address-label">',
+                    '<text id="household-address-constraintMsg"><value>Use ok</value></text>'
+                    '<text id="household-address-label">',
+                ),
+            ],
+        )
+        with_media = with_entries(
+            edited(
+                constrained,
+                self.work / "constrained-media.ccz",
+                form,
+                [
+                    (
+                        "<value>Use ok</value>",
+                        '<value>Use ok</value><value form="image">jr://file/commcare/image/ok.jpg</value>',
+                    )
+                ],
+            ),
+            self.work / "constrained-media-files.ccz",
+            {"commcare/image/ok.jpg": image},
+        )
+
+        def held(archive):
+            # The form is one screen (a field list): the worker types the refused answer and presses finish, and
+            # Android keeps the form open on that screen with the form's message.
+            answer = self.walked(archive, commands=["m0-f0"], views=True, typeRefused=True)
+            form_read = answer["walks"]["m0-f0"]["steps"][0]["form"]
+            self.assertIs(form_read["saved"]["finishing"], False)
+            return form_read["afterFinish"]
+
+        plain = held(constrained)
+        self.assertIn("Use ok", json.dumps(plain))
+        self.assertEqual(held(with_media), plain)
 
     # The predicates whose other spelling is HQ's build's -------------------------------------------------------
 

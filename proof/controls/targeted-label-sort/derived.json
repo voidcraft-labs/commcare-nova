@@ -1,0 +1,191 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "household-1",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"zone",
+							"proof text"
+						],
+						[
+							"level",
+							"proof"
+						]
+					]
+				},
+				{
+					"case_id": "household-2",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"zone",
+							"10"
+						],
+						[
+							"level",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "household-3",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"zone",
+							"2"
+						],
+						[
+							"level",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "household-4",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"zone",
+							"proof text"
+						],
+						[
+							"level",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "household-5",
+					"case_type": "household",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"zone",
+							"10"
+						],
+						[
+							"level",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Household levels",
+			"modules": [
+				[
+					"household",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "household",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "0abe9019-1866-5325-ad69-3a077a4ff029",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"household",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "household",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "641623af-c40b-5303-aa9e-576955303f5f",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"0abe9019-1866-5325-ad69-3a077a4ff029"
+					],
+					"uuid": "54f34064-da9a-58e8-a30b-96aa3b0e6d74"
+				},
+				{
+					"forms": [
+						"641623af-c40b-5303-aa9e-576955303f5f"
+					],
+					"uuid": "06b54ab2-7833-510e-adf0-5d3461507fe2"
+				}
+			]
+		}
+	}
+}

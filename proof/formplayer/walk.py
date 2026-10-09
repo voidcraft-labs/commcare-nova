@@ -5,9 +5,12 @@ them against Core (``proof/core/src/nova/proof/core/SessionOp.java``), each a
 sequence of the requests the Web Apps client sends (``proof.formplayer.
 webapps``). Without a script one is derived: every command of every menu,
 depth first in menu order; at each case list the first case Formplayer lists;
-at each search screen the search, sent with the prompts as Formplayer shows
-them. With a script, each run replays it, and a choice the screen cannot take
-ends that run as ``unreplayable``. A run that reaches a form answers its
+at each search screen the search a worker sends after typing the answer
+table's search answers into its prompts (``typed_inputs``, a step of its own
+that HQ's search view answers), then the search sent with the prompts as
+Formplayer shows them, which the run goes on with. With a script, each run
+replays it, and a choice the screen cannot take ends that run as
+``unreplayable``. A run that reaches a form answers its
 questions from the lane's fixed answer table (``proof/core/answers.json``,
 whose values are already in the encoding Web Apps sends Formplayer), submits
 it as the client does, and records Formplayer's answer, the submission HQ
@@ -68,6 +71,30 @@ DATA_TYPES = {
 # What Web Apps sends in a multi-select list's selection once the cases are chosen
 # (commcare-core MultiSelectEntityScreen.USE_SELECTED_VALUES).
 USE_SELECTED_VALUES = "use_selected_values"
+
+
+def typed_inputs(displays, answers) -> dict[str, str]:
+    """What a worker types into a search screen's prompts, as Web Apps sends it (``query_data`` inputs): the
+    answer table's ``searchPrompts`` by each prompt's input, a text prompt its text and a single select or a
+    checkbox prompt the key of the option the table names (``itemsetChoicesKey``, by its 1-based index). A
+    prompt of another input (a date range, an address) is left as the screen leaves it; empty where the table
+    holds no search answers or the screen no prompt to type into."""
+    typed: dict[str, str] = {}
+    if not answers:
+        return typed
+    for display in displays:
+        # A prompt the screen hides (the suite's ``hidden``) takes nothing a worker types.
+        if not isinstance(display, dict) or not display.get("id") or str(display.get("hidden")).lower() == "true":
+            continue
+        name = display.get("input") or "text"
+        if name == "text":
+            typed[display["id"]] = answers["text"]
+        elif name in ("select1", "checkbox") and name in answers:
+            keys = display.get("itemsetChoicesKey") or ()
+            index = int(answers[name])
+            if 0 < index <= len(keys):
+                typed[display["id"]] = keys[index - 1]
+    return typed
 
 
 def load_answer_table(path: Path = ANSWERS_PATH) -> dict[str, Any]:
@@ -304,6 +331,21 @@ class Walk:
                             break
                         cursor += 1
                     ran.append({"search": key})
+                    typed = typed_inputs(response.get("displays") or (), self.answer_table.get("searchPrompts"))
+                    if typed:
+                        # First the search a worker sends after typing into its prompts (each a step of its
+                        # own, which HQ's search view answers), then the search as Formplayer shows it.
+                        probe = {**query_data, key: {"inputs": typed, "execute": True}}
+                        try:
+                            answered = web.navigate(selections, query_data=probe)
+                        except FormplayerRefused as refused:
+                            answered = {
+                                "refused": {
+                                    "status": refused.exchange.response.status,
+                                    "body": refused.exchange.response.body.decode("utf-8", "replace"),
+                                }
+                            }
+                        record({"selections": list(selections), "query_data": probe, "typed": True}, answered)
                     query_data = {**query_data, key: {"inputs": {}, "execute": True}}
                     response = navigate()
                 elif kind == "form":

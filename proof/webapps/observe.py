@@ -60,11 +60,14 @@ class Unreplayable(AssertionError):
 
 
 def _responses(run: Mapping[str, Any]) -> list[Any]:
-    """Formplayer's answer to each navigation of a run, in order (a case's detail, asked beside one, left out)."""
+    """Formplayer's answer to each navigation of a run, in order (a case's detail, asked beside one, and the
+    search the walk sends with its prompts typed into, beside the one it goes on with, left out)."""
     return [
         step["response"]
         for step in run["steps"]
-        if "response" in step and step.get("request", {}).get("route") != "get_details"
+        if "response" in step
+        and step.get("request", {}).get("route") != "get_details"
+        and not step.get("request", {}).get("typed")
     ]
 
 

@@ -25,6 +25,7 @@ import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,26 +52,35 @@ final class Forms {
     private Forms() {
     }
 
-    /** The second, on the device's own clock, in which the last form was opened; none since the device was made. */
+    /**
+     * The last second, on the device's own clock, in which the last form opened may have been given its answer
+     * file; none since the device was made.
+     */
     static long openedIn = -1;
 
     /**
      * Opens the form home started. Android keeps a form's answers in a file named by the form's own file and
-     * the second it was opened in (FormEntryInstanceState.initFormRecordPath), so two forms whose files share a
-     * name (forms-0.xml of two menus) opened in one second would share one file, the second saved over the
-     * first. A worker opens no two forms in a second; the reader waits for the next where it would.
+     * the second its load finished in (FormEntryInstanceState.initFormRecordPath, from
+     * FormEntryActivity.loadingComplete), so two forms whose files share a name (forms-0.xml of two menus, or
+     * one form a walk opens again) given their files in one second would share one file, the second saved over
+     * the first under another key. A worker opens no two forms in a second; the reader waits until a second
+     * after the one in which the last form's load had finished.
      */
     static FormEntryActivity open(Intent started) throws InterruptedException {
-        if (System.currentTimeMillis() / 1000 == openedIn) {
+        while (System.currentTimeMillis() / 1000 <= openedIn) {
             Thread.sleep(1000 - System.currentTimeMillis() % 1000 + 5);
         }
-        openedIn = System.currentTimeMillis() / 1000;
-        FormEntryActivity activity =
-                Robolectric.buildActivity(FormEntryActivity.class, started).create().start().resume().get();
+        // Shown in its window as a device shows it: a widget that keeps its answer outside the form (a media
+        // question's file) reads it back from the form only once its view is shown (MediaWidget
+        // .onVisibilityChanged), so a screen drawn again in a window never shown would save the question empty.
+        FormEntryActivity activity = Robolectric.buildActivity(FormEntryActivity.class, started)
+                .create().start().resume().visible().get();
         // The activity loads its form on a task (FormLoaderTask) it may start from a message the main looper runs
         // only as it idles, after the first wait for the current task has passed: one wait read the form as never
         // loaded on a loaded runner, and the walk then saved fewer forms. Settled as a save is.
         settle(activity);
+        // The load has finished by now, and with it the naming of the form's answer file.
+        openedIn = System.currentTimeMillis() / 1000;
         return activity;
     }
 
@@ -90,6 +100,8 @@ final class Forms {
         // What the form asks the device for as it opens (the location permission, for a form that captures
         // one).
         Screens.deviceAsks(home, form);
+        // The worker allows what the form asked for, and the device gives the fix it polls for.
+        Sensors.allow(activity, form);
 
         Object controller = Screens.field(activity, "uiController");
         Method next = controller.getClass().getDeclaredMethod("showNextView");
@@ -153,7 +165,13 @@ final class Forms {
                 break;
             }
             before = now;
-            if (answer(activity, screen)) {
+            int outcome = answer(activity, screen);
+            if (outcome == ADVANCED) {
+                // The screen's own capture moved the form on; the next turn reads where it went.
+                before = null;
+                continue;
+            }
+            if (outcome == ANSWERED) {
                 refresh.invoke(controller, false);
                 ShadowLooper.idleMainLooper();
                 screen.put("shown", questions(activity));
@@ -177,6 +195,10 @@ final class Forms {
                 finish.performClick();
             }
             settle(activity);
+            if (views && !activity.isFinishing() && activity.getODKView() != null) {
+                // What the screen shows where Android did not take the finish (a message for an answer).
+                form.put("afterFinish", Views.describe(activity.getODKView()));
+            }
         }
         JSONObject saved = new JSONObject();
         form.put("saved", saved);
@@ -241,16 +263,58 @@ final class Forms {
             entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
             entry.put("AndroidCommCarePlatform.getFormDefId", CommCareApplication.instance().getCommCarePlatform()
                     .getFormDefId(record.getFormNamespace()) == -1 ? "none" : "held");
+            String location = metaLocation(record);
+            if (location != null) {
+                entry.put("metaLocation", location);
+            }
             found.put(entry);
         }
         return found;
     }
+
+    /** The OpenRosa meta block's namespace, which holds the location a form's poll of the sensor writes. */
+    private static final String META = "http://openrosa.org/jr/xforms";
+
+    /**
+     * The location the saved form holds in its meta block (what PollSensorAction wrote from the device's fix),
+     * read from the record's own instance file as Android saved it (encrypted under the record's key); null
+     * where the record holds no file or the form no location.
+     */
+    static String metaLocation(FormRecord record) throws Exception {
+        if (record.getFilePath() == null || !new java.io.File(record.getFilePath()).isFile()) {
+            return null;
+        }
+        javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        org.w3c.dom.Document instance;
+        try (java.io.InputStream saved = org.commcare.models.encryption.EncryptionIO.getFileInputStream(
+                record.getFilePath(), new javax.crypto.spec.SecretKeySpec(record.getAesKey(), "AES"))) {
+            instance = factory.newDocumentBuilder().parse(saved);
+        }
+        // HQ's build writes the location into the meta block in its own namespace (xform.py::XForm._add_meta_2).
+        org.w3c.dom.NodeList metas = instance.getElementsByTagNameNS(META, "meta");
+        for (int i = 0; i < metas.getLength(); i++) {
+            org.w3c.dom.NodeList found = ((org.w3c.dom.Element)metas.item(i)).getElementsByTagNameNS("*", "location");
+            if (found.getLength() > 0) {
+                return found.item(0).getTextContent();
+            }
+        }
+        return null;
+    }
+
+    /** Set by the reader where a request asks for each screen's views as Android laid them out. */
+    static boolean views;
 
     private static JSONObject screen(FormEntryActivity activity) throws Exception {
         JSONObject found = new JSONObject();
         found.put("event", event(FormEntryActivity.mFormController.getEvent()));
         found.put("index", String.valueOf(FormEntryActivity.mFormController.getFormIndex().getReference()));
         found.put("questions", questions(activity));
+        if (views && activity.getODKView() != null) {
+            // The whole screen as Android built it: each question's widget with its label, hint and media, and
+            // a group's header above them.
+            found.put("view", Views.describe(activity.getODKView()));
+        }
         found.put("alert", Screens.orNull(Views.alert(activity)));
         return found;
     }
@@ -272,7 +336,8 @@ final class Forms {
                 } else {
                     try {
                         IAnswerData held = widget.getAnswer();
-                        question.put("answer", Screens.orNull(held == null ? null : held.getDisplayText()));
+                        question.put("answer",
+                                Screens.orNull(held == null ? null : Captures.recorded(held.getDisplayText())));
                     } catch (RuntimeException raised) {
                         question.put("answerRaised", raised.getClass().getName());
                     }
@@ -283,16 +348,26 @@ final class Forms {
         return questions;
     }
 
+    /** What answering a screen did: nothing, gave an answer, or moved the form to another screen itself. */
+    private static final int UNANSWERED = 0;
+    private static final int ANSWERED = 1;
+    private static final int ADVANCED = 2;
+    /** A refused value typed into its box, which the worker's next step asks the form to take. */
+    private static final int TYPED = 3;
+    /** Set by the reader where a request asks the walk to type a value the form refused (``typeRefused``). */
+    static boolean typeRefused;
+
     /**
      * Gives each question on the screen its answer from the table, through the form's own controller: the first
-     * value the form takes. True where any question was answered.
+     * value the form takes; a capture question its file, through its own screen (Captures).
      */
-    private static boolean answer(FormEntryActivity activity, JSONObject screen) throws Exception {
+    private static int answer(FormEntryActivity activity, JSONObject screen) throws Exception {
         QuestionsView view = activity.getODKView();
         if (view == null) {
-            return false;
+            return UNANSWERED;
         }
         boolean answered = false;
+        boolean typed = false;
         JSONArray given = new JSONArray();
         for (QuestionWidget widget : view.getWidgets()) {
             FormEntryPrompt prompt = widget.getPrompt();
@@ -301,6 +376,19 @@ final class Forms {
             given.put(entry);
             if (prompt.isReadOnly()) {
                 entry.put("given", JSONObject.NULL);
+                continue;
+            }
+            if (Captures.kind(widget) != null) {
+                // A capture question takes a file the worker gives through the question's own screen, never a
+                // value written into the form.
+                String index = String.valueOf(FormEntryActivity.mFormController.getFormIndex());
+                answered |= Captures.give(activity, widget, entry);
+                if (!index.equals(String.valueOf(FormEntryActivity.mFormController.getFormIndex()))) {
+                    // Android went on to the next screen itself (a signature taken on a screen of one question).
+                    entry.put("advanced", true);
+                    screen.put("answered", given);
+                    return ADVANCED;
+                }
                 continue;
             }
             Object taken = JSONObject.NULL;
@@ -326,10 +414,20 @@ final class Forms {
             entry.put("given", taken);
             if (refused.length() > 0) {
                 entry.put("refused", refused);
+                List<String> values = Answers.valuesFor(prompt);
+                if (typeRefused && taken == JSONObject.NULL && !values.isEmpty()
+                        && widget instanceof org.commcare.views.widgets.StringWidget
+                        && refused.toString().contains(": constraint")) {
+                    // The worker types the value the form refused into the question's own box and goes on, so
+                    // Android itself checks it and shows the form's message for it.
+                    ((org.commcare.views.widgets.StringWidget)widget).setAnswer(values.get(0));
+                    entry.put("typed", values.get(0));
+                    typed = true;
+                }
             }
         }
         screen.put("answered", given);
-        return answered;
+        return typed ? TYPED : answered ? ANSWERED : UNANSWERED;
     }
 
     /**

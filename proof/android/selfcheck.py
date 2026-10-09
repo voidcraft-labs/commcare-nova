@@ -151,6 +151,99 @@ class ReaderSelfCheck(unittest.TestCase):
         self.assertEqual(titles, {"m0-f0": "Census", "m0-f1": "Water"})
         self.assertEqual([step["screen"] for step in app["walks"]["absent"]["steps"]], ["MenuActivity"])
 
+    def census(self, name, *, data="", binds="", model="", meta="", body=""):
+        """The survey control's first form with nodes, binds, model actions, meta nodes and questions added, as
+        HQ's build and Nova's export write each."""
+        form = "modules-0/forms-0.xml"
+        with zipfile.ZipFile(SURVEY / "local.ccz") as zipped:
+            text = zipped.read(form).decode("utf-8")
+        for old, new in (
+            ("<head/>", "<head/>" + data),
+            (
+                '<bind nodeset="/data/head" type="xsd:string"/>',
+                '<bind nodeset="/data/head" type="xsd:string"/>' + binds,
+            ),
+            ("<orx:drift/></orx:meta>", "<orx:drift/>" + meta + "</orx:meta>"),
+            ("<itext>", model + "<itext>"),
+            ("</input></h:body>", "</input>" + body + "</h:body>"),
+        ):
+            self.assertIn(old, text)
+            text = text.replace(old, new, 1)
+        return variant(SURVEY / "local.ccz", self.work / name, {form: text.encode("utf-8")})
+
+    def test_a_walk_gives_every_capture_question_a_file_through_its_own_screen_and_the_form_saves(self):
+        """Contract: an image, video, audio, signature and document question is answered as a worker answers it,
+        through the question's own button and the screen Android opens for it (Captures.java), so a form whose
+        capture questions are required saves, each answer written as the file given, never the name Android drew
+        from its clock. Failure it catches: a capture question left unanswered (the walk then ends at it), given a
+        text the form takes as its answer with no file behind it, or recorded under a name no other reading of the
+        archive gives."""
+        kinds = (
+            ("photo", 'mediatype="image/*"', "image"),
+            ("clip", 'mediatype="video/*"', "video"),
+            ("voice", 'mediatype="audio/*"', "audio"),
+            ("signed", 'mediatype="image/*" appearance="signature"', "signature"),
+            ("scan", 'mediatype="application/*,text/*"', "file"),
+        )
+        archive = self.census(
+            "captures.ccz",
+            data="".join(f"<{node}/>" for node, _, _ in kinds),
+            binds="".join(f'<bind nodeset="/data/{node}" type="binary" required="true()"/>' for node, _, _ in kinds),
+            body="".join(
+                f'<upload ref="/data/{node}" {media}><label>{node}</label></upload>' for node, media, _ in kinds
+            ),
+        )
+        answers = json.loads(records.ANSWERS.read_text(encoding="utf-8"))
+        app = self.reader.request("app", archive=str(archive), commands=["m0-f0"], answers=answers)
+        form = app["walks"]["m0-f0"]["steps"][0]["form"]
+        given = {
+            entry["reference"]: entry
+            for screen in form["screens"]
+            for entry in screen.get("answered", ())
+            if "capture" in entry
+        }
+        for node, _, kind in kinds:
+            entry = given[f"/data/{node}[1]"]
+            self.assertEqual((entry["capture"], entry["taken"]), (kind, True), entry)
+        self.assertEqual(form["ended"], "end")
+        self.assertIs(form["saved"]["finishing"], True)
+        shown = [question for screen in form["screens"] for question in screen.get("shown", ())]
+        held = {question["reference"]: question["answer"] for question in shown}
+        self.assertEqual(held["/data/photo[1]"], "@capture:proof-image.jpg")
+        self.assertEqual(held["/data/scan[1]"], "@capture:proof-file.pdf")
+        # Two readings of one archive give one record, though Android names each file by the moment it took it.
+        again = self.reader.request("app", archive=str(archive), commands=["m0-f0"], answers=answers)
+        self.assertEqual(again["walks"], app["walks"])
+
+    def test_a_form_that_polls_the_location_sensor_is_given_the_fix_it_saves(self):
+        """Contract: a form that polls the location sensor as it opens (HQ's build of an app with
+        auto_gps_capture: ``orx:pollsensor`` on the meta's location) asks the device for the location permission,
+        which the walk allows as the worker does, and the device's GPS fix is what Android saves in the form's
+        meta (Sensors.java); the same form without the poll asks nothing and saves no location. Failure it
+        catches: a fix the form never receives (no permission granted, no provider on, no fix given), or one the
+        reader writes into the form itself."""
+        polled = self.census(
+            "polled.ccz",
+            binds='<bind nodeset="/data/meta/location" type="geopoint"/>',
+            model='<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>',
+            meta="<cc:location/>",
+        )
+        plain = self.census("plain.ccz", meta="<cc:location/>")
+        answers = json.loads(records.ANSWERS.read_text(encoding="utf-8"))
+        forms = {}
+        for name, archive in (("polled", polled), ("plain", plain)):
+            app = self.reader.request("app", archive=str(archive), commands=["m0-f0"], answers=answers)
+            forms[name] = app["walks"]["m0-f0"]["steps"][0]["form"]
+        asked = forms["polled"]["deviceAsked"][0]["permissions"]
+        self.assertIn("android.permission.ACCESS_FINE_LOCATION", asked)
+        self.assertEqual(forms["polled"]["deviceGave"]["location"], "12.9716 77.5946 920.0 5.0")
+        self.assertEqual(
+            [record.get("metaLocation") for record in forms["polled"]["saved"]["records"]],
+            ["12.9716 77.5946 920.0 5.0"],
+        )
+        self.assertNotIn("deviceAsked", forms["plain"])
+        self.assertEqual([record.get("metaLocation") for record in forms["plain"]["saved"]["records"]], [""])
+
     def test_a_request_the_reader_cannot_answer_raises(self):
         """Contract: no answer holds a failure of the reader's own. Failure it catches: a missing archive, an
         unknown request or a JVM stopped at its deadline recorded as something Android read. Each raises, and a

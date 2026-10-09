@@ -37,10 +37,10 @@ ANDROID_DIR = Path(__file__).resolve().parent
 ANSWERS = PROOF_DIR / "core" / "answers.json"
 PINS = PROOF_DIR / "pins.json"
 TOOLCHAIN = ANDROID_DIR / "toolchain.json"
-# The reader's files: its Java, its client, what builds its runtime and what plans its requests. A change to
-# any of them reads every archive again.
+# The reader's files: its Java, the files its walks give capture questions, its client, what builds its runtime
+# and what plans its requests. A change to any of them reads every archive again.
 READER_FILES = ("client.py", "records.py", "build-runtime.sh", "reader.init.gradle", "toolchain.json")
-READER_DIRECTORIES = ("src",)
+READER_DIRECTORIES = ("src", "captures")
 PINNED = ("commcare-android", "commcare-core")
 VERSION = 1
 LOCAL = "local.ccz"
@@ -367,7 +367,9 @@ def run(reader, request: Request, source: Source, scratch: Path) -> dict:
     could not answer (never what Android answered: an install Android refuses is an answer)."""
     from proof.android.client import AndroidReaderError
 
-    scratch.mkdir(parents=True, exist_ok=True)
+    # A directory of the request's own, written once: a file the reader was handed is never written again while
+    # a device may be reading it (the stage answers each key once, ``proof.android.stage.Run._answer``).
+    scratch.mkdir(parents=True, exist_ok=False)
     arguments = dict(request.options)
     written = {}
     for role, archive in sorted(request.archives.items()):

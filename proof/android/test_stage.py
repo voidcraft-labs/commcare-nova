@@ -21,6 +21,7 @@ reader runs.
 from __future__ import annotations
 
 import json
+import threading
 import zipfile
 from pathlib import Path
 
@@ -216,7 +217,7 @@ def test_every_archive_is_read_once_and_a_later_run_reads_every_answer_from_the_
     # Nova's local archive, A, B and the one save, each once; the two install pairs; and three updates (the
     # local pair, A to B with every incomplete form, B to the save is none: its profile is B's).
     assert sorted(op for op, _ in reader.requests) == ["app"] * 4 + ["installs"] * 2 + ["update"] * 2
-    assert run.counts == {"requests": 8, "read": 0, "made": 8, "failed": 0}
+    assert run.counts == {"requests": 8, "read": 0, "shared": 0, "made": 8, "failed": 0}
     assert _outcomes(tmp_path / "first") == {
         "records": "passed",
         "proof1": "passed",
@@ -239,7 +240,7 @@ def test_every_archive_is_read_once_and_a_later_run_reads_every_answer_from_the_
     again = Reader()
     run, code = _run(tmp_path, "second", queue, corpus, [lane], reader=again, store=snapshot)
     assert code == 0 and again.requests == []
-    assert run.counts == {"requests": 8, "read": 8, "made": 0, "failed": 0}
+    assert run.counts == {"requests": 8, "read": 8, "shared": 0, "made": 0, "failed": 0}
     first = {path.name: path.read_bytes() for path in (tmp_path / "first").glob("blocks/*/checks/*/*.json")}
     second = {path.name: path.read_bytes() for path in (tmp_path / "second").glob("blocks/*/checks/*/*.json")}
     assert first == second
@@ -321,8 +322,136 @@ def test_a_request_the_reader_cannot_answer_fails_the_group_and_keeps_no_answer(
     run, code = _run(tmp_path, "out", queue, corpus, [lane], reader=Reader(fail={"installs"}))
     assert code == 0
     assert _outcomes(tmp_path / "out")["records"] == "failed"
-    assert run.counts == {"requests": 8, "read": 0, "made": 6, "failed": 2}
+    assert run.counts == {"requests": 8, "read": 0, "shared": 0, "made": 6, "failed": 2}
     assert len(disk.Delta(tmp_path / "out" / disk.DELTA).entries("android")) == 6
+
+
+class _Gathering(Reader):
+    """A stand-in that answers only once every request of the run has asked the stage for its answer, so every
+    request that could reach the reader at once does, and records which archive files two devices read at
+    once."""
+
+    def __init__(self, expected: int):
+        super().__init__()
+        self.expected = expected
+        self.run = None
+        self.reading: dict[str, int] = {}
+        self.shared: list[str] = []
+        self.condition = threading.Condition()
+
+    def request(self, op, **arguments):
+        files = sorted(str(value) for name, value in arguments.items() if name in ("archive", "update"))
+        files += [str(path) for path in arguments.get("archives", ())]
+        with self.condition:
+            for path in files:
+                if self.reading.get(path):
+                    self.shared.append(path)
+                self.reading[path] = self.reading.get(path, 0) + 1
+            reached = self.condition.wait_for(lambda: self.run.counts["requests"] >= self.expected, timeout=60)
+        try:
+            assert reached, "the stage never asked for every request's answer while one was being made"
+            return super().request(op, **arguments)
+        finally:
+            with self.condition:
+                for path in files:
+                    self.reading[path] -= 1
+
+    def notify(self):
+        with self.condition:
+            self.condition.notify_all()
+
+
+def test_requests_sharing_a_key_are_answered_once_and_no_archive_is_written_while_a_device_reads_it(
+    tmp_path, monkeypatch
+):
+    """Contract: two requests of one document with one key (one archive and restore under two configurations'
+    names) are answered once, each given that answer, and the file a device was handed is never written again
+    while it reads it. Failure it catches: both requests reaching the reader at once, each writing the key's
+    archive into the one scratch directory, so the second write truncates the archive a device is unzipping
+    (InstallArchiveActivity then unzips nothing and waits out the reader's deadline, about one request in twelve
+    thousand on hosted runners)."""
+    _register(tmp_path, monkeypatch, [])
+    output = tmp_path / "lane-out"
+    delta = disk.Delta(output / disk.DELTA)
+    restore = delta.put_blob(b"<restore/>")
+
+    def archive(tag):
+        return {
+            "entries": {
+                "profile.ccpr": delta.put_blob(b"plain"),
+                "suite.xml": delta.put_blob(f"<suite of='{tag}'/>".encode()),
+            }
+        }
+
+    # Two configurations whose builds are byte for byte one another's: every request of the second has the
+    # first's key.
+    parts = {}
+    for configuration in ("full", "minimum"):
+        a = {"kind": "a", "state": {"archive": archive("A")}, "restoreA": {"restore": restore}}
+        parts[f"{configuration}/a"] = a
+        parts[f"{configuration}/b"] = {"kind": "b", "state": {"archive": archive("B")}, "proof4": {"restore": restore}}
+    document = keys.hashed("test-document", "corpus:doc")
+    delta.put(
+        "documents",
+        document,
+        {
+            "group": "corpus:doc",
+            "parts": {
+                name: [keys.hashed("part", name), delta.put_blob(disk.canonical(record))]
+                for name, record in parts.items()
+            },
+        },
+    )
+    corpus = tmp_path / "corpus"
+    (corpus / "doc").mkdir(parents=True)
+    queue = _queue(tmp_path, {"corpus:doc": document})
+    # A and B of each configuration, and the A-to-B installs and update of each: eight requests, four keys.
+    reader = _Gathering(expected=8)
+    run = stage.Run(
+        queue_path=queue,
+        out=tmp_path / "out",
+        corpus=corpus,
+        outputs=[output],
+        store=None,
+        jobs=8,
+        bin_=None,
+        write_records=True,
+        reader=reader,
+    )
+    reader.run = run
+    original = run._answer
+
+    def answer(*args, **kwargs):
+        try:
+            return original(*args, **kwargs)
+        finally:
+            reader.notify()
+
+    counted = run._held
+
+    def held(*args, **kwargs):
+        found = counted(*args, **kwargs)
+        reader.notify()
+        return found
+
+    monkeypatch.setattr(run, "_held", held)
+    monkeypatch.setattr(run, "_answer", answer)
+    given = {}
+    record_of = stage.document_record
+
+    def document_record(parts, answers):
+        given.update(answers)
+        return record_of(parts, answers)
+
+    monkeypatch.setattr(stage, "document_record", document_record)
+    assert run.run() == 0
+    assert sorted(op for op, _ in reader.requests) == ["app", "app", "installs", "update"]
+    assert run.counts == {"requests": 8, "read": 0, "shared": 4, "made": 4, "failed": 0}
+    assert reader.shared == []
+    assert _outcomes(tmp_path / "out")["records"] == "passed"
+    # Each configuration's request was given the one answer its key was made.
+    for name in ("app@{}/A", "app@{}/B", "installs@{}/A", "update@{}/A"):
+        assert given[name.format("full")] is not None and given[name.format("full")] == given[name.format("minimum")]
 
 
 def test_a_fresh_answer_that_is_not_the_stored_one_fails_the_group(tmp_path, monkeypatch):
