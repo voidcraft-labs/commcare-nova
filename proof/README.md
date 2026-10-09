@@ -307,34 +307,18 @@ or it fails the lane ("The registers", below).
   own, so the order is its database's; the harness hands them in the order
   of their ids in every state (`proof/formplayer/hq.py::cases_in_id_order`),
   and what order a production database gives is not observed. The worker's
-  sign-in form is not run (the session is Django's own `login`). The client is shown a walk's lists,
-  searches and each form as it opens; a form's questions are answered and
-  its submission made by Formplayer's walk, not through the page, so where
-  the client lands after a submission is read from Formplayer's answer
-  (and, for finding 58, in `proof/webapps/test_links.py`). Not run in the
-  client: a language other than the worker's default, a small screen's
+  sign-in form is not run (the session is Django's own `login`). Not run in
+  the client: a language other than the worker's default, a small screen's
   layout, App Preview (the same client under another HQ page), and a web
   user signing in as a worker. The one request the page makes that nothing
   answers is for a web font on another host, so text is laid out in the
-  browser's fallback face and no measured width or height is recorded.
-  The client is shown each run of the walk up to the first case a worker
-  would choose (the home screen's tiles, each menu, each list with its
-  cells, empty text and actions, each search and its description, and a
-  form no case leads to); a case's detail and what follows a case are read
-  from Formplayer's trace alone. Where the client shows nothing to click
-  for a choice, its record of that run ends there, with `stopped` and the
-  screen it stood on. Not yet run in the client, and not impossible: the
-  rest of each run. Replayed past the case on 108 documents locally, twice
-  each, the client gave the same screens both times; on hosted runners, 33
-  documents' records differed between two states that show the same thing,
-  one side reading, after the click on a case's row, the list it was
-  leaving with its version line blank and its address unchanged, the other
-  the next screen. Waiting for Formplayer's answer to a request made after
-  the click did not settle it: on a second visit to the same case the click
-  made no request at all, so the client answers a row's click from
-  something it kept from the first. What settles it is reading what the
-  client's own router does with the click (its case detail cache and its
-  handling of a list it is still drawing) and waiting on that.
+  browser's fallback face and no measured width or height is recorded. The
+  client walks every run of the walk whole ("The Web Apps driver"), and
+  answers each question through the widget it draws for it; it draws no
+  widget a worker can answer with a typed value for a map (a geopoint, where
+  the page has no map provider), a file, a signature or a question it does
+  not support, and such an answer is recorded as `unanswerable`, as a
+  worker could not give it either.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
   below), with these left out. ConnectID, the service Connect sends a
@@ -1203,22 +1187,56 @@ a step clicks what a worker clicks, or reads what the page shows.
   compiled files and every other static file the page asks for. The one
   request nothing answers is for a web font on another host.
 - **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
-  a selector and a text name, text typed into an input, a form's Submit and
-  Formplayer's answer to it, and `screen.js`, which reads the screen the
-  client rendered: the home screen's tiles, a menu's rows, a case list
+  a selector and a text name, an answer given through a question's own
+  widget (`answer.js`: a text box typed into, an option or check box
+  clicked, a drop-down's option chosen, a date or a time typed in the format
+  the client's picker reads), a form's Submit (`submit.js`, which reports a
+  Submit the client keeps disabled), and `screen.js`, which reads the screen
+  the client rendered: the home screen's tiles, a menu's rows, a case list
   (headers, rows, the empty-list message, and each tile cell's grid area,
-  alignment and font size as the browser computed them), a search screen
-  and its description, a form's title and questions, and the client's
-  alerts.
+  alignment and font size as the browser computed them), a case's detail
+  dialog, a search screen and its description, a form's title and
+  questions with the answer each widget shows and the error the client
+  shows for it, and the client's alerts.
+- **Arriving, never a time.** Every step that leads somewhere waits until
+  the client itself says it is there (`arrived.js`): its route (the address
+  it keeps a worker's session in, which it sets before it asks Formplayer
+  and then sets to the selections Formplayer's answer hands back) holds
+  what the walk's request and Formplayer's answer say it holds, its own
+  flag of a request in flight (`formplayerQueryInProgress`, cleared at
+  jQuery's `ajaxStop`, once the answer is drawn) is down, no dialog is open
+  or moving, and no notification is fading. A case's detail dialog is
+  waited for until it is done opening (`detail.js`: Bootstrap focuses it in
+  the callback that ends its opening, the same one that lets it close), and
+  only then is its Continue clicked: a Continue clicked while the dialog
+  was still opening was a close Bootstrap ignored, which left the dialog
+  over every later screen, and was what made the client's records differ
+  between states on loaded runners. An answer waits for the request the
+  client sends for it (after its knockout bindings and a throttle), and
+  Submit for Formplayer's answer to the submission and the client's
+  arrival wherever that takes it. A step that waited out its deadline says
+  what the client was still doing.
 - **A document's record** (`observe.py`): Formplayer's own walk of the
-  release, replayed in the browser run by run in one page, the screen read
-  after every click. It holds no id Formplayer drew, no time and no path, so
-  the same inputs give the same bytes.
+  release, every run replayed whole in the browser in one page: the app's
+  first screen, each choice clicked as a worker clicks it (a case's detail
+  read where the client opens one), and where the run reached a form, each
+  of the walk's answers given through its widget in the walk's order, the
+  form read as the worker leaves it, Submit, and the screen the client lands
+  on, with what became of each answer (`answered`, `unanswerable`) and of
+  Submit (`submitted`, `disabled`). Where the client shows nothing to click
+  for a choice, its record of that run ends there, with `stopped` and the
+  screen it stood on. It holds no id Formplayer drew, no time and no path,
+  so the same inputs give the same bytes; `test_observe.py` holds two
+  observations alike, and they hold alike with Chromium's processor slowed
+  eightfold.
 
-The page's clock is fixed and its randomness seeded, as an editor page's are.
-A session costs between one and two seconds (a document's publish and release
-about one more, its record three to four); about 0.7 s of each page load is
-HQ compiling the page's four stylesheets again.
+The page's randomness is seeded, as an editor page's is, and its clock starts
+at HQ's epoch and runs on (`steps/page/seed.js`, `advancing`), so the
+client's own animations end and its debounced handlers run as in a worker's
+browser; nothing the client shows reads its clock. A session costs between
+one and two seconds (a document's publish and release about one more, its
+record three to four); about 0.7 s of each page load is HQ compiling the
+page's four stylesheets again.
 
 What its own tests observe on released builds of real Nova exports, each on
 the client itself:
@@ -1256,8 +1274,9 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   fork of the unit with the worker signed in afresh, so a submission HQ's
   receiver processed is in HQ while its run lasts and gone for the next.
 - **The Web Apps client** is shown the same walk in a browser of its own
-  (`proof/observe/services.py::client_browser`), each run up to the first
-  case a worker would choose, and its screens are read after every click. It is shown a state only where Formplayer's trace or
+  (`proof/observe/services.py::client_browser`), every run whole, its forms
+  answered through their widgets and submitted, and its screens are read
+  after every step that leads somewhere. It is shown a state only where Formplayer's trace or
   what HQ's page hands it of the app is not the baseline's: the client
   reads nothing else, so the same answers and the same page show the same
   screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).

@@ -314,10 +314,11 @@ def _tiles_by_kind(value):
 
 
 def _screen_kind(screen):
-    """What a screen of the client shows: its form, a search, a case list, a menu or the home screen's tiles."""
+    """What a screen of the client shows: its form, a case's detail (over the list it was opened from), a search,
+    a case list, a menu or the home screen's tiles."""
     if not isinstance(screen, dict):
         return None
-    for kind in ("form", "query", "list", "commands", "apps", "tiles"):
+    for kind in ("form", "detail", "query", "list", "commands", "apps", "tiles"):
         if screen.get(kind) is not None:
             return kind
     return "none"

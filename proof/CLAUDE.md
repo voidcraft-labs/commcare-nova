@@ -54,6 +54,35 @@ harness keeps, each with its reason.
   (`Unit.committing`). Each run of a walk is a fork of the unit, so no run
   reads what another's submission left; start each run as a worker who
   cleared their data, and give each runner its own database and Redis.
+- **The accepted seams are these five, each for its reason; a new one is a
+  claim to justify here.**
+  - *A restore hands a worker's cases in id order*
+    (`proof/formplayer/hq.py::cases_in_id_order`). HQ asks its database for
+    no order (`livequery.py::batch_cases`), so the order is whatever
+    Postgres returns, and every fixed order is one production can give;
+    the lane needs one for its records to be byte-identical. What a device
+    shows is not the restore's order where it matters: HQ's build gives an
+    unsorted list a default sort on its first column.
+  - *A page's repeating timers of 10 s or more are held*
+    (`proof/editors/driver/steps/page/polls.js`), and so is Elasticsearch's
+    own refresh timer (`proof/hq/elasticsearch.py`, each written index
+    refreshed as its operation or request ends). Holding them models a
+    person who saves within 20 s and a pillow that has caught up before the
+    next request, both real; what a poll or a timer does once it fires is
+    not a claim the lane makes.
+  - *Connect's opportunity, worker, payment unit and claim rows are made
+    with Connect's own factories* (`proof/connect/driver.py`). They are
+    setup state, like the seeded cases a worker starts with, not anything
+    Nova exports; what Connect does with what HQ forwards is Connect's own
+    code.
+  - *Connect's source is fetched at run time at its pin*
+    (`proof/connect/checkout.py`). It works, and keeps a repository that
+    carries no license out of a public image; its environment is built from
+    its own lock in the image.
+  - *The unseeded weekly lane runs no Android stage.* Its purpose is the
+    determinism comparison of Nova's and HQ's draws, which the seeded
+    lanes' Android records do not change, and an unseeded run keeps no
+    document records under a key for the stage to read.
 - **Web Apps is HQ's own client, clicked and read.** A claim about what a
   worker sees in Web Apps is observed on HQ's client itself
   (`proof/webapps`): HQ's `FormplayerMain` page, the bundle built from HQ's
@@ -64,7 +93,11 @@ harness keeps, each with its reason.
   clicks what a worker clicks or reads the document. The client reads some
   things from the app HQ stores and never from the build (the logo,
   `cc-show-incomplete`), so a claim that two builds are alike says nothing
-  of them: release the state and read the page. A computed style means
+  of them: release the state and read the page. A step waits on what the
+  client itself waits on (its route, its own request-in-flight flag, a
+  dialog done opening or closing), never on a time or on the page merely
+  being quiet: the client asks Formplayer after timers and animations of its
+  own, and a screen read before it arrived is a race the record would hold. A computed style means
   something only under HQ's stylesheets; never read one from a page that
   loaded none. The client has a browser of its own (proof 4 shows a saved
   app while the page that saved it is still open), and is shown a state only

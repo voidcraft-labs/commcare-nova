@@ -27,7 +27,12 @@
 //   stylesheets.
 // - `query`: a search screen: its title, its description element (null when
 //   the client rendered none) and each prompt.
-// - `form`: a form's title and each question's label, in order.
+// - `detail`: the case detail dialog, where it is open: each tab's title
+//   (and which is active) and each row's header and value as shown.
+// - `form`: a form's title and each question's label, whether it is
+//   required, the answer its widget shows (a text box's text, the labels of
+//   the options checked, a drop-down's chosen text) and the error the client
+//   shows for it.
 // - `alerts`: what the client's notification region shows.
 (_arg) => {
 	const text = (element) =>
@@ -173,6 +178,38 @@
 		};
 	}
 
+	const dialog = one(document, "#case-detail-modal");
+	if (dialog?.classList.contains("show")) {
+		screen.detail = {
+			tabs: all(dialog, ".js-detail-tabs .nav-link").map((tab) => ({
+				title: text(tab),
+				active: tab.classList.contains("active"),
+			})),
+			rows: all(dialog, ".js-detail-content tr").map((row) => ({
+				header: text(one(row, "th")),
+				value: text(one(row, "td")),
+			})),
+			buttons: all(dialog, ".js-detail-footer-content button").map(text),
+		};
+	}
+
+	const shownAnswer = (question) => {
+		const widget = one(question, ".widget");
+		if (!widget) return null;
+		const checked = all(widget, "input.form-check-input:checked");
+		if (checked.length) {
+			return checked.map((input) =>
+				text(widget.querySelector(`label[for="${input.id}"]`)),
+			);
+		}
+		const select = one(widget, "select.form-select");
+		if (select) return select.selectedOptions[0]?.textContent ?? null;
+		const box = one(
+			widget,
+			"textarea.textfield, input.form-control[type=text], input.form-control[type=password]",
+		);
+		return box ? box.value : null;
+	};
 	const form = one(document, "#webforms");
 	if (form?.children.length) {
 		screen.form = {
@@ -180,6 +217,8 @@
 			questions: all(form, ".q").map((question) => ({
 				label: text(one(question, ".caption, legend, label")),
 				required: one(question, ".required") !== null,
+				answer: shownAnswer(question),
+				errors: all(question, ".error-message").filter(visible).map(text),
 			})),
 			submit: text(one(form, "button.submit")),
 		};
