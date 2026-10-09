@@ -409,6 +409,7 @@ function ChatInputComposer({
 			 *  the composer. The picker only offers chat-attachable kinds; the
 			 *  preview opens from a staged chip. */}
 			<MediaPickerDialog
+				selectionAuthority="project"
 				open={pickerOpen}
 				onOpenChange={(open) => {
 					if (!open || ownsCurrentProjectScope()) setPickerOpen(open);

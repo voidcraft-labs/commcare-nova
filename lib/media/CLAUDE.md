@@ -45,6 +45,19 @@ transaction. Deletion takes the conflicting asset `FOR UPDATE`, so either the
 writer commits and deletion's coherent re-walk sees the reference, or deletion
 commits and the writer wakes to a missing row and rejects.
 
+## Client authority follows the operation
+
+Project edit authority controls upload, deletion of unreferenced assets, and
+starting or retrying document extraction. Those operations remain available in
+the chat picker and account Files manager while an initial build locks direct
+app editing. Chat attachment selection accompanies a typed message and does not
+mutate the blueprint. A builder media slot separately requires app authoring
+authority before it selects or commits an attachment; a writable library cannot
+bypass that lock. Every asynchronous operation retains its Project scope and
+rechecks current authority before delivering a result. Access refresh or loss
+must still stop stale work, even though build progress does not revoke Project
+resource authority.
+
 ## Documents are library-only — enforced fail-closed in three places
 
 `AssetKind` spans `MEDIA_KINDS` (`image`/`audio`/`video`, wire-attachable) and `DOCUMENT_KINDS` (`pdf`/`text`/`docx`/`xlsx`, authoring inputs attached by the user or selected by a Project library read, never attached to a CommCare carrier). The split is NOT compile-time — a slot's value is an opaque `MediaAssetId` (the brand doesn't encode kind) — so a document id is type-indistinguishable from a media id in a slot. Three independent runtime gates keep a document off the wire, none redundant: the attach verdict's kind check, the validator's `mediaKindMatches` rule (pre-compile), and `resolveMediaManifest`'s `isMediaKind` filter (pre-emit). The document extract lifecycle (`extracting`/`ready`/`failed`) and `EXTRACTOR_VERSION` live in `lib/domain/multimedia.ts`; the extraction machinery is `lib/agent/documentExtraction*`.

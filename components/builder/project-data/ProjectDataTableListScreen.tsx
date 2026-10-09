@@ -16,7 +16,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useProjectCanEdit } from "@/lib/session/hooks";
 import { CreateTableDialog } from "./CreateTableDialog";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
 import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
@@ -32,7 +32,7 @@ export function ProjectDataTableListScreen() {
 	const reload = workspace?.reloadManifest ?? (async () => {});
 	const retainedRows = workspace?.retainedRows ?? [];
 	const navigate = useNavigate();
-	const canEdit = useCanEdit();
+	const canEdit = useProjectCanEdit();
 	const [creating, setCreating] = useState(false);
 
 	return (

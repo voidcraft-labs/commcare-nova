@@ -18,12 +18,15 @@ export interface ExtractableAsset {
 export function createDocumentExtraction({
 	asset,
 	enabled = true,
+	mayExtract = () => true,
 	signal,
 	onExtracted,
 	onProgress,
 }: {
 	asset: ExtractableAsset;
 	enabled?: boolean;
+	/** Live Project authority, rechecked before requests and late callbacks. */
+	mayExtract?: () => boolean;
 	signal?: AbortSignal;
 	onExtracted?: (extract: ExtractMeta) => void;
 	onProgress?: (deltaChars: number) => void;
@@ -39,7 +42,8 @@ export function createDocumentExtraction({
 	let owned: AbortController | undefined;
 	let pending: Promise<void> | undefined;
 	const listeners = new Set<() => void>();
-	const eligible = () => active && enabled && isDocument && !signal?.aborted;
+	const eligible = () =>
+		active && enabled && mayExtract() && isDocument && !signal?.aborted;
 	const setStatus = (next: MediaExtractStatus) => {
 		if (status === next) return;
 		status = next;
@@ -70,7 +74,11 @@ export function createDocumentExtraction({
 			onProgress: (delta) => {
 				// Build-owned progress survives removal of its chip. Local observers
 				// and superseded requests stop producing progress immediately.
-				if (id === requestId && (active || (signal && !signal.aborted)))
+				if (
+					id === requestId &&
+					mayExtract() &&
+					(active || (signal && !signal.aborted))
+				)
 					onProgress?.(delta);
 			},
 		})
