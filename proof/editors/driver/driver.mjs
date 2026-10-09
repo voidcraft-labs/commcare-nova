@@ -1887,6 +1887,8 @@ class PageRun {
 		this.cdp = null;
 		this.answered = [];
 		this.waiters = [];
+		// Inside a "recover" step: the page is being left as a person leaves it.
+		this.leaving = false;
 	}
 
 	remaining() {
@@ -2140,16 +2142,22 @@ async function runSteps(page, run, steps) {
 			} else if (step.recover !== undefined) {
 				// The page back where a run starts: by the click a person makes
 				// when nothing missed and the element is there, else by loading
-				// the address again.
-				const clicked =
-					!missed &&
-					(await pageValue(run.cdp, clickExpression(step.recover.click)));
-				if (!clicked) {
-					await page.goto(new URL(step.recover.goto, ORIGIN).toString(), {
-						waitUntil: "load",
-						timeout: run.remaining(),
-					});
-					outcome.reloaded = true;
+				// the address again; either way leaving what the run left open
+				// (a form asks whether to leave it, and is told yes).
+				run.leaving = true;
+				try {
+					const clicked =
+						!missed &&
+						(await pageValue(run.cdp, clickExpression(step.recover.click)));
+					if (!clicked) {
+						await page.goto(new URL(step.recover.goto, ORIGIN).toString(), {
+							waitUntil: "load",
+							timeout: run.remaining(),
+						});
+						outcome.reloaded = true;
+					}
+				} finally {
+					run.leaving = false;
 				}
 				missed = false;
 			} else if (step.until !== undefined && step.within !== undefined) {
@@ -2165,6 +2173,13 @@ async function runSteps(page, run, steps) {
 						},
 					);
 					lastMissed = outcome.value !== true;
+					// A wait that held with another answer than true (the page
+					// said it cannot go on: a search it refused) ends the run
+					// where a miss would.
+					if (lastMissed && step.orSkipTo !== undefined) {
+						skipTo = step.orSkipTo;
+						missed = true;
+					}
 				} catch (error) {
 					if (error?.name !== "TimeoutError" || run.remaining() <= 0)
 						throw error;
@@ -2350,7 +2365,12 @@ async function runOperation(message) {
 		});
 		page.on("dialog", (dialog) => {
 			run.dialogs.push({ type: dialog.type(), message: dialog.message() });
-			dialog.dismiss().catch(() => {});
+			// While a "recover" step takes the page back where a run starts, the
+			// page is left as a person leaves it: the page's question whether to
+			// leave (a form still open asks) is answered yes. Otherwise every
+			// dialog is dismissed and kept for the outcome.
+			if (run.leaving) dialog.accept().catch(() => {});
+			else dialog.dismiss().catch(() => {});
 			run.notify();
 		});
 		outcomes = await runSteps(page, run, message.steps ?? []);

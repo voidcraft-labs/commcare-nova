@@ -22,21 +22,31 @@
 //   twelve hours (`twelveHour`, from the question's style, which
 //   entries.js::TimeEntry reads).
 //
-// It is a wait's predicate: false while the client has not drawn the
-// question; true once it has answered; and it answers "unanswerable" (for
-// the record) where the client draws no widget a worker can answer with
-// this value (a map, a file, a signature, an unsupported question).
+// It is a wait's predicate: false while the client has a request in flight
+// or has drawn no question of the form yet; true once it has answered; and,
+// "unchanged" where the widget already shows that answer (a default the
+// question opened with: the client sends nothing for an answer that did
+// not change), "refused" where the client itself refuses the typed value
+// (its widget's own check shows its error at once and sends nothing:
+// entries.js, `getErrorMessage`, which the question's first error line
+// shows), and, once the client has drawn the form and is idle,
+// "absent" where it draws
+// no question at that index, and "unanswerable" where it draws no widget a
+// worker can answer with this value (a map, a file, a signature, an
+// unsupported question). So what it answers is the client's, never a time's.
 ({ ix, value, twelveHour }) => {
 	const ixOf = (question) => {
 		const shown = question.querySelector(":scope > .ix")?.textContent ?? "";
 		return shown.split(" :: ").pop().trim();
 	};
-	const question = [...document.querySelectorAll("#webforms .q")].find(
-		(candidate) => ixOf(candidate) === ix,
-	);
-	if (!question) return false;
+	if (sessionStorage.getItem("formplayerQueryInProgress") === "true")
+		return false;
+	const drawn = [...document.querySelectorAll("#webforms .q")];
+	if (!drawn.length) return false;
+	const question = drawn.find((candidate) => ixOf(candidate) === ix);
+	if (!question) return "absent";
 	const widget = question.querySelector(".widget");
-	if (!widget) return false;
+	if (!widget) return "unanswerable";
 	const type = (element, text) => {
 		const setter = Object.getOwnPropertyDescriptor(
 			Object.getPrototypeOf(element),
@@ -48,6 +58,16 @@
 			element.dispatchEvent(new Event(name, { bubbles: true }));
 		}
 		element.blur();
+	};
+	// The question's own error line (question.html: the first error line is the widget's own check, the second
+	// what Formplayer answered).
+	const refusedHere = () => {
+		const own = question.querySelector(".widget-container .error-message");
+		return (
+			own !== null &&
+			own.getClientRects().length > 0 &&
+			own.textContent.trim() !== ""
+		);
 	};
 	const pad = (number) => String(number).padStart(2, "0");
 
@@ -66,8 +86,9 @@
 		} else {
 			return "unanswerable";
 		}
+		if (picker.value === typed) return "unchanged";
 		type(picker, typed);
-		return true;
+		return refusedHere() ? "refused" : true;
 	}
 
 	const options = [
@@ -82,6 +103,8 @@
 				.filter(Boolean)
 				.map((index) => Number(index) - 1),
 		);
+		if (options.every((option, index) => option.checked === chosen.has(index)))
+			return "unchanged";
 		options.forEach((option, index) => {
 			if (option.checked !== chosen.has(index)) option.click();
 		});
@@ -95,6 +118,7 @@
 			index
 		];
 		if (!option) return "unanswerable";
+		if (dropdown.value === option.value) return "unchanged";
 		dropdown.value = option.value;
 		dropdown.dispatchEvent(new Event("change", { bubbles: true }));
 		return true;
@@ -104,8 +128,9 @@
 		"textarea.textfield, input.form-control[type=text], input.form-control[type=password]",
 	);
 	if (box && !widget.querySelector(".map")) {
+		if (box.value === value) return "unchanged";
 		type(box, value);
-		return true;
+		return refusedHere() ? "refused" : true;
 	}
 	return "unanswerable";
 };

@@ -6715,16 +6715,6 @@
 		"control": "targeted-custom-tile"
 	},
 	{
-		"id": "d14-search-settings-formplayer-case-list-submit-nextscreen-title",
-		"defect": 14,
-		"part": "search settings",
-		"check": "proof4",
-		"artifact": "formplayer@case list@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/title",
-		"document": "case-list-match-none",
-		"control": "case-list-match-none"
-	},
-	{
 		"id": "d21-list-first-turned-search-fir-formplayer-case-list-submit-nextscreen-type",
 		"defect": 21,
 		"part": "list-first turned search-first",
@@ -6815,12 +6805,22 @@
 		"control": "search-browse"
 	},
 	{
-		"id": "d41-empty-list-text-goes-blank-formplayer-module-settings-submit-nextscreen-noitemstext",
+		"id": "d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-html",
 		"defect": 41,
 		"part": "empty-list text goes blank",
 		"check": "proof4",
-		"artifact": "formplayer@module settings@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/noItemsText",
+		"artifact": "webapps@module settings@*",
+		"path": "/runs/*/screens/*/list/empty/html",
+		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
+		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
+	},
+	{
+		"id": "d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-text",
+		"defect": 41,
+		"part": "empty-list text goes blank",
+		"check": "proof4",
+		"artifact": "webapps@module settings@*",
+		"path": "/runs/*/screens/*/list/empty/text",
 		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
 		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
 	},

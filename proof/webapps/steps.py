@@ -48,6 +48,11 @@ def click(
     return [step, SETTLE]
 
 
+# How long a step that waits for the client's own answer, and may end the run where the client refuses to go on,
+# is given: the run's own deadline bounds it, so it fails only where the client never answered.
+ANSWERED_WITHIN_MS = 600_000
+
+
 def arrive(
     selections: list | None = None, *, query_data: dict | None = None, form: bool | None = None, any_screen=False
 ) -> list[dict]:
@@ -77,6 +82,17 @@ def navigate(
 
 # A case detail's Continue (``partials/case_detail.html``, ``module-case-detail``).
 CONTINUE = "#select-case"
+
+
+def searched(arrival: list[dict], end: str | None) -> list[dict]:
+    """``arrival`` for a click on a search's Search button, which the client may refuse to send where a prompt is
+    invalid (``arrived.js``, ``search``): that answer ends the run (at ``end``), as a worker's search that cannot go
+    on; where no run is replayed tolerantly (no ``end``), the arrival must hold."""
+    [wait, settle] = arrival
+    if end is None or wait["arg"].get("any"):
+        return arrival
+    step = {**wait, "arg": {**wait["arg"], "search": True}, "within": ANSWERED_WITHIN_MS, "orSkipTo": end}
+    return [step, settle]
 
 
 def open_case(row: str, selections: list, arrival: list[dict], *, within=None, or_skip_to=None) -> list[dict]:
@@ -110,7 +126,7 @@ def answer(ix: str, value: str, *, twelve_hour: bool = False) -> list[dict]:
         {
             "until": "webapps/answer",
             "arg": {"ix": ix, "value": value, "twelveHour": twelve_hour},
-            "within": WITHIN_MS,
+            "within": ANSWERED_WITHIN_MS,
         },
         {"awaitRequest": {"method": "POST", "pathname": ANSWER}, "sinceMark": True, "unlessMissed": True},
         SETTLE,
@@ -123,7 +139,7 @@ def submit_and_land() -> list[dict]:
     screen, or the form again with its errors). Where the client keeps Submit disabled, nothing is sent."""
     return [
         {"mark": True},
-        {"until": "webapps/submit", "arg": None, "within": WITHIN_MS},
+        {"until": "webapps/submit", "arg": None, "within": ANSWERED_WITHIN_MS},
         {"awaitRequest": {"method": "POST", "pathname": SUBMIT}, "sinceMark": True, "unlessMissed": True},
         *arrive(any_screen=True),
     ]

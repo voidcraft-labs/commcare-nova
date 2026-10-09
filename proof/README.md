@@ -1219,8 +1219,13 @@ a step clicks what a worker clicks, or reads what the page shows.
   read where the client opens one), and where the run reached a form, each
   of the walk's answers given through its widget in the walk's order, the
   form read as the worker leaves it, Submit, and the screen the client lands
-  on, with what became of each answer (`answered`, `unanswerable`) and of
-  Submit (`submitted`, `disabled`). Where the client shows nothing to click
+  on, with what became of each answer (`answered`; `unanswerable` where the
+  client draws no widget a worker could answer with it; `absent` where it
+  draws no such question; `unchanged` where the widget already shows it, a
+  default, for which the client sends nothing; `refused` where the widget's
+  own check refuses it and sends nothing) and of Submit (`submitted`, `disabled`, `absent`),
+  each decided once the client is idle, never by a time. A search the client
+  refuses to send (a prompt it marks invalid) ends its run there. Where the client shows nothing to click
   for a choice, its record of that run ends there, with `stopped` and the
   screen it stood on. It holds no id Formplayer drew, no time and no path,
   so the same inputs give the same bytes; `test_observe.py` holds two

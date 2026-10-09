@@ -175,7 +175,8 @@ def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict],
             action = f"{steps.LIST_ACTION}[data-index='{choice['action']}']"
             add(steps.navigate(action, arrival, within=within, or_skip_to=end))
         elif "search" in choice:
-            add(steps.navigate("#query-submit-button", arrival, within=within, or_skip_to=end))
+            searching = steps.searched(arrival, end)
+            add(steps.navigate("#query-submit-button", searching, within=within, or_skip_to=end))
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"
@@ -233,6 +234,44 @@ def replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str) -> tuple
     return made, kinds
 
 
+# What a record writes for the id Formplayer draws for a multi-select list's chosen cases, which the client then
+# names in its route in place of the cases (Formplayer keeps the cases under that id).
+SELECTION = "<selection {}>"
+
+
+def _drawn_selections(run) -> dict[str, str]:
+    """Each id Formplayer drew for a multi-select list's chosen cases in ``run``, by the mark a record writes for
+    it: the selection the client sent as ``use_selected_values``, as Formplayer answered it at the same place
+    (``MultiSelectEntityScreen``, which stores the cases and names them by a fresh id)."""
+    from proof.formplayer.walk import USE_SELECTED_VALUES
+
+    drawn: dict[str, str] = {}
+    for exchange in run.formplayer:
+        try:
+            sent, answered = exchange.request_json(), exchange.json()
+        except ValueError:
+            continue
+        if not isinstance(sent, dict) or not isinstance(answered, dict):
+            continue
+        selections, named = sent.get("selections") or [], answered.get("selections") or []
+        for index, selection in enumerate(selections):
+            if selection == USE_SELECTED_VALUES and index < len(named) and named[index] != USE_SELECTED_VALUES:
+                drawn.setdefault(named[index], SELECTION.format(len(drawn) + 1))
+    return drawn
+
+
+def _marked(value, drawn: dict[str, str]):
+    """``value`` with each drawn id written as its mark, wherever a string holds it."""
+    if isinstance(value, dict):
+        return {key: _marked(item, drawn) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_marked(item, drawn) for item in value]
+    if isinstance(value, str):
+        for held, mark in drawn.items():
+            value = value.replace(held, mark)
+    return value
+
+
 def _first_line(text) -> str:
     return str(text).strip().splitlines()[0] if str(text).strip() else ""
 
@@ -280,7 +319,7 @@ def _record(runner, driver, version, walk, run, kinds) -> dict[str, Any]:
             if len(held["screens"]) != expected[what[1]]:
                 # The client did not follow the walk to its end: where it stood when the run ended.
                 held["stopped"] = {"after": len(held["screens"]), "screen": screen}
-    return found
+    return _marked(found, _drawn_selections(run))
 
 
 def _expected_screens(run: Mapping[str, Any]) -> int:
@@ -297,16 +336,28 @@ def observe(served, driver) -> dict[str, Any]:
 
 def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     """The client's screens on a walk Formplayer already made of a state HQ serves with its own views
-    (``proof.formplayer.hq.Served``): the walk's runs replayed whole in the browser (``replay``), in one run of
-    the served state (the worker signed in, HQ's state put back after it).
+    (``proof.formplayer.hq.Served``): each run of the walk replayed whole in the browser (``replay``), each in a
+    run of the served state of its own (a fork of HQ's state, the worker signed in afresh and starting over in
+    Formplayer, a fresh page), as Formplayer's own walk runs each: a case one run's submission made is not in the
+    next run's list.
 
     A run the client shows nothing to click for at some choice (once it has arrived, within ``steps.WITHIN_MS``)
-    is recorded as far as it went, with ``stopped`` and the screen it ended on, and the next run starts from the
-    home screen; each answer the client could not give is named (``unanswerable``, ``missed``), and so is a
-    Submit it kept disabled; an error the client's own script raised is recorded by its message
-    (``pageErrors``).
+    is recorded as far as it went, with ``stopped`` and the screen it ended on; each answer the client could not
+    give is named (``unanswerable``, ``absent``, ``unchanged``, ``refused``), and so is a Submit it kept disabled;
+    an error the client's own script raised is recorded by its message (``pageErrors``).
     """
     session = Session(served, driver)
-    made, kinds = replay(served.doc["name"], walk["runs"], session.home)
-    run = session.run(made, name="webapps")
-    return _record(served.runner, driver, served.version, walk, run, kinds)
+    found = None
+    for index, each in enumerate(walk["runs"]):
+        made, kinds = replay(served.doc["name"], [each], session.home)
+        # The run's deadline grows with its steps: a whole walk of a large form is many screens and answers.
+        run = session.run(made, name=f"webapps-{index}", deadline=180.0 + 2.0 * len(made))
+        one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
+        if found is None:
+            found = {**one, "runs": [], "pageErrors": []}
+        found["runs"].extend(one["runs"])
+        found["pageErrors"] = sorted({*found["pageErrors"], *one["pageErrors"]})
+    if found is None:
+        made, kinds = replay(served.doc["name"], [], session.home)
+        found = _record(served.runner, driver, served.version, {"runs": []}, session.run(made), kinds)
+    return found

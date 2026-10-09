@@ -23,10 +23,16 @@
 //   goes and removes it at the end).
 //
 // With `any` the route is not looked at: where Formplayer refused the step,
-// the client shows the error and goes back on its own. With `explain`, what
+// the client shows the error and goes back on its own. With `search`, the
+// step was a click on a search's Search button, which the client may refuse
+// to send: where it marks a prompt invalid on the search screen itself (a
+// required prompt left empty, a prompt's own validation, checked before it
+// asks Formplayer: cloudcare/js/formplayer/menus/views/query.js) with
+// nothing in flight, the answer is "refused", a worker's search that cannot
+// go on. With `explain`, what
 // has not happened yet is answered in words in place of false (for a wait
 // that ran out, so its failure says what the client was still doing).
-({ selections, queryData, form, any, explain }) => {
+({ selections, queryData, form, any, search, explain }) => {
 	const not = (why) => (explain ? why : false);
 	if (sessionStorage.getItem("formplayerQueryInProgress") === "true")
 		return not("the client's own flag says a request is in flight");
@@ -42,6 +48,12 @@
 	)
 		return not("a notification is fading");
 	if (any) return true;
+	const query = search && document.querySelector("#query-list-contents");
+	const refused =
+		query &&
+		[
+			...query.querySelectorAll(".is-invalid, .invalid-feedback, .has-error"),
+		].some((element) => element.getClientRects().length > 0);
 	let route;
 	try {
 		route = JSON.parse(decodeURIComponent(location.hash.replace(/^#/, "")));
@@ -63,7 +75,9 @@
 	for (const [key, wanted] of Object.entries(queryData ?? {})) {
 		const held = route.queryData?.[key];
 		if (!held || Boolean(held.execute) !== Boolean(wanted.execute))
-			return not(`the route's search is not yet the choice's: ${shown}`);
+			return refused
+				? "refused"
+				: not(`the route's search is not yet the choice's: ${shown}`);
 	}
 	if (form === true && !route.sessionId)
 		return not(`the route holds no form yet: ${shown}`);
