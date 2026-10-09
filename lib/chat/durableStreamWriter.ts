@@ -110,6 +110,8 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	/** The log rejected twice — stop buffering; resumability is lost. */
 	private broken = false;
 	private sawFinish = false;
+	private deferredFinish: UIMessageChunk | null = null;
+	private deferFinish = false;
 	private closed = false;
 	/** The fold outcome `close()` was given — stamped on the terminal row. */
 	private terminalOutcome: string | undefined;
@@ -123,7 +125,16 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 		this.fold = options.fold ?? null;
 	}
 
+	/** Route-owned completion: publish finish only after pause/settlement commits. */
+	holdFinishUntilClose(): void {
+		this.deferFinish = true;
+	}
+
 	write(part: UIMessageChunk): void {
+		if (this.deferFinish && part.type === "finish") {
+			this.deferredFinish = part;
+			return;
+		}
 		/* Per-token tool-input JSON is dropped whole: nothing downstream
 		 * consumes partial tool input, and every destination must see the same
 		 * sequence — see the module doc. */
@@ -282,6 +293,8 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 			return;
 		}
 		this.terminalOutcome = outcome;
+		this.deferFinish = false;
+		if (this.deferredFinish) this.write(this.deferredFinish);
 		if (!this.sawFinish) this.write({ type: "finish" });
 		this.closed = true;
 		if (this.flushTimer !== null) {

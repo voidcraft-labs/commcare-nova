@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
 import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
 import {
 	type AssetKind,
@@ -24,6 +25,7 @@ import {
 	asMediaAssetId,
 	type MediaAssetId,
 	type MediaAssetStatus,
+	mediaAssetIdSchema,
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import {
@@ -1179,6 +1181,33 @@ export async function loadAssetsByIds(
 		.map((row) => mediaAssetRecordFromRow(row));
 }
 
+/** Resolve a source identity within one authorized Project. Exact names never
+ * pick an arbitrary winner: two rows are sufficient to establish ambiguity. */
+export async function findSourceAssets(
+	projectId: string,
+	document: string,
+): Promise<MediaAssetRecord[]> {
+	const db = await getAppDb();
+	const assetId = mediaAssetIdSchema.safeParse(document);
+	const rows = await db
+		.selectFrom("media_assets")
+		.selectAll()
+		.where("project_id", "=", projectId)
+		.where((eb) =>
+			assetId.success
+				? eb("id", "=", assetId.data)
+				: eb.or([
+						eb("original_filename", "=", document),
+						eb("display_name", "=", document),
+					]),
+		)
+		.orderBy("created_at", "desc")
+		.orderBy("id", "desc")
+		.limit(2)
+		.execute();
+	return rows.map((row) => mediaAssetRecordFromRow(row));
+}
+
 /**
  * Read a set of asset rows INSIDE a commit transaction — the guarded commit's
  * media re-check. Selecting `FOR SHARE` makes the rows part of the
@@ -1230,8 +1259,8 @@ export async function listReadyAssetsForProject(
 	options: {
 		kinds?: readonly AssetKind[];
 		cursor?: string;
-		/** Case-insensitive literal substring matched against the visible file name
-		 *  and a document's extracted title. Whitespace-only means no search. */
+		/** Case-insensitive literal substring matched against the original filename,
+		 * display name and extracted title. Whitespace-only means no search. */
 		query?: string;
 	} = {},
 ): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
@@ -1252,10 +1281,10 @@ export async function listReadyAssetsForProject(
 	const normalizedQuery = options.query?.trim();
 	if (normalizedQuery) {
 		// `position` treats `%` / `_` as ordinary user text (unlike LIKE), while
-		// Kysely binds the query as a parameter. `concat_ws` searches exactly the
-		// names the library renders: display/filename plus extracted document title.
+		// Kysely binds the query as a parameter. Keep the original filename
+		// searchable after a display rename, alongside the displayed title.
 		query = query.where(
-			sql<boolean>`position(lower(${normalizedQuery}) in lower(concat_ws(' ', coalesce(display_name, original_filename), extract ->> 'title'))) > 0`,
+			sql<boolean>`position(lower(${normalizedQuery}) in lower(concat_ws(' ', display_name, original_filename, extract ->> 'title'))) > 0`,
 		);
 	}
 	query = query
@@ -1427,12 +1456,22 @@ export async function replaceExactThreadMediaReferences(
 		readonly candidateMessages: readonly unknown[];
 	},
 ): Promise<void> {
+	const thread = await tx
+		.selectFrom("threads")
+		.select("selected_sources")
+		.where("thread_id", "=", args.threadId)
+		.executeTakeFirstOrThrow();
 	const requirements: MediaReferenceRequirement[] = collectThreadAttachments(
 		args.candidateMessages,
 	).map((attachment) => ({
 		assetId: attachment.assetId,
 		expectedKind: attachment.kind as AssetKind,
 	}));
+	for (const source of selectedSourceDocumentsSchema.parse(
+		thread.selected_sources,
+	)) {
+		requirements.push({ assetId: source.assetId, expectedKind: source.kind });
+	}
 	const assetIds = await lockAndValidateMediaReferences(
 		tx,
 		args.projectId,

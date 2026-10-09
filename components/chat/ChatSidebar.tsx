@@ -87,6 +87,8 @@ interface ChatSidebarProps {
 		readonly onAction: () => void;
 	};
 	messages: NovaUIMessage[];
+	/** Only question calls belonging to the server's committed pending round. */
+	pendingQuestionToolCallIds?: readonly string[];
 	status: "submitted" | "streaming" | "ready" | "error";
 	/** Send a turn. `attachments` are asset-id refs to files picked from the file
 	 *  manager; the server resolves each to its stored extract or image bytes. */
@@ -143,6 +145,7 @@ export function ChatSidebar({
 	interactionBlocked = false,
 	interactionBlockedRecovery,
 	messages,
+	pendingQuestionToolCallIds = [],
 	status,
 	onSend,
 	onAnswerAttachments,
@@ -414,7 +417,8 @@ export function ChatSidebar({
 		for (const part of msg.parts) {
 			if (
 				part.type === "tool-askQuestions" &&
-				part.state === "input-available"
+				part.state === "input-available" &&
+				pendingQuestionToolCallIds.includes(part.toolCallId)
 			) {
 				activeQuestionCount++;
 			}
@@ -632,7 +636,8 @@ export function ChatSidebar({
 									message={msg}
 									addToolOutput={handleToolOutput}
 									pendingAnswerRef={pendingAnswerRef}
-									toolInteractionsDisabled={interactionBlocked}
+									toolInteractionsDisabled={interactionBlocked || readOnly}
+									pendingQuestionToolCallIds={pendingQuestionToolCallIds}
 									isStreaming={isLoading && msgIndex === messages.length - 1}
 								/>
 							))}

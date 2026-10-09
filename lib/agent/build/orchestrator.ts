@@ -10,6 +10,7 @@ import {
 import { WORK_TOOL_DEFINITIONS } from "@/lib/agent/authoring/lifecycleTools";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
+import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import type { AgentStep } from "@/lib/agent/generationContext";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
@@ -35,8 +36,8 @@ import {
 	buildArchitectPrompt,
 } from "@/lib/agent/prompts";
 import {
+	includeSelectedSource,
 	loadSourceMaterial,
-	readSource,
 	type SourceMaterialDeps,
 	SourceMaterialError,
 	sourceAttachmentsMessage,
@@ -46,14 +47,17 @@ import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import { translateLanguage } from "@/lib/agent/translation/translateLanguage";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
-import { loadApp, refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
+import { loadApp, refreshBuildLiveness } from "@/lib/db/apps";
 import { AppTestUnavailableError } from "@/lib/db/appTests";
 import {
 	loadDesignSession,
 	refreshDesignSessionLiveness,
-	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
 import { withAppTx } from "@/lib/db/pg";
+import {
+	loadThreadSelectedSources,
+	selectThreadSource,
+} from "@/lib/db/threads";
 import type { PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
@@ -107,7 +111,18 @@ export type BuildOrchestrationOutcome =
 			finalSeq: number;
 			finalBlueprint: PersistableDoc;
 	  }
-	| { kind: "awaiting-input"; pauseOwned: boolean }
+	| {
+			kind: "awaiting-input";
+			pause: {
+				kind: "questions" | "message" | "review";
+				origin: string;
+				toolCallIds: string[];
+				orchestration: {
+					expectedHead: OrchestrationHead | null;
+					state: Extract<BuildOrchestratorState, { kind: "awaiting-input" }>;
+				};
+			};
+	  }
 	| {
 			kind: "failed";
 			errorType: string;
@@ -148,6 +163,7 @@ export interface RunBuildOrchestrationArgs {
 	readonly runId: string;
 	readonly holderNonce: string;
 	readonly threadId: string;
+	readonly streamId?: string;
 	readonly messages: readonly UIMessage[];
 	readonly responseMessageId: string;
 	readonly writer: OrchestratorStreamWriter;
@@ -256,6 +272,27 @@ export async function runBuildOrchestration(
 				transient: true,
 			});
 	};
+	let stepOpen = false;
+	const startStep = () => {
+		if (stepOpen) throw new Error("An architect stream step is already open.");
+		args.writer.write({ type: "start-step" });
+		stepOpen = true;
+	};
+	const finishStep = () => {
+		if (!stepOpen) return;
+		args.writer.write({ type: "finish-step" });
+		stepOpen = false;
+	};
+	const emitFinalText = (id: string, text: string) => {
+		if (!text.trim()) return;
+		startStep();
+		try {
+			emitText(id, text);
+		} finally {
+			finishStep();
+		}
+	};
+	let pendingQuestion: ArchitectToolCall | null = null;
 	const emitText = (id: string, text: string) => {
 		if (!text.trim()) return;
 		args.writer.write({ type: "text-start", id });
@@ -298,40 +335,80 @@ export async function runBuildOrchestration(
 				contextVersion: MODEL_CONTEXT_VERSION,
 			},
 		});
+		const condenser: AttachmentCondenser = {
+			extractDocumentStructured: async (options) => {
+				const result = await context.runStructured({
+					...options,
+					prompt: options.prompt ?? options.instruction,
+					modelId: MODEL_ROLES.documentExtractor.modelId,
+					maxOutputTokens: options.maxOutputTokens ?? 128_000,
+					signal: options.signal
+						? AbortSignal.any([options.signal, args.signal])
+						: args.signal,
+				});
+				return {
+					object: result.object,
+					truncated: result.finishReason === "length",
+				};
+			},
+		};
 		const sourceDeps =
 			args.deps?.sourceDeps ??
-			productionSourceMaterialDeps({
-				extractDocumentStructured: async (options) => {
-					const result = await context.runStructured({
-						...options,
-						prompt: options.prompt ?? options.instruction,
-						modelId: MODEL_ROLES.documentExtractor.modelId,
-						maxOutputTokens: options.maxOutputTokens ?? 128_000,
-						signal: args.signal,
-					});
-					return {
-						object: result.object,
-						truncated: result.finishReason === "length",
-					};
-				},
+			productionSourceMaterialDeps(condenser, {
+				authorize: () => runtime.authorize(),
+				signal: args.signal,
 			});
-		const source = await loadSourceMaterial({
+		const threadTarget = {
+			kind: "design-session" as const,
+			designSessionId: args.designSessionId,
+		};
+		let source = await loadSourceMaterial({
 			projectId: args.projectId,
 			messages: args.messages as NovaUIMessage[],
 			deps: sourceDeps,
+			selectedSources: await loadThreadSelectedSources(
+				threadTarget,
+				args.threadId,
+			),
 		});
-		const attachmentMessage = sourceAttachmentsMessage(source);
-		const sourceMessages = [
-			...source.requests,
-			...(attachmentMessage
-				? [
-						{
-							key: `attachments:${durableModelValueDigest(attachmentMessage)}`,
-							message: attachmentMessage,
-						},
-					]
-				: []),
-		];
+		runtime.sourceDocuments = {
+			signal: args.signal,
+			prepare: sourceDeps.prepareDocument,
+			selected: async (selected) => {
+				const snapshot = await includeSelectedSource({
+					material: source,
+					selected,
+					projectId: args.projectId,
+					deps: sourceDeps,
+				});
+				await selectThreadSource({
+					target: threadTarget,
+					expectedProjectId: args.projectId,
+					actorUserId: args.actorUserId,
+					threadId: args.threadId,
+					threadType: "build",
+					runId: args.runId,
+					holderNonce: args.holderNonce,
+					streamId: args.streamId ?? args.responseMessageId,
+					source: selected,
+				});
+				source = snapshot;
+			},
+		};
+		const sourceMessages = () => {
+			const attachmentMessage = sourceAttachmentsMessage(source);
+			return [
+				...source.requests,
+				...(attachmentMessage
+					? [
+							{
+								key: `attachments:${durableModelValueDigest(attachmentMessage)}`,
+								message: attachmentMessage,
+							},
+						]
+					: []),
+			];
+		};
 		const turnId = source.requests.at(-1)?.key ?? args.responseMessageId;
 		const roleConfig = {
 			architect: MODEL_ROLES.architect,
@@ -368,6 +445,14 @@ export async function runBuildOrchestration(
 					? "design-review"
 					: "translation";
 		const commonLoop = (role: "architect" | "peer" | "translator") => ({
+			...(role === "architect" && {
+				onStepStart: startStep,
+				onStepEnd: finishStep,
+				onStepAbort: (error?: unknown) => {
+					if (error instanceof ReviewPaused) finishStep();
+					else stepOpen = false;
+				},
+			}),
 			signal: args.signal,
 			modelStep: modelSteps[role],
 			maxSteps:
@@ -515,6 +600,7 @@ export async function runBuildOrchestration(
 				toolName: "askQuestions",
 				input,
 			});
+			pendingQuestion = call;
 			return { kind: "awaiting-input" as const };
 		};
 		const recoverableToolError = (error: unknown) => {
@@ -598,7 +684,7 @@ export async function runBuildOrchestration(
 				system,
 				turnId: review.reviewId,
 				additions: [
-					...sourceMessages,
+					...sourceMessages(),
 					...(review.review.predecessor_review_id
 						? [
 								{
@@ -611,7 +697,7 @@ export async function runBuildOrchestration(
 							]
 						: []),
 					{
-						key: `review-context:${review.reviewId}`,
+						key: `review-context:${review.reviewId}:${source.digest}`,
 						message: {
 							role: "user",
 							content: JSON.stringify({
@@ -642,8 +728,6 @@ export async function runBuildOrchestration(
 								editor: "peer",
 								reviewId: review.reviewId,
 							});
-						else if (call.toolName === "readSource")
-							output = readSource(source, call.input);
 						else if (call.toolName === "getApp")
 							output = await runtime.overview(true);
 						else output = await runtime.shared(call, "peer");
@@ -674,6 +758,7 @@ export async function runBuildOrchestration(
 			const plan = await finishPlanReview(authority, review.reviewId, {
 				contextId: peer.contextId,
 				summary: peer.text,
+				sourceDigest: source.digest,
 			});
 			await emitPlan();
 			await emitState(
@@ -707,8 +792,6 @@ export async function runBuildOrchestration(
 			try {
 				if (["readPlan", "writePlan", "editPlan"].includes(call.toolName))
 					output = await planTool(call, { editor: "architect" });
-				else if (call.toolName === "readSource")
-					output = readSource(source, call.input);
 				else if (call.toolName === "getApp")
 					output = await runtime.overview(true);
 				else if (call.toolName === "getWork") output = await runtime.getWork();
@@ -722,11 +805,14 @@ export async function runBuildOrchestration(
 						reviewInputSchema.parse(call.input).focus,
 					);
 				else if (call.toolName === "startBuilding") {
-					const plan = await readAppPlan(authority);
-					const review =
-						plan?.reviewedRevision === null || !plan
-							? await peerReview(`${call.toolCallId}:plan`, false)
-							: undefined;
+					const currentReview = await latestPlanReview(
+						authority,
+						source.digest,
+						null,
+					);
+					const review = !currentReview
+						? await peerReview(`${call.toolCallId}:plan`, false)
+						: undefined;
 					await runtime.ensureWorkspace();
 					await emitState({ kind: "building", appId: runtime.appId });
 					output = { building: true, ...(review && { ...review }) };
@@ -788,7 +874,7 @@ export async function runBuildOrchestration(
 			spec: await spec("architect", MODEL_CONTEXT_VERSION, system),
 			system,
 			turnId,
-			additions: sourceMessages,
+			additions: sourceMessages(),
 			currentState: async () => {
 				const plan = await readAppPlan(authority);
 				return {
@@ -820,8 +906,9 @@ export async function runBuildOrchestration(
 						app ? snapshot.canonicalSeq : null,
 					);
 					if (!review) {
+						const planRevision = (await readAppPlan(authority))?.revision ?? 0;
 						await peerReview(
-							`${app ? "app" : "planning"}-finish:${turnId}:${snapshot.canonicalSeq ?? 0}`,
+							`${app ? "app" : "planning"}-finish:${turnId}:${snapshot.canonicalSeq ?? 0}:${planRevision}:${source.digest}`,
 							app,
 						);
 						review = await latestPlanReview(
@@ -877,27 +964,30 @@ export async function runBuildOrchestration(
 			},
 		});
 		if (result.kind === "awaiting-input") {
-			emitText(`${result.contextId}:final:${turnId}`, result.text);
-			await emitState({ kind: "awaiting-input" });
-			const pause = runtime.appId
-				? await setAwaitingInput(
-						runtime.appId,
-						args.runId,
-						args.holderNonce,
-						"build",
-						true,
-						args.actorUserId,
-						args.projectId,
-					)
-				: await setDesignSessionAwaitingInput(
-						args.designSessionId,
-						args.runId,
-						args.holderNonce,
-						true,
-						args.actorUserId,
-						args.projectId,
-					);
-			return { kind: "awaiting-input", pauseOwned: pause === "owned" };
+			emitFinalText(`${result.contextId}:final:${turnId}`, result.text);
+			const questionCall = pendingQuestion as ArchitectToolCall | null;
+			return {
+				kind: "awaiting-input",
+				pause: questionCall
+					? {
+							kind: "questions",
+							origin: `question:${questionCall.toolCallId}:${canonicalJsonDigest(questionCall.input)}`,
+							toolCallIds: [questionCall.toolCallId],
+							orchestration: {
+								expectedHead: head,
+								state: { kind: "awaiting-input" },
+							},
+						}
+					: {
+							kind: "message",
+							origin: `message:${turnId}:${durableModelValueDigest(result.text)}`,
+							toolCallIds: [],
+							orchestration: {
+								expectedHead: head,
+								state: { kind: "awaiting-input" },
+							},
+						},
+			};
 		}
 		if (!runtime.appId)
 			throw new Error("A completed build must have a saved app.");
@@ -917,7 +1007,7 @@ export async function runBuildOrchestration(
 			},
 			transient: true,
 		});
-		emitText(`${result.contextId}:final:${turnId}`, result.text);
+		emitFinalText(`${result.contextId}:final:${turnId}`, result.text);
 		return {
 			kind: "completed",
 			appId: runtime.appId,
@@ -926,37 +1016,27 @@ export async function runBuildOrchestration(
 		};
 	} catch (error) {
 		if (error instanceof ReviewPaused) {
-			emitText(
+			emitFinalText(
 				`review-checkpoint:${error.reviewId}`,
 				`The peer review is unfinished. Your plan, app and investigation are saved. Continue when you are ready to resume the review.\n\n${error.summary}`,
 			);
-			await emitState({
+			const state = {
 				kind: "awaiting-input",
 				reviewCheckpoint: {
 					reviewId: error.reviewId,
 					contextId: error.contextId,
 					summaryAvailable: error.summaryAvailable,
 				},
-			});
-			const pause = runtime.appId
-				? await setAwaitingInput(
-						runtime.appId,
-						args.runId,
-						args.holderNonce,
-						"build",
-						true,
-						args.actorUserId,
-						args.projectId,
-					)
-				: await setDesignSessionAwaitingInput(
-						args.designSessionId,
-						args.runId,
-						args.holderNonce,
-						true,
-						args.actorUserId,
-						args.projectId,
-					);
-			return { kind: "awaiting-input", pauseOwned: pause === "owned" };
+			} as const;
+			return {
+				kind: "awaiting-input",
+				pause: {
+					kind: "review",
+					origin: `review:${error.reviewId}`,
+					toolCallIds: [],
+					orchestration: { expectedHead: head, state },
+				},
+			};
 		}
 		const classified = classifyError(error);
 		const session = await loadDesignSession(args.designSessionId);
@@ -978,6 +1058,5 @@ export async function runBuildOrchestration(
 	} finally {
 		clearInterval(heartbeatTimer);
 		await heartbeatTask;
-		args.writer.write({ type: "finish" });
 	}
 }

@@ -7,7 +7,6 @@ import {
 	type SharedToolRegistryEntry,
 } from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
-import { readSourceInputSchema } from "@/lib/agent/sources";
 import { languageIdentityInputSchema } from "@/lib/agent/tools/localization";
 
 import type { AUTHORING_TOOL_PRESENTATION } from "../toolPresentation";
@@ -47,11 +46,6 @@ export const PLANNING_TOOL_DEFINITIONS = {
 		description:
 			"Replace one exact passage in the shared plan. Include enough surrounding text to identify it once.",
 		inputSchema: editPlanInputSchema,
-		strict: false,
-	},
-	readSource: {
-		description: "Read a passage from an attached document.",
-		inputSchema: readSourceInputSchema,
 		strict: false,
 	},
 	getApp: {

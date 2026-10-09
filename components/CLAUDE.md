@@ -112,6 +112,18 @@ activation receipt was missed. Failed app cards remain links; the authorized
 build page admits interrupted builds and apps with materialized design lineage,
 because a later-slice failure does not invalidate the sequence-one app.
 
+Chat continuations are server-issued input rounds, hydrated with the thread and
+published through `data-input-round` only after the pause commits. A visible
+question tool part alone grants no interaction: cards and the typed-answer
+route enable only the exact pending round's tool-call IDs. Each round may
+trigger one automatic answer POST; text and review pauses need a deliberate
+user action. Answer attachments await the SDK's committed tool output and use
+the same round ID. Stale/consumed responses freeze that Chat instance, refetch
+the exact authoritative transcript, and reconnect to its active stream without
+re-driving or retaining a richer local copy. Every callback belongs to both its
+Project epoch and its current Chat instance. Legacy pauses without a round may
+accept a deliberate fresh text turn, never automatic question replay.
+
 A client leaf that branches its render on `useAuth().isPending` will hydration-mismatch: the auth client resolves the session synchronously client-side (`isPending` false on first paint) while SSR has none (`isPending` true), so server and client first-render differ. Gate the first render on a `mounted` flag (see `AccountMenu`).
 
 ## Theme

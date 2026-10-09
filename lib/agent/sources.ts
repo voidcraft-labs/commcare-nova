@@ -4,6 +4,7 @@ import {
 	attachmentRefSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
+import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	asMediaAssetId,
@@ -12,6 +13,7 @@ import {
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { SourceDocumentRuntime } from "./sourceDocuments";
 import { askQuestionsInputSchema } from "./tools/askQuestions";
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -20,6 +22,7 @@ export class SourceMaterialError extends Error {
 	readonly name = "SourceMaterialError";
 }
 export interface SourceMaterialDeps {
+	prepareDocument?: SourceDocumentRuntime["prepare"];
 	loadAssets(
 		ids: readonly MediaAssetId[],
 		projectId: string,
@@ -27,7 +30,7 @@ export interface SourceMaterialDeps {
 	readExtract(
 		asset: MediaAssetRecord,
 		kind: DocumentKind,
-	): Promise<{ text: string; truncated: boolean }>;
+	): Promise<{ text: string; truncated: boolean; version?: number }>;
 	loadImage(
 		asset: MediaAssetRecord,
 	): Promise<{ mediaType: string; dataUrl: string; bytesDigest: string }>;
@@ -37,11 +40,14 @@ export interface SourceDocument {
 	readonly name: string;
 	readonly text: string;
 	readonly truncated: boolean;
+	readonly revision?: string;
 }
 export interface SourceMaterial {
 	readonly digest: string;
 	readonly requests: readonly {
 		readonly key: string;
+		readonly legacyKeys?: readonly string[];
+		readonly legacyKeyPrefix?: string;
 		readonly message: ModelMessage;
 	}[];
 	readonly documents: readonly SourceDocument[];
@@ -60,8 +66,14 @@ export async function loadSourceMaterial(args: {
 	readonly projectId: string;
 	readonly messages: readonly NovaUIMessage[];
 	readonly deps: SourceMaterialDeps;
+	readonly selectedSources?: readonly SelectedSourceDocument[];
 }): Promise<SourceMaterial> {
-	const requests: Array<{ key: string; message: ModelMessage }> = [];
+	const requests: Array<{
+		key: string;
+		legacyKeys?: readonly string[];
+		legacyKeyPrefix?: string;
+		message: ModelMessage;
+	}> = [];
 	const references = new Map<string, z.infer<typeof attachmentRefSchema>>();
 	for (const message of args.messages) {
 		if (message.role === "user") {
@@ -91,7 +103,9 @@ export async function loadSourceMaterial(args: {
 					return { question: question.question, answer };
 				});
 				requests.push({
-					key: `answers:${message.id}:${index}`,
+					key: `answers:${message.id}:${part.toolCallId}`,
+					legacyKeys: [`answers:${message.id}:${index}`],
+					legacyKeyPrefix: `answers:${message.id}:`,
 					message: {
 						role: "user",
 						content: JSON.stringify({ answers: pairs }),
@@ -105,6 +119,9 @@ export async function loadSourceMaterial(args: {
 			references.set(reference.assetId, reference);
 		}
 	}
+	for (const selected of args.selectedSources ?? [])
+		if (!references.has(selected.assetId))
+			references.set(selected.assetId, selected);
 	const assets = await args.deps.loadAssets(
 		[...references.keys()].map(asMediaAssetId),
 		args.projectId,
@@ -129,6 +146,14 @@ export async function loadSourceMaterial(args: {
 				name: reference.filename,
 				text: extract.text,
 				truncated: extract.truncated,
+				...((extract.version !== undefined ||
+					asset.extract?.status === "ready") && {
+					revision: canonicalJsonDigest({
+						contentHash: asset.contentHash,
+						extractVersion: extract.version ?? asset.extract?.version,
+						extractDigest: canonicalJsonDigest(extract.text),
+					}),
+				}),
 			});
 		} else {
 			images.push({
@@ -138,65 +163,75 @@ export async function loadSourceMaterial(args: {
 			});
 		}
 	}
+	return sourceMaterialSnapshot({ requests, documents, images });
+}
+
+/** Capture the exact evidence available to a review. Selecting another library
+ * document changes the snapshot without rewriting the user's attachments. */
+export function sourceMaterialSnapshot(
+	material: Omit<SourceMaterial, "digest">,
+): SourceMaterial {
 	const characters =
-		requests.reduce(
+		material.requests.reduce(
 			(sum, request) => sum + JSON.stringify(request.message).length,
 			0,
-		) + documents.reduce((sum, document) => sum + document.text.length, 0);
+		) +
+		material.documents.reduce((sum, document) => sum + document.text.length, 0);
 	if (characters > MAX_SOURCE_CHARACTERS)
 		throw new SourceMaterialError(
 			"This conversation and its documents exceed the supported source size. Use a shorter document or split the request into separate conversations.",
 		);
-	const digest = canonicalJsonDigest({
-		requests,
-		documents,
-		images: images.map(({ dataUrl: _, ...image }) => image),
-	});
-	return { digest, requests, documents, images };
+
+	return {
+		...material,
+		digest: canonicalJsonDigest({
+			requests: material.requests.map(({ key, message }) => ({ key, message })),
+			documents: material.documents,
+			images: material.images.map(({ dataUrl: _, ...image }) => image),
+		}),
+	};
 }
 
-export const readSourceInputSchema = z.strictObject({
-	document: z.string().describe("Document name or id."),
-	offset: z
-		.number()
-		.int()
-		.nonnegative()
-		.optional()
-		.describe("Character offset; starts at zero."),
-	length: z
-		.number()
-		.int()
-		.min(1)
-		.max(24_000)
-		.optional()
-		.describe("Characters to read; defaults to 12,000."),
-});
-
-export function readSource(material: SourceMaterial, raw: unknown) {
-	const input = readSourceInputSchema.parse(raw);
-	const matches = material.documents.filter(
-		(document) =>
-			document.id === input.document || document.name === input.document,
+export async function includeSelectedSource(args: {
+	readonly material: SourceMaterial;
+	readonly selected: SelectedSourceDocument;
+	readonly projectId: string;
+	readonly deps: SourceMaterialDeps;
+}): Promise<SourceMaterial> {
+	const [asset] = await args.deps.loadAssets(
+		[args.selected.assetId],
+		args.projectId,
 	);
-	if (matches.length !== 1)
+	if (
+		asset?.status !== "ready" ||
+		asset.kind !== args.selected.kind ||
+		asset.contentHash !== args.selected.contentHash
+	)
 		throw new SourceMaterialError(
-			"The document name is missing or ambiguous. Use an id from the source list.",
+			"The selected document is no longer available in this Project.",
 		);
-	const document = matches[0];
-	const offset = input.offset ?? 0;
-	const end = Math.min(document.text.length, offset + (input.length ?? 12_000));
-	if (offset > document.text.length)
+	const extract = await args.deps.readExtract(asset, args.selected.kind);
+	if (
+		canonicalJsonDigest(extract.text) !== args.selected.extractDigest ||
+		(extract.version ?? asset.extract?.version) !== args.selected.extractVersion
+	)
 		throw new SourceMaterialError(
-			`This document contains ${document.text.length} characters.`,
+			"The selected document changed while it was being read. Read it again from the first page.",
 		);
-	return {
-		document: document.name,
-		text: document.text.slice(offset, end),
-		offset,
-		nextOffset: end < document.text.length ? end : null,
-		totalCharacters: document.text.length,
-		extractTruncated: document.truncated,
+	const documents = [...args.material.documents];
+	const document = {
+		id: args.selected.assetId,
+		name: args.selected.filename,
+		text: extract.text,
+		truncated: extract.truncated,
+		revision: args.selected.revision,
 	};
+	const index = documents.findIndex(
+		(item) => item.id === args.selected.assetId,
+	);
+	if (index < 0) documents.push(document);
+	else documents[index] = document;
+	return sourceMaterialSnapshot({ ...args.material, documents });
 }
 
 /** File bytes appear once in a role's source context, never in a tool catalog. */
@@ -215,6 +250,7 @@ export function sourceAttachmentsMessage(
 						name: document.name,
 						characters: document.text.length,
 						extractTruncated: document.truncated,
+						...(document.revision && { revision: document.revision }),
 					})),
 					images: material.images.map((image) => ({
 						id: image.id,

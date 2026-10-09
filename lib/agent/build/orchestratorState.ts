@@ -278,6 +278,23 @@ export async function appendOrchestrationEvent(args: {
 	return preparedHead(prepared);
 }
 
+/** Join the transcript/input-round pause transaction. The caller keeps the
+ * holder live until this append and the thread receipt have both succeeded. */
+export async function appendOrchestrationEventInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: Parameters<typeof appendOrchestrationEvent>[0],
+): Promise<OrchestrationHead> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId: args.designSessionId,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.expectedProjectId,
+		holder: { mode: "build", runId: args.runId, nonce: args.holderNonce },
+	});
+	const prepared = prepareOrchestrationEvent(args);
+	await insertPreparedOrchestrationEvent(tx, args, prepared);
+	return preparedHead(prepared);
+}
+
 /**
  * Commit the terminal orchestration event, exact-sequence app completion, and
  * kept-charge settlement atomically. The holder is proved while still live;

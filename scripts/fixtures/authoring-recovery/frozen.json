@@ -1,0 +1,13 @@
+{
+	"schemaVersion": 1,
+	"campaignCeilingUsd": 25,
+	"files": {
+		"library-request.txt": "63a86d0f8dc47268062643026046d806d998f90260af32c75ddacde717392550",
+		"Equipment lending overview.txt": "d431f15616bba45d8f7d25b79e6c240cf54a56fb49fe4ce758987741b68298ce",
+		"Equipment lending workflow.txt": "8092ec08204c6a4cb853f6586c8c6ee27459b868115c156643abd4ad63d31a75",
+		"resume-request.txt": "043e024d97cf2e1c5e84baac3a70b37b1d17af7988629aede6b1894d28f3c7c2",
+		"resume-answers.json": "d62d760952d1dcc81e8ab24138da14ed3e738d39b444ccb55ed01f756cf5fc8f",
+		"ledger-template.json": "be1a7847be4a5f669d1bc367253e0461c5ea927b8436ac47a935e172d5eeb0b0",
+		"trial-config.json": "523432111da99c0266080a2097519dd4c2979816c0b02cabe6aa2d8be55c2d14"
+	}
+}

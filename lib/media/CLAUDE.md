@@ -47,7 +47,7 @@ commits and the writer wakes to a missing row and rejects.
 
 ## Documents are library-only — enforced fail-closed in three places
 
-`AssetKind` spans `MEDIA_KINDS` (`image`/`audio`/`video`, wire-attachable) and `DOCUMENT_KINDS` (`pdf`/`text`/`docx`/`xlsx`, inputs the user attaches to the SA chat, never to a CommCare carrier). The split is NOT compile-time — a slot's value is an opaque `MediaAssetId` (the brand doesn't encode kind) — so a document id is type-indistinguishable from a media id in a slot. Three independent runtime gates keep a document off the wire, none redundant: the attach verdict's kind check, the validator's `mediaKindMatches` rule (pre-compile), and `resolveMediaManifest`'s `isMediaKind` filter (pre-emit). The document extract lifecycle (`extracting`/`ready`/`failed`) and `EXTRACTOR_VERSION` live in `lib/domain/multimedia.ts`; the extraction machinery is `lib/agent/documentExtraction*`.
+`AssetKind` spans `MEDIA_KINDS` (`image`/`audio`/`video`, wire-attachable) and `DOCUMENT_KINDS` (`pdf`/`text`/`docx`/`xlsx`, authoring inputs attached by the user or selected by a Project library read, never attached to a CommCare carrier). The split is NOT compile-time — a slot's value is an opaque `MediaAssetId` (the brand doesn't encode kind) — so a document id is type-indistinguishable from a media id in a slot. Three independent runtime gates keep a document off the wire, none redundant: the attach verdict's kind check, the validator's `mediaKindMatches` rule (pre-compile), and `resolveMediaManifest`'s `isMediaKind` filter (pre-emit). The document extract lifecycle (`extracting`/`ready`/`failed`) and `EXTRACTOR_VERSION` live in `lib/domain/multimedia.ts`; the extraction machinery is `lib/agent/documentExtraction*`.
 
 A ready extract is a model-produced working account of app requirements, not a
 lossless or comprehensively redacted copy. Its source-fidelity and privacy scope
@@ -55,6 +55,15 @@ lives in `lib/agent/CLAUDE.md` and `EXTRACT_SYSTEM`: necessary explicitly define
 app-actor bindings may remain, while private fieldwork/example-row values stay
 excluded by the model guidance. This does not redact the uploaded source: its
 original bytes reach the extractor and remain in the Project's library.
+
+Shared library discovery includes documents and supports text search before
+pagination. `readSource` returns revision-pinned pages of their working extract;
+only embedded authoring can prepare one within its metered, cancellable run.
+External MCP reads report preparation status without starting model work.
+Successful embedded selections live in server-owned `threads.selected_sources`,
+not client-supplied attachments. They participate in deletion guards and the
+Project move's document copy and identity remapping, preserving the selected
+extract alongside its original bytes.
 
 ## Accepted formats are HQ-ingestion-bound, not arbitrary
 

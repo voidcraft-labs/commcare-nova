@@ -62,6 +62,7 @@ import { sharedToolAvailable } from "./authoringTools";
 export class AuthoringSession {
 	appId: string | null = null;
 	building = false;
+	sourceDocuments?: ToolInvocationContext["sourceDocuments"];
 	private workspace: ChangeSetMutationWorkspace | null = null;
 	private ordinal = 0;
 	constructor(
@@ -107,6 +108,7 @@ export class AuthoringSession {
 			actorUserId: this.authority.actorUserId,
 			runId: this.authority.runId,
 			chatRunHolder: this.holder,
+			sourceDocuments: this.sourceDocuments,
 			lookupDefinitions: async (ids) => {
 				await this.authorize();
 				const role = await projectRoleFor(
@@ -328,6 +330,7 @@ export class AuthoringSession {
 			},
 			lookupDefinitions: this.host.lookupDefinitions,
 			lookupCatalog: this.host.lookupCatalog,
+			sourceDocuments: this.sourceDocuments,
 			conversionImpact: this.host.conversionImpact,
 			applyBatch: async () => {
 				throw new Error(

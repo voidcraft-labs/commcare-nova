@@ -24,7 +24,12 @@ export async function openChatWork(
 ): Promise<ChatWork> {
 	const authority = {
 		actorUserId: ctx.userId,
-		host: { kind: "chat" as const, threadId, holder: ctx.chatRunHolder },
+		host: {
+			kind: "chat" as const,
+			threadId,
+			holder: ctx.chatRunHolder,
+			sourceDocuments: ctx.sourceDocuments,
+		},
 	};
 	const opened = await beginWork({
 		...authority,

@@ -103,7 +103,12 @@ function readToolReceipt(
 
 export type AuthoringHost =
 	| { kind: "mcp" }
-	| { kind: "chat"; threadId: string; holder?: ChatRunHolderCapability };
+	| {
+			kind: "chat";
+			threadId: string;
+			holder?: ChatRunHolderCapability;
+			sourceDocuments?: ToolInvocationContext["sourceDocuments"];
+	  };
 export interface WorkArgs {
 	actorUserId: string;
 	workId: string;
@@ -276,6 +281,8 @@ async function workspaceHost(
 		lookupDefinitions: async (ids) =>
 			readToolLookupDefinitions(await scope(), ids),
 		lookupCatalog: async () => readToolLookupCatalog(await scope()),
+		sourceDocuments:
+			args.host.kind === "chat" ? args.host.sourceDocuments : undefined,
 		conversionImpact: async (input) =>
 			session.appId
 				? (await withSchemaContext()).conversionImpact({
@@ -676,6 +683,7 @@ async function workToolContext(
 		},
 		lookupDefinitions: host.lookupDefinitions,
 		lookupCatalog: host.lookupCatalog,
+		sourceDocuments: host.sourceDocuments,
 		conversionImpact: host.conversionImpact,
 		applyBatch: async () => {
 			throw new AuthoringInputError(

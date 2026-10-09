@@ -81,6 +81,8 @@ export interface ExtractDocumentStructuredOpts<T> {
 	model: string;
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
+	/** Cancellation belongs to the authorized preparation/run, not a browser connection. */
+	signal?: AbortSignal;
 	/** When false, a failure is logged but NOT surfaced as a user-facing generation
 	 *  error — extraction's callers (the upload route, the chat backstop) own the
 	 *  failure path. The error is still thrown so the caller's catch runs. */
@@ -994,11 +996,14 @@ export async function extractDocument(opts: {
 	kind: DocumentKind;
 	filename: string;
 	condenser: AttachmentCondenser;
+	signal?: AbortSignal;
 	/** Forwarded to the condenser: live read-progress (output char deltas) for a
 	 *  signal-grid pulse. Absent → the condenser may run blocking. */
 	onProgress?: (deltaChars: number) => void;
 }): Promise<ExtractResult> {
-	const { bytes, mimeType, kind, filename, condenser, onProgress } = opts;
+	const { bytes, mimeType, kind, filename, condenser, onProgress, signal } =
+		opts;
+	signal?.throwIfAborted();
 
 	// ONE structured call produces { extract, title, summary } together. A PDF
 	// rides as a native document block; text/docx/xlsx decode to markdown first.
@@ -1019,6 +1024,7 @@ export async function extractDocument(opts: {
 			providerOptions: DOCUMENT_EXTRACTOR_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			emitErrors: false,
+			signal,
 			onProgress,
 		});
 	} else {
@@ -1057,6 +1063,7 @@ export async function extractDocument(opts: {
 			providerOptions: DOCUMENT_EXTRACTOR_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			emitErrors: false,
+			signal,
 			onProgress,
 		});
 	}
@@ -1065,6 +1072,7 @@ export async function extractDocument(opts: {
 	// output ceiling after emitting valid JSON. Refuse both incomplete responses
 	// and unparseable output so the caller records failure instead of storing a
 	// partial extract as successful.
+	signal?.throwIfAborted();
 	if (result.truncated || !result.object) {
 		throw new Error(
 			result.truncated
@@ -1117,6 +1125,7 @@ export function createExtractionCondenser(): AttachmentCondenser {
 				images: args.images,
 				maxOutputTokens: args.maxOutputTokens,
 				providerOptions: args.providerOptions,
+				abortSignal: args.signal,
 				onProgress: args.onProgress,
 			});
 			return { object: r.object, truncated: r.finishReason === "length" };

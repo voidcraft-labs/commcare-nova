@@ -1,3 +1,4 @@
+import { readUIMessageStream, type UIMessageChunk } from "ai";
 import { type Kysely, sql } from "kysely";
 import { expect, it, vi } from "vitest";
 import {
@@ -11,18 +12,24 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { claimAndReserveRun, loadApp } from "@/lib/db/apps";
+import { claimAndReserveRun, loadApp, setAwaitingInput } from "@/lib/db/apps";
 import {
 	claimAndReserveDesignSessionRun,
 	createAndClaimDesignSessionRun,
+	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
 import { withAppTx } from "@/lib/db/pg";
 import { hasUnfinishedMaterializedDesignInTransaction } from "@/lib/db/unfinishedMaterializedDesign";
 import {
 	type RunBuildOrchestrationArgs,
-	runBuildOrchestration,
+	runBuildOrchestration as runOrchestrator,
 } from "../orchestrator";
-import { completeBuildOrchestration } from "../orchestratorState";
+import {
+	appendOrchestrationEventInTransaction,
+	completeBuildOrchestration,
+	type OrchestrationHead,
+} from "../orchestratorState";
+import { authoringStage } from "../progress";
 
 const { schemaContext, projectContext } = vi.hoisted(() => ({
 	schemaContext: vi.fn(),
@@ -34,6 +41,96 @@ vi.mock("@/lib/case-store", async () => ({
 	withProjectContext: projectContext,
 }));
 const h = setupAppStateTestDb("unified_build_", { authSchema: "migrated" });
+
+// This harness owns the holder release normally performed by the chat route's
+// transcript transaction. The real route tests prove that atomic publication.
+async function runBuildOrchestration(args: RunBuildOrchestrationArgs) {
+	const result = await runOrchestrator(args);
+	if (result.kind === "awaiting-input") {
+		let head: OrchestrationHead | undefined;
+		const commit = async (
+			tx: Parameters<typeof appendOrchestrationEventInTransaction>[0],
+		) => {
+			head = await appendOrchestrationEventInTransaction(tx, {
+				...result.pause.orchestration,
+				designSessionId: args.designSessionId,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+			});
+			return true;
+		};
+		const app = await loadApp(args.proposedAppId);
+		const paused = app
+			? await setAwaitingInput(
+					args.proposedAppId,
+					args.runId,
+					args.holderNonce,
+					"build",
+					true,
+					args.actorUserId,
+					args.projectId,
+					commit,
+				)
+			: await setDesignSessionAwaitingInput(
+					args.designSessionId,
+					args.runId,
+					args.holderNonce,
+					true,
+					args.actorUserId,
+					args.projectId,
+					commit,
+				);
+		expect(paused).toBe("owned");
+		if (!head) throw new Error("Pause state was not committed");
+		args.writer.write({
+			type: "data-authoring-progress",
+			data: {
+				sessionId: args.designSessionId,
+				revision: head.revision,
+				stage: authoringStage(head.state),
+			},
+			transient: true,
+		});
+	}
+	return result;
+}
+
+async function assertCompleteFrames(chunks: readonly unknown[]) {
+	let open = false;
+	let frames = 0;
+	for (const raw of chunks) {
+		const chunk = raw as { type: string };
+		if (chunk.type === "start-step") {
+			expect(open).toBe(false);
+			open = true;
+		} else if (chunk.type === "finish-step") {
+			expect(open).toBe(true);
+			open = false;
+			frames++;
+		} else if (/^(reasoning|text|tool)-/.test(chunk.type))
+			expect(open).toBe(true);
+	}
+	expect(open).toBe(false);
+	expect(frames).toBeGreaterThan(0);
+	// Consumption by the actual SDK catches malformed part framing independently
+	// of the writer. Terminal finish belongs to the route after its transaction.
+	expect(chunks).not.toContainEqual({ type: "finish" });
+	const stream = new ReadableStream<UIMessageChunk>({
+		start(controller) {
+			for (const chunk of chunks) controller.enqueue(chunk as UIMessageChunk);
+			controller.close();
+		},
+	});
+	let snapshots = 0;
+	for await (const _message of readUIMessageStream({
+		stream,
+		terminateOnError: true,
+	}))
+		snapshots++;
+	expect(snapshots).toBeGreaterThan(0);
+}
 
 it.each([
 	["uninterrupted", false],
@@ -445,13 +542,22 @@ it.each([
 				if (questionPause) {
 					expect(await runBuildOrchestration(args)).toEqual({
 						kind: "awaiting-input",
-						pauseOwned: true,
+						pause: expect.objectContaining({ origin: expect.any(String) }),
 					});
+					await assertCompleteFrames(chunks);
 				} else if (interruption !== "uninterrupted") {
 					await expect(runBuildOrchestration(args)).rejects.toThrow(
 						"Simulated connection loss",
 					);
 					expect(interrupted).toBe(true);
+					if (interruption === "staged-work" || interruption === "saved-work") {
+						const frames = chunks.filter((chunk) =>
+							["start-step", "finish-step"].includes(
+								(chunk as { type: string }).type,
+							),
+						);
+						expect(frames.at(-1)).toEqual({ type: "start-step" });
+					}
 				}
 				if (replaceRun) {
 					runId = "replacement-run";
@@ -522,6 +628,8 @@ it.each([
 				};
 				const result = await runBuildOrchestration(resumedArgs);
 				expect(result.kind).toBe("completed");
+				if (interruption === "uninterrupted")
+					await assertCompleteFrames(chunks);
 				if (result.kind !== "completed")
 					throw new Error("Build did not complete");
 				const app = await loadApp(result.appId);
@@ -817,7 +925,7 @@ it.each([false, true])(
 				};
 				expect(await runBuildOrchestration(args)).toEqual({
 					kind: "awaiting-input",
-					pauseOwned: true,
+					pause: expect.objectContaining({ origin: expect.any(String) }),
 				});
 				expect(peerCalls).toBe(3);
 				expect(chunks).toContainEqual(
@@ -847,7 +955,10 @@ it.each([false, true])(
 						holderNonce: replacement.holderNonce,
 						responseMessageId: "replacement-response",
 					}),
-				).toEqual({ kind: "awaiting-input", pauseOwned: true });
+				).toEqual({
+					kind: "awaiting-input",
+					pause: expect.objectContaining({ origin: expect.any(String) }),
+				});
 				expect(peerCalls).toBe(3);
 				expect(architectCalls).toBe(2);
 				if (legacy)
@@ -876,7 +987,10 @@ it.each([false, true])(
 							},
 						],
 					}),
-				).toEqual({ kind: "awaiting-input", pauseOwned: true });
+				).toEqual({
+					kind: "awaiting-input",
+					pause: expect.objectContaining({ origin: expect.any(String) }),
+				});
 				const reviews = await h
 					.db()
 					.selectFrom("authoring_reviews")

@@ -263,6 +263,7 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			...(host.lookupCatalog !== undefined && {
 				lookupCatalog: host.lookupCatalog,
 			}),
+			sourceDocuments: host.sourceDocuments,
 			conversionImpact: (impactArgs) => host.conversionImpact(impactArgs),
 
 			applyBatch: async ({ mutations, stage, policy }) => {

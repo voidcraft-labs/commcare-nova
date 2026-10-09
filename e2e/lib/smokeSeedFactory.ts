@@ -14,6 +14,7 @@ import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { withProjectContext } from "@/lib/case-store";
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
+import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import {
 	appendSyntheticBatch,
@@ -1200,7 +1201,18 @@ export async function createSmokeBuilders(
 					}),
 				),
 			});
+			const scrollThreadId = randomUUID();
+			await seedSettledThread({
+				appId: scrollAppId,
+				threadId: scrollThreadId,
+				prefix: "smoke-scroll",
+				firstUserText: SEED.scrollThreadUserText,
+				finalAssistantText: SEED.scrollThreadAssistantText,
+				threadType: "edit",
+				projectId: seedProjectId,
+			});
 			const scrollQuestionThreadId = randomUUID();
+			let scrollQuestionRoundId: string;
 			{
 				const { streamId, runId, claimed } = await seedTallThreadTurn({
 					appId: scrollAppId,
@@ -1210,22 +1222,21 @@ export async function createSmokeBuilders(
 					threadType: "edit",
 					projectId: seedProjectId,
 				});
-				const releaseOutcome = await clearRunLockAndSettle(
-					scrollAppId,
-					runId,
-					claimed.holderNonce,
-				);
-				if (releaseOutcome !== "owned") {
-					throw new Error(
-						`e2e/seed.ts: scroll question thread lost holder (${releaseOutcome})`,
-					);
-				}
-				await persistResponseSnapshot({
+				const round = await commitThreadInputPause({
 					target: { kind: "app", appId: scrollAppId },
+					holderTarget: { kind: "app", appId: scrollAppId },
+					runId,
+					holderNonce: claimed.holderNonce,
+					mode: "edit",
+					actorUserId: SEED.userId,
 					threadId: scrollQuestionThreadId,
 					streamId,
 					expectedProjectId: seedProjectId,
-					clearMarker: true,
+					pause: {
+						kind: "questions",
+						origin: "smoke-scroll-question-round",
+						toolCallIds: ["smoke-scroll-q-ask-1"],
+					},
 					responseMessage: {
 						id: "smoke-scroll-q-assistant-final",
 						role: "assistant",
@@ -1262,18 +1273,22 @@ export async function createSmokeBuilders(
 						],
 					} as UIMessage,
 				});
+				scrollQuestionRoundId = round.id;
+				const paused = await loadThread(
+					{ kind: "app", appId: scrollAppId },
+					scrollQuestionThreadId,
+					SEED.userId,
+				);
+				if (
+					!paused?.run_paused ||
+					paused.holder_nonce !== claimed.holderNonce ||
+					paused.input_round?.id !== round.id
+				)
+					throw new Error(
+						"e2e/seed.ts: question round did not retain its paused holder",
+					);
 				await assertTallThreadStored(scrollAppId, scrollQuestionThreadId);
 			}
-			const scrollThreadId = randomUUID();
-			await seedSettledThread({
-				appId: scrollAppId,
-				threadId: scrollThreadId,
-				prefix: "smoke-scroll",
-				firstUserText: SEED.scrollThreadUserText,
-				finalAssistantText: SEED.scrollThreadAssistantText,
-				threadType: "edit",
-				projectId: seedProjectId,
-			});
 			/* Stable ordering even when both writes land in the same millisecond. */
 			await pool.query(
 				`UPDATE threads SET updated_at = CASE
@@ -1291,7 +1306,7 @@ export async function createSmokeBuilders(
 				],
 			);
 
-			return { scrollAppId, scrollQuestionThreadId };
+			return { scrollAppId, scrollQuestionThreadId, scrollQuestionRoundId };
 		},
 		design: async () => {
 			const designBuildRunId = randomUUID();

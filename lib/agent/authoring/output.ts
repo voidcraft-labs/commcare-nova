@@ -187,6 +187,7 @@ const readProjectors: {
 	readAppTest: passthrough,
 	getEntryPoints: passthrough,
 	listMediaAssets: passthrough,
+	readSource: passthrough,
 	getUsers: passthrough,
 	getOrganization: passthrough,
 	getAutomations: (data, { project, scope }) =>

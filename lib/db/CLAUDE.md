@@ -349,7 +349,7 @@ source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
 and both be empty. The final transaction locks threads and destination assets,
-remaps blueprint and canonical transcript attachment ids, re-tenants all cases,
+remaps blueprint, canonical transcript attachment and server-selected source ids, re-tenants all cases,
 purges presence, flips `project_id`, re-tenants the app's materialized design
 sessions and Project-scoped external-action receipts, appends one attributed
 `project-move` change, and
@@ -577,7 +577,12 @@ history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
 appends every UI chunk a POST streams, in write order, batched — dropping ALL
 per-token `tool-input-delta` chunks at the door (nothing rendered or durable
 consumes partial tool JSON) and teeing the identical sequence into the
-route's barrier fold. The route also mints the turn's response MESSAGE ID and
+route's barrier fold. Before returning the HTTP response or resume header,
+the route flushes its initial prefix to this log. The persisted target is the
+authorization anchor even when a disconnect precedes the first SSE record or
+the thread's live-stream binding. A failed initial flush settles the request
+and returns 503 without a resume header; later append failures retain the
+writer's existing degraded-resumption behavior. The route also mints the turn's response MESSAGE ID and
 hands it to the SA stream (`generateMessageId`), so the `start` chunk carries
 one identity upstream of the tee — log, fold, live client, and durable
 transcript all name the answer the same. The reconnect endpoint
@@ -605,6 +610,37 @@ nothing is
 closed by the endpoint's `appHeldLive`-based fallback. Rows prune past
 `CHAT_STREAM_RETENTION_MS` (opportunistically, on POST traffic) —
 conversation HISTORY lives in `threads` + the event log, never here.
+
+`threads.input_round` is the server-issued invitation to continue a paused
+conversation: kind (`questions`, `message`, or `review`), assistant message and
+question-call identities, pending/consumed state, and accepted stream identity.
+Pause publication commits it with the paused transcript, orchestration awaiting
+state, and holder state. The route holds `finish` until that commit; a failed pause
+closes honestly through the failure/cleanup path and publishes no pending receipt.
+Continuation checks the exact pending invitation under actor, target, and thread
+locks before renewing or replacing the holder, then admits history and consumes
+the invitation in the same transaction. Chargeable text and attachment answers
+include their reservation replacement in that transaction too. A holder nonce or an answered transcript alone grants
+no new continuation. Duplicate/stale requests return reconciliation without
+changing history or holder state. Question answers must match the stored calls
+and input; message and review invitations require new user input. Legacy clients
+can only answer the exact pending question calls, with a bounded compatibility
+path for a genuinely new user message on a thread predating input rounds. A
+legacy paused transcript ending with unresolved question calls gets a deterministic
+read projection from those exact call identities and inputs; admission derives it
+again under locks and consumes it atomically. Loaders never write. An answered
+card, a prose ending, or a live partial never becomes a legacy invitation.
+
+`threads.selected_sources` is server-owned evidence of successful document
+reads, separate from `messages[*].metadata.attachments`. Each entry records the
+asset, original content hash, extractor version, extract digest and revision at
+the successful read. It retains document identity across turns, not a permanent
+extract pin: fresh source assembly can prepare and record a newer extract.
+`selectThreadSource` checks the target's live holder, actor membership, thread
+stream and locked Project asset before recording it. The exact thread-media
+projection covers both attachments and selected sources; deletion also re-walks
+both. Project moves copy and remap both collections. Incoming transcripts cannot
+add or replace server-selected evidence.
 
 **`threads` is the durable conversation store — one row per CONVERSATION,
 spanning runs, written AS THE RUN PRODUCES UNITS.** `messages` holds the full

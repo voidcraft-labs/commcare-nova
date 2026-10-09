@@ -531,6 +531,10 @@ export async function claimAndReserveDesignSessionRun(
 	cost: number,
 	expectedProjectId: string,
 	holderNonce: string = crypto.randomUUID(),
+	continuation?: {
+		check(tx: Transaction<AppDatabase>): Promise<void>;
+		commit(tx: Transaction<AppDatabase>, holderNonce: string): Promise<void>;
+	},
 ): Promise<ClaimedDesignSessionRun> {
 	const period = getCurrentPeriod();
 	const reapable: ReapableGenerationTarget[] = [];
@@ -560,6 +564,7 @@ export async function claimAndReserveDesignSessionRun(
 				"edit",
 				"You no longer have edit access to this design's Project.",
 			);
+			await continuation?.check(tx);
 			const lease = designSessionLeaseState(row);
 			if (lease.live || (lease.paused && !lease.pausedBy(actorUserId))) {
 				throw new RunConflictError(
@@ -600,6 +605,7 @@ export async function claimAndReserveDesignSessionRun(
 				})
 				.where("id", "=", designSessionId)
 				.execute();
+			await continuation?.commit(tx, holderNonce);
 			return { reservation: { period, reserved: cost }, holderNonce };
 		});
 		await reapScannedTargets(reapable);
@@ -636,6 +642,10 @@ export async function reacquireDesignSessionLease(
 	presentedHolderNonce: string | null,
 	actorUserId: string,
 	expectedProjectId: string,
+	continuation?: {
+		check(tx: Transaction<AppDatabase>): Promise<void>;
+		commit(tx: Transaction<AppDatabase>): Promise<void>;
+	},
 ): Promise<DesignSessionReacquireResult> {
 	return await withAppTx(async (tx) => {
 		await lockActorGenerationGate(tx, actorUserId);
@@ -650,6 +660,7 @@ export async function reacquireDesignSessionLease(
 			"edit",
 			"You no longer have edit access to this design's Project.",
 		);
+		await continuation?.check(tx);
 		const lease = designSessionLeaseState(row);
 		if (!lease.ownedByResume(runId, actorUserId, null, false)) {
 			return { outcome: lease.present ? "superseded" : "released" };
@@ -677,6 +688,7 @@ export async function reacquireDesignSessionLease(
 				expectedPausedDesignSessionResumePredicate(expectedHolder, actorUserId),
 			)
 			.executeTakeFirst();
+		if (updatedExactlyOne(result)) await continuation?.commit(tx);
 		return updatedExactlyOne(result)
 			? { outcome: "owned", holderNonce: presentedHolderNonce }
 			: { outcome: "superseded" };
@@ -735,6 +747,7 @@ export async function setDesignSessionAwaitingInput(
 	awaiting: boolean,
 	actorUserId: string,
 	expectedProjectId: string,
+	commitPause?: (tx: Transaction<AppDatabase>) => Promise<boolean>,
 ): Promise<DesignSessionPauseOutcome> {
 	return await withAppTx(async (tx) => {
 		await lockActorGenerationGate(tx, actorUserId);
@@ -758,6 +771,7 @@ export async function setDesignSessionAwaitingInput(
 		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return lease.present ? "superseded" : "released";
 		}
+		if ((await commitPause?.(tx)) === false) return "owned";
 		const result = await tx
 			.updateTable("design_sessions")
 			.set(

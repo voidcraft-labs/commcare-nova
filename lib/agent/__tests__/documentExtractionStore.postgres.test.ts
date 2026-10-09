@@ -2,6 +2,7 @@
  * controlled byte boundary; the actual SDK talks to a local Responses peer.
  * This proves Nova's publication ordering, not GCS service behavior. */
 import type { ServerResponse } from "node:http";
+import type { LanguageModelUsage } from "ai";
 import { beforeEach, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -16,6 +17,11 @@ import type { AttachmentCondenser } from "../documentExtraction";
 import { ensureStoredExtract } from "../documentExtractionStore";
 import { runStructuredWith } from "../modelRunContext";
 import type { createNovaOpenAI } from "../openaiProvider";
+import {
+	prepareEmbeddedSourceDocument,
+	readSourceDocument,
+} from "../sourceDocuments";
+import { productionSourceMaterialDeps } from "../sources.server";
 import { respondWithObject, withResponsesPeer } from "./responsesPeer";
 
 const { objects, objectWrites } = vi.hoisted(() => ({
@@ -66,6 +72,7 @@ async function seedAsset(extension = ".txt"): Promise<MediaAssetRecord> {
 function condenser(
 	provider: ReturnType<typeof createNovaOpenAI>,
 	signal = new AbortController().signal,
+	track: (usage: LanguageModelUsage) => void = () => {},
 ): AttachmentCondenser {
 	return {
 		async extractDocumentStructured(opts) {
@@ -77,9 +84,9 @@ function condenser(
 					...opts,
 					maxOutputTokens: opts.maxOutputTokens,
 					modelId: opts.model,
-					signal,
+					signal: opts.signal ? AbortSignal.any([opts.signal, signal]) : signal,
 				},
-				() => {},
+				track,
 			);
 			return {
 				object: result.object,
@@ -98,6 +105,188 @@ function output(response: ServerResponse, extract = "FIRST EXTRACT") {
 		}),
 	);
 }
+
+it("prepares a library source through its injected run meter once and reuses it for external reads", async () => {
+	const asset = await seedAsset();
+	let calls = 0;
+	await withResponsesPeer(
+		(request, response) => {
+			request.resume();
+			calls++;
+			output(response, "Visit date and outcome requirements");
+		},
+		async (provider) => {
+			const usage: LanguageModelUsage[] = [];
+			const authorize = vi.fn(async () => {});
+			const selected = vi.fn(async () => {});
+			const runtime = {
+				prepare: (
+					document: MediaAssetRecord,
+					kind: "text" | "pdf" | "docx" | "xlsx",
+					signal?: AbortSignal,
+				) =>
+					prepareEmbeddedSourceDocument({
+						asset: document,
+						documentKind: kind,
+						condenser: condenser(provider, undefined, (entry) => {
+							usage.push(entry);
+						}),
+						authorize,
+						signal,
+					}),
+				selected,
+			};
+			const read = () =>
+				readSourceDocument({
+					projectId: asset.project_id,
+					input: { document: asset.originalFilename },
+					requestId: "library-read",
+					runtime,
+				});
+			expect(await read()).toMatchObject({
+				status: "ready",
+				assetId: asset.id,
+				text: "Visit date and outcome requirements",
+			});
+			expect(calls).toBe(1);
+			expect(usage).toHaveLength(1);
+			expect(usage[0]).toMatchObject({ inputTokens: 11, outputTokens: 7 });
+			expect(authorize).toHaveBeenCalledOnce();
+			expect(selected).toHaveBeenCalledOnce();
+			expect(await read()).toMatchObject({ status: "ready" });
+			// An external host has no preparation callback, but reads the same cache.
+			expect(
+				await readSourceDocument({
+					projectId: asset.project_id,
+					input: { document: asset.id },
+					requestId: "external-read",
+				}),
+			).toMatchObject({ status: "ready" });
+			expect(calls).toBe(1);
+			expect(usage).toHaveLength(1);
+		},
+	);
+});
+
+it("cancels and joins a real provider request when preparation loses its run authority", async () => {
+	const asset = await seedAsset();
+	const received = Promise.withResolvers<void>();
+	const disconnected = Promise.withResolvers<void>();
+	await withResponsesPeer(
+		(request, response) => {
+			request.resume();
+			response.once("close", () => disconnected.resolve());
+			received.resolve();
+		},
+		async (provider) => {
+			// Only the preparation owner's interval is virtual; HTTP/provider timers
+			// remain real so cancellation must close the actual request.
+			vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+			const controller = new AbortController();
+			const stopped = new Error("The run was stopped.");
+			const authorize = vi
+				.fn()
+				.mockResolvedValueOnce(undefined)
+				.mockRejectedValue(stopped);
+			const pending = prepareEmbeddedSourceDocument({
+				asset,
+				documentKind: "text",
+				condenser: condenser(provider),
+				authorize,
+				signal: controller.signal,
+			});
+			const observed = pending.then(
+				() => ({ error: null }),
+				(error: unknown) => ({ error }),
+			);
+			try {
+				await Promise.race([
+					received.promise,
+					pending.then(() => {
+						throw new Error("Preparation completed before the request");
+					}),
+				]);
+				await vi.advanceTimersByTimeAsync(60_000);
+				expect((await observed).error).toBe(stopped);
+				await disconnected.promise;
+				expect((await loadAssetById(asset.id))?.extract?.status).toBe("failed");
+				expect(objectWrites).not.toHaveBeenCalled();
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				controller.abort();
+				await observed;
+				vi.useRealTimers();
+			}
+		},
+	);
+});
+
+it("does not rebill a failed extraction on repeated reads in one run, and permits a new turn to retry", async () => {
+	const asset = await seedAsset();
+	let calls = 0;
+	await withResponsesPeer(
+		(request, response) => {
+			request.resume();
+			calls++;
+			respondWithObject(
+				response,
+				JSON.stringify({
+					title: "Requirements",
+					summary: "Visit requirements.",
+					extract: "Visit date and outcome",
+				}),
+				{ incomplete: calls === 1 },
+			);
+		},
+		async (provider) => {
+			const makeRuntime = () => ({
+				prepare: productionSourceMaterialDeps(condenser(provider), {
+					authorize: async () => {},
+				}).prepareDocument,
+			});
+			const runtime = makeRuntime();
+			const args = {
+				projectId: asset.project_id,
+				input: { document: asset.id },
+				requestId: "failed-read",
+			};
+			expect(await readSourceDocument({ ...args, runtime })).toMatchObject({
+				status: "failed",
+			});
+			expect(await readSourceDocument({ ...args, runtime })).toMatchObject({
+				status: "failed",
+			});
+			expect(calls).toBe(1);
+			expect(
+				await readSourceDocument({ ...args, runtime: makeRuntime() }),
+			).toMatchObject({ status: "ready", text: "Visit date and outcome" });
+			expect(calls).toBe(2);
+			// Even the first run can use the newly published extract without billing.
+			expect(await readSourceDocument({ ...args, runtime })).toMatchObject({
+				status: "ready",
+			});
+			expect(calls).toBe(2);
+		},
+	);
+});
+
+it("does not claim or call the model when a preparation's initial authority check fails", async () => {
+	const asset = await seedAsset();
+	const forbidden = new Error("Project access was revoked.");
+	const model = vi.fn();
+	await expect(
+		prepareEmbeddedSourceDocument({
+			asset,
+			documentKind: "text",
+			condenser: { extractDocumentStructured: model },
+			authorize: async () => {
+				throw forbidden;
+			},
+		}),
+	).rejects.toBe(forbidden);
+	expect((await loadAssetById(asset.id))?.extract).toBeUndefined();
+	expect(model).not.toHaveBeenCalled();
+});
 
 it("contending store requests block on the actual claim row and run one model call", async () => {
 	const asset = await seedAsset();

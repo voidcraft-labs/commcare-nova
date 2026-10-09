@@ -487,7 +487,7 @@ export async function beginPlanReview(
 export async function finishPlanReview(
 	authority: PlanningAuthority,
 	reviewId: string,
-	completion?: { contextId: string; summary: string },
+	completion?: { contextId: string; summary: string; sourceDigest?: string },
 ): Promise<AppPlan> {
 	return withAppTx(async (tx) => {
 		const head = await lockPlan(tx, authority);
@@ -530,6 +530,9 @@ export async function finishPlanReview(
 					...(completion && {
 						context_id: completion.contextId,
 						summary: completion.summary,
+						...(completion.sourceDigest && {
+							source_digest: completion.sourceDigest,
+						}),
 					}),
 				})
 				.where("id", "=", reviewId)
@@ -564,14 +567,14 @@ export async function latestPlanReview(
 	appSeq: number | null,
 ) {
 	return withAppTx(async (tx) => {
-		await lockPlan(tx, authority);
+		const head = await lockPlan(tx, authority);
 		return tx
 			.selectFrom("authoring_reviews")
 			.selectAll()
 			.where("session_id", "=", authority.sessionId)
 			.where("source_digest", "=", sourceDigest)
 			.where("app_seq", appSeq === null ? "is" : "=", appSeq)
-			.where("completed_revision", "is not", null)
+			.where("completed_revision", "=", head.revision)
 			.where("context_id", "is not", null)
 			.orderBy("created_at", "desc")
 			.executeTakeFirst();

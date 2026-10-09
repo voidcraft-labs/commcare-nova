@@ -116,9 +116,11 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   composer → `useChat` → transport path without the request ever reaching the
   server — the smoke stays model-free even for tests that hit Send. The
   fixture app for these tests ("Smoke — Scroll") seeds a paused askQuestions
-  round exactly as a finished run persists one: turn upsert (marks live) +
-  response append carrying the `input-available` tool part (retires the
-  marker), so opening it never attempts a stream resume.
+  round through `commitThreadInputPause`: the transcript, pending round and
+  awaiting-input holder commit together, retaining the holder nonce while
+  retiring the stream marker. Seed settled conversations first so they cannot
+  replace that paused holder; opening the question thread then needs no stream
+  resume.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
   e.g. `getByRole("button", { name: "Sign in with Google" })`. If you add a
   `data-testid`, prefer it for the gate.
