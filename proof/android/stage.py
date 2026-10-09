@@ -224,7 +224,7 @@ class Run:
         # Each request key this run is answering or has answered: the answer, made once whatever number of
         # requests share the key (``_answer``).
         self.answering: dict[str, _Answering] = {}
-        self.counts = {"requests": 0, "read": 0, "made": 0, "failed": 0}
+        self.counts = {"requests": 0, "read": 0, "shared": 0, "made": 0, "failed": 0}
         self.problems: list[str] = []
 
     # Answers
@@ -271,7 +271,7 @@ class Run:
         if not owner:
             answering.done.wait()
             with self.lock:
-                self.counts["read"] += 1
+                self.counts["shared"] += 1
                 if answering.failure is not None:
                     failures.append(
                         f"{request.name}: the reader could not answer {answering.owner}, which this"
@@ -452,6 +452,7 @@ class Run:
         print(
             f"[android] {len(self.blocks)} blocks in {time.perf_counter() - started:.1f} s:"
             f" {self.counts['requests']} requests, {self.counts['read']} read from the store,"
+            f" {self.counts['shared']} given the answer of another request with their key,"
             f" {self.counts['made']} made by the reader, {self.counts['failed']} the reader could not answer.",
             flush=True,
         )

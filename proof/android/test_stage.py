@@ -217,7 +217,7 @@ def test_every_archive_is_read_once_and_a_later_run_reads_every_answer_from_the_
     # Nova's local archive, A, B and the one save, each once; the two install pairs; and three updates (the
     # local pair, A to B with every incomplete form, B to the save is none: its profile is B's).
     assert sorted(op for op, _ in reader.requests) == ["app"] * 4 + ["installs"] * 2 + ["update"] * 2
-    assert run.counts == {"requests": 8, "read": 0, "made": 8, "failed": 0}
+    assert run.counts == {"requests": 8, "read": 0, "shared": 0, "made": 8, "failed": 0}
     assert _outcomes(tmp_path / "first") == {
         "records": "passed",
         "proof1": "passed",
@@ -240,7 +240,7 @@ def test_every_archive_is_read_once_and_a_later_run_reads_every_answer_from_the_
     again = Reader()
     run, code = _run(tmp_path, "second", queue, corpus, [lane], reader=again, store=snapshot)
     assert code == 0 and again.requests == []
-    assert run.counts == {"requests": 8, "read": 8, "made": 0, "failed": 0}
+    assert run.counts == {"requests": 8, "read": 8, "shared": 0, "made": 0, "failed": 0}
     first = {path.name: path.read_bytes() for path in (tmp_path / "first").glob("blocks/*/checks/*/*.json")}
     second = {path.name: path.read_bytes() for path in (tmp_path / "second").glob("blocks/*/checks/*/*.json")}
     assert first == second
@@ -322,7 +322,7 @@ def test_a_request_the_reader_cannot_answer_fails_the_group_and_keeps_no_answer(
     run, code = _run(tmp_path, "out", queue, corpus, [lane], reader=Reader(fail={"installs"}))
     assert code == 0
     assert _outcomes(tmp_path / "out")["records"] == "failed"
-    assert run.counts == {"requests": 8, "read": 0, "made": 6, "failed": 2}
+    assert run.counts == {"requests": 8, "read": 0, "shared": 0, "made": 6, "failed": 2}
     assert len(disk.Delta(tmp_path / "out" / disk.DELTA).entries("android")) == 6
 
 
@@ -446,7 +446,7 @@ def test_requests_sharing_a_key_are_answered_once_and_no_archive_is_written_whil
     monkeypatch.setattr(stage, "document_record", document_record)
     assert run.run() == 0
     assert sorted(op for op, _ in reader.requests) == ["app", "app", "installs", "update"]
-    assert run.counts == {"requests": 8, "read": 4, "made": 4, "failed": 0}
+    assert run.counts == {"requests": 8, "read": 0, "shared": 4, "made": 4, "failed": 0}
     assert reader.shared == []
     assert _outcomes(tmp_path / "out")["records"] == "passed"
     # Each configuration's request was given the one answer its key was made.

@@ -52,20 +52,24 @@ final class Forms {
     private Forms() {
     }
 
-    /** The second, on the device's own clock, in which the last form was opened; none since the device was made. */
+    /**
+     * The last second, on the device's own clock, in which the last form opened may have been given its answer
+     * file; none since the device was made.
+     */
     static long openedIn = -1;
 
     /**
      * Opens the form home started. Android keeps a form's answers in a file named by the form's own file and
-     * the second it was opened in (FormEntryInstanceState.initFormRecordPath), so two forms whose files share a
-     * name (forms-0.xml of two menus) opened in one second would share one file, the second saved over the
-     * first. A worker opens no two forms in a second; the reader waits for the next where it would.
+     * the second its load finished in (FormEntryInstanceState.initFormRecordPath, from
+     * FormEntryActivity.loadingComplete), so two forms whose files share a name (forms-0.xml of two menus, or
+     * one form a walk opens again) given their files in one second would share one file, the second saved over
+     * the first under another key. A worker opens no two forms in a second; the reader waits until a second
+     * after the one in which the last form's load had finished.
      */
     static FormEntryActivity open(Intent started) throws InterruptedException {
-        if (System.currentTimeMillis() / 1000 == openedIn) {
+        while (System.currentTimeMillis() / 1000 <= openedIn) {
             Thread.sleep(1000 - System.currentTimeMillis() % 1000 + 5);
         }
-        openedIn = System.currentTimeMillis() / 1000;
         // Shown in its window as a device shows it: a widget that keeps its answer outside the form (a media
         // question's file) reads it back from the form only once its view is shown (MediaWidget
         // .onVisibilityChanged), so a screen drawn again in a window never shown would save the question empty.
@@ -75,6 +79,8 @@ final class Forms {
         // only as it idles, after the first wait for the current task has passed: one wait read the form as never
         // loaded on a loaded runner, and the walk then saved fewer forms. Settled as a save is.
         settle(activity);
+        // The load has finished by now, and with it the naming of the form's answer file.
+        openedIn = System.currentTimeMillis() / 1000;
         return activity;
     }
 

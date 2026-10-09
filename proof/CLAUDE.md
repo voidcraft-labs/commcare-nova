@@ -183,9 +183,11 @@ harness keeps, each with its reason.
   (`proof/android/records.py`), and never read the wall clock on the
   device: the app's clock is the lane's fixed instant. A record holds
   nothing two readings of one archive give differently: an id the device
-  drew is written by what its case holds, a widget's answer only where the
-  form holds one, and no two forms are opened in one second (Android names
-  a form's answer file by that second). The device's libraries are the
+  drew is written by what its case holds, a file Android kept for a capture
+  question by the file the walk gave, a widget's answer only where the form
+  holds one, and no two forms are given their answer files in one second
+  (Android names a form's answer file by the second its load finished in, so
+  the next form opens only in a later second). The device's libraries are the
   app's own, ahead of the unit tests' (`reader.init.gradle`): a method the
   unit-test classpath lacks raises on the reader and on no worker's device.
   A walk follows the
