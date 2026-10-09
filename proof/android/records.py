@@ -367,7 +367,9 @@ def run(reader, request: Request, source: Source, scratch: Path) -> dict:
     could not answer (never what Android answered: an install Android refuses is an answer)."""
     from proof.android.client import AndroidReaderError
 
-    scratch.mkdir(parents=True, exist_ok=True)
+    # A directory of the request's own, written once: a file the reader was handed is never written again while
+    # a device may be reading it (the stage answers each key once, ``proof.android.stage.Run._answer``).
+    scratch.mkdir(parents=True, exist_ok=False)
     arguments = dict(request.options)
     written = {}
     for role, archive in sorted(request.archives.items()):

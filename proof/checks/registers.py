@@ -348,6 +348,11 @@ def reconcile(check, document, differences, entries):
     result = Reconciliation(check, document)
     for difference in differences:
         owners = [entry for entry in entries if entry.matches(difference)]
+        # An entry that pins the exact values on its targeted document is the narrower claim, so a difference it
+        # holds is its alone: a class's unpinned entry, which holds the class wherever else it shows, holds none
+        # of the pinned entry's, and neither entry is left redundant by the other.
+        pinned = [entry for entry in owners if entry.values is not None]
+        owners = pinned or owners
         if not owners:
             result.unregistered.append(difference)
         for entry in owners:

@@ -134,7 +134,13 @@ its restore, its options and the reader (`records.fingerprint`: the reader's
 files, the commcare-android and commcare-core pins, the answer table, the
 toolchain and the platform). `stage.py` reads an answer the evidence store
 holds under that key and has the reader make the rest, so an archive read
-before is never read again; then `proof/checks/android.py` judges. A local run
+before is never read again; then `proof/checks/android.py` judges. Requests
+of one document often share a key (one build under two configurations'
+names), and the stage answers a key once, in a scratch directory of its own
+that nothing writes again: two devices given one key's archive at once would
+each have it written for them, and a write landing while the other device
+unzips it truncates the archive under `UnzipTask`, which then unzips nothing
+and leaves `InstallArchiveActivity` open with no result. A local run
 over what a lane run observed:
 
 ```bash
