@@ -5,6 +5,7 @@
 *
 !proof/image/
 !proof/__init__.py
+!proof/processes.py
 !proof/hq/*.py
 proof/hq/test_*.py
 proof/hq/conftest.py

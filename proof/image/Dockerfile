@@ -266,7 +266,9 @@ COPY --from=sources /opt/hq-pin-time /opt/hq-pin-time
 COPY --from=hq-venv /opt/hq-venv /opt/hq-venv
 COPY proof/__init__.py /opt/proof-image/py/proof/__init__.py
 # The harness's boot and every module it may import (proof/hq/boot.py::boot):
-# the package's Python without its tests (Dockerfile.dockerignore).
+# the package's Python without its tests (Dockerfile.dockerignore), and the
+# process owner HQ's Elasticsearch is started under (proof/hq/elasticsearch.py).
+COPY proof/processes.py /opt/proof-image/py/proof/processes.py
 COPY proof/hq/ /opt/proof-image/py/proof/hq/
 COPY proof/image/hq-schema/ /opt/proof-image/hq-schema/
 RUN /opt/proof-image/hq-schema/build.sh
