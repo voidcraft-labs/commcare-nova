@@ -344,35 +344,25 @@ or it fails the lane ("The registers", below).
   Each document's configurations hold the flags and case search Nova's
   publish requires for it, so a symptom that shows only where Nova refuses to
   publish reaches no one and is not a defect: defect 23 without
-  `MM_CASE_PROPERTIES` is one. Configuration sensitivity alone still builds a
-  flip into such a configuration, since a gate's effects are what HQ's build
-  changes wherever that is, and holds its differences to the gate's effects,
-  never to the register.
+  `MM_CASE_PROPERTIES` is one, and Nova's publish check refusing that target
+  is held by `proof/targeted/__tests__/unproducedInputs.test.ts`.
+  Configuration sensitivity alone still builds a flip into such a
+  configuration, since a gate's effects are what HQ's build changes wherever
+  that is, and holds its differences to the gate's effects, never to the
+  register.
 - **Not yet run, and nothing stands in the way but the work.** Each names
   the reader that would settle it:
-  - defect 12's `VIEW_FORM_ATTACHMENT` over-requirement: HQ's attachment
-    view (`reports/views.py::_can_view_form_attachment`) opened by a person
-    with and without the Submission History permission, with the flag on
-    and off;
-  - defect 14's logos on a linked-app pull
-    (`models/applications.py::LinkedApplication.reapply_overrides` over a
-    master holding Nova's `logo_refs`);
-  - defect 16's comments, dead code and copy, and its media slots (hint,
-    group label and validation message media on Android, Formplayer and
-    the client);
-  - defect 24's and defect 30's export columns (HQ's form and case export
-    over each path's submission; `proof/hq/test_report_retention.py` already
-    runs HQ's export writer over saved forms);
+  - defect 16's media slots (hint, group label and validation message media
+    on Android, Formplayer and the client). Its comments, dead code and copy
+    are not runtime claims: they are plan and code text, held by step 2's
+    review;
   - a CSQL string a search builds from a prompt's answer. Every search of
-    every document is sent, by Core's sessions and by Formplayer's walk, with
-    its prompts as the app leaves them, and HQ's own search view answers
-    Formplayer's (its request reading and its compiler run whole over the
-    session's own parameters, "Served states"); no walk types an answer
-    into a prompt, so the strings an answer would build are compiled only
-    for the native families' own apps (`quote`, `function`, `prompt`).
-- **Defect 20's `product_id` datum** needs an advanced module, and no Nova
-  document holds one: the manifest check reads every export for the surface
-  it uses and holds no use of an advanced module's fields.
+    every document is sent, by Core's sessions, by Formplayer's walk and by
+    the client, with its prompts as the app leaves them, and HQ's own search
+    view answers Formplayer's, its query applied by HQ's own Elasticsearch
+    ("Served states"); no walk types an answer into a prompt, so the strings
+    an answer would build are compiled only for the native families' own
+    apps (`quote`, `function`, `prompt`).
 
 What the earlier text of this section listed as harm in no system the lane
 runs, or as inputs Nova cannot produce, is now run or proven, each where it
@@ -388,6 +378,12 @@ is held:
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
 | "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
 | "20, CommTrack" | `targeted-supply-point-read`, the manifest check and proof 4; the same vitest file | Nova's gate admits a read of the session's supply point (finding 68) |
+| Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
+| Defect 23 without `MM_CASE_PROPERTIES` | the same vitest file | Nova's publish check, given HQ's own domain list for the flag, refuses a target without it, naming the capability, and passes the same target with it |
+| Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
+| Defect 14's logos on a linked app | `proof/views/test_linked_logos.py` | HQ's own Copy Application view fails making a linked app over Nova's path-only logo (`LinkedApplication.reapply_overrides` reads its media object), and links the same app once the logo is uploaded through HQ's own logo uploader |
+| Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
+| Defect 24's export columns | `proof/views/test_exports.py` | the inert subcase's `form.subcase_<i>.case.*` columns hold HQ's missing-value mark in every row while the basic child case beside them holds its id, and after HQ's Case Management save its index columns move and lose `@relationship` |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
 | What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
 
@@ -958,8 +954,9 @@ HQ's SQL processor and attachment writer in a fresh database, then reads new
 domain-scoped form models. It checks their stored XML and answers, distinct
 rows from HQ's `TableConfiguration`, a workbook from its export writer, and
 zero cases. The paired rollback-unit test refuses the real attachment commit
-callback. This proves storage and row generation from known saved forms; indexed
-export discovery and actor permissions are held by `proof/views/test_exports.py`. Run it with
+callback. This proves storage and row generation from known saved forms; HQ's whole
+export over the forms index, from a schema HQ makes of the app's builds, is
+`proof/views/test_exports.py`. Run it with
 `npm run proof -- proof/hq/test_report_retention.py`.
 
 ### The Core runner
@@ -1554,6 +1551,17 @@ published into a check's own project space
   leaves out under a flag or an add-on is not in the document; each test
   also reads a control no gate holds back, so a page that offered nothing
   would not pass.
+- **A person signed in** (`test_form_attachment.py`, `test_linked_logos.py`):
+  a session made by Django's own `login` for a person HQ's own models made
+  (a mobile worker, an administrator, a web user of a role HQ made), sent
+  as the browser's cookie, with HQ's CSRF token and its own origin where a
+  page's form posts. A second project space a test states (a linked app's
+  downstream) is seeded as the unit's own is, and its plan named to the
+  privileges seam (`proof/hq/seams.py::another_project_space`).
+- **A worker's submissions kept for HQ's export** (`test_exports.py`): the
+  release walked by Formplayer in one run of the served state, so every
+  submission HQ's receiver took stays for HQ's own export, which reads them
+  from the forms index HQ's form pillow filled.
 
 Each test pairs what it shows with its counterpart: the flag on, the
 privilege granted, the project space's setting on. One thing stands in, named

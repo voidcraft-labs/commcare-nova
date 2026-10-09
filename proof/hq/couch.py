@@ -374,6 +374,75 @@ def _map_hqmedia_by_hash(doc):
         yield _js_key(doc, "file_hash"), None
 
 
+def _map_apps_with_submissions(doc):
+    # corehq/couchapps/apps_with_submissions/views/view/map.js (reduce: _count), which
+    # app_manager/dbaccessors.py::get_built_app_ids_with_submissions_for_app_id queries for the builds an export
+    # reads (the form processor marks a build as having submissions when a form names it).
+    if (
+        doc.get("doc_type") in ("Application", "RemoteApp", "LinkedApplication", "Application-Deleted")
+        and doc.get("copy_of") is not None
+        and doc.get("has_submissions")
+    ):
+        yield [_js_key(doc, "domain"), _js_key(doc, "copy_of"), _js_key(doc, "version")], None
+
+
+def _map_exports_forms_by_app(doc):
+    # corehq/couchapps/exports_forms_by_app/views/view/map.js, which couchforms/analytics.py::
+    # get_form_analytics_metadata queries (grouped, with its reduce below) for the app, menu and form a form
+    # export names its forms after.
+    if not (
+        doc.get("doc_type") in ("Application", "Application-Deleted", "LinkedApplication", "LinkedApplication-Deleted")
+        and doc.get("copy_of") is None
+    ):
+        return
+    deleted = doc.get("doc_type") in ("Application-Deleted", "LinkedApplication-Deleted")
+    app = {"name": doc.get("name"), "langs": doc.get("langs"), "id": doc.get("_id")}
+    for m, module in enumerate(doc.get("modules") or []):
+        for f, form in enumerate(module.get("forms") or []):
+            if form.get("xmlns"):
+                value = {
+                    "xmlns": form["xmlns"],
+                    "app": app,
+                    "module": {"name": module.get("name"), "id": m},
+                    "form": {"name": form.get("name"), "id": f},
+                    "app_deleted": deleted,
+                }
+                yield [doc.get("domain"), doc.get("_id"), form["xmlns"]], value
+                yield [doc.get("domain"), {}, form["xmlns"]], value
+    registration = doc.get("user_registration")
+    if registration and registration.get("xmlns"):
+        value = {
+            "xmlns": registration["xmlns"],
+            "app": app,
+            "is_user_registration": True,
+            "app_deleted": deleted,
+        }
+        yield [doc.get("domain"), doc.get("_id"), registration["xmlns"]], value
+        yield [doc.get("domain"), {}, registration["xmlns"]], value
+
+
+def _reduce_exports_forms_by_app(values):
+    # corehq/couchapps/exports_forms_by_app/views/view/reduce.js, line for line.
+    value, submissions = None, 0
+    for each in values:
+        each = dict(each)
+        submissions += each.get("submissions") or 0
+        if value is None:
+            value = each
+        elif (value.get("app") and each.get("app")) or value.get("duplicate") or each.get("duplicate"):
+            if not (value.get("app") and each.get("app")):
+                value = value if value.get("app") else each
+            elif value.get("app_deleted") != each.get("app_deleted"):
+                value = each if value.get("app_deleted") else value
+            else:
+                value = value if len(each["app"]["name"]) > len(value["app"]["name"]) else each
+            value["duplicate"] = True
+        elif not value.get("app") and each.get("app"):
+            value = each
+    value["submissions"] = submissions
+    return value
+
+
 def _map_by_domain_doc_type_date(doc):
     # corehq/couchapps/by_domain_doc_type_date/views/view/map.js (reduce: _count), which
     # domain/dbaccessors.py::get_docs_in_domain_by_class queries for a project space's documents of a class.
@@ -428,6 +497,8 @@ VIEWS = {
     "schemas_by_xmlns_or_case_type/view": (_map_schemas_by_xmlns_or_case_type, "_count"),
     "hqmedia/by_hash": (_map_hqmedia_by_hash, None),
     "by_domain_doc_type_date/view": (_map_by_domain_doc_type_date, "_count"),
+    "apps_with_submissions/view": (_map_apps_with_submissions, "_count"),
+    "exports_forms_by_app/view": (_map_exports_forms_by_app, _reduce_exports_forms_by_app),
 }
 
 # The query parameters the computed views implement. ``stale`` is accepted
@@ -442,6 +513,7 @@ _VIEW_PARAMETERS = {
     "skip",
     "include_docs",
     "reduce",
+    "group",
     "stale",
     "inclusive_end",
 }
@@ -664,7 +736,21 @@ class ComputedViewCouch(FakeCouchDb):
         if wants_reduce:
             if params.get("include_docs"):
                 raise UnansweredView(f"{name!r} was queried with include_docs on its reduce")
-            return {"rows": [{"key": None, "value": len(rows)}] if rows else []}
+
+            def reduced(values):
+                # CouchDB's built-in _count, or the view's own reduce.
+                return len(values) if reduce_function == "_count" else reduce_function([row for row in values])
+
+            if not params.get("group"):
+                return {"rows": [{"key": None, "value": reduced([row["value"] for row in rows])}] if rows else []}
+            # Grouped: one row a distinct key, in the view's order, each its rows' reduce.
+            groups: list[tuple] = []
+            for row in rows:
+                if groups and _keys_equal(groups[-1][0], row["key"]):
+                    groups[-1][1].append(row["value"])
+                else:
+                    groups.append((row["key"], [row["value"]]))
+            return _json_copy({"rows": [{"key": key, "value": reduced(values)} for key, values in groups]})
         # A row's key, value and doc are taken from the stored document; the
         # copy keeps what HQ wraps from a row apart from what is stored.
         return _json_copy(self._page(rows, params, view_size))
