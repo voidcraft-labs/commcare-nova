@@ -146,9 +146,11 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
             "if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), "
             "if(jr:itext('checked-constraintMsg;__nova_locale') = 'en', "
             "if(count(/data/meals) > 1 or count(/data/address) > 1, '', "
-            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address)), "
+            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), "
+            "/data/address)), "
             "if(count(/data/meals) > 1 or count(/data/address) > 1, '', "
-            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address))))"
+            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), "
+            "/data/address))))"
         ), (path, protected)
         for field_id in ("checked", "literal_checked", "reference_checked"):
             carrier_path = f"/data/nova_constraint_message_{field_id}"
