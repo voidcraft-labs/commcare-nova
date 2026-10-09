@@ -36,6 +36,10 @@
 //   "until" (a step file of proof/editors/driver/steps called with "arg":
 //   once, its value kept, or until it holds), "dispatch" (an event on the
 //   elements a selector finds), "click" (the element's own click),
+//   "mark" (the page's answered requests counted, for an "awaitRequest"
+//   with "sinceMark", which then waits for one answered after the mark, and
+//   with "unlessMissed" is skipped where the wait that a step allowed to
+//   miss before it missed, or held with a value other than true),
 //   "awaitRequest" (until the page's request to a path has been answered;
 //   with "orDialog", or until the page answers the last click with a dialog
 //   and sends nothing, the outcome's "unsent" naming the dialog, after which
@@ -1883,6 +1887,8 @@ class PageRun {
 		this.cdp = null;
 		this.answered = [];
 		this.waiters = [];
+		// Inside a "recover" step: the page is being left as a person leaves it.
+		this.leaving = false;
 	}
 
 	remaining() {
@@ -2088,6 +2094,14 @@ async function runSteps(page, run, steps) {
 	// `unlessUnsent`.
 	let dialogsAtClick = 0;
 	let unsent = false;
+	// The page's answered requests when the last "mark" step ran, which an
+	// "awaitRequest" with "sinceMark" looks past (a request the steps after
+	// the mark caused, never one answered earlier); and whether the last wait
+	// a step allowed to miss missed or held with a value other than true,
+	// which skips an "awaitRequest" marked "unlessMissed" (the page did not
+	// do what would send the request).
+	let answeredAtMark = 0;
+	let lastMissed = false;
 	// A wait a step allows to miss (`within`, with `orSkipTo` or `optional`):
 	// once one with `orSkipTo` has missed, every step up to the one labelled
 	// so is skipped, and `missed` stays set until a `recover` step puts the
@@ -2116,25 +2130,40 @@ async function runSteps(page, run, steps) {
 			if (step.label !== undefined && step.recover === undefined) {
 				// A place a missed wait skips to; nothing to do.
 				outcome.label = step.label;
+			} else if (step.mark !== undefined) {
+				answeredAtMark = run.answered.length;
+				lastMissed = false;
+			} else if (
+				step.awaitRequest !== undefined &&
+				step.unlessMissed &&
+				lastMissed
+			) {
+				outcome.skipped = true;
 			} else if (step.recover !== undefined) {
 				// The page back where a run starts: by the click a person makes
 				// when nothing missed and the element is there, else by loading
-				// the address again.
-				const clicked =
-					!missed &&
-					(await pageValue(run.cdp, clickExpression(step.recover.click)));
-				if (!clicked) {
-					await page.goto(new URL(step.recover.goto, ORIGIN).toString(), {
-						waitUntil: "load",
-						timeout: run.remaining(),
-					});
-					outcome.reloaded = true;
+				// the address again; either way leaving what the run left open
+				// (a form asks whether to leave it, and is told yes).
+				run.leaving = true;
+				try {
+					const clicked =
+						!missed &&
+						(await pageValue(run.cdp, clickExpression(step.recover.click)));
+					if (!clicked) {
+						await page.goto(new URL(step.recover.goto, ORIGIN).toString(), {
+							waitUntil: "load",
+							timeout: run.remaining(),
+						});
+						outcome.reloaded = true;
+					}
+				} finally {
+					run.leaving = false;
 				}
 				missed = false;
 			} else if (step.until !== undefined && step.within !== undefined) {
 				// A wait that may miss: the page is given `within` ms to hold it.
 				try {
-					await waitInPage(
+					outcome.value = await waitInPage(
 						run.cdp,
 						{ source: stepSource(step.until) },
 						step.arg,
@@ -2143,10 +2172,19 @@ async function runSteps(page, run, steps) {
 							timeoutMs: Math.min(step.within, run.remaining()),
 						},
 					);
+					lastMissed = outcome.value !== true;
+					// A wait that held with another answer than true (the page
+					// said it cannot go on: a search it refused) ends the run
+					// where a miss would.
+					if (lastMissed && step.orSkipTo !== undefined) {
+						skipTo = step.orSkipTo;
+						missed = true;
+					}
 				} catch (error) {
 					if (error?.name !== "TimeoutError" || run.remaining() <= 0)
 						throw error;
 					outcome.missed = true;
+					lastMissed = true;
 					if (step.orSkipTo !== undefined) {
 						skipTo = step.orSkipTo;
 						missed = true;
@@ -2173,12 +2211,29 @@ async function runSteps(page, run, steps) {
 					timeoutMs: run.remaining(),
 				});
 			} else if (step.until !== undefined) {
-				await waitInPage(
-					run.cdp,
-					{ source: stepSource(step.until) },
-					step.arg,
-					{ polling: step.polling ?? "raf", timeoutMs: run.remaining() },
-				);
+				try {
+					await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.until) },
+						step.arg,
+						{ polling: step.polling ?? "raf", timeoutMs: run.remaining() },
+					);
+				} catch (error) {
+					// A step file that can say what it is still waiting for
+					// (it takes `explain`) says it, once, in the failure.
+					if (
+						error?.name === "TimeoutError" &&
+						step.arg?.explain === undefined
+					) {
+						const said = await pageValue(
+							run.cdp,
+							`(${stepSource(step.until)})(${literal({ ...step.arg, explain: true })})`,
+						).catch(() => undefined);
+						if (typeof said === "string")
+							error.message = `${error.message} The page was still waiting: ${said}.`;
+					}
+					throw error;
+				}
 			} else if (step.eval !== undefined) {
 				// The page function called with its argument, as one expression
 				// the page evaluates (literal).
@@ -2215,7 +2270,7 @@ async function runSteps(page, run, steps) {
 			} else if (step.awaitRequest !== undefined) {
 				const entry = await run.awaitRequest(
 					step.awaitRequest,
-					step.from ?? 0,
+					step.sinceMark ? answeredAtMark : (step.from ?? 0),
 					step.orDialog ? dialogsAtClick : null,
 				);
 				if (entry.dialog !== undefined) {
@@ -2310,7 +2365,12 @@ async function runOperation(message) {
 		});
 		page.on("dialog", (dialog) => {
 			run.dialogs.push({ type: dialog.type(), message: dialog.message() });
-			dialog.dismiss().catch(() => {});
+			// While a "recover" step takes the page back where a run starts, the
+			// page is left as a person leaves it: the page's question whether to
+			// leave (a form still open asks) is answered yes. Otherwise every
+			// dialog is dismissed and kept for the outcome.
+			if (run.leaving) dialog.accept().catch(() => {});
+			else dialog.dismiss().catch(() => {});
 			run.notify();
 		});
 		outcomes = await runSteps(page, run, message.steps ?? []);

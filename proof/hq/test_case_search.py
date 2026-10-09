@@ -8,10 +8,10 @@ blank or numeric value compared with a date property is refused (defect 6).
 The plausible failure: compiling with only a domain (``build_filter_from_xpath(domain=...)``),
 whose helper is not a case search helper, so the flag refusal never happens.
 
-Past the flag's gate a related lookup queries Elasticsearch while it
-compiles (``xpath_functions/ancestor_functions.py::_get_case_ids_from_ast_filter``),
-which the harness refuses: that refusal is the observation that the gate let
-the filter through.
+Past the flag's gate a related lookup queries HQ's case search index while
+it compiles (``xpath_functions/ancestor_functions.py::_get_case_ids_from_ast_filter``),
+over the unit's own Elasticsearch (``proof.hq.elasticsearch``): that query
+is the observation that the gate let the filter through.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ import pytest
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.hq.seams import SeamRefused
 
 RELATED = [
     "ancestor-exists(parent, name = 'x')",
@@ -35,16 +34,18 @@ RELATED = [
 def test_a_related_case_filter_needs_the_flag_in_a_case_search_context(hq, core_runner, xpath):
     from corehq.apps.case_search.exceptions import XPathFunctionException
 
+    def lookups(record):
+        return [read for read in record.elasticsearch_reads if read[1] == "_search"]
+
     configuration = Configuration()
     with hq_check(configuration) as (state, record):
         with pytest.raises(XPathFunctionException, match="You cannot query related cases here"):
             operations.compile_case_search(state, xpath, ["person"])
-        assert not record.elasticsearch_refusals
+        assert not lookups(record)
 
-        # The same filter with only a domain passes the gate and reaches its lookup.
-        with pytest.raises(SeamRefused, match="Elasticsearch"):
-            operations.compile_domain_filter(state, xpath)
-        assert record.elasticsearch_refusals
+        # The same filter with only a domain passes the gate and runs its lookup in HQ's case search index.
+        operations.compile_domain_filter(state, xpath)
+        assert lookups(record) and not record.elasticsearch_refusals
 
         # A related filter on the parent's id needs no lookup, and compiles.
         operations.compile_case_search(state, "parent/@case_id = 'abc'", ["person"])
@@ -80,8 +81,9 @@ def test_each_string_a_sessions_search_sends_is_compiled_as_hq_compiles_a_search
     """The intent check holds every CSQL string proof 3's sessions send to HQ's compiler
     (``sessions.search_compiles``): each search step's ``_xpath_query`` and each request's, once, with the case
     types the request names, a refusal named by its class and where HQ raised it, and a related lookup past its
-    gate read as compiled. The plausible failures: a string a request sent left out, the case types lost (a
-    related lookup compiles against no type), or a harness failure recorded as HQ's refusal."""
+    gate compiled, its own lookup run in the unit's index. The plausible failures: a string a request sent left
+    out, the case types lost (a related lookup compiles against no type), or a harness failure recorded as HQ's
+    refusal."""
     from proof.observe import sessions
 
     related = "ancestor-exists(parent, name = 'x')"
@@ -98,7 +100,7 @@ def test_each_string_a_sessions_search_sends_is_compiled_as_hq_compiles_a_search
             }
         ]
     }
-    for flags, gate in ((frozenset(), "raised"), (frozenset({"CASE_SEARCH_RELATED_LOOKUPS"}), "readsIndex")):
+    for flags, gate in ((frozenset(), "raised"), (frozenset({"CASE_SEARCH_RELATED_LOOKUPS"}), "compiled")):
         with hq_check(Configuration(flags=flags)) as (state, _):
             found = sessions.search_compiles(state, trace, state.operation)
         by_query = {compiled["query"]: compiled for compiled in found}

@@ -74,11 +74,13 @@ def observed(hq, core_runner, formplayer_runner, editor_driver):
                 unit, document, published.app_id, driver=editor_driver, blobs=blobs, label=name, change=change
             ) as held:
                 side, trace = held.formplayer()
+                # What HQ answered Formplayer's own walk, before the client's own runs (which submit too) add theirs.
+                walked = list(held.served.hq.exchanges)
                 found[name] = {
                     "side": side,
                     "trace": trace,
                     "screens": blobs.get_json(held.webapps(trace)),
-                    "exchanges": list(held.served.hq.exchanges),
+                    "exchanges": walked,
                     "release": held.release_differs(published.build.files),
                     "planted_release": held.release_differs(
                         {**published.build.files, "suite.xml": published.build.files["suite.xml"] + b"<!-- planted -->"}

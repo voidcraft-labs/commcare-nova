@@ -8,8 +8,8 @@ reloaded documents, with no case created or reused between visits.
 
 Plausible failures: treating the parser cache as an archive, never running
 the attachment commit callback, overwriting the first visit, or exporting
-only a synthetic document. Indexed export discovery and actor permissions
-remain outside this proof: the harness's Elasticsearch seam is empty.
+only a synthetic document. HQ's whole export over the forms index, from a
+schema HQ makes of an app's builds, is ``proof/views/test_exports.py``.
 """
 
 from __future__ import annotations

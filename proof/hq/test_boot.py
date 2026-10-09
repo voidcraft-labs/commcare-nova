@@ -10,7 +10,10 @@ attribute), or an image built from other commits than the pins.
 
 Each service is reached through the client HQ itself uses for it, so a
 refusal here is the refusal a path would meet. The lane's Postgres is the
-paired acceptance: the same guard lets it through.
+paired acceptance: the same guard lets it through. Elasticsearch is the
+harness's own server, reached only inside a unit (``proof.hq.elasticsearch``,
+``test_elasticsearch.py``): outside one, HQ's client is refused before it
+opens a socket, and the address HQ's settings name is never reached.
 """
 
 from __future__ import annotations
@@ -58,12 +61,6 @@ def _couch(hq):
     Application.get_db().info()
 
 
-def _elasticsearch(hq):
-    from corehq.apps.es.client import manager
-
-    manager.info()
-
-
 def _s3(hq):
     from corehq.blobs.s3db import S3BlobDB
 
@@ -89,7 +86,6 @@ SERVICES = [
     ("redis", _redis, "127.0.0.1:6379"),
     ("redis client", _redis_client, REDIS_CLIENT_SERVICE),
     ("couch", _couch, "127.0.0.1:5984"),
-    ("elasticsearch", _elasticsearch, "localhost:9200"),
     ("s3", _s3, "localhost:9980"),
     ("formplayer", _formplayer, "localhost:8080"),
     ("external host", _external_host, "www.commcarehq.org:443"),
@@ -105,6 +101,17 @@ def test_every_service_hq_names_is_refused(hq, network, service, reach, address)
     assert attempts and not attempts[-1].allowed
     assert attempts[-1].address == address, attempts
     network.expect(attempts[-1])
+
+
+def test_hqs_elasticsearch_client_is_refused_outside_a_unit_without_a_socket(hq, network):
+    from corehq.apps.es.client import manager
+
+    from proof.hq.seams import SeamRefused
+
+    before = len(GUARD.attempts)
+    with pytest.raises(SeamRefused, match="outside every HQ unit"):
+        manager.info()
+    assert GUARD.attempts[before:] == []
 
 
 def test_the_lanes_postgres_is_reachable(hq):

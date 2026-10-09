@@ -302,45 +302,22 @@ or it fails the lane ("The registers", below).
   Formplayer one.
 - **What a served state does not show.** Formplayer and the Web Apps
   client read every state the lane builds ("Served states", below), with
-  these left out. Elasticsearch is not yet in the lane: a case search runs
-  HQ's view whole and is handed every case of the requested types, so what
-  a search's filter selects is not observed, and a document HQ writes to
-  an index is kept nowhere. What settles it is HQ's own Elasticsearch
-  (version 6, `docker/hq-compose.yml`) beside the lane's Postgres, its
-  indexes written by HQ's own adapters as HQ's pillows write them, and
-  held to each unit's forks as Postgres is (a fork's writes gone when it
-  is put back). HQ reads a restore's cases with no order of its
+  these left out. HQ reads a restore's cases with no order of its
   own, so the order is its database's; the harness hands them in the order
   of their ids in every state (`proof/formplayer/hq.py::cases_in_id_order`),
   and what order a production database gives is not observed. The worker's
-  sign-in form is not run (the session is Django's own `login`). The client is shown a walk's lists,
-  searches and each form as it opens; a form's questions are answered and
-  its submission made by Formplayer's walk, not through the page, so where
-  the client lands after a submission is read from Formplayer's answer
-  (and, for finding 58, in `proof/webapps/test_links.py`). Not run in the
-  client: a language other than the worker's default, a small screen's
+  sign-in form is not run (the session is Django's own `login`). Not run in
+  the client: a language other than the worker's default, a small screen's
   layout, App Preview (the same client under another HQ page), and a web
   user signing in as a worker. The one request the page makes that nothing
   answers is for a web font on another host, so text is laid out in the
-  browser's fallback face and no measured width or height is recorded.
-  The client is shown each run of the walk up to the first case a worker
-  would choose (the home screen's tiles, each menu, each list with its
-  cells, empty text and actions, each search and its description, and a
-  form no case leads to); a case's detail and what follows a case are read
-  from Formplayer's trace alone. Where the client shows nothing to click
-  for a choice, its record of that run ends there, with `stopped` and the
-  screen it stood on. Not yet run in the client, and not impossible: the
-  rest of each run. Replayed past the case on 108 documents locally, twice
-  each, the client gave the same screens both times; on hosted runners, 33
-  documents' records differed between two states that show the same thing,
-  one side reading, after the click on a case's row, the list it was
-  leaving with its version line blank and its address unchanged, the other
-  the next screen. Waiting for Formplayer's answer to a request made after
-  the click did not settle it: on a second visit to the same case the click
-  made no request at all, so the client answers a row's click from
-  something it kept from the first. What settles it is reading what the
-  client's own router does with the click (its case detail cache and its
-  handling of a list it is still drawing) and waiting on that.
+  browser's fallback face and no measured width or height is recorded. The
+  client walks every run of the walk whole ("The Web Apps driver"), and
+  answers each question through the widget it draws for it; it draws no
+  widget a worker can answer with a typed value for a map (a geopoint, where
+  the page has no map provider), a file, a signature or a question it does
+  not support, and such an answer is recorded as `unanswerable`, as a
+  worker could not give it either.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
   below), with these left out. ConnectID, the service Connect sends a
@@ -366,19 +343,14 @@ or it fails the lane ("The registers", below).
   Each document's configurations hold the flags and case search Nova's
   publish requires for it, so a symptom that shows only where Nova refuses to
   publish reaches no one and is not a defect: defect 23 without
-  `MM_CASE_PROPERTIES` is one. Configuration sensitivity alone still builds a
-  flip into such a configuration, since a gate's effects are what HQ's build
-  changes wherever that is, and holds its differences to the gate's effects,
-  never to the register.
+  `MM_CASE_PROPERTIES` is one, and Nova's publish check refusing that target
+  is held by `proof/targeted/__tests__/unproducedInputs.test.ts`.
+  Configuration sensitivity alone still builds a flip into such a
+  configuration, since a gate's effects are what HQ's build changes wherever
+  that is, and holds its differences to the gate's effects, never to the
+  register.
 - **Not yet run, and nothing stands in the way but the work.** Each names
   the reader that would settle it:
-  - defect 12's `VIEW_FORM_ATTACHMENT` over-requirement: HQ's attachment
-    view (`reports/views.py::_can_view_form_attachment`) opened by a person
-    with and without the Submission History permission, with the flag on
-    and off;
-  - defect 14's logos on a linked-app pull
-    (`models/applications.py::LinkedApplication.reapply_overrides` over a
-    master holding Nova's `logo_refs`);
   - defect 16's media slots on the Web Apps client, and a group label's
     media on Formplayer (on Android a hint's, a group label's and a
     validation message's media are held by `proof/android/predicates.py`,
@@ -386,23 +358,20 @@ or it fails the lane ("The registers", below).
     the message's text drawn, and a question label's image beside its text;
     `proof/formplayer/test_media_slots.py` shows Formplayer hands the client
     a question's label media and hint text and nothing naming the hint's or
-    the validation message's image);
-  - defect 24's and defect 30's export columns (HQ's form and case export
-    over each path's submission; `proof/hq/test_report_retention.py` already
-    runs HQ's export writer over saved forms);
+    the validation message's image). Its comments, dead code and copy are
+    not runtime claims: they are plan and code text, held by step 2's
+    review;
   - a CSQL string Android builds from a typed answer, compiled by HQ.
     Formplayer's walk sends every search of every document first with its
     prompts typed into (the answer table's `searchPrompts`: a text prompt's
     text, a select's or a checkbox's option), and HQ's own search view
-    answers it, compiling the CSQL the answer built ("Served states"); then
-    as the app leaves its prompts. Android's search screen records what it
-    would send with the same answers typed into its own views (the CSQL
-    among it, `query/typed`), and its search is answered by the device, as
-    a search on the lane's Android stage is, so HQ compiles Android's
-    strings only where Formplayer sends the same ones.
-- **Defect 20's `product_id` datum** needs an advanced module, and no Nova
-  document holds one: the manifest check reads every export for the surface
-  it uses and holds no use of an advanced module's fields.
+    answers it, compiling the CSQL the answer built and applying it through
+    HQ's own Elasticsearch ("Served states"); then as the app leaves its
+    prompts. Android's search screen records what it would send with the
+    same answers typed into its own views (the CSQL among it,
+    `query/typed`), and its search is answered by the device, as a search on
+    the lane's Android stage is, so HQ compiles Android's strings only where
+    Formplayer sends the same ones.
 
 What the earlier text of this section listed as harm in no system the lane
 runs, or as inputs Nova cannot produce, is now run or proven, each where it
@@ -418,6 +387,12 @@ is held:
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
 | "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
 | "20, CommTrack" | `targeted-supply-point-read`, the manifest check and proof 4; the same vitest file | Nova's gate admits a read of the session's supply point (finding 68) |
+| Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
+| Defect 23 without `MM_CASE_PROPERTIES` | the same vitest file | Nova's publish check, given HQ's own domain list for the flag, refuses a target without it, naming the capability, and passes the same target with it |
+| Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
+| Defect 14's logos on a linked app | `proof/views/test_linked_logos.py` | HQ's own Copy Application view fails making a linked app over Nova's path-only logo (`LinkedApplication.reapply_overrides` reads its media object), and links the same app once the logo is uploaded through HQ's own logo uploader |
+| Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
+| Defect 24's export columns | `proof/views/test_exports.py` | the inert subcase's `form.subcase_<i>.case.*` columns hold HQ's missing-value mark in every row while the basic child case beside them holds its id, and after HQ's Case Management save its index columns move and lose `@relationship` |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
 | What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
 
@@ -917,7 +892,7 @@ app, restore and trace) are blobs named by their sha256.
   refused in a rollback unit, whose transaction never commits. The existing
   fresh-database mode (`open_unit(transactional=False)`) commits HQ's actual
   transactions and runs their real callbacks; its database is dropped at exit.
-- **Seams** (`seams.py`, `elasticsearch.py`) answer what HQ reads from outside
+- **Seams** (`seams.py`) answer what HQ reads from outside
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
   test utilities, the previous build, HQ's resource overrides, and the
@@ -927,12 +902,38 @@ app, restore and trace) are blobs named by their sha256.
   sent the headers and the digest HQ wrote). One privilege a
   part of the lane states of the project space beyond what the document's
   content needs is granted for that part alone (`also_granted`: Data
-  Forwarding, where a Connect app's forms are forwarded). Elasticsearch
-  answers the three reads the paths make as an empty index and refuses any
-  other; while a state is served it also answers a case search with the
-  cases Postgres holds and takes each document HQ writes to an index
-  (`proof/formplayer/hq.py::index`). Every other read is HQ's, against HQ's
-  state.
+  Forwarding, where a Connect app's forms are forwarded). Every other read
+  is HQ's, against HQ's state.
+- **Elasticsearch** (`elasticsearch.py`) is HQ's own: the version and the
+  plugin HQ's image of it holds (`docker/files/Dockerfile.es.6`, 6.8.23 with
+  `analysis-phonetic`, held to the image by `test_elasticsearch.py`), one
+  server a worker on a loopback address of its own, and the four indexes the
+  lane's paths read (cases, case search, forms and users), each created as
+  HQ's own test suite creates one (`es_test`'s `CreateIndex`). HQ writes
+  them with its own code: a user's save writes the user, and every change
+  HQ publishes for its pillows (which the unit records in place of Kafka) is
+  read as HQ's change feed reads a Kafka message and handed to the
+  Elasticsearch processors of the pillows that read its topic, as HQ
+  constructs them (the case pillow's cases and case search processors, the
+  form pillow's forms processor), as each operation or request ends, under
+  its own key and clock: a pillow runs behind production's requests, and
+  here it has caught up before the next one. HQ's client answers only inside
+  a unit opened with its seams, and is refused on any other index. What a
+  unit holds is held to its marks as Postgres is: each unit starts with
+  every index empty, a mark keeps what each index holds (its documents in
+  the order it holds them), and a restore puts back each index a write
+  touched since. Elasticsearch's own refresh timer is held, as the pages'
+  repeating timers are, and each index a scope wrote is refreshed and merged
+  to one segment as the scope ends, so what a search scores against and the
+  order it gives documents that score alike (HQ's case search sorts by score,
+  then by `_doc`) never depend on when Elasticsearch's own merges ran. Its
+  disk watermarks are off: they measure the host's whole volume, and past
+  the flood stage the server makes every index read-only, which would make
+  a lane on a fuller machine read differently. Each related-case lookup HQ's search compiler runs while it compiles, each case
+  search Formplayer sends, Vellum's question of whether a form has
+  submissions, the practice workers the app manager's pages list and the
+  case types the data dictionary refresh clears are HQ's own queries of
+  these indexes.
 - **What HQ's receiver needs** (`redis.py`, `localcache.py`,
   `branch.py::Unit.committing`): HQ takes a lock in Redis around each form,
   case and user it writes, and admits a mobile endpoint's request by finding
@@ -964,9 +965,9 @@ HQ's SQL processor and attachment writer in a fresh database, then reads new
 domain-scoped form models. It checks their stored XML and answers, distinct
 rows from HQ's `TableConfiguration`, a workbook from its export writer, and
 zero cases. The paired rollback-unit test refuses the real attachment commit
-callback. This proves storage and row generation from known saved forms;
-indexed export discovery and actor permissions remain outside it, with the
-Elasticsearch seam unchanged. Run it with
+callback. This proves storage and row generation from known saved forms; HQ's whole
+export over the forms index, from a schema HQ makes of the app's builds, is
+`proof/views/test_exports.py`. Run it with
 `npm run proof -- proof/hq/test_report_retention.py`.
 
 ### The Core runner
@@ -1050,8 +1051,8 @@ the caches left, the second omits the fetch).
   HQ's restore of the cases HQ holds, with the tables Nova's push uploaded
   and the user case HQ made), a submission (HQ's receiver whole:
   `SubmissionPost.run`, its locks, its case processing and what it does on
-  commit), a case search (`app_aware_search`, down to the Elasticsearch
-  transport) and a claim (`claim`, which makes the claim case HQ makes).
+  commit), a case search (`app_aware_search`, its query applied by HQ's own
+  Elasticsearch to the cases HQ's pillows indexed as its receiver saved them) and a claim (`claim`, which makes the claim case HQ makes).
   `serve` makes what HQ needs for that with HQ's own code: the project
   space's default roles, the worker (`CommCareUser.create`), the document's
   cases submitted through HQ's receiver as the worker, and a build released
@@ -1194,22 +1195,61 @@ a step clicks what a worker clicks, or reads what the page shows.
   compiled files and every other static file the page asks for. The one
   request nothing answers is for a web font on another host.
 - **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
-  a selector and a text name, text typed into an input, a form's Submit and
-  Formplayer's answer to it, and `screen.js`, which reads the screen the
-  client rendered: the home screen's tiles, a menu's rows, a case list
+  a selector and a text name, an answer given through a question's own
+  widget (`answer.js`: a text box typed into, an option or check box
+  clicked, a drop-down's option chosen, a date or a time typed in the format
+  the client's picker reads), a form's Submit (`submit.js`, which reports a
+  Submit the client keeps disabled), and `screen.js`, which reads the screen
+  the client rendered: the home screen's tiles, a menu's rows, a case list
   (headers, rows, the empty-list message, and each tile cell's grid area,
-  alignment and font size as the browser computed them), a search screen
-  and its description, a form's title and questions, and the client's
-  alerts.
+  alignment and font size as the browser computed them), a case's detail
+  dialog, a search screen and its description, a form's title and
+  questions with the answer each widget shows and the error the client
+  shows for it, and the client's alerts.
+- **Arriving, never a time.** Every step that leads somewhere waits until
+  the client itself says it is there (`arrived.js`): its route (the address
+  it keeps a worker's session in, which it sets before it asks Formplayer
+  and then sets to the selections Formplayer's answer hands back) holds
+  what the walk's request and Formplayer's answer say it holds, its own
+  flag of a request in flight (`formplayerQueryInProgress`, cleared at
+  jQuery's `ajaxStop`, once the answer is drawn) is down, no dialog is open
+  or moving, and no notification is fading. A case's detail dialog is
+  waited for until it is done opening (`detail.js`: Bootstrap focuses it in
+  the callback that ends its opening, the same one that lets it close), and
+  only then is its Continue clicked: a Continue clicked while the dialog
+  was still opening was a close Bootstrap ignored, which left the dialog
+  over every later screen, and was what made the client's records differ
+  between states on loaded runners. An answer waits for the request the
+  client sends for it (after its knockout bindings and a throttle), and
+  Submit for Formplayer's answer to the submission and the client's
+  arrival wherever that takes it. A step that waited out its deadline says
+  what the client was still doing.
 - **A document's record** (`observe.py`): Formplayer's own walk of the
-  release, replayed in the browser run by run in one page, the screen read
-  after every click. It holds no id Formplayer drew, no time and no path, so
-  the same inputs give the same bytes.
+  release, every run replayed whole in the browser in one page: the app's
+  first screen, each choice clicked as a worker clicks it (a case's detail
+  read where the client opens one), and where the run reached a form, each
+  of the walk's answers given through its widget in the walk's order, the
+  form read as the worker leaves it, Submit, and the screen the client lands
+  on, with what became of each answer (`answered`; `unanswerable` where the
+  client draws no widget a worker could answer with it; `absent` where it
+  draws no such question; `unchanged` where the widget already shows it, a
+  default, for which the client sends nothing; `refused` where the widget's
+  own check refuses it and sends nothing) and of Submit (`submitted`, `disabled`, `absent`),
+  each decided once the client is idle, never by a time. A search the client
+  refuses to send (a prompt it marks invalid) ends its run there. Where the client shows nothing to click
+  for a choice, its record of that run ends there, with `stopped` and the
+  screen it stood on. It holds no id Formplayer drew, no time and no path,
+  so the same inputs give the same bytes; `test_observe.py` holds two
+  observations alike, and they hold alike with Chromium's processor slowed
+  eightfold.
 
-The page's clock is fixed and its randomness seeded, as an editor page's are.
-A session costs between one and two seconds (a document's publish and release
-about one more, its record three to four); about 0.7 s of each page load is
-HQ compiling the page's four stylesheets again.
+The page's randomness is seeded, as an editor page's is, and its clock starts
+at HQ's epoch and runs on (`steps/page/seed.js`, `advancing`), so the
+client's own animations end and its debounced handlers run as in a worker's
+browser; nothing the client shows reads its clock. A session costs between
+one and two seconds (a document's publish and release about one more, its
+record three to four); about 0.7 s of each page load is HQ compiling the
+page's four stylesheets again.
 
 What its own tests observe on released builds of real Nova exports, each on
 the client itself:
@@ -1247,8 +1287,9 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   fork of the unit with the worker signed in afresh, so a submission HQ's
   receiver processed is in HQ while its run lasts and gone for the next.
 - **The Web Apps client** is shown the same walk in a browser of its own
-  (`proof/observe/services.py::client_browser`), each run up to the first
-  case a worker would choose, and its screens are read after every click. It is shown a state only where Formplayer's trace or
+  (`proof/observe/services.py::client_browser`), every run whole, its forms
+  answered through their widgets and submitted, and its screens are read
+  after every step that leads somewhere. It is shown a state only where Formplayer's trace or
   what HQ's page hands it of the app is not the baseline's: the client
   reads nothing else, so the same answers and the same page show the same
   screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).
@@ -1526,6 +1567,17 @@ published into a check's own project space
   leaves out under a flag or an add-on is not in the document; each test
   also reads a control no gate holds back, so a page that offered nothing
   would not pass.
+- **A person signed in** (`test_form_attachment.py`, `test_linked_logos.py`):
+  a session made by Django's own `login` for a person HQ's own models made
+  (a mobile worker, an administrator, a web user of a role HQ made), sent
+  as the browser's cookie, with HQ's CSRF token and its own origin where a
+  page's form posts. A second project space a test states (a linked app's
+  downstream) is seeded as the unit's own is, and its plan named to the
+  privileges seam (`proof/hq/seams.py::another_project_space`).
+- **A worker's submissions kept for HQ's export** (`test_exports.py`): the
+  release walked by Formplayer in one run of the served state, so every
+  submission HQ's receiver took stays for HQ's own export, which reads them
+  from the forms index HQ's form pillow filled.
 
 Each test pairs what it shows with its counterpart: the flag on, the
 privilege granted, the project space's setting on. One thing stands in, named
@@ -2700,6 +2752,16 @@ more shards only wait for a runner beside the test and smoke jobs, and the
 Android stage, which starts when the last shard ends, is the longer half.
 What the lane's target is now is the person's to set (decision 11).
 
+Walking every run of every served state whole in the Web Apps client, each
+run on a fresh page in a fork of its own, and Elasticsearch beside each
+worker, moved it again: on the hosted run that held the lane green with
+both (run 37918849557, sixteen shards), each shard took 30 to 38 minutes,
+542 job-minutes in all, against 18 to 25 before; the shard deadline is 90
+minutes (120 on the fresh lane) so it stops only a stuck shard. Each worker
+also starts one Elasticsearch of its own, about 4 seconds and half a
+gigabyte. `proof/timings.json` holds that run's costs, the shards' and the
+Android stage's (824 groups).
+
 ## Changing a pin
 
 `proof/pins.json` names the commit of each upstream the harness uses
@@ -2854,8 +2916,9 @@ each is stated here as it is built.
 
 These were settled while the lane was built, and stand where the plan's first
 text said otherwise: HQ's database is a clone of the schema HQ's own
-migrations create, not a list of models; Elasticsearch is one seam answering
-the reads the paths make as an empty index; app-manager pages render through
+migrations create, not a list of models; Elasticsearch is HQ's own server at
+HQ's version, its indexes written by HQ's own code and held to each unit's
+marks; app-manager pages render through
 HQ's own page views (`view_generic`), their JavaScript bundled at image build
 time with an esbuild configuration derived from HQ's webpack configuration;
 `DEBUG` stays on, with only its speed effects as seams; HQ's soft assertions

@@ -6,7 +6,8 @@
 # of pins builds one image. The image holds HQ, Core, Android and Formplayer at
 # their pins, HQ's virtualenv from HQ's own lock, Core compiled with its test
 # classpath recorded, Formplayer's own boot jar unpacked with its classpath
-# recorded, a Redis for Formplayer, HQ's migrated database schema, HQ's page
+# recorded, a Redis for Formplayer, HQ's Elasticsearch at HQ's own version,
+# HQ's migrated database schema, HQ's page
 # bundles (the editors' and the Web Apps client's) with HQ's node packages
 # and the sass its stylesheets compile with, node, Chromium, and what
 # Connect's receiver runs on (its Python, its virtualenv from its own lock, a
@@ -214,6 +215,38 @@ RUN mv /opt/hq-node/node_modules /opt/hq/node_modules \
   && node /opt/proof-image/editors/build.mjs --hq /opt/hq --out /opt/editors --tools /opt/proof-tools
 
 # ---------------------------------------------------------------------------
+# HQ's Elasticsearch: the version and the one plugin HQ's own image of it
+# holds (docker/files/Dockerfile.es.6, which proof/hq/test_elasticsearch.py
+# holds this to), as Elastic's Apache-licensed OSS tarball, which runs on the
+# image's JDK on both architectures (Elastic published no arm64 image of 6.8).
+# Each pytest worker starts one of its own (proof/hq/elasticsearch.py), with
+# a copy of this configuration where ES writes its keystore. Three of the
+# tarball's JVM options are left out: UseAVX=2 (a workaround for JDK 10 on
+# AVX-512 hardware, which an arm64 JVM refuses as an unknown option), and the
+# GC log and crash files, which the tarball writes beside itself and the
+# runtime's own user cannot.
+FROM core-build AS elasticsearch
+ARG ELASTICSEARCH_VERSION=6.8.23
+ARG ELASTICSEARCH_SHA512=14dbb2809b06499373c3ec5035d829d62255c2c93103618fbfe3d7d03cecf8847f654e83c78f765f23224126ff18ed713b959857e8ecf435c475b11bcd143d3f
+ARG ELASTICSEARCH_PHONETIC_SHA512=1aae7a94a9cb16f07115b2236d54114a3754eb7bc171a8195772d229cba083c18d4055baab66abde82270583e736aa7f3e9ae56df04f657319810497ef19e5c4
+RUN curl -fsSLo /tmp/elasticsearch.tar.gz \
+     "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-oss-${ELASTICSEARCH_VERSION}.tar.gz" \
+  && echo "${ELASTICSEARCH_SHA512}  /tmp/elasticsearch.tar.gz" | sha512sum -c - \
+  && curl -fsSLo /tmp/analysis-phonetic.zip \
+     "https://artifacts.elastic.co/downloads/elasticsearch-plugins/analysis-phonetic/analysis-phonetic-${ELASTICSEARCH_VERSION}.zip" \
+  && echo "${ELASTICSEARCH_PHONETIC_SHA512}  /tmp/analysis-phonetic.zip" | sha512sum -c - \
+  && tar -xzf /tmp/elasticsearch.tar.gz -C /opt \
+  && mv "/opt/elasticsearch-${ELASTICSEARCH_VERSION}" /opt/elasticsearch \
+  && /opt/elasticsearch/bin/elasticsearch-plugin install --batch file:///tmp/analysis-phonetic.zip \
+  && rm /tmp/elasticsearch.tar.gz /tmp/analysis-phonetic.zip \
+  && sed -i -e '/UseAVX/d' -e '/Xlog:gc/d' -e '/^8:-X/d' -e '/HeapDumpPath/d' -e '/ErrorFile/d' \
+     /opt/elasticsearch/config/jvm.options \
+  && ! grep -E 'UseAVX|Xlog:gc|HeapDumpPath|ErrorFile|^8:-X' /opt/elasticsearch/config/jvm.options \
+  && test -d /opt/elasticsearch/plugins/analysis-phonetic \
+  && chown -R root:root /opt/elasticsearch \
+  && chmod -R a+rX,go-w /opt/elasticsearch
+
+# ---------------------------------------------------------------------------
 # HQ's database as HQ's own migrations leave it (hq-schema/migrate.py),
 # dumped once here; each check clones it.
 FROM ${PYTHON_IMAGE} AS hq-schema
@@ -284,6 +317,10 @@ COPY --from=core-build /opt/core /opt/core
 COPY --from=formplayer-build /opt/formplayer /opt/formplayer
 COPY --from=formplayer-build /opt/formplayer-app /opt/formplayer-app
 COPY --from=hq-schema /opt/hq-schema /opt/hq-schema
+# HQ's Elasticsearch, and the user it runs as: Elasticsearch refuses to run
+# as root, which the lane's container is.
+COPY --from=elasticsearch /opt/elasticsearch /opt/elasticsearch
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin elasticsearch
 # HQ's node packages, where HQ finds them: its XPath validator
 # (corehq/apps/app_manager/xpath_validator/nodejs/), which HQ's build runs on
 # every module and form filter, reads js-xpath and underscore from them, and
@@ -304,6 +341,7 @@ ENV LANG=C.UTF-8 \
     PROOF_FORMPLAYER=/opt/formplayer \
     PROOF_FORMPLAYER_APP=/opt/formplayer-app \
     PROOF_HQ_SCHEMA=/opt/hq-schema/hq.sql \
+    PROOF_ELASTICSEARCH=/opt/elasticsearch \
     PYTHONPATH=/opt/proof-py \
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
 # HQ's editor bundles (editors/build.mjs), last, so a change to them rebuilds
@@ -405,6 +443,7 @@ ENV PATH=/opt/hq-venv/bin:/opt/gradle/bin:/opt/node/bin:/usr/local/bin:/usr/loca
     PROOF_FORMPLAYER=/opt/formplayer \
     PROOF_FORMPLAYER_APP=/opt/formplayer-app \
     PROOF_HQ_SCHEMA=/opt/hq-schema/hq.sql \
+    PROOF_ELASTICSEARCH=/opt/elasticsearch \
     PYTHONPATH=/opt/proof-py \
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
     PROOF_CONNECT_VENV=/opt/connect-venv \

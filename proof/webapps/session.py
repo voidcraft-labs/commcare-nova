@@ -32,9 +32,11 @@ Every run starts as a worker starts after clearing their data in Web Apps
 session of a lane worker and keeps a worker's restore by their name, and
 with Formplayer's in-memory caches empty (``FormplayerRunner.forget_caches``).
 
-The browser's randomness is seeded from the run's steps and its clock is
-fixed at the HQ pin's commit time, as an editor page's is
-(``steps/page/seed.js``). ``Run.screens`` is what each ``SCREEN`` step
+The browser's randomness is seeded from the run's steps, as an editor
+page's is, and its clock starts at the HQ pin's commit time and runs on
+from there (``steps/page/seed.js``, ``advancing``): the client's own
+animations end and its debounced handlers run, as in a worker's browser,
+and nothing it shows reads the clock. ``Run.screens`` is what each ``SCREEN`` step
 read, with the one id the client shows that Formplayer draws afresh on
 every run (a form session's, in the route) written as a mark.
 """
@@ -262,6 +264,8 @@ class Session:
         seed = {
             "seed": hashlib.sha256(json.dumps(steps, sort_keys=True).encode()).hexdigest()[:32],
             "epoch": seeding.epoch_ms(),
+            # The client's clock runs on from the epoch, as a worker's browser's does (``steps/page/seed.js``).
+            "advancing": True,
         }
         self._fresh_worker()
         try:
@@ -282,7 +286,8 @@ class Session:
                 f"\nFormplayer's exchanges: {[(e.method, e.path, e.status) for e in exchanges]}"
                 f"\nHQ's answers: {[(e.method, e.path, e.status) for e in answers.exchanges]}"
                 f"\nStatic files: {statics}"
-                f"\nThe run so far: {json.dumps(outcomes, ensure_ascii=False)[:6000]}"
+                # Where the run stood is its last steps: the screen it last read, and what it waited for after it.
+                f"\nThe run's last steps: {json.dumps(outcomes, ensure_ascii=False)[-6000:]}"
             ) from error
         answers.check()
         return Run(

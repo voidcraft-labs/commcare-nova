@@ -19,6 +19,12 @@ services:
     # memory-backed data directory keeps the restore and the clones fast.
     tmpfs:
       - /var/lib/postgresql/data
+    # Each worker of a shard holds HQ's connections and a pool for every
+    # Formplayer it runs (Formplayer sets no pool size, so Spring Boot's
+    # Hikari default of ten applies), and the fork server's own test runs
+    # whole nested sessions beside a shard's workers. Postgres's default of
+    # 100 clients ran out there ("sorry, too many clients already").
+    command: ["postgres", "-c", "max_connections=500"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U commcarehq -d commcarehq"]
       interval: 1s

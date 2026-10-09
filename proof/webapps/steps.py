@@ -48,6 +48,103 @@ def click(
     return [step, SETTLE]
 
 
+# How long a step that waits for the client's own answer, and may end the run where the client refuses to go on,
+# is given: the run's own deadline bounds it, so it fails only where the client never answered.
+ANSWERED_WITHIN_MS = 600_000
+
+
+def arrive(
+    selections: list | None = None, *, query_data: dict | None = None, form: bool | None = None, any_screen=False
+) -> list[dict]:
+    """Until the client has arrived where a choice leads, by its own account (``steps/webapps/arrived.js``: its
+    route holds ``selections``, ``query_data``'s keys and a form's session where ``form`` says one is open, none
+    of its requests is in flight, no dialog is open or moving and no notification fading), then the page quiet.
+    With ``any_screen`` only the client's own account counts, not its route: where Formplayer refused what was
+    asked, the client shows the error and goes back on its own."""
+    arg = {"selections": selections, "queryData": query_data or {}, "form": form, "any": any_screen}
+    return [{"until": "webapps/arrived", "arg": arg}, SETTLE]
+
+
+def navigate(
+    selector: str,
+    arrival: list[dict],
+    text: str | None = None,
+    *,
+    visible: bool = False,
+    within: int | None = None,
+    or_skip_to: str | None = None,
+) -> list[dict]:
+    """A click on what takes the worker to another screen, then the client's arrival there (``arrive``), never a
+    time: the client asks Formplayer a moment after a click, and draws the answer once it comes."""
+    [step, _settle] = click(selector, text, visible=visible, within=within, or_skip_to=or_skip_to)
+    return [step, *arrival]
+
+
+# A case detail's Continue (``partials/case_detail.html``, ``module-case-detail``).
+CONTINUE = "#select-case"
+
+
+def searched(arrival: list[dict], end: str | None) -> list[dict]:
+    """``arrival`` for a click on a search's Search button, which the client may refuse to send where a prompt is
+    invalid (``arrived.js``, ``search``): that answer ends the run (at ``end``), as a worker's search that cannot go
+    on; where no run is replayed tolerantly (no ``end``), the arrival must hold."""
+    [wait, settle] = arrival
+    if end is None or wait["arg"].get("any"):
+        return arrival
+    step = {**wait, "arg": {**wait["arg"], "search": True}, "within": ANSWERED_WITHIN_MS, "orSkipTo": end}
+    return [step, settle]
+
+
+def open_case(row: str, selections: list, arrival: list[dict], *, within=None, or_skip_to=None) -> list[dict]:
+    """A click on a case's row, until the client has answered it (``steps/webapps/detail.js``: its detail dialog
+    done opening, or the case taken without one), the screen read, then the dialog's Continue where it shows,
+    then the client's arrival at the screen after the case."""
+    [step, _settle] = click(row, within=within, or_skip_to=or_skip_to)
+    return [
+        step,
+        {"until": "webapps/detail", "arg": {"selections": selections}},
+        SETTLE,
+        SCREEN,
+        *click(CONTINUE, visible=True, within=WITHIN_MS),
+        *arrival,
+    ]
+
+
+# Where the client sends a form's answers and its submission (``form_entry/web_form_session.js``, under
+# ``session.FORMPLAYER_PREFIX``).
+ANSWER = "/formplayer/answer"
+SUBMIT = "/formplayer/submit-all"
+
+
+def answer(ix: str, value: str, *, twelve_hour: bool = False) -> list[dict]:
+    """One question answered through its widget (``steps/webapps/answer.js``), then Formplayer's answer to the
+    request the client sent for it, then the page quiet. The client sends an answer a moment after the widget
+    changes (its knockout bindings, then a throttle), so the step waits for that request's answer; where the
+    client drew no widget a worker can answer with ``value``, nothing is sent and nothing is waited for."""
+    return [
+        {"mark": True},
+        {
+            "until": "webapps/answer",
+            "arg": {"ix": ix, "value": value, "twelveHour": twelve_hour},
+            "within": ANSWERED_WITHIN_MS,
+        },
+        {"awaitRequest": {"method": "POST", "pathname": ANSWER}, "sinceMark": True, "unlessMissed": True},
+        SETTLE,
+    ]
+
+
+def submit_and_land() -> list[dict]:
+    """The open form's Submit (``steps/webapps/submit.js``), Formplayer's answer to the submission, then the
+    client's arrival wherever it then goes (the screen Formplayer's end of form navigation names, the app's first
+    screen, or the form again with its errors). Where the client keeps Submit disabled, nothing is sent."""
+    return [
+        {"mark": True},
+        {"until": "webapps/submit", "arg": None, "within": ANSWERED_WITHIN_MS},
+        {"awaitRequest": {"method": "POST", "pathname": SUBMIT}, "sinceMark": True, "unlessMissed": True},
+        *arrive(any_screen=True),
+    ]
+
+
 def open_app(name: str) -> list[dict]:
     """The app's tile on Web Apps' home screen."""
     return click(APP_TILE, name)

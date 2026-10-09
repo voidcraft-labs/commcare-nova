@@ -462,6 +462,28 @@ def also_granted(slug: str):
             ALSO_GRANTED.discard(slug)
 
 
+# Project spaces beside the configuration's that a part of the lane makes, by name, with the privilege slugs each
+# one's plan grants, while ``another_project_space`` holds them.
+OTHER_SPACES: dict[str, frozenset[str]] = {}
+
+
+@contextmanager
+def another_project_space(domain: str, privilege_symbols):
+    """For the block, a second project space ``domain`` exists beside the configuration's, its plan granting the
+    privileges ``privilege_symbols`` (``corehq/privileges.py`` names) and nothing else, each read of it recorded as
+    every privilege read is. A part of the lane that states two project spaces (a linked app's upstream and
+    downstream, ``proof/views/test_linked_logos.py``) names the second here; its flags are the configuration's."""
+    from proof.hq.configuration import resolve_privilege
+
+    if domain in OTHER_SPACES:
+        raise SeamRefused(f"The project space {domain!r} was named twice; name each second project space once.")
+    OTHER_SPACES[domain] = frozenset(resolve_privilege(symbol) for symbol in privilege_symbols)
+    try:
+        yield
+    finally:
+        del OTHER_SPACES[domain]
+
+
 @contextmanager
 def privileges(configuration: Configuration, record: SeamRecord):
     import corehq.privileges as privilege_constants
@@ -475,6 +497,10 @@ def privileges(configuration: Configuration, record: SeamRecord):
             symbol_by_slug.setdefault(value, name)
 
     def decide(slug, domain, via):
+        if domain in OTHER_SPACES:
+            verdict = slug in OTHER_SPACES[domain]
+            record.privileges.append(PrivilegeRead(slug, symbol_by_slug.get(slug), domain, via, verdict))
+            return verdict
         if domain is not None and domain != configuration.domain:
             raise SeamRefused(
                 f"HQ asked whether the project space {domain!r} has the privilege "
@@ -691,8 +717,9 @@ def project_space(configuration: Configuration):
 def check_seams(configuration: Configuration, record: SeamRecord, *, validate):
     """The seams every path runs under.
 
-    Flags, privileges, the project-space settings and Elasticsearch answer
-    from the configuration, and Formplayer's form validation is
+    Flags, privileges and the project-space settings answer from the
+    configuration, HQ's Elasticsearch client is watched (``proof.hq.elasticsearch``, whose server and indexes
+    the unit holds), and Formplayer's form validation is
     ``validate``'s (Formplayer's own, ``formplayer_validation``): HQ asks Formplayer to validate forms while
     it builds, while it renders a form's settings page, and while it imports
     an app that maps media (``hqmedia/models.py::ApplicationMediaMixin.all_media``

@@ -17,7 +17,8 @@ Every HQ-side check imports this package and nothing repeats it:
 - ``seams`` answers what HQ reads from outside its state: feature flags,
   privileges, the project settings, Formplayer's form validation (the Core
   runner), the previous build and resource overrides; ``elasticsearch``
-  holds the Elasticsearch reads, each answered as an empty index.
+  is HQ's own Elasticsearch, one server a process, its indexes written by
+  HQ's own code and held to each unit's marks.
 - ``speed`` runs HQ at production speed with ``DEBUG`` left on (the cached
   template loader, no query log, the memoized webpack manifest and settings
   YAML, HQ's XPath validator in one long-lived node child), and installs

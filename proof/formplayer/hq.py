@@ -40,18 +40,11 @@ What the harness's HQ lacks is answered by a seam, each named where it is:
   finding there the token Formplayer wrote for it), and the functions HQ
   runs when its transaction commits run where production's commit runs
   them (``proof.hq.branch.Unit.committing``);
-- **Elasticsearch** is not in the image. A case search runs HQ's view
-  whole (its authentication, its reading of the request, its compile of
-  the query into HQ's own Elasticsearch query, its fixture of the results)
-  down to the transport, where ``search_index`` answers the one search
-  request with every case of the requested types the unit's Postgres
-  holds, each as HQ's own case search document
-  (``es/case_search.py::ElasticCaseSearch.from_python``). The
-  query's filter is compiled and not applied: what a filter selects is not
-  observed here. A document HQ writes to an index as it saves (the user)
-  is taken and kept nowhere, since nothing here reads one back; the forms
-  and cases HQ processes reach their indexes through the change feed its
-  pillows read, which the unit records (``index``);
+- **Elasticsearch** is HQ's own, real (``proof.hq.elasticsearch``): a case
+  search runs HQ's view whole down to HQ's own server, which applies the
+  query HQ compiled to the cases HQ indexed as its receiver saved them
+  (each case the worker's submissions made, through the case search
+  pillow's own processor), held to each fork of the unit as Postgres is;
 - **the order of a restore's cases** is HQ's database's, which HQ asks for
   no order of: the harness hands them in the order of their ids in every
   state (``cases_in_id_order``);
@@ -82,7 +75,6 @@ from email.policy import HTTP
 from urllib.parse import parse_qs
 
 from proof.formplayer.client import AUTH_KEY, FormplayerRunnerError, HqAnswer, HqRequest
-from proof.hq.boot import HarnessRefusal
 from proof.observe import casedata
 
 # Request headers that belong to Formplayer's connection with the harness's peer.
@@ -341,7 +333,6 @@ class HqViews:
             override_settings(FORMPLAYER_INTERNAL_AUTH_KEY=self.key),
             self.unit.committing(),
             self.unit.request(digest) as scope,
-            index(self.unit),
             cases_in_id_order(),
             _raised_by_views(raised),
             _Errors() as errors,
@@ -388,69 +379,7 @@ class HqViews:
         return [asked for asked in self.exchanges if asked.raised]
 
 
-# Elasticsearch -----------------------------------------------------------------------------
-
-
-class SeamFailed(HarnessRefusal):
-    """The harness's own answer for something HQ lacks failed; never HQ's failure."""
-
-
-def _case_search_hits(unit, body):
-    """Every case of the case types a case search's query names that the unit's Postgres holds, each as HQ's
-    own case search document (``es/case_search.py::ElasticCaseSearch.from_python``), in case id order."""
-    from corehq.apps.es.case_search import case_search_adapter
-    from corehq.form_processor.models import CommCareCase
-
-    try:
-        wanted = sorted(_terms_of(body, "type.exact") | _terms_of(body, "type"))
-        case_ids = []
-        for case_type in wanted:
-            case_ids += CommCareCase.objects.get_case_ids_in_domain(unit.domain, case_type)
-        hits = []
-        for case in CommCareCase.objects.get_cases(sorted(set(case_ids)), ordered=True):
-            if case.is_deleted:
-                continue
-            doc_id, source = case_search_adapter.from_python(case)
-            hits.append({"_type": case_search_adapter.type, "_id": doc_id, "_score": 1.0, "_source": source})
-        return hits
-    except Exception as error:
-        raise SeamFailed(
-            f"The harness's answer to HQ's case search ({json.dumps(body, default=str)[:600]}) failed:"
-            f" {type(error).__name__}: {error}"
-        ) from error
-
-
-def _terms_of(value, field_name):
-    """Every value a ``term`` or ``terms`` clause of an Elasticsearch query gives ``field_name``."""
-    found = set()
-    if isinstance(value, dict):
-        for key, held in value.items():
-            if key in ("term", "terms") and isinstance(held, dict) and field_name in held:
-                named = held[field_name]
-                found |= set(named) if isinstance(named, list) else {named}
-            else:
-                found |= _terms_of(held, field_name)
-    elif isinstance(value, list):
-        for item in value:
-            found |= _terms_of(item, field_name)
-    return found
-
-
-# The requests by which HQ writes one document to an index (``es/client.py::ElasticDocumentAdapter._index``,
-# ``_update`` and ``_delete``): PUT or POST ``/<index>/<type>/<id>``, POST ``.../<id>/_update``, DELETE.
-_WRITE_METHODS = frozenset({"PUT", "POST", "DELETE"})
-
-
-def _document_write(method, url):
-    """``(index, id)`` where the request writes one document of an index, else None."""
-    parts = [part for part in str(url).split("?")[0].split("/") if part]
-    if method not in _WRITE_METHODS or len(parts) < 3 or parts[0].startswith("_"):
-        return None
-    if len(parts) == 3 and not parts[2].startswith("_"):
-        return parts[0], parts[2]
-    if len(parts) == 4 and parts[3] == "_update" and method == "POST":
-        return parts[0], parts[2]
-    return None
+# The order of a restore's cases ---------------------------------------------------------------
 
 
 @contextmanager
@@ -482,83 +411,6 @@ def cases_in_id_order():
         return cases
 
     with mock.patch.object(CommCareCaseManager, "get_cases", get_cases):
-        yield
-
-
-@contextmanager
-def index(unit):
-    """Elasticsearch, for the block, as far as serving Formplayer reaches it: a case search answered with every
-    case of the requested types, and each document HQ writes to an index taken and kept nowhere.
-
-    HQ's search view builds its query with its own compiler and sends it to
-    the case search index (``case_search/utils.py::get_case_search_results``,
-    ``es/case_search.py::CaseSearchES``). The harness has no Elasticsearch,
-    so the requests the search itself makes (a ``_search`` of the case
-    search index, and a ``_count`` of the same query) are answered here
-    with every case of the case types the query names, written as HQ's own
-    adapter writes a case for that index; the filter HQ compiled is not
-    applied.
-
-    HQ also writes to its indexes as it saves: a user's save sends the user
-    (``users/signals.py::update_user_in_es``). No path here reads such a
-    document back from the index (the case search's cases come from
-    Postgres, above), so each write is answered as Elasticsearch answers one
-    it took, and recorded with the seams' Elasticsearch reads. Any other
-    request to Elasticsearch is still refused (``proof.hq.elasticsearch``).
-    """
-    from unittest import mock
-
-    from corehq.apps.es.case_search import case_search_adapter
-    from elasticsearch6.transport import Transport
-
-    held = Transport.perform_request
-    # The index HQ's case search reads, by the name HQ's own adapter gives it.
-    case_search = case_search_adapter.index_name
-
-    def perform_request(self, method, url, headers=None, params=None, body=None):
-        named = url.strip("/").split("/")[0] if isinstance(url, str) else ""
-        last = str(url).split("?")[0].rstrip("/").rsplit("/", 1)[-1]
-        if last == "_count" and named == case_search:
-            # How many cases the search matched, which HQ asks beside the page of results it shows.
-            query = body if isinstance(body, dict) else json.loads(body or "{}")
-            count = len(_case_search_hits(unit, query))
-            if unit.record is not None:
-                unit.record.elasticsearch_reads.append(("case_search_count", unit.domain, count))
-            return {"count": count, "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0}}
-        if last == "_search" and named == case_search:
-            query = body if isinstance(body, dict) else json.loads(body or "{}")
-            hits = _case_search_hits(unit, query)
-            start = int(query.get("from") or 0)
-            size = query.get("size")
-            page = [
-                {"_index": case_search, **hit}
-                for hit in (hits[start : start + int(size)] if size is not None else hits[start:])
-            ]
-            if unit.record is not None:
-                unit.record.elasticsearch_reads.append(("case_search", unit.domain, len(hits)))
-            return {
-                "took": 1,
-                "timed_out": False,
-                "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0},
-                "hits": {"total": len(hits), "max_score": 1.0 if hits else None, "hits": page},
-            }
-        written = _document_write(method, url)
-        if written is not None:
-            if unit.record is not None:
-                unit.record.elasticsearch_reads.append(("write", method, *written))
-            return {
-                "_index": written[0],
-                "_type": "_doc",
-                "_id": written[1],
-                "_version": 1,
-                "result": "deleted" if method == "DELETE" else "created",
-                "_shards": {"total": 1, "successful": 1, "failed": 0},
-                "_seq_no": 0,
-                "_primary_term": 1,
-            }
-        return held(self, method, url, headers=headers, params=params, body=body)
-
-    with mock.patch.object(Transport, "perform_request", perform_request):
         yield
 
 
@@ -723,7 +575,7 @@ class Served:
         with self.unit.fork():
             _redis_of(self.runner)
             hq_redis.flush()
-            with self.unit.committing(), index(self.unit), self.operation("formplayer:sign-in", label):
+            with self.unit.committing(), self.operation("formplayer:sign-in", label):
                 session_key = sign_in(self.worker)
             self.hq.begin(label, session_key)
             forwarding = self.forwarding
@@ -817,13 +669,17 @@ def serve(
     database = database or casedata.document_case_database(document, edit=edit)
     with hq_redis.shared(None if runner is None else runner.redis_address), unit.fork():
         hq_redis.flush()
-        with unit.committing(), index(unit):
+        with unit.committing():
             people = casedata.database_digest(database).encode()
             with operation(f"formplayer:worker@{label}", people), _drawn_for(people):
                 default_roles(unit)
                 worker = create_worker(unit, database)
                 save_cases(unit, database, worker)
                 usercase_id = worker.get_usercase_id()
+                # The worker and their cases indexed as HQ's pillows index them, under the same entropy and clock
+                # in every state (``proof.hq.elasticsearch``).
+                if unit.indexes is not None:
+                    unit.indexes.settle()
             stored = operations.held_app(unit, app_id).to_json()
             if change is not None:
                 change(stored)

@@ -206,7 +206,10 @@ jobs:
     name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
     needs: emit
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # Every group runs fresh here, each state served to Formplayer and every
+    # run walked whole in the Web Apps client; the deadline catches a stuck
+    # shard only.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}

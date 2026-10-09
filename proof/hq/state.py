@@ -31,7 +31,11 @@
   it (the suite's entries read that through ``proof.hq.seams.project_space``,
   since HQ's own reader answers False under tests);
 - the seams every path runs under (``proof.hq.seams.check_seams``), opened
-  after the seeding, their ``SeamRecord`` as ``unit.record``.
+  after the seeding, their ``SeamRecord`` as ``unit.record``, and with them
+  HQ's Elasticsearch, every kept index empty at the unit's start and end and
+  held to its marks (``proof.hq.elasticsearch.UnitIndexes``, as
+  ``unit.indexes``). A unit opened without seams has no Elasticsearch: HQ's
+  client is refused there.
 
 Two units opened with the same configuration and root key start from
 byte-identical state, on any worker. ``hq_check(configuration)``
@@ -147,6 +151,7 @@ def open_unit(configuration: Configuration, *, root_key: bytes, validate=FORMPLA
 
     from proof.hq import branch, database
     from proof.hq.couch import ComputedViewCouch
+    from proof.hq.elasticsearch import UnitIndexes
     from proof.hq.seams import SeamRecord, check_seams, formplayer_validation
 
     if validate == FORMPLAYER:
@@ -186,6 +191,8 @@ def open_unit(configuration: Configuration, *, root_key: bytes, validate=FORMPLA
         if validate is not None:
             unit.record = SeamRecord()
             stack.enter_context(check_seams(configuration, unit.record, validate=validate))
+            unit.indexes = UnitIndexes(unit)
+            stack.enter_context(unit.indexes.held())
         yield unit
 
 

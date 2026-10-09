@@ -64,7 +64,9 @@ way: a case list's rows by the case each selects with their order beside
 them, the client's own home tiles by their kind, without the build's
 version, which the page writes into a corner, and one symptom one
 difference (``one_screen``): two screens of two kinds are their kinds, and
-a run the client stopped following is where it stopped.
+a run the client stopped following is where it stopped; what became of a
+form's answers and Submit is compared only where both runs followed the walk
+to it.
 
 **HQ's refusals** (``refusal_differences``) are absolute: each request an HQ
 view did not answer 2xx while a state was walked is a difference of that
@@ -314,10 +316,11 @@ def _tiles_by_kind(value):
 
 
 def _screen_kind(screen):
-    """What a screen of the client shows: its form, a search, a case list, a menu or the home screen's tiles."""
+    """What a screen of the client shows: its form, a case's detail (over the list it was opened from), a search,
+    a case list, a menu or the home screen's tiles."""
     if not isinstance(screen, dict):
         return None
-    for kind in ("form", "query", "list", "commands", "apps", "tiles"):
+    for kind in ("form", "detail", "query", "list", "commands", "apps", "tiles"):
         if screen.get(kind) is not None:
             return kind
     return "none"
@@ -329,14 +332,22 @@ def one_screen(before, after):
     left the walk, so its later screens are not compared; a run one side stopped following is where it stopped."""
     for run_a, run_b in zip(before.get("runs") or [], after.get("runs") or [], strict=False):
         screens_a, screens_b = run_a.get("screens") or [], run_b.get("screens") or []
+        left = "stopped" in run_a or "stopped" in run_b
         for index, (a, b) in enumerate(zip(screens_a, screens_b, strict=False)):
             if _screen_kind(a) != _screen_kind(b):
+                left = True
                 for run, screens, screen in ((run_a, screens_a, a), (run_b, screens_b, b)):
                     said = {"kind": _screen_kind(screen), "alerts": (screen or {}).get("alerts") or []}
                     run["screens"] = [*screens[:index], said]
                     run.pop("stopped", None)
                     run.pop("script", None)
                 break
+        if left:
+            # A run that left the walk (or that one side stopped following) never reached the form the walk
+            # answers there: what became of its answers and its Submit follows from where it went.
+            for run in (run_a, run_b):
+                run.pop("answers", None)
+                run.pop("submit", None)
         for run in (run_a, run_b):
             if isinstance(run.get("stopped"), dict):
                 run["stopped"] = {

@@ -145,7 +145,7 @@ def test_a_device_restores_the_flat_fixture_by_the_apps_choice_and_web_apps_by_t
 
                 label = f"{choice}-{'on' if syncs else 'off'}"
                 with formplayer_hq.serve(unit, document, app_id, runner=runner, label=label, change=change) as served:
-                    with unit.committing(), formplayer_hq.index(unit):
+                    with unit.committing():
                         LocationFixtureConfiguration.objects.update_or_create(
                             domain=unit.domain,
                             defaults={"sync_flat_fixture": syncs, "sync_hierarchical_fixture": False},

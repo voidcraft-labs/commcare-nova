@@ -11,7 +11,11 @@ boot takes (``corehq/tests/pytest_hooks.py::pytest_load_initial_conftests``:
    except to the lane's Postgres. libpq opens its own sockets below Python, so
    Postgres is reached whatever this guard does; every other service HQ names
    (Couch, Redis, Elasticsearch, S3, Formplayer, Kafka, any external host) is
-   reached through Python sockets and refused, and each attempt is recorded.
+   reached through Python sockets and refused, and each attempt is recorded,
+   but the harness's own services, each admitted at its own loopback address
+   as it starts (``_NetworkGuard.admit``). HQ's Elasticsearch client is
+   watched from the boot on, and answers only inside a unit
+   (``proof.hq.elasticsearch.install``).
 3. HQ's root is ``sys.path[0]`` and the working directory (HQ opens
    ``submodules/langcodes/langs.json`` relative to it, and
    ``submodules/langcodes/urls.py`` would shadow HQ's ``urls.py`` if anything
@@ -330,6 +334,11 @@ def boot() -> BootReport:
     rebound, total, references = _move_caches_to_local_memory()
     _refuse_redis_clients()
     t = step("caches", t)
+
+    # HQ's Elasticsearch client answers only inside a unit that holds the indexes (proof.hq.elasticsearch).
+    from proof.hq import elasticsearch
+
+    elasticsearch.install()
 
     speed.install()
     _install_production_soft_asserts()
