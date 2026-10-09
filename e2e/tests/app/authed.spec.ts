@@ -2577,8 +2577,8 @@ test.describe("authenticated builder", () => {
 	 * a refused gesture states its reason and leaves the cell where it was,
 	 * and that focus survives the commit.
 	 *
-	 * It deliberately restores the arrangement it found, because the seed's
-	 * tile module is shared with the parity test above.
+	 * The final gesture verifies movement in both directions; this scenario
+	 * owns its own seeded app.
 	 */
 	test("the tile grid moves a field by keyboard and states a refused move", {
 		tag: "@seed:workspace",
@@ -2610,6 +2610,9 @@ test.describe("authenticated builder", () => {
 		});
 
 		await test.step("an arrow key moves the field and renames its place", async () => {
+			await expect(
+				page.locator('[data-builder-resource="lookup-catalog"]'),
+			).toHaveAttribute("data-state", "ready");
 			await phone.focus();
 			await phone.press("ArrowDown");
 			const moved = page.getByRole("button", {
