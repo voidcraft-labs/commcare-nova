@@ -314,16 +314,14 @@ or it fails the lane ("The registers", below).
   user signing in as a worker. The one request the page makes that nothing
   answers is for a web font on another host, so text is laid out in the
   browser's fallback face and no measured width or height is recorded.
-  The client is shown each run of the walk up to the first case a worker
-  would choose (the home screen's tiles, each menu, each list with its
-  cells, empty text and actions, each search and its description, and a
-  form no case leads to); a case's detail and what follows a case are read
-  from Formplayer's trace alone. Past a chosen case the client's replay
-  followed the walk one run and stopped the next (a case chosen from an
-  inline search's results, a list whose case detail the client does not
-  open), which no record can hold, and it is not root-caused. Where the
-  client shows nothing to click for an earlier choice, its record of that
-  run ends there, with `stopped` and the screen it stood on.
+  The client is shown every run of the walk whole, by what a worker
+  clicks (each menu, each case of a list, by its checkbox and Continue in
+  a multi-select list, a case's detail and its Continue where the client
+  opens one, each list action and each search), to the form the run
+  reaches or the screen it ends on. Where the client shows nothing to
+  click for a choice of the walk, its record of that run ends there, with
+  `stopped` and the screen it stood on, which proofs 3 and 4 compare like
+  any other screen.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
   below), with these left out. ConnectID, the service Connect sends a
@@ -1222,8 +1220,8 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   fork of the unit with the worker signed in afresh, so a submission HQ's
   receiver processed is in HQ while its run lasts and gone for the next.
 - **The Web Apps client** is shown the same walk in a browser of its own
-  (`proof/observe/services.py::client_browser`), each run up to the first
-  case a worker would choose, and its screens are read after every click. It is shown a state only where Formplayer's trace or
+  (`proof/observe/services.py::client_browser`), every run whole, and its
+  screens are read after every click. It is shown a state only where Formplayer's trace or
   what HQ's page hands it of the app is not the baseline's: the client
   reads nothing else, so the same answers and the same page show the same
   screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).
