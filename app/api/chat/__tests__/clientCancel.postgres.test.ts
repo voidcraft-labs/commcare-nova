@@ -331,6 +331,7 @@ async function seedBoundSession(sessionId: string, appId: string) {
 			proposed_app_id: appId,
 			app_id: appId,
 			state: "materialized",
+			authoring_version: 1,
 			awaiting_input: false,
 			run_id: null,
 			run_holder_nonce: null,

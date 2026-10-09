@@ -4726,7 +4726,10 @@ test.describe("authenticated builder", () => {
 				];
 				await route.fulfill({
 					status: 200,
-					headers: { "content-type": "text/event-stream" },
+					headers: {
+						"content-type": "text/event-stream",
+						"x-workflow-run-id": "00000000-0000-4000-8000-000000000099",
+					},
 					body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
 				});
 			});
@@ -4769,8 +4772,12 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", { name: "Send", exact: true }),
 			).toBeEnabled();
+			await test.info().attach("continuation-posts.json", {
+				body: JSON.stringify(requests, null, 2),
+				contentType: "application/json",
+			});
 			expect(requests).toHaveLength(1);
-			expect(requests[0].inputRoundId).toBe("smoke-scroll-question-round");
+			expect(requests[0].inputRoundId).toBe(seed.scrollQuestionRoundId);
 			if (withAttachment) {
 				expect(requests[0].messages).toEqual(
 					expect.arrayContaining([
@@ -4781,8 +4788,8 @@ test.describe("authenticated builder", () => {
 									type: "tool-askQuestions",
 									state: "output-available",
 									output: {
-										"0": "The community team handles it",
-										"1": "After seven days, as described in my notes",
+										"0": "User Responded: The community team handles it",
+										"1": "User Responded: After seven days, as described in my notes (attached: Follow-up notes.txt)",
 									},
 								}),
 							]),
