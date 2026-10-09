@@ -111,6 +111,19 @@ class Finished:
         return self.output[-9000:]
 
 
+def _failure_section(output: str, name: str) -> str:
+    """The section pytest wrote for the failed item ``name`` (from its ``___ name ___`` heading to the next), or a
+    note that the output holds none."""
+    # A forked worker's lines come prefixed with its name (``[w1] ``).
+    lines = [line.split("] ", 1)[1] if line.startswith("[w") and "] " in line else line for line in output.splitlines()]
+    starts = [index for index, line in enumerate(lines) if line.startswith("_") and line.strip("_ ").endswith(name)]
+    if not starts:
+        return f"(no failure section for {name} in this output)"
+    first = starts[0]
+    end = next((index for index in range(first + 1, len(lines)) if lines[index].startswith("___")), len(lines))
+    return "\n".join(lines[first:end])[:6000]
+
+
 def _run_to_end(command, log: Path, **extra) -> Finished:
     """``command`` run from the worktree to its end, its output (standard output and error) kept in ``log``.
 
@@ -420,10 +433,15 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
         plain_outcomes[case.get("classname").rsplit(".", 1)[-1], case.get("name")] = {"failure": "failed"}.get(
             outcome, outcome
         )
-    # Where the two disagree, each side's own output says why its item failed.
-    assert plain_outcomes == forked_outcomes and forked_outcomes, (
-        f"{plain_outcomes} != {forked_outcomes}\nThe unforked session's output ends:\n{plain.tail()}"
-        f"\nThe fork server's output ends:\n{forked.tail()}"
+    # Where the two disagree, the side whose item failed says why, in that item's own section of its output.
+    assert plain_outcomes == forked_outcomes and forked_outcomes, "\n".join(
+        [f"{plain_outcomes} != {forked_outcomes}"]
+        + [
+            _failure_section(side.output, name)
+            for (module, name), outcome in sorted(plain_outcomes.items())
+            if forked_outcomes.get((module, name)) != outcome
+            for side in (plain, forked)
+        ]
     )
 
     # Both runs observed every document themselves, so the evidence below is two observations', not one store's.
