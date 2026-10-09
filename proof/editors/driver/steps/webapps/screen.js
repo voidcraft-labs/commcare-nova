@@ -29,10 +29,13 @@
 //   the client rendered none) and each prompt.
 // - `detail`: the case detail dialog, where it is open: each tab's title
 //   (and which is active) and each row's header and value as shown.
-// - `form`: a form's title and each question's label, whether it is
+// - `form`: a form's title; each question's label, whether it is
 //   required, the answer its widget shows (a text box's text, the labels of
-//   the options checked, a drop-down's chosen text) and the error the client
-//   shows for it.
+//   the options checked, a drop-down's chosen text), the error the client
+//   shows for it and the media the browser lays out with it (`media`, each
+//   image, sound and video by its kind and the address the client gave it,
+//   the help dialog's left out until it is open); and each group's label
+//   with the media the browser lays out in its header (`groups`).
 // - `alerts`: what the client's notification region shows.
 (_arg) => {
 	const text = (element) =>
@@ -210,6 +213,15 @@
 		);
 		return box ? box.value : null;
 	};
+	// Each image, sound and video the browser lays out inside `root`, by its
+	// kind and the address the client gave it.
+	const media = (root) =>
+		all(root, "img, audio, video")
+			.filter(visible)
+			.map((element) => ({
+				kind: element.tagName.toLowerCase(),
+				src: element.getAttribute("src"),
+			}));
 	const form = one(document, "#webforms");
 	if (form?.children.length) {
 		screen.form = {
@@ -219,6 +231,11 @@
 				required: one(question, ".required") !== null,
 				answer: shownAnswer(question),
 				errors: all(question, ".error-message").filter(visible).map(text),
+				media: media(question),
+			})),
+			groups: all(form, ".gr-header").map((header) => ({
+				label: text(one(header, ".caption")),
+				media: media(header),
 			})),
 			submit: text(one(form, "button.submit")),
 		};

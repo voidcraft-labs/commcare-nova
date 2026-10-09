@@ -34,6 +34,7 @@ import { hqSideState } from "./documents/hqSideState";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
+import { mediaSlots } from "./documents/mediaSlots";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
@@ -94,6 +95,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectDeliverKeyNames,
 	saveToCaseRead,
 	supplyPointRead,
+	mediaSlots,
 ];
 
 /** Every targeted document, in a fixed order. */

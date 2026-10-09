@@ -23,6 +23,7 @@ DOCUMENTS = (
     "targeted-empty-list-no-english",
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
+    "targeted-media-slots",
     "targeted-survey-menu",
 )
 
