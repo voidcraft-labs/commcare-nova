@@ -63,6 +63,7 @@ final class Queries {
     /** Set by the reader for the request it is answering; null where the request names none. */
     static String answer;
     private static final java.util.Set<String> probed = new java.util.HashSet<>();
+    private static final java.util.Set<String> typedIn = new java.util.HashSet<>();
 
     private Queries() {
     }
@@ -79,6 +80,15 @@ final class Queries {
                 query.put("withAnswer", withAnswer(probe, manager));
             }
         }
+        JSONObject prompts = Answers.table == null ? null : Answers.table.optJSONObject("searchPrompts");
+        if (prompts != null && typedIn.add(String.valueOf(step.opt("session")))) {
+            // Once a session for each search: the screen as a worker leaves it after typing into every prompt.
+            QueryRequestActivity typed = open(started);
+            RemoteQuerySessionManager manager = manager(typed);
+            if (manager != null) {
+                query.put("typed", typed(typed, manager, prompts));
+            }
+        }
         QueryRequestActivity activity = open(started);
         RemoteQuerySessionManager manager = manager(activity);
         if (manager == null) {
@@ -87,11 +97,11 @@ final class Queries {
         }
         query.put("opened", true);
         query.put("url", address(String.valueOf(manager.getBaseUrl())));
-        JSONObject prompts = new JSONObject();
+        JSONObject shown = new JSONObject();
         for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {
-            prompts.put(box.getKey(), box.getValue().getClass().getSimpleName());
+            shown.put(box.getKey(), box.getValue().getClass().getSimpleName());
         }
-        query.put("prompts", prompts);
+        query.put("prompts", shown);
         Multimap<String, String> params = manager.getRawQueryParams(false);
         query.put("RemoteQuerySessionManager.getRawQueryParams", params(params));
 
@@ -163,6 +173,57 @@ final class Queries {
         after.put("errorText", String.valueOf(error.getText()));
         after.put("finishing", activity.isFinishing());
         found.put("afterServerAnswers400", after);
+        return found;
+    }
+
+    /**
+     * The screen after the worker types the lane's search answers (the answer table's {@code searchPrompts}) into
+     * each prompt through the screen's own views: a text box is typed into, a single select's spinner set to the
+     * option, a checkbox prompt's box ticked. What each prompt was given, the errors Core's query manager then
+     * holds and what the screen would send (the strings a search builds from the answers, CSQL among them).
+     */
+    private static JSONObject typed(QueryRequestActivity activity, RemoteQuerySessionManager manager,
+                                    JSONObject answers) throws Exception {
+        JSONObject found = new JSONObject();
+        JSONObject given = new JSONObject();
+        org.javarosa.core.util.OrderedHashtable<String, org.commcare.suite.model.QueryPrompt> needed =
+                manager.getNeededUserInputDisplays();
+        for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {
+            org.commcare.suite.model.QueryPrompt prompt = needed.get(box.getKey());
+            String input = prompt == null ? null : prompt.getInput();
+            View view = box.getValue();
+            if (view instanceof android.widget.Spinner) {
+                int index = Integer.parseInt(answers.getString("select1"));
+                android.widget.Spinner spinner = (android.widget.Spinner)view;
+                if (index < spinner.getCount()) {
+                    spinner.setSelection(index);
+                    given.put(box.getKey(), String.valueOf(spinner.getSelectedItem()));
+                } else {
+                    given.put(box.getKey(), "no option " + index);
+                }
+            } else if (org.commcare.suite.model.QueryPrompt.INPUT_TYPE_CHECKBOX.equals(input)
+                    && view instanceof android.view.ViewGroup) {
+                int index = Integer.parseInt(answers.getString("checkbox"));
+                android.view.ViewGroup boxes = (android.view.ViewGroup)view;
+                if (index <= boxes.getChildCount()) {
+                    android.widget.CheckBox tick = (android.widget.CheckBox)boxes.getChildAt(index - 1);
+                    tick.performClick();
+                    given.put(box.getKey(), String.valueOf(tick.getText()));
+                } else {
+                    given.put(box.getKey(), "no option " + index);
+                }
+            } else if (view instanceof EditText && view.isFocusable()) {
+                ((EditText)view).setText(answers.getString("text"));
+                given.put(box.getKey(), answers.getString("text"));
+            } else {
+                // A date range is chosen on Android's own date picker, which the walk does not open.
+                given.put(box.getKey(), "not typed: " + (input == null ? view.getClass().getSimpleName() : input));
+            }
+            ShadowLooper.idleMainLooper();
+        }
+        found.put("given", given);
+        found.put("RemoteQuerySessionManager.getErrors", strings(manager.getErrors()));
+        found.put("RemoteQuerySessionManager.getRawQueryParams", params(manager.getRawQueryParams(false)));
         return found;
     }
 

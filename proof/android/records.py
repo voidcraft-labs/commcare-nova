@@ -37,10 +37,10 @@ ANDROID_DIR = Path(__file__).resolve().parent
 ANSWERS = PROOF_DIR / "core" / "answers.json"
 PINS = PROOF_DIR / "pins.json"
 TOOLCHAIN = ANDROID_DIR / "toolchain.json"
-# The reader's files: its Java, its client, what builds its runtime and what plans its requests. A change to
-# any of them reads every archive again.
+# The reader's files: its Java, the files its walks give capture questions, its client, what builds its runtime
+# and what plans its requests. A change to any of them reads every archive again.
 READER_FILES = ("client.py", "records.py", "build-runtime.sh", "reader.init.gradle", "toolchain.json")
-READER_DIRECTORIES = ("src",)
+READER_DIRECTORIES = ("src", "captures")
 PINNED = ("commcare-android", "commcare-core")
 VERSION = 1
 LOCAL = "local.ccz"

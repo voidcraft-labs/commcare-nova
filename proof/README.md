@@ -276,19 +276,13 @@ or it fails the lane ("The registers", below).
 - **What the Android stage does not show.** CommCare Android's own code
   reads every archive a device installs of every document, and proofs 1, 3
   and 4 judge what it read ("The Android stage", below), with these left
-  out. A device's own sensors and services are not run: no location fix
-  reaches a form (`PollSensorAction` asks the device's location service;
-  the permission a form asks the device for is recorded, `deviceAsked`, and
-  not granted), so a Connect visit's location on Android is still written
-  by the harness into Core's submission; and no file is given to an image, audio, video,
-  signature or document question, so a walk leaves one unanswered and ends
-  at one that is required. Neither is out of reach: Robolectric's own
-  location manager can hand Android's `PollSensorAction` a fix through the
-  device's own permission grant, and its activity results can hand a
-  question's capture a file, so what settles both is the reader granting
-  them as a worker's device does, and Connect then receiving the form the
-  device saved in place of Core's with the harness's fix (a stage after
-  Android's, since Connect runs in the shards today). Nothing is sent: a form is saved and applied to
+  out. A walk allows the location permission a form asks for and the
+  device's GPS gives the form a fix, which `PollSensorAction` writes into
+  the saved form (`deviceGave`, `metaLocation`), and every capture question
+  is given a real file through its own screen (`proof/android/README.md`),
+  but a Connect visit's location is still written by the harness into
+  Core's submission: Connect runs in the shards, before the Android stage,
+  so it does not yet receive the form the device saved. Nothing is sent: a form is saved and applied to
   the device's own case database; where a device would post it is read by
   Android's own reader (`FormSubmissionHelper.getFormPostURL`), and nothing
   is posted there. A search is answered
@@ -380,19 +374,24 @@ or it fails the lane ("The registers", below).
   - defect 14's logos on a linked-app pull
     (`models/applications.py::LinkedApplication.reapply_overrides` over a
     master holding Nova's `logo_refs`);
-  - defect 16's comments, dead code and copy, and its media slots (hint,
-    group label and validation message media on Android, Formplayer and
-    the client);
+  - defect 16's media slots on Formplayer and the client, and its
+    validation message media on Android (a hint's and a group label's media
+    are held on Android by `proof/android/predicates.py`, which shows a
+    device lays out the same screen with them as without them and a
+    question label's image beside its text);
   - defect 24's and defect 30's export columns (HQ's form and case export
     over each path's submission; `proof/hq/test_report_retention.py` already
     runs HQ's export writer over saved forms);
-  - a CSQL string a search builds from a prompt's answer. Every search of
-    every document is sent, by Core's sessions and by Formplayer's walk, with
-    its prompts as the app leaves them, and HQ's own search view answers
-    Formplayer's (its request reading and its compiler run whole over the
-    session's own parameters, "Served states"); no walk types an answer
-    into a prompt, so the strings an answer would build are compiled only
-    for the native families' own apps (`quote`, `function`, `prompt`).
+  - a CSQL string Android builds from a typed answer, compiled by HQ.
+    Formplayer's walk sends every search of every document first with its
+    prompts typed into (the answer table's `searchPrompts`: a text prompt's
+    text, a select's or a checkbox's option), and HQ's own search view
+    answers it, compiling the CSQL the answer built ("Served states"); then
+    as the app leaves its prompts. Android's search screen records what it
+    would send with the same answers typed into its own views (the CSQL
+    among it, `query/typed`), and its search is answered by the device, as
+    a search on the lane's Android stage is, so HQ compiles Android's
+    strings only where Formplayer sends the same ones.
 - **Defect 20's `product_id` datum** needs an advanced module, and no Nova
   document holds one: the manifest check reads every export for the surface
   it uses and holds no use of an advanced module's fields.

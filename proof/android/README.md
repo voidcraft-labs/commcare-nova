@@ -65,24 +65,48 @@ logs in is on a real device. The requests (`Reader.java`):
     is a walk of its own;
   - a **search** (`QueryRequestActivity`, `Queries.java`): its prompts, what
     it sends, and what it sends and shows for an answer holding both quote
-    marks when the server answers 400. The search is then answered with every
+    marks when the server answers 400; and, on a screen of its own, what it
+    would send once a worker has typed the answer table's search answers
+    (`searchPrompts` of `proof/core/answers.json`) into its prompts through
+    the screen's own views (a text box typed into, a spinner set, a check box
+    ticked; a date range is chosen on a picker the walk does not open), with
+    the errors Core's query manager then holds: the strings a search builds
+    from a typed answer, CSQL among them. The search is then answered with every
     case of the asked types the device holds, as the Core runner answers one;
   - a **claim** (`PostRequestActivity`, `Posts.java`): what it posts, then
     the sync the screen runs with the app's own data pull;
   - a **form** (`FormEntryActivity`, `Forms.java`): its header, its title and
     the name a completed save carries; what it asks the device for as it
     opens (`deviceAsked`: the location permission, for a form that captures
-    one; the device here grants nothing); each screen
+    one), which the worker allows at the prompt, and the fix the device's GPS
+    then gives it (`deviceGave`, `Sensors.java`: location switched on as on a
+    worker's phone, the permission granted through the app's own result
+    handler, and Robolectric's location service handing the app's own
+    location controller the fix the lane's Connect proofs give a visit, at
+    the lane's instant); each screen
     `FormEntryActivityUIController.showNextView` moves to, each question
     answered from the lane's answer table (`proof/core/answers.json`, as the
     Core runner reads it) through the form's own controller and read back by
     its own widget (a question the form holds no answer for is recorded
-    unanswered, whatever its widget shows: a date widget shows today); a
+    unanswered, whatever its widget shows: a date widget shows today); each
+    capture question given a file through its own screen (`Captures.java`):
+    an image, video or document question's button opens Android's file
+    picker, which is handed a real small file of the reader's own
+    (`proof/android/captures`, the file the answer table names for the
+    question's kind), a signature question's button opens Android's drawing
+    screen, where a stroke is drawn and saved, and an audio question's
+    button records through the app's own recording screen and service, the
+    microphone's sound being the table's audio file written where the app's
+    recorder writes (Robolectric's recorder writes none). Android names a file
+    it keeps by the moment it took it, so a record writes such a name as
+    `@capture:` and the file given; a
     repeat's "add another?" dialog answered by its own
     choices; then the worker's finish button and the app's own save, which
     applies the form's case blocks to the device's case database as it
     saves (`FormRecord.updateAndProcessRecord`), and home handed the result.
-    The cases the device then holds are recorded, each one it made itself
+    Each form record is written with the location its saved instance holds
+    in its meta block (`metaLocation`, what `PollSensorAction` wrote from the
+    fix). The cases the device then holds are recorded, each one it made itself
     named by its place among them, ordered by what each holds; where the
     device does not save the form, so are its cases then, and whether they
     are the ones it held as the form opened. Nothing is sent. What home starts next is part of the same walk, so a
@@ -253,7 +277,11 @@ run where the reader does (the job that builds or restores the runtime runs
 both, on every CI run); neither is a `test_*.py`, because the lane's pytest collects all of
 `proof/` in an image that holds no reader runtime.
 
-- `selfcheck.py` holds the reader to itself: one setting added to a profile
+- `selfcheck.py` holds the reader to itself: every capture question of a
+  form is given its file through its own screen and the form saves, written
+  alike on two readings; a form that polls the location sensor is given the
+  device's fix and saves it in its meta, and one that does not asks for
+  nothing; one setting added to a profile
   moves exactly the reader that reads it; an archive Android cannot install
   is refused and the one it was made from installs; one device refuses the
   same app twice and each request is a device of its own; a walk opens the
@@ -281,7 +309,10 @@ both, on every CI run); neither is a `test_*.py`, because the lane's pytest coll
   refused and the session cleared (defect 20); a form's title names its
   completed save and not its header (finding 46); a search answer holding
   both quote marks is sent and the server's refusal shown as Android's own
-  text (finding 48); a fuzzy search matches a column's sort key (finding 51).
+  text (finding 48); a fuzzy search matches a column's sort key (finding 51);
+  a question's hint and a group's label that name an image lay out the
+  same screen as without it, while a question label's image is laid out
+  (defect 16's media slots).
 
 `test_stage.py` and `proof/checks/test_android.py` run in the lane, with no
 reader: the stage's own logic over a stand-in reader that answers from an
@@ -297,12 +328,6 @@ document without media keeps exactly its index files.
 
 ## What the reader does not show
 
-- **A device's own sensors and services.** No location fix is given to a
-  form (`PollSensorAction` asks the device's location service, which
-  Robolectric does not run), so a visit's location on Android is not read;
-  no file is given to an image, audio, video, signature or document
-  question, which the walk leaves unanswered and, where the question is
-  required, ends at.
 - **The network.** Nothing is sent: a form is saved and applied to the
   device, and where Android would post it (the address the profile names, or
   Android's own default for a profile that names none) is not run. A search

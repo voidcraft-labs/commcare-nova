@@ -148,6 +148,8 @@ final class Device {
         CommCareApp app = CommCareApplication.instance().getCurrentApp();
         DemoUserBuilder.buildTestUser(ApplicationProvider.getApplicationContext(), app, USERNAME, PASSWORD);
         TestAppInstaller.login(USERNAME, PASSWORD);
+        // A worker's phone has its location switched on before any form asks for it.
+        Sensors.switchOn();
     }
 
     /**
