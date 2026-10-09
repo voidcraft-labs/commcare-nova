@@ -763,7 +763,15 @@ device meets it, on the documents the register names:
 - **Defect 4 and finding 34 (location capture).** A form of HQ's build with
   `auto_gps_capture` asks the device for the location permission as it
   opens; B's form (defect 4) and the local archive's (finding 34) ask for
-  nothing.
+  nothing. Allowed, as a worker allows it, the permission lets the
+  device's GPS give HQ's build's form its fix, which `PollSensorAction`
+  writes into the saved form's meta (`deviceGave`, `metaLocation`); B's
+  and the local archive's saved forms hold no location.
+- **Defect 12 (single-date prompt), typed.** After the Case List save the
+  single-date prompt is a text box on Android; a worker who types into it
+  sends what they typed inside the search's CSQL
+  (`visit_date = date-add("proof", 'days', 7)`), where before the save the
+  device offered no box and sent `match-all()`.
 - **Defect 10.** A list with a label column or no sort shows its cases in
   another order on the local install, so the first case a worker sees is
   another one (`/list/order`, `/list/chose`), and a Sort choice orders them
