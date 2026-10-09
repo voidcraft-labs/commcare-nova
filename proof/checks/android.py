@@ -16,7 +16,10 @@ absent where the document has no such archive. Nothing here runs the reader: eve
 profile as each of Android's readers gives it, the home screen, and every walk (``comparable_app``). And what
 stands on its own of HQ's build of A (``android@A``): each search screen that sent, for an answer holding both
 quote marks, the query HQ refuses (``/walks/*/steps/*/query/withAnswer/sent-unquotable-search``,
-``refused_searches``). And of every archive of proofs 3 and 4 on its own: each form the device did not save
+``refused_searches``). And of every archive of proofs 3 and 4 on its own: each search whose CSQL, built from the
+answer table's search answers typed into the screen's own views, is a string no Formplayer walk of the document
+sent HQ's own search view with the same case types, so HQ never compiled it
+(``/walks/*/steps/*/query/typed/never-sent-to-hq``, ``typed_never_sent_to_hq``); and each form the device did not save
 and yet left a mark of (``/walks/*/steps/*/form/saved/applied-though-refused``, ``applied_though_refused``),
 which Android's one transaction a form should never give.
 
@@ -348,6 +351,42 @@ def refused_searches(answer: dict | None) -> list[tuple[str, str, dict]]:
     return found
 
 
+# A typed search's CSQL that no search HQ's own view was sent holds: the device built a string HQ never compiled.
+NEVER_SENT = "/walks/*/steps/*/query/typed/never-sent-to-hq"
+
+
+def typed_never_sent_to_hq(answer: dict | None, searched) -> list[tuple[str, str, dict]]:
+    """Each search screen of an ``app`` answer whose search, with the answer table's search answers typed into
+    its prompts through the screen's own views (``query/typed``), sends a CSQL string that no search HQ's own
+    search view was sent holds (``searched``: the configuration's ``hqSearches``, each ``[case types, CSQL]``
+    a Formplayer walk of the document's states sent HQ with the same answers typed in). A device answers its
+    own searches, so HQ's compile of a device's string is observed through the same string, sent with the same
+    case types, by Formplayer to HQ's view in the same unit: a string no walk sent is one HQ never compiled.
+    ``(structural path, concrete path, the case types and the strings)``; nothing where the device refused to
+    send the search (``RemoteQuerySessionManager.getErrors``)."""
+    held = {(tuple(types), query) for types, query in searched or ()}
+    found = []
+    for name, walk in sorted(((answer or {}).get("walks") or {}).items()):
+        for index, step in enumerate(walk.get("steps") or []):
+            typed = (step.get("query") or {}).get("typed") if isinstance(step.get("query"), dict) else None
+            if not isinstance(typed, dict) or typed.get("RemoteQuerySessionManager.getErrors"):
+                continue
+            params = typed.get("RemoteQuerySessionManager.getRawQueryParams") or {}
+            types = tuple(sorted(str(value) for value in params.get("case_type") or ()))
+            never = [str(query) for query in params.get("_xpath_query") or () if (types, str(query)) not in held]
+            if never:
+                at = f"/walks/{pointer_token(name)}/steps/{index}/query/typed/never-sent-to-hq"
+                found.append((NEVER_SENT, at, {"caseTypes": list(types), "queries": never}))
+    return found
+
+
+def _never_sent(check: str, document: str, artifact: str, answer: dict | None, searched) -> list:
+    return [
+        Difference(check, document, artifact, path, at, "error", None, value)
+        for path, at, value in typed_never_sent_to_hq(answer, searched)
+    ]
+
+
 def applied_though_refused(answer: dict | None) -> list[tuple[str, str, dict]]:
     """Each form of an ``app`` answer the device did not save and yet left a mark of: the cases it holds after
     are not the cases it held as the form opened (``(structural path, concrete path, what the device said and
@@ -376,20 +415,32 @@ def behavior(document: str, record: dict) -> list:
     found = []
     local = (record.get("local") or {}).get("app")
     found += _applied("proof3", document, LOCAL, local)
+    # The local archive is one archive in every configuration: its typed searches are held to every search any
+    # configuration's walks sent HQ.
+    searched_anywhere = [
+        pair
+        for name in sorted(record.get("configurations") or {})
+        for pair in record["configurations"][name].get("hqSearches") or ()
+    ]
+    if any((held.get("A") or {}).get("app") is not None for held in (record.get("configurations") or {}).values()):
+        found += _never_sent("proof3", document, LOCAL, local, searched_anywhere)
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
         a = (held.get("A") or {}).get("app")
         if a is None:
             continue
+        searched = held.get("hqSearches")
         found += [
             Difference("proof3", document, A, path, at, "error", None, value) for path, at, value in refused_searches(a)
         ]
         found += _applied("proof3", document, A, a)
+        found += _never_sent("proof3", document, A, a, searched)
         if local is not None:
             found += app_differences(a, local, check="proof3", document=document, artifact=LOCAL)
         b = (held.get("B") or {}).get("app")
         if b is not None:
             found += _applied("proof3", document, REPUBLISH, b)
+            found += _never_sent("proof3", document, REPUBLISH, b, searched)
             found += app_differences(a, b, check="proof3", document=document, artifact=REPUBLISH)
     return found
 
@@ -425,6 +476,7 @@ def editability(document: str, record: dict) -> list:
                 artifact = f"android@{save['editor']}@{state}@{name}"
                 over = left.get(save.get("over"), base)
                 found += _applied("proof4", document, artifact, save["app"])
+                found += _never_sent("proof4", document, artifact, save["app"], held.get("hqSearches"))
                 found += app_differences(over, save["app"], check="proof4", document=document, artifact=artifact)
                 left[save["label"]] = save["app"]
                 update = save.get("update")

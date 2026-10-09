@@ -104,7 +104,8 @@ def collection(queue_value: dict, entries) -> dict[str, str]:
 
 def document_record(parts: dict, answers: dict) -> dict:
     """The answers as the judges read them (``proof.checks.android``): ``answers`` by request name, None for a
-    request the reader could not answer."""
+    request the reader could not answer, and, per configuration, every search HQ's own search view was sent
+    while Formplayer walked the document (``hqSearches``, ``records.hq_searches``)."""
 
     def held(target, key, name):
         if name in answers and answers[name] is not None:
@@ -114,8 +115,9 @@ def document_record(parts: dict, answers: dict) -> dict:
     held(record["local"], "app", f"app@{records.LOCAL}")
     held(record["local"], "installs", f"installs@{records.LOCAL}")
     held(record["local"], "update", f"update@{records.LOCAL}")
+    searched = records.hq_searches(parts)
     for configuration in sorted({name.split("/", 1)[0] for name in parts if "/" in name}):
-        found = {"saves": {}}
+        found = {"saves": {}, "hqSearches": searched.get(configuration, [])}
         record["configurations"][configuration] = found
         for part, state in records.STATES:
             name = f"{configuration}/{state}"
