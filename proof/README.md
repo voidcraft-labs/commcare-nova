@@ -282,7 +282,13 @@ or it fails the lane ("The registers", below).
   not granted), so a Connect visit's location on Android is still written
   by the harness into Core's submission; and no file is given to an image, audio, video,
   signature or document question, so a walk leaves one unanswered and ends
-  at one that is required. Nothing is sent: a form is saved and applied to
+  at one that is required. Neither is out of reach: Robolectric's own
+  location manager can hand Android's `PollSensorAction` a fix through the
+  device's own permission grant, and its activity results can hand a
+  question's capture a file, so what settles both is the reader granting
+  them as a worker's device does, and Connect then receiving the form the
+  device saved in place of Core's with the harness's fix (a stage after
+  Android's, since Connect runs in the shards today). Nothing is sent: a form is saved and applied to
   the device's own case database; where a device would post it is read by
   Android's own reader (`FormSubmissionHelper.getFormPostURL`), and nothing
   is posted there. A search is answered
@@ -297,10 +303,14 @@ or it fails the lane ("The registers", below).
   Formplayer one.
 - **What a served state does not show.** Formplayer and the Web Apps
   client read every state the lane builds ("Served states", below), with
-  these left out. Elasticsearch is not in the image: a case search runs
+  these left out. Elasticsearch is not yet in the lane: a case search runs
   HQ's view whole and is handed every case of the requested types, so what
   a search's filter selects is not observed, and a document HQ writes to
-  an index is kept nowhere. HQ reads a restore's cases with no order of its
+  an index is kept nowhere. What settles it is HQ's own Elasticsearch
+  (version 6, `docker/hq-compose.yml`) beside the lane's Postgres, its
+  indexes written by HQ's own adapters as HQ's pillows write them, and
+  held to each unit's forks as Postgres is (a fork's writes gone when it
+  is put back). HQ reads a restore's cases with no order of its
   own, so the order is its database's; the harness hands them in the order
   of their ids in every state (`proof/formplayer/hq.py::cases_in_id_order`),
   and what order a production database gives is not observed. The worker's
