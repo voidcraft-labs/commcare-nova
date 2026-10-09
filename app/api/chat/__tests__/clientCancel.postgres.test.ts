@@ -200,12 +200,12 @@ vi.mock("@/lib/db/threads", async (importOriginal) => {
 	return {
 		...actual,
 		persistResponseSnapshot: async (
-			args: Parameters<typeof actual.persistResponseSnapshot>[0],
+			...args: Parameters<typeof actual.persistResponseSnapshot>
 		) => {
-			if (failClearMarkerWrites.on && args.clearMarker) {
+			if (failClearMarkerWrites.on && args[0].clearMarker) {
 				throw new Error("thread write connection dropped");
 			}
-			return actual.persistResponseSnapshot(args);
+			return actual.persistResponseSnapshot(...args);
 		},
 		clawBackThreadResponse: async (
 			args: Parameters<typeof actual.clawBackThreadResponse>[0],
