@@ -768,6 +768,9 @@ device meets it, on the documents the register names:
   another order on the local install, so the first case a worker sees is
   another one (`/list/order`, `/list/chose`), and a Sort choice orders them
   otherwise (`/list/sorted/*`, the path finding 51's sort keys change too).
+  Defect 10's Sort orders are held apart from finding 51's by entries that
+  pin their values on `targeted-label-sort` (a register entry pinning its
+  values owns the differences it matches, `proof/checks/registers.py::reconcile`).
 - **Defect 12.** After the Case List save a custom tile's list is plain rows
   (`/list/rowClass`), and a single-date prompt is a text box whose answer
   is sent as typed.

@@ -1559,7 +1559,10 @@ Nova reports of it is observed on Nova's code too.
   document: the fuzz sample's size is the budget's, so such an entry would
   fail whenever the sample shrank past it or the corpus seed changed.
 - `values` (`{"before", "after"}`) pins the exact values, only on an entry
-  whose document is targeted.
+  whose document is targeted. A pinned entry owns the differences it
+  matches, so one class holds two defects where one of them is pinned on
+  its targeted document and the other names the class everywhere else
+  (defect 10's and finding 51's Sort orders on Android).
 - An entry whose artifact is `android@...` is the Android stage's: a
   difference in what CommCare Android's own code read of two archives ("The
   Android stage", above), reported and held by that stage's judge of the

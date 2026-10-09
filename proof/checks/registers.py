@@ -23,7 +23,9 @@ a symptom class::
   never one of the fuzz sample, which holds only the documents its size and
   seed draw.
 - ``values`` (``{"before", "after"}``), only on an entry whose document is a
-  targeted one, pins the exact values; such an entry matches only there.
+  targeted one, pins the exact values; such an entry matches only there, and
+  owns what it matches, so a class's unpinned entry holds none of it
+  (``reconcile``).
 - An entry whose artifact is ``android@...`` is the Android stage's (``stage``): a difference in what
   CommCare Android's own code read of two archives (``proof.checks.android``), which that stage's judge of
   the entry's check reports and holds, on the entry's document and on its control. Every other entry is the

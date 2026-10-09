@@ -7714,13 +7714,43 @@
 	{
 		"id": "d51-android-proof3-local-ccz-list-sorted-changed",
 		"defect": 51,
-		"part": "sort keys, and defect 10's label-column order (the order a Sort choice gives)",
+		"part": "sort keys (the order a Sort choice gives)",
 		"check": "proof3",
 		"artifact": "android@local.ccz",
 		"path": "/walks/*/steps/*/list/sorted/*",
 		"kind": "changed",
 		"document": "case-list-browse",
 		"control": "case-list-browse"
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-sorted-zone-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "targeted-label-sort",
+		"control": "targeted-label-sort",
+		"values": {
+			"before": "proof text | proof text | 10 | 10 | 2",
+			"after": "10 | 10 | 2 | proof text | proof text"
+		}
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-sorted-level-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "targeted-label-sort",
+		"control": "targeted-label-sort",
+		"values": {
+			"before": "2 | proof text | 10 | 10 | proof text",
+			"after": "10 | 10 | 2 | proof text | proof text"
+		}
 	},
 	{
 		"id": "d36-android-proof3-local-ccz-list-sorted-removed",
