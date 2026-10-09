@@ -71,7 +71,10 @@ logs in is on a real device. The requests (`Reader.java`):
     the screen's own views (a text box typed into, a spinner set, a check box
     ticked; a date range is chosen on a picker the walk does not open), with
     the errors Core's query manager then holds: the strings a search builds
-    from a typed answer, CSQL among them. The search is then answered with every
+    from a typed answer, CSQL among them, each held by the stage's judge to a
+    search Formplayer sent HQ's own search view with the same answers typed
+    in (`proof/checks/android.py::typed_never_sent_to_hq`), so HQ's compile of
+    it is observed. The search is then answered with every
     case of the asked types the device holds, as the Core runner answers one;
   - a **claim** (`PostRequestActivity`, `Posts.java`): what it posts, then
     the sync the screen runs with the app's own data pull;
