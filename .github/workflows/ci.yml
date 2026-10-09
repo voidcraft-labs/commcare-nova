@@ -669,7 +669,10 @@ jobs:
     name: Proof ${{ matrix.shard }}/${{ matrix.total }}
     needs: proof-plan
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    # A shard serves each state of its documents to Formplayer and walks every
+    # run of each whole in the Web Apps client, a fresh page a run; a cold
+    # shard takes 25 to 45 minutes, so the deadline only catches a stuck one.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.proof-plan.outputs.matrix) }}
