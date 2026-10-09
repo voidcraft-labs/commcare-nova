@@ -528,6 +528,7 @@ describe("loaders on a design-session target", () => {
 			target: { kind: "design-session", designSessionId: sessionId },
 			activeStreamId: "stream-l",
 			runId,
+			inputRound: null,
 		});
 		/* A LIVE run's nonce projects to its owning actor only. */
 		const ownerView = await loadThread(target, "ds-thread-l", ACTOR);

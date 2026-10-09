@@ -93,7 +93,12 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	requireSession: vi.fn(),
 }));
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	downloadAssetBytes: vi.fn(),
+	readTextObject: () => {
+		throw new Error("Publishing must not read document requirements extracts.");
+	},
+}));
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");

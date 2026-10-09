@@ -51,6 +51,9 @@ vi.mock("@/lib/db/apps", () => ({
 // table instead.
 vi.mock("@/lib/db/mediaAssets", async () => ({
 	loadAssetsByIds: (await import("./fixtures")).loadAssetsByIdsMock,
+	findSourceAssets: () => {
+		throw new Error("Menu media commands must not discover source documents.");
+	},
 }));
 
 beforeEach(() => {
