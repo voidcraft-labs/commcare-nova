@@ -310,9 +310,10 @@ both, on every CI run); neither is a `test_*.py`, because the lane's pytest coll
   completed save and not its header (finding 46); a search answer holding
   both quote marks is sent and the server's refusal shown as Android's own
   text (finding 48); a fuzzy search matches a column's sort key (finding 51);
-  a question's hint and a group's label that name an image lay out the
-  same screen as without it, while a question label's image is laid out
-  (defect 16's media slots).
+  a question's hint, a group's label and a validation message that name an
+  image lay out the same screen as without it (the message typed into
+  breaking its constraint, and shown as its text), while a question label's
+  image is laid out (defect 16's media slots).
 
 `test_stage.py` and `proof/checks/test_android.py` run in the lane, with no
 reader: the stage's own logic over a stand-in reader that answers from an

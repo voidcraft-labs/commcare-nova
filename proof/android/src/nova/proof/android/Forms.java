@@ -25,6 +25,7 @@ import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -188,6 +189,10 @@ final class Forms {
                 finish.performClick();
             }
             settle(activity);
+            if (views && !activity.isFinishing() && activity.getODKView() != null) {
+                // What the screen shows where Android did not take the finish (a message for an answer).
+                form.put("afterFinish", Views.describe(activity.getODKView()));
+            }
         }
         JSONObject saved = new JSONObject();
         form.put("saved", saved);
@@ -341,6 +346,10 @@ final class Forms {
     private static final int UNANSWERED = 0;
     private static final int ANSWERED = 1;
     private static final int ADVANCED = 2;
+    /** A refused value typed into its box, which the worker's next step asks the form to take. */
+    private static final int TYPED = 3;
+    /** Set by the reader where a request asks the walk to type a value the form refused (``typeRefused``). */
+    static boolean typeRefused;
 
     /**
      * Gives each question on the screen its answer from the table, through the form's own controller: the first
@@ -352,6 +361,7 @@ final class Forms {
             return UNANSWERED;
         }
         boolean answered = false;
+        boolean typed = false;
         JSONArray given = new JSONArray();
         for (QuestionWidget widget : view.getWidgets()) {
             FormEntryPrompt prompt = widget.getPrompt();
@@ -398,10 +408,20 @@ final class Forms {
             entry.put("given", taken);
             if (refused.length() > 0) {
                 entry.put("refused", refused);
+                List<String> values = Answers.valuesFor(prompt);
+                if (typeRefused && taken == JSONObject.NULL && !values.isEmpty()
+                        && widget instanceof org.commcare.views.widgets.StringWidget
+                        && refused.toString().contains(": constraint")) {
+                    // The worker types the value the form refused into the question's own box and goes on, so
+                    // Android itself checks it and shows the form's message for it.
+                    ((org.commcare.views.widgets.StringWidget)widget).setAnswer(values.get(0));
+                    entry.put("typed", values.get(0));
+                    typed = true;
+                }
             }
         }
         screen.put("answered", given);
-        return answered ? ANSWERED : UNANSWERED;
+        return typed ? TYPED : answered ? ANSWERED : UNANSWERED;
     }
 
     /**

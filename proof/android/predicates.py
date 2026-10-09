@@ -443,6 +443,59 @@ class Predicates(unittest.TestCase):
         self.assertEqual(screens(with_media), plain)
         self.assertNotEqual(screens(labelled), plain)
 
+    def test_a_validation_messages_media_shows_nowhere_a_device_draws(self):
+        """Defect 16 (validation message media). Contract: where a worker's answer breaks a question's constraint,
+        Android shows the form's message for it as its text alone (``FormEntryActivityUIController
+        .showConstraintWarning``, ``QuestionWidget.notifyInvalid``), so a message that also names an image shows
+        the same screen as one that does not. Failure it catches: the message's image shown on a device, or a walk
+        that never shows the message at all (its text is on the screen)."""
+        form = "modules-0/forms-0.xml"
+        image = (Path(__file__).resolve().parent / "captures" / "proof-image.jpg").read_bytes()
+        constrained = edited(
+            LABELLED_REPEAT,
+            self.work / "constrained.ccz",
+            form,
+            [
+                (
+                    '<bind nodeset="/data/household/address" type="xsd:string"/>',
+                    '<bind nodeset="/data/household/address" type="xsd:string" constraint=". = &apos;ok&apos;"'
+                    ' jr:constraintMsg="jr:itext(&apos;household-address-constraintMsg&apos;)"/>',
+                ),
+                (
+                    '<text id="household-address-label">',
+                    '<text id="household-address-constraintMsg"><value>Use ok</value></text>'
+                    '<text id="household-address-label">',
+                ),
+            ],
+        )
+        with_media = with_entries(
+            edited(
+                constrained,
+                self.work / "constrained-media.ccz",
+                form,
+                [
+                    (
+                        "<value>Use ok</value>",
+                        '<value>Use ok</value><value form="image">jr://file/commcare/image/ok.jpg</value>',
+                    )
+                ],
+            ),
+            self.work / "constrained-media-files.ccz",
+            {"commcare/image/ok.jpg": image},
+        )
+
+        def held(archive):
+            # The form is one screen (a field list): the worker types the refused answer and presses finish, and
+            # Android keeps the form open on that screen with the form's message.
+            answer = self.walked(archive, commands=["m0-f0"], views=True, typeRefused=True)
+            form_read = answer["walks"]["m0-f0"]["steps"][0]["form"]
+            self.assertIs(form_read["saved"]["finishing"], False)
+            return form_read["afterFinish"]
+
+        plain = held(constrained)
+        self.assertIn("Use ok", json.dumps(plain))
+        self.assertEqual(held(with_media), plain)
+
     # The predicates whose other spelling is HQ's build's -------------------------------------------------------
 
     def walked(self, archive, restore=None, **options):

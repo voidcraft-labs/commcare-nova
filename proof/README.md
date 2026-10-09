@@ -374,10 +374,10 @@ or it fails the lane ("The registers", below).
   - defect 14's logos on a linked-app pull
     (`models/applications.py::LinkedApplication.reapply_overrides` over a
     master holding Nova's `logo_refs`);
-  - defect 16's media slots on Formplayer and the client, and its
-    validation message media on Android (a hint's and a group label's media
-    are held on Android by `proof/android/predicates.py`, which shows a
-    device lays out the same screen with them as without them and a
+  - defect 16's media slots on Formplayer and the client (on Android a
+    hint's, a group label's and a validation message's media are held by
+    `proof/android/predicates.py`, which shows a device lays out the same
+    screen with each as without it, the message's text drawn, and a
     question label's image beside its text);
   - defect 24's and defect 30's export columns (HQ's form and case export
     over each path's submission; `proof/hq/test_report_retention.py` already
