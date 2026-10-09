@@ -189,13 +189,17 @@ final class Captures {
         View capture = (View)Screens.field(widget, "captureButton");
         capture.performClick();
         ShadowLooper.idleMainLooper();
-        String[] microphone = {android.Manifest.permission.RECORD_AUDIO};
-        if (org.commcare.utils.Permissions.missingAppPermission(activity, microphone[0])) {
-            application.grantPermissions(microphone);
-            activity.onRequestPermissionsResult(QuestionWidget.REQUEST_RECORD_AUDIO_PERMISSION, microphone,
-                    new int[]{android.content.pm.PackageManager.PERMISSION_GRANTED});
-            entry.put("allowed", microphone[0]);
-            ShadowLooper.idleMainLooper();
+        // The record button asks for the microphone where the app holds no permission for it; the worker allows it.
+        ShadowActivity form = Shadows.shadowOf((Activity)activity);
+        Intent next;
+        while ((next = form.peekNextStartedActivity()) != null) {
+            form.getNextStartedActivity();
+            String[] asked = next.getStringArrayExtra(Sensors.REQUESTED);
+            if (asked != null) {
+                Sensors.answer(activity, next);
+                entry.put("allowed", new org.json.JSONArray(java.util.Arrays.asList(asked)));
+                ShadowLooper.idleMainLooper();
+            }
         }
         Intent started;
         do {

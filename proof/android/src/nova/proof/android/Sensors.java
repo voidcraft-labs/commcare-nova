@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationManager;
@@ -11,7 +12,6 @@ import android.location.LocationManager;
 import androidx.test.core.app.ApplicationProvider;
 
 import org.commcare.activities.FormEntryActivity;
-import org.commcare.activities.components.FormEntryConstants;
 import org.commcare.utils.RobolectricUtil;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -45,7 +45,27 @@ final class Sensors {
     private static final List<String> LOCATION =
             Arrays.asList(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION);
 
+    /** The permission request's names, and the answer's results, as the framework passes them. */
+    static final String REQUESTED = "android.content.pm.extra.REQUEST_PERMISSIONS_NAMES";
+    static final String RESULTS = "android.content.pm.extra.REQUEST_PERMISSIONS_RESULTS";
+
     private Sensors() {
+    }
+
+    /**
+     * The worker allows every permission a request asks for, as the system's permission dialog answers: the
+     * permissions granted, and the dialog's result handed back to the activity that asked
+     * (Activity.dispatchRequestPermissionsResult, which also ends the request, so the activity may ask again).
+     */
+    static void answer(Activity activity, Intent request) {
+        String[] asked = request.getStringArrayExtra(REQUESTED);
+        Shadows.shadowOf((Application)ApplicationProvider.getApplicationContext()).grantPermissions(asked);
+        int[] granted = new int[asked.length];
+        Arrays.fill(granted, PackageManager.PERMISSION_GRANTED);
+        Intent result = new Intent();
+        result.putExtra(REQUESTED, asked);
+        result.putExtra(RESULTS, granted);
+        Shadows.shadowOf(activity).receiveResult(request, Activity.RESULT_OK, result);
     }
 
     /** The device's location switched on, as a worker's phone has it before any form asks. */
@@ -76,13 +96,7 @@ final class Sensors {
         if (asked == null || !asksLocation(asked)) {
             return;
         }
-        ShadowApplication application =
-                Shadows.shadowOf((Application)ApplicationProvider.getApplicationContext());
-        application.grantPermissions(LOCATION.toArray(new String[0]));
-        int[] granted = new int[LOCATION.size()];
-        Arrays.fill(granted, PackageManager.PERMISSION_GRANTED);
-        activity.onRequestPermissionsResult(FormEntryConstants.INTENT_LOCATION_PERMISSION,
-                LOCATION.toArray(new String[0]), granted);
+        answer(activity, Screens.permissionRequest);
         settle(activity);
         Location fix = new Location(LocationManager.GPS_PROVIDER);
         fix.setLatitude(LATITUDE);
