@@ -285,7 +285,12 @@ or it fails the lane ("The registers", below).
   so it does not yet receive the form the device saved. Nothing is sent: a form is saved and applied to
   the device's own case database; where a device would post it is read by
   Android's own reader (`FormSubmissionHelper.getFormPostURL`), and nothing
-  is posted there. A search is answered
+  is posted there. What settles both is the device's own submission, posted
+  by the app's own network code to a loopback address that HQ's receiver
+  view answers over the document's unit, with Connect then receiving what
+  HQ forwards; that needs HQ beside the reader, which runs on amd64 apart
+  from the image, so either the unit is made again beside the stage or the
+  reader runs inside an amd64 shard. A search is answered
   with every case of the asked types the device holds, so what a search's
   filter selects is not read (as on Formplayer). Robolectric lays views out
   and does not draw them: a cell's class, text, gravity, text size, scale
