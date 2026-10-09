@@ -82,8 +82,8 @@ vi.mock("@/lib/storage/media", () => ({
 vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
 	withMediaObjectKeyLock: withMediaObjectKeyLockMock,
 }));
-vi.mock("@/lib/utils/delay", () => ({
-	delay: delayMock,
+vi.mock("node:timers/promises", () => ({
+	setTimeout: delayMock,
 }));
 /** Build a ready document asset record, overridable per test. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
@@ -174,6 +174,91 @@ beforeEach(() => {
 		summary: "Collect data.",
 		truncated: false,
 	});
+});
+
+it("aborts an in-flight extraction waiter without claiming or cancelling the other job", async () => {
+	const controller = new AbortController();
+	const waiting = Promise.withResolvers<void>();
+	const timers = await vi.importActual<typeof import("node:timers/promises")>(
+		"node:timers/promises",
+	);
+	delayMock.mockImplementation(
+		(ms: number, value: undefined, options: { signal: AbortSignal }) => {
+			waiting.resolve();
+			return timers.setTimeout(ms, value, options);
+		},
+	);
+	readTextObjectMock.mockResolvedValue(null);
+	loadAssetByIdMock.mockResolvedValue(
+		docAsset({ extract: extractRecord("extracting") }),
+	);
+	const pending = ensureStoredExtract({
+		asset: docAsset(),
+		documentKind: "pdf",
+		condenser: stubCondenser,
+		onInflight: "wait",
+		signal: controller.signal,
+	});
+	const observed = pending.then(
+		() => ({ error: null }),
+		(error: unknown) => ({ error }),
+	);
+	try {
+		await waiting.promise;
+		controller.abort();
+		expect((await observed).error).toMatchObject({ name: "AbortError" });
+		expect(claimExtractionIfIdle).not.toHaveBeenCalled();
+		expect(structuredResultMock).not.toHaveBeenCalled();
+		expect(publishClaimedAssetExtract).not.toHaveBeenCalled();
+	} finally {
+		controller.abort();
+		await observed;
+	}
+});
+
+it("cancels the condenser at the total preparation deadline and retires its timer", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	const controller = new AbortController();
+	const started = Promise.withResolvers<void>();
+	readTextObjectMock.mockResolvedValue(null);
+	loadAssetByIdMock.mockResolvedValue(docAsset());
+	structuredResultMock.mockImplementation(
+		({ signal }: { signal: AbortSignal }) =>
+			new Promise((_resolve, reject) => {
+				signal.addEventListener("abort", () => reject(signal.reason), {
+					once: true,
+				});
+				started.resolve();
+			}),
+	);
+	const pending = ensureStoredExtract({
+		asset: docAsset(),
+		documentKind: "pdf",
+		condenser: stubCondenser,
+		onInflight: "wait",
+		signal: controller.signal,
+	});
+	const observed = pending.then(
+		() => ({ error: null }),
+		(error: unknown) => ({ error }),
+	);
+	try {
+		await started.promise;
+		await vi.advanceTimersByTimeAsync(EXTRACTING_STALE_MS);
+		expect((await observed).error).toMatchObject({ name: "TimeoutError" });
+		expect(writeTextObject).not.toHaveBeenCalled();
+		expect(publishClaimedAssetExtract).toHaveBeenCalledWith(
+			expect.objectContaining({
+				extract: expect.objectContaining({ status: "failed" }),
+			}),
+			expect.anything(),
+		);
+		expect(vi.getTimerCount()).toBe(0);
+	} finally {
+		controller.abort();
+		await observed;
+		vi.useRealTimers();
+	}
 });
 
 describe("decideExtractAction (single-flight policy)", () => {
@@ -535,6 +620,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 		expect(readTextObjectMock).toHaveBeenLastCalledWith(
 			expect.stringContaining(`.extract.v${newerVersion}.md`),
 			expect.any(Number),
+			expect.any(AbortSignal),
 		);
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});

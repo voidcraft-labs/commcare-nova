@@ -702,20 +702,34 @@ export async function getStoredObjectMetadata(gcsObjectKey: string): Promise<{
 export async function downloadAssetBytes(
 	gcsObjectKey: string,
 	maxBytes: number,
+	signal?: AbortSignal,
 ): Promise<Buffer> {
+	signal?.throwIfAborted();
 	const stream = getBucket().file(gcsObjectKey).createReadStream();
+	const abort = () =>
+		stream.destroy(
+			new Error("Document preparation was cancelled.", {
+				cause: signal?.reason,
+			}),
+		);
+	signal?.addEventListener("abort", abort, { once: true });
 	const chunks: Buffer[] = [];
 	let total = 0;
-	for await (const chunk of stream) {
-		total += chunk.length;
-		if (total > maxBytes) {
-			stream.destroy();
-			throw new Error(
-				`The stored file is larger than the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap for its kind, it may have been overwritten after the upload started. Upload it again.`,
-			);
+	try {
+		for await (const chunk of stream) {
+			total += chunk.length;
+			if (total > maxBytes) {
+				stream.destroy();
+				throw new Error(
+					`The stored file is larger than the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap for its kind, it may have been overwritten after the upload started. Upload it again.`,
+				);
+			}
+			chunks.push(chunk as Buffer);
 		}
-		chunks.push(chunk as Buffer);
+	} finally {
+		signal?.removeEventListener("abort", abort);
 	}
+	signal?.throwIfAborted();
 	return Buffer.concat(chunks);
 }
 
@@ -767,14 +781,17 @@ export async function writeTextObject(
 export async function readTextObject(
 	gcsObjectKey: string,
 	maxBytes: number,
+	signal?: AbortSignal,
 ): Promise<string | null> {
+	signal?.throwIfAborted();
 	// Existence probe first: `downloadAssetBytes` streams and would surface a
 	// missing object as a stream error, not a clean null. The metadata HEAD is
 	// cheap and lets a not-extracted-yet read return null without a throw.
 	const size = await getStoredObjectSize(gcsObjectKey);
+	signal?.throwIfAborted();
 	if (size === null) return null;
 	try {
-		const bytes = await downloadAssetBytes(gcsObjectKey, maxBytes);
+		const bytes = await downloadAssetBytes(gcsObjectKey, maxBytes, signal);
 		return bytes.toString("utf8");
 	} catch (err) {
 		// The object existed at the probe but is gone now (a delete raced between

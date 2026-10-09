@@ -1226,6 +1226,14 @@ export async function createSmokeBuilders(
 					streamId,
 					expectedProjectId: seedProjectId,
 					clearMarker: true,
+					inputRound: {
+						id: "smoke-scroll-question-round",
+						kind: "questions",
+						assistantMessageId: "smoke-scroll-q-assistant-final",
+						toolCallIds: ["smoke-scroll-q-ask-1"],
+						state: "pending",
+						acceptedStreamId: null,
+					},
 					responseMessage: {
 						id: "smoke-scroll-q-assistant-final",
 						role: "assistant",

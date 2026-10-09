@@ -252,7 +252,46 @@ receipt replay reauthorizes access. MCP exposes `begin_work`, `list_work`,
 and durable request identity. Shared reads explicitly select candidate or saved
 state. Save and discard bind the opaque candidate revision returned by reads.
 
+## Library sources
+
+`listMediaAssets` / `list_media_assets` discovers every supported file kind in
+the current Project, with whole-library text search before cursor pagination.
+`readSource` / `read_source` reads a document by id or unambiguous exact filename,
+including documents absent from the conversation's attachments. Listing files
+does not load their contents or select them as evidence.
+
+The shared reader returns the prepared requirements extract, never a claim of
+lossless original-file access. Pages default to 12,000 characters and permit at
+most 24,000. The first page returns a revision; subsequent offsets require it.
+That revision binds original content, extractor version and the stored text.
+A mismatch refuses the page. `extractTruncated` describes preparation limits;
+reaching the end of the stored extract does not prove the original was complete.
+Embedded authoring can prepare a document within its existing metered run and
+cancellation lifetime. External MCP reads have no hidden model call and return
+`preparation_required`, `extracting`, or `failed` when preparation is unavailable.
+The Library owns explicit preparation and retry for those clients.
+
+Successful embedded reads retain server-owned selected-source identities on the
+thread, separately from user attachments. A fresh turn reassembles those documents
+from their current prepared extracts, preparing them again when needed, and
+records the current source snapshot. A changed source digest invalidates prior
+review. Page revisions prevent mixing extracts within a read sequence; they do
+not freeze source content across turns. Selection checks
+live holder and Project access, joins the thread's exact media-reference set,
+and participates in deletion guards and Project move remapping. A library search
+does not make every result a source, and a client transcript cannot manufacture
+selection provenance.
+
 ## Conversation and recovery
+
+A pause publishes a durable input round with its kind, assistant and question-call
+identities. The round is consumed atomically with accepted continuation and holder
+renewal. Duplicate or stale answers reconcile to the stored round and active
+stream; they cannot purchase another continuation. Question UI can automatically
+send only one answer attempt for the pending server-issued question round.
+A deliberate answer retry can re-arm that pending round. Reload and stream replay
+cannot downgrade a consumed round to pending. Typed-message and review pauses
+wait for explicit user input; transcript shape alone never starts a new turn.
 
 Ordinary edit conversations retain private work across interrupted turns and
 page loads. A pending-work row offers Continue or Discard after the run settles.

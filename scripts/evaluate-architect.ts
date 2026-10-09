@@ -9,9 +9,13 @@ import { z } from "zod";
 import { readDesignSession } from "@/lib/agent/anatomy/recorded";
 import { captureModelRequests } from "@/lib/agent/anatomy/requestCapture";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
-import { completeBuildOrchestration } from "@/lib/agent/build/orchestratorState";
+import {
+	appendOrchestrationEventInTransaction,
+	completeBuildOrchestration,
+} from "@/lib/agent/build/orchestratorState";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
+import { meterSubGenerationUsage } from "@/lib/agent/modelRunContext";
 import {
 	AgentModelStepError,
 	type AgentModelStepFn,
@@ -27,9 +31,12 @@ import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import { getAuthDb } from "@/lib/auth/db";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import type { NovaUIMessage as UIMessage } from "@/lib/chat/attachmentRefs";
+import { inputRoundSchema } from "@/lib/chat/inputRound";
+import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { claimAndReserveRun, failApp, loadApp } from "@/lib/db/apps";
 import { settleAndRelease } from "@/lib/db/credits";
 import {
+	assertDesignSessionRunAuthorityInTransaction,
 	claimAndReserveDesignSessionRun,
 	createAndClaimDesignSessionRun,
 	failAndRefundDesignSessionRun,
@@ -37,8 +44,14 @@ import {
 } from "@/lib/db/designSessions";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { insertReadyAsset } from "@/lib/db/mediaAssets";
-import { getAppDb } from "@/lib/db/pg";
-import { upsertThreadTurn } from "@/lib/db/threads";
+import { getAppDb, withAppTx } from "@/lib/db/pg";
+import {
+	checkInputRoundInTransaction,
+	consumeInputRoundInTransaction,
+	loadThread,
+	loadThreadSelectedSources,
+	upsertThreadTurn,
+} from "@/lib/db/threads";
 import { UsageAccumulator } from "@/lib/db/usage";
 import { asMediaAssetId, gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { MODEL_ROLES } from "@/lib/models";
@@ -86,6 +99,12 @@ const options = new Command()
 	)
 	.option("--document <file>", "attach and extract one UTF-8 text source")
 	.option(
+		"--library-document <file>",
+		"add an unprepared UTF-8 source to the Project library without attaching it (repeatable)",
+		(value: string, previous: string[]) => [...previous, value],
+		[],
+	)
+	.option(
 		"--answers <file>",
 		"ordinary answers to the prior pending question card",
 	)
@@ -108,6 +127,7 @@ const options = new Command()
 		feedback?: string;
 		answers?: string;
 		document?: string;
+		libraryDocument: string[];
 		trialConfig?: string;
 		confirmPaid?: boolean;
 		dryRun?: boolean;
@@ -138,6 +158,29 @@ async function main() {
 		});
 	await save("trial-config.json", trialIdentity);
 	const task = await readFile(resolve(options.task), "utf8");
+	if (options.resume && options.libraryDocument.length)
+		throw new Error(
+			"Resume reuses its Project library; new source fixtures are not allowed.",
+		);
+	const libraryDocuments = await Promise.all(
+		options.libraryDocument.map(async (path) => {
+			const bytes = await readFile(resolve(path));
+			if (bytes.length > 100_000)
+				throw new Error("Trial text documents must be at most 100 KB.");
+			return {
+				filename: basename(path),
+				bytes,
+				contentHash: createHash("sha256").update(bytes).digest("hex"),
+			};
+		}),
+	);
+	await save(
+		"library-fixtures.json",
+		libraryDocuments.map(({ bytes, ...document }) => ({
+			...document,
+			source: bytes.toString("utf8"),
+		})),
+	);
 	if ((options.feedback || options.answers) && !options.resume)
 		throw new Error("Feedback or answers require a prior trial.");
 	const feedback = options.feedback
@@ -208,6 +251,7 @@ async function main() {
 			},
 		];
 		let resumedApp: Awaited<ReturnType<typeof loadApp>> = null;
+		let resumedThread: Awaited<ReturnType<typeof loadThread>> = null;
 		let prior:
 			| {
 					appId: string;
@@ -237,6 +281,24 @@ async function main() {
 				throw new Error("Resume requires the original trial request.");
 			resumedApp = await loadApp(prior.appId);
 			const session = await loadDesignSession(prior.designSessionId);
+			resumedThread = await loadThread(
+				{ kind: "design-session", designSessionId: prior.designSessionId },
+				prior.threadId,
+				actor.id,
+			);
+			const savedRound = inputRoundSchema.parse(
+				JSON.parse(
+					await readFile(resolve(previous, "input-round.json"), "utf8"),
+				),
+			);
+			if (
+				!resumedThread?.holder_nonce ||
+				resumedThread.input_round?.id !== savedRound.id ||
+				resumedThread.input_round.state !== "pending"
+			)
+				throw new Error(
+					"Resume requires its original pending invitation and holder.",
+				);
 			if (
 				!session ||
 				session.owner_user_id !== actor.id ||
@@ -329,6 +391,62 @@ async function main() {
 					actor.id,
 					`Architect trial ${randomUUID().slice(0, 8)}`,
 				);
+		const threadId = prior?.threadId ?? randomUUID();
+		const streamId = randomUUID();
+		const resumeContinuation =
+			prior && resumedThread
+				? {
+						check: async (
+							tx: Parameters<typeof checkInputRoundInTransaction>[0],
+						) => {
+							if (!prior || !resumedThread)
+								throw new Error("Trial continuation is unavailable.");
+							await checkInputRoundInTransaction(tx, {
+								target: {
+									kind: "design-session",
+									designSessionId: prior.designSessionId,
+								},
+								threadId,
+								inputRoundId: resumedThread.input_round?.id,
+								holderNonce: resumedThread.holder_nonce ?? null,
+								actorUserId: actor.id,
+								runId: resumedThread.run_id,
+								messages: userMessages,
+							});
+						},
+						commit: async (
+							tx: Parameters<typeof checkInputRoundInTransaction>[0],
+							holderNonce: string,
+						) => {
+							if (!prior) throw new Error("Trial continuation is unavailable.");
+							const started = await upsertThreadTurn(
+								{
+									target: {
+										kind: "design-session",
+										designSessionId: prior.designSessionId,
+									},
+									threadId,
+									streamId,
+									runId,
+									holderNonce,
+									threadType: "build",
+									messages: userMessages,
+									expectedProjectId: project.id,
+								},
+								tx,
+							);
+							if (!started)
+								throw new Error(
+									"The accepted trial thread could not be opened.",
+								);
+							await consumeInputRoundInTransaction(tx, {
+								threadId,
+								streamId,
+								messages: userMessages,
+							});
+						},
+					}
+				: undefined;
 		const claim = prior
 			? {
 					designSessionId: prior.designSessionId,
@@ -342,7 +460,10 @@ async function main() {
 								1,
 								prior.projectId,
 								undefined,
-								{ requireModeMatchesStatus: true },
+								{
+									requireModeMatchesStatus: true,
+									continuation: resumeContinuation,
+								},
 							)
 						: await claimAndReserveDesignSessionRun(
 								prior.designSessionId,
@@ -350,6 +471,8 @@ async function main() {
 								actor.id,
 								1,
 								prior.projectId,
+								undefined,
+								resumeContinuation,
 							)),
 				}
 			: await createAndClaimDesignSessionRun({
@@ -384,16 +507,14 @@ async function main() {
 		let activeRole: TrialRole | undefined;
 		const events: unknown[] = [];
 		const uiChunks: UIMessageChunk[] = [];
-		const threadId = prior?.threadId ?? randomUUID();
 		const trailingMessage = userMessages.at(-1);
 		const responseSeed =
 			trailingMessage?.role === "assistant" ? trailingMessage : undefined;
-		const streamId = randomUUID();
 		const threadTarget = {
 			kind: "design-session" as const,
 			designSessionId: claim.designSessionId,
 		};
-		let threadStarted = false;
+		let threadStarted = prior !== undefined;
 		let completed = false;
 		let paused = false;
 		try {
@@ -553,6 +674,8 @@ async function main() {
 						model: provider(opts.model),
 						abortSignal: abort.signal,
 					});
+					if (result.usage)
+						meterSubGenerationUsage(meter, result.usage, { model: opts.model });
 					if (currentCall) {
 						const call = currentCall as Record<string, unknown>;
 						const reserved = Number(call.reservedUsd);
@@ -632,16 +755,49 @@ async function main() {
 				);
 				await save("run.json", { ...run, userMessages });
 			}
-			threadStarted = await upsertThreadTurn({
-				target: threadTarget,
-				threadId,
-				streamId,
-				runId,
-				holderNonce: claim.holderNonce,
-				threadType: "build",
-				messages: userMessages,
-				expectedProjectId: project.id,
-			});
+			const libraryAssets = [];
+			for (const document of libraryDocuments) {
+				const gcsObjectKey = gcsObjectKeyFor(
+					project.id,
+					document.contentHash,
+					".txt",
+				);
+				await uploadAssetBytes({
+					gcsObjectKey,
+					bytes: document.bytes,
+					contentType: "text/plain",
+					ifAbsent: true,
+				});
+				const asset = await insertReadyAsset({
+					assetId: asMediaAssetId(randomUUID()),
+					owner: actor.id,
+					project_id: project.id,
+					contentHash: document.contentHash,
+					mimeType: "text/plain",
+					kind: "text",
+					extension: ".txt",
+					sizeBytes: document.bytes.length,
+					gcsObjectKey,
+					originalFilename: document.filename,
+				});
+				libraryAssets.push({
+					assetId: asset.id,
+					filename: document.filename,
+					contentHash: document.contentHash,
+				});
+			}
+			await save("library-assets.json", libraryAssets);
+			if (!threadStarted)
+				threadStarted = await upsertThreadTurn({
+					target: threadTarget,
+					threadId,
+					streamId,
+					runId,
+					holderNonce: claim.holderNonce,
+					threadType: "build",
+					messages: userMessages,
+					expectedProjectId: project.id,
+				});
 			if (!threadStarted)
 				throw new Error("The trial thread could not be opened.");
 			const outcome = await runBuildOrchestration({
@@ -654,6 +810,7 @@ async function main() {
 				holderNonce: claim.holderNonce,
 				threadId,
 				messages: userMessages,
+				streamId,
 				responseMessageId: responseSeed?.id ?? randomUUID(),
 				writer: {
 					write: (chunk) => {
@@ -669,7 +826,22 @@ async function main() {
 				materializedAppId: resumedApp ? claim.proposedAppId : null,
 				deps: {
 					reviewPolicy: config.reviewPolicy,
-					sourceDeps: productionSourceMaterialDeps(condenser),
+					sourceDeps: productionSourceMaterialDeps(condenser, {
+						authorize: () =>
+							withAppTx((tx) =>
+								assertDesignSessionRunAuthorityInTransaction(tx, {
+									designSessionId: claim.designSessionId,
+									actorUserId: actor.id,
+									expectedProjectId: project.id,
+									holder: {
+										mode: "build",
+										runId,
+										nonce: claim.holderNonce,
+									},
+								}),
+							),
+						signal: abort.signal,
+					}),
 					modelStep: stepFor("architect"),
 					peerStep: stepFor("peer"),
 					translationStep: stepFor("translator"),
@@ -699,7 +871,49 @@ async function main() {
 				},
 			});
 			completed = outcome.kind === "completed";
-			paused = outcome.kind === "awaiting-input" && outcome.pauseOwned;
+			if (outcome.kind === "awaiting-input") {
+				const responseMessage = await foldTrialChunks(uiChunks, responseSeed);
+				if (!responseMessage)
+					throw new Error("The paused trial has no assistant response.");
+				const session = await loadDesignSession(claim.designSessionId);
+				const round = await commitThreadInputPause({
+					target: threadTarget,
+					holderTarget: session?.app_id
+						? { kind: "app", appId: session.app_id }
+						: threadTarget,
+					threadId,
+					streamId,
+					runId,
+					holderNonce: claim.holderNonce,
+					mode: "build",
+					actorUserId: actor.id,
+					expectedProjectId: project.id,
+					responseMessage,
+					pause: outcome.pause,
+					commitState: async (tx) => {
+						await appendOrchestrationEventInTransaction(tx, {
+							...outcome.pause.orchestration,
+							designSessionId: claim.designSessionId,
+							runId,
+							holderNonce: claim.holderNonce,
+							actorUserId: actor.id,
+							expectedProjectId: project.id,
+						});
+					},
+				});
+				paused = true;
+				const receipt = {
+					type: "data-input-round" as const,
+					transient: true,
+					data: { round },
+				};
+				events.push(receipt);
+				uiChunks.push(receipt);
+				await save("input-round.json", round);
+			}
+			const finish = { type: "finish" as const };
+			events.push(finish);
+			uiChunks.push(finish);
 			await save("outcome.json", outcome);
 			if (!completed && !paused) process.exitCode = 1;
 		} catch (error) {
@@ -719,14 +933,15 @@ async function main() {
 							uiChunks,
 							responseSeed,
 						);
-						await persistArchitectTrialResponse({
-							target: threadTarget,
-							threadId,
-							streamId,
-							expectedProjectId: project.id,
-							responseMessage,
-							paused,
-						});
+						if (!paused)
+							await persistArchitectTrialResponse({
+								target: threadTarget,
+								threadId,
+								streamId,
+								expectedProjectId: project.id,
+								responseMessage,
+								paused,
+							});
 						await save(
 							"conversation.json",
 							trialConversationWithResponse(userMessages, responseMessage),
@@ -776,6 +991,11 @@ async function main() {
 					);
 					await save("result.json", {
 						app: await loadApp(claim.proposedAppId),
+						thread: await loadThread(threadTarget, threadId, actor.id),
+						selectedSources: await loadThreadSelectedSources(
+							threadTarget,
+							threadId,
+						),
 						usage: meter.snapshot(),
 						requests,
 						conservativeTrialUsd: ledger.estimatedSpentUsd - startingSpend,

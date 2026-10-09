@@ -15,6 +15,7 @@
  */
 
 import type { StageRequestReceipt } from "@/lib/agent/change-set/schemas";
+import type { SourceDocumentRuntime } from "@/lib/agent/sourceDocuments";
 import type { ConversionImpact } from "@/lib/case-store";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
@@ -167,6 +168,10 @@ export interface ToolInvocationContext {
 
 	/** Complete rows-free Project data catalog for author-facing read tools. */
 	readonly lookupCatalog?: () => Promise<LookupDefinitionsSnapshot>;
+
+	/** Authorized source reads; embedded hosts may prepare documents through
+	 * their metered run and retain selected evidence in the owning thread. */
+	readonly sourceDocuments?: SourceDocumentRuntime;
 
 	/**
 	 * Preview what retyping `(caseType, property)` to `toType` would do

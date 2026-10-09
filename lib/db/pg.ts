@@ -1,3 +1,4 @@
+import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 // Kysely typing + handle for the app-state tables (`apps`,
 // `blueprint_entities`, `app_changes`, `events`, `threads`,
 // `run_summaries`, `presence`, `user_settings`, the two monthly ledgers, media
@@ -28,6 +29,7 @@ import {
 	type Transaction,
 } from "kysely";
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
+import type { InputRound } from "@/lib/chat/inputRound";
 import type { EntityRowKind } from "@/lib/db/blueprintRows";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -202,6 +204,16 @@ export interface ThreadsTable {
 	 * metadata/messages and cleared when its exact stream finishes unpaused. */
 	active_holder_nonce: ColumnType<
 		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	selected_sources: JSONColumnType<
+		SelectedSourceDocument[],
+		string | undefined,
+		string
+	>;
+	input_round: JSONColumnType<
+		InputRound | null,
 		string | null | undefined,
 		string | null
 	>;

@@ -46,7 +46,20 @@ import {
 	messageMetadataSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
-import { NovaChatTransport } from "@/lib/chat/novaChatTransport";
+import {
+	type InputRound,
+	inputRoundReconciliationSchema,
+	inputRoundSchema,
+} from "@/lib/chat/inputRound";
+import {
+	answeredInputRound,
+	createInputRoundContinuation,
+	type InputRoundContinuation,
+} from "@/lib/chat/inputRoundContinuation";
+import {
+	InputRoundReconciliationError,
+	NovaChatTransport,
+} from "@/lib/chat/novaChatTransport";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
@@ -112,12 +125,9 @@ import {
 	rememberDesignBuildResumeEligibility,
 	retireProjectAttachmentRefs,
 	shouldAutoRedrive,
-	shouldAutoResend,
 	threadActivationNeedsIncompleteSeed,
 	threadResumeHealPath,
 	threadResumeHealTarget,
-	trailingAskPosture,
-	trailingDesignWaitsForInput,
 	trailingTypedDesignWaitContinuation,
 } from "./chatLifecycle";
 import { PendingChatWork } from "./PendingChatWork";
@@ -130,6 +140,11 @@ interface ActiveThreadInit {
 }
 
 const chatOwnerEpochs = new WeakMap<Chat<NovaUIMessage>, number>();
+const chatInputRounds = new WeakMap<
+	Chat<NovaUIMessage>,
+	InputRoundContinuation
+>();
+const chatsNeedingReconciliation = new WeakSet<Chat<NovaUIMessage>>();
 
 /** Digest-verify an admitted receipt in the background: SHA-256 over the
  * shared canonical JSON text, compared to the server's `snapshotDigest`. The
@@ -222,15 +237,12 @@ function installCreatedApp(
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references: safe across re-renders within the same app session. */
-/** Consecutive fatal-error strikes at which the answered-askQuestions
- *  auto-resend stops retrying. Two, not one: the first strike may be a
- *  transient infrastructure fault whose single automatic retry succeeds
- *  unnoticed; a second consecutive fatal error means the rejection is real
- *  and retrying unattended only re-runs it. */
-const AUTO_RESEND_FATAL_HALT_STRIKES = 2;
-
 function createChatInstance(
 	init: ActiveThreadInit,
+	initialInputRound: InputRound | null,
+	legacyInputPause: boolean,
+	activeChatRef: { current: Chat<NovaUIMessage> | null },
+	ownerMountedRef: { current: boolean },
 	docStoreRef: { current: BlueprintDocStore | null },
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
@@ -239,7 +251,6 @@ function createChatInstance(
 	designProgressStore: DesignProgressStoreApi,
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
-	autoResendFatalStrikesRef: { current: number },
 	pendingAnswerAttachmentsRef: { current: AttachmentRef[] },
 	threadHydrationStateRef: {
 		current: "ready" | "pending" | "failed";
@@ -247,13 +258,14 @@ function createChatInstance(
 	projectToast: ProjectToastEmitter,
 	ownerScopeEpoch: number,
 	onContextActivity: (active: boolean) => void,
+	onInputRoundChange: () => void,
 ): Chat<NovaUIMessage> {
-	/* A fresh Chat instance starts with a clean slate: the strike count
-	 * guards runs of THIS instance, not whatever a previously open thread
-	 * ended on — and files staged against another conversation's question
-	 * round must not ride a send in this one. */
-	autoResendFatalStrikesRef.current = 0;
+	// Staged answer files belong to this conversation alone.
 	pendingAnswerAttachmentsRef.current = [];
+	const continuation = createInputRoundContinuation(
+		initialInputRound,
+		legacyInputPause,
+	);
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent: the route loads the persisted doc server-side off the
 	 * authorization read. We send only the `appId`.
@@ -276,6 +288,10 @@ function createChatInstance(
 			threadId: init.threadId,
 			runId: runIdRef.current,
 			holderNonce: holderNonceRef.current,
+			inputRoundId:
+				continuation.round?.state === "pending"
+					? continuation.round.id
+					: undefined,
 			appId: sessionState.appId,
 			/* The thread's design lineage, when it has one: a build thread is
 			 * session-targeted for its whole life, so the route needs the id on
@@ -304,11 +320,14 @@ function createChatInstance(
 			 * JSON POST without an explicit content-type goes out as
 			 * `text/plain` (fetch's default for a string body). */
 			prepareSendMessagesRequest: ({ api, messages, trigger, body }) => {
-				/* Deliberately NO strike reset here: this callback fires for the
-				 * automatic resends too, and a reset per outbound attempt would
-				 * unbound the very loop the strike cap exists to stop. The resets
-				 * live on the USER actions (`handleSubmit`, `handleToolOutput`)
-				 * and on a fresh Chat instance. */
+				if (
+					!ownerMountedRef.current ||
+					activeChatRef.current !== instance ||
+					continuation.requiresReconciliation
+				) {
+					throw new Error("This conversation is no longer open.");
+				}
+				continuation.markSubmitted();
 				return {
 					api,
 					headers: { "content-type": "application/json" },
@@ -368,18 +387,7 @@ function createChatInstance(
 		 * its message from the wire and needs exact-index replay. */
 		transport,
 		sendAutomaticallyWhen: (args) => {
-			/* Consecutive FATAL generation errors halt the answered-askQuestions
-			 * auto-resend until the user acts (answers again, sends a message,
-			 * or reloads). The route's graceful bails (superseded / released
-			 * resumes and their kin) stream that error and close CLEAN, so
-			 * without this cap the SDK's post-request evaluation still sees an
-			 * answered round as the last message and immediately re-sends: one
-			 * rejection became an unattended ~1/s retry loop measured at 6,369
-			 * POSTs before the tab closed. The cap is 2 rather than 1 so a
-			 * one-off transient fault (an infra blip the route streams as
-			 * fatal) still self-heals on the single automatic retry the old
-			 * unconditional resend provided. */
-			if (autoResendFatalStrikesRef.current >= AUTO_RESEND_FATAL_HALT_STRIKES)
+			if (!ownerMountedRef.current || activeChatRef.current !== instance)
 				return false;
 			/* Files staged with answers own the resume: `handleToolOutput`
 			 * flushes them as the attachment-bearing user message the model
@@ -392,10 +400,12 @@ function createChatInstance(
 					owner,
 					ownerScopeEpoch,
 					threadHydrationStateRef.current,
-				) && shouldAutoResend(args)
+				) && continuation.claimAutomatic(args.messages)
 			);
 		},
 		onData: (part) => {
+			if (!ownerMountedRef.current || activeChatRef.current !== instance)
+				return;
 			const ownerSession = sessionStoreRef.current?.getState();
 			/* A Chat transport can deliver a buffered chunk after its Project was
 			 * reset. Its callbacks close over the generation that created it; never
@@ -412,23 +422,32 @@ function createChatInstance(
 				type: string;
 				data: Record<string, unknown>;
 			};
+			if (type === "data-input-round") {
+				const parsed = inputRoundSchema.nullable().safeParse(data.round);
+				if (parsed.success) {
+					continuation.adopt(parsed.data);
+					onInputRoundChange();
+				}
+				return;
+			}
+			if (type === "data-input-round-reconciliation") {
+				const parsed = inputRoundReconciliationSchema.safeParse(data);
+				if (parsed.success && parsed.data.threadId === init.threadId) {
+					continuation.suspend();
+					chatsNeedingReconciliation.add(instance);
+					onInputRoundChange();
+				}
+				return;
+			}
 			if (type === "data-context-activity") {
 				const phase = data.phase;
 				if (phase === "start") onContextActivity(true);
 				if (phase === "done") onContextActivity(false);
 				return;
 			}
-			/* Count the fatal strike the moment a run reports a FATAL error
-			 * (the same envelope the dispatcher toasts, read through the same
-			 * typed reader). It must be read off the stream here, not inferred
-			 * later: the bail stream closes cleanly, so by the time the SDK
-			 * evaluates `sendAutomaticallyWhen` the failed response has left no
-			 * message behind to tell this round apart from one that was never
-			 * tried. */
 			if (type === "data-conversation-event") {
 				const error = conversationEventError(data);
 				if (error?.fatal === true) {
-					autoResendFatalStrikesRef.current += 1;
 					/* A design build's progress region has to say the run stopped:
 					 * the transcript's error toast is the only other signal, and a
 					 * stage line still reading "Building your app" over a dead run
@@ -632,6 +651,8 @@ function createChatInstance(
 	});
 	hydratedMessages = () => instance.messages;
 	chatOwnerEpochs.set(instance, ownerScopeEpoch);
+	chatInputRounds.set(instance, continuation);
+	activeChatRef.current = instance;
 	return instance;
 }
 
@@ -719,17 +740,12 @@ export function ChatContainer({
 		() => sessionStoreRef.current?.getState().buildUnfinished ?? false,
 		[],
 	);
-	/** Consecutive FATAL-error count for the current answered-askQuestions
-	 *  round: incremented by the Chat instance's stream handler on every fatal
-	 *  conversation-event error, reset to zero by a fresh user action (a new
-	 *  answer via `handleToolOutput`, a typed message via `handleSubmit`) or a
-	 *  new Chat instance. The auto-resend halts at
-	 *  `AUTO_RESEND_FATAL_HALT_STRIKES`, so a TRANSIENT fault (an infra blip,
-	 *  a claim-write hiccup) still self-heals on one automatic retry while a
-	 *  PERSISTENT rejection stops after two POSTs instead of the unattended
-	 *  ~1/s loop the boolean latch was built against. Lives on the component
-	 *  so the user-action paths can reset what the factory's closures armed. */
-	const autoResendFatalStrikesRef = useRef(0);
+	const [, setInputRoundRevision] = useState(0);
+	const refreshInputRound = useCallback(
+		() => setInputRoundRevision((value) => value + 1),
+		[],
+	);
+	const activeChatRef = useRef<Chat<NovaUIMessage> | null>(null);
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
 	const holderNonceRef = useRef<string | undefined>(
 		initialThread?.holder_nonce,
@@ -869,6 +885,8 @@ export function ChatContainer({
 			opts?: {
 				runId?: string;
 				holderNonce?: string;
+				inputRound?: InputRound | null;
+				legacyInputPause?: boolean;
 				resume?: boolean;
 				buildResume?: boolean;
 				buildUnfinished?: boolean;
@@ -931,6 +949,10 @@ export function ChatContainer({
 			}
 			return createChatInstance(
 				init,
+				opts?.inputRound ?? null,
+				opts?.legacyInputPause === true,
+				activeChatRef,
+				mountedRef,
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,
@@ -939,15 +961,15 @@ export function ChatContainer({
 				designProgressStore,
 				reconcilerCtxRef,
 				ownUserIdRef,
-				autoResendFatalStrikesRef,
 				pendingAnswerAttachmentsRef,
 				threadHydrationStateRef,
 				projectToast,
 				scopeEpoch,
 				setContextCompacting,
+				refreshInputRound,
 			);
 		},
-		[designProgressStore, projectToast, scopeEpoch],
+		[designProgressStore, projectToast, refreshInputRound, scopeEpoch],
 	);
 
 	/* The session store is recreated inside `BuilderSessionProvider` on every
@@ -973,6 +995,10 @@ export function ChatContainer({
 				threadId: initialThread?.thread_id ?? crypto.randomUUID(),
 				messages: (initialThread?.messages ?? []) as NovaUIMessage[],
 			},
+			initialThread?.input_round ?? null,
+			initialThread?.input_round == null && initialThread?.run_paused === true,
+			activeChatRef,
+			mountedRef,
 			docStoreRef,
 			sessionStoreRef,
 			runIdRef,
@@ -981,14 +1007,17 @@ export function ChatContainer({
 			designProgressStore,
 			reconcilerCtxRef,
 			ownUserIdRef,
-			autoResendFatalStrikesRef,
 			pendingAnswerAttachmentsRef,
 			threadHydrationStateRef,
 			projectToast,
 			scopeEpoch,
 			setContextCompacting,
+			refreshInputRound,
 		),
 	);
+
+	// The retained state value wins when StrictMode probes the initializer twice.
+	activeChatRef.current = chat;
 
 	if (sessionApi !== prevSessionRef.current) {
 		prevSessionRef.current = sessionApi;
@@ -1025,10 +1054,12 @@ export function ChatContainer({
 	messagesRef.current = messages;
 	const designStreamOpenRef = useRef(false);
 
-	/* An explicit input terminal parks the design run, and the transcript is
-	 * the only place that pause is visible from here. It leaves either an
-	 * unanswered question card or a completed internal wait tool. Report that
-	 * state so the progress region stops claiming work is moving. Retire the
+	const inputRound = chatInputRounds.get(chat)?.round ?? null;
+	const continuationNeedsReload =
+		chatInputRounds.get(chat)?.requiresReconciliation === true;
+
+	/* Only the server's committed input invitation parks the progress region.
+	 * A question part can arrive before the persistence barrier completes. Retire the
 	 * previous turn's progress only on the CLOSED -> OPEN transport edge. Calling
 	 * `noteTurnOpened` after every streamed message update would erase the live
 	 * review/revision/planning pulse between its two-second frames and make the
@@ -1040,10 +1071,10 @@ export function ChatContainer({
 		designStreamOpenRef.current = streamOpen;
 		store.setAwaitingInput(
 			!streamOpen &&
-				(trailingAskPosture(messages) === "awaiting-input" ||
-					trailingDesignWaitsForInput(messages)),
+				inputRound?.state === "pending" &&
+				(inputRound.kind === "questions" || inputRound.kind === "message"),
 		);
-	}, [designProgressStore, messages, status]);
+	}, [designProgressStore, inputRound, status]);
 	const chatRef = useRef(chat);
 	chatRef.current = chat;
 	const activeThreadReadsRef = useRef(new Set<AbortController>());
@@ -1289,126 +1320,158 @@ export function ChatContainer({
 	 * happens next. This is also the bound on a barrier write that lagged or
 	 * failed behind the chunk log: the refetch adopts whatever the thread
 	 * row now holds. */
-	const healAfterResume = useCallback(async () => {
-		const start = sessionStoreRef.current?.getState();
-		if (start?.accessPhase !== "authorized") return;
-		const target = threadResumeHealTarget(
-			start.appId,
-			designSessionIdRef.current,
-		);
-		if (target === null) return;
-		const readEpoch = start.scopeEpoch;
-		const controller = new AbortController();
-		activeThreadReadsRef.current.add(controller);
-		const ownsRead = () => {
-			const current = sessionStoreRef.current?.getState();
-			return (
-				!controller.signal.aborted &&
-				current?.accessPhase === "authorized" &&
-				current.scopeEpoch === readEpoch &&
-				(target.kind === "app"
-					? current.appId === target.id
-					: current.appId === undefined &&
-						designSessionIdRef.current === target.id)
+	const healAfterResume = useCallback(
+		async (authoritativeOnly = false) => {
+			if (!mountedRef.current || activeChatRef.current !== chat) return;
+			const start = sessionStoreRef.current?.getState();
+			if (start?.accessPhase !== "authorized") return;
+			const target = threadResumeHealTarget(
+				start.appId,
+				designSessionIdRef.current,
 			);
-		};
-		try {
-			const res = await fetch(threadResumeHealPath(target, chat.id), {
-				cache: "no-store",
-				signal: controller.signal,
-			});
-			if (!res.ok || !ownsRead()) return;
-			const { thread, materializedAppId } = (await res.json()) as {
-				thread: LoadedThreadDoc;
-				materializedAppId?: string | null;
+			if (target === null) return;
+			const readEpoch = start.scopeEpoch;
+			const controller = new AbortController();
+			activeThreadReadsRef.current.add(controller);
+			const ownsRead = () => {
+				const current = sessionStoreRef.current?.getState();
+				return (
+					!controller.signal.aborted &&
+					mountedRef.current &&
+					activeChatRef.current === chat &&
+					current?.accessPhase === "authorized" &&
+					current.scopeEpoch === readEpoch &&
+					(target.kind === "app"
+						? current.appId === target.id
+						: current.appId === undefined &&
+							designSessionIdRef.current === target.id)
+				);
 			};
-			if (!ownsRead()) return;
-			/* A pre-app run may have materialized and finished between the RSC
-			 * page read and this post-resume heal. The app page is now the only
-			 * complete authority: it hydrates the canonical Blueprint as well as
-			 * this session-targeted thread, so do not leave the user in an
-			 * app-less shell with merely the recovered transcript. */
-			if (target.kind === "design-session" && materializedAppId) {
-				window.location.replace(`/build/${materializedAppId}`);
-				return;
-			}
-			/* A LIVE marker here means another session's run owns this thread
-			 * right now: the shape a lost re-drive race leaves behind (this
-			 * send bailed clean while the winner streams). Attach to it: swap in
-			 * the fetched transcript and resume the winner's stream by thread
-			 * id, exactly as a page load over a live run would. Adoption keeps a
-			 * richer LOCAL assistant copy here too: the stored row can lag an
-			 * answer this client already rendered in full (a lost terminal
-			 * write), and the winner's stream replays its own turn, never the
-			 * older one's missing tail. */
-			if (thread.active_stream_id != null) {
-				setChat(
-					activateThread(
-						{
-							threadId: thread.thread_id,
-							messages: adoptTranscriptKeepingRicherLocal(
-								thread.messages as NovaUIMessage[],
-								messagesRef.current,
+			try {
+				const res = await fetch(threadResumeHealPath(target, chat.id), {
+					cache: "no-store",
+					signal: controller.signal,
+				});
+				if (!res.ok || !ownsRead()) return;
+				const { thread, materializedAppId } = (await res.json()) as {
+					thread: LoadedThreadDoc;
+					materializedAppId?: string | null;
+				};
+				if (!ownsRead()) return;
+				/* A pre-app run may have materialized and finished between the RSC
+				 * page read and this post-resume heal. The app page is now the only
+				 * complete authority: it hydrates the canonical Blueprint as well as
+				 * this session-targeted thread, so do not leave the user in an
+				 * app-less shell with merely the recovered transcript. */
+				if (target.kind === "design-session" && materializedAppId) {
+					window.location.replace(`/build/${materializedAppId}`);
+					return;
+				}
+				/* A LIVE marker here means another session's run owns this thread
+				 * right now: the shape a lost re-drive race leaves behind (this
+				 * send bailed clean while the winner streams). Attach to it: swap in
+				 * the fetched transcript and resume the winner's stream by thread
+				 * id, exactly as a page load over a live run would. Adoption keeps a
+				 * richer LOCAL assistant copy here too: the stored row can lag an
+				 * answer this client already rendered in full (a lost terminal
+				 * write), and the winner's stream replays its own turn, never the
+				 * older one's missing tail. */
+				if (authoritativeOnly) {
+					setChat(
+						activateThread(
+							{
+								threadId: thread.thread_id,
+								messages: thread.messages as NovaUIMessage[],
+							},
+							authoritativeThreadActivationOptions(
+								thread,
+								liveBuildUnfinished(),
+								{ allowRedrive: false },
 							),
-						},
-						authoritativeThreadActivationOptions(thread, liveBuildUnfinished()),
-					),
-				);
-				return;
-			}
-			/* The refetch DETECTED a dead marker: the run this heal followed
-			 * died without answering (the resume attached to a stream that was
-			 * never finalized, or the re-drive itself was killed). Re-drive it
-			 * exactly as openThread would: once per activation
-			 * (`healRedroveRef`); if that re-drive dies too, the next page load
-			 * sees the level-triggered signal and tries again. */
-			if (
-				thread.resume_interrupted === true &&
-				healRedroveRef.current !== chat.id
-			) {
-				healRedroveRef.current = chat.id;
+						),
+					);
+					return;
+				}
+				if (thread.active_stream_id != null) {
+					setChat(
+						activateThread(
+							{
+								threadId: thread.thread_id,
+								messages: adoptTranscriptKeepingRicherLocal(
+									thread.messages as NovaUIMessage[],
+									messagesRef.current,
+								),
+							},
+							authoritativeThreadActivationOptions(
+								thread,
+								liveBuildUnfinished(),
+							),
+						),
+					);
+					return;
+				}
+				/* The refetch DETECTED a dead marker: the run this heal followed
+				 * died without answering (the resume attached to a stream that was
+				 * never finalized, or the re-drive itself was killed). Re-drive it
+				 * exactly as openThread would: once per activation
+				 * (`healRedroveRef`); if that re-drive dies too, the next page load
+				 * sees the level-triggered signal and tries again. */
+				if (
+					thread.resume_interrupted === true &&
+					healRedroveRef.current !== chat.id
+				) {
+					healRedroveRef.current = chat.id;
+					setChat(
+						activateThread(
+							{
+								threadId: thread.thread_id,
+								messages: thread.messages as NovaUIMessage[],
+							},
+							authoritativeThreadActivationOptions(
+								thread,
+								liveBuildUnfinished(),
+							),
+						),
+					);
+					return;
+				}
+				/* Even a terminal/empty projection authoritatively clears run-holder
+				 * capability. Keep a local optimistic transcript when the server has no
+				 * messages, but re-own it through the same activation seam. With no
+				 * live stream left to re-deliver anything, adoption must not
+				 * DOWNGRADE the view: a shared assistant message keeps the richer
+				 * local copy (`adoptTranscriptKeepingRicherLocal`) when the stored
+				 * row lags what this client already rendered. */
 				setChat(
 					activateThread(
 						{
 							threadId: thread.thread_id,
-							messages: thread.messages as NovaUIMessage[],
+							messages:
+								thread.messages.length > 0
+									? adoptTranscriptKeepingRicherLocal(
+											thread.messages as NovaUIMessage[],
+											messagesRef.current,
+										)
+									: messagesRef.current,
 						},
-						authoritativeThreadActivationOptions(thread, liveBuildUnfinished()),
+						authoritativeThreadActivationOptions(
+							thread,
+							liveBuildUnfinished(),
+							{
+								allowRedrive: false,
+							},
+						),
 					),
 				);
-				return;
+			} catch {
+				/* Best-effort: the conversation still works; the response shows on
+				 * the next open. */
+			} finally {
+				activeThreadReadsRef.current.delete(controller);
 			}
-			/* Even a terminal/empty projection authoritatively clears run-holder
-			 * capability. Keep a local optimistic transcript when the server has no
-			 * messages, but re-own it through the same activation seam. With no
-			 * live stream left to re-deliver anything, adoption must not
-			 * DOWNGRADE the view: a shared assistant message keeps the richer
-			 * local copy (`adoptTranscriptKeepingRicherLocal`) when the stored
-			 * row lags what this client already rendered. */
-			setChat(
-				activateThread(
-					{
-						threadId: thread.thread_id,
-						messages:
-							thread.messages.length > 0
-								? adoptTranscriptKeepingRicherLocal(
-										thread.messages as NovaUIMessage[],
-										messagesRef.current,
-									)
-								: messagesRef.current,
-					},
-					authoritativeThreadActivationOptions(thread, liveBuildUnfinished(), {
-						allowRedrive: false,
-					}),
-				),
-			);
-		} catch {
-			/* Best-effort: the conversation still works; the response shows on
-			 * the next open. */
-		} finally {
-			activeThreadReadsRef.current.delete(controller);
-		}
-	}, [chat, activateThread, liveBuildUnfinished]);
+		},
+		[chat, activateThread, liveBuildUnfinished],
+	);
 
 	// ── Thread switching ──────────────────────────────────────────────────
 
@@ -1550,6 +1613,12 @@ export function ChatContainer({
 		}
 	}, [status, sessionApi, chat, healAfterResume, scopeEpoch]);
 
+	useEffect(() => {
+		if (status === "streaming" || status === "submitted") return;
+		if (!chatsNeedingReconciliation.delete(chat)) return;
+		void healAfterResume(true);
+	}, [chat, status, healAfterResume]);
+
 	/* Surface stream-level failures (network drops, spend cap, auth,
 	 * server crashes) that never got a chance to produce a
 	 * server-side conversation error event. Synthesize one client-side
@@ -1559,7 +1628,16 @@ export function ChatContainer({
 	 * conversation-event handler. */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeEpoch intentionally re-runs the owner gate at the synchronous Project boundary
 	useEffect(() => {
-		if (!chatError || !sessionApi) return;
+		if (!chatError || !sessionApi || activeChatRef.current !== chat) return;
+		if (
+			chatError instanceof InputRoundReconciliationError &&
+			chatError.reconciliation.threadId === chat.id
+		) {
+			chatInputRounds.get(chat)?.suspend();
+			refreshInputRound();
+			void healAfterResume(true);
+			return;
+		}
 		const message = parseApiErrorMessage(chatError.message);
 		const session = sessionApi.getState();
 		if (
@@ -1612,7 +1690,15 @@ export function ChatContainer({
 			agentEngagedRef.current = false;
 			setSendFailedBeforeApp(true);
 		}
-	}, [chat, chatError, projectToast, scopeEpoch, sessionApi]);
+	}, [
+		chat,
+		chatError,
+		healAfterResume,
+		projectToast,
+		refreshInputRound,
+		scopeEpoch,
+		sessionApi,
+	]);
 
 	/* Refresh the thread list after each run settles. The server is the
 	 * writer (the route persists the turn at claim and the response at
@@ -1657,15 +1743,21 @@ export function ChatContainer({
 		};
 	}, [status]);
 
-	const handleAnswerAttachments = useCallback((refs: AttachmentRef[]) => {
-		const seen = new Set(
-			pendingAnswerAttachmentsRef.current.map((ref) => ref.assetId),
-		);
-		pendingAnswerAttachmentsRef.current = [
-			...pendingAnswerAttachmentsRef.current,
-			...refs.filter((ref) => !seen.has(ref.assetId)),
-		];
-	}, []);
+	const handleAnswerAttachments = useCallback(
+		(refs: AttachmentRef[]) => {
+			if (activeChatRef.current !== chat) return;
+			const round = chatInputRounds.get(chat)?.round;
+			if (round?.state !== "pending" || round.kind !== "questions") return;
+			const seen = new Set(
+				pendingAnswerAttachmentsRef.current.map((ref) => ref.assetId),
+			);
+			pendingAnswerAttachmentsRef.current = [
+				...pendingAnswerAttachmentsRef.current,
+				...refs.filter((ref) => !seen.has(ref.assetId)),
+			];
+		},
+		[chat],
+	);
 
 	const handleSend = useCallback(
 		({
@@ -1675,6 +1767,11 @@ export function ChatContainer({
 			text: string;
 			attachments?: AttachmentRef[];
 		}) => {
+			if (
+				activeChatRef.current !== chat ||
+				chatInputRounds.get(chat)?.requiresReconciliation
+			)
+				return;
 			const session = sessionStoreRef.current?.getState();
 			if (
 				!chatGenerationCanWrite(
@@ -1694,9 +1791,6 @@ export function ChatContainer({
 			) {
 				return;
 			}
-			/* A typed message is an explicit fresh attempt: clear the fatal
-			 * strikes so an earlier halted round can't bleed into this one. */
-			autoResendFatalStrikesRef.current = 0;
 			// Attachments ride as asset-id refs in message METADATA, not file parts.
 			// The route's resolveAttachments expands each ref into the stored extract
 			// (documents) or image bytes (vision) before the SA. A turn with no
@@ -1706,14 +1800,25 @@ export function ChatContainer({
 				metadata: attachments?.length ? { attachments } : undefined,
 			});
 		},
-		[scopeEpoch, sendMessage],
+		[chat, scopeEpoch, sendMessage],
 	);
 
-	const retryTypedDesignWaitContinuation = useCallback(() => {
+	const retryInputContinuation = useCallback(() => {
 		const session = sessionStoreRef.current?.getState();
 		if (
 			status !== "error" ||
-			!trailingTypedDesignWaitContinuation(messagesRef.current) ||
+			activeChatRef.current !== chat ||
+			chatInputRounds.get(chat)?.requiresReconciliation === true ||
+			!(
+				trailingTypedDesignWaitContinuation(
+					messagesRef.current,
+					chatInputRounds.get(chat)?.round,
+				) ||
+				answeredInputRound(
+					messagesRef.current,
+					chatInputRounds.get(chat)?.round ?? null,
+				)
+			) ||
 			!chatGenerationCanWrite(
 				session,
 				scopeEpoch,
@@ -1736,17 +1841,18 @@ export function ChatContainer({
 		) {
 			return;
 		}
-		autoResendFatalStrikesRef.current = 0;
 		clearError();
-		/* No duplicate message is appended. AI SDK resubmits the retained
-		 * optimistic user turn, so the server sees the exact wait -> user shape
-		 * that replaces the paused hold without charging twice. */
+		/* Resubmit the exact retained reply, whether its answers live in a tool
+		 * part or an optimistic user message. The pending round remains attached. */
 		void sendMessage(undefined);
-	}, [clearError, projectToast, scopeEpoch, sendMessage, status]);
+	}, [chat, clearError, projectToast, scopeEpoch, sendMessage, status]);
 
 	const continuePeerReview = useCallback(() => {
 		const session = sessionStoreRef.current?.getState();
 		if (
+			activeChatRef.current !== chat ||
+			chatInputRounds.get(chat)?.round?.state !== "pending" ||
+			chatInputRounds.get(chat)?.round?.kind !== "review" ||
 			!chatGenerationCanWrite(
 				session,
 				scopeEpoch,
@@ -1757,7 +1863,7 @@ export function ChatContainer({
 			return;
 		clearError();
 		void sendMessage({ text: "Please continue the unfinished peer review." });
-	}, [clearError, designProgressStore, scopeEpoch, sendMessage, status]);
+	}, [chat, clearError, designProgressStore, scopeEpoch, sendMessage, status]);
 
 	const resumeAcceptedBuild = useCallback(() => {
 		const session = sessionStoreRef.current?.getState();
@@ -1783,7 +1889,6 @@ export function ChatContainer({
 			);
 			return;
 		}
-		autoResendFatalStrikesRef.current = 0;
 		clearError();
 		/* No message is appended: the accepted revision/plan already carry all
 		 * construction meaning. `redrive` asks the route to claim and resume that
@@ -1800,7 +1905,8 @@ export function ChatContainer({
 	]);
 
 	const handleToolOutput = useCallback(
-		(params: { tool: string; toolCallId: string; output: unknown }) => {
+		async (params: { tool: string; toolCallId: string; output: unknown }) => {
+			if (activeChatRef.current !== chat) return;
 			const session = sessionStoreRef.current?.getState();
 			if (
 				!chatGenerationCanWrite(
@@ -1810,12 +1916,23 @@ export function ChatContainer({
 				)
 			)
 				return;
-			/* A fresh answer is the user asking to try again: clear the fatal
-			 * strikes BEFORE the SDK's post-output auto-resend evaluation runs,
-			 * so re-answering a failed round works without a reload while the
-			 * strike cap still stops unattended loops. */
-			autoResendFatalStrikesRef.current = 0;
-			addToolOutput(params);
+			const continuation = chatInputRounds.get(chat);
+			if (
+				params.tool === "askQuestions" &&
+				!continuation?.acceptsAnswer(params.toolCallId)
+			)
+				return;
+			continuation?.retryAnswer(params.toolCallId);
+			await addToolOutput(params);
+			if (
+				activeChatRef.current !== chat ||
+				!chatGenerationCanWrite(
+					sessionStoreRef.current?.getState(),
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				)
+			)
+				return;
 			/* The round's last answer just landed. If files were staged with the
 			 * answers, resume the turn OURSELVES with the attachment-bearing
 			 * user message (the auto-resend stands down while the buffer is
@@ -1827,7 +1944,7 @@ export function ChatContainer({
 			if (
 				params.tool === "askQuestions" &&
 				buffered.length > 0 &&
-				trailingAskPosture(chat.messages) === "answered"
+				answeredInputRound(chat.messages, continuation?.round ?? null)
 			) {
 				pendingAnswerAttachmentsRef.current = [];
 				const names = buffered.map((ref) => ref.filename).join(", ");
@@ -1967,50 +2084,66 @@ export function ChatContainer({
 					/>
 				) : undefined
 			}
-			composerBusy={creatingStarterApp || threadScopeReloading}
-			interactionBlocked={threadScopeReloading}
+			composerBusy={
+				creatingStarterApp || threadScopeReloading || continuationNeedsReload
+			}
+			interactionBlocked={threadScopeReloading || continuationNeedsReload}
 			interactionBlockedRecovery={
-				threadScopeHydrationFailed
+				continuationNeedsReload
 					? {
-							title: "Conversation paused",
+							title: "Conversation updated",
 							message:
-								"Reload Nova to verify this conversation's files before sending.",
+								"This conversation has changed. Reload to open its latest state.",
 							actionLabel: "Reload page",
 							onAction: () => window.location.reload(),
 						}
-					: status === "error" && trailingTypedDesignWaitContinuation(messages)
+					: threadScopeHydrationFailed
 						? {
-								title: "Message not sent",
+								title: "Conversation paused",
 								message:
-									"Your message is still here. Try sending this exact message again.",
-								actionLabel: "Try again",
-								onAction: retryTypedDesignWaitContinuation,
+									"Reload Nova to verify this conversation's files before sending.",
+								actionLabel: "Reload page",
+								onAction: () => window.location.reload(),
 							}
-						: canEdit &&
-								!readOnly &&
-								designReviewCanContinue(designProgressStore.getState(), status)
+						: status === "error" &&
+								(trailingTypedDesignWaitContinuation(messages, inputRound) ||
+									answeredInputRound(messages, inputRound))
 							? {
-									title: "Review paused",
-									message:
-										"Your app and the review so far are saved. There is more to check before the app is ready.",
-									actionLabel: "Continue",
-									onAction: continuePeerReview,
+									title: "Reply not sent",
+									message: "Your reply is still here. Try sending it again.",
+									actionLabel: "Try again",
+									onAction: retryInputContinuation,
 								}
 							: canEdit &&
 									!readOnly &&
-									designBuildCanResume(
+									inputRound?.state === "pending" &&
+									inputRound.kind === "review" &&
+									designReviewCanContinue(
 										designProgressStore.getState(),
-										isExistingApp && buildUnfinished,
 										status,
 									)
 								? {
-										title: "Build paused",
+										title: "Review paused",
 										message:
-											"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
-										actionLabel: "Resume build",
-										onAction: resumeAcceptedBuild,
+											"Your app and the review so far are saved. There is more to check before the app is ready.",
+										actionLabel: "Continue",
+										onAction: continuePeerReview,
 									}
-								: undefined
+								: canEdit &&
+										!readOnly &&
+										designBuildCanResume(
+											designProgressStore.getState(),
+											isExistingApp && buildUnfinished,
+											status,
+										)
+									? {
+											title: "Build paused",
+											message:
+												"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+											actionLabel: "Resume build",
+											onAction: resumeAcceptedBuild,
+										}
+									: undefined
 			}
 			pendingWorkRecovery={
 				appId &&
@@ -2033,6 +2166,11 @@ export function ChatContainer({
 			onSend={handleSend}
 			onAnswerAttachments={handleAnswerAttachments}
 			addToolOutput={handleToolOutput}
+			pendingQuestionToolCallIds={
+				inputRound?.state === "pending" && inputRound.kind === "questions"
+					? inputRound.toolCallIds
+					: []
+			}
 			readOnly={readOnly}
 			readOnlyNotice={
 				!canEdit
@@ -2060,7 +2198,7 @@ export function ChatContainer({
 				buildUnfinished,
 			)}
 			awaitingTypedInput={
-				trailingDesignWaitsForInput(messages) ||
+				chatInputRounds.get(chat)?.awaitsTypedMessage === true ||
 				(!isExistingApp &&
 					designProgress.active &&
 					(designProgress.stage === "incomplete" ||

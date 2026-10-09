@@ -322,6 +322,7 @@ export class GenerationContext
 		this.conversionImpact = opts.conversionImpact;
 	}
 
+	sourceDocuments?: CanonicalMutationHost["sourceDocuments"];
 	readonly lookupDefinitions: NonNullable<
 		CanonicalMutationHost["lookupDefinitions"]
 	> = (tableIds) =>
@@ -1257,6 +1258,7 @@ export class GenerationContext
 				images: opts.images,
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: opts.providerOptions,
+				abortSignal: opts.signal,
 				onProgress: opts.onProgress,
 			});
 			if (result.usage) this.trackSubGeneration(result.usage, opts.model);

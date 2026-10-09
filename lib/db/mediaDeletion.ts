@@ -1,3 +1,4 @@
+import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
 /** Authoritative attach/delete serialization for Project-scoped media. */
 
 import { sql, type Transaction } from "kysely";
@@ -221,9 +222,13 @@ async function persistedAppReferencesInTransaction(
 				"design_sessions.id",
 				"threads.design_session_id",
 			)
-			.select(["threads.thread_id", "threads.messages"])
+			.select([
+				"threads.thread_id",
+				"threads.messages",
+				"threads.selected_sources",
+			])
 			.where(
-				sql<boolean>`${sql.ref("threads.messages")}::text LIKE '%' || ${args.assetId} || '%'`,
+				sql<boolean>`(${sql.ref("threads.messages")}::text LIKE '%' || ${args.assetId} || '%' OR ${sql.ref("threads.selected_sources")}::text LIKE '%' || ${args.assetId} || '%')`,
 			)
 			.where((eb) =>
 				eb.or([
@@ -237,9 +242,12 @@ async function persistedAppReferencesInTransaction(
 		for (const candidate of candidates) {
 			try {
 				if (
-					collectThreadAttachmentAssetIds(candidate.messages).includes(
-						args.assetId,
-					)
+					[
+						...collectThreadAttachmentAssetIds(candidate.messages),
+						...selectedSourceDocumentsSchema
+							.parse(candidate.selected_sources)
+							.map((source) => source.assetId),
+					].includes(args.assetId)
 				) {
 					referencingThreads += 1;
 				}

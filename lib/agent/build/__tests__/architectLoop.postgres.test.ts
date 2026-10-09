@@ -867,3 +867,78 @@ it.each(["summary", "ignored-tools", "provider-error"])(
 		).toHaveLength(requests.length);
 	},
 );
+
+it("recognizes a moved historical answer only by its retained content and leaves final-text replay idle", async () => {
+	const { spec } = await fixture();
+	let requests = 0;
+	await withResponsesPeer(
+		(request, response) => {
+			request.resume();
+			request.on("end", () => {
+				requests++;
+				respondWithParts(
+					response,
+					[
+						{
+							type: "text",
+							text: "The plan is ready for your next instruction.",
+						},
+					],
+					requests,
+				);
+			});
+		},
+		async (provider) => {
+			const answer: ModelMessage = {
+				role: "user",
+				content: JSON.stringify({
+					answers: [{ question: "Work offline?", answer: "Yes" }],
+				}),
+			};
+			const args: ArchitectLoopArgs = {
+				spec,
+				system: "Plan the app.",
+				turnId: "answer-turn",
+				maxSteps: 1,
+				signal: new AbortController().signal,
+				tools: () => ({}),
+				modelStep: productionModelStep(
+					provider(spec.modelId),
+					"medium",
+					"legacy-answer-test",
+				),
+				additions: [{ key: "answers:response:0", message: answer }],
+				dispatch: async () => {
+					throw new Error("No tool was requested");
+				},
+				onStep: async () => {},
+				onRecoveredUsage: () => {},
+				onFinish: async () => ({ kind: "awaiting-input" }),
+			};
+			const first = await runArchitectLoop(args);
+			expect(first.kind).toBe("awaiting-input");
+			const moved = {
+				key: "answers:response:question-id",
+				legacyKeys: ["answers:response:4"],
+				legacyKeyPrefix: "answers:response:",
+				message: answer,
+			};
+			expect(await runArchitectLoop({ ...args, additions: [moved] })).toEqual(
+				first,
+			);
+			expect(requests).toBe(1);
+			// A changed answer cannot borrow the old positional identity.
+			await runArchitectLoop({
+				...args,
+				turnId: "changed-answer",
+				additions: [
+					{
+						...moved,
+						message: { role: "user", content: "Use online-only work instead." },
+					},
+				],
+			});
+			expect(requests).toBe(2);
+		},
+	);
+});

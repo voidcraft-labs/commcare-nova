@@ -76,6 +76,23 @@ beforeEach(() => {
 });
 
 describe("resolveAttachments", () => {
+	it("propagates stopped or unauthorized embedded preparation instead of continuing with a placeholder", async () => {
+		const stopped = new Error("This run no longer owns its conversation.");
+		const prepare = vi.fn(async () => {
+			throw stopped;
+		});
+		await expect(
+			resolveAttachments(
+				[userMsg("u", ref())],
+				"shared-project",
+				condenser,
+				undefined,
+				{ prepare },
+			),
+		).rejects.toBe(stopped);
+		expect(ensureStoredExtract).not.toHaveBeenCalled();
+	});
+
 	it("projects all user turns in order, deduplicates work, and preserves the source transcript", async () => {
 		const img = asset({
 			id: IMAGE,

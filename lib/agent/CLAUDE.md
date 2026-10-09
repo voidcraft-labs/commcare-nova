@@ -41,6 +41,31 @@ compiler briefs, and slice executors are retired. Historical database artifacts
 are retained for inspection; serving code does not translate or execute them.
 The one-time transition is in `docs/architecture/design-format-cutover.md`.
 
+## Library discovery and source selection
+
+The shared `listMediaAssets` operation searches the current Project's whole
+library before pagination, across filenames, display names and extracted titles.
+All seven file kinds are discoverable. `readSource` reads a document by asset id
+or unambiguous exact filename, even when no user message attached it. Discovery
+loads no document bytes and selects no evidence.
+
+`sourceDocuments.ts` owns the shared reader. It returns bounded pages of the
+working requirements extract, with a revision derived from the original content,
+extractor version and extract digest. Further pages require that revision; a
+changed source refuses rather than mixing extracts. Embedded authoring binds
+preparation to its metered run and cancellation signal. MCP has no preparation
+callback: an unprepared document returns `preparation_required` without starting
+a model call; preparation or retry remains available in the Library.
+
+Successful embedded reads record server-owned `threads.selected_sources` under
+the live holder and Project authority, separately from user attachments. Source
+assembly retains those document identities across turns and reads their current
+prepared extracts, preparing them again when needed. A fresh turn records the
+current source snapshot; a changed source digest invalidates prior review.
+Reads during a build also update that snapshot. The page revision protects one
+read sequence from mixed extracts; it does not freeze a document across turns.
+User message metadata cannot forge a library selection.
+
 ## Document source fidelity and privacy
 
 The extractor produces the architect's working requirements extract, not a

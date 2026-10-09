@@ -64,6 +64,38 @@ describe("design wait terminal", () => {
 		).toBe(false);
 	});
 
+	it("retries only the exact retained reply to a current input round", () => {
+		const messages = [
+			{
+				id: "pause",
+				role: "assistant",
+				parts: [{ type: "text", text: "Which clinic?" }],
+			},
+			{ id: "reply", role: "user", parts: [{ type: "text", text: "North" }] },
+		];
+		const round = {
+			id: "round",
+			kind: "message" as const,
+			assistantMessageId: "pause",
+			toolCallIds: [],
+			state: "pending" as const,
+			acceptedStreamId: null,
+		};
+		expect(trailingTypedDesignWaitContinuation(messages, round)).toBe(true);
+		expect(
+			trailingTypedDesignWaitContinuation(messages, {
+				...round,
+				state: "consumed",
+			}),
+		).toBe(false);
+		expect(
+			trailingTypedDesignWaitContinuation(messages, {
+				...round,
+				assistantMessageId: "other",
+			}),
+		).toBe(false);
+	});
+
 	it("keeps an exact wait continuation retryable after the optimistic user message", () => {
 		const wait = {
 			role: "assistant",
@@ -324,6 +356,8 @@ describe("authoritative thread activation", () => {
 		).toEqual({
 			runId: "run-paused",
 			holderNonce: "00000000-0000-4000-8000-000000000001",
+			inputRound: null,
+			legacyInputPause: false,
 			resume: true,
 			redrive: false,
 			buildResume: true,

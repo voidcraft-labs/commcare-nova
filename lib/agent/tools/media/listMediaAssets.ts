@@ -16,7 +16,7 @@
  * One page per call (the library page size). The library is cursor-
  * paginated; the tool surfaces `nextCursor` so a follow-up call can
  * fetch the next page, and accepts an optional `kind` filter when the SA
- * only wants images, audio, or video.
+ * only wants a particular media or document kind.
  *
  * Read-only — no doc mutation. Returns a `ReadToolResult` (`kind:
  * "read"`); the chat wrapper unwraps `data`, the MCP adapter projects it
@@ -29,17 +29,24 @@ import {
 	toWireMediaAsset,
 	type WireMediaAsset,
 } from "@/lib/db/mediaAssets";
-import { MEDIA_KINDS } from "@/lib/domain";
+import { ASSET_KINDS } from "@/lib/domain";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import { requireToolProjectId } from "./shared";
 
 export const listMediaAssetsInputSchema = z.strictObject({
 	kind: z
-		.enum(MEDIA_KINDS)
+		.enum(ASSET_KINDS)
 		.optional()
 		.describe(
-			"Filter to one media kind (`image` / `audio` / `video`). Omit to list every kind.",
+			"Filter to one file kind: image, audio, video, pdf, text, docx or xlsx. Omit to list every kind.",
+		),
+	query: z
+		.string()
+		.max(255)
+		.optional()
+		.describe(
+			"Case-insensitive text to find in filenames, display names and extracted document titles. Search covers the whole Project library before pagination.",
 		),
 	cursor: z
 		.string()
@@ -63,7 +70,7 @@ export interface ListMediaAssetsResult {
 
 export const listMediaAssetsTool = {
 	description:
-		"List the ready assets in the library (newest first) — the source of the asset ids every attach tool needs.",
+		"Search or list files in the Project library, including documents not attached to this conversation. Returns document, image, audio and video ids, names, preparation status and the next page cursor. Read document requirements with readSource; use media ids with attachment tools. Newest files first.",
 	inputSchema: listMediaAssetsInputSchema,
 	async execute(
 		input: ListMediaAssetsInput,
@@ -80,6 +87,7 @@ export const listMediaAssetsTool = {
 			// The tool filters by a single kind; the DB layer takes a set, so wrap it.
 			...(input.kind !== undefined && { kinds: [input.kind] }),
 			...(input.cursor !== undefined && { cursor: input.cursor }),
+			...(input.query !== undefined && { query: input.query }),
 		});
 		return {
 			kind: "read" as const,

@@ -21,6 +21,7 @@
 // THIS module is the impure half — the asset row's extract status + GCS object + the
 // single-flight policy — composed over it.
 
+import { setTimeout as wait } from "node:timers/promises";
 import {
 	type AssetExtractionClaim,
 	type AssetExtractionClaimResult,
@@ -50,7 +51,6 @@ import {
 	writeTextObject,
 } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
-import { delay } from "@/lib/utils/delay";
 import {
 	type AttachmentCondenser,
 	EXTRACT_MAX_BYTES,
@@ -195,18 +195,21 @@ async function waitForInflight(
 	assetId: MediaAssetId,
 	key: string,
 	version = EXTRACTOR_VERSION,
+	signal?: AbortSignal,
 ): Promise<StoredExtractResult | null> {
 	while (true) {
-		await delay(INFLIGHT_POLL_MS);
+		await wait(INFLIGHT_POLL_MS, undefined, { signal });
+		signal?.throwIfAborted();
 		const fresh = await reloadExtractStatus(assetId);
 		if (!fresh) return null; // record vanished / unreadable → caller decides
 		if (
 			fresh.snapshot.status === "ready" &&
 			fresh.snapshot.version === version
 		) {
-			const text = await readTextObject(key, EXTRACT_MAX_BYTES).catch(
+			const text = await readTextObject(key, EXTRACT_MAX_BYTES, signal).catch(
 				() => null,
 			);
+			signal?.throwIfAborted();
 			// `ready` but the object is missing → caller decides whether it may retry.
 			return text !== null ? readyResult(text, fresh.truncated, version) : null;
 		}
@@ -267,7 +270,9 @@ async function resolveSupersedingClaim(
 	asset: MediaAssetRecord,
 	extract: NonNullable<MediaAssetRecord["extract"]>,
 	onInflight: "wait" | "report",
+	signal?: AbortSignal,
 ): Promise<StoredExtractResult> {
+	signal?.throwIfAborted();
 	const ready = await readReadyExtract(asset, extract);
 	if (ready) return ready;
 	if (extract.status === "extracting") {
@@ -278,7 +283,7 @@ async function resolveSupersedingClaim(
 			extract.version,
 		);
 		return (
-			(await waitForInflight(asset.id, key, extract.version)) ?? {
+			(await waitForInflight(asset.id, key, extract.version, signal)) ?? {
 				status: "failed",
 				reason: "The newer extraction did not publish a usable result.",
 			}
@@ -328,6 +333,7 @@ async function publishFailure(
 	claim: AssetExtractionClaim,
 	reason: string,
 	onInflight: "wait" | "report",
+	signal?: AbortSignal,
 ): Promise<StoredExtractResult> {
 	try {
 		const key = extractGcsObjectKeyFor(
@@ -377,7 +383,12 @@ async function publishFailure(
 			);
 		}
 		if (publication.kind === "superseded" && publication.extract !== null) {
-			return resolveSupersedingClaim(asset, publication.extract, onInflight);
+			return resolveSupersedingClaim(
+				asset,
+				publication.extract,
+				onInflight,
+				signal,
+			);
 		}
 		return publication.kind === "published"
 			? { status: "failed", reason }
@@ -411,15 +422,25 @@ async function runExtraction(opts: {
 	claim: AssetExtractionClaim;
 	onInflight: "wait" | "report";
 	onProgress?: (deltaChars: number) => void;
+	signal?: AbortSignal;
 }): Promise<StoredExtractResult> {
-	const { asset, documentKind, condenser, key, claim, onInflight, onProgress } =
-		opts;
+	const {
+		asset,
+		documentKind,
+		condenser,
+		key,
+		claim,
+		onInflight,
+		onProgress,
+		signal,
+	} = opts;
 
 	let extracted: Awaited<ReturnType<typeof extractDocument>>;
 	try {
 		const bytes = await downloadAssetBytes(
 			asset.gcsObjectKey,
 			ASSET_SIZE_CAPS_BYTES[asset.kind],
+			signal,
 		);
 		extracted = await extractDocument({
 			bytes,
@@ -428,10 +449,19 @@ async function runExtraction(opts: {
 			filename: asset.originalFilename,
 			condenser,
 			onProgress,
+			signal,
 		});
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err);
-		return publishFailure(asset, claim, reason, onInflight);
+		const failure = await publishFailure(
+			asset,
+			claim,
+			reason,
+			onInflight,
+			signal,
+		);
+		signal?.throwIfAborted();
+		return failure;
 	}
 
 	const { extract, truncated, title, summary } = extracted;
@@ -516,11 +546,19 @@ async function runExtraction(opts: {
 			);
 		}
 		return publication.kind === "superseded" && publication.extract !== null
-			? resolveSupersedingClaim(asset, publication.extract, onInflight)
+			? resolveSupersedingClaim(asset, publication.extract, onInflight, signal)
 			: publicationFallback(publication);
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err);
-		return publishFailure(asset, claim, reason, onInflight);
+		const failure = await publishFailure(
+			asset,
+			claim,
+			reason,
+			onInflight,
+			signal,
+		);
+		signal?.throwIfAborted();
+		return failure;
 	}
 }
 
@@ -559,8 +597,43 @@ export async function ensureStoredExtract(opts: {
 	 *  when THIS call runs the model (the claim path) — the fast-path/reuse/wait
 	 *  paths do no model work, so there are no tokens to report. */
 	onProgress?: (deltaChars: number) => void;
+	signal?: AbortSignal;
 }): Promise<StoredExtractResult> {
-	const { asset, documentKind, condenser, onInflight, onProgress } = opts;
+	// The total preparation attempt is bounded, including waits for another
+	// extractor and any stale-claim takeover. A retry cannot reset this deadline.
+	const deadline = new AbortController();
+	const timeout = setTimeout(
+		() =>
+			deadline.abort(
+				new DOMException(
+					"Document preparation exceeded its time limit.",
+					"TimeoutError",
+				),
+			),
+		EXTRACTING_STALE_MS,
+	);
+	timeout.unref?.();
+	const signal = opts.signal
+		? AbortSignal.any([opts.signal, deadline.signal])
+		: deadline.signal;
+	try {
+		return await ensureStoredExtractWithinDeadline({ ...opts, signal });
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+async function ensureStoredExtractWithinDeadline(opts: {
+	asset: MediaAssetRecord;
+	documentKind: DocumentKind;
+	condenser: AttachmentCondenser;
+	onInflight: "wait" | "report";
+	onProgress?: (deltaChars: number) => void;
+	signal: AbortSignal;
+}): Promise<StoredExtractResult> {
+	const { asset, documentKind, condenser, onInflight, onProgress, signal } =
+		opts;
+	signal.throwIfAborted();
 	const key = extractGcsObjectKeyFor(
 		asset.project_id,
 		asset.contentHash,
@@ -570,7 +643,8 @@ export async function ensureStoredExtract(opts: {
 	// 1. Fast path: a finished current-version extract already has BOTH its
 	//    object and committed ready metadata. An object alone may be residue from
 	//    a metadata transaction whose cleanup failed; it is never authoritative.
-	const stored = await readTextObject(key, EXTRACT_MAX_BYTES);
+	const stored = await readTextObject(key, EXTRACT_MAX_BYTES, signal);
+	signal.throwIfAborted();
 	let fresh:
 		| { snapshot: ExtractStatusSnapshot; truncated: boolean }
 		| null
@@ -640,7 +714,12 @@ export async function ensureStoredExtract(opts: {
 		"await-inflight"
 	) {
 		if (onInflight === "report") return { status: "extracting" };
-		const waited = await waitForInflight(asset.id, key);
+		const waited = await waitForInflight(
+			asset.id,
+			key,
+			EXTRACTOR_VERSION,
+			signal,
+		);
 		if (waited) return waited;
 		// The live job died without a usable extract → fall through to claim.
 	}
@@ -660,8 +739,10 @@ export async function ensureStoredExtract(opts: {
 		});
 	let claimed: AssetExtractionClaimResult;
 	try {
+		signal.throwIfAborted();
 		claimed = await tryClaim();
 	} catch (err) {
+		signal.throwIfAborted();
 		log.error("[extract-store] extraction claim failed", err, {
 			assetId: asset.id,
 		});
@@ -677,18 +758,25 @@ export async function ensureStoredExtract(opts: {
 		};
 	}
 	if (claimed.kind === "superseded") {
-		return resolveSupersedingClaim(asset, claimed.extract, onInflight);
+		return resolveSupersedingClaim(asset, claimed.extract, onInflight, signal);
 	}
 	if (claimed.kind === "in_flight") {
 		// A concurrent caller won the claim in that window — behave as in-flight.
 		if (onInflight === "report") return { status: "extracting" };
-		const waited = await waitForInflight(asset.id, key);
+		const waited = await waitForInflight(
+			asset.id,
+			key,
+			EXTRACTOR_VERSION,
+			signal,
+		);
 		if (waited) return waited;
 		// That winner failed or died. Re-claim atomically; never run the model as
 		// an unclaimed "last-resort" backstop.
 		try {
+			signal.throwIfAborted();
 			claimed = await tryClaim();
 		} catch (err) {
+			signal.throwIfAborted();
 			log.error("[extract-store] extraction reclaim failed", err, {
 				assetId: asset.id,
 			});
@@ -704,11 +792,16 @@ export async function ensureStoredExtract(opts: {
 			};
 		}
 		if (claimed.kind === "superseded") {
-			return resolveSupersedingClaim(asset, claimed.extract, onInflight);
+			return resolveSupersedingClaim(
+				asset,
+				claimed.extract,
+				onInflight,
+				signal,
+			);
 		}
 		if (claimed.kind === "in_flight") {
 			return (
-				(await waitForInflight(asset.id, key)) ?? {
+				(await waitForInflight(asset.id, key, EXTRACTOR_VERSION, signal)) ?? {
 					status: "failed",
 					reason: "The replacement extraction did not publish a usable result.",
 				}
@@ -724,5 +817,6 @@ export async function ensureStoredExtract(opts: {
 		claim: claimed.claim,
 		onInflight,
 		onProgress,
+		signal,
 	});
 }

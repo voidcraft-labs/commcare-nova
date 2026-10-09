@@ -15,7 +15,9 @@
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 import type { MediaAssetId } from "@/lib/domain";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { RunHolderLostError } from "../commitGuard";
 import { generationTargetHeldLive } from "../generationTargetScope";
 import type { GenerationTarget } from "../generationTargets";
@@ -25,9 +27,11 @@ import {
 	clawBackThreadResponse,
 	listThreadMetas,
 	loadThread,
+	loadThreadSelectedSources,
 	mergeThreadTurnMessages,
 	persistResponseSnapshot,
 	resolveThreadStream,
+	selectThreadSource,
 	ThreadAttachmentUnavailableError,
 	upsertThreadTurn,
 } from "../threads";
@@ -841,5 +845,125 @@ describe("pre-app thread media references (§20.12)", () => {
 			{ thread_id: "ds-thread-ea", asset_id: shared, project_id: PROJECT },
 			{ thread_id: "ds-thread-eb", asset_id: shared, project_id: PROJECT },
 		]);
+	});
+});
+
+describe("server-selected library sources", () => {
+	async function selectedFixture() {
+		const assetId = testMediaAssetId("80000000-0000-4000-8000-000000000091");
+		await seedReadyDocument(assetId);
+		await h
+			.db()
+			.updateTable("media_assets")
+			.set({
+				extract: JSON.stringify({
+					status: "ready",
+					version: EXTRACTOR_VERSION,
+					model: "test",
+					truncated: false,
+					charCount: 20,
+					extractedAt: Date.now(),
+				}),
+			})
+			.where("id", "=", assetId)
+			.execute();
+		const { target, runId } = await seedHeldSession("selected-source");
+		const args = {
+			target,
+			runId,
+			threadId: "ds-selected",
+			streamId: "stream-selected",
+			holderNonce: NONCE,
+			threadType: "build" as const,
+			expectedProjectId: PROJECT,
+		};
+		await upsertThreadTurn({
+			...args,
+			messages: [userMsg("source-request", "Read the library requirements")],
+		});
+		const source: SelectedSourceDocument = {
+			assetId,
+			kind: "pdf",
+			filename: "requirements.pdf",
+			mimeType: "application/pdf",
+			contentHash: assetId.padEnd(64, "a").slice(0, 64),
+			extractVersion: EXTRACTOR_VERSION,
+			extractDigest: "extract-digest",
+			revision: "source-revision",
+		};
+		return { args, source };
+	}
+
+	it("protects selected documents across stale transcript writes and missing reference edges", async () => {
+		const { args, source } = await selectedFixture();
+		await selectThreadSource({ ...args, actorUserId: ACTOR, source });
+		await upsertThreadTurn({
+			...args,
+			messages: [userMsg("source-request", "Read the library requirements")],
+		});
+		expect(await loadThreadSelectedSources(args.target, args.threadId)).toEqual(
+			[source],
+		);
+		expect(
+			await h
+				.db()
+				.selectFrom("thread_media_refs")
+				.select(["asset_id", "project_id"])
+				.where("thread_id", "=", args.threadId)
+				.execute(),
+		).toEqual([{ asset_id: source.assetId, project_id: PROJECT }]);
+		await expect(
+			deleteMediaAssetForActor({
+				assetId: source.assetId,
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+			}),
+		).resolves.toMatchObject({ kind: "referenced" });
+		await h
+			.db()
+			.deleteFrom("thread_media_refs")
+			.where("thread_id", "=", args.threadId)
+			.execute();
+		await expect(
+			deleteMediaAssetForActor({
+				assetId: source.assetId,
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+			}),
+		).resolves.toMatchObject({ kind: "referenced" });
+	});
+
+	it("refuses stale streams, changed extracts and lost edit authority without selecting a source", async () => {
+		const { args, source } = await selectedFixture();
+		await expect(
+			selectThreadSource({
+				...args,
+				actorUserId: ACTOR,
+				streamId: "old-stream",
+				source,
+			}),
+		).rejects.toBeInstanceOf(RunHolderLostError);
+		await expect(
+			selectThreadSource({
+				...args,
+				actorUserId: ACTOR,
+				source: { ...source, extractVersion: EXTRACTOR_VERSION + 1 },
+			}),
+		).rejects.toThrow("source document changed");
+		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+		await expect(
+			selectThreadSource({ ...args, actorUserId: ACTOR, source }),
+		).rejects.toThrow();
+		expect(await loadThreadSelectedSources(args.target, args.threadId)).toEqual(
+			[],
+		);
+		expect(
+			await h
+				.db()
+				.selectFrom("thread_media_refs")
+				.selectAll()
+				.where("thread_id", "=", args.threadId)
+				.execute(),
+		).toEqual([]);
 	});
 });

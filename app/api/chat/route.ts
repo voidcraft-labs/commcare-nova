@@ -27,21 +27,27 @@ import { isTerminalOrchestrationKind } from "@/lib/agent/build/orchestrationKind
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
 import {
 	appendOrchestrationEvent,
+	appendOrchestrationEventInTransaction,
 	completeBuildOrchestration,
+	type OrchestrationHead,
 	readOrchestrationHead,
 } from "@/lib/agent/build/orchestratorState";
+import { authoringStage } from "@/lib/agent/build/progress";
 import {
 	EDIT_TURN_LIMIT_MESSAGE,
 	SOLUTIONS_ARCHITECT_MAX_STEPS,
 } from "@/lib/agent/solutionsArchitect";
+import { productionSourceMaterialDeps } from "@/lib/agent/sources.server";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
 import { isOpenAICompactionChunk } from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
+import type { InputRound } from "@/lib/chat/inputRound";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
+import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
@@ -61,7 +67,6 @@ import {
 	type ReacquireOutcome,
 	RunConflictError,
 	reacquireLease,
-	setAwaitingInput,
 } from "@/lib/db/apps";
 import {
 	AppProjectChangedError,
@@ -89,10 +94,16 @@ import type { GenerationTarget } from "@/lib/db/generationTargets";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
+	checkInputRoundInTransaction,
+	checkThreadClaimContinuationInTransaction,
 	clawBackThreadResponse,
+	consumeInputRoundInTransaction,
+	InputRoundRejectedError,
+	loadThreadSelectedSources,
 	mergeThreadTurnMessages,
 	persistResponseSnapshot,
 	resolveThreadStream,
+	selectThreadSource,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
@@ -105,6 +116,7 @@ import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	creditGateDecision,
 	typedMessageResumesDesignWait,
@@ -207,6 +219,19 @@ export async function POST(req: Request) {
 		return new Response(JSON.stringify({ error: "Invalid request body" }), {
 			status: 400,
 		});
+	}
+	if (
+		parsed.data.inputRoundId !== undefined &&
+		(!parsed.data.threadId || !parsed.data.runId || !parsed.data.holderNonce)
+	) {
+		return Response.json(
+			{
+				error:
+					"This answer is missing its conversation identity. Refresh and try again.",
+				type: "invalid_request",
+			},
+			{ status: 400 },
+		);
 	}
 	if (
 		!parsed.data.appId &&
@@ -441,6 +466,7 @@ export async function POST(req: Request) {
 		}
 		if (
 			!chargeable &&
+			parsed.data.inputRoundId === undefined &&
 			(existingThread === null || existingThread.runId !== effectiveRunId)
 		) {
 			return Response.json(
@@ -462,6 +488,27 @@ export async function POST(req: Request) {
 			{ status: 503 },
 		);
 	}
+
+	// Call only after Project/target authorization. The claim transaction repeats
+	// this admission under locks; this read gives stale tabs a cheap reconciliation.
+	const inputRoundRejection = (): Response | null => {
+		const requested = parsed.data.inputRoundId;
+		if (requested === undefined) return null;
+		const round = existingThread?.inputRound ?? null;
+		if (round?.id === requested && round.state === "pending") return null;
+		return Response.json(
+			{
+				code:
+					round?.id === requested && round.state === "consumed"
+						? "input_round_consumed"
+						: "input_round_stale",
+				threadId,
+				inputRound: round,
+				activeStreamId: existingThread?.activeStreamId ?? null,
+			},
+			{ status: 409 },
+		);
+	};
 
 	/* This POST's durable-stream identity: fresh per POST (a run spans many
 	 * POSTs; resume cursors are per-POST chunk counts). Returned in the
@@ -568,6 +615,70 @@ export async function POST(req: Request) {
 	 * answers and be REAPED, freeing the app for another run. Done inside `execute`
 	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
 	let resumeMustCheckSupersede = false;
+	let admittedContinuation: { round: InputRound | null } | null = null;
+	const claimContinuation = (threadType: "build" | "edit") => {
+		const resumesPause =
+			parsed.data.inputRoundId !== undefined ||
+			(!!presentedHolderNonce &&
+				parsed.data.runId !== undefined &&
+				existingThread !== null);
+		if (!resumesPause || parsed.data.redrive === true) return undefined;
+		if (
+			projectId === undefined ||
+			existingThread === null ||
+			parsed.data.runId === undefined
+		)
+			throw new Error("Missing continuation identity");
+		const continuationTarget = existingThread.target;
+		const expectedProjectId = projectId;
+		const priorRunId = parsed.data.runId;
+		let consumeRound = false;
+		return {
+			check: async (
+				tx: import("kysely").Transaction<import("@/lib/db/pg").AppDatabase>,
+			) => {
+				admittedContinuation = null;
+				consumeRound = await checkThreadClaimContinuationInTransaction(tx, {
+					target: continuationTarget,
+					threadId,
+					inputRoundId: parsed.data.inputRoundId,
+					holderNonce: presentedHolderNonce,
+					actorUserId: userId,
+					runId: priorRunId,
+					messages,
+				});
+			},
+			commit: async (
+				tx: import("kysely").Transaction<import("@/lib/db/pg").AppDatabase>,
+				acceptedNonce: string,
+			) => {
+				const persisted = await upsertThreadTurn(
+					{
+						target: continuationTarget,
+						threadId,
+						runId: effectiveRunId,
+						streamId,
+						holderNonce: acceptedNonce,
+						threadType,
+						messages,
+						expectedProjectId,
+						clearInputRound: !consumeRound,
+					},
+					tx,
+				);
+				if (!persisted) throw new Error("Continuation thread changed");
+				admittedContinuation = {
+					round: consumeRound
+						? await consumeInputRoundInTransaction(tx, {
+								threadId,
+								streamId,
+								messages,
+							})
+						: null,
+				};
+			},
+		};
+	};
 	/* Build-vs-edit, derived SERVER-SIDE from the app row and nothing else: a
 	 * new build and any app not at `complete` (a `generating` build, a paused
 	 * askQuestions round, a reaped build being re-driven) run as BUILD; only a
@@ -623,6 +734,8 @@ export async function POST(req: Request) {
 			projectId = session.project_id;
 			projectRole = presentedDesignSessionRole;
 			designLineageSessionId = session.id;
+			const roundRejection = inputRoundRejection();
+			if (roundRejection) return roundRejection;
 			if (session.state === "materialized" && session.app_id !== null) {
 				/* The design already became an app; this turn continues against
 				 * it (the thread stays session-targeted, the app row is the run
@@ -657,10 +770,13 @@ export async function POST(req: Request) {
 							cost,
 							projectId,
 							holderNonce,
+							claimContinuation("build"),
 						);
 						reservation = claimed.reservation;
 						holderNonce = claimed.holderNonce;
 					} catch (err) {
+						if (err instanceof InputRoundRejectedError)
+							return Response.json(err.reconciliation, { status: 409 });
 						if (err instanceof RunConflictError) {
 							/* A design session is single-author scope: the conflicting
 							 * holder is this user's own live run in another tab, so a
@@ -847,6 +963,8 @@ export async function POST(req: Request) {
 			}
 			throw err;
 		}
+		const roundRejection = inputRoundRejection();
+		if (roundRejection) return roundRejection;
 		/* The authoritative mode read: only a `complete` app is EDIT-shaped. A
 		 * `generating` app (live or paused mid-build) and an `error` app (a
 		 * reaped build awaiting re-drive; a failed edit never flips its app to
@@ -931,7 +1049,10 @@ export async function POST(req: Request) {
 							cost,
 							projectId,
 							holderNonce,
-							{ requireModeMatchesStatus: true },
+							{
+								requireModeMatchesStatus: true,
+								continuation: claimContinuation(directClaimMode),
+							},
 						);
 						reservation = claimedRun.reservation;
 						holderNonce = claimedRun.holderNonce;
@@ -1000,6 +1121,8 @@ export async function POST(req: Request) {
 					}
 				}
 			} catch (err) {
+				if (err instanceof InputRoundRejectedError)
+					return Response.json(err.reconciliation, { status: 409 });
 				if (err instanceof RunConflictError) {
 					/* The app is held: wait inside the stream (below), don't reject. */
 					waitForClaim = true;
@@ -1149,6 +1272,11 @@ export async function POST(req: Request) {
 	 * failed / paused) already made the correct lock decision (a paused edit
 	 * deliberately KEEPS its lock), so the net must not second-guess it. */
 	let finalizeRan = false;
+	/* Do not expose the resume header until its authorization anchor exists.
+	 * The SDK starts execute eagerly and queues the prefix in memory; awaiting
+	 * its first durable flush here covers a disconnect after headers as well as
+	 * one after the first SSE record, before the thread has been bound. */
+	const streamBootstrap = Promise.withResolvers<boolean>();
 
 	/* No `req.signal` disconnect handling: the run is no longer tied to the
 	 * browser connection. The agent loop is drained server-side (see the execute
@@ -1179,7 +1307,7 @@ export async function POST(req: Request) {
 			 * lost resume) wrote no thread state and must not touch the row the
 			 * true holder owns. Declared here — outside the main try — because
 			 * the fold callbacks below close over it. */
-			let threadPersisted = false;
+			let threadPersisted = admittedContinuation !== null;
 
 			/* ── The barrier fold: durable-transcript writes at SDK barriers ──
 			 *
@@ -1198,6 +1326,10 @@ export async function POST(req: Request) {
 			 * nothing, because those POSTs never owned the thread. `aborted`
 			 * is defined for uniformity — the route has no server-side stop
 			 * path today, so it is unreachable until one exists. */
+			let commitFoldPause: ((message: UIMessage) => Promise<void>) | null =
+				null;
+			let committedInputRound: InputRound | null = null;
+			let committedPauseHead: OrchestrationHead | null = null;
 			let foldOutcome: "completed" | "paused" | "failed" | "aborted" | "skip" =
 				"skip";
 			/* The one definition of which outcomes CLAW BACK, shared by the
@@ -1304,15 +1436,18 @@ export async function POST(req: Request) {
 						foldSettled = true;
 						return;
 					}
-					await persistResponseSnapshot({
-						target,
-						threadId,
-						streamId,
-						expectedProjectId: projectId,
-						responseMessage,
-						clearMarker: true,
-						retainHolderNonce: foldOutcome === "paused",
-					});
+					if (foldOutcome === "paused" && commitFoldPause)
+						await commitFoldPause(responseMessage);
+					else
+						await persistResponseSnapshot({
+							target,
+							threadId,
+							streamId,
+							expectedProjectId: projectId,
+							responseMessage,
+							clearMarker: true,
+							retainHolderNonce: foldOutcome === "paused",
+						});
 					foldSettled = true;
 				},
 				/* Barrier-write throws land here (the SDK catches `onStepEnd`):
@@ -1360,6 +1495,7 @@ export async function POST(req: Request) {
 				inner: rawWriter,
 				fold: foldWriter,
 			});
+			writer.holdFinishUntilClose();
 			try {
 				/* First chunk of every stream: how many steps of the turn's message
 				 * PRECEDE this stream (the fold seed's `step-start` count — nonzero
@@ -1378,6 +1514,12 @@ export async function POST(req: Request) {
 					},
 					transient: true,
 				});
+				if (admittedContinuation)
+					writer.write({
+						type: "data-input-round",
+						data: { round: admittedContinuation.round },
+						transient: true,
+					});
 				// Send runId to client so it can send it back on subsequent requests
 				writer.write({
 					type: "data-run-id",
@@ -1465,6 +1607,12 @@ export async function POST(req: Request) {
 					failure?: ClassifiedError,
 					opts?: {
 						paused?: boolean;
+						pause?: import("@/lib/chat/threadInputRounds").InputPause & {
+							orchestration?: Extract<
+								Awaited<ReturnType<typeof runBuildOrchestration>>,
+								{ kind: "awaiting-input" }
+							>["pause"]["orchestration"];
+						};
 						heldApp?: boolean;
 						failureSource?: string;
 						/** The typed failure already emitted its canonical structured
@@ -1492,7 +1640,71 @@ export async function POST(req: Request) {
 					 * the reapers). Idempotent. Clearing the interval here is what keeps it
 					 * from leaking. */
 					await ctx.stopRunLeaseHeartbeat();
-					const paused = opts?.paused ?? false;
+					let paused = opts?.paused ?? false;
+					if (paused)
+						commitFoldPause = async (responseMessage) => {
+							const questions = responseMessage.parts.filter(
+								(part) =>
+									part.type === "tool-askQuestions" &&
+									"state" in part &&
+									part.state === "input-available",
+							);
+							const descriptor = opts?.pause ?? {
+								kind: "questions" as const,
+								origin: canonicalJsonDigest(
+									questions
+										.map((part) => ({
+											toolCallId: "toolCallId" in part ? part.toolCallId : "",
+											input: "input" in part ? part.input : null,
+										}))
+										.sort((a, b) => a.toolCallId.localeCompare(b.toolCallId)),
+								),
+								toolCallIds: questions.map((part) =>
+									"toolCallId" in part ? String(part.toolCallId) : "",
+								),
+							};
+							if (
+								descriptor.kind === "questions" &&
+								descriptor.toolCallIds.length === 0
+							)
+								throw new Error("A question pause requires pending questions");
+							committedInputRound = await commitThreadInputPause({
+								target,
+								holderTarget:
+									designSessionRun !== undefined &&
+									!designSessionRun.materialized
+										? {
+												kind: "design-session",
+												designSessionId: designSessionRun.designSessionId,
+											}
+										: { kind: "app", appId },
+								threadId,
+								streamId,
+								runId: effectiveRunId,
+								holderNonce,
+								mode: appReady ? "edit" : "build",
+								actorUserId: userId,
+								expectedProjectId: projectId,
+								responseMessage,
+								pause: descriptor,
+								commitState:
+									opts?.pause?.orchestration && designSessionRun
+										? async (tx) => {
+												if (!opts?.pause?.orchestration || !designSessionRun)
+													return;
+												committedPauseHead =
+													await appendOrchestrationEventInTransaction(tx, {
+														...opts.pause.orchestration,
+														designSessionId: designSessionRun.designSessionId,
+														runId: effectiveRunId,
+														holderNonce,
+														actorUserId: userId,
+														expectedProjectId: projectId,
+													});
+											}
+										: undefined,
+							});
+						};
 
 					/* Retire the transcript FIRST, before any settle/flush work: set
 					 * the fold's terminal directive, close it, and wait for its final
@@ -1555,6 +1767,8 @@ export async function POST(req: Request) {
 										messageId: foldMessageId,
 										revertTo: foldSeed,
 									});
+								} else if (paused && commitFoldPause && foldFinalMessage) {
+									await commitFoldPause(foldFinalMessage);
 								} else {
 									await persistResponseSnapshot({
 										target,
@@ -1588,11 +1802,63 @@ export async function POST(req: Request) {
 					 * reserved nothing. Every other terminal path: the drain-end finally,
 					 * `failRun`, the paused arm: is a POST that owns or continues the
 					 * holding run, so it defaults true. */
+					if (paused && !committedInputRound) {
+						paused = false;
+						foldOutcome = "failed";
+						failure = {
+							type: "internal",
+							message:
+								"This conversation could not pause safely. Refresh to continue.",
+							recoverable: true,
+							raw: "pause_commit_failed",
+						};
+						if (foldMessageId) {
+							try {
+								await clawBackThreadResponse({
+									target,
+									threadId,
+									streamId,
+									messageId: foldMessageId,
+									revertTo: foldSeed,
+								});
+							} catch (error) {
+								log.error(
+									"[chat] pause failure transcript cleanup failed; retaining interruption marker",
+									error,
+									{ threadId, streamId },
+								);
+							}
+						}
+						if (
+							designSessionRun !== undefined &&
+							!designSessionRun.materialized
+						) {
+							try {
+								await failAndRefundDesignSessionRun(
+									designSessionRun.designSessionId,
+									effectiveRunId,
+									holderNonce,
+									"pause_commit_failed",
+								);
+							} catch (error) {
+								log.error(
+									"[chat] pause failure session settlement failed",
+									error,
+									{ threadId },
+								);
+							}
+							ctx.emitError(failure, "route:pause-commit-failed");
+							opts = { ...opts, heldApp: false };
+						}
+					}
 					let heldApp = opts?.heldApp ?? true;
 					if (failure) usage.markRunFailed();
 					await usage.flush();
 					if (failure && heldApp) {
-						/* Failed-run terminal write: refund + settle the marker AND (for an
+						/* Failed-run terminal write: use the target that currently owns the
+						 * hold. A pre-app failure has no app to settle; a session that
+						 * materialized during this turn now delegates to its bound app.
+						 * Refund + settle the marker AND (for an
 						 * EDIT) release the `run_lock`, ATOMICALLY (`settleAndRelease`). `flush`
 						 * above already refunded a hold THIS POST booked; this settles a hold an
 						 * EARLIER POST booked (askQuestions: an earlier chargeable POST reserves,
@@ -1607,11 +1873,35 @@ export async function POST(req: Request) {
 						 * paused. */
 						let refundSettled = false;
 						let settleOutcome: ReacquireOutcome | "failed" = "failed";
+						let failureAppId: string | null = appId;
 						try {
-							({ settled: refundSettled, outcome: settleOutcome } =
-								await settleAndRelease(appId, effectiveRunId, holderNonce, {
-									mode: appReady ? "edit" : "build",
-								}));
+							const session =
+								target.kind === "design-session"
+									? await loadDesignSession(target.designSessionId)
+									: undefined;
+							if (session === null) {
+								settleOutcome = "released";
+							} else if (session?.app_id === null) {
+								failureAppId = null;
+								({ settled: refundSettled, outcome: settleOutcome } =
+									await failAndRefundDesignSessionRun(
+										session.id,
+										effectiveRunId,
+										holderNonce,
+										failure.type,
+									));
+							} else {
+								failureAppId = session?.app_id ?? appId;
+								({ settled: refundSettled, outcome: settleOutcome } =
+									await settleAndRelease(
+										failureAppId,
+										effectiveRunId,
+										holderNonce,
+										{
+											mode: appReady ? "edit" : "build",
+										},
+									));
+							}
 						} catch (err) {
 							log.error("[chat] failed-run settle+release failed", err, {
 								appId,
@@ -1663,8 +1953,18 @@ export async function POST(req: Request) {
 						 * open. `refundSettled` gates the build flip: an uncommitted settle
 						 * leaves the build `generating` for the reaper to retry (mirroring
 						 * `reapStaleGenerating`'s refund-before-flip). */
-						if (settleOutcome === "owned" && refundSettled && !appReady) {
-							await failApp(appId, effectiveRunId, holderNonce, failure.type);
+						if (
+							settleOutcome === "owned" &&
+							refundSettled &&
+							!appReady &&
+							failureAppId !== null
+						) {
+							await failApp(
+								failureAppId,
+								effectiveRunId,
+								holderNonce,
+								failure.type,
+							);
 						}
 					} else if (!failure && !paused && heldApp && appReady) {
 						/* Clean, non-paused EDIT completion: release the `run_lock` AND
@@ -1702,6 +2002,22 @@ export async function POST(req: Request) {
 							});
 						}
 					}
+					if (committedInputRound)
+						writer.write({
+							type: "data-input-round",
+							data: { round: committedInputRound },
+							transient: true,
+						});
+					if (committedInputRound && committedPauseHead && designSessionRun)
+						writer.write({
+							type: "data-authoring-progress",
+							data: {
+								sessionId: designSessionRun.designSessionId,
+								revision: committedPauseHead.revision,
+								stage: authoringStage(committedPauseHead.state),
+							},
+							transient: true,
+						});
 					await logWriter.flush();
 					/* Terminate the durable chunk log LAST: every user-visible write on
 					 * every terminal path (the failure funnel's error event + refund
@@ -1776,6 +2092,20 @@ export async function POST(req: Request) {
 						});
 					}
 				};
+
+				if (!(await writer.flushNow())) {
+					await finalizeRun(
+						classifyError(
+							new Error("The conversation stream could not start."),
+						),
+						{
+							heldApp: !waitForClaim,
+							failureSource: "route:stream-bootstrap",
+						},
+					);
+					return;
+				}
+				streamBootstrap.resolve(true);
 
 				/* Serialize-with-wait: the pre-stream claim CONFLICTED (another run
 				 * holds this app). Rather than 429, poll `claimAndReserveRun` until the
@@ -1857,12 +2187,32 @@ export async function POST(req: Request) {
 								cost,
 								projectId,
 								holderNonce,
-								{ requireModeMatchesStatus: true },
+								{
+									requireModeMatchesStatus: true,
+									continuation: claimContinuation(claimMode),
+								},
 							);
 							reservation = claimedRun.reservation;
 							holderNonce = claimedRun.holderNonce;
+							if (admittedContinuation) {
+								threadPersisted = true;
+								writer.write({
+									type: "data-input-round",
+									data: { round: admittedContinuation.round },
+									transient: true,
+								});
+							}
 							break;
 						} catch (err) {
+							if (err instanceof InputRoundRejectedError) {
+								writer.write({
+									type: "data-input-round-reconciliation",
+									data: err.reconciliation,
+									transient: true,
+								});
+								await finalizeRun(undefined, { heldApp: false });
+								return;
+							}
 							if (err instanceof RunConflictError) continue; // still held: keep waiting
 							if (err instanceof ClaimModeStaleError) {
 								/* The awaited holder finished and changed the app's shape
@@ -2079,6 +2429,50 @@ export async function POST(req: Request) {
 						| "access_revoked"
 						| "app_changed"
 						| "failed" = "failed";
+					let consumedRound: InputRound | null = null;
+					const continuation = {
+						check: async (
+							tx: import("kysely").Transaction<
+								import("@/lib/db/pg").AppDatabase
+							>,
+						) =>
+							checkInputRoundInTransaction(tx, {
+								target,
+								threadId,
+								inputRoundId: parsed.data.inputRoundId,
+								holderNonce: presentedHolderNonce,
+								actorUserId: userId,
+								runId: effectiveRunId,
+								messages,
+							}),
+						commit: async (
+							tx: import("kysely").Transaction<
+								import("@/lib/db/pg").AppDatabase
+							>,
+						) => {
+							if (presentedHolderNonce === null)
+								throw new Error("Missing continuation holder");
+							const persisted = await upsertThreadTurn(
+								{
+									target,
+									threadId,
+									runId: effectiveRunId,
+									streamId,
+									holderNonce: presentedHolderNonce,
+									threadType: resumeMode,
+									messages,
+									expectedProjectId: projectId,
+								},
+								tx,
+							);
+							if (!persisted) throw new Error("Continuation thread changed");
+							consumedRound = await consumeInputRoundInTransaction(tx, {
+								threadId,
+								streamId,
+								messages,
+							});
+						},
+					};
 					try {
 						const result =
 							designSessionRun !== undefined && !designSessionRun.materialized
@@ -2088,6 +2482,7 @@ export async function POST(req: Request) {
 										presentedHolderNonce,
 										userId,
 										projectId,
+										continuation,
 									)
 								: await reacquireLease(
 										appId,
@@ -2096,15 +2491,30 @@ export async function POST(req: Request) {
 										resumeMode,
 										userId,
 										projectId,
+										continuation,
 									);
 						reacquire = result.outcome;
 						if (result.outcome === "owned") {
+							threadPersisted = true;
+							writer.write({
+								type: "data-input-round",
+								data: { round: consumedRound },
+								transient: true,
+							});
 							holderNonce = result.holderNonce;
 							ctx.setReacquiredHolderNonce(holderNonce);
 							usage.configureRun({ holderNonce });
 						}
 					} catch (err) {
-						if (err instanceof CommitReauthError) {
+						if (err instanceof InputRoundRejectedError) {
+							writer.write({
+								type: "data-input-round-reconciliation",
+								data: err.reconciliation,
+								transient: true,
+							});
+							await finalizeRun(undefined, { heldApp: false });
+							return;
+						} else if (err instanceof CommitReauthError) {
 							reacquire = "access_revoked";
 						} else if (err instanceof AppProjectChangedError) {
 							reacquire = "app_changed";
@@ -2220,22 +2630,24 @@ export async function POST(req: Request) {
 				 * and this write throws after preserving any mergeable transcript; it
 				 * must terminate before publishing a stale continuation capability. */
 				try {
-					threadPersisted = await upsertThreadTurn({
-						target,
-						threadId,
-						runId: effectiveRunId,
-						streamId,
-						holderNonce,
-						threadType: appReady ? "edit" : "build",
-						messages,
-						expectedProjectId: projectId,
-						/* A re-drive claim removes its dead predecessor's trailing
-						 * partial assistant message — the death-case claw-back (the
-						 * client's regenerate() already trimmed it from this
-						 * history, and the by-id merge would otherwise keep the
-						 * stored copy forever). */
-						redrive: parsed.data.redrive === true,
-					});
+					if (!threadPersisted)
+						threadPersisted = await upsertThreadTurn({
+							target,
+							threadId,
+							runId: effectiveRunId,
+							streamId,
+							holderNonce,
+							threadType: appReady ? "edit" : "build",
+							messages,
+							expectedProjectId: projectId,
+							/* A re-drive claim removes its dead predecessor's trailing
+							 * partial assistant message — the death-case claw-back (the
+							 * client's regenerate() already trimmed it from this
+							 * history, and the by-id merge would otherwise keep the
+							 * stored copy forever). */
+							redrive: parsed.data.redrive === true,
+							clearInputRound: chargeable && parsed.data.redrive !== true,
+						});
 				} catch (err) {
 					if (err instanceof RunHolderLostError) {
 						await failRun(err, "route:thread-marker-holder-lost");
@@ -2274,6 +2686,7 @@ export async function POST(req: Request) {
 					const orchestrationAbort = new AbortController();
 					try {
 						const outcome = await runBuildOrchestration({
+							streamId,
 							designSessionId: design.designSessionId,
 							proposedAppId: design.proposedAppId,
 							projectId,
@@ -2358,20 +2771,10 @@ export async function POST(req: Request) {
 							});
 							await finalizeRun();
 						} else if (outcome.kind === "awaiting-input") {
-							if (!outcome.pauseOwned) {
-								ctx.emitError(
-									{
-										type: "run_released",
-										message:
-											"This design couldn't pause safely. Refresh to get the latest state, then continue.",
-										recoverable: false,
-									},
-									"route:design-pause-lost",
-								);
-								await finalizeRun(undefined, { heldApp: false });
-							} else {
-								await finalizeRun(undefined, { paused: true });
-							}
+							await finalizeRun(undefined, {
+								paused: true,
+								pause: outcome.pause,
+							});
 						} else {
 							/* Failed. Pre-app: settle+refund the SESSION's hold and end
 							 * honestly (no app exists; the session stays active and
@@ -2669,6 +3072,7 @@ export async function POST(req: Request) {
 					}
 				}
 
+				const sourcePreparationAbort = new AbortController();
 				try {
 					/* Every SA turn is EDIT-shaped after the design-pipeline cutover:
 					 * app-target build turns route to the orchestrator branch above,
@@ -2691,6 +3095,26 @@ export async function POST(req: Request) {
 						moduleCount: sessionDoc.moduleOrder.length,
 					});
 
+					const sourceDeps = productionSourceMaterialDeps(ctx, {
+						authorize: () => work.status(),
+						signal: sourcePreparationAbort.signal,
+					});
+					ctx.sourceDocuments = {
+						signal: sourcePreparationAbort.signal,
+						prepare: sourceDeps.prepareDocument,
+						selected: (source) =>
+							selectThreadSource({
+								target,
+								expectedProjectId: projectId,
+								actorUserId: keyResult.session.user.id,
+								threadId,
+								threadType: "edit",
+								runId: effectiveRunId,
+								holderNonce,
+								streamId,
+								source,
+							}),
+					};
 					const work = await openChatWork(ctx, threadId);
 					const sa = createSolutionsArchitect(ctx, work);
 
@@ -2756,6 +3180,7 @@ export async function POST(req: Request) {
 								data: { delta },
 								transient: true,
 							}),
+						ctx.sourceDocuments,
 					);
 					if (docsToReadCount > 0) {
 						ctx.emitConversation({ type: "attachment-prep", phase: "done" });
@@ -2777,6 +3202,26 @@ export async function POST(req: Request) {
 					const effectiveMessages = projected.effective;
 					const validated = projected.validated;
 					const baseModelMessages = projected.modelMessages;
+					const readSelectedSourceContext = async () => {
+						const selectedSources = await loadThreadSelectedSources(
+							target,
+							threadId,
+						);
+						return selectedSources.length === 0
+							? null
+							: {
+									role: "user" as const,
+									content: JSON.stringify({
+										selectedSourceDocuments: selectedSources.map((source) => ({
+											id: source.assetId,
+											name: source.filename,
+											revision: source.revision,
+											extractVersion: source.extractVersion,
+										})),
+									}),
+								};
+					};
+					const selectedSourceContext = await readSelectedSourceContext();
 
 					/* Keep the volatile private-work status after the stable conversation
 					 * prefix. It includes preserved pending edits on resume and never
@@ -2791,10 +3236,15 @@ export async function POST(req: Request) {
 					 * cost investigation needs visibility into. */
 					usage.configureRun({
 						sentMessageCount:
-							effectiveMessages.length + (appStateMessage ? 1 : 0),
+							effectiveMessages.length +
+							(appStateMessage ? 1 : 0) +
+							(selectedSourceContext ? 1 : 0),
 						sentMessageChars:
 							JSON.stringify(effectiveMessages).length +
-							(appStateMessage ? JSON.stringify(appStateMessage).length : 0),
+							(appStateMessage ? JSON.stringify(appStateMessage).length : 0) +
+							(selectedSourceContext
+								? JSON.stringify(selectedSourceContext).length
+								: 0),
 					});
 
 					/* Run the agent to completion SERVER-SIDE, decoupled from the browser.
@@ -2813,9 +3263,11 @@ export async function POST(req: Request) {
 					 * and the model must see exactly one authoritative snapshot (a
 					 * stale summary beside the fresh one invites re-planning against
 					 * the wrong state). */
-					const promptMessages = appStateMessage
-						? [...baseModelMessages, appStateMessage]
-						: baseModelMessages;
+					const promptMessages = [
+						...baseModelMessages,
+						...(appStateMessage ? [appStateMessage] : []),
+						...(selectedSourceContext ? [selectedSourceContext] : []),
+					];
 
 					/* The turn runs inside a bounded TRANSIENT-failure re-run loop: a
 					 * provider fault mid-generation (a 500 halfway through a step, a
@@ -2860,9 +3312,16 @@ export async function POST(req: Request) {
 							turnRetries > 0 || parsed.data.redrive
 								? buildWorkStateMessage(await work.status(), true)
 								: null;
+						const retrySourceContext = continuation
+							? await readSelectedSourceContext()
+							: null;
 						const result = await sa.stream({
 							prompt: continuation
-								? [...baseModelMessages, continuation]
+								? [
+										...baseModelMessages,
+										continuation,
+										...(retrySourceContext ? [retrySourceContext] : []),
+									]
 								: promptMessages,
 						});
 
@@ -3095,49 +3554,7 @@ export async function POST(req: Request) {
 							scopeErr ? "route:scope-change" : "route:stream",
 						);
 					} else if (ctx.pausedOnInput()) {
-						/* The run paused on an `askQuestions` round (awaiting the user's
-						 * answer) rather than finishing. Stamp `awaiting_input` only while this
-						 * exact run still owns the app. A durable `"owned"` leaves the live hold
-						 * paused for the answer POST. A reaped/replaced outcome is terminal for
-						 * THIS stream: tell the truth, finalize as non-owning/non-paused, and never
-						 * leave a resumable question claim on the successor. Infrastructure faults
-						 * are not ownership answers, so they take the ordinary failure funnel. */
-						let pauseOutcome: ReacquireOutcome | "failed" = "failed";
-						try {
-							pauseOutcome = await setAwaitingInput(
-								appId,
-								effectiveRunId,
-								holderNonce,
-								"edit",
-								true,
-								userId,
-								projectId,
-							);
-						} catch (error) {
-							await failRun(error, "route:pause-stamp");
-						}
-						if (pauseOutcome === "superseded" || pauseOutcome === "released") {
-							ctx.emitError(
-								pauseOutcome === "superseded"
-									? {
-											type: "generation_in_progress",
-											message:
-												"A newer request took over this app before this question round could pause. Refresh to pick up its changes, then continue there.",
-											recoverable: false,
-										}
-									: {
-											type: "run_released",
-											message:
-												"This run was released before its question round could pause. Refresh to get the latest state, then send your answer again.",
-											recoverable: false,
-										},
-								`route:pause-${pauseOutcome}`,
-							);
-							await finalizeRun(undefined, {
-								heldApp: false,
-								paused: false,
-							});
-						}
+						await finalizeRun(undefined, { paused: true });
 					} else {
 						/* Clean EDIT completion — the only SA shape after the design
 						 * cutover (a chat build finalizes in the orchestrator branch
@@ -3199,6 +3616,7 @@ export async function POST(req: Request) {
 					 * resume's failure funnel may still refund, and its lock is held for the
 					 * resume. `ctx.pausedOnInput()` is the same signal the paused arm above
 					 * keys on. */
+					sourcePreparationAbort.abort();
 					await finalizeRun(undefined, { paused: ctx.pausedOnInput() });
 				}
 			} finally {
@@ -3253,7 +3671,11 @@ export async function POST(req: Request) {
 					// Every exit owns prior timer-triggered event writes, even if the
 					// ordinary finalizer or fallback lock release failed. Release the
 					// edit before awaiting best-effort observability.
-					await logWriter.flush();
+					try {
+						await logWriter.flush();
+					} finally {
+						streamBootstrap.resolve(false);
+					}
 				}
 			}
 		},
@@ -3261,10 +3683,18 @@ export async function POST(req: Request) {
 			// Safety net: a model error is surfaced to the user as an error
 			// conversation event via `ctx.emitError` in the execute block; this only
 			// catches an unexpected throw out of `execute` itself.
+			streamBootstrap.resolve(false);
 			log.error("[chat] stream error", error);
 			return error instanceof Error ? error.message : String(error);
 		},
 	});
+	if (!(await streamBootstrap.promise)) {
+		await stream.cancel();
+		return Response.json(
+			{ error: "Nova couldn't open the conversation. Try again." },
+			{ status: 503 },
+		);
+	}
 
 	/* `x-workflow-run-id` is the WorkflowChatTransport resume contract: the
 	 * client stores it off this response and, if the stream ends without a

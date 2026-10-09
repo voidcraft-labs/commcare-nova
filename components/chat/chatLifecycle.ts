@@ -1,7 +1,8 @@
 /** Chat transcript, continuation and authority decisions shared by the live
  * controller and its direct protocol tests. No transport or React ownership. */
-import type { ChatStatus, UIMessage } from "ai";
+import type { ChatStatus } from "ai";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import type { InputRound } from "@/lib/chat/inputRound";
 import type { ThreadDoc } from "@/lib/db/types";
 import {
 	blueprintDocSchema,
@@ -190,24 +191,6 @@ const isCompletedWaitForInputPart = (p: unknown): boolean => {
 	return output?.ok === true && output.awaitingInput === true;
 };
 
-/** The transcript's trailing askQuestions posture, read off the LAST step of
- *  a trailing assistant message: `answered` (every ask has its output, the
- *  auto-resend shape, whose answers live in that trailing message),
- *  `awaiting-input` (the interactive card is up, unanswered), or `none`. */
-export function trailingAskPosture(
-	messages: readonly unknown[],
-): "answered" | "awaiting-input" | "none" {
-	const parts = trailingAssistantParts(messages);
-	if (!parts) return "none";
-	let lastStepIdx = -1;
-	parts.forEach((p, i) => {
-		if ((p as { type?: unknown }).type === "step-start") lastStepIdx = i;
-	});
-	const askParts = parts.slice(lastStepIdx + 1).filter(isAskPart);
-	if (askParts.length === 0) return "none";
-	return askParts.every(isAnsweredAskPart) ? "answered" : "awaiting-input";
-}
-
 /** A completed server-side wait is intentionally not an interactive card.
  * Its durable tool part still tells the progress region that the closed stream
  * is waiting for the person's next message. */
@@ -223,17 +206,26 @@ export function trailingDesignWaitsForInput(
 	return parts.slice(lastStepIdx + 1).some(isCompletedWaitForInputPart);
 }
 
-/** AI SDK keeps an optimistic user message when its request fails. If that
- * message immediately followed a completed design wait, the server still owns
- * the paused hold and the exact retained transcript is safe to submit again.
- * A second typed message is not equivalent, so callers expose an explicit
- * retry instead of reopening the ordinary composer. */
+/** AI SDK retains an optimistic user reply when a request fails. Retry only
+ * the reply directly following its still-pending server invitation. Legacy
+ * completed wait tools retain the same explicit retry path. */
 export function trailingTypedDesignWaitContinuation(
 	messages: readonly unknown[],
+	round?: InputRound | null,
 ): boolean {
 	if (messages.length < 2) return false;
 	const last = messages.at(-1) as { role?: unknown } | undefined;
 	if (last?.role !== "user") return false;
+	if (round) {
+		const previous = messages.at(-2) as
+			| { role?: unknown; id?: unknown }
+			| undefined;
+		return (
+			round.state === "pending" &&
+			previous?.role === "assistant" &&
+			previous.id === round.assistantMessageId
+		);
+	}
 	return trailingDesignWaitsForInput([messages.at(-2)]);
 }
 
@@ -249,17 +241,6 @@ export function claimDesignAgentPath(args: {
 	args.agentEngaged.current = true;
 	args.clearSendFailure();
 	return true;
-}
-
-/** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
- *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend:
- *  the user needs to reply manually first. */
-export function shouldAutoResend({
-	messages,
-}: {
-	messages: UIMessage[];
-}): boolean {
-	return trailingAskPosture(messages) === "answered";
 }
 
 /** Keep app-owned conversation text while retiring Project-owned asset
@@ -465,7 +446,7 @@ export function authoritativeThreadActivationOptions(
 		| "run_paused"
 		| "messages"
 		| "design_session_id"
-	>,
+	> & { input_round?: InputRound | null },
 	buildUnfinished: boolean,
 	options?: { allowRedrive?: boolean },
 ) {
@@ -475,6 +456,8 @@ export function authoritativeThreadActivationOptions(
 	return {
 		runId: thread.run_id,
 		holderNonce: thread.holder_nonce,
+		inputRound: thread.input_round ?? null,
+		legacyInputPause: thread.input_round == null && thread.run_paused === true,
 		resume,
 		redrive,
 		buildResume: (resume || redrive) && buildUnfinished,

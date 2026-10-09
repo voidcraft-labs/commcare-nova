@@ -1102,3 +1102,62 @@ describe("atomic Project move", () => {
 		]);
 	});
 });
+
+it("copies selected library source identity even without a user attachment", async () => {
+	const appId = await seedMoveableApp({ id: "move-selected-sources" });
+	await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+	const sourceId = testMediaAssetId("81000000-0000-4000-8000-000000000001");
+	const destinationId = testMediaAssetId(
+		"81000000-0000-4000-8000-000000000002",
+	);
+	await seedReadyAsset({ id: sourceId, projectId: SOURCE, kind: "document" });
+	await seedReadyAsset({
+		id: destinationId,
+		projectId: DESTINATION,
+		kind: "document",
+	});
+	await seedThread(appId, "selected-move", []);
+	const source = {
+		assetId: sourceId,
+		kind: "pdf",
+		filename: "requirements.pdf",
+		mimeType: "application/pdf",
+		contentHash: "source-hash",
+		extractVersion: 1,
+		extractDigest: "source-extract",
+		revision: "source-revision",
+	};
+	await h
+		.db()
+		.updateTable("threads")
+		.set({ selected_sources: JSON.stringify([source]) })
+		.where("thread_id", "=", "selected-move")
+		.execute();
+	expect(await prepareMove(appId)).toEqual({
+		kind: "ready",
+		assetIds: [sourceId],
+	});
+	expect(
+		await commitMove(appId, {
+			assetIdMap: new Map([[sourceId, destinationId]]),
+		}),
+	).toEqual({ kind: "moved" });
+	const thread = await h
+		.db()
+		.selectFrom("threads")
+		.select(["messages", "selected_sources"])
+		.where("thread_id", "=", "selected-move")
+		.executeTakeFirstOrThrow();
+	expect(thread).toEqual({
+		messages: [],
+		selected_sources: [{ ...source, assetId: destinationId }],
+	});
+	expect(
+		await h
+			.db()
+			.selectFrom("thread_media_refs")
+			.select(["asset_id", "project_id"])
+			.where("thread_id", "=", "selected-move")
+			.execute(),
+	).toEqual([{ asset_id: destinationId, project_id: DESTINATION }]);
+});
