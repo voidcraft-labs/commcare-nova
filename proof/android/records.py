@@ -216,40 +216,6 @@ def _editor(view, section) -> str:
     return f"{section['section']}{place}"
 
 
-def hq_searches(parts: dict) -> dict[str, list[list]]:
-    """Every search HQ's own search view was sent while Formplayer walked some state of the document, by
-    configuration: each ``[case types, CSQL string]`` pair a search sent under ``case_type`` and
-    ``_xpath_query``, from each Formplayer walk a part records (``formplayer.searches``: A's, the local
-    archive's, B's and each editor save's, each with the searches the walk first sends with the answer table's
-    search answers typed in). HQ's view compiled each, and a refusal is a difference of the shards' own
-    (``proof.checks.served.refusal_differences``)."""
-    found: dict[str, set] = {}
-    for name, record in parts.items():
-        if "/" not in name:
-            continue
-        held = found.setdefault(name.split("/", 1)[0], set())
-        for searches in _formplayer_searches(record):
-            for search in searches:
-                params: dict[str, list] = {}
-                for key, values in search:
-                    params.setdefault(str(key), []).extend(str(value) for value in values)
-                types = tuple(sorted(params.get("case_type") or ()))
-                held.update((types, query) for query in params.get("_xpath_query") or ())
-    return {name: [[list(types), query] for types, query in sorted(held)] for name, held in sorted(found.items())}
-
-
-def _formplayer_searches(value):
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == "formplayer" and isinstance(item, dict) and isinstance(item.get("searches"), list):
-                yield item["searches"]
-            else:
-                yield from _formplayer_searches(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _formplayer_searches(item)
-
-
 def saves(proof4: dict) -> list[tuple[str, str, str | None, Archive | None]]:
     """Each editor save of a proof 4 record as ``(label, editor, over, archive)``: ``editor`` as proof 4 names
     the save's editor (a page's section, ``vellum``, ``vellum again``), ``over`` the label of the save it was

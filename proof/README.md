@@ -293,9 +293,7 @@ or it fails the lane ("The registers", below).
   reader runs inside an amd64 shard. A search is answered
   with every case of the asked types the device holds, so what a search's
   filter selects is not read on a device (Formplayer's searches are answered
-  by HQ's own search view over HQ's own Elasticsearch, "Served states"),
-  and HQ's compile of what a device builds is held through the same strings
-  Formplayer sends it (proofs 3 and 4 of the stage). Robolectric lays views out
+  by HQ's own search view over HQ's own Elasticsearch, "Served states"). Robolectric lays views out
   and does not draw them: a cell's class, text, gravity, text size, scale
   type and width are read, and no rendered picture or played sound. Not run:
   a language other than the one the app starts in, a tablet's two-pane
@@ -348,6 +346,25 @@ or it fails the lane ("The registers", below).
   configuration, since a gate's effects are what HQ's build changes wherever
   that is, and holds its differences to the gate's effects, never to the
   register.
+- **Not yet run, and nothing stands in the way but the work: HQ's compile
+  of a CSQL string a device builds from a typed answer.** Android's search
+  screen records what it would send with the answer table's search answers
+  typed into its own views (`query/typed`), and a device answers its own
+  searches, so HQ compiles a device's string only where Formplayer sends HQ
+  the same one. A hosted run (37962682043) showed two cases where it does
+  not: commcare-android never evaluates a prompt's validation (nothing in it
+  calls `RemoteQuerySessionManager.refreshInputDependentState`), so a
+  device sends a search whose typed answer Formplayer refuses at the screen
+  (`prompt-guards`, `prompt-dataflow`: `first_name = "proof"` beside two
+  `match-none()` guards); and Formplayer types into a search's prompts only
+  on the walk it derives on A, never on the walks it replays on B or an
+  editor's save, where Android sends what the Case List save made of a
+  single-date prompt (`visit_date = date-add("proof", 'days', 7)`). What
+  settles it is HQ's compile of every string a device sends: the Core
+  runner's sessions building the same strings with Core's own query
+  manager and the same answers, compiled with HQ's case search compiler in
+  each state's unit (`proof.observe.sessions.search_compiles`), and the
+  Android stage holding each device string to one HQ compiled.
 
 The lane's accepted seams are not left out: each stands for a state
 production can be in, and `proof/CLAUDE.md` gives each its reason. A
@@ -381,7 +398,6 @@ is held:
 | Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
 | Defect 24's export columns | `proof/views/test_exports.py` | the inert subcase's `form.subcase_<i>.case.*` columns hold HQ's missing-value mark in every row while the basic child case beside them holds its id, and after HQ's Case Management save its index columns move and lose `@relationship` |
 | Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. Its comments, dead code and copy are plan and code text, held by step 2's review |
-| A CSQL string a device builds from a typed answer | the Android stage's proofs 3 and 4 (`proof/checks/android.py::typed_never_sent_to_hq`) | every search a device would send once the answer table's search answers are typed into its own views sends only CSQL strings Formplayer sent HQ's own search view, with the same case types and answers, in some state of the document, so HQ compiled each (a refusal is the shards' own difference); a string no walk sent is a difference |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
 | What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
 
@@ -1452,13 +1468,7 @@ answers, each difference under an `android@...` artifact):
   (`/update/reopened/*/session`).
 - **Of each archive alone**, under proofs 3 and 4: a search that sent, for
   an answer holding both quote marks, the query HQ refuses (`android@A`,
-  `…/query/withAnswer/sent-unquotable-search`); a search whose CSQL, built
-  from the answer table's search answers typed into the screen's own views,
-  no Formplayer walk of the document sent HQ's own search view with the
-  same case types (`…/query/typed/never-sent-to-hq`: a device answers its
-  own searches, so HQ's compile of a device's string is the compile of the
-  same string Formplayer sent, and a string no walk sent is one HQ never
-  compiled); and a form the device did
+  `…/query/withAnswer/sent-unquotable-search`), and a form the device did
   not save and yet left a mark of
   (`…/form/saved/applied-though-refused`: the cases it holds are not the
   ones it held as the form opened), which Android's one transaction a form
