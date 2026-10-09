@@ -1177,7 +1177,10 @@ a step clicks what a worker clicks, or reads what the page shows.
   compiled files and every other static file the page asks for. The one
   request nothing answers is for a web font on another host.
 - **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
-  a selector and a text name, text typed into an input, a form's Submit and
+  a selector and a text name (where it takes the worker to another screen,
+  followed by Formplayer's answer to the request it made: the client asks a
+  moment after the click, so the page can be quiet before the request
+  starts, `steps.py::navigate`), text typed into an input, a form's Submit and
   Formplayer's answer to it, and `screen.js`, which reads the screen the
   client rendered: the home screen's tiles, a menu's rows, a case list
   (headers, rows, the empty-list message, and each tile cell's grid area,
