@@ -93,9 +93,16 @@ final class Device {
             }
         }
         if (result == null || !result.hasExtra(InstallArchiveActivity.ARCHIVE_JR_REFERENCE)) {
+            // What the activity shows the worker: its unzip's failure, where UnzipTask delivered one (an unzip that
+            // fails, or that unzipped nothing, leaves the activity open with its message and no result).
+            android.view.View message = ((android.view.Window) activity.getWindow())
+                    .findViewById(org.commcare.dalvik.R.id.screen_multimedia_install_messages);
+            android.widget.TextView shown =
+                    message instanceof android.widget.TextView ? (android.widget.TextView) message : null;
             throw new IllegalStateException("Android's archive install did not unzip " + path
                     + ": InstallArchiveActivity returned no archive reference"
-                    + (result == null && !activity.isFinishing() ? " within " + UNZIP_MILLIS / 1000 + " s." : "."));
+                    + (result == null && !activity.isFinishing() ? " within " + UNZIP_MILLIS / 1000 + " s" : "")
+                    + ", showing the worker " + (shown == null ? "nothing" : "\"" + shown.getText() + "\"") + ".");
         }
         return result.getStringExtra(InstallArchiveActivity.ARCHIVE_JR_REFERENCE);
     }
