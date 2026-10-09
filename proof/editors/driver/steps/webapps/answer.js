@@ -46,7 +46,9 @@
 	const question = drawn.find((candidate) => ixOf(candidate) === ix);
 	if (!question) return "absent";
 	const widget = question.querySelector(".widget");
-	if (!widget) return "unanswerable";
+	// A question the client cannot take (entries.js, UnsupportedEntry) says so in its widget; the text box its
+	// explanation holds shows what exports will hold, and answers nothing.
+	if (!widget || widget.querySelector(".unsupported")) return "unanswerable";
 	const type = (element, text) => {
 		const setter = Object.getOwnPropertyDescriptor(
 			Object.getPrototypeOf(element),

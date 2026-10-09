@@ -8440,5 +8440,145 @@
 		"kind": "changed",
 		"document": "targeted-supply-point-read",
 		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d14-close-conditions-webapps-case-management-screens-kind",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "webapps@case management@*",
+		"path": "/runs/*/screens/*/kind",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-breadcrumbs",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/breadcrumbs/*",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-commands",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/commands/*",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-commands-icon",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/commands/*/icon",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-commands-text",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/commands/*/text",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-route-selections",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/route/selections/*",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-title",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/title",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-breadcrumbs",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/breadcrumbs/*",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-commands-icon",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/commands/*/icon",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-commands-text",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/commands/*/text",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-selections",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/selections/*",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-sessionid",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/sessionId",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-sortindex",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/sortIndex",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-title",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/title",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
 	}
 ]

@@ -240,23 +240,25 @@ SELECTION = "<selection {}>"
 
 
 def _drawn_selections(run) -> dict[str, str]:
-    """Each id Formplayer drew for a multi-select list's chosen cases in ``run``, by the mark a record writes for
-    it: the selection the client sent as ``use_selected_values``, as Formplayer answered it at the same place
-    (``MultiSelectEntityScreen``, which stores the cases and names them by a fresh id)."""
-    from proof.formplayer.walk import USE_SELECTED_VALUES
-
+    """Each id Formplayer drew in ``run`` that the client then names in its route, by the mark a record writes
+    for it: a selection that first appears in one of Formplayer's answers, before the client ever sent it (the
+    id ``MultiSelectEntityScreen`` stores a multi-select list's chosen cases under, where the client sent
+    ``use_selected_values``)."""
     drawn: dict[str, str] = {}
+    sent_so_far: set[str] = set()
     for exchange in run.formplayer:
         try:
             sent, answered = exchange.request_json(), exchange.json()
         except ValueError:
             continue
-        if not isinstance(sent, dict) or not isinstance(answered, dict):
+        if not isinstance(sent, dict):
             continue
-        selections, named = sent.get("selections") or [], answered.get("selections") or []
-        for index, selection in enumerate(selections):
-            if selection == USE_SELECTED_VALUES and index < len(named) and named[index] != USE_SELECTED_VALUES:
-                drawn.setdefault(named[index], SELECTION.format(len(drawn) + 1))
+        sent_so_far.update(str(value) for value in sent.get("selections") or [])
+        if not isinstance(answered, dict):
+            continue
+        for value in answered.get("selections") or []:
+            if str(value) not in sent_so_far:
+                drawn.setdefault(str(value), SELECTION.format(len(drawn) + 1))
     return drawn
 
 

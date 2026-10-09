@@ -43,11 +43,11 @@ def test_an_unanswered_couch_view_raises(hq, core_runner):
         assert Domain.get_by_name(state.domain).name == state.domain
         assert [app.get_id for app in get_brief_apps_in_domain(state.domain)] == [app_id]
 
-        # Unanswered: by_domain_doc_type_date/view is not a view any path reads.
-        from corehq.apps.groups.models import Group
+        # Unanswered: reportconfig/configs_by_domain (a person's saved reports) is not a view any path reads.
+        from corehq.apps.saved_reports.models import ReportConfig
 
-        with pytest.raises(UnansweredView, match="by_domain_doc_type_date/view"):
-            Group.by_domain(state.domain)
+        with pytest.raises(UnansweredView, match="reportconfig/configs_by_domain"):
+            ReportConfig.by_domain_and_owner(state.domain, "proof-owner", stale=False)
 
 
 def test_a_view_row_is_a_copy_of_what_is_stored(hq, core_runner):
