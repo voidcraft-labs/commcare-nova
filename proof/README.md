@@ -2738,6 +2738,16 @@ more shards only wait for a runner beside the test and smoke jobs, and the
 Android stage, which starts when the last shard ends, is the longer half.
 What the lane's target is now is the person's to set (decision 11).
 
+Walking every run of every served state whole in the Web Apps client, each
+run on a fresh page in a fork of its own, and Elasticsearch beside each
+worker, moved it again: on the hosted run that held the lane green with
+both (run 37918849557, sixteen shards), each shard took 30 to 38 minutes,
+542 job-minutes in all, against 18 to 25 before; the shard deadline is 90
+minutes (120 on the fresh lane) so it stops only a stuck shard. Each worker
+also starts one Elasticsearch of its own, about 4 seconds and half a
+gigabyte. `proof/timings.json` holds that run's costs, the shards' and the
+Android stage's (824 groups).
+
 ## Changing a pin
 
 `proof/pins.json` names the commit of each upstream the harness uses
