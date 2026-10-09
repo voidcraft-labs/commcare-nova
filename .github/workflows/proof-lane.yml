@@ -315,7 +315,7 @@ jobs:
     needs: [emit, shard, android-runtime]
     if: ${{ !cancelled() && needs.emit.result == 'success' && needs.android-runtime.result == 'success' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.emit.outputs.android) }}

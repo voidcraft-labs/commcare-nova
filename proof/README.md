@@ -2770,8 +2770,11 @@ both (run 37918849557, sixteen shards), each shard took 30 to 38 minutes,
 542 job-minutes in all, against 18 to 25 before; the shard deadline is 90
 minutes (120 on the fresh lane) so it stops only a stuck shard. Each worker
 also starts one Elasticsearch of its own, about 4 seconds and half a
-gigabyte. `proof/timings.json` holds that run's costs, the shards' and the
-Android stage's (824 groups).
+gigabyte. `proof/timings.json` holds the costs of a later hosted run with
+both and every reader observing a fresh store (run 37962682043: sixteen
+shards of 31 to 36 minutes, Android jobs of 25 to 44): the shards' 450
+groups and 360 of the Android stage's 378, with the other 18, whose job a
+slow runner left unfinished, as the run before measured them (828 groups).
 
 ## Changing a pin
 

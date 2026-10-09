@@ -881,7 +881,10 @@ jobs:
     needs: [proof-plan, proof, proof-android-runtime]
     if: ${{ !cancelled() && needs.proof-plan.result == 'success' && needs.proof-android-runtime.result == 'success' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # A stage job reads its bin in about 40 minutes; one hosted runner read the
+    # same requests six times slower (run 37962682043), so the deadline stops
+    # only a stuck job.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.proof-plan.outputs.android) }}
@@ -946,7 +949,8 @@ jobs:
             --bin "$SHARD" --jobs "$(nproc)" --out "$RUNNER_TEMP/android-out" \
             "$RUNNER_TEMP"/proof-shards/proof-out-*
       - name: Upload the shard's output
-        if: ${{ !cancelled() }}
+        # Also from a job its deadline stopped, so what it read is there to see.
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: proof-android-out-${{ github.run_attempt }}-${{ matrix.shard }}
