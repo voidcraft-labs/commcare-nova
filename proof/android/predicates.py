@@ -319,7 +319,10 @@ class Predicates(unittest.TestCase):
     def tile(self, label, replacements):
         archive = edited(TILE / "local.ccz", self.work / f"tile-{label}.ccz", "suite.xml", replacements)
         answer = self.reader.request("app", archive=str(archive), restore=str(TILE / "restore.xml"), commands=["m0-f0"])
-        return cells(answer["walks"]["m0-f0"]["steps"][0]["list"]["rows"][0])
+        walk = answer["walks"]["m0-f0"]
+        raised = walk.get("raised") or {}
+        self.assertIn("steps", walk, f"the walk raised {raised.get('class')}: {raised.get('stack', '')[:3000]}")
+        return cells(walk["steps"][0]["list"]["rows"][0])
 
     def test_a_tile_cells_style_reaches_androids_tile_view(self):
         """Defect 14's tile font size and finding 42. Contract: on Android's tile (``EntityViewTile``), a
