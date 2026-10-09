@@ -1,6 +1,7 @@
 /**
- * The two inputs step 1 left out of the lane as ones no Nova document can
- * hold, each tried through Nova's planner, commit gate and exports.
+ * The inputs step 1 left out of the lane as ones no Nova document can hold or
+ * no target Nova publishes to can carry, each tried through Nova's planner,
+ * commit gate, exports and publish check.
  *
  * Contract: a claim that Nova cannot produce an input is true only where
  * Nova's own gate or exports say so. The plausible failure is a row dropped
@@ -23,11 +24,35 @@
  *   as `&apos;`. So the document is a corpus document
  *   (`targeted-supply-point-read`), and the lane observes what HQ does with
  *   it, before and after a save in HQ's form builder respells the source.
+ * - **Defect 20's `product_id` datum** (under CommTrack). HQ gives it only
+ *   to an advanced module: the case list menu item of an `AdvancedModule`,
+ *   and an advanced form whose last load action shows product stock
+ *   (`suite_xml/sections/entries.py`, both branches under
+ *   `isinstance(module, AdvancedModule)` and `form.actions.
+ *   get_load_update_actions`). Nova's HQ module is a `Module` by its type
+ *   (`lib/commcare/types.ts`, `doc_type: "Module"`), and a document that
+ *   holds both features HQ's branches read (a module that is only its case
+ *   list, whose menu item HQ shows, and a form that loads a case) exports a
+ *   basic module with basic actions, so neither branch is reached. The
+ *   accepted counterpart is the case list menu item itself, which the
+ *   export does show.
+ * - **Defect 23 without `MM_CASE_PROPERTIES`.** A capture that saves its
+ *   file on the case needs the flag, and Nova's publish check
+ *   (`lib/deployment/preflight.ts`, through `projectSpaceCompatibilityProbePlan`
+ *   and `probeHqProjectSpaceCompatibility`) stops the publish to a project
+ *   space whose flags HQ's own domain list says lack it, naming the
+ *   capability; the same target with the flag passes. So no app reaches a
+ *   project space where HQ would drop the attachment, and the lane checks
+ *   none (decision 19).
  */
 
+import type { MockAgent } from "undici";
 import { describe, expect, it } from "vitest";
+import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import type { BlueprintDoc } from "@/lib/domain";
 import { plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
@@ -43,7 +68,9 @@ interface HqForm {
 }
 interface HqApp {
 	readonly modules: readonly {
+		readonly doc_type: string;
 		readonly case_type: string;
+		readonly case_list?: { readonly show: boolean };
 		readonly forms: readonly HqForm[];
 	}[];
 	readonly _attachments: Readonly<Record<string, string>>;
@@ -217,4 +244,173 @@ describe("a form that reads the session's supply point", () => {
 			}
 		},
 	);
+});
+
+describe("defect 20's product_id datum", () => {
+	it("is reached by no export: a case list menu item and a form that loads a case export a basic module", () => {
+		const doc = buildDoc({
+			appId: ID,
+			appName: "Stock",
+			caseTypes: [
+				{
+					name: "client",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: uuid("list-only"),
+					name: "Client list",
+					caseType: "client",
+					caseListOnly: true,
+					caseListConfig: caseListOf([
+						plainColumn(uuid("list-name"), "case_name", "Name"),
+					]),
+					forms: [],
+				},
+				{
+					uuid: uuid("module"),
+					name: "Clients",
+					caseType: "client",
+					caseListConfig: caseListOf([
+						plainColumn(uuid("name"), "case_name", "Name"),
+					]),
+					forms: [
+						{
+							uuid: uuid("form"),
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									uuid: uuid("notes"),
+									id: "notes",
+									label: proseText("Notes"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const app = exported(doc);
+		// The case list menu item HQ's first branch keys on is shown ...
+		expect(app.modules.map((module) => module.case_list?.show)).toEqual([
+			true,
+			false,
+		]);
+		// ... on a basic module, and the form that loads a case does so with basic actions, so HQ's advanced branches,
+		// the only ones that add the datum, are never reached.
+		expect(app.modules.map((module) => module.doc_type)).toEqual([
+			"Module",
+			"Module",
+		]);
+		for (const module of app.modules) {
+			for (const form of module.forms) {
+				expect(form.actions).not.toHaveProperty("load_update_cases");
+			}
+		}
+	});
+});
+
+describe("defect 23 without MM_CASE_PROPERTIES", () => {
+	const CREDS = {
+		username: "account",
+		apiKey: "fixture-key",
+		server: "india",
+	} as const;
+	const HOST = "https://india.commcarehq.org";
+	const DOMAINS = "/api/user_domains/v1/?limit=100";
+	const visible = {
+		meta: { total_count: 1 },
+		objects: [{ domain_name: "clinic", project_name: "Clinic" }],
+	};
+	const none = { meta: { total_count: 0 }, objects: [] };
+
+	function attachmentCapture(): BlueprintDoc {
+		const made = targetedDocument({
+			id: ID,
+			rows: ["a dropped input, tried"],
+			doc: buildDoc({
+				appId: ID,
+				appName: "Wounds",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "case_name", label: proseText("Name") },
+							{ name: "photo", label: proseText("Photo") },
+						],
+					},
+				],
+				modules: [
+					{
+						uuid: uuid("module"),
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListOf([
+							plainColumn(uuid("name"), "case_name", "Name"),
+						]),
+						forms: [
+							{
+								uuid: uuid("form"),
+								name: "Photo",
+								type: "followup",
+								fields: [
+									f({
+										kind: "image",
+										uuid: uuid("photo"),
+										id: "photo",
+										label: proseText("Photo"),
+										caseWrite: {
+											caseType: "patient",
+											property: "photo",
+											mode: "attachment",
+										},
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+			expected: { intent: [] },
+		});
+		return made.doc as BlueprintDoc;
+	}
+
+	function target(peer: MockAgent, flagged: boolean) {
+		const asked = (path: string) =>
+			peer.get(HOST).intercept({
+				method: "GET",
+				path,
+				headers: { authorization: "ApiKey account:fixture-key" },
+			});
+		asked(DOMAINS).reply(200, visible);
+		asked(`${DOMAINS}&feature_flag=mm_case_properties`).reply(
+			200,
+			flagged ? visible : none,
+		);
+	}
+
+	it("is a target Nova's publish refuses, naming the capability, and the same target with the flag passes", async () => {
+		const plan = projectSpaceCompatibilityProbePlan(attachmentCapture());
+		expect(plan.capabilities.map((item) => item.capability.id)).toEqual([
+			"case-attachments",
+		]);
+		const refused = await withHttpPeer(async (peer) => {
+			target(peer, false);
+			return probeHqProjectSpaceCompatibility(CREDS, "clinic", plan);
+		});
+		expect(refused.report.status).toBe("blocked");
+		expect(
+			refused.report.status === "blocked" &&
+				refused.report.blockers.map((blocker) => blocker.id),
+		).toEqual(["case-attachments"]);
+		const passed = await withHttpPeer(async (peer) => {
+			target(peer, true);
+			return probeHqProjectSpaceCompatibility(CREDS, "clinic", plan);
+		});
+		expect(passed.report.status).not.toBe("blocked");
+	});
 });

@@ -14,6 +14,7 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "case-capture-query",
     "case-list-inline",
     "expander-expanddoc-hq-json-projection-case-search-4d53ba11-0",
     "location-direct",
