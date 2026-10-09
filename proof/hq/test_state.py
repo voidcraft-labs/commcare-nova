@@ -33,7 +33,7 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 
 
 def test_an_unanswered_couch_view_raises(hq, core_runner):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.dbaccessors import get_brief_apps_in_domain
         from corehq.apps.domain.models import Domain
 
@@ -55,7 +55,7 @@ def test_a_view_row_is_a_copy_of_what_is_stored(hq, core_runner):
     ``applications_brief``, whose values the map takes from the stored app).
     Changing one without saving leaves the stored app as it was, as CouchDB's
     wire copy does; a saved change is what the next read sees."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.dbaccessors import get_app, get_brief_apps_in_domain
 
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite")])
@@ -80,7 +80,7 @@ def test_a_view_rows_document_is_a_copy_of_what_is_stored(hq, core_runner):
     wraps each row's document: the wrapper holds the dictionary it wrapped
     and writes through to it. Changing the wrapped app without saving leaves
     the stored app as it was; saving it is what the next read sees."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.dbaccessors import get_apps_in_domain
 
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite")])
@@ -130,7 +130,7 @@ def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_r
     refuses to end as if nothing happened (``AbortedTransaction``)."""
     upload = nova_shaped_upload(hq_test_app(), "Suite")
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.data_dictionary.models import CaseProperty
 
         operations.publish(state, [upload])
@@ -139,7 +139,7 @@ def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_r
     from django.db.utils import ProgrammingError
 
     with pytest.raises(AbortedTransaction, match="connection (marked for rollback|in an aborted transaction)"):
-        with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+        with hq_check(CONFIGURATION) as (state, _):
             from django.db import connection
 
             with connection.cursor() as cursor:
@@ -161,7 +161,7 @@ def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_r
     assert "_refresh_data_dictionary_from_app" in frames
 
     # The table is back for the next unit: the drop was rolled back with it.
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         operations.publish(state, [upload])
         assert CaseProperty.objects.filter(case_type__domain=state.domain).exists()
 

@@ -19,11 +19,14 @@ records what HQ asked it into the check's ``SeamRecord``:
   answers from the configuration.
 - ``previous_build``: ``_get_version_comparison_build`` returns the given
   build, so HQ's own ``set_form_versions`` decides each form's version.
-- ``form_validation``: Formplayer's ``validate_form`` endpoint is served by
-  the given validator (the Core runner); HQ's request, HMAC header and
-  response parsing all run. Every form HQ sends is recorded; the answer to
-  bytes the Core runner already validated in this process is the one kept
-  for them (``FORM_VALIDATIONS``, switched on by ``proof.hq.speed``).
+- ``form_validation``: HQ's request to Formplayer's ``validate_form``
+  endpoint is answered by Formplayer's own application
+  (``formplayer_validation``: the session's validation Formplayer,
+  ``proof.observe.services.validator``), sent with the headers HQ wrote and
+  the digest HQ signed it with, under the key the two share; HQ's request
+  and its reading of the answer run whole. Every form HQ sends is recorded;
+  the answer to bytes already validated in this process is the one kept for
+  them (``FORM_VALIDATIONS``, switched on by ``proof.hq.speed``).
 - ``resource_overrides``: HQ's own ``patch_get_xform_resource_overrides``.
 - ``project_space``: CommTrack and sync-cases-on-form-entry through HQ's
   own ``app_manager/tests/util.py`` seams.
@@ -555,14 +558,15 @@ IDENTITY_HASH = re.compile(r"\b((?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*)@[0-9a-f
 
 
 class _FormValidations:
-    """Core's answer to each form, kept by the sha256 of the form's bytes.
+    """Formplayer's answer to each form, kept by the sha256 of the form's bytes.
 
-    Formplayer's ``validateForm`` (``XFormParser`` with ``JSONReporter``,
-    which the Core runner runs) is a function of the bytes HQ posts and
-    nothing else, so the answer to bytes already validated in this process is
+    Formplayer's ``validateForm`` (``XFormParser`` with ``JSONReporter``) is
+    a function of the bytes HQ posts and nothing else, and what HQ sends with
+    them (the content type, and the digest of those bytes under the shared
+    key) is too, so the answer to bytes already validated in this process is
     the answer kept for them. Only a validator known to be such a function
-    has its answers kept: the Core runner's ``validate_form``, or one marked
-    with ``pure``; any other (one that also checks or counts what HQ sends) is
+    has its answers kept: Formplayer's (``formplayer_validation``, a runner's
+    ``validate_form``), or one marked with ``pure``; any other (one that also checks or counts what HQ sends) is
     asked every time. ``proof.hq.speed`` switches the memo on; with
     ``PROOF_VERIFY_MEMOS=1`` every kept answer is computed again and must be
     identical (``MemoMismatch``) but for the identity hashes Core writes into
@@ -576,22 +580,27 @@ class _FormValidations:
         self.hits = 0
         self.verified = 0
 
-    def answer(self, validate, xml: bytes) -> str:
-        if not (self.enabled and _is_pure(validate)):
+    def answer(self, validate, xml: bytes, headers=None) -> str:
+        def asked():
+            if headers is not None and getattr(validate, "takes_hq_headers", False):
+                return validate(xml, headers=headers)
             return validate(xml)
+
+        if not (self.enabled and _is_pure(validate)):
+            return asked()
         digest = hashlib.sha256(xml).digest()
         kept = self._answers.get(digest)
         if kept is None:
-            kept = self._answers[digest] = validate(xml)
+            kept = self._answers[digest] = asked()
             return kept
         self.hits += 1
         if self.verify:
-            fresh = validate(xml)
+            fresh = asked()
             self.verified += 1
             if IDENTITY_HASH.sub(r"\1", fresh) != IDENTITY_HASH.sub(r"\1", kept):
                 raise MemoMismatch(
-                    f"Core's validation of a form (sha256 {digest.hex()}) answered {fresh!r} when computed again, "
-                    f"where the harness kept {kept!r}. Core's form validation is not a function of the form's "
+                    f"The validation of a form (sha256 {digest.hex()}) answered {fresh!r} when computed again, "
+                    f"where the harness kept {kept!r}. Form validation is not a function of the form's "
                     "bytes alone here, so proof/hq/seams.py must stop keeping its answers."
                 )
         return kept
@@ -603,19 +612,32 @@ class _FormValidations:
 FORM_VALIDATIONS = _FormValidations()
 
 
-def _is_pure(validate):
-    if getattr(validate, "pure_form_validation", False):
-        return True
-    from proof.core.client import CoreRunner
+def formplayer_validation(xml: bytes, *, headers=None) -> str:
+    """Formplayer's own answer to HQ's form validation request: the session's validation Formplayer
+    (``proof.observe.services.validator``), sent the headers HQ wrote where it is given them."""
+    from proof.observe import services
 
-    return getattr(validate, "__func__", None) is CoreRunner.validate_form
+    return services.validator().validate_form(xml, headers=headers)
+
+
+formplayer_validation.pure_form_validation = True
+formplayer_validation.takes_hq_headers = True
+
+
+def _is_pure(validate):
+    return bool(getattr(validate, "pure_form_validation", False))
 
 
 @contextmanager
 def form_validation(validate, record: SeamRecord):
-    """Formplayer's form validation, answered by ``validate(xml: bytes) -> str``.
+    """Formplayer's form validation, answered by ``validate(xml: bytes) -> str``: Formplayer's own
+    (``formplayer_validation``) on every path of the lane, or a test's own.
 
-    ``validate`` returns Formplayer's JSON verbatim. HQ caches a verdict per
+    ``validate`` returns Formplayer's JSON verbatim, and one that takes HQ's
+    headers (``takes_hq_headers``) is handed the ones HQ's request wrote:
+    the content type and the digest HQ signed the form with, under the key
+    HQ and Formplayer share (``FORMPLAYER_INTERNAL_AUTH_KEY``, set here to
+    the one the lane's Formplayers are started with). HQ caches a verdict per
     app and form (``FormBase.validate_form``); ``proof.hq.operations.build``
     clears each form's verdict first, so every build sends every form here,
     and each is recorded. The answer may be one kept for the same bytes
@@ -623,6 +645,9 @@ def form_validation(validate, record: SeamRecord):
     """
     from corehq.apps.formplayer_api import const
     from corehq.apps.formplayer_api import form_validation as formplayer
+    from django.test import override_settings
+
+    from proof.formplayer.client import AUTH_KEY
 
     class _Formplayer:
         @staticmethod
@@ -630,11 +655,15 @@ def form_validation(validate, record: SeamRecord):
             if not url.endswith(const.ENDPOINT_VALIDATE_FORM):
                 raise SeamRefused(f"HQ posted to Formplayer at {url}; the harness answers form validation only.")
             body = data if isinstance(data, bytes) else data.encode("utf-8")
-            text = FORM_VALIDATIONS.answer(validate, body)
+            sent = tuple((str(name), str(value)) for name, value in (headers or {}).items())
+            text = FORM_VALIDATIONS.answer(validate, body, sent)
             record.form_validations.append(FormValidation(xml=body, response=json.loads(text)))
             return _ValidationResponse(text)
 
-    with mock.patch.object(formplayer, "requests", _Formplayer):
+    with (
+        mock.patch.object(formplayer, "requests", _Formplayer),
+        override_settings(FORMPLAYER_INTERNAL_AUTH_KEY=AUTH_KEY),
+    ):
         yield record
 
 
@@ -663,8 +692,8 @@ def check_seams(configuration: Configuration, record: SeamRecord, *, validate):
     """The seams every path runs under.
 
     Flags, privileges, the project-space settings and Elasticsearch answer
-    from the configuration, and Formplayer's form validation from
-    ``validate`` (the Core runner): HQ asks Formplayer to validate forms while
+    from the configuration, and Formplayer's form validation is
+    ``validate``'s (Formplayer's own, ``formplayer_validation``): HQ asks Formplayer to validate forms while
     it builds, while it renders a form's settings page, and while it imports
     an app that maps media (``hqmedia/models.py::ApplicationMediaMixin.all_media``
     validates each form of a module that uses media). Every soft assertion

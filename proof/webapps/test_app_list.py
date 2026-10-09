@@ -56,9 +56,9 @@ def test_web_apps_shows_the_logo_nova_sends_on_the_apps_tile_and_its_own_flower_
 ):
     observed = {}
     for name, document in (("logo", "media-only"), ("none", "targeted-survey-menu")):
-        with webapps_hq.project(webapps_documents[document], core_runner) as project:
-            with project.released() as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run([steps.SCREEN])
+        with webapps_hq.project(webapps_documents[document]) as project:
+            with project.released(formplayer_runner) as release:
+                run = Session(release, editor_driver).run([steps.SCREEN])
                 media = [e for e in run.hq if e.path.startswith("/hq/multimedia/file/")]
                 observed[name] = {
                     "stored": (release.doc.get("logo_refs") or {}).get("hq_logo_web_apps"),
@@ -94,11 +94,11 @@ def test_web_apps_shows_the_logo_nova_sends_on_the_apps_tile_and_its_own_flower_
 def test_the_app_settings_save_takes_incomplete_forms_off_web_apps_home_screen(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    with webapps_hq.project(webapps_documents["targeted-survey-menu"], core_runner) as project:
+    with webapps_hq.project(webapps_documents["targeted-survey-menu"]) as project:
         observed = {}
         for name, saves in (("nova", ()), ("saved", ((pages.APP_SETTINGS, None),))):
-            with project.released(saves=saves, driver=editor_driver, label=name) as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run([steps.SCREEN])
+            with project.released(formplayer_runner, saves=saves, driver=editor_driver, label=name) as release:
+                run = Session(release, editor_driver).run([steps.SCREEN])
                 observed[name] = {
                     "stored": ((release.doc.get("profile") or {}).get("properties") or {}).get("cc-show-incomplete"),
                     "tiles": _kinds(run.screens[0]),

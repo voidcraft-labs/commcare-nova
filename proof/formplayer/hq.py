@@ -77,10 +77,11 @@ import json
 import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from email.parser import BytesParser
+from email.policy import HTTP
 from urllib.parse import parse_qs
 
-from proof.formplayer.answers import Search, Submission, multipart_parts
-from proof.formplayer.client import AUTH_KEY, HqAnswer, HqRequest
+from proof.formplayer.client import AUTH_KEY, FormplayerRunnerError, HqAnswer, HqRequest
 from proof.hq.boot import HarnessRefusal
 from proof.observe import casedata
 
@@ -102,6 +103,44 @@ SEARCHES = frozenset({"remote_search", "app_aware_remote_search"})
 CLAIM = "claim_case"
 RESTORE = "ota_restore"
 PASSWORD = "proof-worker-password"
+
+
+@dataclass(frozen=True)
+class Submission:
+    """One submission Formplayer sent HQ: the instance, and each file sent beside it by its part's name."""
+
+    path: str
+    instance: bytes
+    files: tuple[tuple[str, bytes], ...]
+
+
+@dataclass(frozen=True)
+class Search:
+    """One case search or claim Formplayer sent HQ: its parameters as HQ's view reads them, each key's values in
+    order."""
+
+    path: str
+    params: tuple[tuple[str, tuple[str, ...]], ...]
+
+    def values(self, key: str) -> tuple[str, ...]:
+        return dict(self.params).get(key, ())
+
+
+def multipart_parts(request: HqRequest) -> list[tuple[str, bytes]]:
+    """The parts of a multipart body, each by its ``name``, read as an HTTP message's parts are."""
+    content_type = request.header("Content-Type") or ""
+    parsed = BytesParser(policy=HTTP).parsebytes(
+        b"Content-Type: " + content_type.encode("latin-1") + b"\r\nMIME-Version: 1.0\r\n\r\n" + request.body
+    )
+    if not parsed.is_multipart():
+        raise FormplayerRunnerError(
+            f"Formplayer's submission to {request.path} is not a multipart body (Content-Type {content_type!r}).",
+            kind="request",
+        )
+    return [
+        (part.get_param("name", header="content-disposition"), part.get_payload(decode=True))
+        for part in parsed.iter_parts()
+    ]
 
 
 class HqViewFailed(AssertionError):
@@ -757,6 +796,7 @@ def serve(
     change=None,
     archives=None,
     edit=False,
+    database=None,
 ):
     """The app the unit holds, as HQ serves it to a Formplayer session, inside a fork that puts the unit back.
 
@@ -765,14 +805,16 @@ def serve(
     document, for a state no page makes: B aligned to A), each in an
     operation of the unit, with ``previous`` as the build HQ compares form
     versions with. ``archives`` are archives HQ does not hold (Nova's local
-    export) by the app id Formplayer is given for each.
+    export) by the app id Formplayer is given for each. The worker's cases
+    are the document's case database (``proof.observe.casedata``), or
+    ``database`` where a test names the cases it turns on.
     """
     from proof.hq import operations
     from proof.hq import redis as hq_redis
     from proof.hq.seams import build_seams
 
     operation = operation or unit.operation
-    database = casedata.document_case_database(document, edit=edit)
+    database = database or casedata.document_case_database(document, edit=edit)
     with hq_redis.shared(None if runner is None else runner.redis_address), unit.fork():
         hq_redis.flush()
         with unit.committing(), index(unit):

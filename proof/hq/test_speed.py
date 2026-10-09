@@ -89,7 +89,7 @@ def _template_cache():
 def test_each_page_renders_the_same_bytes_with_and_without_the_seams(hq, core_runner, monkeypatch):
     # The renders compare under one key whatever PROOF_HQ_DETERMINISM says.
     monkeypatch.setattr(determinism, "ENABLED", True)
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         suite_id = publish_hq_app(state, SUITE_APP)
         advanced_id = publish_hq_app(state, ADVANCED_APP)
         for name, path in _pages(state, suite_id, advanced_id).items():
@@ -193,7 +193,7 @@ def test_hqs_settings_readers_get_from_the_seam_what_they_get_from_yaml(hq, core
     """HQ's own consumer, which pops and rewrites what it parses, gives the same layout either way, every time."""
     from corehq.apps.app_manager import commcare_settings
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app = operations.held_app(state, publish_hq_app(state, SUITE_APP))
         with speed.on():
             assert isinstance(commcare_settings.yaml, speed.YamlMemo)
@@ -224,7 +224,7 @@ def test_queries_are_logged_only_when_a_test_asks_for_them(hq, core_runner):
     from django.db import connection
 
     assert settings.DEBUG is True
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form):
+    with hq_check(CONFIGURATION):
         with speed.on():
             assert connection.queries_logged is False
             with captured_queries(connection) as captured:

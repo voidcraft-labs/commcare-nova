@@ -1,6 +1,6 @@
 """One HQ unit: HQ's state for one (document, configuration), branched by marks.
 
-``hq_unit(configuration, root_key=..., validate=...)`` gives its owner a
+``hq_unit(configuration, root_key=...)`` gives its owner a
 ``proof.hq.branch.Unit``:
 
 - Postgres: one transaction on the worker's database (``proof.hq.database``:
@@ -34,7 +34,7 @@
   after the seeding, their ``SeamRecord`` as ``unit.record``.
 
 Two units opened with the same configuration and root key start from
-byte-identical state, on any worker. ``hq_check(configuration, validate=...)``
+byte-identical state, on any worker. ``hq_check(configuration)``
 is a unit whose root key is the configuration's digest, yielded with its
 record as ``(unit, record)``, and lenient about writes outside its
 operations, for the checks that predate units. ``hq_state(configuration)``
@@ -131,8 +131,13 @@ def _seed(unit, configuration):
             )
 
 
+# Formplayer's own application answers the form validation HQ asks for (``proof.hq.seams.formplayer_validation``):
+# what every unit's seams are given unless a test plants a validator of its own.
+FORMPLAYER = "formplayer"
+
+
 @contextmanager
-def open_unit(configuration: Configuration, *, root_key: bytes, validate, transactional=True, strict=True):
+def open_unit(configuration: Configuration, *, root_key: bytes, validate=FORMPLAYER, transactional=True, strict=True):
     """A unit over the database HQ's connection names for it; with ``validate`` None, no seams are opened."""
     boot()
     from unittest import mock
@@ -142,7 +147,10 @@ def open_unit(configuration: Configuration, *, root_key: bytes, validate, transa
 
     from proof.hq import branch, database
     from proof.hq.couch import ComputedViewCouch
-    from proof.hq.seams import SeamRecord, check_seams
+    from proof.hq.seams import SeamRecord, check_seams, formplayer_validation
+
+    if validate == FORMPLAYER:
+        validate = formplayer_validation
 
     # Before anything of the process's state changes under a unit already open.
     branch.refuse_another_unit()
@@ -182,14 +190,14 @@ def open_unit(configuration: Configuration, *, root_key: bytes, validate, transa
 
 
 @contextmanager
-def hq_unit(configuration: Configuration, *, root_key: bytes, validate):
+def hq_unit(configuration: Configuration, *, root_key: bytes, validate=FORMPLAYER):
     """HQ's state for one (document, configuration), named by ``root_key`` (a sha256 digest), with its seams."""
     with open_unit(configuration, root_key=root_key, validate=validate) as unit:
         yield unit
 
 
 @contextmanager
-def hq_check(configuration: Configuration, *, validate):
+def hq_check(configuration: Configuration, *, validate=FORMPLAYER):
     """A check's unit and its seams' record, as ``(unit, record)``; writes outside its operations are allowed."""
     with open_unit(configuration, root_key=configuration.digest(), validate=validate, strict=False) as unit:
         yield unit, unit.record

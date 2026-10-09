@@ -183,7 +183,7 @@ def test_seeded_and_unseeded_runs_record_the_same_on_every_fixture(hq, core_runn
     """Every fixture view (basic and advanced modules, case search, UI translations, a second display language,
     user properties) and their forms in Vellum, seeded and unseeded: the same outputs and the same HQ exchanges."""
     sections = 0
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         suite = operations.held_app(state, suite_app(state))
         advanced = operations.held_app(state, advanced_app(state))
@@ -204,7 +204,7 @@ def test_seeded_and_unseeded_runs_record_the_same_on_every_fixture(hq, core_runn
                 (bilingual._id, bilingual.modules[0].forms[0].unique_id, "es"),
             ],
         )
-    with hq_check(USERCASE_CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(USERCASE_CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id, form_id = user_properties_form(state)
         spec = pages.ViewSpec("view_form", app_id, form_id, sections=(pages.USER_PROPERTIES,))

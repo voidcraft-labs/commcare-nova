@@ -45,7 +45,7 @@ from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.hq.conftest import hq_test_app, nova_shaped_upload
 from proof.hq.determinism import ConcurrentOperation, operation
-from proof.hq.seams import build_seams
+from proof.hq.seams import build_seams, formplayer_validation
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 
@@ -422,13 +422,13 @@ def test_the_same_publish_and_build_sequence_is_byte_identical_under_the_same_ke
         f"same in every process; this process runs with {hq.python_hash_seed!r}, so a fresh process could order "
         "HQ's output differently. Run the lane as `npm run proof` runs it."
     )
-    first, validations = _run_sequence(core_runner.validate_form)
-    second, _ = _run_sequence(core_runner.validate_form)
+    first, validations = _run_sequence(formplayer_validation)
+    second, _ = _run_sequence(formplayer_validation)
     assert _differences(first, second) == []
     assert first["blobs"] and first["files"]["a"] and len(first["couch"]) > 3
 
     # The control: the same sequence under keys of its own differs.
-    unkeyed, _ = _run_sequence(core_runner.validate_form, keyed=False)
+    unkeyed, _ = _run_sequence(formplayer_validation, keyed=False)
     assert unkeyed["app"]["_id"] != first["app"]["_id"]
     assert unkeyed["files"]["a"]["profile.xml"] != first["files"]["a"]["profile.xml"]
 

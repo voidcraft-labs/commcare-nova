@@ -245,7 +245,7 @@ def _settings_rewrite(before, after, posted):
 @pytest.mark.parametrize("case", CASES, ids=[case.id for case in CASES])
 def test_a_covered_page_saves_hqs_own_app_through_hqs_views(hq, core_runner, editor_driver, case):
     restore = case.data.restore()
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id = publish_hq_app(state, case.app)
         case.prepare(state, app_id)
         target = case.target(operations.held_app(state, app_id))

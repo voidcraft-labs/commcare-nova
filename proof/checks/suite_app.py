@@ -64,7 +64,7 @@ def _update(app, held):
 
 def identity_change(core_runner):
     """(A's builds and identities, B's builds and identities) for the suite app and its identity-changing update."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         a = operations.held_app(state, app_id)
         with build_seams(previous=None):

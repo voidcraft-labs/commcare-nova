@@ -113,7 +113,7 @@ def _forms(state):
 
 
 def test_warm_vellum_runs_equal_fresh_pages_at_hqs_load_delay(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         runs = []
         for app_id, form_id, lang, loads in _forms(state):
@@ -140,7 +140,7 @@ def test_warm_vellum_runs_equal_fresh_pages_at_hqs_load_delay(hq, core_runner, e
 
 
 def test_the_vellum_audit_reruns_a_form_fresh_and_fails_on_a_difference(hq, core_runner, editor_driver, monkeypatch):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
@@ -175,7 +175,7 @@ def test_the_vellum_audit_keeps_a_save_hqs_view_raised_on_as_the_runs_own_failur
 
     from corehq.apps.app_manager.views import forms
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
@@ -250,7 +250,7 @@ def test_a_warm_host_puts_back_the_mug_types_and_specs_earlier_instances_extende
     with_connect = Configuration(privileges={"CLOUDCARE"}, flags={"COMMCARE_CONNECT"})
     module_path = "/data/_lesson"
     runs = []
-    with hq_check(without_connect, validate=core_runner.validate_form) as (state, _):
+    with hq_check(without_connect) as (state, _):
         unit = CheckUnit(state)
         broken = publish_hq_app(state, SUITE_APP)
         broken_form = operations.held_app(state, broken).modules[0].forms[0].unique_id
@@ -268,7 +268,7 @@ def test_a_warm_host_puts_back_the_mug_types_and_specs_earlier_instances_extende
         (with_connect, ("ConnectLearnModule", ["mug-nodeID-error"])),
         (without_connect, ("DataBindOnly", ["mug-nodeID-error"])),
     ):
-        with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+        with hq_check(configuration) as (state, _):
             unit = CheckUnit(state)
             app_id = publish_hq_app(state, SUITE_APP)
             form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
@@ -333,7 +333,7 @@ def test_a_run_whose_page_loaded_an_image_leaves_the_host_so_each_run_asks_hq_fo
     """The same form with an image opened twice on the host asks HQ for its thumbnail both times, as a fresh page
     does, with nothing a cached copy would make a request carry; each such run leaves the host, so the next form,
     one with no image, gets a fresh load of it, and the form after that reuses it again."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         imaged = publish_hq_app(state, SUITE_APP)
         imaged_form = operations.held_app(state, imaged).modules[0].forms[0].unique_id

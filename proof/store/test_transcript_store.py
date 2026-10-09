@@ -56,7 +56,7 @@ def _store(output, store=None):
 
 @pytest.fixture
 def suite(hq, core_runner):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         source = json.loads((HQ_ROOT / "corehq/apps/app_manager/tests/data" / SUITE_APP).read_text())
         app_id, _ = operations.publish(state, [nova_shaped_upload(source, "app")])

@@ -30,7 +30,7 @@ def expander_corpus(session):
     manifest = json.loads((exports / "manifest.json").read_text())
     regenerated = []
     flags = {"CASE_SEARCH_ADVANCED", "FOLLOWUP_FORMS_AS_CASE_LIST_FORM"}
-    with native_check(DOMAIN, validate=session.validate_form, flags=flags, server_origin=NOVA_SERVER_ORIGIN):
+    with native_check(DOMAIN, flags=flags, server_origin=NOVA_SERVER_ORIGIN):
         for record in manifest:
             if not any("double-digit" in test for test in record["tests"]):
                 continue

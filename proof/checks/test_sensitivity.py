@@ -112,7 +112,7 @@ def _sensitivity(core_runner, app_json, *, configuration=CONFIGURATION, then=Non
     """
     from proof.checks.proof2 import parsed_build
 
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, record):
+    with hq_check(configuration) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(app_json, "Suite app")])
         built, flags_read, settings_read = observe.plain_build(state, record, app_id, configuration)
         plain = built.outcome
@@ -178,7 +178,7 @@ def test_each_flip_builds_from_as_state_and_leaves_the_unit_there(hq, core_runne
     from proof.observe.outcome import outcome_record
     from proof.observe.record import Blobs, digest
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         _, flags_read, settings_read = observe.plain_build(state, record, app_id, CONFIGURATION)
         plan = sensitivity.flip_plan(CONFIGURATION, flags_read, settings_read)
@@ -214,7 +214,7 @@ def test_a_project_space_flip_turns_its_setting_wherever_hq_reads_it_and_restore
     def flat_fixture(state):
         return LocationFixtureConfiguration.for_domain(state.domain).sync_flat_fixture
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         assert commtrack(state) == (False, False) and flat_fixture(state) is True
 
         # Each read counts toward its gate, wherever HQ makes it.

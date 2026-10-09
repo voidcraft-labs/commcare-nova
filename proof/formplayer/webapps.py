@@ -30,8 +30,6 @@ from proof.formplayer.client import Exchange, FormplayerRunner, FormplayerRunner
 CSRF_COOKIE = "XSRF-TOKEN"
 CSRF_HEADER = "X-XSRF-TOKEN"
 SESSION_COOKIE = "sessionid"
-# The session key a browser holds where nothing reads it back (the harness's own answers for HQ).
-SESSION_KEY = "proof-session-key"
 # One browser's window: a desktop width (cloudcare's utils.js reads window.innerWidth) and ten cases a page
 # (menus/api.js: 10 above the small-screen width).
 WINDOW_WIDTH = "1280"
@@ -61,8 +59,8 @@ class WebApps:
         domain: str,
         username: str,
         app_id: str,
+        session_key: str,
         locale: str | None = None,
-        session_key: str = SESSION_KEY,
         one_question_per_screen: bool = False,
     ):
         self.runner, self.hq = runner, hq

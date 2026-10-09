@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 from proof.hq.boot import HQ_ROOT
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
+from proof.hq.state import FORMPLAYER
 
 # The CommCare version the native proofs build Nova's exports at (HQ's
 # default build spec for the check's project space).
@@ -47,7 +48,7 @@ def hq_server_origin(origin: str):
 def native_check(
     domain: str,
     *,
-    validate,
+    validate=FORMPLAYER,
     flags=(),
     privileges=(),
     commcare_version: str = NATIVE_COMMCARE_VERSION,

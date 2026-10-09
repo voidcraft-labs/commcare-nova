@@ -427,7 +427,9 @@ class CoreRunner:
     # -- operations --------------------------------------------------------
 
     def validate_form(self, xml: bytes, *, deadline: float = 60.0) -> str:
-        """Formplayer's validate_form response body for these form bytes, exactly as Formplayer writes it."""
+        """Core's parse of these form bytes as a report (``XFormParser`` with ``JSONReporter``): the runner's own
+        lifecycle tests' probe. HQ's form validation is Formplayer's own (``proof.hq.seams.formplayer_validation``),
+        never this."""
         result = self.request("validateForm", deadline=deadline, xmlBase64=base64.b64encode(xml).decode("ascii"))
         return result["report"]
 

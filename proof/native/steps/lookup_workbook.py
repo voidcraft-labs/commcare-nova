@@ -38,7 +38,7 @@ def _read(workbook):
 
 def lookups(session):
     exports = session.family("lookup")
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         corpus = _read(exports / "lookup.xlsx")
         wide = _read(exports / "columns.xlsx")
         padding = _read(exports / "padding.xlsx")

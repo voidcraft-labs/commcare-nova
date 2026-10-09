@@ -24,6 +24,7 @@ row is there before the search and gone after it).
 from __future__ import annotations
 
 from proof.editors import pages
+from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
 from proof.webapps.session import Session
@@ -45,13 +46,16 @@ def test_the_module_settings_save_blanks_the_empty_list_message_a_worker_reads_w
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     document = webapps_documents[DOCUMENT]
-    restore = (document.root / "restore.xml").read_bytes()
-    with webapps_hq.project(document, core_runner, CONFIGURATION, restore=restore) as project:
+    # The worker's cases are the ones the document's own restore fixes, made by HQ's receiver.
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document, CONFIGURATION) as project:
         assert "USH_EMPTY_CASE_LIST_TEXT" in project.toggles
         observed = {}
         for name, saves in (("nova", ()), ("saved", ((pages.MODULE_SETTINGS, project.module_id(0)),))):
-            with project.released(saves=saves, driver=editor_driver, label=name) as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run(PATH)
+            with project.released(
+                formplayer_runner, saves=saves, driver=editor_driver, label=name, database=database
+            ) as release:
+                run = Session(release, editor_driver).run(PATH)
                 listed, emptied = (screen["list"] for screen in run.screens)
                 observed[name] = {
                     "langs": release.doc["langs"],

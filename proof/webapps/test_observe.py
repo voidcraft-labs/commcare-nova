@@ -41,10 +41,10 @@ def _canonical(value) -> str:
 def test_a_documents_web_apps_observation_reads_every_screen_of_the_walk_and_is_the_same_twice(
     document, reaches_a_form, hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    with webapps_hq.project(webapps_documents[document], core_runner) as project:
-        with project.released() as release:
-            first = observe.observe(project, release, formplayer_runner, editor_driver)
-            second = observe.observe(project, release, formplayer_runner, editor_driver)
+    with webapps_hq.project(webapps_documents[document]) as project:
+        with project.released(formplayer_runner) as release:
+            first = observe.observe(release, editor_driver)
+            second = observe.observe(release, editor_driver)
     evidence("observation", first)
     assert first["runs"], "Formplayer's walk of the build made no run, so there is nothing a worker reaches."
     for run in first["runs"]:

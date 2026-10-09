@@ -15,8 +15,9 @@ Contract, on the released build of Nova's export:
 - the link to the hidden form leaves the worker on the menu that holds it,
   which lists its shown form alone;
 - the link to the hidden menu leaves the worker on the app's first screen;
-- each time HQ receives exactly one submission and the client shows HQ's
-  message for it, so no path loses the form.
+- each time HQ's receiver processes exactly one submission and the client
+  shows the message HQ's receiver answered for it (the form's name, saved),
+  so no path loses the form.
 
 Plausible failures: a client that shows an error or stays on the submitted
 form when Formplayer answers with a screen other than the link's target, a
@@ -34,8 +35,6 @@ from proof.webapps.session import Session
 
 DOCUMENT = "targeted-form-link-hidden-target"
 START = steps.path(steps.open_app("Linked surveys"), steps.choose("Start"))
-# HQ's message for a submission it processed, as the client shows it.
-SUBMITTED = "\u221a"
 
 LINKS = {
     "shown form": ("To shown form", {"form": "Shown"}),
@@ -49,9 +48,9 @@ def test_web_apps_follows_a_link_to_a_shown_form_and_stops_before_a_hidden_targe
     link, hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     source, expected = LINKS[link]
-    with webapps_hq.project(webapps_documents[DOCUMENT], core_runner) as project:
-        with project.released() as release:
-            session = Session(project, release, formplayer_runner, editor_driver)
+    with webapps_hq.project(webapps_documents[DOCUMENT]) as project:
+        with project.released(formplayer_runner) as release:
+            session = Session(release, editor_driver)
             run = session.run([*START, *steps.choose(source), steps.SCREEN, *steps.submit_form(), steps.SCREEN])
             received = len(session.hq.submissions)
     opened, landed = run.screens
@@ -62,7 +61,8 @@ def test_web_apps_follows_a_link_to_a_shown_form_and_stops_before_a_hidden_targe
     assert opened["form"]["title"] == source
     assert len(submitted) == 1 and submitted[0].json()["status"] == "success"
     assert received == 1
-    assert landed["alerts"] == [SUBMITTED]
+    # HQ's receiver's own message for the form it processed, which the client shows the worker.
+    assert landed["alerts"] == [f"'{source}' successfully saved!"]
     if "form" in expected:
         assert landed["form"]["title"] == expected["form"]
         assert landed["breadcrumbs"][-1] == expected["form"]

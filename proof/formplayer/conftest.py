@@ -16,9 +16,7 @@ import pytest
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
     "case-operation-query",
-    "search-browse",
     "search-hidden-link",
-    "targeted-custom-tile",
     "targeted-form-link-hidden-target",
     "targeted-invalid-question-ids",
     "targeted-search-hq-compile",

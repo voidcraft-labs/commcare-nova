@@ -43,7 +43,7 @@ import pytest
 
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
-from proof.webapps.session import SESSION_KEY, Session, WebAppsRunFailed
+from proof.webapps.session import Session, WebAppsRunFailed
 
 TILES = "targeted-custom-tile"
 BUNDLE = "/static/webpack/cloudcare/js/formplayer/main.js"
@@ -52,14 +52,14 @@ BUNDLE = "/static/webpack/cloudcare/js/formplayer/main.js"
 def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_answers(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents
 ):
-    with webapps_hq.project(webapps_documents[TILES], core_runner) as project:
-        with project.released() as release:
-            session = Session(project, release, formplayer_runner, editor_driver)
+    with webapps_hq.project(webapps_documents[TILES]) as project:
+        with project.released(formplayer_runner) as release:
+            session = Session(release, editor_driver)
             run = session.run(
                 [{"eval": "() => [...document.scripts].map((script) => script.getAttribute('src'))"}, steps.SCREEN]
                 + [*steps.open_app("Visit tiles"), steps.SCREEN]
             )
-            build_id, app_id = release.build_id, project.app_id
+            build_id, app_id, username = release.build_id, project.app_id, release.username
     navigation = run.hq[0]
     assert navigation.path == session.home and navigation.status == 200
     assert navigation.view.startswith("corehq.apps.cloudcare.views.")
@@ -75,7 +75,7 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
     started = run.answered("navigate_menu_start")
     assert len(started) == 1 and started[0].status == 200
     assert started[0].request_json()["app_id"] == build_id
-    assert started[0].request_json()["username"] == project.worker.username
+    assert started[0].request_json()["username"] == username
     assert ("POST", "/hq/admin/session_details/") in started[0].asked
     assert [command["displayText"] for command in started[0].json()["commands"]] == [
         command["text"] for command in run.screens[1]["commands"]
@@ -84,16 +84,18 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
     assert run.screens[1]["route"]["appId"] == app_id != build_id
 
 
-def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(hq, core_runner, webapps_documents):
+def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(
+    hq, formplayer_runner, webapps_documents
+):
     """Finding 64: without the privilege every configuration of the lane grants, HQ never offers the app to Web
     Apps."""
     from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
 
     offered = {}
     for name, web_apps in (("without Web Apps", False), ("the lane's configuration", True)):
-        with webapps_hq.project(webapps_documents[TILES], core_runner, web_apps=web_apps) as project:
-            with project.released() as release:
-                listed = get_web_apps_available_to_user(project.domain, project.worker)
+        with webapps_hq.project(webapps_documents[TILES], web_apps=web_apps) as project:
+            with project.released(formplayer_runner) as release:
+                listed = get_web_apps_available_to_user(project.domain, release.worker)
                 offered[name] = (release.doc["cloudcare_enabled"], [app["_id"] == release.build_id for app in listed])
     assert offered == {"without Web Apps": (False, []), "the lane's configuration": (True, [True])}
 
@@ -112,19 +114,22 @@ def test_hqs_finders_serve_the_static_files_they_hold_and_nothing_else(hq):
 def test_formplayer_refuses_another_origin_and_answers_the_origin_it_knows_hq_by(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents
 ):
-    with webapps_hq.project(webapps_documents[TILES], core_runner) as project:
-        with project.released() as release:
-            session = Session(project, release, formplayer_runner, editor_driver)
-            body = {"domain": project.domain, "username": project.worker.username, "app_id": release.build_id}
+    with webapps_hq.project(webapps_documents[TILES]) as project:
+        with project.released(formplayer_runner) as release:
+            body = {"domain": project.domain, "username": release.worker.username, "app_id": release.build_id}
             answers = {}
-            for name, origin in (("elsewhere", "http://elsewhere.proof.test"), ("hq", formplayer_runner.ready["hq"])):
-                exchange = formplayer_runner.http(
-                    "/navigate_menu_start",
-                    body,
-                    headers=[("Origin", origin), ("Cookie", f"sessionid={SESSION_KEY}")],
-                    hq=session.hq,
-                )
-                answers[name] = (exchange.response.status, exchange.response.body[:60])
+            with release.run("origin"):
+                for name, origin in (
+                    ("elsewhere", "http://elsewhere.proof.test"),
+                    ("hq", formplayer_runner.ready["hq"]),
+                ):
+                    exchange = formplayer_runner.http(
+                        "/navigate_menu_start",
+                        body,
+                        headers=[("Origin", origin), ("Cookie", f"sessionid={release.hq.session_key}")],
+                        hq=release.hq,
+                    )
+                    answers[name] = (exchange.response.status, exchange.response.body[:60])
     assert answers["elsewhere"] == (403, b"Invalid CORS request")
     # From HQ's origin the same request passes that rule; with no CSRF token it is Formplayer's next rule that
     # answers, which a browser's own first request (the session's) is what satisfies.
@@ -134,9 +139,9 @@ def test_formplayer_refuses_another_origin_and_answers_the_origin_it_knows_hq_by
 def test_a_click_on_nothing_fails_the_run_by_name_and_the_same_click_on_what_is_there_goes_through(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents
 ):
-    with webapps_hq.project(webapps_documents[TILES], core_runner) as project:
-        with project.released() as release:
-            session = Session(project, release, formplayer_runner, editor_driver)
+    with webapps_hq.project(webapps_documents[TILES]) as project:
+        with project.released(formplayer_runner) as release:
+            session = Session(release, editor_driver)
             with pytest.raises(WebAppsRunFailed, match="No such app") as refused:
                 session.run(steps.open_app("No such app"), deadline=20.0)
             run = session.run([*steps.open_app("Visit tiles"), steps.SCREEN])
@@ -151,14 +156,12 @@ def test_each_build_has_an_id_of_its_own_and_its_session_runs_it(
     def renamed(doc):
         doc["modules"][0]["name"] = {"en": "Renamed visits"}
 
-    with webapps_hq.project(webapps_documents[TILES], core_runner) as project:
+    with webapps_hq.project(webapps_documents[TILES]) as project:
         shown = {}
         ids = {}
         for name, change in (("first", None), ("again", None), ("renamed", renamed)):
-            with project.released(change=change) as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run(
-                    [*steps.open_app("Visit tiles"), steps.SCREEN]
-                )
+            with project.released(formplayer_runner, change=change) as release:
+                run = Session(release, editor_driver).run([*steps.open_app("Visit tiles"), steps.SCREEN])
                 ids[name] = release.build_id
                 shown[name] = [command["text"] for command in run.screens[0]["commands"]]
     assert ids["first"] == ids["again"] != ids["renamed"]

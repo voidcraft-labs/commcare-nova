@@ -133,7 +133,7 @@ def published():
     @contextmanager
     def opened(document, name, core_runner, *, configuration=None, create=True):
         export = document.exports[name]
-        with hq_check(configuration or export.configuration.hq(), validate=core_runner.validate_form) as (unit, _):
+        with hq_check(configuration or export.configuration.hq()) as (unit, _):
             app_id = None
             if create:
                 app_id, refusal, _ = publish.create(unit, export)

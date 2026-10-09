@@ -1,99 +1,86 @@
-"""The form validation HQ's build asks Formplayer for, on Formplayer's own controller.
+"""The form validation HQ's build asks Formplayer for is answered by Formplayer's own application.
 
 HQ's build sends each form to Formplayer's ``/validate_form``
-(``formplayer_api/form_validation.py::validate_form``), and the lane answers
-that request with the Core runner (``proof.core``: ``XFormParser`` with
-``JSONReporter``, the body of Formplayer's
-``UtilController.validateForm``), a seam every build of every document
-rests on.
+(``formplayer_api/form_validation.py::validate_form``: the form as XML, the
+digest HQ signs it with under the key the two share), and every unit of the
+lane answers that request with Formplayer's own controller behind its own
+security chain (``proof.hq.seams.formplayer_validation``, the session's
+validation Formplayer), HQ's own request and its reading of the answer run
+whole.
 
-Contract: the Core runner's report for a form is the one Formplayer's own
-controller gives the same bytes, sent as HQ sends them (the form as XML,
-signed with the key HQ and Formplayer share). The plausible failures: a
-request Formplayer's own security chain or content negotiation answers
-another way than the seam assumes (a 401, another media type), a report
-that differs between the Core the runner compiles and the Core Formplayer
-vendors, and a comparison that passes because both said nothing. So every
-form HQ's build sends for validation, for each of this package's documents
-published as Nova publishes it, is validated both ways and passes on both;
-one of them with a calculation neither can parse is refused by both with
-the same report; and Formplayer refuses the same request unsigned.
+Contract: the request that reaches Formplayer is the one HQ wrote, its digest
+HQ's own, so the same form HQ signs with another key is refused by Formplayer
+(the accepted case: HQ's signature under the shared key is answered); a form
+Formplayer reads is reported validated, and a form with a calculation it
+cannot parse is reported failed by its own message, which HQ then reports as
+a build error (``proof/hq/test_build.py``). The plausible failures: a seam
+that answers validation itself or re-signs HQ's request (the wrong key would
+then pass), a report taken from anything but Formplayer's answer, and a
+comparison that passes because nothing was asked.
 """
 
 from __future__ import annotations
 
-import json
+import pytest
 
-from proof.formplayer.client import AUTH_KEY
+from proof.formplayer.client import AUTH_KEY, VALIDATE_FORM, FormplayerRunnerError
 
-VALIDATE = "/validate_form"
+DOCUMENT = "case-operation-query"
 
 
-def _sent(document, core_runner):
-    """Each form as HQ's build sends it for validation: the document published as Nova publishes it, HQ's
-    ``validate_app`` and ``create_all_files`` run, and the bytes of every validation request the build made."""
+def _sent(document):
+    """Each form as HQ's build sends it for validation, and the reports HQ read: the document published as Nova
+    publishes it, HQ's ``validate_app`` and ``create_all_files`` run."""
     from proof.rules.conftest import published
 
-    with published(document, core_runner) as app:
+    with published(document, None) as app:
         before = len(app.unit.record.form_validations)
         built = app.spell()
         assert not built.build.raised, built.build.raised
-        return [validation.xml for validation in app.unit.record.form_validations[before:]]
+        return app.unit.record.form_validations[before:]
 
 
-def _formplayers(formplayer_runner, xml: bytes):
-    """Formplayer's own answer to the request HQ's build sends for these form bytes."""
-    from corehq.util.hmac_request import get_hmac_digest
+def _hq_validates(xml: bytes, *, key: str):
+    """HQ's own ``validate_form`` of these bytes inside a unit's seams, with the memo off, HQ signing with ``key``."""
+    from corehq.apps.formplayer_api.form_validation import validate_form
+    from django.test import override_settings
 
-    answered = formplayer_runner.http(
-        VALIDATE,
-        xml,
-        headers=(("Content-Type", "application/xml"), ("X-MAC-DIGEST", get_hmac_digest(AUTH_KEY, xml))),
-    )
-    assert answered.response.status == 200, (answered.response.status, answered.response.body[:300])
-    assert answered.hq == ()
-    return answered.response.json()
+    from proof.hq.check import hq_check
+    from proof.hq.configuration import Configuration
+    from proof.hq.seams import FORM_VALIDATIONS
 
-
-def test_the_core_runner_reports_each_form_as_formplayers_own_controller_does(
-    hq, core_runner, formplayer_runner, formplayer_documents
-):
-    from proof.formplayer.conftest import DOCUMENTS
-
-    compared = 0
-    for document_id in DOCUMENTS:
-        for xml in _sent(formplayer_documents[document_id], core_runner):
-            xml = xml if isinstance(xml, bytes) else xml.encode("utf-8")
-            runners = json.loads(core_runner.validate_form(xml))
-            assert _formplayers(formplayer_runner, xml) == runners, document_id
-            assert runners["validated"] is True, (document_id, runners)
-            compared += 1
-    assert compared >= len(DOCUMENTS)
+    enabled, FORM_VALIDATIONS.enabled = FORM_VALIDATIONS.enabled, False
+    try:
+        with hq_check(Configuration(privileges={"CLOUDCARE"})), override_settings(FORMPLAYER_INTERNAL_AUTH_KEY=key):
+            return validate_form(xml)
+    finally:
+        FORM_VALIDATIONS.enabled = enabled
 
 
-def _without_identity(report):
-    """A report with the JVM's own name for an object cut from its message (``...AbstractExpr@766e2a66``): the
-    number is the object's address in that process, and each side is a process of its own."""
-    return {**report, "fatal_error": (report.get("fatal_error") or "").split("@")[0]}
+def test_every_form_hqs_build_sends_is_validated_by_formplayer(hq, formplayer_documents):
+    sent = _sent(formplayer_documents[DOCUMENT])
+    assert sent, "HQ's build sent no form for validation, so nothing was asked"
+    assert all(validation.response["validated"] is True for validation in sent), [v.response for v in sent]
 
 
-def test_both_refuse_a_form_neither_can_parse_with_the_same_report(
-    hq, core_runner, formplayer_runner, formplayer_documents
-):
-    xml, *_ = _sent(formplayer_documents["case-operation-query"], core_runner)
+def test_formplayer_answers_hqs_own_signature_and_refuses_another_key(hq, formplayer_documents):
+    xml = _sent(formplayer_documents[DOCUMENT])[0].xml
+    xml = xml if isinstance(xml, bytes) else xml.encode("utf-8")
+    assert _hq_validates(xml, key=AUTH_KEY).success is True
+    with pytest.raises(FormplayerRunnerError, match="HTTP 40[13]"):
+        _hq_validates(xml, key="a key Formplayer was never given")
+
+
+def test_a_form_formplayer_cannot_parse_is_reported_failed_by_its_own_message(hq, formplayer_documents):
+    xml = _sent(formplayer_documents[DOCUMENT])[0].xml
     xml = xml if isinstance(xml, bytes) else xml.encode("utf-8")
     marker = b"<bind "
     assert marker in xml
     broken = xml.replace(marker, b'<bind nodeset="/data/nowhere" calculate="1 +"/><bind ', 1)
-    runners = json.loads(core_runner.validate_form(broken))
-    assert _without_identity(_formplayers(formplayer_runner, broken)) == _without_identity(runners)
-    assert runners["validated"] is False and "invalid calculate expression" in runners["fatal_error"], runners
+    result = _hq_validates(broken, key=AUTH_KEY)
+    assert result.success is False and "invalid calculate expression" in (result.fatal_error or ""), result.to_json()
 
 
-def test_formplayer_refuses_a_validation_request_hq_did_not_sign(
-    hq, core_runner, formplayer_runner, formplayer_documents
-):
-    xml, *_ = _sent(formplayer_documents["case-operation-query"], core_runner)
-    xml = xml if isinstance(xml, bytes) else xml.encode("utf-8")
-    unsigned = formplayer_runner.http(VALIDATE, xml, headers=(("Content-Type", "application/xml"),))
+def test_formplayer_refuses_a_validation_request_hq_did_not_sign(hq, formplayer_runner):
+    unsigned = formplayer_runner.http(VALIDATE_FORM, b"<h:html/>", headers=(("Content-Type", "application/xml"),))
     assert unsigned.response.status in (401, 403), unsigned.response.status

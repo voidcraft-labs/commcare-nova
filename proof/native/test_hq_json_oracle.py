@@ -68,7 +68,7 @@ def test_hq_loads_exactly_the_probes_novas_oracle_admits(native):
     records = json.loads((native.family("hq-oracle") / "hq-oracle-probes.json").read_text())
     assert len(records) >= 40
     results = []
-    with native_check(DOMAIN, validate=native.validate_form, commcare_version="2.60.0"):
+    with native_check(DOMAIN, commcare_version="2.60.0"):
         from corehq.apps.app_manager.util import get_correct_app_class
 
         for record in records:

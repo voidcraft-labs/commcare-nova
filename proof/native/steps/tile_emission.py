@@ -19,7 +19,7 @@ def tiles(session):
     exports = session.family("tile")
     sources = sorted(exports.glob("*.json"))
     records = []
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         for source in sources:
             raw = source.read_bytes()
             app = import_source(raw, DOMAIN)

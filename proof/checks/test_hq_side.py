@@ -57,7 +57,7 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_loses_them(hq, core_r
     document = _document()
     export = document.exports["minimum"]
     saves = document.hq_side
-    with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(export.configuration.hq()) as (unit, _):
         app_id = _created(unit, export)
         held = hqside.save(unit, _ops(unit), app_id, saves)
         assert sorted(held) == sorted(saves)
@@ -106,7 +106,7 @@ def test_a_save_hq_refuses_stops_the_observation(hq, core_runner):
     export = document.exports["minimum"]
     configuration = export.configuration.hq()
     without = replace(configuration, privileges=configuration.privileges - {"BUILD_PROFILES"})
-    with hq_check(without, validate=core_runner.validate_form) as (unit, _):
+    with hq_check(without) as (unit, _):
         app_id = _created(unit, export)
         with pytest.raises(hqside.HqSideSaveRefused, match="build profiles"):
             hqside.build_profiles(unit, app_id, document.hq_side["buildProfiles"])

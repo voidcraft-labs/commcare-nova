@@ -64,7 +64,7 @@ def _data_versions(files):
 
 
 def test_alignment_leaves_nothing_of_bs_identities_and_hq_keeps_unchanged_versions(hq, core_runner):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         with build_seams(previous=None):
             a, hq_build = build_state(operations.held_app(state, app_id), record, "A")

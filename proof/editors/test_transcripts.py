@@ -89,7 +89,7 @@ def _same_sections(one, other):
 
 @pytest.fixture
 def suite(hq, core_runner):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
         yield unit, app_id

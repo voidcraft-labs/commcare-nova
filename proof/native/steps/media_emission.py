@@ -98,7 +98,7 @@ def validation_sources(session):
     from corehq.apps.app_manager.xform import XForm
 
     exports = session.family("media")
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         for name in SCENARIOS:
             form = XForm((exports / f"{name}.source.xml").read_bytes())
             form.strip_vellum_ns_attributes()

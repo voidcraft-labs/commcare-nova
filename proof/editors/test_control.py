@@ -29,7 +29,7 @@ from proof.hq.configuration import Configuration
 
 
 def _date_input_after_case_list_save(configuration, core_runner, editor_driver):
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+    with hq_check(configuration) as (state, _):
         from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty
         from corehq.apps.case_search.models import CaseSearchConfig
 

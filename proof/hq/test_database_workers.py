@@ -117,7 +117,7 @@ def test_every_unit_of_a_worker_runs_in_its_one_clone_of_the_sessions_template(h
     assert first.name == names.unit
     clones = len(database.CLONE_SECONDS)
     for _ in range(2):
-        with hq_check(Configuration(), validate=core_runner.validate_form) as (unit, _):
+        with hq_check(Configuration()) as (unit, _):
             assert unit.database == names.unit == _current_database()
     # No unit cloned a database of its own.
     assert len(database.CLONE_SECONDS) == clones

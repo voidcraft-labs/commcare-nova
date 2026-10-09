@@ -4,8 +4,8 @@ Nova leaves a tile cell without an alignment or a font size where the
 author set none. HQ's Case List page, saved without a change, writes
 ``left``, ``start`` and ``medium`` into every cell, and HQ's build carries
 all three into the suite (finding 42, and defect 14's tile part). Formplayer
-hands the client each as the suite holds it
-(``proof/formplayer/test_tiles.py``). What a worker sees is then the Web
+hands the client each as the suite holds it (for the vertical alignment,
+the rule ``tile-vertical-align-start``'s test). What a worker sees is then the Web
 Apps client's: it writes a style element for the tile's grid
 (``menus/views.js::buildCellLayout``, ``getValidFieldAlignment``), and the
 browser lays the cells out from it under HQ's stylesheets.
@@ -55,12 +55,12 @@ def test_web_apps_lays_a_tile_out_with_the_same_vertical_alignment_and_another_h
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     # Under both tile flags the Case List save keeps a custom tile (defect 12), so the saved app still shows one.
-    with webapps_hq.project(webapps_documents[DOCUMENT], core_runner, "maximum") as project:
+    with webapps_hq.project(webapps_documents[DOCUMENT], "maximum") as project:
         observed = {}
         saves = {"nova": (), "saved": ((pages.CASE_LIST, project.module_id(0)),)}
         for name, made in saves.items():
-            with project.released(saves=made, driver=editor_driver, label=name) as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run([*TO_THE_LIST, steps.SCREEN])
+            with project.released(formplayer_runner, saves=made, driver=editor_driver, label=name) as release:
+                run = Session(release, editor_driver).run([*TO_THE_LIST, steps.SCREEN])
                 answered = run.answered("navigate_menu")[-1].json()
                 observed[name] = {
                     "build": release.build_id,

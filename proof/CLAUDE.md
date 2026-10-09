@@ -17,10 +17,11 @@ harness keeps, each with its reason.
   what HQ and Core do, so a stand-in proves only the stand-in. HQ runs its own
   views, decorators, templates and models over a real Postgres (HQ's own
   migrated schema) and its own in-memory Couch; the seams answer only what HQ
-  reads from outside its state (flags, privileges, project settings,
-  Formplayer's form validation through the Core runner, the previous build,
-  resource overrides, Elasticsearch), each recorded, and every other read is
-  HQ's. A speed seam computes exactly what HQ computes and can be switched
+  reads from outside its state (flags, privileges, project settings, the
+  previous build, resource overrides, Elasticsearch), each recorded, and
+  every other read is HQ's. The form validation HQ asks Formplayer for is
+  answered by Formplayer's own application, sent the request HQ wrote
+  (`proof/hq/seams.py::formplayer_validation`). A speed seam computes exactly what HQ computes and can be switched
   off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
   it in what it does; HQ's soft assertions are noted as production notes
   them, never raised, and each one is evidence. A view or Couch query the
@@ -37,7 +38,9 @@ harness keeps, each with its reason.
   request no view answers is HQ's 404; a harness refusal ends the
   observation. Never answer one of Formplayer's requests with a function
   called on HQ's behalf, a restore written beside HQ, or a submission
-  acknowledged without being processed. What HQ lacks here is named where it
+  acknowledged without being processed, in the packages' own tests as in
+  the lane's records (`proof/formplayer/apps.py::served`). What HQ lacks
+  here is named where it
   is answered, and stays that narrow: the worker's sign-in form (the session
   is Django's own `login`), Elasticsearch (a case search runs HQ's view
   whole and is handed every case of the requested types from Postgres at the

@@ -1,6 +1,6 @@
 """One check's HQ: its unit and the seams every path runs under, together.
 
-``hq_check(configuration, validate=...)`` opens a ``proof.hq.state`` unit for
+``hq_check(configuration)`` opens a ``proof.hq.state`` unit for
 the configuration, its root key the configuration's digest, with the seams
 (``proof.hq.seams.check_seams``), and yields the unit and the seams' record.
 The unit holds what a check's state held (``configuration``, ``domain``,

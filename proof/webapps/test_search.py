@@ -17,7 +17,8 @@
   list for Nova's export opens the search for the saved app.
 
 - **Defect 16, a column hidden from a list and the list's search**
-  (``targeted-hidden-column``, with the restore the document fixes). Nova
+  (``targeted-hidden-column``, with the cases the document's restore
+  fixes, made by HQ's receiver). Nova
   leaves a column hidden from Results out of the list it uploads. Contract:
   in Web Apps on HQ's build a search of the list for that column's value
   finds no case, and a search for a shown value finds the case, so the harm
@@ -34,6 +35,7 @@
 from __future__ import annotations
 
 from proof.editors import pages
+from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
 from proof.webapps.session import Session
@@ -57,7 +59,7 @@ def _query_answers(run):
 def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_and_shows_a_real_one(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    with webapps_hq.project(webapps_documents[BROWSE], core_runner) as project:
+    with webapps_hq.project(webapps_documents[BROWSE]) as project:
         to_the_search = [*TO_THE_MENU, steps.SCREEN, *steps.list_action("Search"), steps.SCREEN]
         sides = {
             # Nova's export: the menu opens the list, and its Search button the search.
@@ -68,8 +70,8 @@ def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_
         }
         observed = {}
         for name, (made, path) in sides.items():
-            with project.released(driver=editor_driver, label=name, **made) as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run(path)
+            with project.released(formplayer_runner, driver=editor_driver, label=name, **made) as release:
+                run = Session(release, editor_driver).run(path)
                 search = release.doc["modules"][0]["search_config"]
                 observed[name] = {
                     "stored": {"description": search.get("description"), "auto_launch": search.get("auto_launch")},
@@ -107,11 +109,11 @@ def test_web_apps_shows_no_description_on_an_inline_search_before_or_after_the_c
 ):
     """The same equivalence where the search is part of the form's own entry (``case-list-inline``), the third
     class the register holds for finding 54: the menu opens the search itself on both builds."""
-    with webapps_hq.project(webapps_documents["case-list-inline"], core_runner) as project:
+    with webapps_hq.project(webapps_documents["case-list-inline"]) as project:
         observed = {}
         for name, saves in (("nova", ()), ("saved", ((pages.CASE_LIST, project.module_id(0)),))):
-            with project.released(saves=saves, driver=editor_driver, label=name) as release:
-                run = Session(project, release, formplayer_runner, editor_driver).run([*TO_THE_MENU, steps.SCREEN])
+            with project.released(formplayer_runner, saves=saves, driver=editor_driver, label=name) as release:
+                run = Session(release, editor_driver).run([*TO_THE_MENU, steps.SCREEN])
                 observed[name] = {
                     "stored": release.doc["modules"][0]["search_config"].get("description"),
                     "formplayer": [answer.get("description") for answer in _query_answers(run)],
@@ -132,10 +134,11 @@ def test_a_list_search_in_web_apps_misses_a_hidden_columns_value_and_finds_a_sho
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     document = webapps_documents["targeted-hidden-column"]
-    restore = (document.root / "restore.xml").read_bytes()
-    with webapps_hq.project(document, core_runner, restore=restore) as project:
-        with project.released() as release:
-            run = Session(project, release, formplayer_runner, editor_driver).run(
+    # The worker's cases are the ones the document's own restore fixes, made by HQ's receiver.
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run(
                 [
                     *steps.open_app("Client villages"),
                     *steps.choose("Clients"),
@@ -160,9 +163,9 @@ def test_a_list_search_in_web_apps_misses_a_hidden_columns_value_and_finds_a_sho
 def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    with webapps_hq.project(webapps_documents[BROWSE], core_runner) as project:
-        with project.released() as release:
-            run = Session(project, release, formplayer_runner, editor_driver).run([*TO_THE_MENU, steps.SCREEN])
+    with webapps_hq.project(webapps_documents[BROWSE]) as project:
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([*TO_THE_MENU, steps.SCREEN])
     handed = run.answered("navigate_menu")[-1].json()
     shown = run.screens[0]["list"]
     evidence("sort-only-column", {"headers": handed["headers"], "widthHints": handed["widthHints"], "shown": shown})

@@ -1001,7 +1001,7 @@ def observe_configuration(
 
     with (
         guard.observing(document, name, "configuration", hooks),
-        hq_unit(configuration, root_key=keys["a"], validate=core_runner.validate_form) as unit,
+        hq_unit(configuration, root_key=keys["a"]) as unit,
         _connect_closed() as closing,
     ):
         state = _Unit(

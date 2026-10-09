@@ -241,7 +241,7 @@ def suite_b(configuration, prepares, core_runner, editor_driver, *, store=None, 
     from proof.observe.unit import BContext, HookUnit, OperationLog
 
     root = hashlib.sha256(b"proof4 framework: " + configuration.digest()).digest()
-    with hq_unit(configuration, root_key=root, validate=core_runner.validate_form) as unit:
+    with hq_unit(configuration, root_key=root) as unit:
         log = OperationLog(unit, unit.record, {})
         with log("create", b"hq suite app"):
             app_id = publish_hq_app(unit)

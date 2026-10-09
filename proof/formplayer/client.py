@@ -36,6 +36,8 @@ The client is called inside HQ's operations, whose frozen clock stops
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import itertools
 import json
 import os
@@ -81,6 +83,8 @@ DEFAULT_MAX_HEAP = "1g"
 # The key HQ and Formplayer share (commcarehq.formplayerAuthKey): Formplayer signs its session-details request
 # with it, and HQ signs what it asks Formplayer. Its value is the harness's own; nothing outside the lane holds it.
 AUTH_KEY = "proof-lane-formplayer-key"
+# Formplayer's form validation endpoint, which HQ's build posts each form to (formplayer_api/const.py).
+VALIDATE_FORM = "/validate_form"
 # The lane's Postgres, as proof/compose.yaml names it.
 POSTGRES_HOST = os.environ.get("PROOF_POSTGRES_HOST", "postgres")
 POSTGRES_PORT = os.environ.get("PROOF_POSTGRES_PORT", "5432")
@@ -642,6 +646,45 @@ class FormplayerRunner:
             body=base64.b64decode(result["bodyBase64"]),
         )
         return Exchange(response=response, hq=tuple(asked), log=self.last_log)
+
+    def validate_form(self, xml: bytes, *, headers: Sequence[tuple[str, str]] | None = None, deadline=60.0) -> str:
+        """Formplayer's own answer to HQ's form validation request for these form bytes
+        (``UtilController.validateForm`` behind Formplayer's security chain): the body of its 200, as HQ reads it.
+
+        ``headers`` are the ones HQ sent (``formplayer_api/form_validation.py::validate_form``: the content type
+        and the digest HQ signs the form with); without them the request is signed as HQ signs it, with the key
+        HQ and Formplayer share. The request names no seed and takes no place among a run's requests: a form's
+        validation draws nothing from Core's random source, and a walk's requests keep their places whatever HQ
+        validated between them. Any other status is Formplayer refusing the request, which raises.
+        """
+        if headers is None:
+            signature = base64.b64encode(hmac.new(AUTH_KEY.encode("utf-8"), xml, hashlib.sha256).digest())
+            headers = (("Content-Type", "application/xml"), ("X-MAC-DIGEST", signature.decode("ascii")))
+        result, asked = self.request(
+            "http",
+            deadline=deadline,
+            method="POST",
+            path=VALIDATE_FORM,
+            headers=[list(pair) for pair in headers],
+            bodyBase64=base64.b64encode(xml).decode("ascii"),
+        )
+        body = base64.b64decode(result["bodyBase64"])
+        if result["status"] != 200 or asked:
+            raise FormplayerRunnerError(
+                f"Formplayer answered HQ's form validation request with HTTP {result['status']}"
+                f" ({body[:600]!r}), asking HQ {len(asked)} requests while it did, where it answers a form it can"
+                " read with 200 and its report and asks HQ nothing. Read the log for what its security chain or"
+                " controller said.",
+                kind="validation",
+                log=self.last_log,
+            )
+        return body.decode("utf-8")
+
+    # HQ's own request reaches ``validate_form`` with its headers (``proof.hq.seams.form_validation``), and the
+    # answer to bytes already validated is the one kept for them (``FORM_VALIDATIONS``): Formplayer's report is a
+    # function of the form's bytes, which ``proof/formplayer/test_validation.py`` holds.
+    validate_form.takes_hq_headers = True
+    validate_form.pure_form_validation = True
 
     def reseed(self) -> None:
         """The next request's seed is the first again: a run's requests seed Core's random source by their place

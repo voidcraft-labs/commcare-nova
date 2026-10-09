@@ -36,7 +36,7 @@ def test_a_related_case_filter_needs_the_flag_in_a_case_search_context(hq, core_
     from corehq.apps.case_search.exceptions import XPathFunctionException
 
     configuration = Configuration()
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, record):
+    with hq_check(configuration) as (state, record):
         with pytest.raises(XPathFunctionException, match="You cannot query related cases here"):
             operations.compile_case_search(state, xpath, ["person"])
         assert not record.elasticsearch_refusals
@@ -58,7 +58,7 @@ def test_a_blank_or_numeric_date_comparison_is_refused(hq, core_runner, prop):
     from corehq.apps.case_search.exceptions import CaseFilterError
 
     configuration = Configuration()
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+    with hq_check(configuration) as (state, _):
         operations.compile_case_search(state, f"{prop} = '2026-01-01'", ["person"])
         with pytest.raises(CaseFilterError, match="is not a correctly formatted date or datetime"):
             operations.compile_case_search(state, f"{prop} = ''", ["person"])
@@ -70,7 +70,7 @@ def test_an_ordering_on_a_time_is_refused(hq, core_runner):
     from corehq.apps.case_search.exceptions import CaseFilterError
 
     configuration = Configuration()
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+    with hq_check(configuration) as (state, _):
         operations.compile_case_search(state, "visit_date < '2026-01-01'", ["person"])
         with pytest.raises(CaseFilterError, match="15:00 is not a correctly formatted date or datetime"):
             operations.compile_case_search(state, "visit_time < '15:00'", ["person"])
@@ -99,7 +99,7 @@ def test_each_string_a_sessions_search_sends_is_compiled_as_hq_compiles_a_search
         ]
     }
     for flags, gate in ((frozenset(), "raised"), (frozenset({"CASE_SEARCH_RELATED_LOOKUPS"}), "readsIndex")):
-        with hq_check(Configuration(flags=flags), validate=core_runner.validate_form) as (state, _):
+        with hq_check(Configuration(flags=flags)) as (state, _):
             found = sessions.search_compiles(state, trace, state.operation)
         by_query = {compiled["query"]: compiled for compiled in found}
         assert sorted(by_query) == sorted([related, "name = 'x'", "visit_time < '15:00'"])
@@ -141,7 +141,7 @@ def test_a_search_request_is_read_as_hq_reads_formplayers_post(hq, core_runner):
     character (a sort)."""
     from corehq.apps.case_search.exceptions import CaseSearchUserError
 
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(Configuration()) as (state, _):
         config = operations.search_request_config(
             state,
             "search-app",

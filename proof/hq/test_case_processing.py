@@ -60,7 +60,7 @@ def _visit(case_id, parent_id=None):
 def test_an_empty_case_id_is_refused_as_hq_refuses_it(hq, core_runner):
     from casexml.apps.case.exceptions import IllegalCaseId
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         accepted = operations.process_case_blocks(state, _submission(_person(), _visit("c-visit")))
         refused = operations.process_case_blocks(state, _submission(_person(), _visit("")))
 
@@ -77,7 +77,7 @@ def test_an_empty_case_id_is_refused_as_hq_refuses_it(hq, core_runner):
 def test_an_index_to_a_case_that_exists_nowhere_is_refused(hq, core_runner):
     from casexml.apps.case.exceptions import InvalidCaseIndex
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         # The parent is created by the same submission: HQ accepts the index.
         accepted = operations.process_case_blocks(
             state, _submission(_person("c-parent"), _visit("c-child", "c-parent"))
@@ -93,7 +93,7 @@ def test_an_index_to_a_case_that_exists_nowhere_is_refused(hq, core_runner):
 def test_a_date_modified_that_is_not_a_date_is_refused(hq, core_runner):
     from casexml.apps.case.exceptions import PhoneDateValueError
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         refused = operations.process_case_blocks(state, _submission(_person(date_modified="not a date")))
 
     assert isinstance(refused.refusal, PhoneDateValueError)

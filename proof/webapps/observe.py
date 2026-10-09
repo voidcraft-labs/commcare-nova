@@ -36,11 +36,11 @@ The record holds no id Formplayer drew, no time and no path: HQ's ids in it
 document (``proof.webapps.hq``), so the same inputs give the same bytes
 (``test_observe.py``).
 
-``observe`` makes the record over a build released into a check's own
-project (``proof.webapps.hq``), for this package's tests. ``shown`` is what
-a document's unit keeps (``proof.observe.served``): the same record over a
-state HQ serves with its own views, on the walk Formplayer already made of
-it, which proofs 3 and 4 then compare.
+``observe`` makes the record over a release HQ serves with its own views
+in a check's own project (``proof.webapps.hq``), for this package's tests:
+every run of the walk replayed whole. ``shown`` is what a document's unit
+keeps (``proof.observe.served``): the record over a state HQ serves, on the
+walk Formplayer already made of it, which proofs 3 and 4 then compare.
 """
 
 from __future__ import annotations
@@ -50,7 +50,6 @@ from typing import Any
 
 from proof.formplayer.walk import Walk, script_of
 from proof.webapps import steps
-from proof.webapps.hq import Project, Release
 from proof.webapps.session import Session
 
 HOME = "#breadcrumb-region .js-home a"
@@ -188,12 +187,13 @@ def _recorded(runner, driver, version, script, run) -> dict[str, Any]:
     return recorded
 
 
-def observe(project: Project, release: Release, runner, driver) -> dict[str, Any]:
-    """The Web Apps observation of one released build of ``project``'s app."""
-    session = Session(project, release, runner, driver)
-    walk = Walk(runner, session.hq, domain=project.domain, app_id=release.build_id).run()
-    run = session.run(replay(release.doc["name"], walk["runs"]))
-    return _recorded(runner, driver, release.version, script_of(walk), run)
+def observe(served, driver) -> dict[str, Any]:
+    """The Web Apps observation of one state HQ serves (``proof.formplayer.hq.Served``), every run of its walk
+    replayed whole."""
+    session = Session(served, driver)
+    walk = Walk(served.runner, served.hq, domain=served.domain, app_id=served.build_id, scope=served.run).run()
+    run = session.run(replay(served.doc["name"], walk["runs"]))
+    return _recorded(served.runner, driver, served.version, script_of(walk), run)
 
 
 def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
@@ -208,11 +208,10 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     """
     from proof.webapps.session import recorded as screen_record
 
-    session = Session(served, served, served.runner, driver)
+    session = Session(served, driver)
     script = [to_the_first_case(run)["script"] for run in walk["runs"]]
     made, plan = tolerant_replay(served.doc["name"], walk["runs"], session.home)
-    with served.run("webapps"):
-        run = session.run(made)
+    run = session.run(made, name="webapps")
     if len(run.outcomes) != len(plan):
         raise AssertionError(
             f"The Web Apps replay ran {len(run.outcomes)} steps where it planned {len(plan)}; a step's outcome is"

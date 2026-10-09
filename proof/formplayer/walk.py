@@ -41,9 +41,8 @@ from typing import Any
 
 from proof.core.client import DEFAULT_CLOCK
 from proof.formplayer import canonical
-from proof.formplayer.answers import HqAnswers
-from proof.formplayer.client import FormplayerRunner
-from proof.formplayer.webapps import SESSION_KEY, FormplayerRefused, WebApps
+from proof.formplayer.client import FormplayerRunner, HqHandler
+from proof.formplayer.webapps import FormplayerRefused, WebApps
 
 ANSWERS_PATH = Path(__file__).resolve().parents[1] / "core" / "answers.json"
 MAX_RUNS = 500
@@ -106,7 +105,8 @@ class Walk:
     """One app's sessions on Formplayer."""
 
     runner: FormplayerRunner
-    hq: HqAnswers
+    # HQ's own views over a served state (``proof.formplayer.hq.HqViews``).
+    hq: HqHandler
     domain: str
     app_id: str
     locale: str | None = None
@@ -120,7 +120,7 @@ class Walk:
     # -- one execution -----------------------------------------------------
 
     def _client(self) -> WebApps:
-        """The worker's browser: the session HQ holds for them, where ``hq`` names one."""
+        """The worker's browser: the session HQ holds for them."""
         return WebApps(
             self.runner,
             self.hq,
@@ -128,7 +128,8 @@ class Walk:
             username=self.hq.username,
             app_id=self.app_id,
             locale=self.locale,
-            session_key=getattr(self.hq, "session_key", None) or SESSION_KEY,
+            # The Django session HQ made for the worker as the run began (``proof.formplayer.hq.Served.run``).
+            session_key=self.hq.session_key,
         )
 
     def _web(self) -> WebApps:

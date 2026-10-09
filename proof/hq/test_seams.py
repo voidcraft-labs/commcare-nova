@@ -24,7 +24,7 @@ WITH_ENDPOINTS = Configuration(privileges={"CLOUDCARE"}, flags={"SESSION_ENDPOIN
 
 
 def _build_reads(configuration, core_runner):
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, record):
+    with hq_check(configuration) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         start = len(record.flags)
         with build_seams():
@@ -70,7 +70,7 @@ def test_a_read_hq_answers_before_toggle_enabled_is_recorded(hq, core_runner):
     import corehq.toggles as toggles
 
     configuration = Configuration(flags={"SESSION_ENDPOINTS"})
-    with hq_check(configuration, validate=core_runner.validate_form) as (_, record):
+    with hq_check(configuration) as (_, record):
         # SESSION_ENDPOINTS is a domain flag: HQ answers a read in the user
         # namespace False before it reaches toggle_enabled.
         assert toggles.SESSION_ENDPOINTS.enabled(configuration.domain, toggles.NAMESPACE_DOMAIN) is True
@@ -94,7 +94,7 @@ def test_the_project_space_seams_reach_every_reader_hq_consults(hq, core_runner)
     seen = {}
     for commtrack, sync in settings:
         configuration = Configuration(commtrack=commtrack, sync_cases_on_form_entry=sync, case_search_enabled=sync)
-        with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+        with hq_check(configuration) as (state, _):
             app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
             seen[commtrack, sync] = (
                 operations.held_app(state, app_id).commtrack_enabled,
@@ -126,7 +126,7 @@ def test_a_flag_seam_opened_inside_another_refuses_toggle_enabled_and_reads_no_m
 
     monkeypatch.setattr(seams._Bindings, "scan", scan)
     hq_function = shortcuts.toggle_enabled
-    with hq_check(PLAIN, validate=core_runner.validate_form):
+    with hq_check(PLAIN):
         outer = shortcuts.toggle_enabled
         assert outer is not hq_function
         _MODULES.sync()

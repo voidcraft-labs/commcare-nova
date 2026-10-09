@@ -371,6 +371,57 @@ def document_case_database(document, *, edit=False) -> CaseDatabase:
     return case_database(document.edit_document if edit else document.document)
 
 
+CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
+
+
+def database_of_restore(restore: bytes) -> CaseDatabase:
+    """The cases a targeted document's own restore holds (its ``restore.xml``, which fixes the values its
+    expectations turn on) as the lane's worker's case database: each case's id, type, name and properties as the
+    restore's create and update blocks give them, and its indices, owned by the lane's worker. HQ then makes
+    them as it makes any case database's (``proof.formplayer.hq.save_cases``), so what a worker restores is
+    HQ's restore of HQ's cases, never the file itself."""
+    from lxml import etree
+
+    root = etree.fromstring(restore)
+    ns = {"c": CASE_XMLNS}
+    cases = []
+    for block in root.iterfind(".//c:case", ns):
+        create = block.find("c:create", ns)
+        if create is None:
+            raise ValueError(
+                f"The restore's case {block.get('case_id')!r} holds no create block, so it names no type or name for"
+                " the worker's case database; a targeted document's restore makes each case it holds."
+            )
+        update = block.find("c:update", ns)
+        stamp = block.get("date_modified")
+        cases.append(
+            CaseRecord(
+                case_id=block.get("case_id"),
+                case_type=create.findtext("c:case_type", namespaces=ns),
+                name=create.findtext("c:case_name", namespaces=ns) or "",
+                owner_id=USER_ID,
+                opened_on=stamp,
+                modified_on=stamp,
+                external_id=None,
+                properties=tuple(
+                    (etree.QName(element).localname, element.text or "")
+                    for element in (update if update is not None else ())
+                ),
+                indices=tuple(
+                    (
+                        etree.QName(element).localname,
+                        element.get("case_type"),
+                        element.text,
+                        element.get("relationship") or "child",
+                    )
+                    for index in block.iterfind("c:index", ns)
+                    for element in index
+                ),
+            )
+        )
+    return CaseDatabase(USER_ID, USERNAME, (), tuple(cases))
+
+
 def database_digest(database: CaseDatabase) -> str:
     """``sha256:<hex>`` of the database as canonical JSON: what a key reads of a document's cases."""
     written = json.dumps(asdict(database), sort_keys=True, separators=(",", ":"), ensure_ascii=False)

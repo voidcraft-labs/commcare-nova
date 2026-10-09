@@ -75,7 +75,7 @@ from proof.hq.branch import (
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.hq.conftest import hq_test_app, nova_shaped_upload
-from proof.hq.seams import build_seams
+from proof.hq.seams import build_seams, formplayer_validation
 from proof.hq.state import hq_state, hq_unit, open_unit
 
 # One document per kind of state the branches must put back.
@@ -334,7 +334,7 @@ def test_branches_of_one_unit_equal_fresh_states(hq, core_runner, corpus, branch
     update = document.edit.exports[configuration_name].update
     configuration = export.configuration.hq()
     root = _root(document_id, configuration_name)
-    validate = core_runner.validate_form
+    validate = formplayer_validation
 
     fresh_a, fresh_b = _fresh(configuration, root, export, validate)
     fresh_edit_a, fresh_edit = _fresh(configuration, root, export, validate, update)
@@ -399,7 +399,7 @@ def test_a_restore_puts_every_sequence_back(hq, core_runner, monkeypatch):
     ):
         expected = _put_blob(fresh)
 
-    with hq_unit(configuration, root_key=root, validate=core_runner.validate_form) as unit:
+    with hq_unit(configuration, root_key=root) as unit:
         at_seed = unit.mark()
         assert _put_blob(unit) == expected
         unit.restore(at_seed)
@@ -425,7 +425,7 @@ def test_a_mark_reads_the_sequences_and_couch_again_only_where_a_write_could_hav
     reads, snapshots = [], []
     real_read = database.read_sequences
     monkeypatch.setattr(database, "read_sequences", lambda cursor: reads.append(1) or real_read(cursor))
-    with hq_unit(Configuration(), root_key=_root("counted marks"), validate=core_runner.validate_form) as unit:
+    with hq_unit(Configuration(), root_key=_root("counted marks")) as unit:
         real_snapshot = unit.couch.snapshot
         monkeypatch.setattr(unit.couch, "snapshot", lambda: snapshots.append(1) or real_snapshot())
         first = unit.mark()
@@ -615,7 +615,7 @@ def test_a_restore_empties_the_caches_and_puts_the_change_feed_back(hq, core_run
     from proof.hq.state import build_config_document
 
     configuration = Configuration(privileges={"LOCATIONS"})
-    with hq_unit(configuration, root_key=_root("caches"), validate=core_runner.validate_form) as unit:
+    with hq_unit(configuration, root_key=_root("caches")) as unit:
         assert CommCareBuildConfig.fetch().get_default().version == configuration.commcare_version
         changes = list(unit.changes)
         assert "proof-branch-document" not in unit.couch.mock_docs
@@ -647,12 +647,12 @@ def test_units_with_one_configuration_and_root_key_start_from_one_state(hq, core
     next unit with the same configuration and root key found it."""
     configuration = Configuration(privileges={"CLOUDCARE"}, case_search_enabled=True)
     root = _root("starts")
-    with hq_unit(configuration, root_key=root, validate=core_runner.validate_form) as unit:
+    with hq_unit(configuration, root_key=root) as unit:
         first = _seeded_state(unit)
         with unit.operation("publish", b"suite"):
             app_id, _ = operations.publish(unit, [nova_shaped_upload(hq_test_app(), "Suite")])
         _build(unit, app_id, "build", None)
-    with hq_unit(configuration, root_key=root, validate=core_runner.validate_form) as unit:
+    with hq_unit(configuration, root_key=root) as unit:
         _assert_same(first, _seeded_state(unit), "The second unit's start")
 
 
@@ -670,7 +670,7 @@ def test_a_new_connection_is_refused_while_a_unit_is_open(hq, core_runner):
     from corehq.sql_db.connections import connection_manager
 
     _connect()
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(Configuration()) as (unit, _):
         with pytest.raises(NewConnectionRefused, match="new connection"):
             _connect()
         # SQLAlchemy's engines (HQ's connection manager) connect the same way.
@@ -695,12 +695,12 @@ def test_on_commit_is_refused_while_a_unit_is_open(hq, core_runner):
     save asks for nothing, and outside a unit Django runs the function at once."""
     from django.db import transaction
 
-    with hq_check(Configuration(flags={"PROJECT_DB"}), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(Configuration(flags={"PROJECT_DB"})) as (unit, _):
         with pytest.raises(OnCommitRefused, match="schedule_project_db_sync|_sync_domain"):
             _save_case_type(unit.domain)
         with pytest.raises(OnCommitRefused):
             transaction.on_commit(lambda: None)
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(Configuration()) as (unit, _):
         _save_case_type(unit.domain)
     ran = []
     transaction.on_commit(lambda: ran.append(True))
@@ -722,7 +722,7 @@ def _failing_statement(own_savepoint=False):
 
 
 def test_an_operation_or_request_that_leaves_the_transaction_aborted_is_refused(hq, core_runner):
-    with hq_unit(Configuration(), root_key=_root("aborted"), validate=core_runner.validate_form) as unit:
+    with hq_unit(Configuration(), root_key=_root("aborted")) as unit:
         # A failure inside an atomic block of its own is rolled back to that block's savepoint: the unit goes on.
         with unit.operation("own savepoint", b""):
             _failing_statement(own_savepoint=True)
@@ -747,7 +747,7 @@ def test_an_operation_or_request_that_leaves_the_transaction_aborted_is_refused(
 def test_a_write_outside_every_scope_is_refused_in_a_unit_named_by_its_key(hq, core_runner):
     from django.contrib.auth.models import User
 
-    with hq_unit(Configuration(), root_key=_root("unscoped"), validate=core_runner.validate_form) as unit:
+    with hq_unit(Configuration(), root_key=_root("unscoped")) as unit:
         with pytest.raises(UnscopedWrite, match="SQL statement"):
             User.objects.create(username="proof-unscoped")
         with pytest.raises(UnscopedWrite, match="Couch write"):
@@ -760,14 +760,14 @@ def test_a_write_outside_every_scope_is_refused_in_a_unit_named_by_its_key(hq, c
         with unit.operation("user", b""):
             User.objects.create(username="proof-unscoped")
     # A check's unit, which predates keys, lets it through.
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(Configuration()) as (unit, _):
         User.objects.create(username="proof-unscoped")
 
 
 def test_marks_restores_and_forks_happen_between_scopes_on_marks_the_unit_holds(hq, core_runner):
     from django.db import transaction
 
-    with hq_unit(Configuration(), root_key=_root("marks"), validate=core_runner.validate_form) as unit:
+    with hq_unit(Configuration(), root_key=_root("marks")) as unit:
         first = unit.mark()
         with unit.operation("inside", b""):
             with pytest.raises(UnitRefused, match="inside its operation"):
@@ -810,7 +810,7 @@ def test_marks_restores_and_forks_happen_between_scopes_on_marks_the_unit_holds(
         unit.restore(first)
         # One unit at a time: a second one is refused before it touches the first one's state.
         with pytest.raises(UnitRefused, match="another was open"):
-            with hq_unit(Configuration(), root_key=_root("nested"), validate=core_runner.validate_form):
+            with hq_unit(Configuration(), root_key=_root("nested")):
                 pass
         from corehq.apps.domain.models import Domain
 
@@ -827,7 +827,7 @@ def test_marks_restores_and_forks_happen_between_scopes_on_marks_the_unit_holds(
         with pytest.raises(UnitRefused, match="after it closed"):
             ask()
     with pytest.raises(UnitRefused, match="sha256"):
-        with hq_unit(Configuration(), root_key=b"short", validate=core_runner.validate_form):
+        with hq_unit(Configuration(), root_key=b"short"):
             pass
     with (
         database.fresh_database(),
@@ -962,7 +962,7 @@ def test_a_row_the_unit_did_not_see_at_a_commit_is_refused_as_its_scope_or_the_u
         with unit.operation("unseen with its parent", b""):
             _content_type(900004)
             _unseen_permission(900004)
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(Configuration()) as (unit, _):
         at = unit.mark()
         with pytest.raises(DeferredConstraintViolated, match="run outside every operation and request"):
             _permission(_MISSING, "orphan")
@@ -1044,9 +1044,7 @@ def test_a_write_moves_the_key_and_a_read_never_does(hq, core_runner):
     ``sha256(key | write | digest)`` and the depth up by one, and each channel (SQL, Couch, blobs) counts."""
     from django.contrib.auth.models import User
 
-    with hq_unit(
-        Configuration(privileges={"CLOUDCARE"}), root_key=_root("writes"), validate=core_runner.validate_form
-    ) as unit:
+    with hq_unit(Configuration(privileges={"CLOUDCARE"}), root_key=_root("writes")) as unit:
         with unit.operation("publish", b"suite"):
             app_id, _ = operations.publish(unit, [nova_shaped_upload(hq_test_app(), "Suite")])
         key, depth, writes = unit.key, unit.depth, unit.writes
@@ -1204,7 +1202,7 @@ def test_each_operation_and_request_keeps_the_soft_assertions_hq_noted_inside_it
     notes nothing."""
     from casexml.apps.case.exceptions import IllegalCaseId
 
-    with hq_unit(Configuration(), root_key=_root("soft"), validate=core_runner.validate_form) as unit:
+    with hq_unit(Configuration(), root_key=_root("soft")) as unit:
         with unit.operation("valid", b"") as valid:
             accepted = operations.process_case_blocks(unit, _submission("c-1", "2026-09-30T10:00:00.000000Z"))
         with unit.request(b"empty") as empty:

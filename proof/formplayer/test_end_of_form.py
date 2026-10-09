@@ -7,8 +7,10 @@ worker (``services/MenuSessionRunnerService.java::resolveFormGetNext``,
 names a command the menu holding it does not show, Formplayer stops at the
 last screen that does show, where Core's own session, read as a host's loop
 reads it (``CommCareSession.getNeededData``), goes on to the hidden target.
-The two are observed on HQ's build of one Nova export
-(``targeted-form-link-hidden-target``), from the same restore.
+The two are observed on HQ's release of one Nova export
+(``targeted-form-link-hidden-target``), Formplayer's requests answered by
+HQ's own views (``proof.formplayer.hq``) and Core's session run over HQ's
+restore of the same cases.
 
 Plausible failures this catches: a harness whose Formplayer never ran the
 form's stack (every next screen would be empty); one whose walk compares a
@@ -47,9 +49,11 @@ def test_a_link_to_a_shown_form_opens_it_and_a_hidden_target_stops_formplayer_wh
     hq, core_runner, formplayer_runner, formplayer_documents, evidence
 ):
     with apps.published(formplayer_documents[DOCUMENT], core_runner) as published:
-        session = apps.installed(published)
-        formplayer = apps.walked(formplayer_runner, session)
-        core = apps.core_sessions(core_runner, published.build.files, session.restore, after_submit=True)
+        with apps.served(published, formplayer_runner) as served:
+            formplayer = apps.walked(formplayer_runner, served)
+            received = list(served.hq.submissions)
+            restore = served.hq.restores[0]
+        core = apps.core_sessions(core_runner, published.build.files, restore, after_submit=True)
         submitted, needs, xmlns = _submitted(formplayer), _core_next(core), _xmlns(core)
         evidence(
             "side-by-side",
@@ -77,7 +81,7 @@ def test_a_link_to_a_shown_form_opens_it_and_a_hidden_target_stops_formplayer_wh
             "To hidden menu": "success",
             "Shown": "success",
         }
-        assert len(session.hq.submissions) == 4
+        assert len(received) == 4
 
         # The accepted case: the link's target is shown, and both open it.
         shown = submitted["To shown form"]["nextScreen"]

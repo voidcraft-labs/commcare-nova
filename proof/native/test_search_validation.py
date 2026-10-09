@@ -43,7 +43,7 @@ def test_hq_validators_refuse_the_paired_counterexamples(native):
         return app
 
     results = []
-    with native_check(DOMAIN, validate=native.validate_form):
+    with native_check(DOMAIN):
         from corehq.apps.app_manager.const import WORKFLOW_PREVIOUS
         from corehq.apps.app_manager.helpers.validators import FormBaseValidator, ModuleBaseValidator
 

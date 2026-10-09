@@ -159,8 +159,11 @@ class NativeSession:
     # HQ steps -------------------------------------------------------------
 
     def validate_form(self, xml: bytes) -> str:
-        """Formplayer's form validation, answered by the session's Core runner (started on first use)."""
-        return self._core_runner().validate_form(xml)
+        """Formplayer's own answer to HQ's form validation of these bytes (``proof.hq.seams.formplayer_validation``,
+        the session's validation Formplayer)."""
+        from proof.hq.seams import formplayer_validation
+
+        return formplayer_validation(xml)
 
     def step(self, name: str):
         """The result of the named HQ step, run once per session after its family's producer."""

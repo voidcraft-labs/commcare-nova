@@ -92,7 +92,7 @@ def test_an_hq_view_raising_on_one_section_is_that_sections_and_a_harness_refusa
     from proof.hq.check import hq_check
     from proof.hq.configuration import Configuration
 
-    with hq_check(Configuration(privileges={"CLOUDCARE"}), validate=core_runner.validate_form) as (state, _):
+    with hq_check(Configuration(privileges={"CLOUDCARE"})) as (state, _):
         spec = form_view_hq_raises_on(state)
         view = pages.run_view(editor_driver, HQAnswers(state), spec, on_section=lambda _index: nullcontext())
         settings, management = view.sections

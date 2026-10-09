@@ -1,6 +1,7 @@
 """HQ's Web Apps client, run in the lane's Chromium against HQ's own page view and the lane's Formplayer.
 
-A ``Session`` is one worker's browser on one released build. Its page is
+A ``Session`` is one worker's browser on one state HQ serves
+(``proof.formplayer.hq.Served``). Its page is
 HQ's own: ``cloudcare/views.py::FormplayerMain`` answers the navigation
 through HQ's URLconf, decorators and templates (``proof.editors.hq``), the
 page loads the bundle the image builds from HQ's ``cloudcare/js/formplayer/
@@ -18,9 +19,10 @@ sends it:
   ``cloudcare/urls.py``). Each such request is sent, headers and body as the
   browser wrote them, to Formplayer's own web server
   (``FormplayerRunner.http``), and Formplayer's answer, cookies included,
-  goes back to the page. What Formplayer asks HQ meanwhile is answered as
-  for the Formplayer runner's own sessions (``proof.formplayer.apps``), with
-  the released build's archive under the build's id.
+  goes back to the page. What Formplayer asks HQ meanwhile is answered by
+  HQ's own views over the served state (``proof.formplayer.hq.HqViews``):
+  the session's user, the released build's archive, the restore, each
+  submission, search and claim.
 
 Nothing of the client is copied or called from here: a step clicks what a
 worker clicks, or reads what the page shows (``driver/steps/webapps``).
@@ -49,15 +51,11 @@ from urllib.parse import urlsplit
 from proof.editors import seeding
 from proof.editors.client import EditorDriver, EditorDriverError, PageRequest, PageResponse
 from proof.editors.hq import EditorRunFailed, HQAnswers, editor_build
-from proof.formplayer import apps
-from proof.formplayer.client import FormplayerRunner
 from proof.formplayer.webapps import SESSION_COOKIE, WebApps
 from proof.webapps import static
-from proof.webapps.hq import Project, Release
 
 # Where a deployment's proxy serves Formplayer on HQ's own origin.
 FORMPLAYER_PREFIX = "/formplayer"
-SESSION_KEY = "proof-session-key"
 # Request headers that belong to the browser's connection to the origin, not to the request Formplayer is sent.
 _TRANSPORT_HEADERS = {"host", "connection", "content-length", "accept-encoding"}
 # Response headers that belong to Formplayer's connection with the harness, which the page's own connection replaces.
@@ -152,61 +150,44 @@ class WebAppsRunFailed(AssertionError):
 
 @dataclass
 class Session:
-    """One worker's Web Apps on one released build."""
+    """One worker's Web Apps on one state HQ serves (``proof.formplayer.hq.Served``)."""
 
-    project: Project
-    release: Release
-    runner: FormplayerRunner
+    served: Any
     driver: EditorDriver
 
-    def __post_init__(self):
-        served = getattr(self.project, "hq", None)
-        if served is not None:
-            # A state HQ serves with its own views (``proof.formplayer.hq.Served``): they answer Formplayer.
-            self.hq = served
-            return
-        unit = self.project.unit
-        self.hq = apps.answers(
-            unit,
-            self.project.database,
-            {self.release.build_id: self.release.archive},
-            self.project.restore,
-            toggles=self.project.toggles,
-        )
-        # HQ names a mobile worker to Formplayer by their full username (session_details_endpoint/views.py).
-        self.hq.username = self.project.worker.username
+    @property
+    def hq(self):
+        """HQ's own views, which answer every request Formplayer makes of HQ."""
+        return self.served.hq
 
     @property
-    def session_key(self) -> str:
-        """The Django session the worker's browser holds: the one HQ made for them where HQ's own views answer,
-        else the name the harness's answers know the worker by."""
-        return getattr(self.hq, "session_key", None) or SESSION_KEY
+    def runner(self):
+        return self.served.runner
 
     @property
     def home(self) -> str:
-        return f"/a/{self.project.domain}/cloudcare/apps/v2/"
+        return f"/a/{self.served.domain}/cloudcare/apps/v2/"
 
     def _fresh_worker(self) -> None:
         """Formplayer forgets the worker's restore, as after "Clear user data" in Web Apps' settings, and its
         install of the build.
 
         Formplayer keeps an install by the id it was asked for and never
-        downloads that id again (``FormplayerStorageFactory``), and HQ's
-        seeded entropy gives the builds of two project spaces of one
-        configuration the same id, so a session that kept an earlier
-        install would run another document's app under this build's name.
+        downloads that id again (``FormplayerStorageFactory``), so a session
+        that kept an earlier install of an id would run that install under
+        this build's name.
         """
         web = WebApps(
             self.runner,
             self.hq,
-            domain=self.project.domain,
-            username=self.hq.username,
-            app_id=self.release.build_id,
-            session_key=self.session_key,
+            domain=self.served.domain,
+            username=self.served.username,
+            app_id=self.served.build_id,
+            session_key=self.hq.session_key,
         )
-        worker = {"domain": self.project.domain, "username": self.hq.username, "restoreAs": None}
+        worker = {"domain": self.served.domain, "username": self.served.username, "restoreAs": None}
         web.post("/clear_user_data", worker)
-        web.post("/delete_application_dbs", {"app_id": self.release.build_id, **worker})
+        web.post("/delete_application_dbs", {"app_id": self.served.build_id, **worker})
         # Nothing an earlier session left in Formplayer's five-minute caches answers this run's requests
         # (FormplayerRunner.forget_caches).
         self.runner.forget_caches()
@@ -234,12 +215,17 @@ class Session:
             sent.append((name, value))
         return sent
 
-    def run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float = 180.0) -> Run:
-        """Opens Web Apps' home page in a fresh browser context and runs ``steps`` after it has loaded."""
+    def run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float = 180.0, name: str = "webapps") -> Run:
+        """Opens Web Apps' home page in a fresh browser context and runs ``steps`` after it has loaded, in one run
+        of the served state (``Served.run``: a fork of the unit, the worker signed in afresh)."""
+        with self.served.run(name):
+            return self._run(steps, deadline=deadline)
+
+    def _run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float) -> Run:
         from django.test import override_settings
 
         editor_build()
-        answers = HQAnswers(self.project.acting, self.project.unit)
+        answers = HQAnswers(self.served.acting, self.served.unit)
         exchanges: list[FormplayerExchange] = []
         statics: list[tuple[str, int]] = []
 
@@ -281,7 +267,7 @@ class Session:
         try:
             with override_settings(FORMPLAYER_URL_WEBAPPS=FORMPLAYER_PREFIX), static.compiled():
                 run = self.driver.run(
-                    steps, answer=answer, deadline=deadline, cookies={SESSION_COOKIE: self.session_key}, seed=seed
+                    steps, answer=answer, deadline=deadline, cookies={SESSION_COOKIE: self.hq.session_key}, seed=seed
                 )
         except EditorDriverError as error:
             refused = "".join(

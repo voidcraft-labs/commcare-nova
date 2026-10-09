@@ -23,15 +23,17 @@ HQ_TEST_APP = HQ_ROOT / "corehq/apps/app_manager/tests/data/suite/app.json"
 
 
 class CountingValidator:
-    """The Core runner's form validation, counting the forms HQ sends it."""
+    """Formplayer's own form validation (``proof.hq.seams.formplayer_validation``), counting the forms HQ sends
+    it."""
 
-    def __init__(self, runner):
-        self._runner = runner
+    def __init__(self):
         self.calls = 0
 
     def __call__(self, xml):
+        from proof.hq.seams import formplayer_validation
+
         self.calls += 1
-        return self._runner.validate_form(xml)
+        return formplayer_validation(xml)
 
 
 def hq_test_app() -> dict:

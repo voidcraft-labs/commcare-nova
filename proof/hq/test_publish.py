@@ -56,7 +56,7 @@ def test_publish_creates_then_updates_the_app_hq_holds(hq, core_runner):
     # writes the id HQ minted into that field.
     update = nova_shaped_upload(source, "Suite app, renamed", app_id="captured-peer-app-id")
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         from corehq.apps.data_dictionary.models import CaseProperty
 
         with timed("publish_create"):
@@ -118,7 +118,7 @@ def test_an_app_that_maps_media_claims_its_media_and_validates_its_forms_on_impo
             "version": None,
         }
     }
-    validator = CountingValidator(core_runner)
+    validator = CountingValidator()
     with hq_check(CONFIGURATION, validate=validator) as (state, record):
         from corehq.apps.hqmedia.models import CommCareImage
 
@@ -199,7 +199,7 @@ def test_a_media_upload_maps_each_file_the_app_references_into_that_app_with_its
         "commcare/audio/sound.mp3": png,
     }
     upload = _nova_shaped_media_upload(files)
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.hqmedia.models import CommCareImage, HQMediaMapItem
 
         app_id, _ = operations.publish(state, [nova_shaped_upload(source, "Media app")])

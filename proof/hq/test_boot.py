@@ -374,10 +374,10 @@ def test_hq_notes_a_soft_assertion_and_goes_on_to_its_own_refusal(hq, core_runne
     from proof.hq.boot import soft_assertions
     from proof.hq.check import hq_check
 
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, record):
+    with hq_check(Configuration()) as (state, record):
         with soft_assertions() as noted:
             refused = operations.process_case_blocks(state, _case_submission("", ""))
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, quiet_record):
+    with hq_check(Configuration()) as (state, quiet_record):
         with soft_assertions() as quiet:
             accepted = operations.process_case_blocks(state, _case_submission("c-1", DATE_MODIFIED))
     assert isinstance(refused.refusal, IllegalCaseId)
@@ -449,7 +449,7 @@ def test_a_built_app_names_novas_server_wherever_hq_writes_its_own_address(hq, c
     from proof.hq.seams import build_seams
 
     configuration = Configuration(privileges={"CLOUDCARE"}, case_search_enabled=True)
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, record):
+    with hq_check(configuration) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty
 

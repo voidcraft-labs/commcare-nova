@@ -77,7 +77,7 @@ def _build(state, record, app_id, key, previous=None):
 @pytest.mark.parametrize("name", [SUITE_APP, ADVANCED_APP, TWO_LANGUAGE_APP])
 def test_every_build_gives_the_same_bytes_and_draws_with_the_build_seams_as_without(hq, core_runner, monkeypatch, name):
     monkeypatch.setattr(determinism, "ENABLED", True)
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id = publish_hq_app(state, name)
         key = hashlib.sha256(f"proof build seams|{name}".encode()).digest()
         with speed.off():
@@ -98,7 +98,7 @@ def test_every_build_gives_the_same_bytes_and_draws_with_the_build_seams_as_with
 def test_a_kept_answer_is_given_again_only_while_each_flag_it_read_reads_the_same(hq, core_runner):
     """Questions computed with SAVE_ONLY_EDITED_FORM_FIELDS off are not the answer a flip turning it on gets:
     the flip computes them again, and every use makes the flag read the computation would."""
-    with speed.on(), hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with speed.on(), hq_check(CONFIGURATION) as (state, record):
         app = operations.held_app(state, publish_hq_app(state, SUITE_APP))
         form = app.get_module(0).get_form(0)
         memo = form.get_questions.__wrapped__.get_cached_value.__self__.fn.memo
@@ -220,7 +220,7 @@ def test_each_language_list_and_argument_set_is_answered_for_itself(hq, core_run
             include_locked_status=include_locked_status,
         )
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form):
+    with hq_check(CONFIGURATION):
         form = _QuestionsForm()
         expected = [buildcache._uncached_questions(form, list(langs), **arguments) for langs, arguments in asks]
         # Each ask's answer differs from every other's, so an answer given for another ask is caught.
@@ -324,7 +324,7 @@ def test_a_saved_builds_attachments_are_its_own_bytes_while_the_blob_store_holds
     from couchdbkit.exceptions import ResourceNotFound
     from django.db import connection
 
-    with speed.on(), hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with speed.on(), hq_check(CONFIGURATION) as (state, record):
         app_id = publish_hq_app(state, SUITE_APP)
         with seams.build_seams():
             hq_build = operations.build(operations.held_app(state, app_id), record)
@@ -359,7 +359,7 @@ def test_an_attachment_read_again_is_given_while_its_blobs_row_and_file_are_as_t
     from django.db import connection, connections, router
 
     table = BlobMeta._meta.db_table
-    with speed.on(), hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with speed.on(), hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, SUITE_APP)
         hq_fetch = BlobMixin.fetch_attachment.__wrapped__
         app = operations.held_app(state, app_id)
@@ -481,7 +481,7 @@ def test_a_computation_that_draws_entropy_or_notes_an_assertion_is_never_kept(hq
     def quiet(self, langs, include_triggers=False):
         return ["quiet"]
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form):
+    with hq_check(CONFIGURATION):
         for compute, kept in ((drawing, False), (noting, False), (quiet, True)):
             memo = buildcache.QuestionsMemo(compute)
             with operation(b"\x01" * 32, 1):

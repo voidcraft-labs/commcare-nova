@@ -189,7 +189,7 @@ def published(document, core_runner, configuration="minimum"):
     from proof.hq.check import hq_check
 
     export = document.exports[configuration]
-    with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(export.configuration.hq()) as (unit, _):
         if export.create.lookups is not None:
             uploaded = operations.upload_lookup_workbook(unit, export.create.lookups.workbook(), replace=True)
             assert uploaded.errors == [], uploaded.errors

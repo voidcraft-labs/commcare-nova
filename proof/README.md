@@ -324,12 +324,6 @@ or it fails the lane ("The registers", below).
   open), which no record can hold, and it is not root-caused. Where the
   client shows nothing to click for an earlier choice, its record of that
   run ends there, with `stopped` and the screen it stood on.
- The packages' own tests
-  (`proof/formplayer/test_*.py`, `proof/webapps/test_*.py`) predate the
-  served states and still answer Formplayer with the harness's own answers
-  (`proof/formplayer/answers.py`, HQ's functions called on its behalf);
-  what they hold of a finding, the lane's own records now show on HQ's
-  views.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
   below), with these left out. ConnectID, the service Connect sends a
@@ -380,15 +374,7 @@ or it fails the lane ("The registers", below).
     Formplayer's (its request reading and its compiler run whole over the
     session's own parameters, "Served states"); no walk types an answer
     into a prompt, so the strings an answer would build are compiled only
-    for the native families' own apps (`quote`, `function`, `prompt`);
-  - the form validation HQ's build asks Formplayer for, on every form of
-    the corpus. The Core runner answers it in every build (`XFormParser`
-    with `JSONReporter`, the body of Formplayer's
-    `UtilController.validateForm`), and `proof/formplayer/test_validation.py`
-    holds its report to Formplayer's own controller, asked as HQ asks it,
-    on every form HQ's build sends for that package's five documents and on
-    a form both refuse; the builds themselves are not yet answered by
-    Formplayer.
+    for the native families' own apps (`quote`, `function`, `prompt`).
 - **Defect 20's `product_id` datum** needs an advanced module, and no Nova
   document holds one: the manifest check reads every export for the surface
   it uses and holds no use of an advanced module's fields.
@@ -407,6 +393,8 @@ is held:
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
 | "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
 | "20, CommTrack" | `targeted-supply-point-read`, the manifest check and proof 4; the same vitest file | Nova's gate admits a read of the session's supply point (finding 68) |
+| The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
+| What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
 
 Step 1's exit asks the register for an entry for every row of its defect table
 ("The defect rows", below). Every row now has entries that reproduce on their
@@ -907,8 +895,11 @@ app, restore and trace) are blobs named by their sha256.
 - **Seams** (`seams.py`, `elasticsearch.py`) answer what HQ reads from outside
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
-  test utilities, the previous build, HQ's resource overrides, and
-  Formplayer's form validation answered by the Core runner. One privilege a
+  test utilities, the previous build, HQ's resource overrides, and the
+  form validation HQ asks Formplayer for, answered by Formplayer's own
+  application (`formplayer_validation`: a Formplayer runner of the
+  session's own for validation, `proof/observe/services.py::validator`,
+  sent the headers and the digest HQ wrote). One privilege a
   part of the lane states of the project space beyond what the document's
   content needs is granted for that part alone (`also_granted`: Data
   Forwarding, where a Connect app's forms are forwarded). Elasticsearch
@@ -957,8 +948,9 @@ Elasticsearch seam unchanged. Run it with
 
 `proof/core` is one long-lived JVM per worker (`client.py`), compiled from
 `proof/core/src` against Core's recorded test classpath, speaking one JSON
-line per request with a deadline on each: `validateForm` (Formplayer's check),
-`admit` (Core's archive installer over a `.ccz` or HQ's build), `session` (a
+line per request with a deadline on each: `validateForm` (Core's parse of a
+form as a report, the runner's own lifecycle tests' probe; HQ's validation is
+Formplayer's own), `admit` (Core's archive installer over a `.ccz` or HQ's build), `session` (a
 scripted session's trace: every screen, command, row, question with its
 prompt, answer, the submission, the case database after it and the stack;
 answers come from a fixed table per question type, `proof/core/answers.json`,
@@ -1040,10 +1032,11 @@ the caches left, the second omits the fetch).
   cases submitted through HQ's receiver as the worker, and a build released
   as HQ's Releases page releases one. A view that raises answers Formplayer
   a 500, as production's does, and is recorded with what it raised.
-- **The harness's answers** (`answers.py`, `apps.py`), which this package's
-  own tests still use: the same six requests answered with HQ's functions
-  called on its behalf and a restore written beside HQ. The lane's records
-  use none of it.
+- **The package's own tests** (`apps.py`): a document published as Nova
+  publishes it and served by `hq.py` as the lane serves it, and a state a
+  person's save leaves saved by HQ's own App Settings page in Chromium
+  (`saved_page`) or by HQ's own settings view (`saved_profile`), never
+  written by hand.
 - **The Web Apps client's requests** (`webapps.py`): each body holds the
   fields HQ's client writes (`cloudcare/js/formplayer/menus/api.js`,
   `cloudcare/js/form_entry/web_form_session.js`), with HQ's session cookie
@@ -1068,16 +1061,16 @@ The runner costs each worker about four seconds once (its compile, its
 database, its Redis, and Formplayer's start, which is most of it), and a
 document's walk of one build between half a second and three seconds.
 
-What its own tests observe on HQ's builds of real Nova exports:
+What its own tests observe on HQ's releases of real Nova exports, served by HQ's own views:
 
 | Claim | Observed | Test |
 | --- | --- | --- |
 | A form link whose target is hidden (finding 58) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
-| A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, which HQ's compiler takes | `test_search.py` |
-| The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | `test_search.py` |
-| `cc-autosync-freq` absent or `freq-never` (finding 40) | Formplayer asks HQ for no restore after eight days in either; with `freq-daily`, the control, it asks for one | `test_settings.py` |
-| `cc-fuzzy-search-enabled` absent or `yes` (finding 40) | a search one letter off a case's name finds nothing when absent and the case when `yes` | `test_settings.py` |
-| A custom tile's vertical alignment (finding 42) | Formplayer hands the client no alignment for Nova's export and `start` for the saved app, and nothing else of the list differs | `test_tiles.py` |
+| A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view reads it (and refuses the query for the document's own date comparison, defect 6), and HQ's compiler takes the string that holds the answer | `test_search.py` |
+| The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | the rule `search-description-empty` (`proof/rules/test_search_description_empty.py`) |
+| `cc-autosync-freq` absent or the `freq-never` HQ's App Settings save writes (finding 40) | Formplayer asks HQ for no restore after eight days in either; with `freq-daily`, which HQ's settings view saves for a person's change, it asks for one | `test_settings.py` |
+| `cc-fuzzy-search-enabled` absent or the `yes` the same save writes (finding 40) | a search one letter off a case's name finds nothing when absent and the case after the save | `test_settings.py` |
+| A custom tile's vertical alignment (finding 42) | Formplayer hands the client no alignment for Nova's export and `start` for the saved app, and nothing else of the list differs | the rule `tile-vertical-align-start` (`proof/rules/test_tile_vertical_align_start.py`) |
 
 ### The editor driver
 
@@ -1151,8 +1144,10 @@ a step clicks what a worker clicks, or reads what the page shows.
   test reads Web Apps over Nova's export and over the app a person's save
   leaves. Each release's operation is keyed by the stored app's content, so
   each build has an id of its own, as HQ's builds do and Formplayer's kept
-  installs need. The page is answered for a mobile worker, the one the
-  lane's restore names, stored as HQ stores one.
+  installs need. The release is served as the lane serves a state
+  (`proof/formplayer/hq.py::serve`): the page is answered for a mobile
+  worker HQ made, their cases saved through HQ's receiver, and every
+  request Formplayer makes of HQ answered by HQ's own views.
 - **The page** (`session.py`). HQ's `FormplayerMain` view answers the
   navigation through HQ's URLconf, decorators and templates; the script is
   the bundle the image builds from HQ's `cloudcare/js/formplayer/main` entry
@@ -1206,7 +1201,7 @@ the client itself:
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
 | `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
-| An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; one submission reaches HQ each time | `test_links.py` |
+| An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
 
 ### Served states
 
@@ -1928,9 +1923,8 @@ reused is only what a key names whole, and the reuse is audited:
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends; `proof/hq/test_publish_capture.py`: an update applies only over the profile it was built from |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
-| The Core runner's answer to HQ's form validation is Formplayer's own | a report that differs between the Core runner and Formplayer's controller; a request its security chain answers another way | `proof/formplayer/test_validation.py` |
+| HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |
 | Formplayer's walk gives the same bytes and is faithful | an id or an install left unmarked; a trace that loses a difference | `proof/formplayer/test_walk.py`, `test_canonical.py`, `test_observe.py` |
-| HQ's answers to Formplayer answer only what they hold | an unanswered route answered empty; a session answered for an unsigned request | `proof/formplayer/test_answers.py` |
 | What answers Formplayer in the lane is HQ | a request answered from outside HQ, a submission acknowledged and not processed, a walk that passes with no worker signed in | `proof/checks/test_served.py` |
 | A served state gives the same bytes, and each reader shows a planted difference and only it | an id HQ, Formplayer or the browser drew in a record; a walk or a screen reading that loses a difference | `proof/checks/test_served.py`, `proof/formplayer/test_observe.py` |
 | A run of a walk leaves HQ as it found it | a run reading the cases an earlier run's submission made | `proof/checks/test_served.py` |
@@ -2167,8 +2161,8 @@ privileges its plan grants (every other is refused), and HQ's default build at
 CommCare 2.53.0, the version these proofs have always built at (2.60.0 for the
 HQ-JSON oracle, whose probes carry no build of their own). Proofs that build
 remote requests also name Nova's server (`https://www.commcarehq.org`) as the
-app's base URL and as HQ's own address. Formplayer's form validation is the
-session's Core runner. The network is refused except for the lane's Postgres,
+app's base URL and as HQ's own address. Formplayer's form validation is
+Formplayer's own application (the session's validation Formplayer). The network is refused except for the lane's Postgres,
 and a step or test that reaches for anything else fails.
 
 ### What each run leaves
@@ -2470,7 +2464,7 @@ it completes with no error, unmatched or skipped file, classifies three
 images, one audio and one video, maps each zip entry to the form path HQ
 derives, stores exactly the uploaded bytes and records the project space as
 each file's owner. Every form HQ sends to Formplayer on the way must be one
-Core certified, and the Core runner validates it. `MediaRuntimeTest` then
+Core certified, and Formplayer's own controller validates it. `MediaRuntimeTest` then
 installs both paths' media resources and resolves prompts and image maps; no
 remote download or rendering is claimed.
 
@@ -2767,8 +2761,8 @@ each is stated here as it is built.
    its extractors). Vellum is HQ's vendored build, held to the research's
    Vellum pin by the image's self-test. Formplayer was not pinned while the
    lane ran none of it; it is the fifth pin now that its application runs
-   ("The Formplayer runner"), and the Core runner still answers the form
-   validation HQ's build asks Formplayer for. Changing a
+   ("The Formplayer runner"), and it answers the form validation HQ's
+   build asks Formplayer for. Changing a
    pin is a pull request that rebuilds the image and regenerates the surface.
 3. **One harness image**, public at
    `ghcr.io/voidcraft-labs/commcare-nova-proof`, built for linux/amd64 and

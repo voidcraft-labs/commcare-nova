@@ -56,7 +56,7 @@ def _record(run):
 
 
 def test_vellum_opens_and_saves_an_hq_form_twice_through_hqs_views(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
         before = compare.build(state, app_id, record)
@@ -116,7 +116,7 @@ def _binds(source):
 
 
 def test_vellum_records_a_parse_error_and_the_save_drops_what_it_reports(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
         _with_orphan_bind(state, app_id, form_id)
@@ -136,7 +136,7 @@ YESNO_APP = "yesno.json"
 
 
 def _form_name_after_save(core_runner, editor_driver, lang):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, YESNO_APP)
         app = operations.held_app(state, app_id)
         form_id = app.modules[0].forms[0].unique_id

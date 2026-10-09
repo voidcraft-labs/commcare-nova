@@ -65,7 +65,7 @@ def _changed_label(app_json, held_form_ids, form_index=None):
 @pytest.fixture(scope="module")
 def builds(hq, core_runner):
     """HQ's build of the app with a build profile (A), and of its update changing the second form's label (B)."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         app = _with_profile(operations.held_app(state, app_id))
         with build_seams(previous=None):
@@ -265,7 +265,7 @@ def _media_versions(outcome):
 @pytest.fixture(scope="module")
 def media_builds(hq, core_runner):
     """HQ's build of the app with two media (A), and after its republish, with one media file replaced (B)."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         with build_seams(previous=None):
             a, hq_build = build_state(_with_media(operations.held_app(state, app_id), "b" * 32), record, "A")

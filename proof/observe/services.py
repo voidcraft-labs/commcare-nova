@@ -10,6 +10,11 @@ and each service starts the first time an observation or a test asks for it
 there is none, and asking raises.
 
 - ``formplayer()``: the session's one Formplayer runner.
+- ``validator()``: the Formplayer that answers the form validation HQ asks
+  for while it builds an app, saves a form or maps media
+  (``proof.hq.seams.form_validation``), a runner of its own: Formplayer
+  answers one request at a time, and HQ may build while it answers a
+  request of the session's Formplayer.
 - ``connect()``: the session's one Connect runtime (``proof.connect.runtime``:
   Connect at its pin, its Postgres and Redis, its migrated database), which
   a Connect document's observation serves an opportunity from
@@ -27,7 +32,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-_SESSION: dict = {"open": False, "formplayer": None, "browser": None, "connect": None}
+_SESSION: dict = {"open": False, "formplayer": None, "validator": None, "browser": None, "connect": None}
 
 
 class NoSession(RuntimeError):
@@ -39,11 +44,12 @@ def session(on_start=None):
     """The lifetime of the session's services; ``on_start(runner)`` is told each runner as it starts."""
     if _SESSION["open"]:
         raise NoSession("The session's services are already open in this process; one session owns them.")
-    _SESSION.update(open=True, formplayer=None, browser=None, connect=None, on_start=on_start)
+    _SESSION.update(open=True, formplayer=None, validator=None, browser=None, connect=None, on_start=on_start)
     try:
         yield
     finally:
         runner, _SESSION["formplayer"] = _SESSION["formplayer"], None
+        validating, _SESSION["validator"] = _SESSION["validator"], None
         browser, _SESSION["browser"] = _SESSION["browser"], None
         connect_runtime, _SESSION["connect"] = _SESSION["connect"], None
         _SESSION["open"] = False
@@ -55,8 +61,12 @@ def session(on_start=None):
                 if connect_runtime is not None:
                     connect_runtime.close()
             finally:
-                if runner is not None:
-                    runner.close()
+                try:
+                    if validating is not None:
+                        validating.close()
+                finally:
+                    if runner is not None:
+                        runner.close()
 
 
 def _require_session(what):
@@ -100,6 +110,24 @@ def formplayer():
         if _SESSION.get("on_start") is not None:
             _SESSION["on_start"](runner)
     return _SESSION["formplayer"]
+
+
+def validator():
+    """The Formplayer that answers HQ's form validation, started on first use: a runner of its own beside the
+    session's, since a Formplayer answers one request at a time and HQ may build while the session's is waiting
+    on one of HQ's own answers."""
+    _require_session("Formplayer's form validation")
+    if _SESSION["validator"] is None:
+        from proof.formplayer.client import FormplayerRunner
+
+        runner = FormplayerRunner()
+        try:
+            runner.start()
+        except BaseException:
+            runner.close()
+            raise
+        _SESSION["validator"] = runner
+    return _SESSION["validator"]
 
 
 def connect():
