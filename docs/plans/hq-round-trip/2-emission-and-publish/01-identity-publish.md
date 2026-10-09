@@ -1,4 +1,4 @@
-# Step 2, part 01: Work item A: identity and the publish sequence (defect 1, findings 32 and 49)
+# Step 2, part 01: Work item A: identity and the publish sequence (defect 1, findings 32, 49 and 59)
 
 Part of [step 2's plan](../2-emission-and-publish.md), which holds the baseline, the decisions, the stack and the exit. Citations are `file::symbol`; HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
 
@@ -20,7 +20,7 @@ to correct:
 | A2 | `localization.wireCodes` (defect 1, two register entries) |
 | A3 | The publish sequence: the shell create, `readHqAppSource`, `remote_missing_at` |
 | A4 | No `multimedia_map` (finding 49) |
-| A5 | Downloads by project space (finding 32, three register entries) |
+| A5 | A `.ccz` is made for one project space (findings 32 and 59, three register entries) |
 | A6 | The HQ import file as a ZIP with its guide |
 | A7 | The proof capture and the comments, in the same pull request |
 
@@ -49,9 +49,13 @@ Departures from the research and the outline, all decided:
 - **The HQ import file is always a ZIP** (decided in planning). Its guide always holds
   at least the CommCare version step, so there is no app whose file needs no
   README.
-- **An app that searches, with no project space, is not offered a `.ccz`**
-  (decided with the person). The search URL needs a project space and an HQ app; a file
-  whose every search fails is worse than no file.
+- **Every `.ccz` is made for one project space the app is published to**
+  (the person decided this for an app that searches: a file whose every
+  search fails is worse than no file; planning extends it to every app, for
+  the person to confirm, because Android's own run showed the same of sign-in
+  and submission: for a file that names no server, the addresses Android
+  holds for its sync and its form send are its own built-in defaults). A5
+  gives the run and the design.
 
 The ledger tables this work item reads and writes are
 `app_deployment_resources` (its new `remote_missing_at`),
@@ -66,23 +70,29 @@ turns `DeploymentIdentityOverride` into an alias (A1).
 
 ## What HQ does with an import, a source read and an id
 
-Every decision below rests on these. All are read at the pins; those marked
-executed were also run in the lane's HQ during planning. HQ paths are written
-from `corehq/apps/app_manager/` unless they start with `corehq/`, which is
-written in full for every file outside that app.
+Every decision below rests on these. Each was executed during planning: the
+HQ rows in the lane's HQ, through HQ's own views and models, over forks of
+the retained controls `navigation-base`,
+`targeted-form-links-hidden-and-fallback` and `case-list-inline`; the Android
+row on commcare-android's own classes. HQ paths are written from
+`corehq/apps/app_manager/` unless they start with `corehq/`, which is written
+in full for every file outside that app.
 
-| Fact | Source |
+| Fact | Where HQ decides it, and what the run showed |
 |---|---|
-| A create re-mints every form `unique_id`, re-keys its attachment and rewrites the four registered form id references. It keeps module `unique_id` and form `xmlns` as sent. It replaces `build_spec` with HQ's default. | `models/applications.py::_import_app`, `util.py::update_form_unique_ids`, `models/base.py::form_id_references`, `corehq/apps/builds/utils.py::get_default_build_spec`. Executed. |
-| An update writes every top-level key as sent, with no scrub, except `models/applications.py::ApplicationBase._update_excluded_fields` plus `build_spec` and `_attachments`. The excluded set holds `name`, `doc_type`, `date_created`, `comment`, `multimedia_map`, `family_id`, `copy_history`, `build_profiles`, `custom_base_url`, `practice_mobile_worker_id` and the meta fields. A key the body omits keeps HQ's value. | `models/applications.py::_merge_source_into_app`, `::overwrite_app_from_source`. Executed: ids and `xmlns` after an update are exactly the body's. |
-| An update puts each `*.xml` attachment by name and never removes one no form owns. | `models/applications.py::ApplicationBase.save_attachments`. Executed: a full create followed by an update leaves one orphan attachment per form, served by every later source read. |
-| HQ refuses to make a build of an app with no menus. | `helpers/validators.py::ApplicationValidator._check_modules` (`no modules`), `models/applications.py::ApplicationBase.make_build`. Executed: `make_build()` of the shell raises `AppValidationError`. |
-| The source read needs edit-apps and no API access. It carries `doc_type`, `build_spec`, `profile`, `langs`, module `unique_id`s, form `xmlns` and `_attachments`. It carries no `version` and no `_id`. Each read mints its own form ids. | `views/apps.py::app_source`. Executed: two reads of an unchanged app are identical once form ids are replaced by position. |
-| HQ's ordinary app delete is soft: `doc_type` gains `-Deleted`. The source read still answers 200 for it; the update answers 400 (document type mismatch). A missing document, or one in another project space, answers 404 to both. | `models/applications.py::ApplicationBase.delete_app`, `util.py::app_doc_types`, `dbaccessors.py::get_app`, `models/applications.py::_merge_source_into_app`. Read. |
-| Every HQ reader of a form `unique_id` also keys on the app id. | `corehq/apps/sms/models.py::KeywordAction`, `corehq/messaging/scheduling/models/content.py`, `corehq/apps/public_webforms/models.py`, `models/applications.py::Application.get_form`. Read. |
-| HQ's own id shapes: `uuid4().hex` for a menu or form id, `http://openrosa.org/formdesigner/<UUID upper case>` for an `xmlns`. | `models/modules.py::ModuleBase.get_or_create_unique_id`, `util.py::generate_xmlns`. Read. |
-| Android resolves a saved form by `xmlns`. | commcare-android `FormEntryInstanceState.getFormDefIdForRecord`. Read. |
-| HQ validates a language code only on a rename, with `^[a-z]{2,3}(-[a-z]*)?$`. A build profile names languages by code, `build_profiles` is excluded from an update, and a build whose profile names no language the form still holds raises. | `models/applications.py::validate_lang`, `::BuildProfile`, `xform.py::XForm.exclude_languages`. The raise is the register's `d1-language-codes-build-profile-raised`. |
+| A create re-mints every form `unique_id`, re-keys its attachment and rewrites the form id references HQ registers. It keeps module `unique_id` and form `xmlns` as sent. It replaces `build_spec` with HQ's default. | `models/applications.py::_import_app`, `util.py::update_form_unique_ids`, `models/base.py::form_id_references`, `corehq/apps/builds/utils.py::get_default_build_spec`. Run through the import API's create and through HQ's import page, with `form_links` and `case_list_form` as the references rewritten; part 02, Work item B, holds the other two registered paths. |
+| An update writes every top-level key as sent, with no scrub, except `models/applications.py::ApplicationBase._update_excluded_fields` plus `build_spec` and `_attachments`. A key the body omits keeps HQ's value. | `models/applications.py::_merge_source_into_app`, `::overwrite_app_from_source`. Ids and `xmlns` after an update are exactly the body's. An update whose body carried `build_profiles`, `custom_base_url`, `practice_mobile_worker_id`, `comment`, `family_id`, `copy_history`, `multimedia_map`, `date_created` and `name` left every one of them as HQ held it, took the app's name from the request's `app_name` field, and wrote `location_fixture_restore` and `cloudcare_enabled`, which are not excluded, as sent. |
+| An update puts each `*.xml` attachment by name and never removes one no form owns. | `models/applications.py::ApplicationBase.save_attachments`. A full create followed by an update leaves one orphan attachment per form, served by every later source read. |
+| HQ refuses to make a build of an app with no menus. | `helpers/validators.py::ApplicationValidator._check_modules` (`no modules`), `models/applications.py::ApplicationBase.make_build`. `make_build()` of the shell raises `AppValidationError`. |
+| The source read needs edit-apps and no API access. It carries `doc_type`, `build_spec`, `profile`, `langs`, module `unique_id`s, form `xmlns` and `_attachments`. It carries no `version` and no `_id`. Each read mints its own form ids. | `views/apps.py::app_source`. Two reads of an unchanged app are identical once form ids are replaced by position. |
+| HQ's ordinary app delete is soft: `doc_type` gains `-Deleted`. | `models/applications.py::ApplicationBase.delete_app`, through `views/apps.py::delete_app`. After it the source read answers 200 with `doc_type: "Application-Deleted"`; an update whose body names `doc_type: "Application"` answers 400, "Uploaded app type 'Application' does not match existing app type 'Application-Deleted'"; `views/releases.py::current_app_version` answers 404. An update whose body names no `doc_type` answers 200 and writes into the deleted app, which is why every body Nova sends names it. After HQ's own undo (`views/apps.py::undo_delete_app`) the source read answers `Application` and the update 200. |
+| A document that does not exist answers 404 to the source read, to the update (`{"success": false, "error": "Application not found"}`), to `current_app_version` and to the media upload. | `dbaccessors.py::get_app`, `views/app_import_api.py::_handle_import_app`. The same after the document is removed from HQ's database. |
+| A linked app reads as `doc_type: "LinkedApplication"`, and an update of it answers 400 (the same type mismatch). | `corehq/apps/linked_domain/applications.py::link_app`, `::create_linked_app`. A remote app (`RemoteApp`) has no source read: HQ's view fails on it, and an update answers the 400. |
+| Every HQ reader of a form `unique_id` also names the app. | `models/applications.py::Application.get_form`, `corehq/apps/sms/models.py::MessagingEvent.get_form_name_or_none`, `corehq/apps/sms/handlers/keyword.py::get_app_module_form`, `corehq/messaging/scheduling/models/abstract.py::get_memoized_app_module_form`. Two apps of one project space holding the same form ids: each app's `get_form` returned its own form, and `get_form_name_or_none` named each app's own menu. The last two take the app id beside the form id and resolved the form of the app named. |
+| A keyword or a scheduled message that names a form resolves it in the app's newest released build. | The last two readers above. After an update that changed a form's id, both still resolved the old id until a new build was released, and nothing after it (the keyword's error is `sms.survey.formnotfound`). After an update that kept the id and a new release, the keyword resolved the form in the new build. A build made earlier still holds the form under the id it was built with, which is what a public web form pins (`corehq/apps/public_webforms/app_builds.py::create_public_webform_build`). |
+| HQ's own id shapes: 32 lower case hex for a menu or form id, `http://openrosa.org/formdesigner/<UUID, upper case, hyphenated>` for an `xmlns`. | `models/modules.py::ModuleBase.get_or_create_unique_id`, `util.py::generate_xmlns`. A menu and a form made through `views/modules.py::new_module` and `views/forms.py::new_form` hold exactly these shapes. |
+| Android resolves a saved form by `xmlns`. | commcare-android `AndroidCommCarePlatform.getFormDefId`. On Android, a form saved incomplete reopens after an update that keeps its `xmlns`, and after one that changes it the form does not load ("No XForm definition defined for this form"): the Android reader's `proof/android/predicates.py::test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps`. |
+| HQ's import validates no language code; HQ's languages page refuses a rename to a code outside `^[a-z]{2,3}(-[a-z]*)?$`. A build profile names languages by code, `build_profiles` is excluded from an update, and a build whose profile names no language the form still holds raises. | `models/applications.py::validate_lang`, `::BuildProfile`, `xform.py::XForm.exclude_languages`. A create holding the code `zho-hanscn` answered 201, validated and built its `zho-hanscn/app_strings.txt`; a create holding `EN_us` answered 201 too; `views/apps.py::edit_app_langs` raised "Invalid Language" for a rename to a code outside the pattern. The raise of a build profile is the register's `d1-language-codes-build-profile-raised`. |
 
 ## A1. Derived ids, and why `Form.xmlns` is not stored
 
@@ -157,9 +167,9 @@ export function targetWireIdentity(
 
 Reasons:
 
-- **Derived, not random.** The HQ import file, a `.ccz` for no project space
-  and a first publish must agree with no stored state between them, and two
-  exports of one document must be equal.
+- **Derived, not random.** The HQ import file and a first publish must agree
+  with no stored state between them, and two exports of one document must be
+  equal.
 - **The hex of the UUID, not a hash.** It is HQ's exact shape, it is
   injective, and `lib/domain/uuid.ts::uuidSchema` guarantees a canonical lower
   case input. Two Nova apps never share an entity UUID, and HQ keys every form
@@ -177,7 +187,7 @@ Reasons:
   whose HQ app is gone and is created afresh keeps the space's recorded ids.
 - Rows for an entity the document no longer holds stay: an undo that restores
   the form restores its HQ id.
-- **Stable form ids keep HQ's cached validation verdict for a form across
+- **Stable form ids keep HQ's validation verdict for a form across
   publishes.** HQ keeps each form's last verdict for 7 days under a key built
   from the app id and the form's `unique_id`
   (`models/forms.py::FormBase.validation_cache`,
@@ -186,14 +196,36 @@ Reasons:
   (`models/forms.py::FormSource.__set__`). An import clears nothing
   (`models/applications.py::ApplicationBase.save_attachments`). Today every
   publish draws a new form id and so a new key; from step 2 the key is the
-  same on every republish. After a republish that fixes a form HQ had
-  rejected, whatever in HQ reads that verdict (the form's page, App Preview,
-  and the form check of a build, `helpers/validators.py`, which calls
-  `validate_form`) can show the earlier verdict for up to 7 days, or until
-  someone saves the form in HQ. Read, not run. Nova cannot clear the key, so
-  the fix is a statement: `content/docs/publishing.mdx` says it in this pull
-  request, and the line on a publish outcome is work item B's (part 02, The
-  7-day App Preview statement).
+  same on every republish. Executed during planning, over a form whose id
+  two updates kept, with HQ's own `validate_app()` and Core's form check
+  behind it:
+
+  | Step | HQ's `validate_app()` |
+  |---|---|
+  | The form is valid and HQ has checked it | no error |
+  | An update replaces it with a form Core refuses | no error: HQ reads the kept verdict and does not check the new form |
+  | The form is saved in HQ (the form's source is set) | the validation error, now checked and kept |
+  | An update replaces it with the valid form again | the same validation error, though the form HQ holds is valid |
+  | Six days later | the same validation error |
+  | Seven days after the verdict was kept | no error: HQ checks the form again |
+
+  So HQ's check of an app (`validate_app()`, which `make_build` runs before
+  it builds) can answer for an earlier version of a form for up to 7 days
+  after a republish, or until someone saves the form in HQ. Nova cannot clear the key. Two
+  consequences, each stated where a person meets it:
+  - A form HQ judged broken before Nova wrote over it keeps reading as
+    broken there, and HQ refuses to build the app for it. That needs an
+    earlier form HQ refused, which is an edit made in HQ's form builder:
+    `content/docs/publishing.mdx` says it in this pull request, and the line
+    on a publish outcome is work item B's (part 02, The 7-day App Preview
+    statement).
+  - HQ does not check a republished form it already judged valid. Every form
+    Nova sends is one Core accepts (the bar, on every export), so nothing
+    HQ would have refused reaches a build this way.
+
+  The lane's own builds are not affected: `proof/observe/build.py::build_state`
+  clears each form's verdict before it validates, so B's and B-edit's forms
+  are each checked for themselves although they now share A's form ids.
 
 **Files.**
 
@@ -260,9 +292,12 @@ its first publish after the cutover:
 - A paired menu or form whose ids the cutover recorded: nothing.
 - A form in a project space without API access: its `unique_id` becomes the
   derived one, once. Its `xmlns` is kept, so its form data stays together.
-  What reads the form id in that space (an SMS keyword, a scheduled message,
-  a public web form) names the old id until a person points it at the form
-  again; the notice says so.
+  An SMS keyword or a scheduled message that names the form holds the old
+  id, so once a build made after that publish is released it resolves no
+  form, until a person points it at the form again; the notice says so. A
+  public web form is not affected: it keeps a build of its own, which still
+  holds the form under the id it was built with. (Both executed during
+  planning: the facts table above.)
 - A menu or form left without a pair, and every entity of a deployment no
   credential could read: derived ids and derived `xmlns`, once. The notice
   names each and says its earlier submissions stay under the earlier `xmlns`.
@@ -276,35 +311,52 @@ its first publish after the cutover:
   three reasons and the runbook's review of the count).
 - A `.ccz` installed before step 2 carries random `xmlns`. The first `.ccz`
   built after it renames every form on that device one last time: a form
-  saved incomplete under the old archive does not reopen under the new one.
-  The public docs say so.
+  saved incomplete under the old archive does not reopen under the new one
+  (on Android it does not load, and Android says "No XForm definition
+  defined for this form": the facts table above). From then on two archives
+  of one app carry one `xmlns` for each form, and a saved form reopens. The
+  public docs say so.
 
 `proof/identity-moves.json` gains no entry. Proof 1 compares two exports of
 one document by one revision of Nova, so an emitter change moves both sides
-alike. The one-time moves above exist only in production deployments made
-before step 2, which no corpus document is; the cutover's tests over frozen
-pre-step fixtures hold them.
+alike. The one-time moves above exist only for a deployment made before
+step 2, which no corpus document is. What each half of "a recorded id does
+not move" rests on: HQ keeps exactly the ids an update names (the facts
+table, run in HQ, and held by A3's shell test, whose second update moves no
+identity); Nova names a deployment's recorded ids in that update (the
+Postgres test below, which reads the request Nova sends); and the cutover
+records them from HQ's own reads of a deployment made by the pre-step
+emitter, which a control's legacy create is (part 10, Reading HQ).
 
 **Control.** `case-operation-query` keeps its pre-fix bytes and still shows
 all five symptoms under proof 1, named by the five fixed entries.
 
-**Nova tests.**
+**Nova tests.** Each holds what Nova's own code does; what HQ and Android
+do with the ids is under "Lane".
 
 | Contract | Boundary |
 |---|---|
 | `expandDoc` twice over one document, and again after an edit elsewhere, gives the same ids and `xmlns`; the hidden menu's id follows its form's UUID; `targetWireIdentity` prefers a row and falls back per entity and per field | pure, production emitter (`lib/commcare/__tests__/wireIdentity.test.ts`) |
 | The cutover's identity writer records no row for an HQ id that equals another entity's derived id, and names that entity under `menu-id-changes-once` | pure over the cutover's frozen fixtures (`scripts/lib/hqRoundTripCutover/__tests__/`) |
-| A republish to a deployment with override rows sends HQ's recorded ids and `xmlns`; the runtime role cannot insert into `app_deployment_identities` | real Postgres, controlled HQ responses (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
+| A republish to a deployment with override rows sends HQ's recorded ids and `xmlns` in its import body; the runtime role cannot insert into `app_deployment_identities` | real Postgres, the request Nova sends read from a loopback peer (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
 | Every form id reference in one export (`form_links`, `case_list_form`) names an id the same export gives a form | pure, the existing `lib/commcare/validator/hqJsonOracle.ts::checkFormLinks` oracle |
 
-**Lane.** Locally the pull request runs `npm run proof --
+**Lane.** Each of these runs the reader, and each was run by hand during
+planning (the facts table above).
+
+| Proof | Reader | Document | It must show |
+|---|---|---|---|
+| Proof 1 | HQ | every document | No difference at `/modules/*/unique_id`, `/modules/*/forms/*/unique_id`, `/modules/*/forms/*/xmlns`, `form:*` `/xmlns` or `local.ccz` `/entries/*/xmlns`, and the five fixed entries reproducing on their control. |
+| `proof/hq/test_publish.py::test_two_apps_of_one_project_space_may_hold_the_same_form_ids`, new | HQ | `navigation-base`, published twice into one project space, one of the two with a menu renamed | `Application.get_form` of each app returns its own form, and `MessagingEvent.get_form_name_or_none` names each app's own menu. |
+| `proof/hq/test_publish.py::test_a_form_id_a_republish_keeps_still_resolves_after_a_release`, new | HQ | `navigation-base`, with builds made by HQ's own `make_build` and released | The keyword's `get_app_module_form` resolves the form in the build released after an update that kept its id. With the id changed (the paired refusal, written by hand into the update), it and a scheduled message's `get_memoized_app_module_form` resolve the old id until the new build is released and nothing after. |
+| `proof/hq/test_publish.py::test_an_update_keeps_a_forms_validation_verdict_for_seven_days`, new | HQ, Core | `navigation-base` | The six rows of the verdict table above, with HQ's clock moved for the last two. |
+| `proof/hq/test_publish.py::test_hq_mints_the_id_shapes_nova_derives`, new | HQ | `navigation-base` | A menu and a form made through `views/modules.py::new_module` and `views/forms.py::new_form` hold ids that match the shapes `derivedUniqueId` and `derivedFormXmlns` write (32 lower case hex; the prefix and an upper case hyphenated UUID). |
+| `proof/android/predicates.py::test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps` | Android | `targeted-survey-menu` | A form saved incomplete reopens after an update whose archive keeps its `xmlns`. From this pull request the kept case updates from the document's `local.ccz` to its `local-again.ccz`, whose `xmlns` Nova's compiler now derives alike, with the second archive's versions raised as the predicate raises them today (part 04 makes Nova raise them); the renamed case stays the hand-written refusal. |
+
+Locally the pull request runs `npm run proof --
 proof/hq/test_publish.py proof/hq/test_publish_capture.py`, then the lane
 selected to `targeted-multi-select-destinations`, `case-operation-query` and
-`navigation-base`. CI's full lane must show no proof 1 difference at
-`/modules/*/unique_id`, `/modules/*/forms/*/unique_id`,
-`/modules/*/forms/*/xmlns`, `form:*` `/xmlns` or `local.ccz`
-`/entries/*/xmlns` on any document, and the five fixed entries reproducing on
-their control.
+`navigation-base`, and the Android predicate where the reader runs.
 
 ## A2. `localization.wireCodes`
 
@@ -542,7 +594,9 @@ notice reason: nothing a person or a worker sees changes.
 shows `/langs/*` moving and the bar still shows the build profile's
 `XFormException` there.
 
-**Nova tests.**
+**Nova tests.** Each holds Nova's own state model: what a mutation carries,
+what the reducer stores, what the emitter reads. What HQ, Core and Android
+do with a code is under "Lane".
 
 | Contract | Boundary |
 |---|---|
@@ -569,6 +623,17 @@ proof. Locally the pull request runs the lane selected to
 no proof 1 difference at `/langs/*`, no `XFormException` under
 `create_all_files:*@B-edit`, and both fixed entries reproducing on their
 control.
+
+What each reader does with a suffixed code, executed during planning: HQ's
+import takes it, validates the app and builds its `app_strings.txt` under the
+code (a create holding `zho-hanscn`, the facts table); Core admits HQ's build
+and the local archive of `localization-mandarin`, which holds `cmn-hans` and
+`cmn-hant` (the bar, on every run); Android installs that local archive and
+its language picker offers `en`, `cmn-hans` and `cmn-hant`, each by its own
+name. The Android half is held from this pull request by
+`proof/android/predicates.py::test_every_language_code_an_archive_holds_is_offered`,
+new, over the local archive of `localization-mandarin` as this pull request
+emits it (one preferred spelling and one suffixed code).
 
 ## A3. The publish sequence
 
@@ -624,16 +689,29 @@ answers 200 for it and the update answers 400.
    other content key: an update does not exclude it, and an empty app reads
    no location fixture.
 
-   Evidence. Executed during planning, on five bodies, with a shell whose
-   `_attachments` was absent and whose `multimedia_map` was `{}`: the create
-   answers 201, the update 200, ids and `xmlns` after the update are exactly
-   the body's, no orphan attachment is left, and the stored document equals a
-   full create followed by the same update. Also executed: a create with the
-   `multimedia_map` key absent. The exact shell above (`_attachments: {}`, no
-   map key) rests on reading (`models/applications.py::_import_app` and
-   `::ApplicationBase.save_attachments` are defined for an empty map) and is
-   held by the first commit's `proof/hq` test and by the capture; the fallback
-   is in "Lane".
+   Evidence. Executed during planning, in the lane's HQ, over the bodies of
+   `navigation-base`, `targeted-form-links-hidden-and-fallback` and
+   `case-list-inline`, with the exact shell of every row of the table above
+   (ten keys; nine without `add_ons`; eight without `add_ons` and
+   `auto_gps_capture`; eight without `add_ons` and `build_spec`; seven), each
+   with `modules: []`, `_attachments: {}` and no `multimedia_map`, followed by
+   the update Nova will send (the full body with no `multimedia_map`). On
+   every one of the fifteen: the create answers 201 and HQ holds app version
+   1; `validate_app()` of the shell answers `no modules` and `make_build()`
+   raises; the update answers 200 with version 2; module ids, form ids and
+   `xmlns` after it are exactly the body's; the stored attachments are
+   exactly the body's, with no orphan; `validate_app()` is clean and
+   `create_all_files()` builds; `build_spec` is HQ's default and not the
+   body's; the same update sent again answers 200 with version 3 and moves
+   no id. The document HQ stores after the update is identical for all five
+   shells of a document, so a key the shell leaves out is filled by the
+   update or by HQ's own default exactly as when it is sent. The source read
+   of the ten-key shell serves `doc_type: "Application"`, HQ's `build_spec`,
+   `profile: {}`, the shell's `langs`, `translations`, `add_ons` and `name`,
+   `modules: []`, `_attachments: {}`, `multimedia_map: {}` and
+   `logo_refs: {}`; a shell that leaves `add_ons` out is served
+   `add_ons: {}`, and one that leaves `auto_gps_capture` out is served
+   `false`. A7's assumed shell source is written from these reads.
 
    Reason: with no form there is no id for HQ to re-mint, and HQ refuses to
    build an app with no menus, so "no build can hold HQ-minted ids" holds by
@@ -691,8 +769,9 @@ export type HqAppSourceRead =
 ```
 
 - **`doc_type` check.** A `doc_type` ending `-Deleted` is `gone`. A 404 is
-  `gone`. Any other value than `Application` (a linked or a remote app) is
-  `unsupported`. Publish refuses an `unsupported` read at `target-app`, phase
+  `gone`. Any other value than `Application` is `unsupported`; the one such
+  value HQ's source read serves is `LinkedApplication` (a remote app's read
+  fails inside HQ, which is a failed read like any other). Publish refuses an `unsupported` read at `target-app`, phase
   `preflight`, with code `hq_app_state_unknown` and this message, and writes
   nothing:
 
@@ -725,10 +804,29 @@ export type HqAppSourceRead =
 
 ### The two forms of "HQ reports the app gone"
 
+Each row was executed during planning through HQ's own views (the facts
+table above).
+
 | Form | Where Nova sees it | From step 2 |
 |---|---|---|
-| The document does not exist in the project space (a hard delete, or an id from another space) | 404 from the source read; 404 from the update; 404 from `views/releases.py::current_app_version` at Check status | `gone` |
-| HQ's ordinary delete (soft) | 200 from the source read with `doc_type` ending `-Deleted`; 404 from `current_app_version` | `gone`. Today only Check status sees it, and publish refuses for ever |
+| The document does not exist (a hard delete) | 404 from the source read; 404 from the update, `{"success": false, "error": "Application not found"}`; 404 from `views/releases.py::current_app_version` at Check status | `gone` |
+| HQ's ordinary delete (soft) | 200 from the source read with `doc_type: "Application-Deleted"`; 400 from the update (the type mismatch); 404 from `current_app_version` | `gone`. Today only Check status sees it, and publish refuses for ever |
+
+Two neighbours are not "gone", and the run settled each:
+
+- **A linked app.** The source read answers 200 with `doc_type:
+  "LinkedApplication"`, and `current_app_version` still answers 200. It is
+  `unsupported` (below). HQ turns an existing app into a linked one only by
+  an operator's command (`corehq/apps/linked_domain/applications.py::link_app`,
+  called from HQ's management commands), so a deployment's app reaches this
+  state rarely; the read still names it so the refusal can say what it is.
+- **An id HQ holds for another project space.** The update and
+  `current_app_version` answer 404, and the source read raises inside HQ
+  (`dbaccessors.py::get_app`, `AppInDifferentDomainException`), which reaches
+  Nova as a server error and so as `hq_app_state_unknown`. No HQ page moves
+  an app between project spaces and a mapping holds only an id HQ returned
+  for that space, so nothing in Nova makes this state; it is recorded so the
+  table above is not read as covering it.
 
 Either form sets `remote_missing_at` on the active `app` mapping and folds the
 `remote_app_missing` upload failure, through
@@ -867,12 +965,46 @@ What the sequence settles:
   the record shows `preflight` reached and nothing more, which is what HQ
   holds besides the empty shell. Their codes do not change.
 - **A failure after the mapping is recorded never creates a second app.** A
-  404, a 429 (both imports of a first publish pass
-  `corehq/apps/api/decorators.py::api_throttle`), a timeout or a 5xx answering
+  404, a 429 that outlasts the wait below, a timeout or a 5xx answering
   step 11 inside the publish that created the shell is `hq_rejected_upload`
   with the mapping kept. A refusal of step 6, 7, 8 or 10 there keeps the
   mapping too, under its own code. The next publish's `target-app` edge reads
   the source and records the app gone if it is.
+- **The two imports of a first publish can share one of HQ's rate windows,
+  so `importApp` waits out a short `Retry-After`.** Both imports pass
+  `corehq/apps/api/decorators.py::api_throttle`; the source read between
+  them does not. Executed during planning through HQ's own decorated view
+  (`views/app_import_api.py::import_app_api`) and its own limiter
+  (`corehq/apps/api/resources/meta.py::api_rate_limiter`), for a project
+  space at the limiter's floor (no mobile worker, and no capacity from its
+  account), whose limits HQ computes as 1 a second, 10 a minute, 30 an hour
+  and 50 a day:
+
+  | Request | HQ's answer |
+  |---|---|
+  | The shell create | 201 |
+  | The source read | 200; it does not count toward the limit |
+  | The update, in the same second | 429, an empty `text/html` body, `Retry-After: 0.9505331516265869` (a decimal count of seconds, the time left in the limiter's current window). The app stays at version 1: the view never ran. |
+  | The same update after that wait | 200, version 2 |
+  | The tenth counted request inside one minute | 429 with a `Retry-After` of about 15 seconds; the media status read is counted and refused by the same limiter |
+
+  With five mobile workers HQ computes 2.09 a second and 25 a minute for the
+  project space, and the third counted request of one second is refused the
+  same way; the request sent after that `Retry-After` was refused once more
+  (the limiter's window slides), and went through after the next.
+
+  So `lib/commcare/client.ts::importApp` resends a request HQ answered 429
+  after waiting the `Retry-After` HQ gave, when that header parses as a
+  number of at most 2 seconds, and at most twice for one import. A longer
+  or absent `Retry-After`, or a third 429, is the refusal as today
+  (`success: false, status: 429`, today's "CommCare HQ is rate limiting
+  requests right now" sentence). The resend is safe because HQ's decorator
+  answers 429 before the view runs, which the run shows (the version did not
+  move) and `lib/commcare/hq/http.ts::SETTLED_BEFORE_THE_VIEW` already
+  records. Two seconds covers the one window the shell-then-update pair can
+  trip by itself; the minute, hour and day windows are a project space's
+  whole budget, and a wait cannot widen it. The wait runs inside the
+  import's own deadline (`withHqRequestDeadline`).
 - **The one window that can leave a second app.** A process death, a deploy or
   a deadline between the create's 201 and `recordCreatedRemoteApp` (one source
   read of an app with no menus, a few kilobytes) leaves an empty app in HQ
@@ -926,7 +1058,7 @@ What the sequence settles:
 | The first content is HQ app version 2, and 3 once media is mapped. Today it is 1 and 2. The version is written into the build (`suite version`, each resource `version`, the form's `version` attribute), so every proof record that holds state A's version moves (A7). | Executed. |
 | No saved build of the shell can exist: every build maker goes through `make_build`, which raises `no modules`. `create_all_files()` on the shell does succeed and returns eight files, so anything that serves the working app's files without `make_build` sees a valid empty app. | Executed. |
 | `build_spec` is HQ's default from the create and is never changed by an update. The body's `build_spec` is ignored by both calls. | Executed. Work item C stops `lib/commcare/hqShells.ts::applicationShell` writing it and removes it from `APP_SHELL_KEYS`. |
-| An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or `practice_mobile_worker_id`. Nova sends none of the last three, and from A4 not the first. A later step that wants one of them cannot use this path. | Executed for `multimedia_map`; the rest read. |
+| An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or `practice_mobile_worker_id`. Nova sends none of the last three, and from A4 not the first. A later step that wants one of them cannot use this path. | Executed: an update carrying all four left each as HQ held it. |
 | `profile`, `logo_refs` and every other key arrive through the update exactly as through a create. `date_created` is the shell's and `created_from_template` is `import_app_api` either way. | Executed. |
 | A person looking at HQ during a first publish's resource pushes, or after a first publish that stopped at the floor, at a resource push or at the update, sees an empty app named for the Nova app until the next publish fills it. | Follows from the sequence. |
 | `lib/commcare/targetProfile.ts::projectNewAppProfileForTarget` loses its one caller and is deleted with its four cases in `lib/commcare/__tests__/targetProfile.test.ts`: the first content rides `projectUpdatedAppProfileForTarget` over the shell's profile as HQ serves it. For a first publish whose Search advisory is `unverified` the update omits `profile`, so the shell's HQ default stands, where today's create strips only Nova's own key. In this pull request Nova generates no other profile content, so nothing is lost. From pull request 5 the profile keys of defect 7 and finding 40 ride the same update and its overlay (part 04, Finding 40: an HQ settings save writes its defaults into the profile): on HQ the fifteen constants are seeded only where the target's profile holds no value, Nova owns only `cc-show-saved` and `cc-show-incomplete` there, and the local `.ccz` writes all of them. The shell still carries no `profile`. | `lib/deployment/importApplication.ts::hqImportApplication` |
@@ -980,7 +1112,8 @@ set) and `hq_app_empty: boolean` (a live mapping that is not gone and whose
 - Validator: none.
 - Emitters and publish: `lib/commcare/hq/appSource.ts`,
   `lib/commcare/hq/readJson.ts`, `lib/commcare/targetProfile.ts`,
-  `lib/commcare/client.ts` (the comment on `importApp`),
+  `lib/commcare/client.ts` (`importApp`'s wait on a short `Retry-After`,
+  and its comment),
   `lib/commcare/__tests__/targetProfile.test.ts` and
   `lib/commcare/__tests__/appSource.test.ts` (rewritten),
   `lib/commcare/expander.ts` (`expandAppShell`, `APP_SHELL_KEYS`),
@@ -1043,7 +1176,7 @@ made before step 2 holds a null `pushed_revision`; today's one writer makes
 that so, and this pull request adds the check to the cutover's scan
 (`scripts/lib/hqRoundTripCutover/`): the scan reports the count of live `app`
 mappings with a null `pushed_revision`, and the cutover stops for a person
-when it is not zero (none expected), under the blocker
+when it is not zero, under the blocker
 `app-mapping-without-pushed-revision` as part 10, Scripts and their layout,
 registers it. For a deployment whose HQ app
 the cutover's read finds gone, the cutover sets `remote_missing_at` and the
@@ -1064,39 +1197,72 @@ was 1; no stored id moves. `proof/identity-moves.json` gains no entry.
 **Control.** None of its own. The controls replay in their legacy capture
 layout (a full create, then updates), so they keep showing the re-minted ids.
 
-**Nova tests.**
+**Nova tests.** Each holds what Nova's own code does with HQ's answers: the
+order of its requests, what it records, what it refuses. The answers
+themselves are HQ's: every status, header and body the loopback peer serves
+in these tests is read from `proof/hq-reads/publish/`, which the lane writes
+from HQ's own views and holds byte for byte ("Lane"). A test names the
+retained answer it serves; none writes an HQ answer by hand.
 
 | Contract | Boundary |
 |---|---|
-| A first publish sends the shell create, the source read, the update naming derived ids, then media, in that order; for a document with a lookup table and a place, the workbook and the place requests come after the shell's source read and before a second source read and the update; the shell body's key set is exactly the row of the `APP_SHELL_KEYS` table for the pull request at hand (ten keys here; pull requests 5 and 13 each change this expectation with the list), with `modules: []`, `_attachments: {}`, no `multimedia_map`, no `logo_refs`, no `profile` and no `location_fixture_restore` | controlled HQ responses (an undici `MockAgent` peer, as `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts` does, over the documents of `lib/deployment/__tests__/publishFixtures.ts`), real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
+| A first publish sends the shell create, the source read, the update naming derived ids, then media, in that order; for a document with a lookup table and a place, the workbook and the place requests come after the shell's source read and before a second source read and the update; the shell body's key set is exactly the row of the `APP_SHELL_KEYS` table for the pull request at hand (ten keys here; pull requests 5 and 13 each change this expectation with the list), with `modules: []`, `_attachments: {}`, no `multimedia_map`, no `logo_refs`, no `profile` and no `location_fixture_restore` | the requests Nova sends, read from an undici `MockAgent` peer (as `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts` does, over the documents of `lib/deployment/__tests__/publishFixtures.ts`) that serves the retained answers; real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
 | The create answers 201 and the read after it fails: the mapping is recorded with `pushedRevision` null, the publish refuses with `hq_app_state_unknown` at `resources` having sent no lookup or place request, and the next publish sends a source read and an update to the same app id, never a create | same |
 | A first publish of a document with a lookup table whose workbook HQ refuses: the shell's mapping is kept with `pushedRevision` null, the record is refused at `resources` and shows no rung past `preflight`, no update was sent, and the next publish sends no create, pushes the table and fills that same app | same |
 | The create answers 201 and the process stops before `recordCreatedRemoteApp` (the store call is made to throw): no mapping exists and the next publish sends a create. This is the stated window, pinned so a change to it is seen | same |
-| The shell is created, then the update answers 404, 429, 500 or times out: the mapping is kept with `pushedRevision` null, the record sits at `resources`, the next publish sends an update to the same app id and reports `created`; no second create is ever sent | same |
-| A source read answering 200 with `doc_type: "Application-Deleted"`, and one answering 404, each set `remote_missing_at`, fold `remote_app_missing`, refuse this publish, and make the next publish create and supersede the mapping; a `LinkedApplication` refuses with `hq_app_state_unknown` at `preflight`, with the linked app sentence, and writes nothing | same |
+| The shell is created, then the update is answered with the retained 404, with a 500, or times out: the mapping is kept with `pushedRevision` null, the record sits at `resources`, the next publish sends an update to the same app id and reports `created`; no second create is ever sent | same |
+| The update is answered with the retained 429 whose `Retry-After` is under a second, then 200: `importApp` waits that long (the test's clock) and resends once, and the publish lands. Answered 429 three times, or with the retained 429 whose `Retry-After` is about 15 seconds, it sends no further request, the publish refuses with `hq_rejected_upload`, and the mapping is kept | same, and pure for the header's parse (`lib/commcare/__tests__/client.test.ts`: the retained decimal header, an absent header, a date) |
+| The retained source read of a soft-deleted app, and the retained 404, each set `remote_missing_at`, fold `remote_app_missing`, refuse this publish, and make the next publish create and supersede the mapping; the retained source read of a linked app refuses with `hq_app_state_unknown` at `preflight`, with the linked app sentence, and writes nothing | same |
 | `remote_missing_at` is cleared by a succeeded `upload` observation and by `recordRemoteResource`; writing it rotates no push token | real Postgres (`lib/deployment/__tests__/store.postgres.test.ts`) |
 | `plannedInPlaceUpdate`, `remoteAppHoldsContent`, `publishedRemoteApp` and `nextPublishAction` over every record shape (no mapping; live with content; live shell; gone with content; gone shell; superseded only) | pure (`lib/deployment/__tests__/resources.test.ts`, new) |
 | `compactTargetRows` gives `nextPublish` its three values; `describeDeployment` gives `hq_app_gone` and `hq_app_empty` for each record shape | pure (`components/builder/app-setup/__tests__/publishingSectionModel.test.ts`; `lib/mcp/__tests__/deploymentTools.postgres.test.ts` for the projection through `get_deployment`) |
-| `provision_workers` on a shell-only deployment, and on one whose app is marked gone, refuses with `app_not_published` and sends HQ nothing | real Postgres, controlled HQ responses (`lib/mcp/__tests__/provisionWorkers.postgres.test.ts`) |
+| `provision_workers` on a shell-only deployment, and on one whose app is marked gone, refuses with `app_not_published` and sends HQ nothing | real Postgres, a peer that fails the test on any request (`lib/mcp/__tests__/provisionWorkers.postgres.test.ts`) |
 | `getEntryPointLink` refuses for a shell-only and for a gone deployment; `setupArtifactFor` gives `hqAppId: null` for both | real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
 | The cutover scan counts live `app` mappings with a null `pushed_revision`, and the cutover stops when the count is not zero | real Postgres, over a seeded pre-step ledger (`scripts/lib/hqRoundTripCutover/__tests__/scan.postgres.test.ts`) |
-| `readHqAppSource`: each shape refusal (a module with no string `unique_id` or `case_type`, a form with no string `xmlns`, no `langs`, no `build_spec.version`), `gone` for a 404 and for a `-Deleted` `doc_type`, `unsupported` for `LinkedApplication`, a body over 67,108,864 bytes, attachments paired through the response's own forms with orphans ignored | controlled HQ responses (`lib/commcare/__tests__/appSource.test.ts`, rewritten) |
-| Three `publishAppToHq` runs of one document keep every menu id, form id and `xmlns` | real Postgres (`proof/corpus/__tests__/publish.postgres.test.ts`) |
+| `readHqAppSource` over the retained reads: `source` for a live app and for the shell, `gone` for the retained 404 and for the retained `Application-Deleted` read, `unsupported` for the retained `LinkedApplication` read, attachments paired through the response's own forms with the orphans of the retained create-then-update read ignored. Each shape refusal (a module with no string `unique_id` or `case_type`, a form with no string `xmlns`, no `langs`, no `build_spec.version`) is the retained live read with that one key removed, and the size bound is the retained read under a `maxBytes` one byte short of it | the retained answers served by a peer (`lib/commcare/__tests__/appSource.test.ts`, rewritten) |
+| Three `publishAppToHq` runs of one document send the same menu id, form id and `xmlns` in every import body | real Postgres (`proof/corpus/__tests__/publish.postgres.test.ts`) |
 | The dialog shows the "fills it in" sentence for a shell-only deployment and the landed title after | Playwright, the browser component suite (`e2e/tests/browser/publishing.spec.ts`, over `e2e/lib/publishing-client.tsx` with `e2e/lib/publishing-boundary.ts` answering for `lib/deployment/actions`). The app suite under `e2e/tests/app` reaches no HQ, so the journey is not there. |
 
-**Lane.** `proof/hq/test_publish.py` gains, as the first commit of the pull
-request, the executed facts as retained tests: a shell create followed by an
-update leaves the stored app the update's body describes, with the body's ids
-and `xmlns`, no attachment outside the body's, `validate_app()` of the shell
-answering `no modules` and `make_build()` raising; and the same update applied
-twice leaves every identity alone. The decided fallback, should a later pin
-make HQ refuse a create with no menus: a full create followed at once by the
-update, with the drift comparison ignoring orphan attachments (which
-`readHqAppSource` already does). Locally the pull request runs
-`proof/hq/test_publish.py` and `proof/hq/test_publish_capture.py`, then the
-lane selected to `navigation-base`, `targeted-form-links-hidden-and-fallback`
-and `case-list-inline`. CI's full lane must show state A built at HQ version
-2, or 3 for a document with media, with no new difference in proofs 1 to 5.
+**Lane.** Each of these runs HQ, and each was run by hand during planning
+(the facts table, the shell's evidence and the tables above).
+
+| Proof | Document | It must show |
+|---|---|---|
+| `proof/hq/test_publish.py::test_a_shell_create_then_an_update_leaves_what_the_update_describes`, new, the first commit of the pull request | `navigation-base`, `targeted-form-links-hidden-and-fallback`, `case-list-inline` | For the shell Nova's `expandAppShell` emits (the capture's `create.body`): 201; `validate_app()` answers `no modules` and `make_build()` raises; the update answers 200; the stored app holds the body's ids and `xmlns` and no attachment outside the body's; the same update applied twice moves no identity. Pull requests 5 and 13 change the shell's keys, and this test then runs their shell. |
+| `proof/hq/test_publish.py::test_what_hq_answers_for_an_app_that_is_gone_linked_or_missing`, new | `navigation-base` | Through `views/apps.py::delete_app`, `::undo_delete_app`, `::app_source`, `views/app_import_api.py::_handle_import_app` and `views/releases.py::current_app_version`: every row of "The two forms" and both neighbours, the update with no `doc_type` that HQ accepts for a deleted app, and the heal after the undo. It writes each answer (status, headers, body) to the run's `hq-reads/publish/`. |
+| `proof/hq/test_publish.py::test_hq_answers_429_before_an_import_runs`, new | `navigation-base` | Through `import_app_api` with its decorators and HQ's limiter, its counters answered by the harness as Redis answers them: the second import of one second is refused at the limiter's floor with a decimal `Retry-After` and the app's version does not move; the same import after that wait is accepted; the source read is not counted. It writes the two 429 answers (the second's and the minute's) to `hq-reads/publish/`. |
+| `proof/hq/test_publish.py::test_an_update_writes_no_excluded_field`, new | `navigation-base` | An update carrying `build_profiles`, `custom_base_url`, `practice_mobile_worker_id`, `multimedia_map`, `name` and `build_spec` leaves each as HQ held it. |
+| `proof/hq/test_retained_reads.py`, new here with its `publish` group (part 02 adds the drift groups to the same file in pull request 4) | the three above | Regenerates `hq-reads/publish/` and holds the committed `proof/hq-reads/publish/` to it byte for byte, so a pin that changes one of HQ's answers fails there and Nova's tests are never fed a stale one. The files: `source-live.json`, `source-shell.json`, `source-deleted.json`, `source-linked.json`, `source-after-create-then-update.json`, `update-deleted.json`, `update-missing.json`, `update-linked.json`, `import-429-second.json`, `import-429-minute.json`, each `{ status, headers, body }`. |
+
+What these tests need of the harness, each found by running them:
+
+- Where HQ's view raises `Http404` in place of returning a response (the
+  source read and `current_app_version` of a missing app), the retained
+  answer is `{ "status": 404 }` with no headers or body, which is all Nova
+  reads of it.
+- HQ's rate counters call django-redis's `incr(key, delta,
+  ignore_key_check=True)` and `expire`, which the harness's cache does not
+  hold, and the limiter counts a project space's mobile workers through a
+  Couch view the harness does not compute (`users/by_domain`). The 429 test
+  gives the five preset counters
+  (`corehq/project_limits/rate_counter/presets.py`) a counter store that
+  answers `incr`, `expire`, `get` and `set` as Redis does, and answers the
+  worker count as zero (`corehq/project_limits/rate_limiter.py::get_n_users_in_domain`).
+  The limits, the window arithmetic, the decorator and the answer are HQ's.
+  It waits on `time.perf_counter`, outside any determinism operation, since
+  the windows are wall-clock seconds.
+- The released builds of A1's tests are made with HQ's `make_build` under
+  the build's seams and released, as the Web Apps reader's
+  `proof/webapps/hq.py` makes and releases one. By hand the task that
+  prunes old automatic builds (`tasks.py::prune_auto_generated_builds`) was
+  not started and `is_released` was set on the build.
+
+Locally the pull request runs `proof/hq/test_publish.py`,
+`proof/hq/test_publish_capture.py` and `proof/hq/test_retained_reads.py`,
+then the lane selected to `navigation-base`,
+`targeted-form-links-hidden-and-fallback` and `case-list-inline`. CI's full
+lane must show state A built at HQ version 2, or 3 for a document with
+media, with no new difference in proofs 1 to 5.
 
 ## A4. No `multimedia_map` (finding 49)
 
@@ -1132,9 +1298,22 @@ update with the map, shell then update without it):
 - This also fixes the same warning on a manual import of the HQ import file,
   which no change to the upload order could reach.
 
-One difference to state in the public docs: a build made in HQ between the
-import and the media upload now carries a media suite with no resource, where
-today it carries a resource HQ cannot serve. Neither plays media.
+One difference, stated in the public docs: what a build made in HQ between
+the import and the media upload holds. Executed during planning on
+`case-list-inline`, each side built with `create_all_files()` before the
+media upload and arranged as HQ's archive download arranges it:
+
+| | Today (the import carries Nova's map) | From step 2 (no map) |
+|---|---|---|
+| HQ's `media_suite.xml` | one `<resource>` whose remote location names Nova's content hash as a media id, which HQ does not hold | `<suite version="1" descriptor="Media Suite File"/>`, no resource |
+| `validate_app()` | clean | clean |
+| Core's installer | admits it | admits it |
+| Android's install of that archive | refused, `MissingResourcesWithMessage` | `Installed`; the app opens and shows no image |
+
+So a build made in that window installs from step 2 where it did not, and
+shows its screens without their media until a build made after the upload
+replaces it. After the upload the media suite names HQ's own media id in
+both.
 
 **Files.**
 
@@ -1193,52 +1372,143 @@ the lane judges it (`proof/checks/manifest_usage.py::flag_reads`).
 **Control.** None in the register. The `proof/hq` test below keeps the
 symptom visible: an import carrying Nova's former map still draws the warning.
 
-**Nova tests.**
+**Nova tests.** What Nova's own code emits; what HQ, Core and Android do
+with it is under "Lane".
 
 | Contract | Boundary |
 |---|---|
 | No export of a document with media holds a `multimedia_map` key, in `hq-upload`, `hq-json` or `ccz` mode | pure, production emitter (`lib/commcare/__tests__/multimediaEmission.test.ts`); real Postgres for the two compile surfaces (`lib/mcp/__tests__/compileApp.postgres.test.ts`, rewritten where it asserts map keys) |
-| Under `CAUTIOUS_MULTIMEDIA`, an import with no map draws no warning, the media upload that follows maps every file, and an import carrying a content-hash map draws the warning | native proof (`proof/hq/test_publish.py::test_cautious_multimedia_warns_only_for_a_map_hq_cannot_resolve`) |
 | Every corpus document with assets writes a media upload carrying exactly the prepared paths | pure over the emitted corpus (`proof/corpus/__tests__/emitCorpus.test.ts`) |
 
-**Lane.** Locally the pull request runs `npm run proof --
-proof/hq/test_publish.py` and the lane selected to `case-list-inline`. CI's
-full lane must show every document with media mapping every file after the
-media upload (`proof/observe/publish.py::upload_media` reports none
-unmatched) and its media suite unchanged under proof 2 and proof 3.
+**Lane.** Each runs the reader, and each was run by hand during planning.
 
-## A5. Downloads by project space (finding 32)
+| Proof | Reader | Document | It must show |
+|---|---|---|---|
+| `proof/hq/test_publish.py::test_cautious_multimedia_warns_only_for_a_map_hq_cannot_resolve`, new | HQ | `case-list-inline` | Under `CAUTIOUS_MULTIMEDIA`: an import with no map draws no warning and the media upload that follows maps every file; an import carrying a content-hash map draws the warning. |
+| `proof/hq/test_publish.py::test_a_build_before_the_media_upload_names_no_media`, new | HQ, Core | `case-list-inline` | The table above but its last row: the media suite before the upload holds no resource, `validate_app()` is clean, Core admits the arranged build, and after the upload the suite names the medium HQ stored. The hand-written map is the paired case that names a medium HQ does not hold. |
+| `proof/android/predicates.py::test_a_build_made_before_its_media_installs`, new | Android | `case-list-inline` | Android installs the archive of the build made before the upload (`Installed`), and refuses the same build made from an import carrying the map (`MissingResourcesWithMessage`). Both archives are written by the HQ test above into the run's output. |
+| The bar, proof 2 and proof 3 | HQ, Core | every document with media | Every file maps after the media upload (`proof/observe/publish.py::upload_media` reports none unmatched), and the media suite is unchanged. |
 
-**Today.** `lib/commcare/runtimeTarget.ts::runtimeUrls` writes `__APP_ID__`
-into every local archive, because
-`lib/deployment/runtimeTarget.ts::downloadRuntimeTarget` never carries an HQ
-app id, and `__DOMAIN__` whenever the app has no reached deployment or several
-on the chosen server. A `.ccz` is installed as it is, so its search, claim and
-case fixture requests fail. `app/api/compile/prepareCompileRequest.ts` and
-`lib/mcp/tools/compileApp.ts` take only a `server`, so nobody can choose among
-several project spaces.
+Locally the pull request runs `npm run proof --
+proof/hq/test_publish.py`, the lane selected to `case-list-inline`, and the
+Android predicate where the reader runs.
+
+## A5. A `.ccz` is made for one project space (findings 32 and 59)
+
+**Today.** A local archive names no project space, and two findings follow
+from it.
+
+- **Finding 32.** `lib/commcare/runtimeTarget.ts::runtimeUrls` writes
+  `__APP_ID__` into every local archive, because
+  `lib/deployment/runtimeTarget.ts::downloadRuntimeTarget` never carries an HQ
+  app id, and `__DOMAIN__` whenever the app has no reached deployment or
+  several on the chosen server. Executed during planning on Formplayer over
+  the local archive of `targeted-search-hq-compile`: its search is sent to
+  `/a/<domain>/phone/search/__APP_ID__/`, and HQ's reading of the app for a
+  search's related cases
+  (`corehq/apps/case_search/utils.py::get_app_context`) raises `Http404` for
+  that id.
+- **Finding 59.** `lib/commcare/compiler.ts::generateProfile` writes no server
+  property, so the archive does not say where a worker signs in, syncs or
+  submits. Executed during planning:
+  - **Android** (its own classes over the retained local archive of
+    `targeted-survey-menu`): `ServerUrls.getDataServerKey` gives
+    `https://staging.commcarehq.org/ota_restore` and
+    `FormSubmissionHelper.getFormPostURL` gives
+    `https://staging.commcarehq.org/receiver/submit/pf`, the defaults compiled
+    into the Android app (`app/res/values/strings.xml`); `ServerUrls.getKeyServer`
+    and `HiddenPreferences.getUserDomain` give nothing. So the addresses
+    Android holds for such a file's sync and form send are not the worker's
+    project space's.
+  - **Formplayer** (the local archive of `targeted-form-link-hidden-target`):
+    the form opens and takes its answers, the submit answers an error, and HQ
+    receives nothing (`session/MenuSession.java` reads `PostURL`).
+  - **Connect**: a submission that reaches HQ's receiver with no app named is
+    forwarded with a null app id, and Connect answers 400 and writes nothing
+    (the Connect reader's
+    `proof/connect/test_receiver.py::test_a_local_archives_submission_names_no_app_and_connect_refuses_it`).
+- `app/api/compile/prepareCompileRequest.ts` and
+  `lib/mcp/tools/compileApp.ts` take only a `server`, so nobody can choose
+  among several project spaces.
 
 **Fix.**
 
-- **A `.ccz` for a project space names that deployment's HQ working app id**
-  in its search and case fixture URLs, and carries that deployment's recorded
-  ids (A1). HQ's own suite for the working app names the working app's id in
-  the same two URLs
-  (`suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_queries`,
-  `suite_xml/sections/entries.py`); a released build's suite names the
-  build's id, because a build is a copy with an id of its own. HQ resolves
-  either through `dbaccessors.py::get_app_cached`, which reads any app of the
-  project space and caches only builds, so both are accepted. Read, not run.
-  Proof 3 compares the URL's spelling on the two sides and sends no request,
-  so it cannot confirm this. The confirmation is a retained test this pull
-  request adds, `proof/hq/test_publish.py::test_a_working_app_id_serves_the_search_context`:
-  for a working app with no build,
-  `corehq/apps/case_search/utils.py::get_app_context_by_case_type(domain, <working app id>)`
-  and `dbaccessors.py::get_app_cached(domain, <working app id>)` both answer.
-  The decided fallback, should that test fail at a pin: no `.ccz` is offered
-  to an app for which `sendsRuntimeRequests` is true, on any project space,
-  and the refusal's copy says the app installs from CommCare HQ. It needs no
-  stored column.
+- **A `.ccz` is always made for one reached deployment.** Its profile names
+  that project space's sign-in, sync and submission addresses, its suite's
+  search and case fixture URLs name that deployment's HQ working app id, and
+  it carries that deployment's recorded ids (A1). There is no `.ccz` for no
+  project space: an app that is published nowhere is offered the HQ import
+  file and Preview, and its `.ccz` once it is published.
+
+  This withdraws a download people can make today. The person decided it
+  for an app that searches. Planning extends it to every app, and returns
+  that to the person to confirm, on what the runs above show: every app
+  signs in, syncs and submits, and a file for no project space holds
+  Android's built-in default addresses for all three. The alternative that
+  was weighed and not taken: keep the file for an app that does not search,
+  with no server property. It keeps a file no worker of the person's project
+  space can sync or send from, and Preview already runs the app on real
+  data.
+
+- **The profile's server properties.** New export
+  `lib/commcare/runtimeTarget.ts::profileServerProperties(target)` returns
+  these four, in this order, and `compiler.ts::generateProfile` writes each as
+  `<property key value force="true"/>` after `cc-app-version`. `<base>` is
+  `lib/commcare/servers.ts::COMMCARE_SERVERS[target.server].baseUrl`; the
+  domain and app id are URL-encoded as `runtimeUrls` encodes them.
+
+  | `key` | `value` | The reader that gave this value in the runs below |
+  |---|---|---|
+  | `ota-restore-url` | `<base>/a/<domain>/phone/restore/<appId>/` | Android's sync address, `ServerUrls.getDataServerKey` |
+  | `PostURL` | `<base>/a/<domain>/receiver/<appId>/` | Android's form send, `FormSubmissionHelper.getFormPostURL`; Formplayer's submit |
+  | `key_server` | `<base>/a/<domain>/phone/keys/` | Android's key server address, `ServerUrls.getKeyServer` |
+  | `cc_user_domain` | `<domain>.commcarehq.org` | `HiddenPreferences.getUserDomain`, and the name Android sends with a worker's credential |
+
+  These are the values HQ's own profile holds for the same app. Executed
+  during planning: `Application.create_all_files()` of a published working
+  app writes exactly these four strings for its own id
+  (`templates/app_manager/profile.xml`, `models/applications.py::ApplicationBase.post_url`,
+  `::ota_restore_url`, `::key_server_url`,
+  `corehq/apps/domain/utils.py::cc_user_domain`), each `force="true"`, and
+  HQ's URLconf resolves the three URLs to `receiverwrapper/views.py::post`,
+  `ota/views.py::restore` and `mobile_auth/views.py::fetch_key_records`. The
+  receiver URL is the plain one, as in HQ's own profile for the app:
+  `secure_submissions` is false on every app Nova imports (the shell's
+  source read serves it so).
+
+  What the runs showed of the planned profile:
+
+  | Reader | Run | Observed |
+  |---|---|---|
+  | Android | The four properties written into the retained local archive of `targeted-survey-menu`, installed, a form saved complete, then Android's own `ProcessAndSendTask` with its own requester | The three URL readers and `getUserDomain` give the four values. The send is one `POST` to `/a/<domain>/receiver/<appId>/` carrying the form as `xml_submission_file`, with the credential `<worker>@<domain>.commcarehq.org`, and it ends `FULL_SUCCESS` with the record gone from the unsent list. With `cc_user_domain` left out the same send carries the bare worker name. |
+  | HQ | HQ's `receiverwrapper/views.py::secure_post` over that request's bytes, for a worker of the project space; then HQ's form parsing and `SubmissionPost._post_process_form` over the same form | The full name authenticates, and HQ hands the form to its processing under the URL's app id and the worker's id. HQ's `authenticate` finds no user for the bare name. `receiverwrapper/util.py::get_app_and_build_ids` reads the working app's id as the app, with no build, and the form HQ records carries that app id; the same form received with no app named is recorded with none. |
+  | Formplayer | The four properties and the working app's id written into the local archives of `targeted-form-link-hidden-target` and `targeted-search-hq-compile` | The submit answers `success` and HQ receives the form at `/a/<domain>/receiver/<working app id>/`, the same path HQ's own build of that app posts to. The search is sent to `/a/<domain>/phone/search/<working app id>/`, and HQ's `get_app_context` answers for that id. |
+  | Connect | The Connect reader's `test_receiver.py`, which receives a local archive's learn and deliver submissions under the working app's id | The rows Connect writes are the rows it writes for HQ's build (`test_a_learn_submission_completes_its_module_and_scores_its_assessment_from_either_archive`, `test_a_delivery_is_approved_and_paid_from_either_archive`). |
+
+- **What HQ's profile writes and Nova's does not**, each decided:
+
+  | HQ's property | Nova | Why |
+  |---|---|---|
+  | `BackupMode`, `backup-url`, `restore-url`, `ota-restore-url-testing`, `PostTestURL`, `jr_openrosa_api` | not written | Executed during planning. On Android, an archive holding all six beside the four and one holding the four alone give the same answer from every profile reader of the Android reader, the same home walk and form screens, and the same server URLs. On Formplayer, HQ's build, which holds all six, and the planned archive, which holds none, submit to the same path and search alike. |
+  | `heartbeat-url` | not written | The heartbeat asks HQ about its released builds of an HQ app, named by the installed profile's `uniqueid`. A `.ccz` is not one of HQ's builds, and its `uniqueid` is the Nova app's id (part 04, Defect 9: the local profile identifies nothing stable). Executed during planning: HQ's `ota/views.py::heartbeat`, asked with a `uniqueid` that is not an HQ app id, notes "Received an invalid heartbeat request" as an error on every call, where the same call with HQ's app id notes nothing. With the property absent, Android's installed app holds no heartbeat URL. The cost, accepted: a phone on a `.ccz` is not told of HQ's builds of the app. |
+  | `cur_locale`, the seventeen settings, `cc-persistent-menu`, `cc-breadcrumbs-enabled` | part 04's | Part 04, The local profile from step 2. |
+  | The `update` attribute, the suite resources' remote `location` | as today | A `.ccz` is installed from the file and updated by installing a newer file (part 04, Defect 9). |
+
+- **A working app's id is what the search and case fixture URLs name.**
+  Executed during planning, for a working app with no build: HQ's own suite
+  for it (`create_all_files()` of `case-list-inline`) names its id in the
+  search URL
+  (`suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_queries`);
+  HQ's URLconf resolves the search and the case fixture URL for that id to
+  `ota/views.py::app_aware_search` and `::case_fixture`;
+  `dbaccessors.py::get_app_cached(domain, <working app id>)` returns the
+  working app; `corehq/apps/case_search/utils.py::get_app_context_by_case_type`
+  answers for it; and Formplayer's search from the planned archive reaches
+  HQ under that id (the table above). HQ clears that reading whenever the app
+  is saved (`models/applications.py::ApplicationBase.save`). Executed during
+  planning: after an update that adds a related-case column to a search
+  detail, the next call returns the new relationship at once, so a republish
+  is read by the next search.
 - **The inputs.** `/api/compile` (the `.ccz`) and `compile_app` gain an
   optional `domain` beside the optional `server`. `T` is every reached
   deployment of the app (`readReachedDeploymentTargets`); `C` is `T` narrowed
@@ -1248,14 +1518,13 @@ several project spaces.
   |---|---|
   | `domain` given, `server` given or omitted | `C` must hold exactly one deployment, and that one is the target. `C` empty (the name is unknown, unreached, a shell only, or its HQ app is reported gone), or `C` holding the same name on two servers: `invalid_input` (422 from the route) listing every member of `T` with its server. |
   | `domain` omitted, `C` holds exactly one (with or without `server`) | That one. |
-  | `domain` omitted, `C` holds none or several, `sendsRuntimeRequests` false | No project space: derived ids, no runtime URL to write, and the result says so. |
-  | `domain` omitted, `C` holds none or several, `sendsRuntimeRequests` true, `T` empty | `invalid_input` (422) with the "once the app is published" copy below. |
-  | `domain` omitted, `C` holds none or several, `sendsRuntimeRequests` true, `T` not empty | `invalid_input` (422) listing every member of `T` with its server, with the "several" copy below. |
+  | `domain` omitted, `T` empty | `invalid_input` (422) with the "once the app is published" copy below. |
+  | `domain` omitted, `T` not empty, `C` holds none or several | `invalid_input` (422) listing every member of `T` with its server, with the "several" copy below. |
 
   For `format: "json"` and `/api/compile/json` (the HQ import file): `domain`
   is not an input (`invalid_input` when sent), the file never takes a wire
   target (derived ids, and no runtime URL, because HQ writes its own), and it
-  is never refused for searching. Its attachment links resolve from `C`
+  is never refused. Its attachment links resolve from `C`
   narrowed by `server` alone: exactly one reached deployment, that one's
   origin and project space; none or several, no attachment link, as today.
   A person importing that file by hand makes a create that carries forms, so
@@ -1264,82 +1533,42 @@ several project spaces.
   The 422 "Choose a CommCare server for this download, then try again." goes
   from both surfaces, because no emitted byte reads a bare server any more.
 
-  `compile_app` returns `_meta["nova/target"] = { server, domain, hq_app_id }
-  | null`, so a caller can see whose ids the archive carries, and when the
-  archive is for no project space while `T` is not empty, a
-  `nova_download_target` text block before the artifact naming the project
-  spaces it could have been made for. It needs no HQ scope: it reads Nova's
-  ledger and nothing of HQ.
-- **An app that searches, with no project space, is not offered a `.ccz`.**
-  New file `lib/commcare/runtimeRequests.ts` (its own file, because
-  `lib/commcare/runtimeTarget.ts` is imported by the modules the predicate
-  reads, and a predicate there would be an import cycle):
+  `compile_app` returns `_meta["nova/target"] = { server, domain, hq_app_id }`
+  for every `.ccz`, so a caller can see whose addresses and ids the archive
+  carries. It needs no HQ scope: it reads Nova's ledger and nothing of HQ.
 
-  ```ts
-  /** Whether this document's local suite sends a request to CommCare HQ at run time. */
-  export function sendsRuntimeRequests(doc: BlueprintDoc): boolean;
-  ```
+  The two refusals:
 
-  It is true when either arm holds:
+  > A CCZ signs workers in to one project space and sends their forms there,
+  > so it is made for a project space this app is published to. Once the app
+  > is published, you can download the CCZ for that space.
 
-  1. `lib/commcare/derivedProfile.ts::hasEffectiveSearch(doc)`: the search and
-     claim requests of `suite/case-search/searchSession.ts` and `claim.ts`.
-     This arm also covers every case fixture query: a frame datum holds
-     `query` (the datum whose `caseFixtureUrl`
-     `lib/commcare/formLinkProjection.ts::toFrameDatum` writes, for a form
-     link or an entry point) only for a module with an inline search.
-  2. An entry point claims a case with no search: for some `{ target }` of
-     `lib/domain/entryPoints.ts::entryPointInventory(doc)`,
-     `lib/commcare/entryPointProjection.ts::projectEntryPoint(doc, target,
-     ctx).requiredSelections` is not empty and
-     `suite/case-search/inlineSearch.ts::moduleIsSearchFirst` is false for the
-     target's module. That is exactly the condition under which
-     `lib/commcare/entryPointSuite.ts::buildEntryPointSuite` writes
-     `entryPointClaimRequest` with the claim URL. `ctx` is
-     `formLinkProjectionContext(doc, {})`, with no runtime target.
+  > A CCZ signs workers in to one project space and sends their forms there.
+  > This app is published to several, so you can pick the one this CCZ is
+  > for.
 
-  The oracle test below holds the predicate to the emitted suite, the
-  implication in arm 1 included. When the predicate is true and no project
-  space resolved, `lib/export/localArchive.ts::compileLocalArchive` is never
-  called. The two refusals:
-
-  > This app looks up cases on CommCare HQ, so its CCZ is made for one
-  > project space. Once the app is published to a project space, you can
-  > download the CCZ for that space.
-
-  > This app looks up cases on CommCare HQ, so its CCZ is made for one
-  > project space. It is published to several, so you can pick the one this
-  > CCZ is for.
-
-  Reason: the URL needs a project space and an app, and a file whose every
-  search fails is worse than no file. This withdraws a download people can
-  make today, and the person decided it.
 - **The dialog's project-space choice.** For the CCZ target,
   `PublishDialog.tsx` replaces the "CommCare HQ server" select with a
   "Project space" select fed by a new server action
   `lib/deployment/actions.ts::readDownloadTargetsAction(appId)`, which needs
-  `view` access and returns `{ targets: { server, domain }[],
-  needsProjectSpace: boolean }` from `readReachedDeploymentTargets` and
-  `sendsRuntimeRequests`. It takes one string and returns plain JSON. It is a
-  server action, so it adds no `/api` route and `lib/hostnames.ts` gains no
-  entry. Each item is labelled `<domain> on <server label>`. The six states,
-  exclusive:
+  `view` access and returns `{ targets: { server, domain }[] }` from
+  `readReachedDeploymentTargets`. It takes one string and returns plain JSON.
+  It is a server action, so it adds no `/api` route and `lib/hostnames.ts`
+  gains no entry. Each item is labelled `<domain> on <server label>`. The
+  three states, exclusive:
 
-  | Targets | `needsProjectSpace` | The dialog shows |
-  |---|---|---|
-  | None | false | No select. The download button is on, and the file is for no project space. |
-  | None | true | No select and no download button. The first refusal's copy, and one button, "Publish to CommCare HQ", which switches the dialog's target. |
-  | One | false | The select, that target preselected, with a further item "No project space". |
-  | One | true | The select, that target preselected, and no other item. |
-  | Several | false | The select with no default and the item "No project space"; the button stays off until one is chosen. |
-  | Several | true | The select with no default and no "No project space" item; the button stays off until one is chosen. |
+  | Targets | The dialog shows |
+  |---|---|
+  | None | No select and no download button. The first refusal's copy, and one button, "Publish to CommCare HQ", which switches the dialog's target. |
+  | One | The select, that target preselected. |
+  | Several | The select with no default; the button stays off until one is chosen. |
 
-  Field description: "The CCZ uses this project space's app and form ids, so
-  its forms land with the ones already collected there."
+  Field description: "The CCZ signs workers in to this project space and
+  uses its app and form ids, so its forms land with the ones already
+  collected there."
 
-  The dialog sends `server` and `domain` for a chosen target and neither for
-  "No project space". The HQ import file target keeps its optional server
-  select, which only scopes attachment links.
+  The dialog always sends `server` and `domain`. The HQ import file target
+  keeps its optional server select, which only scopes attachment links.
 - **`runtimeUrls` has two shapes.** `RuntimeTarget` becomes `{ server,
   domain, appId }`, all required. `runtimeUrls(target)` writes real URLs;
   `runtimeUrls()` keeps the neutral `__COMMCARE_HOST__` template, which is
@@ -1347,6 +1576,9 @@ several project spaces.
   `CASE_FIXTURE_URL_TEMPLATE` constants, and the HQ JSON path, whose import
   body holds no runtime URL because HQ writes its own). The `__DOMAIN__` and
   `__APP_ID__` arms for a partial target are removed.
+  `lib/commcare/compiler.ts::compileCcz` and
+  `lib/export/localArchive.ts::compileLocalArchive` take the target as a
+  required argument, so no archive can be compiled without one.
   `lib/commcare/entryPointSignature.ts::normalizeRuntimeUrl` keeps its own
   placeholder, a comparison key that is never emitted.
 - **One resolver, in two layers.** The rules above are one pure function, and
@@ -1363,10 +1595,10 @@ several project spaces.
     readonly format: "ccz" | "json";
     readonly server?: CommCareServer;
     readonly domain?: string;
-    readonly sendsRuntimeRequests: boolean;
   }
   export type DownloadTargetChoice =
     | { readonly kind: "project-space"; readonly target: ReachedDeploymentTarget }
+    /** Only for the import file: no reached deployment scopes its attachment links. */
     | { readonly kind: "none" }
     | {
         readonly kind: "refused";
@@ -1384,20 +1616,26 @@ several project spaces.
   ): DownloadTargetChoice;
 
   // lib/deployment/downloadTarget.ts (new, server-only)
-  export interface DownloadTarget {
-    /** The deployment the file is made for, or null for no project space. */
-    readonly target: ReachedDeploymentTarget | null;
-    /** Set only for a `.ccz` made for a project space. */
-    readonly runtimeTarget: RuntimeTarget | undefined;
-    /** That deployment's overrides for a `.ccz`; `DERIVED_WIRE_IDENTITY` otherwise. */
-    readonly identity: WireIdentity;
-    readonly attachmentTarget: AttachmentUrlTarget | null;
-    readonly reached: readonly ReachedDeploymentTarget[];
-  }
+  export type DownloadTarget =
+    | {
+        readonly format: "ccz";
+        /** The deployment the archive is made for. */
+        readonly target: ReachedDeploymentTarget;
+        readonly runtimeTarget: RuntimeTarget;
+        /** That deployment's overrides over the derivation. */
+        readonly identity: WireIdentity;
+        readonly attachmentTarget: AttachmentUrlTarget;
+        readonly reached: readonly ReachedDeploymentTarget[];
+      }
+    | {
+        readonly format: "json";
+        readonly attachmentTarget: AttachmentUrlTarget | null;
+        readonly reached: readonly ReachedDeploymentTarget[];
+      };
   export type DownloadTargetRefusal = Extract<DownloadTargetChoice, { kind: "refused" }>;
   export function resolveDownloadTarget(
     scope: DeploymentScope,
-    input: { format: "ccz" | "json"; server?: CommCareServer; domain?: string; doc: BlueprintDoc },
+    input: { format: "ccz" | "json"; server?: CommCareServer; domain?: string },
   ): Promise<DownloadTarget | DownloadTargetRefusal>;
   ```
 
@@ -1405,11 +1643,11 @@ several project spaces.
     `store.ts::readReachedDeploymentTargets(scope)` (a plain read at `view`:
     for each deployment that displays as reached and whose `app` mapping is
     live and not missing, `{ server, domain, hqAppId }`), then
-    `chooseDownloadTarget` with `sendsRuntimeRequests(input.doc)`, then, for a
-    `.ccz` made for a project space, `readDeploymentIdentityOverrides` and
-    `targetWireIdentity`. For the import file, `kind: "project-space"` gives
-    only the attachment target. A read that faults throws, as today: a
-    download that silently lost its target would lose a case write.
+    `chooseDownloadTarget`, then, for a `.ccz`,
+    `readDeploymentIdentityOverrides` and `targetWireIdentity`. For the
+    import file, `kind: "project-space"` gives only the attachment target. A
+    read that faults throws, as today: a download that silently lost its
+    target would lose a case write.
   - A deployment that holds only a shell is not reached, so it is never a
     download target.
   - `downloadRuntimeTarget` and `downloadDeploymentTarget` are deleted.
@@ -1427,20 +1665,13 @@ several project spaces.
     argument, now derived from the result: `known` when `attachmentTarget` is
     not null, `ambiguous` when `reached` holds several, else `none`.
 
-One consequence, read and stated in the public docs: HQ caches what it reads
-of the app for a search's related cases for 24 hours, keyed by project space
-and app id, with no invalidation for a working app
-(`corehq/apps/case_search/utils.py::get_app_context_by_case_type`). After a
-republish that changes a search detail's related-case columns, a device on the
-`.ccz` can receive the earlier set of related cases for up to a day. HQ's own
-App Preview of a working app has the same lag.
-
 **Files.**
 
 - Domain, doc and mutations, validator, Preview: none.
-- Emitters: `lib/commcare/runtimeTarget.ts`,
-  `lib/commcare/runtimeRequests.ts` (new), `lib/commcare/expander.ts` and
-  `lib/commcare/compiler.ts` (the narrowed `RuntimeTarget`),
+- Emitters: `lib/commcare/runtimeTarget.ts` (the required target,
+  `profileServerProperties`), `lib/commcare/compiler.ts` (`generateProfile`
+  writes the four properties; `compileCcz` requires the target),
+  `lib/commcare/expander.ts` (the narrowed `RuntimeTarget`),
   `lib/export/localArchive.ts`, `lib/deployment/runtimeTarget.ts`
   (`chooseDownloadTarget` replaces its two functions),
   `lib/deployment/downloadTarget.ts` (new), `lib/deployment/store.ts`
@@ -1452,67 +1683,94 @@ App Preview of a working app has the same lag.
   the shell passes none).
 - Builder: `components/builder/PublishDialog.tsx`,
   `components/builder/PublishPanel.tsx` (`onDownloadCcz` takes
-  `{ server, domain } | null`), `app/api/compile/prepareCompileRequest.ts`,
+  `{ server, domain }`), `app/api/compile/prepareCompileRequest.ts`,
   `app/api/compile/route.ts`, `app/api/compile/json/route.ts`.
 - SA and MCP tools: `lib/mcp/tools/compileApp.ts` (`domain`, the
-  `nova/target` meta, the description). This changes a tool input schema: the
+  `nova/target` meta, the description, which says a CCZ needs a project space
+  the app is published to). This changes a tool input schema: the
   implementer asks the person before running `npm run test:schema`, which
   bills one live request per schema; the ask is the single one part 11, The
   stack, places at the head of pull request 14, naming `compile_app` among
   the schemas the stack changed. `../nova-plugin` is swept for any claim
-  that `compile_app` takes only a server or returns bare JSON, and its change
-  rides the plugin pull request that merges after the deploy.
-- Docs: `content/docs/publishing.mdx`, `content/docs/mcp/tools.mdx`.
+  that `compile_app` takes only a server, returns bare JSON, or compiles a
+  CCZ for an app that is not published, and its change rides the plugin pull
+  request that merges after the deploy.
+- Docs: `content/docs/publishing.mdx` (a CCZ is made for one project space
+  the app is published to, signs workers in there and sends their forms
+  there; an app that is published nowhere has no CCZ yet),
+  `content/docs/mcp/tools.mdx`.
 - CLAUDE.md: `lib/commcare/CLAUDE.md` "Runtime request destinations",
-  rewritten: a full target or none, no portable placeholders, a `.ccz` that
-  sends requests is made for one project space; `lib/export/CLAUDE.md`;
-  `components/builder/CLAUDE.md`.
+  rewritten: a full target or none, no portable placeholders, every `.ccz`
+  is made for one project space and its profile names that space's
+  addresses; `lib/export/CLAUDE.md`; `components/builder/CLAUDE.md`.
 
-**Stored shape and migration.** None. No notice.
+**Stored shape and migration.** None. This pull request adds the document
+notice reason `ccz-needs-project-space` to `DOCUMENT_NOTICE_REASONS`
+(`lib/notices/migrationNotice.ts`) with its renderer
+(`lib/notices/migrationNoticeCopy.ts`). The cutover's `notice.ts` writes it
+once for every live app with no reached deployment, entity the app, from the
+app's deployment plans, as it writes `unsaved-assistant-work-discarded`: it
+is a fact of the ledger and not of the document. It is a change that writes
+nothing and still gets a line, because it withdraws a download. Its copy:
+
+> A CCZ of this app can be downloaded once the app is published to a project
+> space. A CCZ downloaded earlier named no CommCare HQ server, so a phone
+> that holds one cannot sign in or send forms with it.
+
+Part 10, Work item F: the migration notice, registers the reason.
 
 **Register.** Three entries move to `proof/fixed-defects.json`, all check
 `proof3` on `trace@local.ccz`: `d32-search-url-trace-requests-url` and
 `d32-search-url-trace-url` (control `case-list-inline`), and
 `d32-search-url-trace-stackaftersubmit-steps` (control
-`search-registration-link`).
+`search-registration-link`). Finding 59 holds no entry: no check of the lane
+reads a profile's server properties, and its proofs are the reader tests
+under "Lane".
 
 **Spelling rule.** None. The placeholder app id of the capture (A7) is an
 identity alignment the harness makes once, never a spelling rule.
 
-**Identity.** None in HQ. On a device, a `.ccz` for a project space now holds
-that space's form `xmlns` where it held random ones (A1's last bullet).
+**Identity.** None in HQ. On a device, a `.ccz` now holds its project
+space's form `xmlns` where it held random ones (A1's last bullet), and names
+that space's server where it named none.
 `proof/identity-moves.json` gains no entry.
 
 **Control.** `case-list-inline` and `search-registration-link` keep their
 pre-fix archives, whose traces still show `__APP_ID__` in the request URL and
 the stack step.
 
-**Nova tests.**
+**Nova tests.** Each holds what Nova's own code does. What a reader does with
+the result is under "Lane".
 
 | Contract | Boundary |
 |---|---|
-| `runtimeUrls` has no partial-target shape (a type test and the two value shapes) | pure (`lib/commcare/__tests__/runtimeTarget.test.ts`, new) |
+| `runtimeUrls` has no partial-target shape (a type test and the two value shapes); `profileServerProperties` gives the four keys in order for each server of `COMMCARE_SERVERS`, and encodes a domain and an app id as `runtimeUrls` does | pure (`lib/commcare/__tests__/runtimeTarget.test.ts`, new) |
+| The profile of a compiled archive holds the four properties, each `force="true"`, and none of `heartbeat-url`, `PostTestURL`, `ota-restore-url-testing`, `BackupMode`, `backup-url`, `restore-url`, `jr_openrosa_api`; no member of a compiled archive holds `__COMMCARE_HOST__`, `__DOMAIN__` or `__APP_ID__` | pure, production emitter, the archive read through an XML parser (`lib/commcare/__tests__/compiler.test.ts`) |
 | `chooseDownloadTarget` over every row of the input table, for both formats: `domain` with and without `server`, one name on two servers, `server` alone narrowing to one, to none and to several, and each of the four refusal reasons with its listed deployments | pure (`lib/deployment/__tests__/runtimeTarget.test.ts`, rewritten) |
-| For every emission fixture, `sendsRuntimeRequests(doc)` is true exactly when the unbound local suite holds one of the three template URLs (so a frame datum with `query` never appears without an effective search); no member of a `.ccz` compiled for no project space holds `__COMMCARE_HOST__` | pure, production emitter, the templates as the oracle (`lib/commcare/__tests__/runtimeRequests.test.ts`, new) |
-| A `.ccz` compiled twice for one deployment is equal in its ids, names that deployment's HQ app id in its search URL and carries its override `xmlns`; one for no project space carries derived ids | real Postgres plus the production emitter (`lib/mcp/__tests__/compileApp.postgres.test.ts`) |
-| `domain` naming an unreached, shell-only or gone deployment is refused, listing the ones that qualify; a searching app with no deployment is refused with the first copy | real Postgres (`compileApp.postgres.test.ts`, and the route through `prepareCompileRequest`) |
-| An app with no search, published to two project spaces and compiled with no `domain`, compiles for no project space, with `nova/target` null and the text block naming both | same |
-| A searching app published to two project spaces and compiled with no `domain` is refused with the second copy and both spaces listed; with `domain` naming one it compiles for that one | same |
-| `format: "json"` with a `domain` is refused; with no `server` and one reached deployment it carries that deployment's attachment links, and with two it carries none | same |
-| `readDownloadTargetsAction` refuses a caller without `view` and returns the reached targets and `needsProjectSpace` | real Postgres (`lib/deployment/__tests__/store.postgres.test.ts` for the read; the action through its own test beside it) |
-| The dialog's six states, and a download for a chosen space sending that `server` and `domain` | Playwright, the browser component suite (`e2e/tests/browser/publishing.spec.ts`, with `e2e/lib/publishing-boundary.ts` answering `readDownloadTargetsAction`) |
+| A `.ccz` compiled twice for one deployment is equal in its ids, names that deployment's server, project space and HQ app id in its profile and its search URL, and carries its override `xmlns` | real Postgres plus the production emitter (`lib/mcp/__tests__/compileApp.postgres.test.ts`) |
+| `domain` naming an unreached, shell-only or gone deployment is refused, listing the ones that qualify; an app with no deployment is refused with the first copy, whether or not it searches | real Postgres (`compileApp.postgres.test.ts`, and the route through `prepareCompileRequest`) |
+| An app published to two project spaces and compiled with no `domain` is refused with the second copy and both spaces listed; with `domain` naming one it compiles for that one | same |
+| `format: "json"` with a `domain` is refused; with no `server` and one reached deployment it carries that deployment's attachment links, and with two it carries none; an app with no deployment still gets its import file | same |
+| `readDownloadTargetsAction` refuses a caller without `view` and returns the reached targets | real Postgres (`lib/deployment/__tests__/store.postgres.test.ts` for the read; the action through its own test beside it) |
+| The cutover writes one `ccz-needs-project-space` line for a live app with no reached deployment and none for an app with one, or for a deleted app | real Postgres, over a seeded pre-step ledger (the cutover's notice test, part 10, The tests that carry the cutover) |
+| The dialog's three states, and a download for a chosen space sending that `server` and `domain` | Playwright, the browser component suite (`e2e/tests/browser/publishing.spec.ts`, with `e2e/lib/publishing-boundary.ts` answering `readDownloadTargetsAction`) |
 
-**Lane.** Locally the pull request runs the lane selected to
-`case-list-inline`, `search-hidden-link` and `search-registration-link`. CI's
-full lane must show no proof 3 difference at `/runs/*/trace/*/requests/*/url`,
-`/runs/*/trace/*/url` or `/runs/*/trace/*/stackAfterSubmit/steps/*/value`
-between the local archive and HQ's build on any document, and the three fixed
-entries reproducing on their controls. That comparison shows the two sides
-spell the URL alike and nothing more: neither side sends the request. That a
-working app's id serves the search is held by
-`proof/hq/test_publish.py::test_a_working_app_id_serves_the_search_context`,
-which the pull request runs locally with the lane selection above; its
-fallback is stated in "Fix".
+**Lane.** Each of these runs the reader, on the archive Nova's compiler
+emits for the configuration's project space (A7). Each was run by hand
+during planning over an archive with the planned bytes written in.
+
+| Proof | Reader | Document | It must show |
+|---|---|---|---|
+| Proof 3, the three fixed classes | Core | every document | No difference at `/runs/*/trace/*/requests/*/url`, `/runs/*/trace/*/url` or `/runs/*/trace/*/stackAfterSubmit/steps/*/value` between the local archive and HQ's build, and the three fixed entries reproducing on their controls. |
+| `proof/hq/test_publish.py::test_a_working_app_serves_what_a_ccz_names`, new | HQ | `case-list-inline` | For a working app with no build: HQ's URLconf resolves the profile's three URLs and the suite's search and case fixture URLs to their views; `get_app_cached` and `get_app_context_by_case_type` answer for the working app's id and raise `Http404` for `__APP_ID__`; `get_app_and_build_ids` gives the app with no build; after an update that adds a related-case column the context holds the new relationship at once; and the four profile strings Nova's archive holds are the strings HQ's own `create_all_files()` writes for that app. |
+| `proof/formplayer/test_local_archive.py`, rewritten from the reader's "cannot submit" | Formplayer, then HQ | `targeted-form-link-hidden-target`, `targeted-search-hq-compile` | The local archive's submit answers `success`, HQ receives one form at `/a/<domain>/receiver/<A's id>/`, the path HQ's build posts to; its search reaches HQ at `/a/<domain>/phone/search/<A's id>/`. The paired refusal is the retained pre-fix archive of the control, whose submit answers an error and sends nothing. |
+| `proof/android/predicates.py::test_a_local_archive_signs_in_and_sends_to_its_project_space`, new, with a reader request `submit` (`proof/android/src/nova/proof/android/Submit.java`) | Android | `targeted-survey-menu` | `ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL` and `HiddenPreferences.getUserDomain` give the profile's four values; a form saved complete is sent by `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, received by a loopback peer the test starts, and the task ends `FULL_SUCCESS`. The paired refusal is the control's pre-fix archive, whose readers give Android's built-in defaults; it is read and never sent. The request runs the reader's application with Android's own requester (`CommCareApplication.buildHttpRequester`) where the project's test application substitutes a mock, and the peer's address stands in for `<base>` in the archive under test. |
+| `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The control keeps the refusal. |
+
+Locally the pull request runs the lane selected to `case-list-inline`,
+`search-hidden-link` and `search-registration-link`, `proof/hq/test_publish.py`,
+`proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`,
+and the Android predicate where the reader runs.
 
 ## A6. The HQ import file as a ZIP with its guide
 
@@ -1657,7 +1915,8 @@ never stored. No notice.
 
 **Control.** None.
 
-**Nova tests.**
+**Nova tests.** What Nova's own code derives and packs; what HQ's import
+page and a phone do with the file is under "Lane".
 
 | Contract | Boundary |
 |---|---|
@@ -1665,8 +1924,26 @@ never stored. No notice.
 | The ZIP always holds `<app>.json` and `README.txt`, and the README is the rendered guide | pure, the archive read back (`lib/commcare/multimedia/__tests__/hqJsonExportArchive.test.ts`) |
 | `/api/compile/json` and `compile_app` answer a ZIP for an app with no media and no lookup tables | real Postgres (`compileApp.postgres.test.ts`) |
 
-**Lane.** None: the lane reads the app JSON from the capture, never the
-archive. CI's full lane is unchanged by this part.
+**Lane.** From step 2 a publish no longer sends the file's bytes (a publish
+is a shell and an update), so the lane imports the file itself, the way the
+guide tells a person to. The capture writes each document's import file
+beside its exports (A7). Each row was run by hand during planning, over the
+app JSON of the retained controls `navigation-base` and `case-list-inline`.
+
+| Proof | Reader | Document | It must show |
+|---|---|---|---|
+| `proof/hq/test_import_file.py::test_hqs_import_page_takes_the_file_as_the_guide_says`, new | HQ's import page (`corehq/apps/domain/views/import_apps.py::ImportAppStepsView`) | `navigation-base`, `case-list-inline`, `targeted-hq-side-lookup` | Step one takes the guide's own App URL (read out of the emitted `README.txt`) and offers the file field; with HQ's `SERVER_ENVIRONMENT` set to that URL's server it answers "The source app url matches the current server" and takes the guide's alternative; a host that is no CommCare server is refused. Step two imports the ZIP's app JSON under the name given: the app holds the file's menu ids and every `xmlns`, HQ's own form ids, HQ's default CommCare version, `created_from_template: "import_app"`; `validate_app()` is clean and `create_all_files()` builds. The lookup workbook is uploaded first with replace, and the media ZIP after, and every file maps. |
+| `proof/hq/test_import_file.py::test_a_hand_import_builds_the_app_a_publish_builds`, new | HQ | the same | HQ's build of the imported app and its build of state A differ only in the app's id, the form ids HQ minted and the version each carries, under proof 2's comparison with ids mapped by position. |
+| `proof/android/predicates.py::test_an_archive_that_needs_a_later_commcare_is_refused`, new | Android | `case-list-inline` | The guide's version sentence: Android installs HQ's build of the app, refuses the same archive with its required version raised above the phone's (`IncompatibleReqs`), and refuses to stage an update to it while it stages the update that keeps the requirement. |
+
+Observed by hand, in that order: step one accepted the guide's URL and
+refused `https://example.org/...`; with HQ's `SERVER_ENVIRONMENT` set to
+`india`, `production` and `eu` in turn it refused the URL of its own server
+and took the other two; step two answered with the new app's id;
+menu ids and `xmlns` were kept and form ids were not; the app validated and
+built, and its media upload mapped its one file; Android answered
+`Installed` for an archive that needs CommCare 2.57 and `IncompatibleReqs`
+for the same archive needing 2.99, on install and on update.
 
 ## The comments to correct
 
@@ -1702,24 +1979,27 @@ something production does not.
 |---|---|
 | `proof/corpus/publish.ts::capturePublish` | A first publish is captured as two imports: `create` (the shell, no `app_id`) and `content` (the first update, naming `PLACEHOLDER_APP_ID`). Then `update` (the republish of D) and each later update, as today. The peer answers the source read after the create, and each update's source read, with the assumed source. The capture sends its requests in the sequence's order: the shell create and its source read come before the lookup workbook, and the `content` import after it; `proof/corpus/__tests__/publish.postgres.test.ts` holds that order to `publishAppToHq`'s. |
 | `proof/corpus/targetPeer.ts::TargetPeer` | The peer that answers Nova's requests at capture. It holds a whole assumed source in place of `profile` alone (`holdProfile` becomes `holdSource`), answers the source read after a create with the shell's source (`doc_type: "Application"`, the configuration's `build_spec.version`, an empty `profile`, the shell's `langs`, `modules: []`, `_attachments: {}`). That assumed source is built from the captured `create.body` by the `APP_SHELL_KEYS` table of A3: a key the table's row holds is answered as the shell sent it, `build_spec.version` is always the configuration's because HQ discards the body's, and a key the row does not hold is answered as HQ's default for an app created without it. So pull requests 5 and 13 change the peer's shell source with the list, and `proof/hq/operations.py::publish_capture`'s `CapturedSourceNotHeld` holds each version of it to HQ's own read of the shell. It answers the second import as an update of the app the first made, and counts both imports. |
-| `proof/corpus/entryWriter.ts` | Writes the two-import layout for a corpus entry: `create.body`, `content.body`, `"layout": 2`, `placeholderAppId` and `assumedSource` in each sidecar, where it writes `assumedSourceProfile` today. |
+| `proof/corpus/entryWriter.ts` | Writes the two-import layout for a corpus entry: `create.body`, `content.body`, `"layout": 2`, `placeholderAppId` and `assumedSource` in each sidecar, where it writes `assumedSourceProfile` today. It also writes `import-file.zip` beside the exports: the HQ import file for D, built by the function `/api/compile/json` calls (`expandDoc` with no target, then `buildHqJsonExportArchive` with the rendered guide), which `proof/checks/corpus.py` reads as `Document.import_file` and A6's lane tests import. `proof/corpus/emitCorpus.ts`'s layout comment and `inputs.json` name it. |
 | `proof/corpus/__tests__/emitCorpus.test.ts` | Reads the new layout (a `content` step beside `create`), and A4's media observation. |
 | `proof/corpus/publish.ts::PublishInput`, `::PublishCapture` | `sourceProfile` becomes `source`, and `assumedSourceProfile` becomes `assumedSource`: the fields of HQ's source the captured body depends on. In this pull request those are `doc_type`, `build_spec.version` and `profile`; work items B and D add theirs. |
 | `proof/corpus/publish.ts::capturePublish`, a capture-time assertion | The republish is captured twice and the two import bodies must be byte equal: a third publish sends the second's bytes. The capture throws otherwise. |
-| `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). A corpus document that sends runtime requests is therefore always compiled for a project space. |
+| `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). Every corpus archive is compiled for a project space, as every archive Nova serves is, and its profile holds the four server properties of A5. |
 | `proof/corpus/publish.ts::sendsTheSame` and the header comment | No longer cite `multimedia_map`: the media upload follows from the prepared assets. The header says ids are derived. |
 | `proof/corpus/entropy.mts` | `OPERATION_ORDINALS.create` and `.republish` no longer feed ids, and the rule that draws a later update at an ordinal of its own goes with them. The local export ordinals stay until defect 9's fix removes the profile `uniqueid` draw. The header comment changes. |
 | `proof/corpus/writePublishCaptures.ts` | Writes `create.body` (the shell), `content.body`, then the update bodies, with the assumed source in the sidecar. Controls keep their legacy layout (a full `create.body`), which the lane mechanics pull request already replays. |
 | `proof/hq/operations.py::publish_capture` | Applies the shell create, holds HQ's own `app_source` of the shell against the assumed source, applies `content` with A's id (`with_app_id`), then the captured update. `CapturedProfileNotHeld` becomes `CapturedSourceNotHeld` and names each differing field. |
-| `proof/hq/operations.py::with_runtime_app_id(archive, app_id)`, new | Returns the local archive with `PLACEHOLDER_APP_ID` replaced by A's id in the `suite.xml` member's search and case fixture URLs, parsed and written as XML, never by text substitution over the archive. `proof/observe` applies it to the local `.ccz` before Core installs it for proof 3, so the trace records of both sides name A's id. It is the counterpart of `with_app_id`, which does the same for the update's `app_id` field. |
+| `proof/hq/operations.py::with_runtime_app_id(archive, app_id)`, new | Returns the local archive with `PLACEHOLDER_APP_ID` replaced by A's id in the `suite.xml` member's search and case fixture URLs and in the `profile.ccpr` member's `PostURL` and `ota-restore-url` values, each parsed and written as XML, never by text substitution over the archive. `proof/observe` applies it to the local `.ccz` before any reader installs it (Core for proof 3; Formplayer, Android and Connect for A5's tests), so both sides name A's id. It is the counterpart of `with_app_id`, which does the same for the update's `app_id` field. |
 | `proof/observe/publish.py::create` | Applies both imports of a first publish and returns A's id; HQ's refusal of either is the create's refusal. The module docstring says so, and that state A is HQ app version 2 (3 after media). |
 | `proof/observe/publish.py::update` | Holds the assumed source, not only the profile, before it applies an update. |
 | `proof/observe/publish.py::_unmatched` and its docstring | No longer describe a map Nova sent. |
-| `proof/hq/test_publish.py`, `proof/hq/test_publish_capture.py` | The retained tests of A3 and A4; the capture test follows the two-import layout. |
+| `proof/hq/test_publish.py`, `proof/hq/test_publish_capture.py` | The HQ tests A1, A3, A4 and A5 name under "Lane"; the capture test follows the two-import layout. |
+| `proof/hq/test_retained_reads.py`, `proof/hq-reads/publish/` (both new) | HQ's own answers that Nova's publish tests are served (A3, "Lane"), regenerated and held byte for byte on every run. `proof/checks/sharding.py` and `proof/store/queue.py::PACKAGE_DATA` key the test by the three controls it publishes. |
+| `proof/hq/test_import_file.py` (new) | A6's two tests of HQ's import page over the emitted import file. |
+| `proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`, `proof/android/predicates.py`, `proof/android/src/nova/proof/android/Submit.java` (new), `Reader.java` | The reader tests A1, A2, A4, A5 and A6 name. The Android reader gains the `submit` request and an application class that builds Android's own requester for it. |
 | `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. |
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts`, `proof/targeted/documents/hqSideState.ts` | A2's `planLanguageWire` signature. |
 | `proof/known-defects.json`, `proof/fixed-defects.json` | Ten entries move: A1's five, A2's two, A5's three. |
-| `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment. |
+| `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the README's "Formplayer is not run over Nova's local archives past their menus and forms" goes; the import file is imported through HQ's import page. |
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
 | Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). Register entries name a path and a class, not a value (defect 9's `d9-form-version-trace-version` names `/runs/*/trace/*/submission/data/@version`), so an entry is rewritten only where its recorded symptom text quotes the version, and then by the lane's own writer, never by hand. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and the full lane as a live entry that no longer reproduces or a difference no entry names, which fails CI. |
 
@@ -1739,7 +2019,13 @@ and the shards apply its bytes.
   and `applicationShell`'s `build_spec`: work item C (part 03).
 - The profile `uniqueid` and versions of a `.ccz` (defect 9), which share
   `wireIdentity.ts`'s derivation family, and the profile keys of finding 40:
-  work item D (part 04).
+  work item D (part 04). Part 04, The local profile from step 2, lists the
+  whole profile; its table takes A5's four server properties as one row,
+  written after `cc-app-version`.
+- The Android, Formplayer and Connect tests A1, A4, A5 and A6 name run on
+  the readers those packages hold (`proof/android`, `proof/formplayer`,
+  `proof/connect`). Part 09 says where each reader runs in CI; a test of
+  this part is one more test of that reader's package.
 - The cutover's reads, its pairing rule and its Job, and the registry of
   transform step ids and notice reasons this part uses verbatim: part 10,
   The cutover and work item F (the migration notice).
