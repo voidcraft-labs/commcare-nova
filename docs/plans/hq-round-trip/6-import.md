@@ -11,7 +11,10 @@ Planned in full when step 5 exits. The design is the research's "The reader",
    reason. It derives every entity's UUID as UUIDv5 over the new app's UUID and
    the per-kind key the research's table gives, so every reading of one HQ app
    gives the same ids. It treats HQ-generated content as derived and reads each
-   spelling of one meaning into Nova's one concept.
+   spelling of one meaning into Nova's one concept. It refuses an app that
+   carries a translation for a runtime UI-catalog key until step 7's
+   application-and-settings group holds UI string overrides: from step 2 Nova
+   leaves those keys at HQ's value on publish and holds none of them.
 2. **The `hq-import` birth owner**, the third owner of the one genesis writer
    (`lib/db/appGenesis.ts`). Lookup tables and media are materialized in Project
    storage atomically with sequence 1, and the HQ app is recorded in the

@@ -45,6 +45,11 @@ app with an advanced module whose case list menu item is on, so this step's
 plan proves, under the harness's CommTrack seam, that publish asks for that
 confirmation before such an app reaches a CommTrack project space.
 
+Once a form may create a basic child case of its own menu's case type, this
+step's plan also adds defect 12's `DONT_INDEX_SAME_CASETYPE` refusal at
+publish, with the offered move to a Save to Case placement. No Nova document
+can hold that shape before then, so step 2 has nothing to guard.
+
 ## Cutover and migration
 
 One cutover, carrying every migration defects 21 to 30 name: field writes into

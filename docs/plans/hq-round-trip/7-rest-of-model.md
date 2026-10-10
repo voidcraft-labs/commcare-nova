@@ -11,8 +11,12 @@ less what steps 2 to 6 build.
 1. **Cross-cutting:** `Field.appearance` (the typed appearance vocabulary with
    its per-platform readings) and `localizedMedia` (per-language media on
    labels, options and menus), with held media paths.
-2. **Application and settings:** `appSettings` (21 typed slots),
-   `androidLogos`, `caseSharing`, `menuStyle`, per-language display names, and
+2. **Application and settings:** the rest of `appSettings` (step 2 creates the
+   object with `showSavedForms` and `showIncompleteForms`; 21 typed slots in
+   all),
+   `androidLogos`, `caseSharing`, `menuStyle`, per-language display names, UI
+   string overrides with `uiStringCatalogKeys` (step 2 leaves every runtime
+   UI-catalog key at HQ's value until this group holds them), and
    `Form.autoCaptureLocation` in place of the app-level `auto_gps_capture`
    (defect 4's interim keeps HQ's value until then). Each setting Nova starts to
    own is read from each existing deployment in that group's cutover, as the

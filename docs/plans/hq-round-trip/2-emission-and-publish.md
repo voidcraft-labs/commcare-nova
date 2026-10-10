@@ -1,308 +1,414 @@
-# Step 2: Emission and publish fixes (work items)
+# Step 2: Emission and publish fixes
 
-Step 2 fixes defects 1 to 16 and the harness's findings (defects 31 and up)
-inside today's model, with the small model additions those fixes need, and
-gives publish the version floor, the per-privilege confirmation and the drift
-check. This plan fixes the step's scope, its work items, its one cutover and
-its contracts. Step 1 is done but for the one clause work item H takes up, so
-this step is planned in full next, down to files, schemas and tests, against
-the harness step 1 built: the proof lane (`proof/README.md`) reproduces each
-defect below that it observes and proves each fix, and its register
-(`proof/known-defects.json`) is the list this step empties.
+Step 2 fixes defects 1 to 16 and the harness's findings (31 and up) inside
+today's model, with the small model additions those fixes need, and gives
+publish the version floor, the per-privilege confirmation and the drift check.
+It ships as one stack of pull requests, one maintenance cutover and one deploy.
 
-Nova's behavior at `29294f6a` matches the research for every defect here; the
-only drift is inert. Since #696 and #697 Nova emits live repeat counts, so
-`lib/commcare/constants.ts`'s comment on `RESERVED_XFORM_NODE_PREFIX` still
-describes count snapshots, and `lib/commcare/xform/builder.ts::isRepeatCountSnapshot`
-orders setvalues no emitter writes any more. Both go with defect 16.
+This file is the plan: the baseline it was written against, every decision
+that departs from the outline it replaces or from the research, the model
+additions, the work items with where each is planned in full, the stack, the
+cutover, the contracts and the exit. The detail (files, schemas, migrations,
+register entries, tests) is in eleven part files beside it,
+[`2-emission-and-publish/`](2-emission-and-publish/). A session implementing
+one pull request reads this file, that pull request's row in part 11's stack
+table, and every part "The stack" below names for it. Nothing here or there is left to decide during
+implementation: where a design rests on reading alone, the part names the lane
+run that confirms it and the fallback already chosen.
+
+| Part | Holds |
+|---|---|
+| [01](2-emission-and-publish/01-identity-publish.md) | Work item A: derived ids, language wire codes, the publish sequence, downloads by project space, the HQ import file (defect 1; findings 32, 49, 59) |
+| [02](2-emission-and-publish/02-ledger-drift.md) | The deployment ledger's schema, work item B (the drift check and its baselines), defect 5, correction 15 |
+| [03](2-emission-and-publish/03-gates.md) | Work item C: the version floor, plan features, the flag probe (defect 12), the flat location fixture and logos (defect 14), findings 53, 64, 69, Data Forwarding and a Connect forwarder |
+| [04](2-emission-and-publish/04-app-emission.md) | App-level emission: defects 2, 3, 4, 7, 8, 9; findings 34, 39, 40, 62, 65; work item H |
+| [05](2-emission-and-publish/05-xform.md) | XForms: defect 13; findings 33, 37, 45, 46, 47, 55, 66 |
+| [06](2-emission-and-publish/06-settings-navigation.md) | Menus, forms, navigation and search settings: defect 14; findings 41, 50, 54, 58 |
+| [07](2-emission-and-publish/07-case-lists.md) | Case lists: defects 10 and 16 (hidden columns); findings 35, 36, 38, 42, 51, 57, 67 |
+| [08](2-emission-and-publish/08-ids-data-media.md) | Identifiers, form content, CSQL, media and the model clean-up: defects 6, 11, 15 (with its Connect forwarding), 16; findings 31, 43, 44, 48, 56, 60, 61, 68, 70 |
+| [09](2-emission-and-publish/09-proof.md) | Proving the fixes on the lane: the fixed-defect register, the rules, the entry accounting, the capture, the corpus; findings 63 and 67 and Connect's reading of a renamed block, as what HQ does itself |
+| [10](2-emission-and-publish/10-cutover-notice.md) | The cutover and work item F (the migration notice) |
+| [11](2-emission-and-publish/11-stack-contracts.md) | The stack in full, the model-addition checklist, contracts and docs |
+
+## The baseline this plan was written against
+
+**Nova.** `main` at `e7f74de1`. The research reads Nova at `982d2630`; the
+README's "Nova since the research" lists what landed between. Every defect 1
+to 16 and every finding 31 to 55 still reproduces as the research and
+[`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md)
+describe, but finding 52, which #712 fixed. The evidence is the lane itself:
+the Proofs gate passed on #716, at the pins below, with all 613 entries of
+`proof/known-defects.json` unchanged, and the register is strict, so an entry
+that stopped showing would have failed it. The parts re-read each defect's
+code and state, block by block, where it has moved. What a fix must know:
+
+- What a publish sends is assembled only in
+  `lib/deployment/importApplication.ts::hqImportApplication`, which
+  `proof/corpus/publish.ts` also calls; a `.ccz` only in
+  `lib/export/localArchive.ts::compileLocalArchive`.
+- The flag probe takes each flag's identity from the surface manifest
+  (`lib/commcare/projectSpaceCompatibility.ts::HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`,
+  `lib/commcare/surface/gates.ts::domainFeatureFlag`). Which flags it checks,
+  and for what content, is unchanged, so defect 12 stands.
+- #712 rewrote validation-message emission
+  (`lib/commcare/xform/constraintMessage.ts`). The emitter gained a node the
+  research's list does not name, `nova_constraint_message_<question>`, and
+  itext forms named `__nova_identity`, `__nova_mode`, `__nova_locale` and
+  `__nova_piece_<n>`. Nova now writes the control's `<alert>` itself, so
+  `proof/rules/vellum_alert.py` erases nothing Nova emits. #712 also removed
+  finding 52's two entries and left its control,
+  `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`, named by no
+  entry.
+- Inert, as the outline said: `lib/commcare/constants.ts`'s comment on
+  `RESERVED_XFORM_NODE_PREFIX` still describes count snapshots, and
+  `lib/commcare/xform/builder.ts::isRepeatCountSnapshot` orders setvalues no
+  emitter writes. Both go with defect 13's rename (part 05).
+
+**CommCare.** Every fact this plan relies on was read, and where reading left
+doubt executed, at the commits `proof/pins.json` names: commcare-hq
+`d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android `7a5584475580`,
+commcare-connect `046c7fd78081`; Vellum `01215f251c57`, the build HQ vendors at
+that pin; and formplayer `24383ac71bfb`, which the lane does not pin. HQ,
+Android and Connect moved since the research. No fact the plan relies on
+changed. One cited symbol moved: `cloudcare/views.py::_format_app_doc` is now
+`cloudcare/utils.py::format_app_doc`. HQ gained the `AI_APP_TRANSLATION` toggle
+and privilege and `OCS_CONNECT_INTEGRATION`, and `COMMCARE_CONNECT` now names
+`SESSION_ENDPOINTS` and `CUSTOM_PROPERTIES` as parent toggles; none is a gate
+Nova probes. Citations are `file::symbol`, HQ paths relative to
+`corehq/apps/app_manager` unless another app is named.
+
+**Executed during planning**, in the lane's HQ and against Core, because
+reading left doubt:
+
+- An HQ app created with no menus and then filled by an in-place update ends
+  with exactly the ids and `xmlns` the update carried, no orphaned form, and
+  HQ's default CommCare version (part 01).
+- An import that carries no `multimedia_map` still maps every file of the
+  media upload, builds the same media suite, and draws no missing-media
+  warning (part 01).
+- Two reads of an unchanged app's source differ only in form ids and the
+  references to them, and each form's bytes are the bytes Nova uploaded (part
+  02).
+- A `replace=false` lookup upload re-creates a table that holds no rows, so it
+  cannot serve as a harmless probe (part 02).
+- A datetime compared for order on a device never orders by instant (finding
+  56, part 08).
+- A case list column over `case_id` is blank on HQ's build (finding 57, part
+  07).
+
+## What changed from the outline, and why
+
+The outline this file replaces fixed the step's scope. Planning it in full,
+against the code and the lane as they stand, changed these. Each is a
+decision; the part named gives its evidence.
+
+**Decided with the person (2026-10-06).**
+
+1. **A form's `xmlns` is derived, not stored.** The ids Nova mints for HQ are
+   a pure function of the Nova entity's UUID (`lib/commcare/wireIdentity.ts`):
+   a menu's and a form's `unique_id` is the UUID without hyphens, and a form's
+   `xmlns` is `http://openrosa.org/formdesigner/<UUID, upper case>`. A stored
+   copy would hold nothing the UUID does not, on every form of every app.
+   `Form.xmlns` leaves this step's model additions; step 6 adds an optional
+   stored `xmlns` for a form read from HQ. The ledger records only the ids a
+   project space holds that differ from the derivation (part 01).
+2. **UI string overrides and `uiStringCatalogKeys` leave step 2.** Step 2 owns
+   only HQ-generated app-string ids and language names in `translations` and
+   carries HQ's value for every other key, runtime UI-catalog keys included,
+   so a UI translation saved in HQ survives a republish. The override model
+   joins step 7's application-and-settings group (part 04).
+3. **Finding 33 converges by trimming on both paths**: an emitted hidden value
+   `nova_trimmed_<question>` that HQ's basic actions read, with the nonblank
+   and 255-character check on the source question (part 05).
+4. **Finding 50 is what HQ does itself.** HQ shows the same alert for the same
+   shape made in its own editors, and no spelling inside the envelope removes
+   it. Proof 4 gains a closed, proven allowance for exactly that alert, and the
+   finding moves under "What HQ does itself" (part 06).
+5. **The cutover's HQ reads run in one Job with a decrypt-only, expiring
+   grant**, after one advisory run of the same reads (part 10).
+6. **At publish only the publisher's own key reads a project space's flags.**
+   Publish already reaches only spaces that key belongs to, so the outline's
+   fallback to other members' keys could run only for a lapsed membership, and
+   would use one member's credential for another's action. The fallback order
+   is the cutover's alone. Publish names capabilities, never HQ flag names: the
+   outline's reason for naming flags (a flag on for the person alone) cannot
+   occur for the flags Nova probes (`corehq/toggles/__init__.py::StaticToggle.enabled`)
+   (part 03).
+7. **Finding 40's settings are written at today's device behavior** (part 04).
+8. **A `.ccz` for an app that searches needs a published project space.**
+   Downloads gain a project-space choice (part 01).
+
+**Decided in planning.**
+
+9. **A first publish creates an empty HQ app and fills it with the ordinary
+   in-place update.** The outline's create-then-update left HQ-minted form ids
+   and an orphaned copy of every form behind. An app with no menus cannot be
+   made into a saved build, so none can exist between the two calls (part 01).
+10. **The version floor stops a new app before anything else is written**: the
+    shell is created and read first, ahead of the lookup tables and places, so
+    a target below the floor holds an empty app and nothing more. The outline
+    wrote ids first. The version is read from the app source (part 03).
+11. **The drift baseline is HQ's own reading taken after Nova's push**, where
+    the outline stored what Nova sent. Only reading against reading needs no
+    model of HQ's defaults. A save in an HQ editor that changes no value can
+    therefore stop the next publish; that is accepted and said where it stops
+    (part 02).
+12. **Publish does not compare form ids through `ApplicationResource`.** A
+    source read re-mints them, every publish writes Nova's verbatim, and the
+    check's only remedy would be that same write (part 01).
+13. **No lookup definition probe; defect 5's refusal reads what an API key can
+    see.** An indexed-field flag and a table description are returned by no
+    key-usable read, so the adoption and discard confirmations say Nova's push
+    removes them (part 02).
+14. **`DONT_INDEX_SAME_CASETYPE` moves to step 5.** No Nova document can hold a
+    basic child case of its own menu's case type before then (part 03).
+15. **Finding 53 keeps the sentinel and sends it on both paths**, without newly
+    requiring `CASE_SEARCH_ADVANCED` for every search filter: HQ's own Case
+    List page writes that filter without the flag (part 03).
+16. **Defect 16's tile clause is corrected.** A column hidden from Results is
+    usually shown on Details, so the research's refusal and removal would
+    delete fields workers see. Nothing is removed for it; one shape with no
+    in-envelope spelling is refused (part 07).
+17. **Defect 13's leaf constraints are deleted, not moved.** Core evaluates a
+    constraint only for a question a worker answers, so the ones Nova writes on
+    case leaves never ran (part 05).
+18. **Blank translations take Vellum's own fill rule at emission**, in the
+    emitter and Preview alike, and no authored text is deleted (part 05).
+19. **"Not on the menu" is a flag beside the display condition**
+    (`hiddenFromMenu`), holding the condition as its rest, in place of an arm
+    of the condition (part 06).
+20. **Defect 6's runtime values are guarded by the emitter**, not refused and
+    migrated: no Predicate spells that guard in a CSQL slot (part 08).
+21. **Work item H is settled by observing it**, with the closing decision
+    recorded if the lane shows no class of its own (part 04).
+22. **A fixed defect's control keeps running under a second register**,
+    `proof/fixed-defects.json`, and `proof/identity-moves.json` stays empty
+    (part 09, and "Proof", below).
+23. **The cutover is a fold-horizon cutover** (part 10).
+24. **Additions the research does not name**: a sort-ownership rule
+    (`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`), case operation ids and link
+    identifiers under defect 15's narrowing, `parsererror` beside finding 43's
+    names, `indices.` among the reserved search input names, a no-matches
+    form's `app_home` migrating to `firstMenu`, and document migrations for
+    findings 31, 43 and 44. `case_preload` is not touched: its editable
+    spelling is defect 28's, in step 5.
+
+**Two findings from planning.** Both were found by reading while this plan was
+written, then executed. Pull request 1 adds each to `harness-findings.md` with
+a targeted document, register entries and a control.
+
+- **Finding 56.** An ordering comparison on a datetime never orders by instant
+  on a device. Step 2 holds it in the register; its fix is step 3's, whose
+  typed expressions know each operand's type (part 08).
+- **Finding 57.** A case list column over `case_id` is blank on HQ's build, and
+  a hidden sort carrier over `case_id`, `owner_id` or `status` stops HQ's Case
+  List page saving. Fixed in step 2 with the case-list work (part 07).
+
+## Findings the lane's readers showed
+
+The lane's branch (`proof/run-every-reader`) runs every reader the plan had cited: Formplayer and HQ's Web Apps client over every served state, Connect's receiver behind HQ's own repeater, and commcare-android in its own stage. What they showed, with its owner; each owner's block holds the run that observed it and the entries it moves.
+
+- **Finding 58**, a link to a target its menu hides: Core opens it, Formplayer and the client stop. `hiddenFromMenu`'s design follows each runtime (part 06, 11 and 15).
+- **Finding 59**, a local `.ccz` names no server: every `.ccz` is compiled for a reached project space and writes the four server properties (part 01, A5).
+- **Findings 60 and 61**, Connect block names and a deliver form that holds a task: the validator refuses both, with their migrations (part 08).
+- **Finding 62**, HQ's App Settings save takes the Incomplete Forms tile off Web Apps: Nova writes both form-list settings into the stored app on every publish (part 04, Defect 7 and finding 62).
+- **Finding 63**, HQ's build installs on Android only with its media, and **finding 67**, an incomplete form under grouped tiles cannot be reopened for a case with no connection: what CommCare does itself (part 09; part 07 for 67's copy and its upstream report).
+- **Finding 64**, no lane app was one Web Apps lists: closed on the lane's branch by granting `CLOUDCARE` in every configuration (part 03, C7).
+- **Findings 65 and 66**, texts and update order the local archive writes otherwise than HQ's build: the local archive writes what HQ's build writes (part 04; part 05).
+- **Finding 68**, a read of a session datum no Nova session supplies: the validator refuses it, with a migration (part 08).
+- **Finding 69**, a device and Web Apps read the location fixture choice apart: `project_default` with the confirmation makes them alike, and the copy names Web Apps (part 03, C5).
+- **Correction 15**, HQ answers a 33-character tag with a 500: Nova holds the 32-character cap itself (part 02).
+- **Defect 15's Connect forwarding**: HQ never resends a delivery Connect refused, so the rename notice and the runbook ask for the new payment unit before the next publish, and Connect's reading of a renamed block is what Connect does itself (part 08; part 09).
+- **Data Forwarding and a Connect forwarder**: publish asks the person to confirm both for a Connect app, since no API key reads either (part 03, C8).
+
+Finding 70 is planning's: question names HQ's editors warn about (part 08).
 
 ## Model additions
 
 Each is a complete feature when it lands: domain, validator, emitter, Preview,
-builder, SA and MCP surfaces, and public docs.
+builder, SA and MCP surfaces, and public docs. Part 11's checklist is the list
+of places every addition touches.
 
-- `Form.xmlns`, minted inside the creating mutation.
-- `localization.wireCodes`: each language's HQ code, stored when the language
-  is added.
-- `showSavedForms` and `showIncompleteForms`, explicit app settings.
-- `postSubmit: firstMenu` and `postSubmit: parentMenu`.
-- The always-false display condition holding its rest: a `false()` or
-  `false() and <rest>` condition is "not on the menu", and `DISPLAY_CONDITION_ALWAYS_FALSE`
-  retires.
-- A Hidden Value with neither a calculate nor a default. Every
-  `HIDDEN_INERT_VALUE` default of `''` migrates to it and the constant retires.
-  One that writes a case property writes it blank on each submission unless the
-  form preloads that property into it, and the builder, SA and MCP say so where
-  the author sets it.
-- `uiStringOverrides` and `uiStringCatalogKeys`.
-- A sort column on a lookup-backed search prompt, the display label by default.
-- The media formats every platform plays (BMP, M4A, FLAC, WebM, Ogg Vorbis and
-  Opus) added to the accepted set.
+| Addition | Part |
+|---|---|
+| `localization.wireCodes`: each language's HQ code, carried by the mutation that adds the language and stored with it | 01 |
+| `appSettings.showSavedForms` and `appSettings.showIncompleteForms` | 04 |
+| `postSubmit: firstMenu` and `postSubmit: parentMenu` | 06 |
+| `hiddenFromMenu` on a menu and on a form, holding the display condition as its rest; `DISPLAY_CONDITION_ALWAYS_FALSE` retires | 06 |
+| A Hidden Value with neither a calculate nor a default; `HIDDEN_INERT_VALUE` retires | 08 |
+| A sort column on a lookup-backed search input, the display label by default | 06 |
+| Required alignment and font size on a tile cell | 07 |
+| The media formats every platform plays (BMP, M4A, FLAC, WebM, Ogg Vorbis and Opus) | 08 |
+
+Removed from the model: the search button label (part 06); hint media, label
+media on groups and repeats, and validation-message media (part 08). Not added
+in this step, against the outline: `Form.xmlns`, `uiStringOverrides` and
+`uiStringCatalogKeys` (above).
 
 ## Work items
 
-### A. Identity (defect 1)
+| Item | What it settles | Part |
+|---|---|---|
+| A. Identity | Derived ids; the sparse per-target identity ledger; the shell create and the publish sequence; wire codes; a `.ccz` for a project space; the HQ import file | 01 |
+| B. Drift | The baselines for the app, each pushed table and each pushed place; the stop and the confirmed discard | 02 |
+| C. Publish gates | The version floor; plan features; the flag probe; the flat fixture; logos | 03 |
+| D. Emission inside HQ's editable envelope | Defects 2, 3, 4, 7, 8, 9, 10, 13, 14, 15, 16 | 04 to 08 |
+| E. Lookup data, CSQL and media | Defects 5, 6, 11 (first half) | 02, 08 |
+| F. The migration notice | Its tables, surfaces and copy | 10 |
+| G. The harness's findings | 31 to 57, each in the part that owns its code | 01 to 08 |
+| H. Step 1's open clause | Observed in pull request 1; closed with findings 45 and 47 | 04, 09 |
 
-- The deployment ledger records, per target, each menu's `unique_id` and each
-  form's `unique_id` and `xmlns` against the Nova entity, and every publish to
-  that target writes them back.
-- A create is followed, inside the same publish and before any build can exist,
-  by an in-place update that writes Nova-minted menu and form ids; HQ's
-  re-minted form ids are never observed.
-- A `.ccz` for a project space uses that space's recorded ids; one for no
-  project space, and the HQ import file, use `Form.xmlns` and ids derived from
-  the Nova entities' UUIDs.
-- `localization.wireCodes` replaces `lib/commcare/languageWire.ts::planLanguageWire`'s
-  recomputation, so adding or removing a language never renames another's code.
-- The comments that say HQ re-ids forms on import say it does so only on create.
-- Removes: defect 1's register entries. Proof 1 passes on republish for every
-  corpus document.
+Every gate is checked at publish, never at commit; the commit gate still reads
+only the document.
 
-### B. The drift check and its baseline
+## Proof
 
-- The ledger records, per target, the canonical app source Nova last pushed
-  there. Before every publish, Nova reads HQ's current source (and form ids from
-  `ApplicationResource` where the space has API access) and compares, by the
-  research's rules in "Edits made in HQ": forms matched by position, target-owned
-  keys and every key Nova's overlays leave at HQ's value ignored, form-id
-  references compared as positions.
-- A difference stops the publish. The person may discard HQ's change,
-  confirmed; until step 6 Nova offers nothing else.
-- The same check guards every lookup table and location Nova pushes: before a
-  push Nova reads HQ's copy and stops if it changed since Nova's last push. The
-  baseline belongs to the table or place in its project space, so a push from
-  any app of the Project updates it.
-- Publish states that HQ's App Preview may show a validation verdict up to 7
-  days old for a form whose earlier version was rejected.
+Part 09 holds this in full.
 
-### C. Publish gates
+- **A fix moves its entries to `proof/fixed-defects.json`** in the same pull
+  request. A fixed entry names no document: it must keep showing on its
+  control, which retains the bytes Nova sent before the fix. That is how the
+  lane keeps proving the check sees the symptom, where today a control stops
+  running once no entry names it. A test requires every control directory to
+  be named by one of the two registers.
+- **`proof/identity-moves.json` gains no entry in step 2.** Proof 1 compares
+  two exports of one document by one revision, so a migration or an emitter
+  change moves both sides alike and no move can show there. The identities
+  that move once for existing deployments are listed in part 09 and held by
+  the cutover's tests over frozen pre-step fixtures (part 10).
+- **Nine spelling rules retire** with the fixes that make the emitter write the
+  editor's spelling; 24 stay. Part 09 gives each rule's verdict.
+- **Step 2 empties 454 of the register's 613 entries.** The 159 that remain are
+  later steps' (defects 20, 21, 23 to 28 and 30); some are re-pathed onto new
+  controls where a step 2 fix moves what they name.
+- **The harness keeps publishing as Nova publishes**: the capture and the
+  publish sequence change in the same pull request, and retained controls are
+  replayed in the layout they were captured in.
+- **The cutover is outside what the lane observes**: its A and B come from one
+  revision and it holds no Nova database. Nova's own tests carry it (part 10).
 
-- **Version floor.** Publish reads the target app's CommCare version and stops
-  below 2.57. For a new app it creates the app, writes the in-place update that
-  sets its ids, and then stops if HQ's default version is lower. The next step
-  is to raise the version in the app's settings in HQ, and publish says that
-  phones on an older CommCare can then no longer install or update the app.
-- **Per-privilege confirmation.** Publish lists every privilege the app's
-  content needs (from the manifest's gate entries), with the plans that carry
-  each (`accounting/bootstrap/features.py`); the person confirms each once per
-  app and project space; the ledger records it on the deployment record,
-  revisitable from that target's settings; publish refuses without it.
-  `commcare_logo_uploader` is the one privilege not confirmed (below).
-- **The flag probe checks each gate where the manifest names it** (defect 12):
-  `CASE_SEARCH_ADVANCED` for inline search, multi-select case lists, single-date
-  prompts and `exclude` as well as hidden and default-valued prompts;
-  `CASE_SEARCH_RELATED_LOOKUPS` for related-case filters; `CASE_LIST_TILE` and
-  `CASE_LIST_TILE_CUSTOM` for custom tiles; `VIEW_FORM_ATTACHMENT` only for a
-  link write shown in a case list or detail; `DONT_INDEX_SAME_CASETYPE` refusing
-  an app that creates a basic child case of its own menu's case type, with the
-  offered move to a Save to Case placement.
-- **Whose credential reads a space's flags.** The publishing person's, where
-  its user is a member; otherwise the deployment creator's while a current
-  member of the Project, then other current members' in the order they joined,
-  each read with another member's key recorded and shown to that member. Where
-  none is a member, publish stops, naming the space, with the next step to join
-  it. Publish names each flag it relies on.
-- **Flat location fixture.** Publish writes `location_fixture_restore:
-  project_default` and, for an app that reads locations, asks the person to
-  confirm the flat fixture syncs, once per app and project space, recorded
-  beside the privileges.
-- **Logos** (defect 14). Publish writes no `logo_refs`; a publish that carries
-  a new or changed logo offers the file and the step to upload it in the app's
-  settings in HQ, where the plan has `commcare_logo_uploader`. The first publish
-  to a deployment whose `logo_refs` hold Nova's path-only entries writes them
-  once more without those entries, keeping any HQ's uploader wrote.
-- Every gate is checked at publish, never at commit; the commit gate still reads
-  only the document.
+## The stack
 
-### D. Emission inside HQ's editable envelope
+One `gh stack` chain on latest `main`, each pull request reviewed and
+undrafted, merged together for one deploy. Part 11 gives each pull request's
+files, entries, rules, transform steps and ordering constraints.
 
-- **Defect 2:** form display conditions write the expanded casedb read.
-- **Defect 3:** `case_references_data.save` carries Vellum's computation for
-  every Save to Case block.
-- **Defect 4:** `translations` as the closed owned set with HQ's value kept for
-  every other key and an empty value only for an unoverridden catalog key;
-  `add_ons` with each add-on the content needs set `true` and every other kept
-  at HQ's value, read just before the upload; `auto_gps_capture` kept at HQ's
-  value except where a Connect app needs `true`.
-- **Defect 7:** `cc-show-saved` and `cc-show-incomplete` written explicitly.
-- **Defect 8:** barcode and secret validations emitted.
-- **Defect 9:** the `.ccz` profile declares `requiredMajor` 2 and
-  `requiredMinor` 57, uses the Nova app's UUID as `uniqueid`, and the
-  document's sequence as the profile, resource and app version.
-- **Defect 10:** ID mapping emits `enum` sorted by mapping position, with HQ's
-  key rule; the `.ccz` and Preview sort select columns by label and an unsorted
-  list by its first column. The harness found two more variants, each fixed
-  the same way: an interval column with text, which HQ sorts by its displayed
-  text, and an image-map column, which HQ sorts by mapping position. An
-  unsorted list differs between the paths only where HQ sorts its first
-  column by something other than its text, a date or an image map
-  (`harness-findings.md`, corrected claims 3 and 10). Where two columns share
-  a property, HQ moves the sort to the first of them, which leaves the order
-  alike and changes what a fuzzy search matches: finding 51 (work item G).
-- **Defect 13:** every item of the research's list, including the renamed nodes
-  (`nova_<purpose>`, "Nova's exports stay inside HQ's editable envelope"), the
-  guards as Save to Case updates whose case id is `if(<ok>, <id>, '')`, groups
-  carrying operation conditions, constraints on source questions, the untyped
-  datetime leaf, root create ids as load-time values, relative default reads,
-  shared case ids in hidden values, default-language text for empty
-  translations, and the ref-less repeat group and empty `work_area_id`.
-- **Defect 14:** `update_case: always` for non-writing follow-ups; close
-  conditions a Case Management tab cannot state moved to a Save to Case block;
-  the validator refusing the multi-select destinations; the search button label
-  no longer offered; lookup prompt sort columns; reserved input names refused;
-  survey menus keeping their case type; tile font sizes, positions and cell
-  alignments (defect 42); the data node's `name` as the form's name; and the
-  equivalent spellings.
-- **Defect 15:** the validator narrows question ids, entry-point ids and Connect
-  block ids to what HQ's editors accept, and refuses a question named `meta` in
-  any case, which HQ's build also refuses (`harness-findings.md`, corrected
-  claim 5).
-- Each fix that makes the emitter write the editor's spelling removes the
-  spelling rule step 1 registered for Nova's former spelling.
-- **Defect 16:** the comments, types, SA descriptions and public docs say what
-  is true; hidden columns are kept (and refused in a custom tile until step 7);
-  hint media, label media on groups and repeats, and validation-message media
-  are removed from the model; the dead code goes; the Hidden Value refusal says
-  only that Nova does not yet write a default beside a calculate.
+| # | Pull request | Parts |
+|---|---|---|
+| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for work item H and findings 56 and 57; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 04 (work item H), 06 (finding 50), 07 (finding 57), 08 (finding 56) |
+| 2 | The cutover's skeleton, the notice, frozen pre-step fixtures, every ledger table | 10, 02 |
+| 3 | Identity and the publish sequence | 01, 09 (the capture) |
+| 4 | Drift and baselines | 02, 09 (the retained reads) |
+| 5 | App-level emission | 04, 02 (the ownership descriptor) |
+| 6 | XForms, first part: shadows, leaf constraints, datetime leaves, the root create id, defaults, translations, the form's name | 05 |
+| 7 | XForms, second part: groups, the rename, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
+| 8 | Defect 3 and work item H's closure | 04 |
+| 9 | Case writes through basic actions: findings 33 and 37, `update_case`, close conditions | 05 (findings 33, 37), 06 (`update_case`, close conditions) |
+| 10 | Identifiers and form content: defect 15; findings 31, 43, 44 | 08 |
+| 11 | Case lists, with findings 41 and 54 | 07, 06 (findings 41, 54) |
+| 12 | Menus, navigation and search settings, with finding 53 | 06, 03 (finding 53) |
+| 13 | Publish gates | 03, 01 (the shell's keys), 02 (the confirmation store) |
+| 14 | Lookup, CSQL, media and the model clean-up | 02 (defect 5), 08 |
+| 15 | Contracts and public docs | 11, and each part's docs and contract lines |
+| 16 | Removal of the cutover tooling | 10 |
 
-### E. Lookup data, CSQL and media
-
-- **Defect 5:** adopting or pushing an HQ table with field properties, indexed
-  fields, row attributes or owners, or one that is not global, is refused until
-  step 7; tags containing `casedb` or `ledgerdb` are refused; HQ's "Upgrade
-  Required" page is reported as nothing landed; the 31-character cap goes.
-- **Defect 6:** the validator refuses an ordering comparison on a time in every
-  slot, and in CSQL a blank check on `date_opened`, `closed_on` or
-  `last_modified` and a comparison between them and a value that is not a date
-  or datetime (or a runtime value with no guard against blank).
-- **Defect 11, first half:** the formats every platform plays are accepted,
-  MP4 and WAV acceptance is unchanged, and `mediaSuiteXml.ts`'s comment and
-  `MediaRuntimeTest` describe archive installs correctly.
-
-### F. The migration notice
-
-A migration names every app and entity it changes in a notice on each affected
-app, shown to its members until they dismiss it. Nova has no such notice today,
-and step 2 is the first step whose migrations need one, so it builds it: a
-per-app record written by the migrate script, shown in the builder and returned
-by MCP's app reads, dismissible per member.
-
-### G. The harness's findings
-
-Every defect the harness found, numbered from 31 in
-`docs/research/2026-09-26-hq-round-trip/harness-findings.md`, is this step's
-to fix, beside defects 1 to 16. Each the lane reproduces is held by a register
-entry, which its fix removes. They fall in the areas that file names:
-building and installing (a form HQ will not build that Nova admits, the
-local archive's `__APP_ID__` search URLs, case names trimmed on one export
-path only, a Connect app's local archive capturing no location); case lists
-(hidden select and sort columns, the order new cases reach a device, image-map
-widths); the profile and settings (the local profile's current language, HQ's
-settings page writing its defaults into the profile, the empty-list text
-without English); HQ's editors (the Case List save's tile alignment, question
-names and duplicate option values HQ's form builder refuses, Vellum's
-rewrites of case reads and of the form's name, warnings about case
-properties no form writes, a follow-up form drawing the registration alert);
-search and publish (the mixed-quote CSQL function HQ does not have, the
-missing-media warning under `CAUTIOUS_MULTIMEDIA`); and those the register
-round found (a list's sort keys on different columns, which a fuzzy search
-reads; HQ's exception report for each search Nova's zero-input sentinel
-sends; and two differences only another runtime reads, both alike to it: the
-Case List save's empty search description and a Vellum save's empty Connect
-work area id). Finding 52, a validation message showing an answer that
-reached the worker unfilled, is already fixed (#712), and the register holds
-no entry for it.
-
-### H. Step 1's open clause
-
-Step 1's exit asks the register for an entry for every row of its defect
-table, and every row has them. One clause of a row is not observed
-(`proof/README.md`, "What the lane does not observe"): defect 3's "after
-Vellum reports each `#case/<property>` as an unknown question", which no
-corpus document shows, since none reads `#case/<property>` for a property
-only Nova's Save to Case blocks write. Before defect 3's fix is planned in
-full, either the lane observes it (a targeted document reading such a
-property, its warning named apart from finding 47's by whether a Save to Case
-block writes the property), or a decision recorded in this plan leaves it to
-the fix's own tests.
+Every pull request also reads part 09 for what its fix does to the register,
+its controls and the corpus, and part 10 for the transform step and notice
+reason it adds. Each pull request that changes a stored shape adds its
+transform step and its notice reason. Each fix moves its entries and retires its rule in the same pull
+request. Each validator narrowing emits the corpus before and after, compares
+the document ids, and rewrites or removes what it refuses. A pull request that
+changes a tool's input schema asks the person before `npm run test:schema`,
+which bills.
 
 ## The cutover
 
-One direct maintenance cutover, with its production scan first. It:
+One direct maintenance cutover (`docs/architecture/contracts.md`), planned in
+full in part 10.
 
-1. Mints `Form.xmlns` for every existing form locally, and stores each existing
-   language's current wire code.
-2. Reads every existing deployment from HQ, as the research's "Identity" gives
-   it: each space's menu ids and `xmlns` from its app source and its form ids
-   from `ApplicationResource`, with the credential order of work item C, the
-   form and menu matching by shared question paths and position, the handling of
-   spaces without API access, of HQ apps HQ reports deleted, and of deployments
-   no credential can read, and a transient failure stopping the cutover before
-   its first write.
-3. Records each deployment's current source as its drift baseline, and each
-   pushed table's and location's current HQ state as theirs.
-4. Stores `showSavedForms` and `showIncompleteForms` from what the app's
-   deployments show, as defect 7 gives it.
-5. Applies each document migration defects 5, 6, 10, 13, 14, 15 and 16 name, and
-   `HIDDEN_INERT_VALUE` defaults to the new Hidden Value state.
-6. Writes a notice on every affected app, naming every app, entity and
-   deployment each migration changed.
-
-Its scan and migrate scripts ship in `scripts/` and are removed after they run
-in production.
+- **A fold horizon.** Step 2 removes keys stored documents and history rows
+  carry (the three media slots, the search button label), so an old document
+  does not parse under the new schema and an old row does not replay. The
+  cutover gives every app a new baseline at the final shape, marker
+  `fold-baseline:hq-round-trip-emission`.
+- **One Job, one fleet transaction.** `scripts/scan-hq-round-trip-cutover.ts`
+  reports and writes nothing; `scripts/migrate-hq-round-trip-cutover.ts`
+  rehearses, then executes against a plan digest. Both are removed by the
+  stack's top pull request, and the cutover runs before the merge from the
+  image of the pull request beneath it, so there is one deploy.
+- **It reads every existing deployment from HQ** before its first write: menu
+  ids, `xmlns` and source from the app source, form ids from
+  `ApplicationResource`, each pushed table and place. A transient failure
+  stops it before that write. It records the ids each project space holds, the
+  drift baselines, and whose key read what. A deployment no key can read keeps
+  its HQ app and takes derived ids, so its ids and `xmlns` change once at its
+  next publish, as the research's "Identity" decides; the operator reviews
+  that count before the cutover executes.
+- **It migrates each document** through one ordered list of transform steps,
+  one per fix that changes a stored shape, and proves the result under the new
+  schema and the full validator.
+- **It writes a notice on every affected app** (work item F), naming every
+  entity and deployment it changed and each change that needs no write but
+  alters what people see.
+- **People lose unsaved private work**: open assistant workspaces, and edits a
+  builder tab had not saved. The window is announced.
 
 ## Contracts
 
-The research's contracts table, step 2 rows:
+Part 11 gives each sentence as it reads today and its replacement. In brief:
 
-- `contracts.md` and root `CLAUDE.md`: the two further HQ facts that bind Nova
-  (HQ's editors can produce and keep every app Nova emits; reading an app
-  changes nothing HQ's servers or existing data depend on).
-- Root `CLAUDE.md`: the document holds `Form.xmlns` and language wire codes as
-  identities no author chooses.
-- `lib/commcare/CLAUDE.md`: Nova reserves no names (`nova_<purpose>`), including
-  `__nova_subcases` renamed `nova_subcases`; `location_fixture_restore:
-  project_default` with publish's confirmation; HQ re-ids forms only on
-  create, and every id comes from the ledger; `cc-show-saved` and
-  `cc-show-incomplete` as app content written by overlay, and no `logo_refs`;
-  the always-false condition in place of the soundness finding.
+- `contracts.md` and root `CLAUDE.md`: two further HQ facts bind Nova (HQ's
+  editors can produce and keep every app Nova emits; reading an app changes
+  nothing HQ's servers or existing data depend on).
+- Root `CLAUDE.md`: the document holds language wire codes as identities no
+  author chooses. A form's `xmlns` is derived and is not among them.
+- `lib/commcare/CLAUDE.md`: Nova reserves no question names (`nova_<purpose>`);
+  `location_fixture_restore: project_default`; HQ re-ids forms only on create,
+  and Nova's ids are derived, with a project space's own ids from the ledger;
+  `cc-show-saved` and `cc-show-incomplete` as app content written by overlay,
+  and no `logo_refs`; `hiddenFromMenu` in place of the soundness finding;
+  runtime request destinations name a real project space or nothing.
 - `lib/media/CLAUDE.md`: the formats every platform plays.
 - `lib/lookup/CLAUDE.md`: a 32-character tag pushes.
-- `lib/deployment/CLAUDE.md`: a publish creates afresh after the cutover ends a
-  deployment whose HQ app HQ reports deleted.
+- `lib/deployment/CLAUDE.md`: an HQ app is gone on a 404 or a deleted document
+  type; a publish creates afresh after the cutover ends a deployment whose HQ
+  app is gone; publish names capabilities.
+- `lib/db/CLAUDE.md`: this horizon's baseline identity, and the notice tables.
 
 ## Exit
 
-An app created and then republished twice keeps every `xmlns`, form id and
-module id in HQ, and every `xmlns` in the local `.ccz`; proofs 1 to 5 pass on
-every Nova export for these defects, and the register holds no entry for
-defects 1 to 10, 12 to 16, or 31 and up; publish refuses a target below the
-floor or without a confirmed privilege; a second publish stops when HQ's copy
-changed since the first.
+- An app created and then republished twice keeps every `xmlns`, form id and
+  menu id in HQ, and every `xmlns` in the local `.ccz`.
+- Proofs 1 to 5 pass on every Nova export for these defects. The register
+  holds no entry for defects 1 to 10 or 12 to 16, and none for a finding from
+  31 up but finding 56, which step 3 fixes. Findings 50 and 67 and Connect's
+  reading of a renamed block leave as what HQ does itself, by their allowances.
+- Every control directory is named by a register, and every fixed entry shows
+  on its control.
+- Publish refuses a target below the floor or without a confirmed plan
+  feature, and a second publish stops when HQ's copy changed since the first.
+- Every existing app is valid under the new schema and validator, and carries
+  its notice.
 
-## What step 2 inherits from step 1
+## What could not be settled from this machine
 
-The proof lane, its registers and controls, and the spelling rules for the
-spellings Nova emits today. Each fix removes its defect's register entries and
-any spelling rule it makes unnecessary, adds the identity moves it decides to
-`proof/identity-moves.json`, and proves on the defect's control that the
-check still sees the symptom there. A control runs today only while an entry
-names it (`proof/checks/cases.py::control_params`), so the full plan settles
-how a fixed defect's control keeps running.
+Each is stated where it bears, with what settles it.
 
-## What the full plan settles
-
-These follow from the decisions above and are settled against step 1's harness
-and the code as it then stands:
-
-- The ledger schema for per-target identities, confirmations and baselines, and
-  where a baseline's source bytes are stored.
-- How the publish panel and the MCP publish tool carry each confirmation and
-  the drift discard, under `oauthScopeChallenge`.
-- The pull-request stack and the order in which the fixes land inside the one
-  cutover.
-- Each fix's proof: which register entries it removes, the identity moves it
-  adds to `proof/identity-moves.json`, the Nova tests for the parts whose harm
-  is in no system the lane runs (`proof/README.md`, "What the lane does not
-  observe"), and, for work item H's clause, the lane's observation of it or
-  the recorded decision that leaves it to those tests.
+- **Whether production HQ's default CommCare version is at least 2.57.** It is
+  server data. The advisory scan prints every deployment's version; a new app
+  below the floor stops with the step to raise it in the app's settings in HQ
+  (part 03).
+- **Who holds decrypt on the HQ-keys KMS key in production.** One IAM policy
+  read during the runbook (part 10).
+- **Whether Web Apps follows an after-submit link to an item that is not on
+  the menu.** Reading formplayer
+  (`services/MenuSessionFactory.java::rebuildSessionFromFrame`) says its
+  end-of-form rebuild stops at the menu holding it, where the research's table
+  says it runs. The lane does not run Formplayer. Part 06 states it as read and
+  keeps the builder's, the tools' and the docs' wording platform-specific.
+- **Reading-only designs the lane confirms in their pull request**, each with
+  its fallback already chosen: Vellum's control-order rule on the new groups
+  (part 05), the close-condition answer clause (part 06), and the handful part
+  07 lists for case lists.
+- **Not exercised by any control**: a shadow form's parent id, schedule phase
+  form ids and report config uuids across two source reads. Nova emits none.
