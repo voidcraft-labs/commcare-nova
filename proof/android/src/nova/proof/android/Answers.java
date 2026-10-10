@@ -46,8 +46,8 @@ final class Answers {
         }
         for (int i = 0; values != null && i < values.length() && i < MAX_TRIES; i++) {
             String value = values.optString(i);
-            found.add("@clock:today".equals(value) ? ProofClock.TODAY
-                    : "@clock:now".equals(value) ? ProofClock.NOW : value);
+            found.add("@clock:today".equals(value) ? ProofClock.today()
+                    : "@clock:now".equals(value) ? ProofClock.nowText() : value);
         }
         return found;
     }

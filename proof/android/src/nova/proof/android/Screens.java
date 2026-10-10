@@ -81,6 +81,9 @@ final class Screens {
             Device.serve(request.getJSONObject("worker"));
         }
         Sensors.place(request);
+        if (request.has("clock")) {
+            ProofClock.set(request.getString("clock"));
+        }
         if (Device.served()) {
             // The worker signs in as on their phone, which asks HQ for their key record and their data.
             found.put("signIn", Device.signIn());

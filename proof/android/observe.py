@@ -102,7 +102,7 @@ def _answers() -> dict:
     return json.loads(ANSWERS.read_text(encoding="utf-8"))
 
 
-def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False) -> dict:
+def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None) -> dict:
     from proof.android.hq import DevicePeer
     from proof.observe import services
 
@@ -120,21 +120,33 @@ def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered:
             answer = reader.request(op, peer=peer, worker=worker(served), **arguments)
         finally:
             peer.close()
+    if sent is not None:
+        # Each form the device sent HQ's receiver, as it sent it; its log reports are not forms.
+        sent.extend(
+            submission.instance for submission in peer.views.submissions if DEVICE_REPORT not in submission.instance
+        )
     return {"answer": blobs.put_json(answer), "hq": blobs.put_json([asdict(asked) for asked in peer.exchanges])}
 
 
 # What ``app`` is given for a device whose GPS gives the lane's own fix (``Sensors.java``).
 LANE_FIX = "lane"
+# The namespace of the log report a device sends its server beside its forms (``DeviceReportRecord``).
+DEVICE_REPORT = b"http://code.javarosa.org/devicereport"
 
 
-def app(served, blobs, *, label: str, archive: bytes, delivered: bool = False, fix=LANE_FIX) -> dict:
+def app(
+    served, blobs, *, label: str, archive: bytes, delivered: bool = False, fix=LANE_FIX, clock=None, sent=None
+) -> dict:
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's restore and forms
     delivered to HQ's own addresses for the worker and the app (``proof.android.hq``); ``fix`` where the device's
-    GPS puts it (``[latitude, longitude, altitude, accuracy]``, or None for a GPS that finds no fix)."""
+    GPS puts it (``[latitude, longitude, altitude, accuracy]``, or None for a GPS that finds no fix); ``clock`` the
+    device's instant where it is not the lane's; ``sent``, a list each form the device sent HQ is added to."""
     options = {"answers": _answers(), "queryAnswer": QUERY_ANSWER}
     if fix != LANE_FIX:
         options["position"] = fix
-    return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered)
+    if clock is not None:
+        options["clock"] = clock
+    return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent)
 
 
 def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:

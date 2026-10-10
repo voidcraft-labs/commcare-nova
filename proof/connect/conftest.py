@@ -20,13 +20,13 @@ it:
   receiver view under the app's id or, for the local archive, also with no
   app named, and the payload read where it reached Connect.
 
-A submission's location is the one value no code the lane runs writes: HQ's
-build adds the node and the action that fills it (``xform.py::
-XForm._add_meta_2``, ``orx:pollsensor``), and only CommCare Android runs that
-action (``org/commcare/android/javarosa/PollSensorAction.java``). So a
-submission "with a fix" here is Core's submission with a fix written into
-the meta's ``location`` node where the form holds one (``with_fix``), and is
-the same bytes where it holds none.
+A submission's location is written by CommCare Android alone: HQ's build adds
+the meta's location node and the action that fills it (``xform.py::
+XForm._add_meta_2``, ``orx:pollsensor``), and only Android runs that action
+(``org/commcare/android/javarosa/PollSensorAction.java``). So a submission
+"with a fix" here is the form a device's walk saved and sent HQ, with the fix
+the device's GPS gave the app (``proof.android.observe``, its ``fix``), on
+HQ's release or on Nova's local archive, which holds no node.
 
 ``DOCUMENTS`` names every corpus document these tests read, which keys the
 package's outcome in the evidence store (``proof.store.queue.PACKAGE_DATA``).
@@ -45,7 +45,7 @@ from pathlib import Path
 
 import pytest
 
-from proof.connect.hq import HQ_XMLNS, META_XMLNS, with_fix  # noqa: F401 - the tests read them here
+from proof.connect.hq import HQ_XMLNS, META_XMLNS  # noqa: F401 - the tests read them here
 
 # Every corpus document a Connect proof reads, by id: Nova's deliver app and learn app that each carry the edit
 # renaming their Connect ids, and the apps whose blocks are named like Connect's own keys (the deliver app whose
@@ -62,11 +62,13 @@ CONFIGURATION = "minimum"
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 # The day after the lane's own (``proof.core.client.DEFAULT_CLOCK``), for a worker's second visit.
 NEXT_DAY_CLOCK = "2026-01-16T10:30:00.000Z"
-# Three fixes as a device writes them (latitude, longitude, altitude, accuracy): one place, a place about four
-# metres from it, and a place more than a hundred kilometres away.
-FIX = "12.97160 77.59460 920.0 5.0"
-FIX_NEAR = "12.97164 77.59460 920.0 5.0"
-FIX_FAR = "13.97160 77.59460 920.0 5.0"
+# Three places a device's GPS puts it (latitude, longitude, altitude, accuracy): one place, a place about four
+# metres from it, and a place more than a hundred kilometres away; and each as the device writes it.
+FIX = (12.9716, 77.5946, 920.0, 5.0)
+FIX_NEAR = (12.97164, 77.5946, 920.0, 5.0)
+FIX_FAR = (13.9716, 77.5946, 920.0, 5.0)
+WRITTEN = "12.9716 77.5946 920.0 5.0"
+WRITTEN_NEAR = "12.97164 77.5946 920.0 5.0"
 
 
 @pytest.fixture(scope="session")
@@ -246,6 +248,34 @@ class _Paths:
         return self.submission(what, path, self.restore_plain, clock)
 
 
+def _devices(app, document) -> dict:
+    """The form a device's walk saves and sends HQ (``proof.android.observe``), on HQ's release and on Nova's local
+    archive (given the input the lane gives Core over it), at each place its GPS puts it, on the lane's day or the
+    next: ``hq+fix``, ``hq@next+near``, ``hq@next+far``, ``local+fix``, ``local@next+near``."""
+    from proof.android import observe as android
+    from proof.formplayer import hq as formplayer_hq
+    from proof.observe.record import Blobs
+
+    blobs, made = Blobs(), {}
+    with formplayer_hq.serve(app.unit, document, app.app_id) as served:
+        archives = {"hq": (android.release_archive(served), False), "local": (document.local_ccz.read_bytes(), True)}
+        for name, side, fix, clock in (
+            ("hq+fix", "hq", FIX, None),
+            ("hq@next+near", "hq", FIX_NEAR, NEXT_DAY_CLOCK),
+            ("hq@next+far", "hq", FIX_FAR, NEXT_DAY_CLOCK),
+            ("local+fix", "local", FIX, None),
+            ("local@next+near", "local", FIX_NEAR, NEXT_DAY_CLOCK),
+        ):
+            archive, delivered = archives[side]
+            sent = []
+            android.app(
+                served, blobs, label=name, archive=archive, delivered=delivered, fix=list(fix), clock=clock, sent=sent
+            )
+            assert len(sent) == 1, f"A device on {side} of {document.id} sent {len(sent)} forms where one form walks"
+            made[name] = sent[0]
+    return made
+
+
 def _build_in_fork(app, name, change):
     """HQ's build of the app after ``change`` is made to the published state, in a fork of it."""
     from proof.hq.seams import build_seams
@@ -367,9 +397,7 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
         if document.id == DELIVER:
             (form,) = [form for module in built.stored["doc"]["modules"] for form in module["forms"]]
             made["vellum"] = paths.build(_vellum_saved_build(app, editor_driver, form["unique_id"]).files, "vellum")
-            for name in [name for name in made if name.startswith(("hq", "local"))]:
-                for suffix, fix in (("fix", FIX), ("near", FIX_NEAR), ("far", FIX_FAR)):
-                    made[f"{name}+{suffix}"] = with_fix(made[name], fix)
+            made.update(_devices(app, document))
 
         submissions = _forwarded_by_hq(app, document, made, connect_runtime)
         return ConnectApp(

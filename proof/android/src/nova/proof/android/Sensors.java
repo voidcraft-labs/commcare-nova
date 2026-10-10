@@ -127,7 +127,7 @@ final class Sensors {
             fix.setLongitude(position[1]);
             fix.setAltitude(position[2]);
             fix.setAccuracy((float)position[3]);
-            fix.setTime(ProofClock.INSTANT);
+            fix.setTime(ProofClock.instant());
             fix.setElapsedRealtimeNanos(android.os.SystemClock.elapsedRealtimeNanos());
             Shadows.shadowOf(locationManager()).simulateLocation(fix);
             settle(activity);

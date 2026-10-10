@@ -1,12 +1,12 @@
-# The Android reader and the Android stage
+# The Android reader
 
 The Android reader runs commcare-android's own code, at the commit
 `proof/pins.json` names, over the archives a device installs: Nova's local
-`.ccz` exports and HQ's builds of what Nova publishes. The Android stage is the
-lane's use of it: for every document, every archive is read once, and proofs
-1, 3 and 4 are judged over what Android read and held to the known-defect
-register by the lane's gate. `proof/README.md` ("The Android stage") says how
-the stage sits in the lane; this file says what the reader is.
+`.ccz` exports and HQ's releases of what Nova publishes. The lane hands it
+every state a shard serves, beside HQ's live unit, with the device's network
+answered by HQ's own views over that state, and proofs 1, 3 and 4 judge what
+it did. `proof/README.md` ("Android in the unit") says how it sits in the
+lane; this file says what the reader is.
 
 It runs under Robolectric, the way commcare-android's own unit tests run
 (`app/unit-tests`): the project's application class for tests
@@ -25,9 +25,37 @@ device in the same JVM would start with the first one's.
 A device installs an archive the way a worker installs one from a file:
 `InstallArchiveActivity` unzips it and registers the folder, and a
 `ResourceEngineTask` installs the profile that reference names
-(`Device.java`). A restore is applied by the app's own `DataPullTask`, and the
-worker the restore registers becomes the device's worker, as the worker who
-logs in is on a real device. The requests (`Reader.java`):
+(`Device.java`).
+
+**The network.** A request given a peer (`client.py`, `peer.py`) is a device
+with a network: the app's own HTTP client (Core's
+`CommCareNetworkServiceGenerator`, which every request of the app's requester
+and data pull goes through) is given a loopback proxy the reader answers, as a
+device on a network with a proxy is given one (`Peer.java`). A plain request
+is sent to it whole, and an `https` one through a tunnel inside which the
+proxy speaks TLS for the host the app named, with a certificate of the
+reader's own authority, which the app's client is given to trust; everything
+else of the client is the app's (its interceptors, its credentials, its
+refusal to send a password in clear). Each request is answered by the peer's
+`http`, which in the lane is HQ's own views over the state the device is
+served (`hq.py`). The project's test application answers the app's network
+from its own mocks; with a network, the app's own requester, data pull and
+heartbeat run instead, each CommCareApplication's own method called through
+an invokespecial made from the test application, and the test application's
+start of a session, which Robolectric allows only on the main thread, runs
+there (`ProofApplication.java`). The worker HQ made signs in through the
+app's own pipeline (`LoginViewModel`, `LoginController`: the key record
+from the profile's key server, the data pull with the worker's own
+credentials, the session started with the user the restore brought). The
+device tells the harness where each walk begins and where it goes back to
+sign in again (`Peer.run`, `Peer.base`), and Core's random source is seeded
+there, so what the device sends is the same on every run. Without a peer, a
+restore is applied by the app's own `DataPullTask` from a file, through the
+test application's local requester, and the worker the restore registers
+becomes the device's worker (the reader's own checks and the spelling rules'
+predicates run so).
+
+The requests (`Reader.java`):
 
 - **`app`**: the install's status; each of Android's profile readers on the
   installed app (`Profile.java`: `HiddenPreferences`,
@@ -73,8 +101,11 @@ logs in is on a real device. The requests (`Reader.java`):
     the screen's own views (a text box typed into, a spinner set, a check box
     ticked; a date range is chosen on a picker the walk does not open), with
     the errors Core's query manager then holds: the strings a search builds
-    from a typed answer, CSQL among them. The search is then answered with every
-    case of the asked types the device holds, as the Core runner answers one;
+    from a typed answer, CSQL among them, which the screen's own button then
+    sends. With a network every search goes to the server the suite names
+    (HQ's search view, which compiles it and queries HQ's Elasticsearch);
+    without one the test requester answers with every case of the asked
+    types the device holds;
   - a **claim** (`PostRequestActivity`, `Posts.java`): what it posts, then
     the sync the screen runs with the app's own data pull;
   - a **form** (`FormEntryActivity`, `Forms.java`): its header, its title and
@@ -115,8 +146,12 @@ logs in is on a real device. The requests (`Reader.java`):
     fix). The cases the device then holds are recorded, each one it made itself
     named by its place among them, ordered by what each holds; where the
     device does not save the form, so are its cases then, and whether they
-    are the ones it held as the form opened. Nothing is sent. What home starts next is part of the same walk, so a
-    walk shows where a worker lands after a form.
+    are the ones it held as the form opened. With a network, home then sends
+    the form as it sends any form it was handed complete (its
+    `FormAndDataSyncer`), to the address the profile names, and the records
+    the device holds after the send are recorded (`afterSend`). What home
+    starts next is part of the same walk, so a walk shows where a worker
+    lands after a form.
 
   A walk ends where home starts nothing (with the alert home holds for the
   worker), at a menu after a form, at a screen it cannot leave, which it
@@ -126,7 +161,8 @@ logs in is on a real device. The requests (`Reader.java`):
   A form it has not opened yet is followed whatever the count, and a walk
   that has taken two hundred steps without ending fails the request. A walk that saved a form or claimed a
   case leaves the next a device made again: the worker's sandbox wiped by
-  the app's own call and the restore applied again.
+  the app's own call and the worker signed in again (or the restore applied
+  again, without a network).
 - **`installs`**: several archives installed in turn on one device, each
   status (`ProfileAndroidInstaller.checkDuplicate` among them) and the apps
   the device then holds.
@@ -149,44 +185,6 @@ reaches (`now()`, `today()` and a suite text's `dow()`) from Core's own source
 in the runtime with that one expression reading the reader's clock, as the
 Core runner and the Formplayer runner do (`ProofClock.java`). So a form or a
 list that shows or stores the day reads the same on every run.
-
-## The stage
-
-`records.py` turns a document's records into the reader's requests: `app` for
-Nova's `local.ccz`, for A, B and B-edit of each configuration, and for each
-editor save whose build is not the one it was saved over; `installs` for the
-two local exports and for A then B; `update` for `local.ccz` to
-`local-again.ccz` and for A to B (every form left incomplete, a worker's own
-settings), and for B to each save whose profile is not B's. The archives are
-the ones the records keep (`proof/observe/build.py::device_archive`: HQ's own
-download arrangement with the app's multimedia, each entry a blob; an archive
-of a state HQ would not release is not read), and each state's restore is the
-one its sessions read.
-
-Each request has a key: the digest of every entry of each archive it reads,
-its restore, its options and the reader (`records.fingerprint`: the reader's
-files, the commcare-android and commcare-core pins, the answer table, the
-toolchain and the platform). `stage.py` reads an answer the evidence store
-holds under that key and has the reader make the rest, so an archive read
-before is never read again; then `proof/checks/android.py` judges. Requests
-of one document often share a key (one build under two configurations'
-names), and the stage answers a key once, in a scratch directory of its own
-that nothing writes again: two devices given one key's archive at once would
-each have it written for them, and a write landing while the other device
-unzips it truncates the archive under `UnzipTask`, which then unzips nothing
-and leaves `InstallArchiveActivity` open with no result. A local run
-over what a lane run observed:
-
-```bash
-python3 -m proof.store.queue android --corpus .proof/out/corpus --observed .proof/out \
-  --android-platform host --out <queue file>
-PROOF_ANDROID_RUNTIME=<runtime> python3 -m proof.android.stage run --queue <queue file> \
-  --corpus .proof/out/corpus --out <new directory> --records .proof/out
-python3 -m proof.android.stage show --out <that directory>
-```
-
-`--records` also writes each document's record, every answer as the judges
-read it (`blocks/<id>/android/<kind>-<id>.json`).
 
 ## The runtime
 
@@ -229,7 +227,8 @@ Everything a build downloads is named exactly (`toolchain.json`):
   file that build needs, to review and commit.
 
 A runtime is kept in CI under the digest of all of that
-(`toolchain.py key`), so it is built once a pin.
+(`toolchain.py key`), so it is built once a pin, and the proof shards mount it
+into the harness's container with its JDK, at the paths it was built at.
 
 Four things about the build that are not in commcare-android's own
 documentation:
@@ -262,9 +261,8 @@ documentation:
 
 ### Where it runs
 
-The reader runs on linux/amd64 and on macOS, and not on linux/arm64, where
-the lane's shards run, which is why the stage is jobs of its own. Run there, a
-device does not start: Robolectric loads Conscrypt as it builds the
+The reader runs on linux/amd64 and on macOS, and not on linux/arm64, which
+is why the lane's shards run on amd64. Run there, a device does not start: Robolectric loads Conscrypt as it builds the
 application, and Conscrypt ships no library for it (`UnsatisfiedLinkError: no
 conscrypt_openjdk_jni-linux-aarch_64`). Behind that, Robolectric's own native
 runtime (the SQLite every commcare-android database opens through) ships for
@@ -280,12 +278,11 @@ image the lane publishes.
 
 ## Checks
 
-Three sets of tests hold the stage, each where it can run.
+Three sets of tests hold the reader, each where it can run.
 
 `selfcheck.py` and `predicates.py` run commcare-android's own code, so they
-run where the reader does (the job that builds or restores the runtime runs
-both, on every CI run); neither is a `test_*.py`, because the lane's pytest collects all of
-`proof/` in an image that holds no reader runtime.
+run where the runtime is built or restored (the job before the shards, on
+every CI run, on the runner's own Python); neither is a `test_*.py`.
 
 - `selfcheck.py` holds the reader to itself: every capture question of a
   form is given its file through its own screen and the form saves, written
@@ -296,12 +293,10 @@ both, on every CI run); neither is a `test_*.py`, because the lane's pytest coll
   is refused and the one it was made from installs; one device refuses the
   same app twice and each request is a device of its own; a walk opens the
   forms the suite names; a request the reader cannot answer raises; an
-  archive written from a store is a function of its entries. And it holds the
-  stage end to end on the real reader with a planted difference: with Nova's
-  local archive the build's own bytes the stage reports nothing and every
-  item passes, and with one setting planted in the local profile it reports
-  that setting's reader and the home screen's button, nothing else, and
-  proof 3 fails for want of a register entry.
+  And it holds proof 3's judge on the real reader with a planted
+  difference: two readings of one archive differ in nothing, and with one
+  setting planted in the profile the judge reports that setting's reader and
+  the home screen's button, nothing else.
 - `predicates.py` runs each Android predicate the register rests on over both
   spellings of its difference: a retained control's archive, and that archive
   with exactly the difference written in. The settings HQ's profile writes
@@ -325,13 +320,11 @@ both, on every CI run); neither is a `test_*.py`, because the lane's pytest coll
   breaking its constraint, and shown as its text), while a question label's
   image is laid out (defect 16's media slots).
 
-`test_stage.py` and `proof/checks/test_android.py` run in the lane, with no
-reader: the stage's own logic over a stand-in reader that answers from an
-archive's bytes (each archive read once, a changed archive read again and no
-other, a planted difference held or failing, a control judged by the checks
-that name it, a reader's failure kept as no answer, the gate holding the
-Android queue to exactly once and the stage's evidence beside the shards'),
-and the judge over planted differences.
+`test_peer.py` and `proof/checks/test_android.py` run in the lane: the
+proxy's transport (a request through it, plain or tunnelled, reaches the
+harness as the client wrote it, its answer the client, and a request the
+harness cannot answer ends the request), and the judges over planted
+differences and the records a shard keeps.
 
 `proof/checks/test_device_archive.py` runs in the lane too: the archive a
 state keeps is HQ's own download with the media its suite names, and a
@@ -339,12 +332,6 @@ document without media keeps exactly its index files.
 
 ## What the reader does not show
 
-- **The network.** Nothing is sent: a form is saved and applied to the
-  device, and where Android would post it (the address the profile names, or
-  Android's own default for a profile that names none) is not run. A search
-  is answered with the device's own cases of the asked types, so what a
-  search's filter selects is not read on a device (Formplayer's searches are
-  answered by HQ's own search view over HQ's own Elasticsearch).
 - **Drawing.** Robolectric lays views out and does not draw them: a cell's
   class, text, gravity, text size, scale type and width are read; a rendered
   picture, a played sound, a font's own metrics are not.

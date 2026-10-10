@@ -15,20 +15,40 @@ import java.util.Date;
  * classes from Core's own source at the pinned checkout with that one expression changed to ProofClock.now(),
  * and puts them ahead of Core's on the classpath (proof/android/client.py), as the Core runner and the
  * Formplayer runner do (proof/core ProofClock). Every other line of each class is Core's. The instant is the one
- * the lane's Core sessions run at, so a form on a device reads the day it reads there.
+ * the lane's Core sessions run at, so a form on a device reads the day it reads there; a request may name another
+ * ({@code clock}), as a Core session may, for a worker's later day.
  *
  * What Android itself stamps with the wall clock (a form record's last change, a log line) is in no record.
  */
 public final class ProofClock {
     static final long INSTANT = 1768473000000L; // 2026-01-15T10:30:00.000Z
-    static final String TODAY = "2026-01-15";
-    static final String NOW = "2026-01-15T10:30:00.000Z";
+    private static long instant = INSTANT;
 
     private ProofClock() {
     }
 
     public static Date now() {
-        return new Date(INSTANT);
+        return new Date(instant);
+    }
+
+    static long instant() {
+        return instant;
+    }
+
+    /** The clock at {@code iso} (an instant in UTC, {@code 2026-01-16T10:30:00.000Z}). */
+    static void set(String iso) {
+        instant = java.time.Instant.parse(iso).toEpochMilli();
+    }
+
+    /** The clock's day, as Core spells a date. */
+    static String today() {
+        return java.time.Instant.ofEpochMilli(instant).toString().substring(0, 10);
+    }
+
+    /** The clock's instant, as Core spells a date-time. */
+    static String nowText() {
+        return java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.ofEpochMilli(instant));
     }
 
     /** Refuses to read where the JVM loaded Core's own clock readers rather than the reader's. */

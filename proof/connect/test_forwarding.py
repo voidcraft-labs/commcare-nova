@@ -19,7 +19,7 @@ Connect; a project space that forwards without Data Forwarding.
 
 import pytest
 
-from proof.connect.conftest import DELIVER
+from proof.connect.conftest import DELIVER, WRITTEN
 from proof.observe.record import Blobs
 
 
@@ -95,10 +95,10 @@ def test_a_devices_form_reaches_connect_through_hqs_own_receiver_and_repeater(fo
     (post,) = run["posts"]
     assert (post["status"], post["raised"]) == (200, [])
     assert (post["payload"]["app_id"], post["payload"]["build_id"]) == ("@app", "@build")
-    assert post["payload"]["metadata"]["location"] == "12.97160 77.59460 920.0 5.0"
+    assert post["payload"]["metadata"]["location"] == WRITTEN
     assert "home_visit" in post["payload"]["form"]
     (visit,) = run["state"]["visits"]
-    assert (visit["deliverUnit"], visit["location"]) == ("home_visit", "12.97160 77.59460 920.0 5.0")
+    assert (visit["deliverUnit"], visit["location"]) == ("home_visit", WRITTEN)
 
 
 @pytest.mark.under_determinism

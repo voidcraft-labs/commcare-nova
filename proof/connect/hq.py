@@ -299,22 +299,3 @@ def device_request(path: str, username: str, password: str, submission_xml: byte
 
 META_XMLNS = "http://openrosa.org/jr/xforms"
 HQ_XMLNS = "http://commcarehq.org/xforms"
-
-
-def with_fix(submission: bytes, fix: str) -> bytes:
-    """``submission`` with ``fix`` written into its meta's location node; the same bytes where it holds none.
-
-    A submission's location is the one value no code the lane runs writes: HQ's build adds the node and the
-    action that fills it (``xform.py::XForm._add_meta_2``, ``orx:pollsensor``), and only CommCare Android runs
-    that action (``org/commcare/android/javarosa/PollSensorAction.java``)."""
-    from lxml import etree
-
-    from proof.checks.compare.xml_tree import parse_xml
-
-    root = parse_xml(submission)
-    nodes = root.findall(f"{{{META_XMLNS}}}meta/{{{HQ_XMLNS}}}location")
-    if not nodes:
-        return submission
-    for node in nodes:
-        node.text = fix
-    return etree.tostring(root, encoding="utf-8", xml_declaration=True)

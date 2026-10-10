@@ -30,7 +30,15 @@ import zipfile
 import pytest
 
 from proof.checks.compare.xml_tree import parse_xml
-from proof.connect.conftest import DELIVER, DELIVER_KEY_NAMES, LEARN, LEARN_KEY_NAMES, TASK_NAMED_TASK
+from proof.connect.conftest import (
+    DELIVER,
+    DELIVER_KEY_NAMES,
+    LEARN,
+    LEARN_KEY_NAMES,
+    TASK_NAMED_TASK,
+    WRITTEN,
+    WRITTEN_NEAR,
+)
 
 HQ_URL = "https://www.commcarehq.org"
 PROFILE_XMLNS = "http://cihi.commcarehq.org/jad"
@@ -252,12 +260,12 @@ def test_a_local_archives_submission_names_no_app_and_connect_refuses_it(world, 
 
 
 def test_only_hqs_build_carries_a_location_to_connect(world):
-    """HQ's build holds the meta's location node, so a device's fix reaches Connect as the visit's location;
-    Nova's local archive holds none, so the same fix has nowhere to be written and Connect is given null."""
+    """HQ's build holds the meta's location node, so the fix a device's GPS gave the form's sensor poll reaches
+    Connect as the visit's location; Nova's local archive holds none, so on a device with the same fix the form
+    has nowhere to write it and Connect is given null. Core, which has no GPS, writes none on either."""
     submissions = world.deliver.submissions
     assert submissions["hq"].payload["metadata"]["location"] is None
-    assert submissions["hq+fix"].payload["metadata"]["location"] == "12.97160 77.59460 920.0 5.0"
-    assert submissions["local+fix"].xml == submissions["local"].xml
+    assert submissions["hq+fix"].payload["metadata"]["location"] == WRITTEN
     assert submissions["local+fix"].payload["metadata"]["location"] is None
 
 
@@ -279,7 +287,7 @@ def test_gps_verification_flags_every_delivery_that_carries_no_location(world):
     posts, state = world.delivered("gps-hq-fix", gps_on, world.post(world.deliver, "hq+fix"))
     answered(posts[0])
     (visit,) = state["visits"]
-    assert (visit["status"], visit["flags"], visit["location"]) == ("approved", None, "12.97160 77.59460 920.0 5.0")
+    assert (visit["status"], visit["flags"], visit["location"]) == ("approved", None, WRITTEN)
     assert state["access"]["paymentAccrued"] == PAY
 
 
@@ -306,7 +314,7 @@ def test_the_distance_check_passes_over_a_delivery_that_carries_no_location(worl
     checked = second("distance-local-checked", "hq+fix", "local@next+near")
     assert (checked["status"], checked["flags"], checked["location"]) == ("approved", None, None)
     other = second("distance-local-other", "local+fix", "hq@next+near")
-    assert (other["status"], other["flags"], other["location"]) == ("approved", None, "12.97164 77.59460 920.0 5.0")
+    assert (other["status"], other["flags"], other["location"]) == ("approved", None, WRITTEN_NEAR)
 
 
 # Finding 55: the work area id HQ's form designer writes ------------------------------------------------------------
