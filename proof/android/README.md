@@ -52,7 +52,9 @@ start of a session, which Robolectric allows only on the main thread, runs
 there (`ProofApplication.java`). The worker HQ made signs in through the
 app's own pipeline (`LoginViewModel`, `LoginController`: the key record
 from the profile's key server, the data pull with the worker's own
-credentials, the session started with the user the restore brought). The
+credentials, the session started with the user the restore brought); a
+worker who cannot sign in stays at the sign-in screen, and the device walks
+no menu. The
 device tells the harness where each walk begins and where it goes back to
 sign in again (`Peer.run`, `Peer.base`), and Core's random source is seeded
 there, so what the device sends is the same on every run. Without a peer, a
@@ -306,8 +308,11 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
   is refused and the one it was made from installs; one device refuses the
   same app twice and each request is a device of its own; a walk opens the
   forms the suite names; a request the reader cannot answer raises; an
-  And it holds proof 3's judge on the real reader with a planted
-  difference: two readings of one archive differ in nothing, and with one
+  A detail tab that lists a row a node shows a row for each node the
+  nodeset gives in the chosen case's context (`basic_tests.ccz`, an archive
+  HQ built that the project's instrumentation tests install, over a restore
+  of one case and its two children). And it holds proof 3's judge on the
+  real reader with a planted difference: two readings of one archive differ in nothing, and with one
   setting planted in the profile the judge reports that setting's reader and
   the home screen's button, nothing else.
 - `predicates.py` runs each Android predicate the register rests on over both

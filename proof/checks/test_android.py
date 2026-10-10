@@ -665,3 +665,24 @@ def test_a_devices_refusal_is_its_own_only_where_formplayers_walk_never_met_it()
     met = [{"view": "app_aware_remote_search", "status": 400, "said": "Invalid date value 3", "raised": None}]
     found = android.device_only_refusals({"hq": [shared, own], "formplayerHq": met})
     assert [entry["said"] for entry in found] == ["Unknown function x"]
+
+
+def test_the_judges_read_a_tablet_from_the_keys_a_tablet_is_kept_under():
+    """Contract: ``document_record(records, tablet=True)`` reads every state's tablet (``androidTablet``, the
+    local archive's ``androidDeliveredTablet``), and never a phone's, and leaves the installs, the update and
+    the local archive's own sign-in to the phones. Failure it catches: a phone's answer judged as a tablet's, so a
+    tablet's own screens are never compared."""
+    blobs = _Blobs()
+    phone, tablet, local_tablet = _app(), _app(), _app()
+    parts = _Parts(
+        a={"hooks": {"served": {"A": {"android": _device(blobs, phone), "androidTablet": _device(blobs, tablet)}}}},
+        b_aligned={
+            "served": {
+                "local": {"android": _device(blobs, _app()), "androidDeliveredTablet": _device(blobs, local_tablet)},
+                "devices": {"local": {"installs": _device(blobs, {"installs": []})}},
+            }
+        },
+    )
+    record = android.document_record(_Records(blobs, {"minimum": parts}), tablet=True)
+    assert record["configurations"]["minimum"]["A"]["app"] is tablet
+    assert record["local"] == {"app": local_tablet}

@@ -86,8 +86,14 @@ final class Screens {
         }
         if (Device.served()) {
             // The worker signs in as on their phone, which asks HQ for their key record and their data.
-            found.put("signIn", Device.signIn());
+            String signedIn = Device.signIn();
+            found.put("signIn", signedIn);
             found.put("profile", Profile.read());
+            if (!signedIn.startsWith("Success(")) {
+                // A worker who cannot sign in stays at the sign-in screen and reaches no menu.
+                found.put("walks", new JSONObject());
+                return found;
+            }
         } else {
             Device.login();
             found.put("profile", Profile.read());

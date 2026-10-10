@@ -7602,6 +7602,17 @@
 		"control": "case-capture-followup"
 	},
 	{
+		"id": "d7-android-proof3-local-ccz-form-saved-aftersend-removed",
+		"defect": 7,
+		"part": "saved and incomplete forms (a sent form the device keeps)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/saved/afterSend/*",
+		"kind": "removed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
 		"id": "d20-android-proof3-local-ccz-ter-menuactivity-home-session-refresh-required-formentryactivity-changed",
 		"defect": 20,
 		"part": "sync on form entry (the session)",
@@ -8034,6 +8045,17 @@
 		"check": "proof3",
 		"artifact": "android@local.ccz",
 		"path": "/profile/readers/FormSubmissionHelper.getFormPostURL",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-network-signin-changed",
+		"defect": 59,
+		"part": "local archive names no server (where a device signs in)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/network/signIn",
 		"kind": "changed",
 		"document": "case-capture-followup",
 		"control": "case-capture-followup"
