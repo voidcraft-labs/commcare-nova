@@ -97,6 +97,9 @@ final class Forms {
         describe(activity, started, form);
         // The cases the device holds as the form opens, to say whether a form it then refuses left any mark.
         String casesBefore = Cases.read().toString();
+        // The records the device held as the form opened, each with its status: what this form's save and send
+        // did is what changed from them (a form sent before is its own form's, under its own afterSend).
+        java.util.Map<Integer, String> heldBefore = statuses();
         // What the form asks the device for as it opens (the location permission, for a form that captures
         // one).
         Screens.deviceAsks(home, form);
@@ -211,7 +214,7 @@ final class Forms {
             // device should hold the cases it held as the form opened. The form is left as the worker's back
             // button and "do not save" leave it, so home is where it was.
             Device.dirty = true;
-            saved.put("records", records());
+            saved.put("records", changedSince(heldBefore));
             JSONArray held = Cases.read();
             saved.put("cases", held);
             saved.put("casesAsTheFormOpened", held.toString().equals(casesBefore));
@@ -221,7 +224,7 @@ final class Forms {
         // The save applied the form's case blocks to the device (FormRecord.updateAndProcessRecord): the form's
         // record and the cases the device now holds, read before home is handed the result.
         Device.dirty = true;
-        saved.put("records", records());
+        saved.put("records", changedSince(heldBefore));
         saved.put("cases", Cases.read());
         home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
         ShadowLooper.idleMainLooper();
@@ -231,7 +234,7 @@ final class Forms {
             // FormSubmissionHelper) with the worker's credentials. What the device holds of each record once the
             // send has ended: a record HQ took is no longer unsent.
             Device.settle();
-            saved.put("afterSend", records());
+            saved.put("afterSend", changedSince(heldBefore));
         }
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
@@ -262,22 +265,46 @@ final class Forms {
                 ? new String[0] : FormEntryActivity.mFormController.getLanguages()));
     }
 
+    /** Every form record the device holds by its id, with its status. */
+    static java.util.Map<Integer, String> statuses() {
+        java.util.Map<Integer, String> found = new java.util.HashMap<>();
+        for (FormRecord record : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
+            found.put(record.getID(), record.getStatus());
+        }
+        return found;
+    }
+
+    /** The form records that are new or whose status changed since {@code before} ({@code statuses}). */
+    static JSONArray changedSince(java.util.Map<Integer, String> before) throws Exception {
+        JSONArray found = new JSONArray();
+        for (FormRecord record : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
+            if (!record.getStatus().equals(before.get(record.getID()))) {
+                found.put(described(record));
+            }
+        }
+        return found;
+    }
+
     /** Every form record the device holds: its status and name, and whether the app still holds its form. */
     static JSONArray records() throws Exception {
         JSONArray found = new JSONArray();
         for (FormRecord record : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
-            JSONObject entry = new JSONObject();
-            entry.put("status", record.getStatus());
-            entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
-            entry.put("AndroidCommCarePlatform.getFormDefId", CommCareApplication.instance().getCommCarePlatform()
-                    .getFormDefId(record.getFormNamespace()) == -1 ? "none" : "held");
-            String location = metaLocation(record);
-            if (location != null) {
-                entry.put("metaLocation", location);
-            }
-            found.put(entry);
+            found.put(described(record));
         }
         return found;
+    }
+
+    private static JSONObject described(FormRecord record) throws Exception {
+        JSONObject entry = new JSONObject();
+        entry.put("status", record.getStatus());
+        entry.put("FormRecord.getDisplayName", Screens.orNull(record.getDisplayName()));
+        entry.put("AndroidCommCarePlatform.getFormDefId", CommCareApplication.instance().getCommCarePlatform()
+                .getFormDefId(record.getFormNamespace()) == -1 ? "none" : "held");
+        String location = metaLocation(record);
+        if (location != null) {
+            entry.put("metaLocation", location);
+        }
+        return entry;
     }
 
     /** The OpenRosa meta block's namespace, which holds the location a form's poll of the sensor writes. */

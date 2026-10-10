@@ -163,7 +163,9 @@ The requests (`Reader.java`):
     are the ones it held as the form opened. With a network, home then sends
     the form as it sends any form it was handed complete (its
     `FormAndDataSyncer`), to the address the profile names, and the records
-    the device holds after the send are recorded (`afterSend`). What home
+    the send changed are recorded (`afterSend`). A form's records are the
+    ones its save and its send made or changed: a form sent before it is
+    that form's own, under its own `afterSend`. What home
     starts next is part of the same walk, so a walk shows where a worker
     lands after a form.
 
