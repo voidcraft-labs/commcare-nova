@@ -95,9 +95,14 @@ harness keeps, each with its reason.
   `cc-show-incomplete`), so a claim that two builds are alike says nothing
   of them: release the state and read the page. A step waits on what the
   client itself waits on (its route, its own request-in-flight flag, a
-  dialog done opening or closing), never on a time or on the page merely
-  being quiet: the client asks Formplayer after timers and animations of its
-  own, and a screen read before it arrived is a race the record would hold. A computed style means
+  dialog done opening or closing) and on the client's own short timers
+  having run (`steps/page/timers.js`: its answer throttle, a dialog's
+  transition), never on a time or on the page merely being quiet: the client
+  asks Formplayer after timers and animations of its own, and a screen read,
+  or a click made, before it got there is a race the record would hold (a
+  hosted run once submitted a form before the client's throttled answer, and
+  its list showed a case more). A worker acts once the page has finished
+  reacting. A computed style means
   something only under HQ's stylesheets; never read one from a page that
   loaded none. The client has a browser of its own (proof 4 shows a saved
   app while the page that saved it is still open), and is shown a state only

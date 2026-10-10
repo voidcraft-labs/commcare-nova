@@ -46,10 +46,13 @@
 //   every step marked "unlessUnsent" is skipped),
 //   "followRedirect" (that, and when HQ's answer sent the page elsewhere,
 //   until the redirected document has loaded) and "settle" (until none of
-//   the page's requests is in flight, a frame and a task later still). With
+//   the page's requests is in flight, a frame and a task later still; with
+//   "timers", and none of the page's own short timers still set). With
 //   "seed" ({seed, epoch}) the context runs steps/page/seed.js before each
-//   document's own scripts. Every document of every page the driver opens
-//   first runs steps/page/polls.js, which holds the page's polls.
+//   document's own scripts, and with "timers" steps/page/timers.js, which
+//   counts the page's short one-off timers. Every document of every page
+//   the driver opens first runs steps/page/polls.js, which holds the page's
+//   polls.
 // - "view": one load of an app-manager page on the driver's reused view
 //   page, every offered section's save held and then released into its own
 //   phase (see below).
@@ -2299,11 +2302,29 @@ async function runSteps(page, run, steps) {
 				if (entry.redirectLoaded) await entry.redirectLoaded;
 			} else if (step.settle !== undefined) {
 				// The page is quiet: none of its requests in flight, and so still
-				// a frame and four tasks later (FRAME_AND_TASK).
+				// a frame and four tasks later (FRAME_AND_TASK). With "timers"
+				// (a run whose documents count their short timers,
+				// steps/page/timers.js), none of the page's own short timers is
+				// still set either: what such a timer runs may start a request,
+				// so the two are waited for in turn until both hold at once.
 				for (;;) {
 					await run.idle();
+					if (step.timers) {
+						await waitInPage(
+							run.cdp,
+							{ expression: "() => window.proofShortTimers() === 0" },
+							null,
+							{ polling: "raf", timeoutMs: run.remaining() },
+						);
+					}
 					await pageValue(run.cdp, FRAME_AND_TASK);
-					if (!run.pageInFlight.size && !run.inFlight.size) break;
+					if (
+						!run.pageInFlight.size &&
+						!run.inFlight.size &&
+						(!step.timers ||
+							(await pageValue(run.cdp, "window.proofShortTimers()")) === 0)
+					)
+						break;
 				}
 			} else {
 				throw new StepFailed(
@@ -2348,6 +2369,9 @@ async function runOperation(message) {
 			);
 		}
 		await context.addInitScript({ content: stepCall("page/polls") });
+		if (message.timers) {
+			await context.addInitScript({ content: stepCall("page/timers") });
+		}
 		if (message.seed) {
 			await context.addInitScript({
 				content: stepCall("page/seed", message.seed),

@@ -260,7 +260,7 @@ class Session:
             )
             return PageResponse(exchange.response.status, list(answered), exchange.response.body)
 
-        steps = [{"goto": self.home}, {"settle": True}, *steps]
+        steps = [{"goto": self.home}, {"settle": True, "timers": True}, *steps]
         seed = {
             "seed": hashlib.sha256(json.dumps(steps, sort_keys=True).encode()).hexdigest()[:32],
             "epoch": seeding.epoch_ms(),
@@ -271,7 +271,12 @@ class Session:
         try:
             with override_settings(FORMPLAYER_URL_WEBAPPS=FORMPLAYER_PREFIX), static.compiled():
                 run = self.driver.run(
-                    steps, answer=answer, deadline=deadline, cookies={SESSION_COOKIE: self.hq.session_key}, seed=seed
+                    steps,
+                    answer=answer,
+                    deadline=deadline,
+                    cookies={SESSION_COOKIE: self.hq.session_key},
+                    seed=seed,
+                    timers=True,
                 )
         except EditorDriverError as error:
             refused = "".join(

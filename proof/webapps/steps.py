@@ -4,15 +4,18 @@ Each is a step of the editor driver's ``run`` operation
 (``proof/editors/driver/driver.mjs``) or one of the Web Apps step files
 (``proof/editors/driver/steps/webapps``). A click waits for the element the
 client renders, clicks it as a person does, and then waits until the page is
-quiet (none of its requests in flight, a frame and a task later still), so
-the next step reads what the click led to.
+quiet (none of its requests in flight and none of the client's own short timers
+still set, a frame and a task later still), so the next step reads what the
+click led to, as a worker acts only once the page has finished reacting.
 """
 
 from __future__ import annotations
 
 # What the page shows now (steps/webapps/screen.js).
 SCREEN = {"call": "webapps/screen"}
-SETTLE = {"settle": True}
+# The page quiet: none of its requests in flight, none of the client's own short timers still set (a throttled
+# answer, a dialog's transition: driver/steps/page/timers.js), a frame and a task later still.
+SETTLE = {"settle": True, "timers": True}
 
 APP_TILE = "#menu-region .appicon-default"
 MENU_ROW = "#menu-region .menus-container > tr"

@@ -1233,8 +1233,18 @@ a step clicks what a worker clicks, or reads what the page shows.
   between states on loaded runners. An answer waits for the request the
   client sends for it (after its knockout bindings and a throttle), and
   Submit for Formplayer's answer to the submission and the client's
-  arrival wherever that takes it. A step that waited out its deadline says
-  what the client was still doing.
+  arrival wherever that takes it. After every step the page is quiet only
+  once none of the client's own short one-off timers (under a second, which
+  `steps/page/timers.js` counts from the moment the page sets one) is still
+  set and none of its requests is in flight: Formplayer hands back a stored
+  text answer trimmed once it reads the form again, the client then sends
+  Formplayer's value as that question's answer, from its answer throttle's
+  trailing timer where the question was answered under 200 ms before, and a
+  step that waited only for requests went on while that timer was set, so
+  which value the client submitted depended on the runner's speed (a hosted
+  run's list showed a case more). A notification's fade is a longer timer,
+  a lifetime a worker watches, and is not waited for. A step that waited
+  out its deadline says what the client was still doing.
 - **A document's record** (`observe.py`): Formplayer's own walk of the
   release, every run replayed whole in the browser in one page: the app's
   first screen, each choice clicked as a worker clicks it (a case's detail

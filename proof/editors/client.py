@@ -356,6 +356,7 @@ class EditorDriver:
         deadline: float = 120.0,
         cookies: Mapping[str, str] | None = None,
         seed: Mapping[str, Any] | None = None,
+        timers: bool = False,
     ) -> dict[str, Any]:
         """Runs page steps in a fresh browser context, answering the page's HQ requests with ``answer``.
 
@@ -363,13 +364,17 @@ class EditorDriver:
         response to a page the run does not load (the form designer page, for
         the Vellum host) would have set in the browser. ``seed`` (``{seed,
         epoch}``) fixes the pages' clock and randomness
-        (``driver/steps/page/seed.js``).
+        (``driver/steps/page/seed.js``). With ``timers`` every document counts
+        its short one-off timers (``driver/steps/page/timers.js``), for the
+        steps that settle on them.
         """
         message: dict[str, Any] = {"op": "run", "steps": list(steps)}
         if cookies:
             message["cookies"] = cookie_list(cookies)
         if seed is not None:
             message["seed"] = dict(seed)
+        if timers:
+            message["timers"] = True
         return self.operation(message, answer=answer, deadline=deadline)
 
     def operation(
