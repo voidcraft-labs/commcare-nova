@@ -700,9 +700,10 @@ jobs:
     needs: proof-plan
     runs-on: ${{ matrix.runner }}
     # A shard serves each state of its documents to Formplayer and walks every
-    # run of each whole in the Web Apps client, a fresh page a run; a cold
-    # shard takes 25 to 45 minutes, so the deadline only catches a stuck one.
-    timeout-minutes: 90
+    # run of each whole in the Web Apps client, a fresh page a run, on a
+    # desktop, on a phone and in App Preview, for every case of each list and
+    # in every language the app holds; the deadline only catches a stuck one.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.proof-plan.outputs.matrix) }}

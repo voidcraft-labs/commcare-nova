@@ -488,7 +488,11 @@ class EditorDriver:
                 self._answer(received["hq"], answer)
                 continue
             if "phase" in received:
+                # What the caller does at a phase (a fork opened, a saved state read and served) is its own work,
+                # not the driver's: the driver moves its deadline on by as long as it takes, and so does this.
+                held = time.perf_counter()
                 self._phase(received["phase"], on_phase)
+                ends += time.perf_counter() - held
                 continue
             if received.get("id") != request_id:
                 self._stop_process()

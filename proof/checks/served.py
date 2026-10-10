@@ -148,24 +148,34 @@ def _by_case(value):
 
 
 def _form_step(step):
-    """A form's step as compared: each answer as the question, the value and Formplayer's verdict, and the
-    question tree once, as it stands after the last answer."""
+    """A form's step as compared: each answer, and each the client sent of its own (``resent``), as the question,
+    the value and Formplayer's verdict (a resent answer with the place of the answer it followed), and the
+    question tree once, as it stands after the last of them."""
     shown = dict(step)
     tree = None
-    answers = []
-    for answer in step.get("answers") or []:
-        response = answer.get("response") or {}
-        answers.append(
-            {
-                "ix": answer.get("ix"),
-                "value": answer.get("value"),
-                "status": response.get("status"),
-                "reason": response.get("reason"),
-                "type": response.get("type"),
-            }
-        )
+
+    def summary(sent):
+        nonlocal tree
+        response = sent.get("response") or {}
         if isinstance(response.get("tree"), list):
             tree = response["tree"]
+        return {
+            "ix": sent.get("ix"),
+            "value": sent.get("value"),
+            "status": response.get("status"),
+            "reason": response.get("reason"),
+            "type": response.get("type"),
+        }
+
+    answers, resent = [], []
+    sent_after = {}
+    for sent in step.get("resent") or []:
+        sent_after.setdefault(sent.get("after"), []).append(sent)
+    for position, answer in enumerate(step.get("answers") or []):
+        answers.append(summary(answer))
+        resent.extend({**summary(sent), "after": position} for sent in sent_after.get(position, ()))
+    if "resent" in step:
+        shown["resent"] = resent
     shown["answers"] = answers
     if tree is not None:
         shown["tree"] = tree

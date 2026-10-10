@@ -23,7 +23,11 @@
 // irrelevant there); and "held" where the client keeps Next from being
 // pressed (a required question unanswered, an answer it holds invalid: the
 // button it then shows is a disabled one, or the one that only shows the
-// required notice), which no worker presses past either.
+// required notice), or where a press of Next left the form where it stood
+// (Formplayer answered it with an error the client shows), which no worker
+// presses past either. What the screen showed when Next was pressed is
+// kept on the window between the driver's calls, so a press that moved
+// nothing is told from one that did.
 ({ ix }) => {
 	if (sessionStorage.getItem("formplayerQueryInProgress") === "true")
 		return false;
@@ -54,18 +58,22 @@
 	const complete = button(3);
 	const next = button(5);
 	const atEnd = shown(complete);
+	const onScreen = [...document.querySelectorAll("#webforms .q")]
+		.filter(shown)
+		.map((question) => order(ixOf(question)));
+	const standing = JSON.stringify([onScreen, atEnd]);
+	const pressedAt = window.proofAdvancePressedAt;
+	window.proofAdvancePressedAt = undefined;
 	if (ix !== undefined && ix !== null) {
 		const target = order(ix);
-		const onScreen = [...document.querySelectorAll("#webforms .q")]
-			.filter(shown)
-			.map((question) => order(ixOf(question)));
 		if (onScreen.some((index) => compare(index, target) === 0)) return true;
 		if (onScreen.some((index) => compare(index, target) > 0)) return "absent";
 		if (atEnd) return "absent";
 	} else if (atEnd) {
 		return true;
 	}
-	if (!shown(next)) return "held";
+	if (!shown(next) || pressedAt === standing) return "held";
+	window.proofAdvancePressedAt = standing;
 	next.click();
 	return "next";
 };

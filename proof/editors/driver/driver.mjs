@@ -19,7 +19,9 @@
 //   {"reply": rid, "status", "headers": [[name, value], ...], "bodyBase64"}
 //   before anything else happens in the page that waits on it. A view
 //   operation also sends {"phase": {"pid", "name", "event"}} as it starts and
-//   ends each section, and waits for {"phaseReady": pid} before it goes on.
+//   ends each section, and waits for {"phaseReady": pid} before it goes on;
+//   that wait is Python's work, and moves the operation's deadline on by as
+//   long as it took (Python's own deadline for the operation likewise).
 // - The operation ends with {"id", "ok": true, "result"} or {"id", "ok":
 //   false, "error": {"kind", "message", ...}}; by then every request the page
 //   made has been answered or abandoned.
@@ -375,14 +377,23 @@ function askHq(request) {
 	});
 }
 
-/** Tells Python a phase starts or ends, and waits until Python is ready for what follows. */
-function announcePhase(name, event, detail = {}) {
+/**
+ * Tells Python a phase starts or ends, and waits until Python is ready for
+ * what follows. The wait is Python's own work (the caller's fork opened, or
+ * what HQ's state holds after a section read and served to Formplayer and
+ * the Web Apps client), not the page's, so `served`'s deadline, which
+ * catches a stuck page, is moved on by as long as it took.
+ */
+async function announcePhase(served, name, event, detail = {}) {
 	const pid = nextPhaseId++;
-	return new Promise((resolve, reject) => {
+	const started = Date.now();
+	const ready = await new Promise((resolve, reject) => {
 		pendingPhases.set(pid, { resolve, reject });
 		send({ phase: { pid, name, event, ...detail } });
 		trace(`phase ${pid}: ${name} ${event}`);
 	});
+	served.deadline += Date.now() - started;
+	return ready;
 }
 
 // -- the origin --------------------------------------------------------------
@@ -1565,7 +1576,7 @@ async function runView(message) {
 				"pages/save_state",
 				section.bar,
 			);
-			await announcePhase(`section:${index}`, "start");
+			await announcePhase(served, `section:${index}`, "start");
 			served.phase = `section:${index}`;
 			await served.release(index, page);
 			if (served.redirected) {
@@ -1586,7 +1597,7 @@ async function runView(message) {
 			} while (after === null);
 			sections[index].after = after;
 			served.phase = `settled:${index}`;
-			await announcePhase(`section:${index}`, "end");
+			await announcePhase(served, `section:${index}`, "end");
 		}
 		served.phase = "end";
 	} catch (error) {

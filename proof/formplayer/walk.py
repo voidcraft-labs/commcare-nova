@@ -293,14 +293,21 @@ class Walk:
         today = self.clock.split("T", 1)[0]
         return [value.replace("@clock:today", today).replace("@clock:now", self.clock) for value in values]
 
-    def _fill(self, web: WebApps, form: Mapping[str, Any]) -> tuple[list[dict], list[Mapping[str, Any]], set[str]]:
+    def _fill(
+        self, web: WebApps, form: Mapping[str, Any]
+    ) -> tuple[list[dict], list[Mapping[str, Any]], set[str], list[dict]]:
         """Answers each question once from the table, in the order Formplayer lists them as they become relevant;
-        with the attempts, the form's tree as the last accepted answer left it and the questions whose last answer
-        Formplayer refused as invalid (``submission``)."""
+        with the attempts, the form's tree as the last accepted answer left it, the questions whose last answer
+        Formplayer refused as invalid (``submission``), and what the client sent of its own along the way
+        (``_reconcile``)."""
         session, tree = form["session_id"], form["tree"]
         tried: set[str] = set()
         refused: set[str] = set()
         attempts: list[dict] = []
+        # What the client holds of each question it has drawn: the answer Formplayer last handed it, or the one it
+        # last sent while that request is in flight (``form_ui.js``, ``pendingAnswer``).
+        held = {str(node.get("ix")): node.get("answer") for node in questions(tree) if node.get("type") == "question"}
+        resent: list[dict] = []
         for _ in range(MAX_QUESTIONS):
             pending = next(
                 (
@@ -332,9 +339,57 @@ class Walk:
                 else:
                     refused.discard(str(pending["ix"]))
                 if answered.get("status") == "accepted":
-                    tree = answered.get("tree", tree)
+                    held[str(pending["ix"])] = value if kind is None else held.get(str(pending["ix"]))
+                    tree = self._reconcile(
+                        web, session, answered.get("tree", tree), held, refused, resent, pending, len(attempts) - 1
+                    )
                     break
-        return attempts, tree, refused
+        return attempts, tree, refused, resent
+
+    def _reconcile(self, web, session, tree, held, refused, resent, answered_node, after):
+        """The client's own answers after Formplayer's answer to one of its requests (``form_ui.js``,
+        ``session.reconcile``): each question the client has drawn takes the answer Formplayer handed back, but
+        the one whose answer was just sent, which keeps what was sent, and one Formplayer last refused, which
+        keeps its own; and a question whose answer that changes sends it to Formplayer as its answer
+        (``entries.js``, ``onAnswerChange``: a single answer, or a list of them that differs, calls the
+        question's ``onchange``), whose answer the client reconciles in turn. Formplayer hands back a stored
+        text answer trimmed once it reads the form again, so the client sends the trimmed text as that
+        question's answer; the walk sends what the client sends, in the form's order, until nothing changes,
+        and returns the tree Formplayer last handed back. Each answer sent so is kept in ``resent``, with the
+        place of the attempt it followed (``after``)."""
+        just = str(answered_node.get("ix"))
+        for _ in range(MAX_QUESTIONS):
+            changed = None
+            for node in questions(tree):
+                if node.get("type") != "question":
+                    continue
+                ix = str(node.get("ix"))
+                if ix not in held:
+                    # A question the client draws now for the first time is made with Formplayer's answer.
+                    held[ix] = node.get("answer")
+                    continue
+                if ix == just or ix in refused or node.get("answer") == held[ix]:
+                    continue
+                held[ix] = node.get("answer")
+                if changed is None and self._resends(node):
+                    changed = node
+            if changed is None:
+                return tree
+            ix = str(changed.get("ix"))
+            answered = web.answer(session, changed["ix"], held[ix])
+            resent.append({"ix": changed["ix"], "value": held[ix], "after": after, "response": answered})
+            just = ix
+            if answered.get("status") != "accepted":
+                return tree
+            tree = answered.get("tree", tree)
+        return tree
+
+    @staticmethod
+    def _resends(node: Mapping[str, Any]) -> bool:
+        """Whether the client sends a question's answer when Formplayer changes it: a question it draws a widget
+        for that holds an answer of its own (``entries.js``: every single-answer and multiple-answer entry), not a
+        label, an unsupported question or a file, whose widget ignores what Formplayer hands back."""
+        return answerable(node) and node.get("datatype") != "info" and media_kind(node) is None
 
     def _submit(self, web: WebApps, form: Mapping[str, Any], tree, refused: set[str]) -> tuple[dict, Any]:
         """The submission as the client makes it (``submission``), and Formplayer's answer to it."""
@@ -481,11 +536,12 @@ class Walk:
                     query_data = {**query_data, key: {"inputs": {}, "execute": True}}
                     response = navigate()
                 elif kind == "form":
-                    attempts, tree, refused = self._fill(web, response)
+                    attempts, tree, refused, resent = self._fill(web, response)
                     sent, submitted = self._submit(web, response, tree, refused)
                     steps.append(
                         {
                             "answers": attempts,
+                            "resent": resent,
                             "submitted": sent,
                             "submit": submitted,
                             "asked": self.hq.asked[asked_from:],

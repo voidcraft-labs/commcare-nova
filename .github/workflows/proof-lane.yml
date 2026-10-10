@@ -213,9 +213,9 @@ jobs:
     needs: emit
     runs-on: ${{ matrix.runner }}
     # Every group runs fresh here, each state served to Formplayer and every
-    # run walked whole in the Web Apps client; the deadline catches a stuck
-    # shard only.
-    timeout-minutes: 120
+    # run walked whole in the Web Apps client (on a desktop, on a phone and in
+    # App Preview); the deadline catches a stuck shard only.
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}
