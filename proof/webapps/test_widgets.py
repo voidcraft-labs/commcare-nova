@@ -16,11 +16,15 @@ map's latitude and longitude), and the form is submitted; the client sent Formpl
 question and one answer for the location, a latitude and longitude within a
 pixel of the walk's place at the map's opening zoom; and HQ's receiver was
 handed each file both times, the walk's submission and the client's.
-Plausible failures: a widget the replay calls unanswerable while a worker
-can answer it (what this test replaced: every file, signature and location
-question was left unanswered), a file the client never uploads (a change
-event its knockout binding does not hear), and a map drag the client reads as
-a click, which moves no centre.
+A second walk replays the first, its uploads at the same places of their
+runs, and Formplayer takes each again. Plausible failures: a widget the
+replay calls unanswerable while a worker can answer it (what this test
+replaced: every file, signature and location question was left unanswered),
+a file the client never uploads (a change event its knockout binding does not
+hear), a map drag the client reads as a click, which moves no centre, and a
+later run's upload refused for the row an earlier run's left (Formplayer's
+file ids come from Core's random source, which the lane seeds by a request's
+place in its run: ``FormplayerRunner.forget_media``).
 """
 
 from __future__ import annotations
@@ -40,12 +44,15 @@ PIXEL_DEGREES = 360 / 512
 def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_and_on_formplayer(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    from proof.formplayer.walk import Walk, load_answer_table
+    from proof.formplayer.walk import Walk, load_answer_table, script_of
 
     with webapps_hq.project(webapps_documents[DOCUMENT]) as project:
         with project.released(formplayer_runner) as release:
             walk = Walk(release.runner, release.hq, domain=release.domain, app_id=release.build_id, scope=release.run)
-            (run,) = [each for each in walk.run()["runs"] if any("answers" in step for step in each["steps"])]
+            derived = walk.run()
+            (run,) = [each for each in derived["runs"] if any("answers" in step for step in each["steps"])]
+            # The walk again, its uploads at the same places of their runs, so each draws the id the first drew.
+            again = walk.run(script_of(derived))
             walked = len(release.hq.submissions)
             session = Session(release, editor_driver)
             made, kinds = observe.replay(release.doc["name"], [run], session.home)
@@ -58,6 +65,11 @@ def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_
     assert all(attempt["response"].get("status") == "accepted" for attempt in form["answers"]), form["answers"]
     assert form["submit"].get("status") == "success", form["submit"]
     assert [submission["files"] for submission in form["submissions"]] == [FILE_QUESTIONS]
+    # A later run's uploads, drawing the ids the first run's drew, are taken as the first run's were.
+    (replayed_form,) = [step for each in again["runs"] for step in each["steps"] if "answers" in step]
+    assert [attempt["response"].get("status") for attempt in replayed_form["answers"]] == ["accepted"] * len(
+        form["answers"]
+    ), replayed_form["answers"]
 
     record = observe._record(release.runner, editor_driver, release.version, {"runs": [run]}, replayed, kinds)
     evidence("record", record)

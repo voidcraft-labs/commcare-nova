@@ -10,9 +10,10 @@ order they first appear in what is marked, as the Core runner marks its traces
 (``proof/core/src/nova/proof/core/Generated.java``): an id is generated when
 it is shaped as ``UUID.randomUUID`` shapes one (8-4-4-4-12 lowercase hex,
 version 4, variant 8 to b) or as Core's ``genUUID`` does (32 lowercase hex
-digits), is a whole value (a
-JSON string, or the text or an attribute of an XML document a JSON string
-holds), and occurs nowhere in the inputs. An id an app or a restore authors
+digits), is a whole value (a JSON string, or the text or an attribute of an
+XML document a JSON string holds) or the whole of the name Formplayer gives a
+file a worker uploaded (the id, a dot and the file's extension), and occurs
+nowhere in the inputs. An id an app or a restore authors
 stays as it is. Each generated id is then replaced wherever it occurs, also
 inside longer text.
 
@@ -141,12 +142,25 @@ def _replaced(value, tokens, longest_first):
     return value
 
 
+def _drawn_id(value: str) -> str | None:
+    """The id a whole value is, where it is shaped as a generated one: the value itself, or, for the name
+    Formplayer gives a file a worker uploaded (``MediaHandler.saveFile``: the id ``PropertyUtils.genUUID`` drew,
+    then a dot and the file's extension), the id before the dot."""
+    if is_generated_shape(value):
+        return value
+    stem, dot, extension = value.rpartition(".")
+    if dot and extension.isascii() and extension.isalnum() and is_generated_shape(stem):
+        return stem
+    return None
+
+
 def mark(value, given: set[str]):
     """``value`` with every generated id replaced by its token, and how many ids were generated."""
     tokens: dict[str, str] = {}
     for held in _whole_values(value):
-        if is_generated_shape(held) and held not in given and held not in tokens:
-            tokens[held] = f"{TOKEN}{len(tokens) + 1}"
+        drawn = _drawn_id(held)
+        if drawn is not None and drawn not in given and drawn not in tokens:
+            tokens[drawn] = f"{TOKEN}{len(tokens) + 1}"
     return _replaced(value, tokens, sorted(tokens, key=len, reverse=True)), len(tokens)
 
 

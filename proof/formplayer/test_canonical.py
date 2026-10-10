@@ -2,7 +2,8 @@
 
 Contract (``proof.formplayer.canonical``): an id is marked when it is shaped
 as a generated UUID, is a whole value (a JSON string, or a text or attribute
-of an XML document a string holds), and is in no input; every occurrence of
+of an XML document a string holds) or the whole of an uploaded file's name
+(the id and its extension), and is in no input; every occurrence of
 it then holds one token, numbered by first appearance. Plausible failures: an
 id an app or a restore authors marked (two documents' cases would read
 alike), a generated id left in longer text (two runs would differ), or two
@@ -72,4 +73,23 @@ def test_an_undashed_id_cores_generator_drew_is_marked_and_one_an_input_holds_is
     short, long = "abcdef0123456789abcdef012345678", "abcdef0123456789abcdef0123456789a"
     value, generated = canonical.mark({"a": drawn, "b": held, "c": short, "d": long}, given)
     assert value == {"a": f"{canonical.TOKEN}1", "b": held, "c": short, "d": long}
+    assert generated == 1
+
+
+def test_the_name_formplayer_gives_an_uploaded_file_holds_a_generated_id_and_a_given_ones_name_is_kept():
+    """Formplayer names a file a worker uploads by the id Core's random source drew and the file's extension
+    (``MediaHandler.saveFile``), and a form's answer and its submission hold that name alone: the id is marked
+    there wherever else it occurs or not, so a run whose submission went nowhere reads as one whose did. The
+    accepted cases beside it: an input's id with an extension stays, and a name that is not an id and a dot does."""
+    drawn = f"{GENERATED}.mp4"
+    value, generated = canonical.mark(
+        {"answer": drawn, "kept": f"{AUTHORED}.jpg", "plain": "proof-video.mp4", "dotted": f"{GENERATED}."},
+        canonical.given_ids([AUTHORED]),
+    )
+    assert value == {
+        "answer": f"{canonical.TOKEN}1.mp4",
+        "kept": f"{AUTHORED}.jpg",
+        "plain": "proof-video.mp4",
+        "dotted": f"{canonical.TOKEN}1.",
+    }
     assert generated == 1

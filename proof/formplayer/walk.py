@@ -25,7 +25,10 @@ sees the cases an earlier run's submission made, as every Core run starts
 from the request's case data, and with Formplayer's in-memory caches empty
 (``FormplayerRunner.forget_caches``): they keep a search's results for five
 minutes of the machine's time, which ``clear_user_data`` leaves, so a run
-would otherwise ask HQ or not by how long ago an earlier one ran. Every walk starts by having Formplayer drop the
+would otherwise ask HQ or not by how long ago an earlier one ran, and with no
+row of an earlier run's uploads (``FormplayerRunner.forget_media``: an
+upload's id is drawn from the seeded random source, so two runs draw the same
+ones). Every walk starts by having Formplayer drop the
 app's install (``delete_application_dbs``), so each starts from the app as
 Formplayer installs it, whatever the same Formplayer ran on it before.
 
@@ -193,8 +196,10 @@ class Walk:
         # A worker starting over: their restore and search results are read afresh.
         web.post("/clear_user_data", {"domain": self.domain, "username": self.hq.username, "restoreAs": None})
         # And nothing an earlier session left in Formplayer's five-minute caches answers this one's requests, so
-        # what it asks HQ does not depend on how long ago that session ran (FormplayerRunner.forget_caches).
+        # what it asks HQ does not depend on how long ago that session ran (FormplayerRunner.forget_caches), and no
+        # file an earlier run uploaded holds the id this one's upload draws (FormplayerRunner.forget_media).
         self.runner.forget_caches()
+        self.runner.forget_media()
         return web
 
     def _forget_app(self) -> None:

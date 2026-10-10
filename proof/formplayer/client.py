@@ -707,6 +707,22 @@ class FormplayerRunner:
         result, _ = self.request("forgetCaches", deadline=30.0)
         return list(result["cleared"])
 
+    def forget_media(self) -> None:
+        """Empties Formplayer's record of the files earlier sessions uploaded (its ``media_meta_data`` table, which
+        ``MediaHandler.saveFile`` writes a row to for each upload, under a unique file id). Formplayer draws a file's
+        id from Core's random source (``PropertyUtils.genUUID``), which the lane seeds by a request's place in its
+        run (``reseed``), so two runs that upload at the same place draw the same id, and the second upload would be
+        refused for a row the first left, where production's random ids never meet. The files on disk are under
+        each form session's own directory, and stay."""
+        if self._database is None:
+            raise FormplayerRunnerError("The Formplayer runner has no database yet, so it holds no uploads to forget.")
+        status, output = _psql("DELETE FROM media_meta_data", self._database)
+        if status != 0:
+            raise FormplayerRunnerError(
+                f"The Formplayer runner could not empty media_meta_data in its database {self._database}:\n{output}",
+                kind="request",
+            )
+
     def age_sync(self, key: str, seconds: float) -> dict[str, Any]:
         """Moves one user's last sync back, as their record holds after that long away."""
         result, _ = self.request("ageSync", deadline=30.0, key=key, millis=int(seconds * 1000))
@@ -821,7 +837,7 @@ def given_classes(classes: Path) -> Path:
     return Path(classes)
 
 
-def _psql(statement: str) -> tuple[int, str]:
+def _psql(statement: str, database: str = POSTGRES_MAINTENANCE_DATABASE) -> tuple[int, str]:
     with tempfile.TemporaryFile() as output:
         status = processes.run(
             [
@@ -836,7 +852,7 @@ def _psql(statement: str) -> tuple[int, str]:
                 "--username",
                 POSTGRES_USER,
                 "--dbname",
-                POSTGRES_MAINTENANCE_DATABASE,
+                database,
                 "--command",
                 statement,
             ],

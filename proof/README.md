@@ -297,14 +297,20 @@ or it fails the lane ("The registers", below).
   and does not draw them: a cell's class, text, gravity, text size, scale
   type and width are read, and no rendered picture or played sound. Not run:
   a language other than the one the app starts in, a tablet's two-pane
-  layout, and the rows of a case detail tab that lists a row a node. The
+  layout, and the rows of a case detail tab that lists a row a node. A walk
+  opens the first case of each list, so a form opened for any other case
+  of a list is not walked (each list's every row is laid out and searched,
+  and its Sort read). The
   stage reads the archives of the states HQ releases: a document whose build
   of A HQ's validation refuses has no Android reading, as it has no
   Formplayer one.
 - **What a served state does not show.** Formplayer and the Web Apps
   client read every state the lane builds ("Served states", below), with
-  these left out. Not run in
-  the client: a language other than the worker's default, a small screen's
+  these left out. Formplayer's derived walk takes the first case of each
+  list (and the client replays that walk), so a form opened for any other
+  case of a list is not walked. Not run on Formplayer or in the client: a
+  language other than the worker's default, though corpus documents carry
+  two and three languages. Not run in the client: a small screen's
   layout, App Preview (the same client under another HQ page), and a web
   user signing in as a worker. The requests the page makes that nothing
   answers are for a web font and a map's pictures on other hosts, so text is
@@ -1085,7 +1091,9 @@ the caches left, the second omits the fetch).
 - **The walk** (`walk.py`): scripted sessions as the Core runner's, derived
   (every menu command, the first case of each list, each list action once,
   each search) or replayed, each run starting as a worker starts after
-  clearing their data and with Formplayer's caches empty, each form answered from the Core runner's answer
+  clearing their data, with Formplayer's caches empty and no row of an earlier run's uploads (the lane seeds
+  the ids Formplayer draws for uploads by a request's place in its run, so two runs draw the same ones, where
+  production's never meet: `FormplayerRunner.forget_media`), each form answered from the Core runner's answer
   table (a file question, signature included, given the table's file for its kind from `proof/core/captures`,
   uploaded as the client uploads one to Formplayer's `answer_media`) and submitted as the client submits it,
   the files with it. The trace is Formplayer's

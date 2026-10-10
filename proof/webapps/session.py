@@ -191,8 +191,10 @@ class Session:
         web.post("/clear_user_data", worker)
         web.post("/delete_application_dbs", {"app_id": self.served.build_id, **worker})
         # Nothing an earlier session left in Formplayer's five-minute caches answers this run's requests
-        # (FormplayerRunner.forget_caches).
+        # (FormplayerRunner.forget_caches), and no file an earlier session uploaded holds the id this run's upload
+        # draws (FormplayerRunner.forget_media).
         self.runner.forget_caches()
+        self.runner.forget_media()
 
     def _formplayer_headers(self, headers: Mapping[str, str]) -> list[tuple[str, str]]:
         """The page's request headers as Formplayer is sent them: the browser's own, with HQ named as Formplayer
