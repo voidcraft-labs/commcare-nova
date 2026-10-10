@@ -1,8 +1,8 @@
-# Step 2, part 05: Work item D, part 2: XForms inside HQ's editable envelope (defect 13; findings 33, 37, 45, 46, 47, 55)
+# Step 2, part 05: Work item D, part 2: XForms inside HQ's editable envelope (defect 13; findings 33, 37, 45, 46, 47, 55, 66)
 
 Part of [step 2's plan](../2-emission-and-publish.md), which holds the baseline, the decisions, the stack and the exit. Citations are `file::symbol`; HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
 
-This part makes every form Nova exports one that HQ's form builder (Vellum) opens, saves and writes back unchanged in meaning. It owns defect 13 in all its parts, findings 33, 37, 45, 46, 47 and 55, and defect 14's data node name, which is one change with finding 46. It moves 210 register entries to `proof/fixed-defects.json` (212 where pull request 1 registered work item H's two): 176 for defect 13, 16 for finding 33, 2 for finding 37, 3 each for findings 45, 46 and 55, 4 for finding 47, and defect 14's 3 data node name entries.
+This part makes every form Nova exports one that HQ's form builder (Vellum) opens, saves and writes back unchanged in meaning. It owns defect 13 in all its parts, findings 33, 37, 45, 46, 47, 55 and 66, and defect 14's data node name, which is one change with finding 46. It moves 210 register entries of `main`'s register to `proof/fixed-defects.json` (212 where pull request 1 registered work item H's two): 176 for defect 13, 16 for finding 33, 2 for finding 37, 3 each for findings 45, 46 and 55, 4 for finding 47, and defect 14's 3 data node name entries; and finding 66's one, which the lane's branch added.
 
 Conventions for this part:
 
@@ -129,7 +129,7 @@ Three pull requests of the step's one stack carry this part. An entry whose path
 |---|---|---|
 | XForm, first part (pull request 6) | leaf constraints; shadows with findings 45 and 47; datetime leaves; relative defaults; the registration case-id read; blank translations; finding 55; the ref-less repeat group; finding 46 with the data node name | 51 (53 with work item H's two, where pull request 1 registered them): defect 13's 35 (13 leaf constraint, 8 shadows, 5 datetime, 4 defaults and case-id read, 5 translations), findings 45 (3), 47 (4), 46 (3), 55 (3), defect 14's data node name (3) |
 | XForm, second part (pull request 7) | containers as groups; the rename and the allocator; guards; conditions; reads between blocks; the root create id; defect 23's and 24's entries re-pathed onto new controls | 141: guard blocks 67, reserved names 25, wrapper containers 6, wrapper conditions 29, the root create id 14 |
-| Case writes through basic actions (pull request 9) | finding 33; finding 37; with defect 14's `update_case` always, moved close conditions and `external_id`, which are part 06's (1. `update_case` is `always` on every case form; 2. Close conditions the Case Management tab cannot state; `external_id` as an ordinary update row) | 18 from this part: finding 33's 16, finding 37's 2 |
+| Case writes through basic actions (pull request 9) | finding 33; finding 37; finding 66; with defect 14's `update_case` always, moved close conditions and `external_id`, which are part 06's (1. `update_case` is `always` on every case form; 2. Close conditions the Case Management tab cannot state; `external_id` as an ordinary update row) | 19 from this part: finding 33's 16, finding 37's 2, finding 66's 1 |
 
 The root create id is in pull request 7 and not in pull request 6, because its spelling puts a repeat's control inside the `nova_operations` control, which exists only once the containers are groups.
 
@@ -833,6 +833,37 @@ Executed during planning, on HQ's build: the built form of `case-extension-regis
 
 **Lane.** Locally: `case-extension-registration`, `nested-menu-registration-children` and `case-capture-repeat` through proof 3, with `case_block_position` deleted. CI's full lane passes without the rule, shows no `order()` difference between the local archive and HQ's build on any document, and holds the 2 fixed entries. `proof/native/test_case_emission.py` compares the child order of the local data node with HQ's regenerated one.
 
+## Finding 66: update properties in name order on the local path
+
+**Today.** HQ's build writes the children of a case block's `<update>`, and their binds, sorted by property name (`xform.py::XFormCaseBlock.add_case_updates`: `for key, q_path in sorted(update_mapping.items())`, after renaming the action key `name` to `case_name`), for the form's own case, each subcase and the worker's own record alike, and its `<attachment>` children the same way (`sorted(attachments.items())`). `lib/commcare/xform/caseBlocks.ts::buildCaseBlocks` writes them in the order the form's actions list them (the `updateMappings` array: the external id first, then `update_case.update`'s entries in insertion order), and its attachment writes in the same order. Observed in the lane's served states: Formplayer hands back a form's instance with the same properties and values in another order on the two paths (`formplayer@local.ccz`, proof 3, `/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/order()`, on `workforce-case-operation-sequence` and `case-operation-sequence`).
+
+*Harm:* none found. HQ's case processing and Core apply each property of an update by its name, and no update names a property twice. It is a difference between the two export paths that Core's sessions did not show, and the lane holds it as one.
+
+**Fix.** The local archive takes HQ's order, because HQ's is the one Nova cannot change, as finding 37 does for the blocks themselves.
+
+- `buildCaseBlocks` sorts each block's scalar writes by wire property name before it writes the `<update>` children and their binds, and its attachment writes by property name before it writes the `<attachment>` children and their binds. One comparator serves every block the file writes: the form's own case, each subcase and `commcare_usercase`.
+- The comparator is a code-unit comparison of the wire names (`a < b`), never `localeCompare`: Python's `sorted` over `str` keys orders by code point, and every wire property name matches `lib/domain/casePropertyName.ts`'s ASCII grammar, where code unit and code point order agree.
+- The source-lowered blocks under `nova_operations` (`nova_update_selected_cases`, `nova_subcase_<n>`) are Save to Case blocks in the form's source, which HQ's build does not rewrite; their order is the one Vellum keeps (part 05, Save to Case facts the emitter follows) and does not change.
+
+**Files.**
+- Emitters: `lib/commcare/xform/caseBlocks.ts`.
+- Everything else: none.
+- CLAUDE.md: `lib/commcare/CLAUDE.md`, "Case-management scaffolding emission" (an update's properties and an attachment's children are written in name order, as `XFormCaseBlock.add_case_updates` writes them).
+
+**Stored shape and migration.** None. No notice: no worker, export or person sees the order.
+
+**Register.** One entry the lane's branch added moves to `proof/fixed-defects.json` in pull request 9: `d66-update-property-order-formplayer-local-ccz-case-update-order` (proof 3, artifact `formplayer@local.ccz`, part "update property order"), control `workforce-case-operation-sequence`.
+
+**Spelling rule.** None.
+
+**Identity.** None. `proof/identity-moves.json` gains no entry.
+
+**Control.** `workforce-case-operation-sequence` keeps its pre-fix archive and keeps showing the order.
+
+**Nova tests.** Pure, over the emitted DOM (`lib/commcare/__tests__/caseBlocks.test.ts`): a registration form whose writes are listed `zeta`, `external_id`, `alpha`, `case_name` emits `<update>` children and binds `alpha`, `case_name`, `external_id`, `zeta`, for the form's case, a subcase and the worker's record; two attachment writes are emitted in name order; an uppercase name sorts before a lowercase one, as code points do.
+
+**Lane.** Locally `npm run proof -- proof/checks -k "workforce-case-operation-sequence or case-operation-sequence"` and `-k control-workforce-case-operation-sequence`. CI's full lane shows no `update[*]/order()` difference between `formplayer@local.ccz` and `formplayer@A` on any document, Core's sessions unchanged, and the fixed entry held on its control. `proof/native/test_case_emission.py` compares the child order of the local `<update>` with HQ's regenerated one. Pull request 9, with finding 37.
+
 ## Reader tests this part adds
 
 Proofs 3 and 4 judge Core's sessions and HQ's own code. Formplayer, the Web Apps client, Android and Connect each run in a package of their own (`proof/formplayer`, `proof/webapps`, `proof/android`, `proof/connect`), and no check judges their sessions yet. So each harm of this part that lands on one of them carries a test in that package, in the pull request that makes the change. Every one of them was run by hand during planning, on the forms named, and showed what is written here. Each package's `DOCUMENTS` list gains the documents its test names.
@@ -864,4 +895,4 @@ When the plan leaves `docs/plans/`, these stay in `lib/commcare/CLAUDE.md`:
 - A leaf of a case block carries no `type` and no `constraint`.
 - Itext values follow Vellum's fill; a leaf label blank in every language has no `<label>`; a choice has a label or media; `<h:title>` and the data node's `name` are the default-language form name.
 - A save in HQ's form builder that changes nothing still gives the form a new version at the next build.
-- The local archive's case blocks stand where HQ's build puts them.
+- The local archive's case blocks stand where HQ's build puts them, and write an update's properties and an attachment's children in name order, as HQ's build does.

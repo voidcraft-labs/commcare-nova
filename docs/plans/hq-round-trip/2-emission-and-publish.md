@@ -18,15 +18,15 @@ run that confirms it and the fallback already chosen.
 
 | Part | Holds |
 |---|---|
-| [01](2-emission-and-publish/01-identity-publish.md) | Work item A: derived ids, language wire codes, the publish sequence, downloads by project space, the HQ import file (defect 1; findings 32, 49) |
-| [02](2-emission-and-publish/02-ledger-drift.md) | The deployment ledger's schema, work item B (the drift check and its baselines), defect 5 |
-| [03](2-emission-and-publish/03-gates.md) | Work item C: the version floor, plan features, the flag probe (defect 12), the flat location fixture and logos (defect 14), finding 53 |
-| [04](2-emission-and-publish/04-app-emission.md) | App-level emission: defects 2, 3, 4, 7, 8, 9; findings 34, 39, 40; work item H |
-| [05](2-emission-and-publish/05-xform.md) | XForms: defect 13; findings 33, 37, 45, 46, 47, 55 |
-| [06](2-emission-and-publish/06-settings-navigation.md) | Menus, forms, navigation and search settings: defect 14; findings 41, 50, 54 |
-| [07](2-emission-and-publish/07-case-lists.md) | Case lists: defects 10 and 16 (hidden columns); findings 35, 36, 38, 42, 51, 57 |
-| [08](2-emission-and-publish/08-ids-data-media.md) | Identifiers, form content, CSQL, media and the model clean-up: defects 6, 11, 15, 16; findings 31, 43, 44, 48, 56 |
-| [09](2-emission-and-publish/09-proof.md) | Proving the fixes on the lane: the fixed-defect register, the rules, the entry accounting, the capture, the corpus |
+| [01](2-emission-and-publish/01-identity-publish.md) | Work item A: derived ids, language wire codes, the publish sequence, downloads by project space, the HQ import file (defect 1; findings 32, 49, 59) |
+| [02](2-emission-and-publish/02-ledger-drift.md) | The deployment ledger's schema, work item B (the drift check and its baselines), defect 5, correction 15 |
+| [03](2-emission-and-publish/03-gates.md) | Work item C: the version floor, plan features, the flag probe (defect 12), the flat location fixture and logos (defect 14), findings 53, 64, 69, Data Forwarding and a Connect forwarder |
+| [04](2-emission-and-publish/04-app-emission.md) | App-level emission: defects 2, 3, 4, 7, 8, 9; findings 34, 39, 40, 62, 65; work item H |
+| [05](2-emission-and-publish/05-xform.md) | XForms: defect 13; findings 33, 37, 45, 46, 47, 55, 66 |
+| [06](2-emission-and-publish/06-settings-navigation.md) | Menus, forms, navigation and search settings: defect 14; findings 41, 50, 54, 58 |
+| [07](2-emission-and-publish/07-case-lists.md) | Case lists: defects 10 and 16 (hidden columns); findings 35, 36, 38, 42, 51, 57, 67 |
+| [08](2-emission-and-publish/08-ids-data-media.md) | Identifiers, form content, CSQL, media and the model clean-up: defects 6, 11, 15 (with its Connect forwarding), 16; findings 31, 43, 44, 48, 56, 60, 61, 68, 70 |
+| [09](2-emission-and-publish/09-proof.md) | Proving the fixes on the lane: the fixed-defect register, the rules, the entry accounting, the capture, the corpus; findings 63 and 67 and Connect's reading of a renamed block, as what HQ does itself |
 | [10](2-emission-and-publish/10-cutover-notice.md) | The cutover and work item F (the migration notice) |
 | [11](2-emission-and-publish/11-stack-contracts.md) | The stack in full, the model-addition checklist, contracts and docs |
 
@@ -204,6 +204,25 @@ a targeted document, register entries and a control.
   a hidden sort carrier over `case_id`, `owner_id` or `status` stops HQ's Case
   List page saving. Fixed in step 2 with the case-list work (part 07).
 
+## Findings the lane's readers showed
+
+The lane's branch (`proof/run-every-reader`) runs every reader the plan had cited: Formplayer and HQ's Web Apps client over every served state, Connect's receiver behind HQ's own repeater, and commcare-android in its own stage. What they showed, with its owner; each owner's block holds the run that observed it and the entries it moves.
+
+- **Finding 58**, a link to a target its menu hides: Core opens it, Formplayer and the client stop. `hiddenFromMenu`'s design follows each runtime (part 06, 11 and 15).
+- **Finding 59**, a local `.ccz` names no server: every `.ccz` is compiled for a reached project space and writes the four server properties (part 01, A5).
+- **Findings 60 and 61**, Connect block names and a deliver form that holds a task: the validator refuses both, with their migrations (part 08).
+- **Finding 62**, HQ's App Settings save takes the Incomplete Forms tile off Web Apps: Nova writes both form-list settings into the stored app on every publish (part 04, Defect 7 and finding 62).
+- **Finding 63**, HQ's build installs on Android only with its media, and **finding 67**, an incomplete form under grouped tiles cannot be reopened for a case with no connection: what CommCare does itself (part 09; part 07 for 67's copy and its upstream report).
+- **Finding 64**, no lane app was one Web Apps lists: closed on the lane's branch by granting `CLOUDCARE` in every configuration (part 03, C7).
+- **Findings 65 and 66**, texts and update order the local archive writes otherwise than HQ's build: the local archive writes what HQ's build writes (part 04; part 05).
+- **Finding 68**, a read of a session datum no Nova session supplies: the validator refuses it, with a migration (part 08).
+- **Finding 69**, a device and Web Apps read the location fixture choice apart: `project_default` with the confirmation makes them alike, and the copy names Web Apps (part 03, C5).
+- **Correction 15**, HQ answers a 33-character tag with a 500: Nova holds the 32-character cap itself (part 02).
+- **Defect 15's Connect forwarding**: HQ never resends a delivery Connect refused, so the rename notice and the runbook ask for the new payment unit before the next publish, and Connect's reading of a renamed block is what Connect does itself (part 08; part 09).
+- **Data Forwarding and a Connect forwarder**: publish asks the person to confirm both for a Connect app, since no API key reads either (part 03, C8).
+
+Finding 70 is planning's: question names HQ's editors warn about (part 08).
+
 ## Model additions
 
 Each is a complete feature when it lands: domain, validator, emitter, Preview,
@@ -362,8 +381,8 @@ Part 11 gives each sentence as it reads today and its replacement. In brief:
   menu id in HQ, and every `xmlns` in the local `.ccz`.
 - Proofs 1 to 5 pass on every Nova export for these defects. The register
   holds no entry for defects 1 to 10 or 12 to 16, and none for a finding from
-  31 up but finding 56, which step 3 fixes. Finding 50 leaves as what HQ does
-  itself, by its allowance.
+  31 up but finding 56, which step 3 fixes. Findings 50 and 67 and Connect's
+  reading of a renamed block leave as what HQ does itself, by their allowances.
 - Every control directory is named by a register, and every fixed entry shows
   on its control.
 - Publish refuses a target below the floor or without a confirmed plan

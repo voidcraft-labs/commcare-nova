@@ -273,8 +273,10 @@ child case outside a repeat a registration form
 (`models/forms.py::Form.is_registration_form`) and maps a case name only from
 the form's own case (`form_action_diff.py::get_case_mappings`), so its own
 editors draw the alert on a form Nova never touched. Proof 4 gains one closed
-set, `proof/checks/hq_own_reports.py::HQ_OWN_REPORTS`, with one member
-`registration_alert_child_case` = (id, editor, path, applies):
+set, `proof/checks/hq_own_reports.py::HQ_OWN_REPORTS`, whose member for this
+finding is `registration_alert_child_case` = (id, editor, path, applies); pull
+request 1 adds two more, each read by its own check (Finding 67: grouped tiles
+and a reopened incomplete form; Connect's own reading of a renamed block):
 `proof/checks/proof4.py::vellum_report` drops a pre-save alert only when a
 member names its path and `applies(stored form)` holds, and for this member
 `applies` is exactly: `open_case` is not active and exactly one subcase has no
@@ -499,6 +501,66 @@ checks those entries name.
 **Lane.** Locally `npm run proof -- proof/checks -k targeted-case-id-column`.
 CI must show the entries held in pull requests 1 to 10, and from pull request
 11 the document passing with its `expected.json` values and no entry.
+
+### Finding 63: HQ's build installs on Android only with its media (what HQ does itself)
+
+**Today.** The lane hands Core HQ's build as HQ's index download arranges it (`hqmedia/views.py::iter_index_files`: the suite, the profile, the app strings and the forms), and Core admits that. Android's install of the same archive fails with `AppInstallStatus.UnknownFailure`: its media installer goes to the network for each file the media suite names. HQ's download with multimedia (`iter_app_files`) installs, and so does Nova's local `.ccz`, which carries its media. Observed by the Android reader (`proof/android`, commcare-android's own installers under Robolectric) over every document whose build names media.
+
+*Harm:* none to a worker, who installs from HQ or from a file that holds the media. It bounded the lane: Core's admission of an index-only archive does not stand for a device's install.
+
+**Fix.** Recorded as what HQ does itself: it is HQ's own download arrangement and Android's own installer, and Nova's export takes no part in it. On the lane's branch each built state's record keeps the archive a device installs, HQ's own download with multimedia (`state.archive`, `proof/observe/build.py::device_archive`), and the Android stage installs that archive; `proof/checks/test_device_archive.py` holds the record to HQ's own download. Pull request 1 moves finding 63 under "What HQ does itself" in `docs/research/2026-09-26-hq-round-trip/harness-findings.md`, with its citations, and the step does nothing else for it.
+
+**Files.** `docs/research/2026-09-26-hq-round-trip/harness-findings.md`. The lane's are landed on its branch: `proof/observe/build.py`, `proof/checks/test_device_archive.py`, `proof/README.md`.
+
+**Stored shape and migration.** None.
+
+**Register.** None. No entry ever named it: the lane hands Android the archive a device installs, so no check reports the index-only failure, and no allowance is needed.
+
+**Spelling rule.** None. **Identity.** None; `proof/identity-moves.json` gains no entry. **Control.** None.
+
+**Nova tests.** None: nothing of Nova's changes.
+
+**Lane.** `npm run proof -- proof/checks/test_device_archive.py`. CI's full lane: the Android stage installs every built state's device archive.
+
+### Finding 67: grouped tiles and a reopened incomplete form
+
+**Today.** A form left incomplete under grouped tiles, for a case with no connection of the grouping's name, cannot be reopened on Android: the session descriptor's last datum, `case_id_parent_ids`, has an empty value, Android splits the stored line on spaces, and home raises `ArrayIndexOutOfBoundsException` (part 07, Finding 67: an incomplete form under grouped tiles, for a case with no connection, gives the readers and the citations). The Android stage shows it on HQ's build and Nova's local archive alike, and the register holds it as two proof 1 entries on `tile-grouped-one` (`d67-android-proof1-b-update-reopened-session-changed`, `d67-android-proof1-local-ccz-update-reopened-session-changed`, path `/update/reopened/*/session`).
+
+**Fix.** Reclassified as what CommCare does itself: the datum is HQ's (`suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`) and the reader is commcare-android's (`SessionDescriptorUtil.loadSessionFromDescriptor`), so an app HQ's own editors make with grouped tiles fails the same way, and nothing Nova can spell removes it while keeping the datum HQ's build reads. `HQ_OWN_REPORTS` gains the member `android_grouped_tile_reopen` = (id, artifact `android@*`, path `/update/reopened/*/session`, applies), read by proof 1's Android comparison (`proof/checks/android.py`), which drops the difference only when a member names its path and `applies(record)` holds. For this member `applies` is exactly: the reopened form's stored session descriptor ends at a datum whose id is `case_id_parent_ids` with no value after it, and home's answer is the `ArrayIndexOutOfBoundsException` above. The check gains no condition of its own; it asks the set. Part 07's block owns the builder, tool and docs copy and the upstream report; this block owns the allowance, its condition, its proof and its files.
+
+**Files.** Lane: `proof/checks/hq_own_reports.py` (the member), `proof/checks/test_hq_own_reports.py` (its case), `proof/checks/android.py` (proof 1's Android comparison asks the set), `proof/android/test_hq_own_grouped_tile_reopen.py` (new), `proof/known-defects.json` (the two entries leave), `proof/controls/tile-grouped-one/` (deleted: no other entry names it), `proof/timings.json` (its group leaves). Docs: `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (finding 67 under "What HQ does itself", with the upstream issue's link), `proof/README.md` ("Proofs 1 to 5" and "The Android stage" name the member).
+
+**Stored shape and migration.** None.
+
+**Register.** Both entries are deleted in pull request 1 and do not become fixed entries: once the check stops reporting the class, the control no longer shows it.
+
+**Spelling rule.** None. **Identity.** None; `proof/identity-moves.json` gains no entry.
+
+**Control.** None afterwards; `proof/controls/tile-grouped-one` is deleted with the entries, and the corpus document stays.
+
+**Nova tests.** Native proof. `proof/checks/test_hq_own_reports.py`: the member drops exactly that difference on a record where `applies` holds, and a reopen difference whose descriptor ends otherwise, or whose answer is another error, is still reported. `proof/android/test_hq_own_grouped_tile_reopen.py`: an app made in HQ's own pages with no Nova export (a case menu, HQ's Case List page under the tile flags given grouped tiles over the `parent` connection, one follow-up form saved in HQ's form builder), built by HQ and installed by the Android reader as a device installs it; a form left incomplete for a case with no parent and reopened after an update raises at home, and the same for a case with a parent reopens. This test is the upstream witness too: at a commcare-android pin whose reader handles the empty value it fails, and the member then leaves the set in that pin's pull request.
+
+**Lane.** Locally `npm run proof -- proof/checks/test_hq_own_reports.py` and the Android test on the Android runtime (`python3 -m unittest proof.android.test_hq_own_grouped_tile_reopen`). CI must show proof 1 passing on `tile-grouped-one`, `tile-grouped-two` and `tile-grouped-search` with no entry, and the member's test passing in the Android stage.
+
+### Connect's own reading of a renamed block
+
+**Today.** On the two documents whose edit renames their Connect ids, with the opportunity made from A's release, the Connect judge reports what Connect then does (part 08, Defect 15's Connect forwarding: deliveries refused between a rename and a new payment unit, gives the readers): every delivery of the renamed deliver unit refused 400, a second learn module, the renamed ids moved. The register holds five proof 4 entries, artifact `connect@B-edit@*`, under defect 15: `d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved`, `-ids-task-moved`, `-refused-400-payment-unit` (on `targeted-connect-deliver-rename`), `-ids-module-moved` and `-catalog-learnmodules-added` (on `targeted-connect-learn-rename`).
+
+**Fix.** Reclassified as what Connect does itself: Connect keys an opportunity's rows by each block's id (commcare-connect `form_receiver/processor.py::get_or_create_learn_module`, `get_or_create_deliver_unit`, `process_task_modules`), so any app whose block id changes under an opportunity holding the old one meets the same refusals, whoever changed it, and no spelling of a renamed block avoids it. What Nova owns is the order of the rename and the manager's payment unit, which part 08's block says on every surface. `HQ_OWN_REPORTS` gains the member `connect_block_renamed` = (id, artifact `connect@B-edit@*`, paths `/ids/deliver/moved`, `/ids/task/moved`, `/ids/module/moved`, `/runs/*/refused/400/payment-unit-is-not-configured-for-the-deliver-unit` and `/runs/*/catalog/learnModules/added`, applies), read by the Connect judge's `beyond` report (`proof/checks/connect.py`). For this member `applies(A, B-edit)` is exactly: a Connect block that A's stored form holds is absent from B-edit's stored form, and B-edit's form holds a block of the same kind at the same path under another id; each report is dropped only for a block that meets it. A refusal of any other cause, an id that moved with no block renamed in the edit, or a block added beside the old ones, is still reported.
+
+**Files.** Lane: `proof/checks/hq_own_reports.py` (the member), `proof/checks/test_hq_own_reports.py` (its case), `proof/checks/connect.py` (`beyond` asks the set), `proof/connect/test_hq_own_rename.py` (new), `proof/known-defects.json` (the five entries leave), `proof/controls/targeted-connect-learn-rename/` (deleted: no other entry names it), `proof/timings.json`. Docs: `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (the rename consequences, now under "What HQ does itself", beside HQ giving up on a forward Connect refused), `proof/README.md` ("Connect in the unit").
+
+**Stored shape and migration.** None.
+
+**Register.** The five entries are deleted in pull request 1, not moved, for the reason finding 50's are.
+
+**Spelling rule.** None. **Identity.** None; `proof/identity-moves.json` gains no entry.
+
+**Control.** `targeted-connect-learn-rename`'s directory is deleted with its two entries; `targeted-connect-deliver-rename`'s stays, named by the entries of findings 34, 59 and 61.
+
+**Nova tests.** Native proof. `proof/checks/test_hq_own_reports.py`: the member drops each of the five reports on a pair where `applies` holds, and keeps each where the edit renames nothing, where a block is added beside the old one, and for a 400 with another message. `proof/connect/test_hq_own_rename.py`: a deliver app and a learn app made in HQ's own pages with no Nova export (each form built in HQ's form builder with its Connect questions under `COMMCARE_CONNECT`), released, an opportunity made from the release, then each block's id changed in HQ's form builder and the app released again, and devices' submissions taken by HQ's receiver and forwarded by its Connect repeater: Connect refuses the renamed deliver unit's delivery with the same 400, makes a second learn module, and completes no assigned task with the renamed task, and HQ marks the refused forward `PayloadRejected` and does not send it again.
+
+**Lane.** Locally `npm run proof -- proof/checks/test_hq_own_reports.py proof/connect/test_hq_own_rename.py`. CI must show proof 4 passing on both rename documents with no defect 15 entry, and the member's test passing.
 
 ## Why `proof/identity-moves.json` stays empty
 
@@ -765,6 +827,7 @@ the new control is `container-query-conditional-after-13` (part 05, Shadows
 | Work item H | 1 | 2 under defect 3, where the lane shows a class of its own | 6 | fixed |
 | Finding 56 | 1 | 2 intent entries (`d56-datetime-ordering-*`) | never in step 2 | **live**, step 3's |
 | Finding 57 | 1 | `d57-case-id-column-*`, the classes the first run reports (three expected; part 07, Finding 57: the `case_id` column and attribute-backed hidden carriers) | 11 | fixed |
+| Finding 70 (question names HQ's editors warn about; part 08, Finding 70) | 1 | the classes its first run shows, six expected (`targeted-reserved-question-names`, retained as their control) | 10 | fixed |
 | Defect 12's explicit tile cell classes, only where pull request 11's run reports them (part 07, Tile cells and finding 42) | 11 | up to 3 (`d12-custom-tile-app-horizontal-align`, `-vertical-align`, `-font-size`), on a new control `targeted-custom-tile-explicit-cells` | 13, with defect 12's other entries | fixed |
 
 At the exit `proof/known-defects.json` holds the 159 entries of defects 20,
@@ -782,6 +845,24 @@ conditional controls, `container-query-conditional-after-13` (the re-homing
 rule's second case, pull request 6) and
 `targeted-custom-tile-explicit-cells` (pull request 11), and for any other
 control the re-homing rule's second case retains. Every one is named.
+
+### Entries of the lane's branch for findings 58 to 69 and defect 15's Connect forwarding
+
+The counts above are of `main`'s register at `e7f74de1`. The lane's branch (`proof/run-every-reader`), which the stack is cut over, registers what its new readers showed. For the findings it numbered 58 to 69, correction 15, defect 15's Connect forwarding and the Data Forwarding check, the blocks that own them move or delete these entries, each in the pull request named:
+
+| Finding | Entries | Check and artifact | Control | Outcome | Pull request | Block |
+|---|---|---|---|---|---|---|
+| 59 | `d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status`, `d59-local-archive-names-no-server-connect-local-ccz-posts-answer`, `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed` | proof 3: `formplayer@local.ccz`, `connect@local.ccz`, `android@local.ccz` | `targeted-close-conditions`, `targeted-connect-deliver-rename`, `case-capture-followup` | fixed | 3 | part 01, A5. A `.ccz` is made for one project space |
+| 60 | `d60-connect-key-names-connect-a-refused-500-keyerror` | proof 3, `connect@A` | `targeted-connect-deliver-key-names` | fixed | 10 | part 08, Finding 60 |
+| 61 | `d61-deliver-form-with-a-task-connect-a-visit-rejected` | proof 3, `connect@A` | `targeted-connect-deliver-rename` | fixed | 10 | part 08, Finding 61 |
+| 62 | `d62-incomplete-forms-tile-webapps-app-settings-home-tiles-incomplete`, `-screens-tiles-incomplete` | proof 4, `webapps@app settings@*` | `targeted-custom-tile`, `targeted-invalid-question-ids` | fixed | 5 | part 04, Defect 7 and finding 62 |
+| 65 | the five `d65-texts-the-local-archive-leav-formplayer-local-ccz-*` | proof 3, `formplayer@local.ccz` | `targeted-close-conditions` (3), `case-list-browse`, `case-list-inline` | fixed | 5 | part 04, Finding 65 |
+| 66 | `d66-update-property-order-formplayer-local-ccz-case-update-order` | proof 3, `formplayer@local.ccz` | `workforce-case-operation-sequence` | fixed | 9 | part 05, Finding 66 |
+| 67 | `d67-android-proof1-b-update-reopened-session-changed`, `d67-android-proof1-local-ccz-update-reopened-session-changed` | proof 1, `android@B`, `android@local.ccz` | `tile-grouped-one`, deleted with them | deleted, `android_grouped_tile_reopen` | 1 | Finding 67: grouped tiles and a reopened incomplete form |
+| 68, filed under defect 20 | the 31 entries on `targeted-supply-point-read` | manifest 1, proof 4 30 | `targeted-supply-point-read` | fixed, by the re-homing rule's fourth case | 10 | part 08, Finding 68 |
+| defect 15's Connect forwarding | the five `d15-connect-ids-renamed-connect-b-edit-*` | proof 4, `connect@B-edit@*` | `targeted-connect-deliver-rename`, and `targeted-connect-learn-rename`, deleted with its two | deleted, `connect_block_renamed` | 1 | Connect's own reading of a renamed block |
+
+So these blocks move 44 of the branch's entries to `proof/fixed-defects.json` and delete 7 with two members of `HQ_OWN_REPORTS`. Findings 58, 63, 64 and 69, correction 15 and the Data Forwarding check hold no entry on the branch: 58, 69 and correction 15 are held by reader tests (`proof/formplayer/test_end_of_form.py`, `proof/webapps/test_links.py`; `proof/views/test_location_fixture.py`; `proof/views/test_lookup_upload.py`), 63 and 64 by the lane's own design (`device_archive`, `_needs_cloudcare`), and Data Forwarding by `proof/connect/test_forwarding.py`. Finding 70, numbered by part 08, is planning's and is in "The entries step 2 adds".
 
 ## How the harness keeps publishing as Nova publishes
 
@@ -1019,7 +1100,7 @@ passage it made false.
 | Opening | The lane passes when every difference is erased by a proven spelling rule or held by a known-defect entry, every known-defect entry still shows on its document and its control, and every fixed-defect entry still shows on its control. |
 | "A, B and B-edit" | A first publish is a shell create and an update; state A is HQ app version 2; ids are derived; a document with `hq-side.json` republishes as its `republish` statement says (it proceeds, it goes through after the discard a person would confirm, or Nova stops it); a publish Nova stops leaves no B. |
 | "The bar" | A refusal of either import of a first publish is reported under its own artifact. |
-| "Proofs 1 to 5" | Proof 1: `identity-moves.json` is empty and why. Proof 3: a submission's version across the two paths is each path's own counter. Proof 4: the closed set `proof/checks/hq_own_reports.py::HQ_OWN_REPORTS`, its one member and how to add another. |
+| "Proofs 1 to 5" | Proof 1: `identity-moves.json` is empty and why. Proof 3: a submission's version across the two paths is each path's own counter. The closed set `proof/checks/hq_own_reports.py::HQ_OWN_REPORTS`, its three members (proof 4's Vellum alert, proof 1's Android reopen of a grouped-tile session, and the Connect judge's renamed block), the check that reads each, and how to add another. |
 | "What the lane does not observe" | Loses defect 3's clause and the closing paragraph about step 1's open clause (pull request 8). Says the version floor, the confirmations and the drift verdict on a live target are Nova tests, and that the drift comparator is proven over the retained reads. |
 | "Emitting it" | The ordinals keep a regression visible; no id is drawn on either path. |
 | "The layout on disk" | `create.body`, `content.body`, the `layout` marker, `assumedSource` and `assumedResources`, `outcome.json`'s `stopped`, and the legacy layout controls keep. |
@@ -1046,9 +1127,10 @@ passage it made false.
   the behavior or a judge change deliberately stops reporting the class, and
   its control is never retained again." The sentence "Never skip, mark,
   loosen a comparator or widen a path to make the lane pass" stays, followed
-  by "what HQ's own editors report on an app Nova never touched is dropped
-  only by a member of `HQ_OWN_REPORTS`, a closed set whose every member has
-  a proof that runs HQ's own code, as a spelling rule has".
+  by "what HQ's own editors, CommCare's runtimes or Connect report on an app
+  Nova never touched is dropped only by a member of `HQ_OWN_REPORTS`, a closed
+  set whose every member has a proof that runs that reader's own code over an
+  app made in HQ's own editors, as a spelling rule has".
 - A new rule: "The capture moves with publish. A change to what
   `publishAppToHq` reads or sends changes `proof/corpus/publish.ts` in the
   same pull request, the peer answers a read only with what the HQ side then

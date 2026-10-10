@@ -20,7 +20,7 @@ to correct:
 | A2 | `localization.wireCodes` (defect 1, two register entries) |
 | A3 | The publish sequence: the shell create, `readHqAppSource`, `remote_missing_at` |
 | A4 | No `multimedia_map` (finding 49) |
-| A5 | A `.ccz` is made for one project space (findings 32 and 59, three register entries) |
+| A5 | A `.ccz` is made for one project space (findings 32 and 59, ten register entries) |
 | A6 | The HQ import file as a ZIP with its guide |
 | A7 | The proof capture and the comments, in the same pull request |
 
@@ -51,11 +51,12 @@ Departures from the research and the outline, all decided:
   README.
 - **Every `.ccz` is made for one project space the app is published to**
   (the person decided this for an app that searches: a file whose every
-  search fails is worse than no file; planning extends it to every app, for
-  the person to confirm, because Android's own run showed the same of sign-in
-  and submission: for a file that names no server, the addresses Android
-  holds for its sync and its form send are its own built-in defaults). A5
-  gives the run and the design.
+  search fails is worse than no file; it is settled for every app, finding
+  59, because every reader the lane runs showed the same of sign-in and
+  submission: for a file that names no server, Formplayer sends nothing,
+  Android holds its own built-in default addresses, and a submission that
+  reaches HQ names no app, which Connect refuses). A5 gives the runs and the
+  design.
 
 The ledger tables this work item reads and writes are
 `app_deployment_resources` (its new `remote_missing_at`),
@@ -1441,14 +1442,15 @@ from it.
   file and Preview, and its `.ccz` once it is published.
 
   This withdraws a download people can make today. The person decided it
-  for an app that searches. Planning extends it to every app, and returns
-  that to the person to confirm, on what the runs above show: every app
-  signs in, syncs and submits, and a file for no project space holds
-  Android's built-in default addresses for all three. The alternative that
-  was weighed and not taken: keep the file for an app that does not search,
-  with no server property. It keeps a file no worker of the person's project
-  space can sync or send from, and Preview already runs the app on real
-  data.
+  for an app that searches, and it is settled for every app (finding 59) on
+  what the readers showed: every app signs in, syncs and submits, a file for
+  no project space holds Android's built-in default addresses for all three,
+  Formplayer sends none of its forms, and a submission received with no app
+  named reaches Connect with a null app id and is refused. The alternative
+  that was weighed and not taken: keep the file for an app that does not
+  search, with no server property. It keeps a file no worker of the person's
+  project space can sync or send from, and Preview already runs the app on
+  real data. Every `.ccz` therefore writes the four server properties below.
 
 - **The profile's server properties.** New export
   `lib/commcare/runtimeTarget.ts::profileServerProperties(target)` returns
@@ -1719,13 +1721,31 @@ nothing and still gets a line, because it withdraws a download. Its copy:
 
 Part 10, Work item F: the migration notice, registers the reason.
 
-**Register.** Three entries move to `proof/fixed-defects.json`, all check
-`proof3` on `trace@local.ccz`: `d32-search-url-trace-requests-url` and
-`d32-search-url-trace-url` (control `case-list-inline`), and
-`d32-search-url-trace-stackaftersubmit-steps` (control
-`search-registration-link`). Finding 59 holds no entry: no check of the lane
-reads a profile's server properties, and its proofs are the reader tests
-under "Lane".
+**Register.** Ten entries move to `proof/fixed-defects.json`. Finding 32's
+three of `main`'s register, all check `proof3` on `trace@local.ccz`:
+`d32-search-url-trace-requests-url` and `d32-search-url-trace-url` (control
+`case-list-inline`), and `d32-search-url-trace-stackaftersubmit-steps`
+(control `search-registration-link`). Finding 59's three, which the lane's
+branch added once its readers ran every state of every document, all check
+`proof3`:
+
+| Id | Artifact | Path | Control |
+|---|---|---|---|
+| `d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status` | `formplayer@local.ccz` | `/runs/*/steps/*/submit/status` | `targeted-close-conditions` |
+| `d59-local-archive-names-no-server-connect-local-ccz-posts-answer` | `connect@local.ccz` | `/runs/*/posts/*/answer` | `targeted-connect-deliver-rename` |
+| `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed` | `android@local.ccz` | `/profile/readers/FormSubmissionHelper.getFormPostURL` | `case-capture-followup` |
+
+None pins values, so on the lane's branch each holds its class on every
+document that shows it, which is every document with a form for the first
+and the third and every Connect document for the second. And finding 32's
+four that the lane's branch added from Formplayer and Android, all check
+`proof3`: `d32-searches-from-a-local-ccz-formplayer-local-ccz-asked`,
+`-asked-2` and `-response-type` (artifact `formplayer@local.ccz`, control
+`targeted-sync-on-form-entry`: Formplayer's search from the local archive
+reaches HQ at `__APP_ID__` and HQ answers 404), and
+`d32-android-proof3-local-ccz-query-url-changed` (artifact
+`android@local.ccz`, path `/walks/*/steps/*/query/url`, control
+`case-list-browse`).
 
 **Spelling rule.** None. The placeholder app id of the capture (A7) is an
 identity alignment the harness makes once, never a spelling rule.
@@ -1766,6 +1786,7 @@ during planning over an archive with the planned bytes written in.
 | `proof/formplayer/test_local_archive.py`, rewritten from the reader's "cannot submit" | Formplayer, then HQ | `targeted-form-link-hidden-target`, `targeted-search-hq-compile` | The local archive's submit answers `success`, HQ receives one form at `/a/<domain>/receiver/<A's id>/`, the path HQ's build posts to; its search reaches HQ at `/a/<domain>/phone/search/<A's id>/`. The paired refusal is the retained pre-fix archive of the control, whose submit answers an error and sends nothing. |
 | `proof/android/predicates.py::test_a_local_archive_signs_in_and_sends_to_its_project_space`, new, with a reader request `submit` (`proof/android/src/nova/proof/android/Submit.java`) | Android | `targeted-survey-menu` | `ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL` and `HiddenPreferences.getUserDomain` give the profile's four values; a form saved complete is sent by `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, received by a loopback peer the test starts, and the task ends `FULL_SUCCESS`. The paired refusal is the control's pre-fix archive, whose readers give Android's built-in defaults; it is read and never sent. The request runs the reader's application with Android's own requester (`CommCareApplication.buildHttpRequester`) where the project's test application substitutes a mock, and the peer's address stands in for `<base>` in the archive under test. |
 | `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The control keeps the refusal. |
+| Proof 3, the served states and the Android stage, finding 59's three fixed classes | Formplayer with HQ's own views answering it, HQ's own receiver and Connect repeater with Connect's own server, and commcare-android's own readers and its send to a loopback receiver that hands each form to HQ's real receiver | every document, and every Connect document for Connect | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, `connect@local.ccz`'s posts answered as `connect@A`'s (the forward names the app, Connect writes its rows), and `android@local.ccz`'s `FormSubmissionHelper.getFormPostURL` the project space's receiver under the app, where today it is Android's built-in `https://staging.commcarehq.org/receiver/submit/pf`; the three fixed entries reproduce on their controls. |
 
 Locally the pull request runs the lane selected to `case-list-inline`,
 `search-hidden-link` and `search-registration-link`, `proof/hq/test_publish.py`,

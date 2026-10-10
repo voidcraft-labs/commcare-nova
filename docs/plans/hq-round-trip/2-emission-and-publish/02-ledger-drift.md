@@ -1,10 +1,10 @@
-# Step 2, part 02: The deployment ledger, work item B (the drift check) and defect 5
+# Step 2, part 02: The deployment ledger, work item B (the drift check), defect 5 and correction 15
 
 Part of [step 2's plan](../2-emission-and-publish.md), which holds the baseline, the decisions, the stack and the exit. Citations are `file::symbol`; HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
 
 This section holds three things: the whole step's additive ledger schema (one
 migration, landed by pull request 2 of the stack), work item B (pull request
-4), and defect 5 (pull request 14, with its lane split in pull request 1).
+4), and defect 5 with correction 15 (pull request 14, with its lane split in pull request 1).
 Work items A and C use the tables defined here and are written in part 01,
 Work item A: identity and the publish sequence, and part 03, Work item C:
 publish gates. The cutover's step ids and notice reasons are part 10's (The
@@ -14,7 +14,7 @@ names for these things in step 2.
 | Thing | Name |
 |---|---|
 | Tables | `app_deployment_identities`, `app_deployment_confirmations`, `app_deployment_baselines`, `project_space_resource_baselines` |
-| Columns | `app_deployment_resources.remote_missing_at`, `app_deployments.offered_logo_content_hash` |
+| Columns | `app_deployment_resources.remote_missing_at`, `app_deployments.offered_logo_content_hash`, `app_deployments.target_empty_case_list_text` |
 | Failure codes | `hq_changed` (pull request 4), `hq_table_content_unsupported` (pull request 14), `hq_confirmation_needed` and `hq_app_version_below_floor` (pull request 13, work item C) |
 | Preflight checks | `plan-features`, `target-app` (added to `lib/deployment/preflight.ts::PREFLIGHT_CHECK_IDS`) |
 | Publish input | `lib/deployment/service.ts::PublishInput.confirm`, `PublishInput.discardRemoteChanges` (an array of `lib/deployment/types.ts::RemoteChangeDiscard`) |
@@ -61,6 +61,11 @@ ALTER TABLE app_deployments
   ADD COLUMN offered_logo_content_hash text
     CHECK (offered_logo_content_hash IS NULL OR btrim(offered_logo_content_hash) <> '');
 
+-- (b2) Whether the project space's empty-list text flag was on when this deployment's last publish read it
+--      (finding 65): the local archive writes the empty-list text exactly where HQ's build of that publish does.
+ALTER TABLE app_deployments
+  ADD COLUMN target_empty_case_list_text boolean;
+
 -- (c) Ids a target holds that are not Nova's derivation.
 CREATE TABLE app_deployment_identities (
   deployment_id    uuid NOT NULL REFERENCES app_deployments(id) ON DELETE CASCADE,
@@ -89,7 +94,7 @@ CREATE UNIQUE INDEX app_deployment_identities_xmlns
 CREATE TABLE app_deployment_confirmations (
   id            uuid PRIMARY KEY DEFAULT uuidv7(),
   deployment_id uuid NOT NULL REFERENCES app_deployments(id) ON DELETE CASCADE,
-  kind          text NOT NULL CHECK (kind IN ('plan-feature', 'flat-location-fixture')),
+  kind          text NOT NULL CHECK (kind IN ('plan-feature', 'flat-location-fixture', 'connect-forwarder')),
   subject       text NOT NULL CHECK (subject ~ '^[a-z][a-z0-9-]{0,63}$'),
   confirmed_by  text NOT NULL CHECK (btrim(confirmed_by) <> ''),
   confirmed_at  timestamptz(3) NOT NULL DEFAULT now(),
@@ -98,7 +103,9 @@ CREATE TABLE app_deployment_confirmations (
   CONSTRAINT app_deployment_confirmations_withdrawal_is_attributed
     CHECK ((withdrawn_by IS NULL) = (withdrawn_at IS NULL)),
   CONSTRAINT app_deployment_confirmations_fixture_subject
-    CHECK (kind <> 'flat-location-fixture' OR subject = 'flat-location-fixture')
+    CHECK (kind <> 'flat-location-fixture' OR subject = 'flat-location-fixture'),
+  CONSTRAINT app_deployment_confirmations_forwarder_subject
+    CHECK (kind <> 'connect-forwarder' OR subject = 'connect-forwarder')
 );
 CREATE UNIQUE INDEX app_deployment_confirmations_live
   ON app_deployment_confirmations (deployment_id, kind, subject)
@@ -179,6 +186,7 @@ export interface AppDeploymentResourcesTable {
 export interface AppDeploymentsTable {
   // existing columns, plus:
   offered_logo_content_hash: ColumnType<string | null, string | null | undefined, string | null>;
+  target_empty_case_list_text: ColumnType<boolean | null, boolean | null | undefined, boolean | null>;
 }
 
 export interface AppDeploymentIdentitiesTable {
@@ -193,7 +201,7 @@ export interface AppDeploymentIdentitiesTable {
 export interface AppDeploymentConfirmationsTable {
   id: DefaultedUuidV7Column<string>;
   deployment_id: string;
-  kind: string;                        // 'plan-feature' | 'flat-location-fixture'
+  kind: string;                        // 'plan-feature' | 'flat-location-fixture' | 'connect-forwarder'
   subject: string;
   confirmed_by: string;
   confirmed_at: Timestamp;
@@ -253,6 +261,7 @@ export interface ProjectSpaceResourceBaselinesTable {
 |---|---|---|---|
 | `app_deployment_resources.remote_missing_at` | its deployment | cascades with the deployment | nothing |
 | `app_deployments.offered_logo_content_hash` | the row's own `project_id` | cascades | nothing more: the row is already re-tenanted, and a content hash survives the move's asset-id remap (the reason the column is a hash and not an asset id) |
+| `app_deployments.target_empty_case_list_text` | the row's own `project_id` | cascades | nothing more: it is a fact of the project space, which the move does not change |
 | `app_deployment_identities` | `deployment_id` (CASCADE) | cascades | nothing |
 | `app_deployment_confirmations` | `deployment_id` (CASCADE) | cascades | nothing. A confirmation is about the project space, so it stays true for the destination's members. |
 | `app_deployment_baselines` | `deployment_id` (CASCADE) | cascades | nothing |
@@ -266,7 +275,7 @@ Each block below is headed by the pull request that lands it. A name is never de
 ```ts
 // ---- Pull request 2 (with the ledger) ----
 
-export const DEPLOYMENT_CONFIRMATION_KINDS = ["plan-feature", "flat-location-fixture"] as const;
+export const DEPLOYMENT_CONFIRMATION_KINDS = ["plan-feature", "flat-location-fixture", "connect-forwarder"] as const;
 export type DeploymentConfirmationKind = (typeof DEPLOYMENT_CONFIRMATION_KINDS)[number];
 
 export interface DeploymentConfirmation {
@@ -429,14 +438,15 @@ export interface ResourceBaselineWrite {
 /** What a caller names when a person confirmed it. `PlanFeatureId` is lib/publish/planFeatures.ts's. */
 export type DeploymentConfirmationKey =
   | { readonly kind: "plan-feature"; readonly subject: PlanFeatureId }
-  | { readonly kind: "flat-location-fixture" };
+  | { readonly kind: "flat-location-fixture" }
+  | { readonly kind: "connect-forwarder" };
 ```
 
 Which pull request lands which type, and why:
 
 | Lands in | Types | Reason |
 |---|---|---|
-| pull request 2 | `DEPLOYMENT_CONFIRMATION_KINDS`, `DeploymentConfirmationKind`, `DeploymentConfirmation` (with `subject: string`), `DeploymentWithResources.confirmations`, `DeploymentResource.remoteMissingAt`, `DeploymentRecord.offeredLogoContentHash`, the `DeploymentIdentityOverride` interface, and the baseline read types `AppOwnership`, `AppBaseline`, `CanonicalLookupTable`, `CanonicalPlace`, `ResourceBaseline` | Each is the read side of a column or table the migration adds, and none imports a file a later pull request creates. The read mappings that fill them land in the same pull request (see the store tables below), so pull request 3 adds behavior over a field that already exists. |
+| pull request 2 | `DEPLOYMENT_CONFIRMATION_KINDS`, `DeploymentConfirmationKind`, `DeploymentConfirmation` (with `subject: string`), `DeploymentWithResources.confirmations`, `DeploymentResource.remoteMissingAt`, `DeploymentRecord.offeredLogoContentHash`, `DeploymentRecord.targetEmptyCaseListText` (`boolean | null`: null until a publish has read the flag), the `DeploymentIdentityOverride` interface, and the baseline read types `AppOwnership`, `AppBaseline`, `CanonicalLookupTable`, `CanonicalPlace`, `ResourceBaseline` | Each is the read side of a column or table the migration adds, and none imports a file a later pull request creates. The read mappings that fill them land in the same pull request (see the store tables below), so pull request 3 adds behavior over a field that already exists. |
 | pull request 3 | `DeploymentIdentityOverride` becomes the alias of `lib/commcare/wireIdentity.ts::WireIdentityOverride` | part 01, A1. Derived ids, and why `Form.xmlns` is not stored, owns the shape from then on. |
 | pull request 4 | `ResourceBaselineRef`, `RemoteChangeDiscard`, `DeploymentRemoteChange`, `BaselineDiscardWrite`, `AppBaselineWrite`, `ResourceBaselineWrite`, `PublishInput.discardRemoteChanges`, `DeploymentAttemptRefusal.remoteChanges` | They are the comparison's and the writers' types, and the writers need `lib/deployment/hqSourceBaseline.ts`. |
 | pull request 13 | `DeploymentConfirmationKey`, `PublishInput.confirm`, `DeploymentConfirmationNeeded`, `DeploymentAttemptRefusal.confirmationsNeeded` | `PlanFeatureId` is declared in `lib/publish/planFeatures.ts`, which pull request 13 creates (part 03, C2. Plan features: the per-privilege confirmation). A pull request 2 type cannot import it. |
@@ -1020,7 +1030,7 @@ The comparator is TypeScript and HQ runs in the lane's Python, and a proof shard
    - `lookupUploadFailure` tests `refusal.upgradeRequired` first, before its permission and partial arms.
    - `lookupUploadFailure` gains the sentence: "The plan for `<domain>` doesn't include lookup tables, so CommCare HQ took none of this app's and the app was not sent. Nothing on the project space changed."
    - No read warns of this first: the definition list read answers 200 on a plan without lookup tables (executed). The plan-feature confirmation is part 03's (C2. Plan features: the per-privilege confirmation).
-5. **The 31-character cap goes.** HQ's reader finds a data sheet by its title, read as a plain attribute with no length check (`corehq/util/workbook_json/excel.py::WorkbookJSONReader.get_worksheet`), and a tag holds 32 characters (`fixtures/models.py::LookupTable.tag`). Delete `MAX_HQ_FIXTURE_SHEET_NAME_LENGTH` and its throw in `lib/commcare/lookup/workbook.ts::buildLookupWorkbook`, `lib/export/boundaryValidation.ts::lookupHqSheetNameFindings`, the length half of `hasUnpushableTag` (the `types` half stays), and the code `LOOKUP_TAG_TOO_LONG_FOR_HQ` from `lib/commcare/validator/errors.ts`, `lib/commcare/validator/gate.ts` and `lib/doc/userFacingErrors.ts`. `lib/commcare/lookup/textWorkbook.ts` writes the sheet name as given and does not change. Executed during planning, with workbooks that writer made:
+5. **The 31-character cap goes.** HQ's reader finds a data sheet by its title, read as a plain attribute with no length check (`corehq/util/workbook_json/excel.py::WorkbookJSONReader.get_worksheet`), and a tag holds 32 characters (`fixtures/models.py::LookupTable.tag`). HQ does not refuse a longer one: it answers a 33-character tag with a 500 (correction 15, below), so the cap of 32 is Nova's to hold, and Nova already holds it. Delete `MAX_HQ_FIXTURE_SHEET_NAME_LENGTH` and its throw in `lib/commcare/lookup/workbook.ts::buildLookupWorkbook`, `lib/export/boundaryValidation.ts::lookupHqSheetNameFindings`, the length half of `hasUnpushableTag` (the `types` half stays), and the code `LOOKUP_TAG_TOO_LONG_FOR_HQ` from `lib/commcare/validator/errors.ts`, `lib/commcare/validator/gate.ts` and `lib/doc/userFacingErrors.ts`. `lib/commcare/lookup/textWorkbook.ts` writes the sheet name as given and does not change. Executed during planning, with workbooks that writer made:
    - HQ's upload view took a workbook whose data sheet is named by a 32-character tag (`code` 200), made the table under that tag with both rows, and on a second upload of the same workbook found the same table and kept its id and its rows' ids; a 31-character tag was taken the same way.
    - HQ's definition read returned the 32-character tag, and HQ's restore wrote the table as `item-list:<tag>` with a `<tag>_list` of both rows.
    - Core, Formplayer and Android each listed both rows of a table under a 32-character tag in a select (the planned spelling written by hand into `targeted-lookup-reserved-tags`: Core and Formplayer over HQ's build and HQ's restore, Android over the local archive).
@@ -1097,3 +1107,25 @@ The comparator is TypeScript and HQ runs in the lane's Python, and a proof shard
 - **A description and an indexed field.** A new case in the same file: Nova's captured workbook pushed over an identical table, a described one and an indexed one, and HQ's own download of the described table uploaded back, as executed under item 3.
 - **Local run:** `npm run proof -- proof/checks/test_hq_side.py proof/hq/test_lookup_upload.py proof/formplayer/test_lookup_tags.py proof/native/test_lookup_workbook.py`, `python3 -m unittest proof.android.predicates` on the Android reader's runtime, and the checks over `targeted-hq-side-lookup`, `targeted-lookup-reserved-tags` and `targeted-hq-side-state`.
 - **CI's full lane must show:** no defect 5 entry in `proof/known-defects.json`; all nine held on their controls from `proof/fixed-defects.json`; no unregistered difference on `targeted-hq-side-lookup` or `targeted-lookup-reserved-tags`; `index.json`'s document ids changed only by the one added document (pull request 1) and none here.
+
+## Correction 15: Nova holds the 32-character tag cap itself
+
+**Today.** The research says HQ's upload reads a 32-character sheet name, and defect 5's fix above removes the 31-character cap on that ground. The lane ran the rest of it: HQ's upload checks no length, its column holds 32 characters (`fixtures/models.py::LookupTable.tag`, `CharIdField(max_length=32)`), and a 33-character tag is not refused but fails inside the view with a database error that HQ answers as a 500, leaving no table (`proof/views/test_lookup_upload.py::test_hqs_upload_reads_a_table_whose_tag_holds_32_characters_and_fails_on_33`, through HQ's own upload view: 32 characters answers 200 twice and holds the table, 33 answers 500 and holds none). HQ's own table page enforces 31 (`fixtures/const.py::LOOKUP_TABLE_TAG_MAX_LENGTH`), which `harness-findings.md` records under "What HQ does itself". So the only cap a push can rely on is the client's, and Nova's must be exactly 32. Nova holds it today in two places: `lib/lookup/constants.ts::LOOKUP_MAX_TAG_LENGTH` (32), read by `lib/lookup/schema.ts::lookupTagSchema` for every write path (the builder, the SA and MCP lookup tools through `lib/lookup/authoringBatch.ts`, and the raw CSV replacement), and the `lookup_tables` check `char_length(tag) BETWEEN 1 AND 32` (`lib/case-store/migrations/20260722053000_lookup_tables.ts`). Nothing proves that the two stay at 32 once defect 5 removes the export boundary's own 31.
+
+**Fix.** The cap stays 32, held by Nova, and is pinned to HQ's column by a test, so neither side can move without the lane saying so.
+
+- `LOOKUP_MAX_TAG_LENGTH` and the table's check are unchanged, and the constant's comment says why it is 32: HQ's upload takes a 32-character tag and fails on a longer one with a 500 instead of refusing it, so a longer tag would reach HQ as a server error.
+- `scripts/lib/hqRoundTripCutover/lookupTags.ts::renamedReservedTag` truncates to that constant (defect 5, "Stored shape and migration"), so the cutover's renames stay inside it.
+- No other writer of a tag exists: every tag reaches the database through `lookupTagSchema` or the cutover's rename.
+
+**Files.** `lib/lookup/constants.ts` (the comment), `lib/lookup/__tests__/reservedTags.test.ts` (the length arm), `lib/case-store/migrations/__tests__/` (the check), `proof/views/test_lookup_upload.py` (unchanged; it is the proof), `lib/lookup/CLAUDE.md` (the sentence that replaces "one past what a CommCare HQ data sheet can be named for": a tag holds 32 characters, the length HQ's upload stores, and Nova refuses a longer one because HQ answers it with a server error). Domain beyond these, doc and mutations, validator, emitters, Preview, builder, SA and MCP tools: none.
+
+**Stored shape and migration.** None: no stored tag can exceed 32, since the table's check has held that from its first migration.
+
+**Register.** None. HQ's 500 is an answer to a tag Nova never sends, so no corpus document shows it; the lane's view test holds HQ's side.
+
+**Spelling rule.** None. **Identity.** None. No entry in `proof/identity-moves.json`. **Control.** None.
+
+**Nova tests.** Pure: `lookupTagSchema` accepts a 32-character tag and refuses a 33-character one with the length message; `renamedReservedTag` never returns more than 32 characters (its existing truncation cases). Real Postgres: inserting a 33-character tag into `lookup_tables` fails the check. A pure test pins `LOOKUP_MAX_TAG_LENGTH` to 32 with a comment naming the lane test, so a change to it is a reviewed change against HQ's column.
+
+**Lane.** `npm run proof -- proof/views/test_lookup_upload.py`: HQ's upload holds a 32-character tag's table across two uploads and answers 500 with no table for 33. The weekly pin pull request runs it, so a change to HQ's column length fails there first. With defect 5's fix, `targeted-lookup-reserved-tags` pushes a 32-character tag through Nova's real publish on every pull request (defect 5, "Lane"). Pull request 14, with defect 5.

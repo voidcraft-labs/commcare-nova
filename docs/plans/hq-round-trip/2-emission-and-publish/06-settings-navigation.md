@@ -1,8 +1,8 @@
-# Step 2, part 06: Work item D, part 3: menus, forms, navigation and search settings (defect 14; findings 41, 50, 54)
+# Step 2, part 06: Work item D, part 3: menus, forms, navigation and search settings (defect 14; findings 41, 50, 54, 58)
 
 Part of [step 2's plan](../2-emission-and-publish.md), which holds the baseline, the decisions, the stack and the exit. Citations are `file::symbol`; HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
 
-This part fixes every bullet of defect 14 that is not a logo, the location fixture, a tile, a sort spelling, a date pattern or the data node's name, adds the three model additions those fixes need (`postSubmit: firstMenu` and `parentMenu`, a sort column on a lookup-backed search input, `hiddenFromMenu`), settles findings 41 and 54, and states why finding 50 gets no emission fix (its allowance is specified in part 09, Finding 50: the registration alert on a follow-up form). HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
+This part fixes every bullet of defect 14 that is not a logo, the location fixture, a tile, a sort spelling, a date pattern or the data node's name, adds the three model additions those fixes need (`postSubmit: firstMenu` and `parentMenu`, a sort column on a lookup-backed search input, `hiddenFromMenu`), settles findings 41, 54 and 58, and states why finding 50 gets no emission fix (its allowance is specified in part 09, Finding 50: the registration alert on a follow-up form). HQ paths are relative to `corehq/apps/app_manager` unless another app is named.
 
 **How every fact below was settled.** Each claim about what HQ's build, an HQ page, Vellum, Core, Formplayer, the Web Apps client or Android does with a spelling was run during planning at the pins of `proof/pins.json`, on that reader's own code: the planned spelling was written by hand into a fork of a real document's published app, or into its local archive, and the reader ran over it. Each block says what was run and on which document. Each harm is held from its fix's pull request on by a lane check or a reader package test, named in the block's **Lane**. A **Nova tests** block lists tests of Nova's own code: they prove what Nova does, and nothing about a reader. The readers are the lane's HQ, its editor pages, Vellum and Core (`proof/hq`, `proof/editors`, `proof/core`), Formplayer (`proof/formplayer`), the Web Apps client (`proof/webapps`) and Android (`proof/android`).
 
@@ -25,7 +25,7 @@ Shared mechanics every block below uses, defined once in their own parts of this
 - **Routes.** No block here adds an `/api` route.
 - **Plugin.** Blocks 2, 3, 4, 5, 6 and 11 change what Nova tells a model (close placement, the destination list, the search button label, the choice sort column, reserved input names, `hiddenFromMenu` in place of the always-false refusal). The `../nova-plugin` skills are swept for each claim in the step's plugin pull request, which is its own pull request in that repository and merges after the deploy (part 11, House rules for the stack, rule 11).
 
-Pull requests of the stack that carry this part: 1 (finding 50, whose allowance and entry removal are specified in part 09, Finding 50: the registration alert on a follow-up form), 9 (blocks 1, 2 and the `external_id` row of block 10), 11 (findings 41 and 54), 12 (blocks 3 to 7, the rest of block 10, block 11).
+Pull requests of the stack that carry this part: 1 (finding 50, whose allowance and entry removal are specified in part 09, Finding 50: the registration alert on a follow-up form), 9 (blocks 1, 2 and the `external_id` row of block 10), 11 (findings 41 and 54), 12 (blocks 3 to 7, the rest of block 10, block 11, block 15).
 
 Register entries this part moves or removes:
 
@@ -761,12 +761,47 @@ Locally: that document. What holds each fact:
 
 **Lane.** Pull request 1, with no emitter change; part 09, in the same block, gives its local run and what CI must show.
 
+## 15. Finding 58: a link to a target its menu hides
+
+**Today.** HQ builds an after-submit link as a stack frame that names the target's commands (`suite_xml/post_process/workflow.py`), and what a runtime does with a command its menu screen leaves out is the runtime's own. Core's session takes the frame as it stands: for a hidden form it needs nothing more and the form opens (`CommCareSession.getNeededData`), and for a hidden menu it asks for a command inside it. Formplayer rebuilds the session by walking the frame through the screens it would show (formplayer `services/MenuSessionFactory.java::rebuildSessionFromFrame`, which matches a step only against `MenuScreen.getMenuDisplayables`), so it answers with the menu that holds a hidden form, listing its shown forms alone, and with the app's first screen for a hidden menu. Nova admits such a link: today it refuses only a display condition no worker could meet (`DISPLAY_CONDITION_ALWAYS_FALSE`), and a link's target may be hidden by a condition false for the worker who submits. Observed on `targeted-form-link-hidden-target`, whose three forms each link with no condition to a form shown in another menu, a form whose display condition is false for the lane's worker, and a menu whose condition is false for that worker:
+
+| Fact | Observed by |
+|---|---|
+| Formplayer: the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen. Core's session opens the hidden form, and asks for a command of the hidden menu | `proof/formplayer/test_end_of_form.py::test_a_link_to_a_shown_form_opens_it_and_a_hidden_target_stops_formplayer_where_core_goes_on` |
+| The Web Apps client, the form opened and submitted by clicks: the same three screens, and HQ receives one submission each time and the client shows HQ's message for it | `proof/webapps/test_links.py::test_web_apps_follows_a_link_to_a_shown_form_and_stops_before_a_hidden_target` |
+| Android's own home activity, handed the completed form: it opens the hidden form, and for the hidden menu a menu screen that lists nothing | the run behind block 11's table (rows 2 and 4), made during planning through the Android reader's `nav` request |
+
+So a target hidden from a worker behaves per platform, whatever hides it: Android opens a hidden form and Web Apps does not, and neither opens anything useful for a hidden menu. *Harm:* none found in Web Apps, where the worker lands on a screen they may use; on Android a worker reaches a form its menu hides from them, and a hidden menu shows them an empty screen.
+
+**Fix.** The design of block 11, which was settled from these runs: what each runtime does decides what Nova admits and what it says.
+
+- A target that is off the menu for every worker is the flag `hiddenFromMenu`. A link to a menu that is off the menu is refused (`HIDDEN_MENU_NOT_A_DESTINATION`, block 11), because it fails on both runtimes; a link to a form that is off the menu is admitted, because it opens on Android, and every surface says it does not open in Web Apps (block 11's builder copy, SA and MCP descriptions, docs).
+- A target hidden by a display condition that some worker can meet is an ordinary condition and stays admitted: Nova cannot know which worker submits. What the worker for whom the condition is false meets is the same as for an item off the menu, so the link editor says it where a person makes the link. `components/builder/form-links/afterSubmitCopy.ts` gains one line, shown under a link whose target form or menu has a display condition: for a form, "When this form's display condition is false for a worker, Android still opens it after submit, and Web Apps opens the menu that holds it instead."; for a menu, "When this menu's display condition is false for a worker, Android opens it with nothing in it, and Web Apps opens the app's first screen instead." The `add_form_links` and `update_form_link` descriptions carry the same two sentences.
+- Preview keeps Android's behavior for links until step 4 (block 11, Preview), and opens such a target.
+- `content/docs/form-links.mdx` states the per-platform behavior for a target hidden by a condition, beside block 11's rows for one off the menu.
+
+**Files.**
+- Builder: `components/builder/form-links/afterSubmitCopy.ts`, and the link editor that shows it (`components/builder/form-links/`).
+- SA and MCP tools: `lib/agent/tools/form-links/addFormLinks.ts`, `updateFormLink.ts` (descriptions). A description change in pull request 12, which already bumps `MODEL_CONTEXT_VERSION` (part 11, The model-addition checklist, item 13, row 12, gains the two link tools); the stack's one billed check names them.
+- Docs: `content/docs/form-links.mdx`.
+- Domain, doc and mutations, validator, emitters, Preview: block 11's, nothing more.
+
+**Stored shape and migration.** None beyond block 11's. No notice: no stored link changes meaning.
+
+**Register.** None. The lane's branch holds this finding in its reader tests and in no register entry: it is a difference between Formplayer and Core's session on one HQ build, which no served-state check compares, so the three tests above are its proof.
+
+**Spelling rule.** None. **Identity.** None. `proof/identity-moves.json` gains no entry. **Control.** None.
+
+**Nova tests.** Pure, state model: the link editor's line shows for a target with a display condition and for none without one, with the form and the menu wording; the two tool descriptions hold the same sentences as `afterSubmitCopy.ts`.
+
+**Lane.** The three tests above keep running over `targeted-form-link-hidden-target` unchanged, since its targets are hidden by conditions false for the lane's worker, which stay admitted. `proof/android/navigation.py`, which block 3 adds with the `nav` request, gains the document: Android opens the hidden form and shows the hidden menu's empty screen. Block 11's `targeted-hidden-from-menu` holds the same rows for items off the menu. Locally `npm run proof -- proof/formplayer/test_end_of_form.py proof/webapps/test_links.py` and `python3 -m unittest proof.android.navigation`. Pull request 12.
+
 ## Order and shared files
 
 - Blocks 1, 2 and the `external_id` row share `lib/commcare/xform/caseBlocks.ts` and `lib/commcare/formActions.ts` with findings 33 and 37, and block 2 needs `nova_operations`, the `nova_condition_` groups and `planGeneratedNodes` from part 05 (part 05, Reserved names and wrapper containers (defect 13); Wrapper conditions (defect 13); The one allocator), which pull request 7 lands. They land together in pull request 9, after it.
 - Findings 41 and 54 edit `lib/commcare/hqJson/caseList.ts` beside part 07 and land with it in pull request 11.
 - Blocks 3 to 7, the rest of block 10 and block 11 land in pull request 12. These blocks change tool schemas (3, 4, 5 and 11) and descriptions inside them (6; block 2's is in pull request 9). The one billed check for the stack is asked for at the head of pull request 14 (part 11, The stack, in its list of what every pull request of the stack does), which names each of them, and nothing is run in pull request 9 or pull request 12.
-- Blocks 3 and 11 share `lib/domain/postSubmit.ts`, the reducer in `lib/doc/mutations/modules.ts` and the Android reader's `nav` request, and land together in pull request 12.
+- Blocks 3 and 11 share `lib/domain/postSubmit.ts`, the reducer in `lib/doc/mutations/modules.ts` and the Android reader's `nav` request, and land together in pull request 12. Block 15 rides the same pull request: its copy states block 11's table for targets hidden by a condition.
 - Block 6 is the second of three edits to `targeted-search-hq-compile`; it keeps the document and its follow-up form, which defects 6 and 48 still need.
 - Cutover steps from this part, as part 10, The transform steps, in order, registers them: `search-button-label`, `reserved-search-inputs`, `hidden-from-menu`, `post-submit`, in that relative order, with `time-ordering` (pull request 14) placed before `hidden-from-menu`. Reasons their steps return: `search-button-text-changed`, `search-input-removed`, `search-input-renamed`, `hidden-from-menu-set`, `after-submit-destination-moved`. One blocker the scan reports: `hidden-menu-is-a-destination` (block 11).
 - Changes that write nothing, as `behavior.ts` selection rules with no step (part 10, Changes that write nothing and still get a line): `follow-up-now-touches-case` and `close-moves-to-save-to-case` (pull request 9), `lookup-choices-order-changes` and `survey-menu-takes-case-type` (pull request 12).
