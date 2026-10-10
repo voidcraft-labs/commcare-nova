@@ -2294,7 +2294,29 @@ async function runSteps(page, run, steps) {
 							buffer: Buffer.from(step.file.base64, "base64"),
 						});
 					} else {
-						await element.scrollIntoViewIfNeeded({ timeout: run.remaining() });
+						// The element brought to the middle of the window, as a
+						// person scrolls what they draw on into view, clear of
+						// what the page pins to the window's edges: at once (the
+						// page's stylesheet may ask a scroll to glide), and then
+						// until the element stands in one place two frames running,
+						// so no scroll of the page's own still moves it.
+						await element.evaluate(async (target) => {
+							target.scrollIntoView({
+								block: "center",
+								inline: "center",
+								behavior: "instant",
+							});
+							const frame = () =>
+								new Promise((resolve) => requestAnimationFrame(resolve));
+							let last = null;
+							for (;;) {
+								await frame();
+								const { x, y, width, height } = target.getBoundingClientRect();
+								const now = `${x} ${y} ${width} ${height}`;
+								if (now === last) return;
+								last = now;
+							}
+						});
 						const box = await element.boundingBox();
 						if (!box || box.width < 1 || box.height < 1)
 							throw new StepFailed(
@@ -2307,11 +2329,49 @@ async function runSteps(page, run, steps) {
 							box.x + box.width * x + dx,
 							box.y + box.height * y + dy,
 						];
+						// Every point of the stroke lands on the element itself:
+						// one that lands on something the page lays over it would
+						// press or move nothing the element hears.
+						for (const point of step.stroke) {
+							const [x, y] = at(point);
+							const covering = await element.evaluate(
+								(target, [left, top]) => {
+									const hit = document.elementFromPoint(left, top);
+									return hit === target || target.contains(hit)
+										? null
+										: (hit?.outerHTML ?? "nothing").slice(0, 200);
+								},
+								[x, y],
+							);
+							if (covering !== null)
+								throw new StepFailed(
+									"page",
+									`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, not on the element, so nothing would be drawn.`,
+								);
+						}
 						const [from, ...through] = step.stroke;
 						await page.mouse.move(...at(from));
 						await page.mouse.down();
 						for (const point of through) await page.mouse.move(...at(point));
 						await page.mouse.up();
+						// A canvas shows the stroke it took: one that shows none
+						// heard none of it.
+						const drew = await element.evaluate((target) => {
+							if (!(target instanceof HTMLCanvasElement)) return true;
+							if (!target.isConnected) return false;
+							const { width, height } = target;
+							const pixels = target
+								.getContext("2d")
+								.getImageData(0, 0, width, height).data;
+							for (let i = 3; i < pixels.length; i += 4)
+								if (pixels[i]) return true;
+							return false;
+						});
+						if (!drew)
+							throw new StepFailed(
+								"page",
+								`${name}'s stroke for ${JSON.stringify(step.arg)} left nothing drawn on the canvas, so the page heard none of it.`,
+							);
 					}
 				} finally {
 					await handle.dispose();

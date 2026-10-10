@@ -12,7 +12,8 @@
 // the map), or null, for the driver's "files" and "draw" steps to give it the
 // worker's input. Otherwise it is a wait's predicate: false while the client
 // has a request in flight or has drawn no question of the form yet; true once
-// the widget is there to answer; and, once the client has drawn the form and
+// the widget is there to answer (a signature pad once signature_pad holds
+// its canvas); and, once the client has drawn the form and
 // is idle, "absent" where it draws no question at that index, and
 // "unanswerable" where the question's widget is not the one named (a
 // question the client does not support, a file input where a pad was named,
@@ -26,7 +27,10 @@
 		const drawn = question.querySelector(".widget");
 		if (!drawn || drawn.querySelector(".unsupported")) return null;
 		const canvas = drawn.querySelector("canvas");
-		if (widget === "signature") return canvas;
+		// A pad takes a stroke once signature_pad holds the canvas, which
+		// it marks as it starts listening (SignaturePad.on: touch-action none).
+		if (widget === "signature")
+			return canvas?.style.touchAction === "none" ? canvas : null;
 		if (widget === "map") return drawn.querySelector(".map.leaflet-container");
 		return canvas ? null : drawn.querySelector("input[type=file]");
 	};
@@ -36,11 +40,17 @@
 		);
 		return question ? target(question) : null;
 	}
-	if (sessionStorage.getItem("formplayerQueryInProgress") === "true")
+	if (
+		sessionStorage.getItem("formplayerQueryInProgress") === "true" ||
+		sessionStorage.getItem("answerQuestionInProgress") === "true"
+	)
 		return false;
 	const drawn = [...document.querySelectorAll("#webforms .q")];
 	if (!drawn.length) return false;
 	const question = drawn.find((candidate) => ixOf(candidate) === ix);
 	if (!question) return "absent";
+	const pad = question.querySelector(".widget canvas");
+	if (widget === "signature" && pad && pad.style.touchAction !== "none")
+		return false;
 	return target(question) ? true : "unanswerable";
 };
