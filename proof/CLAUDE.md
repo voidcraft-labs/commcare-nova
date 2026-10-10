@@ -84,12 +84,42 @@ harness keeps, each with its reason.
     determinism comparison of Nova's and HQ's draws, which the seeded
     lanes' Android records do not change, and an unseeded run keeps no
     document records under a key for the stage to read.
+- **The harness's own settings are these five, each for its reason; a new
+  one is a claim to justify here.** None changes what HQ, Formplayer or the
+  client decide of a Nova export; each takes away something of the
+  machine a run happens on.
+  - *Elasticsearch's disk watermarks are off* (`proof/hq/elasticsearch.py`).
+    They measure the host's whole volume, and past the flood stage the
+    server makes every index read-only, so a lane on a fuller runner would
+    read differently: no result may depend on how full a runner's disk is.
+  - *Postgres takes 500 clients* (`proof/compose.yaml`). Each worker holds
+    HQ's connections and a pool for every Formplayer it runs, and the
+    default of 100 ran out; how many connections a machine allows is no
+    claim about an export.
+  - *HQ names a map layer with a placeholder token*
+    (`proof/hq/localsettings.py::MAPBOX_ACCESS_TOKEN`). The client draws no
+    map, and takes no answer to a location question, without one
+    (`entries.js::GeoPointEntry`); production names one. The token is no
+    credential, and the layer's pictures are on a host the browser does not
+    reach, so the map is drawn without them and moves and answers the same.
+  - *A step waits for the client's own timers under a second*
+    (`proof/editors/driver/steps/page/timers.js`). A worker acts once the
+    page has settled (an answer's throttle, a dialog's transition), and a
+    step that went on while one was set read the client mid-reaction.
+  - *A page's repeating timers of 10 s or more are held*, the accepted seam
+    above: a person who saves within 20 s.
 - **Web Apps is HQ's own client, clicked and read.** A claim about what a
   worker sees in Web Apps is observed on HQ's client itself
   (`proof/webapps`): HQ's `FormplayerMain` page, the bundle built from HQ's
   entry, HQ's own compiled stylesheets, and Formplayer's own answers to the
   client's own requests, over a build HQ released in a project space that
-  has Web Apps (every configuration of the lane grants it). Never copy a
+  has Web Apps (every configuration of the lane grants it), on a desktop,
+  on a phone and in App Preview: HQ's `PreviewAppView` page at the size of
+  the builder's frame, for the project space's admin, who logs in as the
+  worker through the client's own Log in as, which HQ draws only where the
+  plan has Log In As, so App Preview's runs alone state that it has
+  (`proof/hq/seams.py::also_granted`, as Connect's Data Forwarding is
+  stated). Never copy a
   client function into a test or call the client's code from a step: a step
   clicks what a worker clicks, gives what a worker gives through the
   browser itself (a file chosen in the file chooser, a stroke of the

@@ -134,6 +134,10 @@ FORM_SESSION = "<form session>"
 # its small-screen layout and pages a case list five cases at a time (``formplayer/constants.js``,
 # ``SMALL_SCREEN_WIDTH_PX``, 992; ``menus/api.js``).
 SMALL_SCREEN = {"width": 390, "height": 844}
+# App Preview's window: the frame HQ's app builder shows it in, a phone's (``app_manager/partials/preview_app.html``,
+# ``.preview-phone-window``, ``$preview-phone-width`` and ``$preview-phone-height``), the builder's own default (its
+# tablet view is a person's later choice, kept in their browser's storage, ``preview_app/preview_app.js``).
+PREVIEW_FRAME = {"width": 250, "height": 444}
 
 
 def _is_screen(value) -> bool:
@@ -156,10 +160,13 @@ class WebAppsRunFailed(AssertionError):
 
 @dataclass
 class Session:
-    """One worker's Web Apps on one state HQ serves (``proof.formplayer.hq.Served``)."""
+    """One worker's Web Apps on one state HQ serves (``proof.formplayer.hq.Served``); with ``preview``, the same
+    client as App Preview, the page HQ's app builder shows its app in (``cloudcare/views.py::PreviewAppView``),
+    for the project space's admin, who logs in as the worker there (``proof.webapps.steps.log_in_as``)."""
 
     served: Any
     driver: EditorDriver
+    preview: bool = False
 
     @property
     def hq(self):
@@ -172,28 +179,42 @@ class Session:
 
     @property
     def home(self) -> str:
+        if self.preview:
+            return f"/a/{self.served.domain}/cloudcare/apps/preview_app/{self.served.app_id}/"
         return f"/a/{self.served.domain}/cloudcare/apps/v2/"
+
+    @property
+    def app_id(self) -> str:
+        """The id the client hands Formplayer for the app: the released build's in Web Apps, and in App Preview the
+        app's own, whose archive HQ's download makes from the app as it stands (``views/cli.py::direct_ccz``,
+        ``latest=save``)."""
+        return self.served.app_id if self.preview else self.served.build_id
 
     def _fresh_worker(self) -> None:
         """Formplayer forgets the worker's restore, as after "Clear user data" in Web Apps' settings, and its
-        install of the build.
+        install of the build (in App Preview, of the app: every state of one app has the app's one id there).
 
         Formplayer keeps an install by the id it was asked for and never
         downloads that id again (``FormplayerStorageFactory``), so a session
         that kept an earlier install of an id would run that install under
         this build's name.
         """
+        from corehq.apps.users.util import raw_username
+
+        # In App Preview the admin is the session's user and the worker the one they restore as.
+        username = self.served.unit.web_user.username if self.preview else self.served.username
         web = WebApps(
             self.runner,
             self.hq,
             domain=self.served.domain,
-            username=self.served.username,
-            app_id=self.served.build_id,
+            username=username,
+            app_id=self.app_id,
             session_key=self.hq.session_key,
         )
-        worker = {"domain": self.served.domain, "username": self.served.username, "restoreAs": None}
+        restore_as = raw_username(self.served.username) if self.preview else None
+        worker = {"domain": self.served.domain, "username": username, "restoreAs": restore_as}
         web.post("/clear_user_data", worker)
-        web.post("/delete_application_dbs", {"app_id": self.served.build_id, **worker})
+        web.post("/delete_application_dbs", {"app_id": self.app_id, **worker})
         # Nothing an earlier session left in Formplayer's five-minute caches answers this run's requests
         # (FormplayerRunner.forget_caches), and no file an earlier session uploaded holds the id this run's upload
         # draws (FormplayerRunner.forget_media).
@@ -231,17 +252,29 @@ class Session:
         name: str = "webapps",
         viewport: Mapping[str, int] | None = None,
     ) -> Run:
-        """Opens Web Apps' home page in a fresh browser context and runs ``steps`` after it has loaded, in one run
-        of the served state (``Served.run``: a fork of the unit, the worker signed in afresh); in a window of
-        ``viewport``'s size where one is given (``SMALL_SCREEN``), else a desktop's."""
-        with self.served.run(name):
+        """Opens Web Apps' home page (App Preview's page, with ``preview``) in a fresh browser context and runs
+        ``steps`` after it has loaded, in one run of the served state (``Served.run``: a fork of the unit, the
+        worker, or in App Preview the admin, signed in afresh); in a window of ``viewport``'s size where one is
+        given (``SMALL_SCREEN``, ``PREVIEW_FRAME``), else a desktop's.
+
+        In App Preview the project space's plan also has Log In As (``proof.hq.seams.also_granted``), without
+        which HQ draws no "Log in as" for the admin and they preview the app as themselves, with none of the
+        worker's cases: a project space the lane states so for its App Preview runs alone."""
+        if not self.preview:
+            with self.served.run(name):
+                return self._run(steps, deadline=deadline, viewport=viewport)
+        from corehq import privileges
+
+        from proof.hq.seams import also_granted
+
+        with also_granted(privileges.LOGIN_AS), self.served.run(name, admin=True):
             return self._run(steps, deadline=deadline, viewport=viewport)
 
     def _run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float, viewport=None) -> Run:
         from django.test import override_settings
 
         editor_build()
-        answers = HQAnswers(self.served.acting, self.served.unit)
+        answers = HQAnswers(self.served.admin if self.preview else self.served.acting, self.served.unit)
         exchanges: list[FormplayerExchange] = []
         statics: list[tuple[str, int]] = []
 

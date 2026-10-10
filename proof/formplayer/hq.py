@@ -601,6 +601,23 @@ def sign_in(unit, user, password: str, label: str) -> SignedIn:
     return SignedIn(session.value, csrf.value if csrf is not None and csrf.value else token)
 
 
+# The project space's admin's password (``admin_signed_in``): a credential of the lane's own HQ, made for each run
+# and worth nothing outside it.
+ADMIN_PASSWORD = "proof-admin-password"
+
+
+def admin_signed_in(unit, operation, scope: str, label: str) -> SignedIn:
+    """The project space's admin signed in through HQ's own sign-in form (``sign_in``), with the password their
+    account was given. The admin is HQ's seed's web user (``proof.hq.state``), whose Django account, the one HQ's
+    sign-in checks a password against, the seed made with none; it is given one by Django's own ``set_password``,
+    as a person's account is, in an operation of ``scope`` and ``label``."""
+    with operation(f"{scope}:admin-password@{label}", f"{scope}-admin-password".encode()):
+        account = unit.web_user.get_django_user()
+        account.set_password(ADMIN_PASSWORD)
+        account.save()
+    return sign_in(unit, unit.web_user, ADMIN_PASSWORD, f"{scope}:{label}")
+
+
 @dataclass
 class Served:
     """One state of an app as HQ serves it to Formplayer: the worker, their cases, a released build."""
@@ -660,10 +677,19 @@ class Served:
     def username(self) -> str:
         return self.worker.username
 
+    @property
+    def admin(self):
+        """Who App Preview's page is answered for (``proof.hq.requests``): the project space and its admin, who
+        previews the app in HQ's builder."""
+        from proof.webapps.hq import Worker
+
+        return Worker(self.unit.domain, self.unit.web_user)
+
     @contextmanager
-    def run(self, name: str | None = None):
-        """One run of a walk, in a fork of the unit, the worker signed in: nothing a run's submission left in HQ
-        is there for the next."""
+    def run(self, name: str | None = None, *, admin: bool = False):
+        """One run of a walk, in a fork of the unit, the worker signed in (with ``admin``, the project space's
+        admin, who previews the app in HQ's builder): nothing a run's submission left in HQ is there for the
+        next."""
         from proof.hq import redis as hq_redis
 
         self._runs += 1
@@ -671,7 +697,11 @@ class Served:
         with self.unit.fork():
             _redis_of(self.runner)
             hq_redis.flush()
-            signed_in = sign_in(self.unit, self.worker, PASSWORD, f"formplayer:{label.decode('utf-8', 'replace')}")
+            named = label.decode("utf-8", "replace")
+            if admin:
+                signed_in = admin_signed_in(self.unit, self.operation, "formplayer", named)
+            else:
+                signed_in = sign_in(self.unit, self.worker, PASSWORD, f"formplayer:{named}")
             self.hq.begin(label, signed_in.session)
             forwarding = self.forwarding
             if forwarding is not None:

@@ -129,6 +129,43 @@ def choose_language(code: str, arrival: list[dict], *, within=None, or_skip_to=N
     ]
 
 
+# The home of the client's breadcrumb, which in App Preview is the app's own first screen; that screen's Settings
+# (``partials/grid_view/single_app.html``); and in Settings, the language the app is shown in and Done
+# (``partials/settings_view.html``, ``layout/views/settings.js::LangSettingView``, which HQ's client offers in App
+# Preview alone).
+HOME = "#breadcrumb-region .js-home a"
+SETTINGS = "#menu-region .js-settings"
+LANGUAGE_SETTING = "select.js-lang"
+SETTINGS_DONE = ".js-done"
+
+
+def set_preview_language(code: str, *, within=None, or_skip_to=None) -> list[dict]:
+    """From App Preview's first screen, the language the app is shown in set as a person there sets it: its
+    Settings, the language chosen in "Set the application language" (the client keeps it among its display options
+    and sends it with every later request), then Done, and the client's arrival back at the app's first screen."""
+    [settings, _settle] = click(SETTINGS, visible=True, within=within, or_skip_to=or_skip_to)
+    chosen = {"until": "pages/choose", "arg": {"selector": LANGUAGE_SETTING, "value": code}}
+    if within is not None:
+        chosen = {**chosen, "within": within, **({"orSkipTo": or_skip_to} if or_skip_to is not None else {})}
+    [done, _settle] = click(SETTINGS_DONE, visible=True, within=within, or_skip_to=or_skip_to)
+    return [settings, *arrive(any_screen=True), chosen, SETTLE, done, *arrive(any_screen=True)]
+
+
+def choose_preview_language(code: str, arrival: list[dict], *, within=None, or_skip_to=None) -> list[dict]:
+    """A language chosen in App Preview as a person there chooses it: the breadcrumb's home to the app's first
+    screen, the language set in its Settings (``set_preview_language``), then the app entered again by its Start
+    and the client's arrival where that leads, in the language chosen."""
+    [home, _settle] = click(HOME, within=within, or_skip_to=or_skip_to)
+    [start, _settle] = click(START_APP, within=within, or_skip_to=or_skip_to)
+    return [
+        home,
+        *arrive(any_screen=True),
+        *set_preview_language(code, within=within, or_skip_to=or_skip_to),
+        start,
+        *arrival,
+    ]
+
+
 def searched(arrival: list[dict], end: str | None) -> list[dict]:
     """``arrival`` for a click on a search's Search button, which the client may refuse to send where a prompt is
     invalid (``arrived.js``, ``search``): that answer ends the run (at ``end``), as a worker's search that cannot go
@@ -220,14 +257,70 @@ def answer_place(ix: str, offset: tuple[int, int]) -> list[dict]:
     return _gesture(ix, "map", give, ANSWER)
 
 
-def submit_and_land() -> list[dict]:
+def submit_and_land(*, one_question_per_screen: bool = False) -> list[dict]:
     """The open form's Submit (``steps/webapps/submit.js``), Formplayer's answer to the submission, then the
     client's arrival wherever it then goes (the screen Formplayer's end of form navigation names, the app's first
-    screen, or the form again with its errors). Where the client keeps Submit disabled, nothing is sent."""
+    screen, or the form again with its errors). Where the client keeps Submit disabled, nothing is sent. A form
+    shown one question a screen is submitted by its Complete button, which the client shows at its last screen."""
     return [
         {"mark": True},
-        {"until": "webapps/submit", "arg": None, "within": ANSWERED_WITHIN_MS},
+        {
+            "until": "webapps/submit",
+            "arg": {"complete": one_question_per_screen},
+            "within": ANSWERED_WITHIN_MS,
+        },
         {"awaitRequest": {"method": "POST", "pathname": SUBMIT}, "sinceMark": True, "unlessMissed": True},
+        *arrive(any_screen=True),
+    ]
+
+
+# Where the client sends a form's step to its next screen when it shows one question a screen
+# (``web_form_session.js::nextQuestion``, ``constants.NEXT_QUESTION``).
+NEXT_INDEX = "/formplayer/next_index"
+
+
+def advance(ix: str | None, *, or_skip_to: str | None = None) -> list[dict]:
+    """A form the client shows one question a screen stepped forward by its own Next button until the question at
+    ``ix`` is on the screen (with no ``ix``, until the form's last screen), each press followed by Formplayer's
+    answer to the request the client sends for it and the page quiet (``steps/webapps/advance.js``, the driver's
+    ``advance``). Where the client keeps Next from being pressed the outcome says so and the run ends there (at
+    ``or_skip_to``), as a worker's form that cannot go on; where the screen went past ``ix`` (a question the form
+    holds irrelevant there) the answer's own step records it absent and the run goes on."""
+    step = {
+        "advance": "webapps/advance",
+        "arg": {"ix": ix},
+        "answeredBy": {"method": "POST", "pathname": NEXT_INDEX},
+        "timers": True,
+        # A question the screen went past is the answer step's to record ("absent"), and the walk goes on.
+        "passes": [True, "absent"],
+    }
+    if or_skip_to is not None:
+        step["orSkipTo"] = or_skip_to
+    return [step, SETTLE]
+
+
+# App Preview's first screen (``partials/grid_view/single_app.html``): its Start, and its Log in as, which HQ
+# draws only for a person who may log in as a worker in a project space whose plan has it
+# (``hq_shared_tags.py::can_use_restore_as``).
+START_APP = "#menu-region .js-start-app"
+LOG_IN_AS = "#menu-region .js-restore-as-item"
+# A worker's row in the list of those the person may log in as (``users/views.js::UserRowView``, named by the
+# worker's username), and the confirmation the client asks before logging in as them
+# (``partials/confirmation_modal.html``).
+USER_ROW = "tr.js-user[aria-label='{}']"
+CONFIRM = "#js-confirmation-confirm"
+
+
+def log_in_as(username: str) -> list[dict]:
+    """The worker logged in as from App Preview's first screen, as a person in HQ's builder does it: its Log in as,
+    then the worker's row of the list HQ's own view answers (``cloudcare/views.py::LoginAsUsers``, over HQ's
+    Elasticsearch), then the confirmation's Log in once the dialog is done opening, then the client's arrival back
+    at the app's first screen (``users/views.js::onClickUser``: the worker kept in the client's cookie, every
+    later request to Formplayer naming them)."""
+    return [
+        *click(LOG_IN_AS, visible=True),
+        *click(USER_ROW.format(username), visible=True),
+        *click(CONFIRM, visible=True),
         *arrive(any_screen=True),
     ]
 

@@ -26,15 +26,19 @@ keeps of each forward is read back from its repeat records (``forwards``),
 and the payload is read where it arrived, in Connect.
 
 The project space's admin sets the forwarder up as a person does, through
-HQ's own pages (``forwarding``): signed in through HQ's own sign-in form
-(``proof.formplayer.hq.sign_in``), they post HQ's Connection Settings page
-(``motech/views.py::ConnectionSettingsDetailView``) with Connect's receiver,
-OAuth's client credentials and their own address for notifications, and HQ's
-Add Forwarder page for Connect
+HQ's own pages in Chromium (``forwarding``, ``_drive_page``): signed in
+through HQ's own sign-in form (``proof.formplayer.hq.sign_in``), they open
+HQ's Connection Settings page
+(``motech/views.py::ConnectionSettingsDetailView``) and type Connect's
+receiver, OAuth's client credentials and their own address for
+notifications into it, choosing the OAuth preset as its own script offers
+it, and save; then they open HQ's Add Forwarder page for Connect
 (``repeaters/views/repeaters.py::AddFormRepeaterView``, whose form lists the
-project space's users from HQ's own Elasticsearch) with that connection, each
-form posted as their browser posts it: every control the page's own form
-draws, what they typed in place of its value (``proof.hq.forms.posted``). What is stated of the project space
+project space's users from HQ's own Elasticsearch), choose that connection
+and save. Each page is HQ's own, rendered by its view with its own
+JavaScript bundle (built into the image from the page's entry), and every
+request the browser makes is answered by the view HQ's URLconf names,
+behind HQ's own middleware. What is stated of the project space
 for that, each named where it is done: its plan has Data Forwarding
 (``proof.hq.seams.also_granted``); the Add Forwarder page gives a forwarder
 to production's Connect address one more status to retry on (404, for the
@@ -90,76 +94,89 @@ class ForwarderPageRefused(AssertionError):
     """HQ's Connection Settings or Add Forwarder page did not take the admin's form."""
 
 
-# The project space's admin's password (``_admin_signed_in``): a credential of the lane's own HQ, made for each run
-# and worth nothing outside it.
-ADMIN_PASSWORD = "proof-connect-admin-password"
-
-
 def _admin_signed_in(unit, operation, label):
-    """The project space's admin signed in through HQ's own sign-in form (``proof.formplayer.hq.sign_in``), with
-    the password their account was given. The admin is HQ's seed's web user (``proof.hq.state``), whose Django
-    account, the one HQ's sign-in checks a password against, the seed made with none; it is given one by Django's
-    own ``set_password``, as a person's account is."""
+    """The project space's admin signed in through HQ's own sign-in form
+    (``proof.formplayer.hq.admin_signed_in``)."""
     from proof.formplayer import hq as formplayer_hq
 
-    with operation(f"connect:admin-password@{label}", b"connect-admin-password"):
-        account = unit.web_user.get_django_user()
-        account.set_password(ADMIN_PASSWORD)
-        account.save()
-    return formplayer_hq.sign_in(unit, unit.web_user, ADMIN_PASSWORD, f"connect:{label}")
+    return formplayer_hq.admin_signed_in(unit, operation, "connect", label)
 
 
-def _page_form(path, domain):
-    """The form HQ's page at ``path`` draws for a person opening it, made as the page's own view makes it: the
-    Connection Settings page's model form for a new connection (``motech/views.py::ConnectionSettingsDetailView``,
-    a ``ModelFormMixin`` with no object, given the domain by ``get_form_kwargs``), and the Add Forwarder page's
-    form for its repeater type (``repeaters/views/repeaters.py::AddRepeaterView.add_repeater_form``)."""
-    from corehq.motech.repeaters.models import get_all_repeater_types
-    from django.urls import resolve
-
-    match = resolve(path)
-    view = match.func.view_class
-    if "repeater_type" in match.kwargs:
-        return view.repeater_form_class(
-            domain=domain, repeater_class=get_all_repeater_types()[match.kwargs["repeater_type"]]
-        )
-    return view.form_class(domain=domain, initial={}, prefix=None, instance=None)
+# The headers that belong to the browser's connection to the origin, not to the request HQ is handed.
+_BROWSER_TRANSPORT = {"host", "connection", "content-length", "accept-encoding"}
 
 
-def _post_page(unit, path, typed, signed_in, label):
-    """The admin's form posted to HQ's page at ``path`` as their browser posts it: every control the page's form
-    draws, with what the admin typed and chose in place of its own value (``proof.hq.forms.posted``, over the
-    form the page's view makes, ``_page_form``), answered by the view HQ's URLconf names, behind HQ's own
-    middleware and the view's own decorators. A page that takes its form answers with a redirect; one that
-    renders again has refused it, which raises."""
+def _drive_page(unit, path, steps, signed_in, label):
+    """HQ's page at ``path`` opened in Chromium for the signed-in admin and ``steps`` run on it, as their browser
+    runs them: every request the page makes answered by the view HQ's URLconf names behind HQ's own middleware
+    (``proof.formplayer.hq.respond``), each in a request of the unit, and HQ's static files by HQ's own finders.
+
+    The lane has two names for HQ where a deployment has one (the browser's origin, and the address HQ answers
+    as), so the ``Origin`` and ``Referer`` the browser wrote are sent under HQ's own, and HQ's CSRF check then
+    judges the page's form as it judges production's. Returns the run's outcomes."""
     import hashlib
-    from urllib.parse import urlencode
+    from urllib.parse import urlsplit
 
+    from django.conf import settings
+
+    from proof.editors.client import PageResponse
+    from proof.editors.hq import editor_build
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
-    from proof.hq.forms import posted
+    from proof.observe import services
+    from proof.webapps import static
 
-    # The page's form is drawn as the admin's browser opens the page, in a request of its own (the Add Forwarder
-    # form lists the project space's users from HQ's Elasticsearch).
-    with unit.committing(), unit.request(hashlib.sha256(f"connect-page-opened|{label}|{path}".encode()).digest()):
-        fields = posted(_page_form(path, unit.domain), typed, signed_in.csrf)
-    body = urlencode(fields).encode()
-    headers = (
-        ("Content-Type", "application/x-www-form-urlencoded"),
-        ("Cookie", signed_in.cookie),
-        ("Referer", f"{formplayer_hq.PAGE_ORIGIN}{path}"),
-    )
-    digest = hashlib.sha256(f"connect-page|{label}|{path}|".encode() + body).digest()
-    with unit.committing(), unit.request(digest), formplayer_hq._language_put_back():
-        response = formplayer_hq.respond(formplayer_hq.django_request(HqRequest("POST", path, "", headers, body)))
-        if hasattr(response, "render") and not getattr(response, "is_rendered", True):
-            response.render()
-        content = b"".join(response.streaming_content) if response.streaming else response.content
-    if response.status_code != 302:
-        raise ForwarderPageRefused(
-            f"HQ's page {path} answered the admin's form with {response.status_code} where it redirects once it"
-            f" has taken it; the page it rendered begins: {content[:1500]!r}"
-        )
+    driver = services.client_browser()
+    browser = (driver.ready or {}).get("origin")
+    editor_build()
+
+    def answer(asked):
+        parts = urlsplit(asked.url)
+        held = static.serve(parts.path) if asked.method == "GET" else None
+        if held is not None:
+            return held
+        headers = []
+        for name, value in asked.headers.items():
+            if name.lower() in _BROWSER_TRANSPORT:
+                continue
+            if browser and name.lower() in ("origin", "referer") and value.startswith(browser):
+                value = formplayer_hq.PAGE_ORIGIN + value[len(browser) :]
+            headers.append((name, value))
+        body = asked.body or b""
+        digest = hashlib.sha256(f"connect-page|{label}|{asked.method}|{asked.url}|".encode() + body).digest()
+        with unit.committing(), unit.request(digest), formplayer_hq._language_put_back(), static.in_hq_root():
+            response = formplayer_hq.respond(
+                formplayer_hq.django_request(HqRequest(asked.method, parts.path, parts.query, tuple(headers), body))
+            )
+            if hasattr(response, "render") and not getattr(response, "is_rendered", True):
+                response.render()
+            content = b"".join(response.streaming_content) if response.streaming else response.content
+        answered = [(name, value) for name, value in response.items()]
+        answered += [("Set-Cookie", morsel.OutputString()) for morsel in response.cookies.values()]
+        return PageResponse(response.status_code, answered, content)
+
+    cookies = {settings.SESSION_COOKIE_NAME: signed_in.session, settings.CSRF_COOKIE_NAME: signed_in.csrf}
+    with static.compiled():
+        run = driver.run([{"goto": path}, {"settle": True}, *steps], answer=answer, cookies=cookies, deadline=180.0)
+    return run["outcomes"]
+
+
+def _typed(selector, value):
+    return {"until": "webapps/fill", "arg": {"selector": selector, "value": value}}
+
+
+def _chosen(selector, value):
+    return {"until": "pages/choose", "arg": {"selector": selector, "value": value}}
+
+
+def _saved(path, text):
+    """The page's own submit button clicked, then HQ's answer to the form it posts, and, where HQ answered it with
+    a redirect, the page it sent the browser to loaded."""
+    return [
+        {"until": "webapps/click", "arg": {"selector": "form button[type='submit']", "text": text, "visible": True}},
+        {"followRedirect": {"method": "POST", "pathname": path}},
+        {"settle": True},
+    ]
 
 
 @contextmanager
@@ -187,34 +204,52 @@ def forwarding(unit, connect_url: str, operation, label: str):
     try:
         with also_granted(privileges.DATA_FORWARDING):
             signed_in = _admin_signed_in(unit, operation, label)
-            _post_page(
+            settings_path = reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain})
+            # What the admin types and chooses; every other control is left as the page draws it. A token address
+            # is kept only under the "(Custom)" preset: with any other, the page's save drops it
+            # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a token.
+            _drive_page(
                 unit,
-                reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain}),
-                {
-                    # What the admin types and chooses; every other control is posted as the page draws it (an
-                    # empty box, a box left unticked posting nothing). A token address is kept only under the
-                    # "(Custom)" preset: with any other, the page's save drops it
-                    # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a token.
-                    "name": CONNECTION_NAME,
-                    "notify_addresses_str": unit.web_user.username,
-                    "url": f"{connect_url}/api/receiver/",
-                    "auth_type": OAUTH2_CLIENT,
-                    "client_id": OAUTH_CLIENT["id"],
-                    "plaintext_client_secret": OAUTH_CLIENT["secret"],
-                    "auth_preset": "CUSTOM",
-                    "token_url": f"{connect_url}/o/token/",
-                },
+                settings_path,
+                [
+                    _typed("#id_name", CONNECTION_NAME),
+                    _typed("#id_notify_addresses_str", unit.web_user.username),
+                    _typed("#id_url", f"{connect_url}/api/receiver/"),
+                    _chosen("#id_auth_type", OAUTH2_CLIENT),
+                    {"settle": True},
+                    _typed("#id_client_id", OAUTH_CLIENT["id"]),
+                    _typed("#id_plaintext_client_secret", OAUTH_CLIENT["secret"]),
+                    _chosen("#id_auth_preset", "CUSTOM"),
+                    {"settle": True},
+                    _typed("#id_token_url", f"{connect_url}/o/token/"),
+                    *_saved(settings_path, "Save"),
+                ],
                 signed_in,
                 f"connection-settings@{label}",
             )
-            settings = ConnectionSettings.objects.get(domain=unit.domain, name=CONNECTION_NAME)
-            _post_page(
+            settings = ConnectionSettings.objects.filter(domain=unit.domain, name=CONNECTION_NAME).first()
+            if settings is None:
+                raise ForwarderPageRefused(
+                    f"HQ's Connection Settings page ({settings_path}) saved no connection named {CONNECTION_NAME!r}"
+                    " when the admin saved it."
+                )
+            forwarder_path = (
+                f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/"
+            )
+            _drive_page(
                 unit,
-                f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/",
-                {"connection_settings_id": str(settings.id)},
+                forwarder_path,
+                [
+                    _chosen("#id_connection_settings_id", str(settings.id)),
+                    *_saved(forwarder_path, "Start Forwarding"),
+                ],
                 signed_in,
                 f"connect-forwarder@{label}",
             )
+            if not ConnectFormRepeater.objects.filter(domain=unit.domain).exists():
+                raise ForwarderPageRefused(
+                    f"HQ's Add Forwarder page ({forwarder_path}) saved no Connect forwarder when the admin saved it."
+                )
             with operation(f"connect:retry-404@{label}", b"connect-retry-404"):
                 # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more status
                 # to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a proxy in

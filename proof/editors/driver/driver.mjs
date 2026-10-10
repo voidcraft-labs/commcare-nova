@@ -50,6 +50,12 @@
 //   with "orDialog", or until the page answers the last click with a dialog
 //   and sends nothing, the outcome's "unsent" naming the dialog, after which
 //   every step marked "unlessUnsent" is skipped),
+//   "advance" (a step file asked again and again as a wait's predicate,
+//   each "next" it answers followed by the page's answer to the request it
+//   caused, "answeredBy", and the page quiet, until it answers otherwise:
+//   a form shown one question a screen stepped forward by its own Next;
+//   its last answer the outcome's value, any but true and those "passes"
+//   names skipping to "orSkipTo"),
 //   "followRedirect" (that, and when HQ's answer sent the page elsewhere,
 //   until the redirected document has loaded) and "settle" (until none of
 //   the page's requests is in flight, a frame and a task later still; with
@@ -451,7 +457,8 @@ async function handleRequest(request, response) {
 	}
 	// The operation this request belongs to: its own page's, and only while
 	// that page is serving one.
-	const owner = REUSED_PAGES.get(request.headers[PAGE_HEADER]) ?? null;
+	const named = request.headers[PAGE_HEADER];
+	const owner = REUSED_PAGES.get(named) ?? RUN_PAGES.get(named) ?? null;
 	const served = owner?.serving ?? null;
 	if (url.pathname.startsWith(STATIC_PREFIX)) {
 		// The image's own files change nothing in HQ, whenever a page asks;
@@ -869,6 +876,15 @@ const REUSED_PAGES = new Map([
 	[viewPage.name, viewPage],
 	[vellumPage.name, vellumPage],
 ]);
+
+// The page of each "run" operation in progress, by the name its requests
+// carry (PAGE_HEADER). A run's requests are answered through its context's
+// route (PageRun.route), but Chromium follows an HTTP redirect the route
+// answered with itself, past the route, to the origin: the origin serves
+// that request to its run (PageRun.handle), as a person's browser follows
+// HQ's redirect after a form's post.
+const RUN_PAGES = new Map();
+let runPages = 0;
 
 // -- what a served operation records ------------------------------------------
 
@@ -1965,6 +1981,47 @@ class PageRun {
 		for (const waiter of [...this.waiters]) waiter();
 	}
 
+	record(entry) {
+		this.requests.push(entry);
+	}
+
+	/**
+	 * A request of the run's page that reached the origin past its route: the
+	 * one Chromium sends following an HTTP redirect HQ answered a request
+	 * with. It is HQ's to answer, as every request of the run is.
+	 */
+	async handle({ request, response, url, body }) {
+		const entry = { method: request.method, url: url.href };
+		this.requests.push(entry);
+		const handled = (async () => {
+			try {
+				const reply = await askHq({
+					method: request.method,
+					url: url.href,
+					headers: pageHeaders(request),
+					bodyBase64: body ? body.toString("base64") : null,
+					phase: "run",
+					forwarded: null,
+				});
+				entry.answeredBy = "hq";
+				entry.status = reply.status;
+				deliver(response, reply);
+			} catch (error) {
+				entry.answeredBy = "failed";
+				entry.error = String(error.message ?? error);
+				response.destroy();
+			}
+		})();
+		this.inFlight.add(handled);
+		try {
+			await handled;
+		} finally {
+			this.inFlight.delete(handled);
+			this.answered.push(entry);
+			this.notify();
+		}
+	}
+
 	/** Follows the page's requests in flight, through a DevTools session of the driver's own (PageRequests). */
 	async watch(context, page) {
 		this.page = page;
@@ -2058,7 +2115,11 @@ class PageRun {
 				const reply = await askHq({
 					method: request.method(),
 					url: request.url(),
-					headers: await request.allHeaders(),
+					headers: Object.fromEntries(
+						Object.entries(await request.allHeaders()).filter(
+							([name]) => name !== PAGE_HEADER,
+						),
+					),
 					bodyBase64: body ? body.toString("base64") : null,
 					phase: "run",
 					forwarded: null,
@@ -2518,6 +2579,37 @@ async function runSteps(page, run, steps) {
 				} finally {
 					await handle.dispose();
 				}
+			} else if (step.advance !== undefined) {
+				// A form shown one question a screen stepped forward as a person
+				// steps it: the step file presses the form's own Next ("next")
+				// until it answers otherwise, and after each press the page's
+				// answer to the request it sent ("answeredBy") and the page quiet
+				// are waited for before it is asked again. Its last answer is the
+				// outcome's value; any but true and those "passes" names ends the
+				// run where a missed wait does, with "orSkipTo".
+				outcome.advanced = 0;
+				for (;;) {
+					const from = run.answered.length;
+					const said = await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.advance) },
+						step.arg,
+						{ polling: "raf", timeoutMs: run.remaining() },
+					);
+					if (said !== "next") {
+						outcome.value = said;
+						break;
+					}
+					outcome.advanced += 1;
+					await run.awaitRequest(step.answeredBy, from);
+					await runQuiet(run, Boolean(step.timers));
+				}
+				lastMissed = outcome.value !== true;
+				const passes = step.passes ?? [true];
+				if (!passes.includes(outcome.value) && step.orSkipTo !== undefined) {
+					skipTo = step.orSkipTo;
+					missed = true;
+				}
 			} else if (step.click !== undefined) {
 				dialogsAtClick = run.dialogs.length;
 				const clicked = await pageValue(run.cdp, clickExpression(step.click));
@@ -2586,9 +2678,20 @@ async function runSteps(page, run, steps) {
 
 async function runOperation(message) {
 	const run = new PageRun(Date.now() + (message.deadlineMs ?? 60000));
+	runPages += 1;
+	const name = `run-${runPages}`;
+	const owner = {
+		name,
+		serving: run,
+		statics: { editors: 0, missing: 0 },
+		close: async () => {},
+	};
+	RUN_PAGES.set(name, owner);
 	const context = await browser.newContext({
 		baseURL: ORIGIN,
 		javaScriptEnabled: true,
+		// Every request the run's page sends names it (RUN_PAGES).
+		extraHTTPHeaders: { [PAGE_HEADER]: name },
 		// The window the run's pages are laid out in (a phone's, for what a
 		// worker sees on a small screen), or Playwright's own desktop window.
 		...(message.viewport ? { viewport: message.viewport } : {}),
@@ -2643,6 +2746,9 @@ async function runOperation(message) {
 	await context.close().catch(() => {});
 	trace(`closed; draining ${run.inFlight.size} requests`);
 	await run.drain();
+	// A request of the page that arrives once its run is over is a stray.
+	owner.serving = null;
+	RUN_PAGES.delete(name);
 	failure = withStrays(failure);
 	const result = {
 		outcomes,
