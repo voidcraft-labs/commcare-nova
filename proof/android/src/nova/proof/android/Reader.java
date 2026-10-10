@@ -21,8 +21,10 @@ import java.nio.file.Files;
  * The Android reader: one request, answered by commcare-android's own classes on a fresh device.
  *
  * It is a JUnit class because that is how Robolectric gives a test a device: its runner builds the application
- * (CommCareTestApplication, as the project's own tests name it) in a sandbox for the one test method, and tears
- * it down after. The request is the JSON file the system property {@code nova.proof.android.request} names, and
+ * (ProofApplication, the project's own CommCareTestApplication with the app's network where the device has one)
+ * in a sandbox for the one test method, and tears it down after. The device is Android 10 (API 29, which the
+ * project's own tests run app classes at), drawing with Robolectric's native graphics (the platform's own Skia
+ * and text layout), so what a worker sees of a screen can be drawn. The request is the JSON file the system property {@code nova.proof.android.request} names, and
  * the answer is written to the file {@code nova.proof.android.response} names: {@code {"ok": <what Android
  * read>}}, or {@code {"error": {...}}} with what was raised. The test itself always passes, so a caller reads
  * the answer rather than the runner's verdict, and an answer that was never written is the harness's failure.
@@ -37,7 +39,8 @@ import java.nio.file.Files;
  * <li>{@code update}: install {@code archive}, then update the device to {@code update} (Updates).</li>
  * </ul>
  */
-@Config(application = ProofApplication.class)
+@Config(application = ProofApplication.class, sdk = 29)
+@org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
 @RunWith(AndroidJUnit4.class)
 public class Reader {
     static final String REQUEST = "nova.proof.android.request";
@@ -51,12 +54,29 @@ public class Reader {
             ProofClock.requireInstalled();
             requireShippedLibraries();
             JSONObject request = new JSONObject(text(System.getProperty(REQUEST)));
+            device(request.optString("device", PHONE));
             response.put("ok", answer(request));
         } catch (Throwable raised) {
             response.put("error", raised(raised));
         }
         Files.write(new File(System.getProperty(RESPONSE)).toPath(),
                 response.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    static final String PHONE = "phone";
+    static final String TABLET = "tablet";
+
+    /**
+     * The device the request is read on: a phone (Robolectric's own, a 320dp-wide portrait screen at mdpi), or
+     * a tablet held in landscape (an extra-large 1280 by 800dp screen), where the app lays some screens out side
+     * by side (its values-xlarge resources: a case list beside the chosen case's detail).
+     */
+    private static void device(String device) {
+        if (TABLET.equals(device)) {
+            org.robolectric.RuntimeEnvironment.setQualifiers("w1280dp-h800dp-xlarge-land-mdpi");
+        } else if (!PHONE.equals(device)) {
+            throw new IllegalArgumentException("The Android reader has no device named " + device + ".");
+        }
     }
 
     private static JSONObject answer(JSONObject request) throws Exception {

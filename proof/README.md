@@ -277,11 +277,8 @@ or it fails the lane ("The registers", below).
 - **What a device does not show.** CommCare Android's own code is handed
   every state the lane serves, beside HQ's live unit, and proofs 1, 3 and 4
   judge what it did ("Android in the unit", below), with these left out.
-  Robolectric lays views out and does not draw them: a cell's class, text,
-  gravity, text size, scale type and width are read, and no rendered
-  picture or played sound. Not run: a language other than the one the app
-  starts in, a tablet's two-pane layout, and the rows of a case detail tab
-  that lists a row a node. A walk opens the first case of each list, so a
+  Not run: a language other than the one the app starts in. A walk opens
+  the first case of each list, so a
   form opened for any other case of a list is not walked (each list's every
   row is laid out and searched, and its Sort read). A device is handed the
   states HQ releases: a document whose build of A HQ's validation refuses
@@ -365,7 +362,7 @@ is held:
 | Defect 14's logos on a linked app | `proof/views/test_linked_logos.py` | HQ's own Copy Application view fails making a linked app over Nova's path-only logo (`LinkedApplication.reapply_overrides` reads its media object), and links the same app once the logo is uploaded through HQ's own logo uploader |
 | Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
 | Defect 24's export columns | `proof/views/test_exports.py` | the inert subcase's `form.subcase_<i>.case.*` columns hold HQ's missing-value mark in every row while the basic child case beside them holds its id, and after HQ's Case Management save its index columns move and lose `@relationship` |
-| A CSQL string a device builds from a typed answer | every served state's device (`proof/android/src/.../Queries.java`, `query/typed`), proof 3 (`proof/checks/android.py::hq_refusals`) | the search screen sends what it built from the answer table's search answers typed into its own views to HQ's own search view, which compiles it against HQ's real Elasticsearch; each request HQ's views refuse while A is served is `android@A`, `/hq/<view>/<status>/<what HQ said>`, as Formplayer's are |
+| A CSQL string a device builds from a typed answer | every served state's device (`proof/android/src/.../Queries.java`, `query/typed`), proof 3 (`proof/checks/android.py::hq_refusals`) | the search screen sends what it built from the answer table's search answers typed into its own views to HQ's own search view, which compiles it against HQ's real Elasticsearch; each request HQ's views refuse while A is served, with a view, status and cause HQ did not refuse Formplayer's walk of A with, is `android@A`, `/hq/<view>/<status>/<what HQ said>` |
 | Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. Its comments, dead code and copy are plan and code text, held by step 2's review |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
 | What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
@@ -1415,7 +1412,12 @@ at (`proof/run.mjs::androidRuntime`, `PROOF_ANDROID_RUNTIME` and
 
 **What a device is handed** (`proof/android/observe.py`, called from
 `proof/observe/served.py` and `proof/observe/proof4.py`). Every served state
-is installed on a device as a worker installs it from a file: HQ's own
+is handed to two devices, a phone and a tablet held in landscape (where the
+app shows a case list beside the chosen case's detail), each Android 10
+drawing with Robolectric's native graphics, so a list's header and rows are
+drawn as a worker sees them (each text's lines, whether its layout cut it
+short, and the picture, whose PNG the record keeps). Each installs the state
+as a worker installs it from a file: HQ's own
 download of the released build with the app's multimedia
 (`hqmedia/views.py::iter_app_files`), and Nova's local archive for the
 local state. The worker HQ made signs in, and the device walks every path
@@ -1472,7 +1474,9 @@ records, called from proofs 1, 3 and 4, each difference under an
 - **Proof 3**: what a device shows of Nova's local archive against HQ's
   release of A (`android@local.ccz`), and of HQ's release of B aligned to A
   against A's (`android@B`), per configuration; where the local archive's
-  own device signs in (`/network/signIn`).
+  own device signs in (`/network/signIn`). A tablet's differences are held
+  apart (`android-tablet@...`), and only where the phone does not show the
+  same one at the same place: a symptom both show is the phone's.
 - **Proof 4**: what a device shows of the app each editor save left against
   the state it was saved over (`android@<editor>@<state>@<configuration>`),
   and each of the worker's own settings an update to that app replaced
@@ -1488,8 +1492,10 @@ records, called from proofs 1, 3 and 4, each difference under an
 - **Of each state alone**, under proofs 3 and 4: a search that sent, for
   an answer holding both quote marks, the query HQ refuses (`android@A`,
   `…/query/withAnswer/sent-unquotable-search`); each request of A's device
-  HQ's own views refused (`android@A`, `/hq/<view>/<status>/<what HQ
-  said>`, a search built from a typed answer among them); and a form the
+  HQ's own views refused with a view, status and cause it did not refuse
+  Formplayer's walk of A with (`android@A`, `/hq/<view>/<status>/<what HQ
+  said>`, a search built from a typed answer among them; one Formplayer's
+  walk met too is `formplayer@A`'s); and a form the
   device did not save and yet left a mark of
   (`…/form/saved/applied-though-refused`: the cases it holds are not the
   ones it held as the form opened), which Android's one transaction a form
@@ -1514,7 +1520,10 @@ a reader beside it says: the app's id and version (proof 1's), the
 profile's stored values (each reader's answer is compared, so a stored
 value no reader reads differently is no difference on a device that
 installs either), the media check's flags beside its reader, and what a
-successful sign-in names (the app's id and the worker).
+successful sign-in names (the app's id and the worker). A drawn picture is
+compared only where nothing else of its row or header differs: a row whose
+text or layout differs is that difference, and its picture would say it
+again.
 
 **What it costs.** A device's `app` request takes three to ten seconds of
 the JVM, and a document has as many as it has served states, so a shard's

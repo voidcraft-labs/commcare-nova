@@ -107,10 +107,10 @@ checkout() {
 checkout commcare-android "$android_source"
 checkout commcare-core "$core_source"
 
-# Robolectric's Android runtime for the SDK level the project's tests name (unit-tests/resources/
-# robolectric.properties, sdk=23) at the Robolectric version the project builds with (app/build.gradle, 4.16.1).
-# Robolectric fetches it from Maven Central when a test first runs; it is fetched here, by its checksum, so the
-# reader runs offline.
+# Robolectric's Android runtime for the SDK level the reader's device runs (Android 10, API 29, which the
+# project's own tests run app classes at, and the first Robolectric draws with its native graphics at) at the
+# Robolectric version the project builds with (app/build.gradle, 4.16.1). Robolectric fetches it from Maven
+# Central when a test first runs; it is fetched here, by its checksum, so the reader runs offline.
 fetched "$target/robolectric/$(tool robolectricAndroid file)" "$(tool robolectricAndroid url)" \
   "$(tool robolectricAndroid sha256)"
 

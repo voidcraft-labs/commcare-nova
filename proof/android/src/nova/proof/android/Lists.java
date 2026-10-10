@@ -115,6 +115,25 @@ final class Lists {
             words(row, words);
         }
         list.put("rows", shown);
+        // The header and every row as a worker sees them on the device's screen, drawn: each row at the width the
+        // screen gives the list (all of a phone's, the left pane of a tablet's), or a grid cell's where the list
+        // lays its tiles out in a grid.
+        JSONObject drawn = new JSONObject();
+        Views.fillScreen((Activity)activity);
+        View visible = (View)Screens.field(activity, "visibleView");
+        int width = visible != null && visible.getWidth() > 0 ? visible.getWidth() : Views.screenWidth();
+        if (header != null) {
+            drawn.put("header", Views.drawn(header, width));
+        }
+        Detail shown_ = (Detail)Screens.field(activity, "shortSelect");
+        int cell = shown_ != null && shown_.shouldBeLaidOutInGrid()
+                ? width / Math.max(1, shown_.getNumEntitiesToDisplayPerRow()) : width;
+        JSONArray drawnRows = new JSONArray();
+        for (int i = 0; i < adapter.getCurrentCount(); i++) {
+            drawnRows.put(Views.drawn(adapter.getView(i, null, listView), cell));
+        }
+        drawn.put("rows", drawnRows);
+        list.put("drawn", drawn);
         // Which case each row is, in the order the list shows them: the value a tap on the row hands the
         // session (DatumUtil.getReturnValueFromSelection), so two lists compare row for row by the case.
         Object datum = Screens.field(activity, "selectDatum");
@@ -191,6 +210,33 @@ final class Lists {
             }
             shadow.receiveResult(detail, detailShadow.getResultCode(), detailShadow.getResultIntent());
             ShadowLooper.idleMainLooper();
+        } else if (!activity.isFinishing() && Boolean.TRUE.equals(Screens.field(activity, "inAwesomeMode"))) {
+            // A tablet in landscape shows the list and the chosen case's detail side by side
+            // (EntitySelectActivity.setupLandscapeDualPaneView): the tap fills the right pane
+            // (displayReferenceAwesome), which is read, and the worker presses its own confirm button there.
+            JSONObject shownDetail = new JSONObject();
+            list.put("detail", shownDetail);
+            shownDetail.put("pane", "right");
+            Intent selected = (Intent)Screens.field(activity, "selectedIntent");
+            if (selected != null) {
+                org.commcare.session.CommCareSession session =
+                        CommCareApplication.instance().getCurrentSessionWrapper().getSession();
+                Detail chosenDetail = session.getDetail(selected.getStringExtra(EntityDetailActivity.DETAIL_ID));
+                org.javarosa.core.model.instance.TreeReference reference =
+                        org.commcare.utils.SerializationUtil.deserializeFromIntent(selected,
+                                EntityDetailActivity.CONTEXT_REFERENCE,
+                                org.javarosa.core.model.instance.TreeReference.class);
+                if (chosenDetail != null && reference != null) {
+                    shownDetail.put("tabs", Details.read(activity, chosenDetail, reference));
+                }
+            }
+            Button next = (Button)((Activity)activity).findViewById(R.id.entity_select_button);
+            shownDetail.put("confirm", next == null || next.getVisibility() != View.VISIBLE ? JSONObject.NULL
+                    : String.valueOf(next.getText()));
+            if (next != null && next.getVisibility() == View.VISIBLE) {
+                next.performClick();
+                ShadowLooper.idleMainLooper();
+            }
         } else {
             list.put("detail", JSONObject.NULL);
         }

@@ -11,7 +11,9 @@ lane; this file says what the reader is.
 It runs under Robolectric, the way commcare-android's own unit tests run
 (`app/unit-tests`): the project's application class for tests
 (`CommCareTestApplication`), its real installers, tasks, activities and views,
-on Robolectric's Android runtime. Nothing of commcare-android is copied or
+on Robolectric's Android runtime, at Android 10 (API 29, at which the project's
+own tests run app classes) with Robolectric's native graphics, so a view is
+drawn by the platform's own Skia and text layout, as on a phone. Nothing of commcare-android is copied or
 rewritten. Where a reader is private, the reader calls it by reflection, so
 the method that runs is the app's.
 
@@ -20,7 +22,11 @@ the method that runs is the app's.
 One request is one JVM and one device (`client.py`, `src/.../Runner.java`).
 commcare-android keeps state in statics a device's process holds for its whole
 life (Core's reference roots, the localizer, the form controller), so a second
-device in the same JVM would start with the first one's.
+device in the same JVM would start with the first one's. A request names its
+device (`device`, `Reader.device`): a phone (Robolectric's own 320dp portrait
+screen), or a tablet held in landscape (an extra-large 1280 by 800dp screen,
+where the app's own resources lay a case list and the chosen case's detail
+side by side).
 
 A device installs an archive the way a worker installs one from a file:
 `InstallArchiveActivity` unzips it and registers the folder, and a
@@ -81,7 +87,10 @@ The requests (`Reader.java`):
   - a **case list** (`EntitySelectActivity`, `Lists.java`): its header row and
     every row as `EntityView` or `EntityViewTile` lay them out (each cell's
     class, text, gravity, text size, image scale type and the width a
-    1000-pixel row gives it), which case each row is (the value a tap on it
+    1000-pixel row gives it), the header and every row drawn as a worker sees
+    them at the screen's width, or a grid cell's (each text's lines and
+    whether its layout cut it short with an ellipsis, and the picture, whose
+    PNG the record keeps), which case each row is (the value a tap on it
     hands the session, `DatumUtil.getReturnValueFromSelection`), its Sort
     menu (`getSortOptionsList`) and the order each choice gives, and what a
     search finds (`EntityListAdapter.filterByString`) for every word any row
@@ -90,9 +99,12 @@ The requests (`Reader.java`):
     text it shows). A filter that has not finished within two minutes fails
     the request. The first case is opened as a tap opens it, and
     the case the list hands home is recorded; where the list has a case
-    detail the detail screen's tabs and fields are read (`Details.java`) and
-    its own button confirms. Each action the list offers (a search behind the list)
-    is a walk of its own;
+    detail the detail screen's tabs and fields are read (`Details.java`; a
+    tab that lists a row a node is the app's own fragment for it, made by the
+    screen's own pager adapter, shown, and its header and rows read and
+    drawn) and its own button confirms; on a tablet the detail is the list
+    screen's own right pane and its own button there. Each action the list
+    offers (a search behind the list) is a walk of its own;
   - a **search** (`QueryRequestActivity`, `Queries.java`): its prompts, what
     it sends, and what it sends and shows for an answer holding both quote
     marks when the server answers 400; and, on a screen of its own, what it
@@ -210,8 +222,9 @@ Everything a build downloads is named exactly (`toolchain.json`):
 - the two checkouts, by commit (`proof/pins.json`);
 - Gradle's distribution, by its sha256, at the version the project's own
   wrapper names (the build refuses another);
-- Robolectric's Android runtime for the SDK level the project's tests name
-  (`sdk=23`), by its sha256, so the reader runs offline;
+- Robolectric's Android runtime for the device's SDK level (Android 10, API
+  29, which the project's own tests run app classes at), by its sha256, so
+  the reader runs offline;
 - the Android SDK packages the Android Gradle plugin installs into
   `ANDROID_HOME` (`platforms;android-37.0`, `platforms;android-36`,
   `build-tools;35.0.0`, `platform-tools`), each held, once the build ends, to
@@ -332,10 +345,4 @@ document without media keeps exactly its index files.
 
 ## What the reader does not show
 
-- **Drawing.** Robolectric lays views out and does not draw them: a cell's
-  class, text, gravity, text size, scale type and width are read; a rendered
-  picture, a played sound, a font's own metrics are not.
-- **A language other than the one the app starts in, and a tablet's
-  layout.**
-- **A tab of a case detail that lists a row a node** (a detail with a
-  nodeset) is named and its rows are not read.
+- **A language other than the one the app starts in.**

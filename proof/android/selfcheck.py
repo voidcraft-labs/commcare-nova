@@ -257,6 +257,64 @@ class ReaderSelfCheck(unittest.TestCase):
         self.assertEqual(self.reader.request("profile", archive=str(SURVEY / "local.ccz"))["install"], "Installed")
 
 
+# A restore of one case of basic_tests.ccz's third menu and two cases its detail lists a row each of (a tab whose
+# nodeset is the case's open children, and one of them alone): the input the reader is handed, as a device is
+# handed a server's answer.
+NODE_RESTORE = """<OpenRosaResponse xmlns="http://openrosa.org/http/response" items="4">
+<message nature="ota_restore_success">Successfully restored account proof-node!</message>
+<Sync xmlns="http://commcarehq.org/sync"><restore_id>proof-node-restore</restore_id></Sync>
+<Registration xmlns="http://openrosa.org/user/registration"><username>proof-node</username>
+<password>sha1$proof$0000000000000000000000000000000000000000</password><uuid>proof-node-id</uuid>
+<date>2026-01-15</date><user_data/></Registration>
+<case xmlns="http://commcarehq.org/case/transaction/v2" case_id="parent-1" date_modified="2026-01-15T10:30:00.000Z"
+ user_id="proof-node-id"><create><case_type>coverage_basic</case_type><case_name>Ada</case_name>
+<owner_id>proof-node-id</owner_id></create></case>
+<case xmlns="http://commcarehq.org/case/transaction/v2" case_id="child-1" date_modified="2026-01-15T10:30:00.000Z"
+ user_id="proof-node-id"><create><case_type>sub_case_one</case_type><case_name>First</case_name>
+<owner_id>proof-node-id</owner_id></create><update><sub_case_number>1</sub_case_number></update>
+<index><parent case_type="coverage_basic">parent-1</parent></index></case>
+<case xmlns="http://commcarehq.org/case/transaction/v2" case_id="child-2" date_modified="2026-01-15T10:30:00.000Z"
+ user_id="proof-node-id"><create><case_type>sub_case_one</case_type><case_name>Second</case_name>
+<owner_id>proof-node-id</owner_id></create><update><sub_case_number>2</sub_case_number></update>
+<index><parent case_type="coverage_basic">parent-1</parent></index></case>
+</OpenRosaResponse>
+"""
+
+
+class DetailSelfCheck(unittest.TestCase):
+    """A case detail's tabs, on an archive HQ built (commcare-android's own instrumentation tests install it)."""
+
+    @classmethod
+    def setUpClass(cls):
+        reason = unavailable()
+        if reason is not None:
+            raise AndroidReaderUnavailable(reason)
+
+    def test_a_detail_tab_that_lists_a_row_a_node_shows_a_row_for_each_node(self):
+        """Contract: a detail tab whose nodeset lists a row a node is read as the app's own fragment shows it,
+        a row for each node its nodeset gives in the chosen case's context. Failure it catches: such a tab named
+        and its rows left unread, or rows read in the wrong case's context. basic_tests.ccz's third menu shows a
+        case's open children on one tab and only the first of them on another; on a device holding one case
+        with two children, the first tab shows both and the second one."""
+        from proof.android.client import runtime_directory
+
+        runtime = runtime_directory()
+        workdir = Path(json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))["workdir"])
+        archive = workdir / "instrumentation-tests" / "resources" / "basic_tests.ccz"
+        with tempfile.TemporaryDirectory(prefix="proof-android-detail-") as scratch, AndroidReader() as reader:
+            restore = Path(scratch) / "restore.xml"
+            restore.write_text(NODE_RESTORE, encoding="utf-8")
+            app = reader.request("app", archive=str(archive), restore=str(restore), commands=["m3-case-list"])
+        steps = app["walks"]["m3-case-list"]["steps"]
+        detail = next(step["list"]["detail"] for step in steps if isinstance(step.get("list"), dict))
+        node_tabs = [tab for tab in detail["tabs"] if tab.get("nodeset")]
+        self.assertEqual(len(node_tabs), 2, detail)
+        counts = sorted(len(tab["rows"]["rows"]) for tab in node_tabs)
+        self.assertEqual(counts, [1, 2], node_tabs)
+        texts = sorted(" ".join(row["texts"]) for tab in node_tabs for row in tab["rows"]["rows"])
+        self.assertTrue(any("First" in text for text in texts) and any("Second" in text for text in texts), texts)
+
+
 class JudgeSelfCheck(unittest.TestCase):
     """The judges, on what commcare-android's own code read: a planted difference Android must show."""
 

@@ -600,3 +600,68 @@ def test_a_sign_in_is_compared_as_a_worker_meets_it():
     assert android.signed_in_differences("d", signed, other) == []
     (found,) = android.signed_in_differences("d", signed, failed)
     assert (found.path, found.before, found.after) == ("/network/signIn", "Success", "Failed(error=NetworkUnavailable)")
+
+
+def _drawn(app, row, text, picture, lines=1):
+    """``app`` with the drawn picture of one row of its list (``m0/m0-f0``'s list step) set."""
+    step = next(step for step in app["walks"]["m0/m0-f0"]["steps"] if "list" in step)
+    rows = [
+        {"width": 320, "height": 57, "texts": [{"text": t, "lines": 1, "ellipsized": 0}], "picture": f"sha256:{t}"}
+        for t in ("ada", "bo")
+    ]
+    rows[row] = {
+        "width": 320,
+        "height": 57,
+        "texts": [{"text": text, "lines": lines, "ellipsized": 0}],
+        "picture": picture,
+    }
+    step["list"]["drawn"] = {"header": {"width": 320, "height": 57, "texts": [], "picture": "sha256:h"}, "rows": rows}
+    return app
+
+
+def test_a_drawn_rows_picture_is_its_difference_only_where_nothing_else_of_the_row_differs():
+    """Contract: a row a worker sees drawn otherwise is a difference of the row's picture, and a row whose text
+    or layout differs is that difference alone, never its picture again. Failure it catches: every row that
+    differs in its text reported twice, or a row drawn otherwise (another colour, another face) never
+    reported."""
+    base = _drawn(_app(), 1, "bo", "sha256:bo")
+    recoloured = _drawn(_app(), 1, "bo", "sha256:other")
+    wrapped = _drawn(_app(), 1, "bo", "sha256:other", lines=2)
+    found = _paths(android.app_differences(base, recoloured, check="proof3", document="d", artifact=android.LOCAL))
+    assert [path for _, path, _ in found] == ["/walks/*/steps/*/list/rows/*/drawn/picture"]
+    found = _paths(android.app_differences(base, wrapped, check="proof3", document="d", artifact=android.LOCAL))
+    assert [path for _, path, _ in found] == ["/walks/*/steps/*/list/rows/*/drawn/texts/*/lines"]
+    assert (
+        android.app_differences(
+            base, _drawn(_app(), 1, "bo", "sha256:bo"), check="proof3", document="d", artifact=android.LOCAL
+        )
+        == []
+    )
+
+
+def test_a_tablet_reports_only_what_the_phone_does_not_show():
+    """Contract: a symptom a phone and a tablet both show is one symptom, the phone's; what a tablet alone shows
+    is its own, under ``android-tablet@...``. Failure it catches: every phone symptom reported twice, or a
+    tablet's own screen (its side by side detail) never reported."""
+    from proof.checks.differences import Difference
+
+    phone = [Difference("proof3", "d", "android@local.ccz", "/x", "/x/0", "changed", 1, 2)]
+    tablet = [
+        Difference("proof3", "d", "android-tablet@local.ccz", "/x", "/x/0", "changed", 1, 2),
+        Difference(
+            "proof3", "d", "android-tablet@local.ccz", "/walks/*/steps/*/list/detail/pane", "/y", "changed", 1, 2
+        ),
+    ]
+    assert [d.path for d in android.tablet_only(phone, tablet)] == ["/walks/*/steps/*/list/detail/pane"]
+
+
+def test_a_devices_refusal_is_its_own_only_where_formplayers_walk_never_met_it():
+    """Contract: HQ's refusal of a device's request at A (a search a device built from a typed answer among them)
+    is judged against what HQ refused Formplayer's walk of the same state: the same view, status and cause is
+    Formplayer's symptom, reported once as ``formplayer@A``; a refusal Formplayer's walk never met is the
+    device's own. Failure it catches: every refusal reported twice, or a device's own refusal lost."""
+    shared = {"url_name": "app_aware_remote_search", "status": 400, "said": "Invalid date value 12", "raised": None}
+    own = {"url_name": "app_aware_remote_search", "status": 400, "said": "Unknown function x", "raised": None}
+    met = [{"view": "app_aware_remote_search", "status": 400, "said": "Invalid date value 3", "raised": None}]
+    found = android.device_only_refusals({"hq": [shared, own], "formplayerHq": met})
+    assert [entry["said"] for entry in found] == ["Unknown function x"]

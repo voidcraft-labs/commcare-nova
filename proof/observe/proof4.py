@@ -1328,7 +1328,7 @@ class _Observation:
                 # What a worker's device makes of the saved app's release, and, where the save changed the profile,
                 # what a device on the state it was saved over holds once it updates to it, with a worker's own
                 # settings (``proof.android.observe``).
-                record["android"] = serving.android("save")
+                record.update(serving.devices_on("save"))
                 updated = self._device_update(serving, over, held, outcome)
                 if updated is not None:
                     record["androidUpdate"] = updated

@@ -106,6 +106,14 @@ def _list(step: dict) -> None:
     held = step.get("list")
     if not isinstance(held, dict):
         return
+    drawn = held.pop("drawn", None)
+    if isinstance(drawn, dict):
+        # What a worker sees of the header and of each row, drawn, kept with the row it is a picture of, so a
+        # row is compared with the same case's row whatever order the list shows them in.
+        held["headerDrawn"] = drawn.get("header")
+        rows = drawn.get("rows")
+        if isinstance(rows, list) and isinstance(held.get("rows"), list) and len(rows) == len(held["rows"]):
+            held["rows"] = [{**row, "drawn": picture} for row, picture in zip(held["rows"], rows, strict=True)]
     if isinstance(held.get("order"), list):
         held["order"] = _joined(held["order"])
     options = held.get("EntitySelectActivity.getSortOptionsList")
@@ -281,6 +289,46 @@ def _to_first_other_choice(before: dict, after: dict) -> tuple[dict, dict]:
     return before, after
 
 
+def _without_picture(value):
+    if isinstance(value, dict):
+        return {name: _without_picture(item) for name, item in value.items() if name != "picture"}
+    if isinstance(value, list):
+        return [_without_picture(item) for item in value]
+    return value
+
+
+def _pictures_where_alone(before, after):
+    """Two drawn things (a row, a header) with their pictures compared only where nothing else of them differs:
+    a picture of a row whose text or layout differs is that difference again, so it is left out of both."""
+    if _without_picture(before) == _without_picture(after):
+        return before, after
+    return _without_picture(before), _without_picture(after)
+
+
+def _drawn_alone(before: dict, after: dict) -> tuple[dict, dict]:
+    """Two list steps with each row's and the header's pictures kept only where nothing else of them differs."""
+    a, b = before.get("list"), after.get("list")
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return before, after
+    a, b = dict(a), dict(b)
+    if "headerDrawn" in a and "headerDrawn" in b:
+        a["headerDrawn"], b["headerDrawn"] = _pictures_where_alone(
+            {"header": a.get("header"), "drawn": a["headerDrawn"]},
+            {"header": b.get("header"), "drawn": b["headerDrawn"]},
+        )
+        a["headerDrawn"], b["headerDrawn"] = a["headerDrawn"]["drawn"], b["headerDrawn"]["drawn"]
+    rows_a, rows_b = a.get("rows"), b.get("rows")
+    if isinstance(rows_a, dict) and isinstance(rows_b, dict):
+        for case in set(rows_a) & set(rows_b):
+            rows_a[case], rows_b[case] = _pictures_where_alone(rows_a[case], rows_b[case])
+    elif isinstance(rows_a, list) and isinstance(rows_b, list):
+        pairs = [_pictures_where_alone(x, y) for x, y in zip(rows_a, rows_b, strict=False)]
+        rows_a = [x for x, _ in pairs] + rows_a[len(pairs) :]
+        rows_b = [y for _, y in pairs] + rows_b[len(pairs) :]
+        a["rows"], b["rows"] = rows_a, rows_b
+    return {**before, "list": a}, {**after, "list": b}
+
+
 def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
     """Two steps of one screen with what would report one symptom many times reduced to that symptom: a form
     that takes another path of screens is that path (``/form/path``), a list whose rows are another kind of
@@ -291,9 +339,10 @@ def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
         before = {**before, "form": {**{k: v for k, v in before["form"].items() if k != "screens"}, "path": a}}
         after = {**after, "form": {**{k: v for k, v in after["form"].items() if k != "screens"}, "path": b}}
     before, after = _rows_by_case(before, after)
+    before, after = _drawn_alone(before, after)
     a, b = _row_classes(before.get("list")), _row_classes(after.get("list"))
     if a is not None and b is not None and a != b:
-        kept = ("rows", "header")
+        kept = ("rows", "header", "headerDrawn")
         before = {**before, "list": {**{k: v for k, v in before["list"].items() if k not in kept}, "rowClass": a}}
         after = {**after, "list": {**{k: v for k, v in after["list"].items() if k not in kept}, "rowClass": b}}
     return before, after
@@ -399,31 +448,48 @@ def signed_in_differences(document: str, a: dict | None, local: dict | None) -> 
     return [Difference("proof3", document, LOCAL, path, path, "changed", before, after)]
 
 
-def behavior(document: str, record: dict) -> list:
+# The artifacts of what a tablet alone shows: a tablet's difference the phone shows too is the phone's symptom.
+TABLET = "android-tablet"
+
+
+def tablet_only(phone: list, tablet: list) -> list:
+    """The differences a tablet shows (judged as ``device=TABLET``) that the phone does not show at the same
+    place of the same artifact: a symptom both show is one symptom, the phone's, and what only a tablet shows
+    (its side by side screens, its wider rows) is the tablet's own."""
+    shown = {(d.check, d.artifact.removeprefix("android@"), d.at) for d in phone}
+    return [d for d in tablet if (d.check, d.artifact.removeprefix(f"{TABLET}@"), d.at) not in shown]
+
+
+def behavior(document: str, record: dict, *, device: str = "android") -> list:
+    """Proof 3's differences in what one kind of device (``device``: ``android``, a phone, or ``TABLET``) did."""
+    local_artifact, a_artifact, republish = (f"{device}@local.ccz", f"{device}@A", f"{device}@B")
     found = []
     local = (record.get("local") or {}).get("app")
-    found += _applied("proof3", document, LOCAL, local)
+    found += _applied("proof3", document, local_artifact, local)
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
         a = (held.get("A") or {}).get("app")
         if a is None:
             continue
         found += [
-            Difference("proof3", document, A, path, at, "error", None, value) for path, at, value in refused_searches(a)
+            Difference("proof3", document, a_artifact, path, at, "error", None, value)
+            for path, at, value in refused_searches(a)
         ]
         # Each request of the device's HQ's own views refused while A was served (a search a device built from
-        # a typed answer, compiled by HQ's own search view, among them), as Formplayer's are reported.
+        # a typed answer, compiled by HQ's own search view, among them), judged against what HQ's views refused
+        # Formplayer's walk of the same state: a refusal of the same view, status and cause is Formplayer's
+        # symptom (``formplayer@A``), and the device's own is what Formplayer's walk never met.
         found += served.refusal_differences(
-            hq_refusals((held.get("A") or {}).get("hq")), check="proof3", document=document, artifact=A
+            device_only_refusals(held.get("A") or {}), check="proof3", document=document, artifact=a_artifact
         )
-        found += _applied("proof3", document, A, a)
+        found += _applied("proof3", document, a_artifact, a)
         if local is not None:
-            found += app_differences(a, local, check="proof3", document=document, artifact=LOCAL)
+            found += app_differences(a, local, check="proof3", document=document, artifact=local_artifact)
         found += signed_in_differences(document, a, (record.get("local") or {}).get("asIs"))
         b = (held.get("B") or {}).get("app")
         if b is not None:
-            found += _applied("proof3", document, REPUBLISH, b)
-            found += app_differences(a, b, check="proof3", document=document, artifact=REPUBLISH)
+            found += _applied("proof3", document, republish, b)
+            found += app_differences(a, b, check="proof3", document=document, artifact=republish)
     return found
 
 
@@ -443,7 +509,8 @@ def settings_replaced(update: dict | None) -> list[tuple[str, object, object]]:
     ]
 
 
-def editability(document: str, record: dict) -> list:
+def editability(document: str, record: dict, *, device: str = "android") -> list:
+    """Proof 4's differences in what one kind of device (``device``) did."""
     found = []
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
@@ -455,7 +522,7 @@ def editability(document: str, record: dict) -> list:
             for save in (held.get("saves") or {}).get(state) or []:
                 if save.get("app") is None:
                     continue
-                artifact = f"android@{save['editor']}@{state}@{name}"
+                artifact = f"{device}@{save['editor']}@{state}@{name}"
                 over = left.get(save.get("over"), base)
                 found += _applied("proof4", document, artifact, save["app"])
                 found += app_differences(over, save["app"], check="proof4", document=document, artifact=artifact)
@@ -619,13 +686,26 @@ def hq_refusals(asked) -> list:
     ]
 
 
+def _refusal_class(entry) -> tuple:
+    cause = entry.get("raised") or served.refusal_cause(entry.get("said"))
+    return (entry.get("view") or "unresolved", entry.get("status"), cause)
+
+
+def device_only_refusals(held: dict) -> list:
+    """The device's refused requests of a served state (``hq_refusals``) whose view, status and cause HQ's views
+    did not refuse Formplayer's walk of the same state with (``formplayerHq``, a served state's record of its
+    walk's refusals)."""
+    met = {_refusal_class(entry) for entry in held.get("formplayerHq") or []}
+    return [entry for entry in hq_refusals(held.get("hq")) if _refusal_class(entry) not in met]
+
+
 def _editor(view, section) -> str:
     scope = view["scope"]
     place = "" if scope[0] is None else f":m{scope[0]}" + ("" if scope[1] is None else f".f{scope[1]}")
     return f"{section['section']}{place}"
 
 
-def _saves(proof4: dict, blobs) -> list:
+def _saves(proof4: dict, blobs, key: str = "android") -> list:
     """Each editor save of a proof 4 record a device read, as ``{label, editor, over, app, update}``: ``over``
     the label of the save it was made over (None: the state the record is of). A save whose app was not served
     (its build and what the client reads are the state's it was saved over) is not one a device reads apart."""
@@ -633,15 +713,15 @@ def _saves(proof4: dict, blobs) -> list:
 
     def entry(label, editor, over, saved):
         served = saved.get("served") if isinstance(saved, dict) else None
-        if not isinstance(served, dict) or "refused" in served or not served.get("android"):
+        if not isinstance(served, dict) or "refused" in served or not served.get(key):
             return False
         found.append(
             {
                 "label": label,
                 "editor": editor,
                 "over": over,
-                "app": _answer(served["android"], blobs),
-                "update": _answer(served.get("androidUpdate"), blobs),
+                "app": _answer(served[key], blobs),
+                "update": _answer(served.get("androidUpdate"), blobs) if key == "android" else None,
             }
         )
         return True
@@ -659,32 +739,38 @@ def _saves(proof4: dict, blobs) -> list:
     return found
 
 
-def document_record(records) -> dict:
+def document_record(records, *, tablet: bool = False) -> dict:
     """One document's devices as the judges read them (the module's docstring), gathered from its part
-    records."""
+    records: the phones', or with ``tablet`` the tablets' (which install, sign in and update as phones do, so
+    the installs, the update and the local archive's own sign-in are the phones' alone)."""
     blobs = records.blobs
+    key, delivered = ("androidTablet", "androidDeliveredTablet") if tablet else ("android", "androidDelivered")
     found = {"local": {}, "configurations": {}}
     for name in sorted(records.configurations):
         parts = records.configurations[name]
         held = {}
         served_a = (((parts.a or {}).get("hooks") or {}).get("served") or {}).get("A") or {}
-        a = _answer(served_a.get("android"), blobs)
+        a = _answer(served_a.get(key), blobs)
         if a is not None:
-            held["A"] = {"app": a, "hq": _asked(served_a.get("android"), blobs)}
+            held["A"] = {
+                "app": a,
+                "hq": _asked(served_a.get(key), blobs),
+                "formplayerHq": (served_a.get("formplayer") or {}).get("hq") or [],
+            }
         aligned = (parts.b_aligned or {}).get("served") or {}
-        b = _answer((aligned.get("B") or {}).get("android"), blobs)
+        b = _answer((aligned.get("B") or {}).get(key), blobs)
         if b is not None:
             held["B"] = {"app": b}
         # The local archive's device given the input the lane gives Core over it is the one its walks are
         # compared from; the one that meets Android's own defaults is judged for where it signs in.
         served_local = aligned.get("local") or {}
-        local = _answer(served_local.get("androidDelivered"), blobs)
+        local = _answer(served_local.get(delivered), blobs)
         if local is not None and "app" not in found["local"]:
             found["local"]["app"] = local
-        own = _answer(served_local.get("android"), blobs)
+        own = None if tablet else _answer(served_local.get("android"), blobs)
         if own is not None and "asIs" not in found["local"]:
             found["local"]["asIs"] = own
-        devices = aligned.get("devices") or {}
+        devices = {} if tablet else aligned.get("devices") or {}
         for role, target in (("local", found["local"]), ("republish", held)):
             pair = devices.get(role) or {}
             for kind in ("installs", "update"):
@@ -694,10 +780,10 @@ def document_record(records) -> dict:
         for part, state in (("b", "B"), ("b_edit", "B-edit")):
             record = parts.part(part) or {}
             proof4 = record.get("proof4") or {}
-            base = _answer((proof4.get("served") or {}).get("android"), blobs)
+            base = _answer((proof4.get("served") or {}).get(key), blobs)
             if base is None:
                 continue
             held.setdefault("proof4", {})[state] = {"app": base}
-            held.setdefault("saves", {})[state] = _saves(proof4, blobs)
+            held.setdefault("saves", {})[state] = _saves(proof4, blobs, key)
         found["configurations"][name] = held
     return found

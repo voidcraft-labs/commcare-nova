@@ -251,11 +251,11 @@ class AndroidReader:
             shutil.rmtree(self._work, ignore_errors=True)
             self._work = None
 
-    def _command(self, request: Path, answer: Path, temporary: Path, proxy=None) -> tuple[list[str], str]:
+    def _command(self, request: Path, answer: Path, temporary: Path, proxy=None, drawn=None) -> tuple[list[str], str]:
         runtime = self._runtime_json()
-        network_properties = []
+        network_properties = [f"-Dnova.proof.android.drawn={drawn}"] if drawn is not None else []
         if proxy is not None:
-            network_properties = [
+            network_properties += [
                 f"-Dnova.proof.android.peer={proxy.address}",
                 f"-Dnova.proof.android.peerAuthority={proxy.authority.certificate}",
             ]
@@ -280,9 +280,10 @@ class AndroidReader:
                 self._network_authority = network.Authority(self._work / "authority")
             return self._network_authority
 
-    def request(self, op: str, *, deadline: float = REQUEST_SECONDS, peer=None, **arguments) -> dict:
+    def request(self, op: str, *, deadline: float = REQUEST_SECONDS, peer=None, drawn=None, **arguments) -> dict:
         """One request's answer: what Android read, on a device of its own, with ``peer`` its network where one
-        is given (the module's docstring)."""
+        is given (the module's docstring), and each picture it draws written into the directory ``drawn`` names,
+        as ``<sha256>.png``, where one is given."""
         if self._work is None:
             raise AndroidReaderError("The Android reader is not started; use it as a context manager.")
         with self._lock:
@@ -293,7 +294,7 @@ class AndroidReader:
         request_path, answer_path, log_path = scratch / "request.json", scratch / "answer.json", scratch / "jvm.log"
         request_path.write_text(json.dumps({"op": op, **arguments}), encoding="utf-8")
         proxy = network.Proxy(peer, self._authority()) if peer is not None else None
-        command, workdir = self._command(request_path, answer_path, temporary, proxy)
+        command, workdir = self._command(request_path, answer_path, temporary, proxy, drawn)
         started = time.perf_counter()
         try:
             with open(log_path, "wb") as log:

@@ -12,7 +12,8 @@ network HQ's own views answer over that state (``proof.android.hq``). Each reque
   worker's own settings.
 
 A record keeps the reader's answer and every request the device made of HQ with HQ's answer (``hq``), each a
-blob. The archive of a released state is HQ's own download of the released build with the app's multimedia
+blob, and each picture the device drew of what a worker sees (``pictures``, the PNGs its answer names by
+digest). The archive of a released state is HQ's own download of the released build with the app's multimedia
 (``release_archive``: ``hqmedia/views.py::iter_app_files``, what a worker installs from a file with nothing
 left to fetch). A request the reader itself could not answer raises, so no record holds it.
 """
@@ -116,16 +117,23 @@ def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered:
             arguments[role] = str(path)
         if op == "installs":
             arguments = {"archives": [arguments.pop("first"), arguments.pop("second")], **arguments}
+        drawn = Path(directory, "drawn")
+        drawn.mkdir()
         try:
-            answer = reader.request(op, peer=peer, worker=worker(served), **arguments)
+            answer = reader.request(op, peer=peer, drawn=drawn, worker=worker(served), **arguments)
         finally:
             peer.close()
+        # Each picture the device drew, as a blob the record names (a record names every blob it reads).
+        pictures = sorted(blobs.put(path.read_bytes()) for path in drawn.glob("*.png"))
     if sent is not None:
         # Each form the device sent HQ's receiver, as it sent it; its log reports are not forms.
         sent.extend(
             submission.instance for submission in peer.views.submissions if DEVICE_REPORT not in submission.instance
         )
-    return {"answer": blobs.put_json(answer), "hq": blobs.put_json([asdict(asked) for asked in peer.exchanges])}
+    found = {"answer": blobs.put_json(answer), "hq": blobs.put_json([asdict(asked) for asked in peer.exchanges])}
+    if pictures:
+        found["pictures"] = pictures
+    return found
 
 
 # What ``app`` is given for a device whose GPS gives the lane's own fix (``Sensors.java``).
@@ -135,13 +143,23 @@ DEVICE_REPORT = b"http://code.javarosa.org/devicereport"
 
 
 def app(
-    served, blobs, *, label: str, archive: bytes, delivered: bool = False, fix=LANE_FIX, clock=None, sent=None
+    served,
+    blobs,
+    *,
+    label: str,
+    archive: bytes,
+    delivered: bool = False,
+    fix=LANE_FIX,
+    clock=None,
+    sent=None,
+    device: str = "phone",
 ) -> dict:
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's restore and forms
     delivered to HQ's own addresses for the worker and the app (``proof.android.hq``); ``fix`` where the device's
     GPS puts it (``[latitude, longitude, altitude, accuracy]``, or None for a GPS that finds no fix); ``clock`` the
-    device's instant where it is not the lane's; ``sent``, a list each form the device sent HQ is added to."""
-    options = {"answers": _answers(), "queryAnswer": QUERY_ANSWER}
+    device's instant where it is not the lane's; ``sent``, a list each form the device sent HQ is added to;
+    ``device`` a phone or a tablet held in landscape (``Reader.device``)."""
+    options = {"answers": _answers(), "queryAnswer": QUERY_ANSWER, "device": device}
     if fix != LANE_FIX:
         options["position"] = fix
     if clock is not None:

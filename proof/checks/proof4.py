@@ -1341,5 +1341,7 @@ def document_editability(document, records):
         found += [over.named(d) for d in connect_beyond_a(document.id, records, name, record, moved=state == EDIT)]
     from proof.checks import android
 
-    found += android.editability(document.id, android.document_record(records))
+    phone = android.editability(document.id, android.document_record(records))
+    tablet = android.editability(document.id, android.document_record(records, tablet=True), device=android.TABLET)
+    found += phone + android.tablet_only(phone, tablet)
     return found + observations.soft_assertion_differences(records, CHECK), saves

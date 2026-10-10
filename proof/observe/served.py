@@ -107,15 +107,26 @@ class Serving:
     def reads(self) -> str:
         return client_reads(self.served.doc)
 
-    def android(self, label: str, archive: bytes | None = None, *, delivered: bool = False):
+    def android(self, label: str, archive: bytes | None = None, *, delivered: bool = False, device: str = "phone"):
         """What a worker's device makes of the state (``proof.android.observe.app``): the released build's
         archive, or ``archive`` (Nova's local export) installed, over HQ's views of the state; with
         ``delivered``, its restore and forms delivered to HQ's own addresses for the worker and the app
-        (``proof.android.hq``)."""
+        (``proof.android.hq``); on a phone, or a tablet held in landscape (``device``)."""
         from proof.android import observe as android
 
         archive = android.release_archive(self.served) if archive is None else archive
-        return android.app(self.served, self.blobs, label=label, archive=archive, delivered=delivered)
+        return android.app(
+            self.served, self.blobs, label=f"{label}:{device}", archive=archive, delivered=delivered, device=device
+        )
+
+    def devices_on(self, label: str, archive: bytes | None = None, *, delivered: bool = False) -> dict:
+        """What a phone and a tablet each make of the state (``android``), under the keys a state's record keeps
+        them by: ``android`` and ``androidTablet``, with ``delivered``'s prefix."""
+        key = "androidDelivered" if delivered else "android"
+        return {
+            key: self.android(label, archive, delivered=delivered),
+            f"{key}Tablet": self.android(label, archive, delivered=delivered, device="tablet"),
+        }
 
     def devices(self, label: str, first: bytes, second: bytes, *, incomplete: bool = True):
         """Two archives of one app on a device, over HQ's views of the state: installed in turn, and one device
@@ -194,7 +205,7 @@ def _state(serving_, side, trace, *, files=None, label=None):
     worker's device makes of the release."""
     recorded = {"formplayer": side, "clientReads": serving_.reads()}
     if label is not None:
-        recorded["android"] = serving_.android(label)
+        recorded.update(serving_.devices_on(label))
     shown = serving_.webapps(trace)
     if shown is not None:
         recorded["webapps"] = shown
@@ -325,9 +336,7 @@ def aligned(
                     recorded["local"] = {
                         "formplayer": local_side,
                         "android": held.android("local", document.local_ccz.read_bytes()),
-                        "androidDelivered": held.android(
-                            "local:delivered", document.local_ccz.read_bytes(), delivered=True
-                        ),
+                        **held.devices_on("local:delivered", document.local_ccz.read_bytes(), delivered=True),
                     }
                     if forwarder is not None:
                         forwarder.walked(local_trace)

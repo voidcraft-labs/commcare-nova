@@ -57,6 +57,100 @@ final class Views {
         return found;
     }
 
+    /** Where the reader writes the pictures it draws, as the client names it; null where it names none. */
+    static final String DRAWN = "nova.proof.android.drawn";
+
+    /**
+     * A view as a worker sees it on the device's screen: laid out at {@code width} pixels (the screen's, or a
+     * grid cell's) and drawn by Android's own graphics (Robolectric's native graphics, the platform's own Skia
+     * and text layout), with each text it shows as drawn (how many lines its layout takes, and whether the
+     * layout cut it short with an ellipsis), and the picture drawn, as the digest of its PNG, the file itself
+     * written where the client collects it.
+     */
+    static JSONObject drawn(View view, int width) throws Exception {
+        view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        view.layout(0, 0, view.getMeasuredWidth(), view.getMeasuredHeight());
+        JSONObject found = new JSONObject();
+        found.put("width", view.getMeasuredWidth());
+        found.put("height", view.getMeasuredHeight());
+        JSONArray texts = new JSONArray();
+        drawnTexts(view, texts);
+        found.put("texts", texts);
+        if (view.getMeasuredWidth() > 0 && view.getMeasuredHeight() > 0) {
+            android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(view.getMeasuredWidth(),
+                    view.getMeasuredHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            view.draw(new android.graphics.Canvas(bitmap));
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+            found.put("picture", written(png.toByteArray()));
+        }
+        return found;
+    }
+
+    /** Writes a picture where the client collects it, named by its digest; the digest. */
+    private static String written(byte[] content) throws Exception {
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(content);
+        StringBuilder hex = new StringBuilder();
+        for (byte b : digest) {
+            hex.append(String.format("%02x", b));
+        }
+        String directory = System.getProperty(DRAWN);
+        if (directory != null && !directory.isEmpty()) {
+            java.io.File file = new java.io.File(directory, hex + ".png");
+            java.nio.file.Files.write(file.toPath(), content);
+        }
+        return "sha256:" + hex;
+    }
+
+    private static void drawnTexts(View view, JSONArray found) throws JSONException {
+        if (view == null || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        if (view instanceof TextView) {
+            TextView text = (TextView)view;
+            String shown = String.valueOf(text.getText());
+            if (!shown.isEmpty()) {
+                JSONObject entry = new JSONObject();
+                entry.put("text", shown);
+                android.text.Layout layout = text.getLayout();
+                if (layout != null) {
+                    int cut = 0;
+                    for (int line = 0; line < layout.getLineCount(); line++) {
+                        cut += layout.getEllipsisCount(line);
+                    }
+                    entry.put("lines", layout.getLineCount());
+                    entry.put("ellipsized", cut);
+                }
+                found.put(entry);
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup)view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                drawnTexts(group.getChildAt(i), found);
+            }
+        }
+    }
+
+    /**
+     * The activity's window laid out over the device's whole screen, as a phone's window manager lays it out, so
+     * each of its views has the size the screen gives it (Robolectric gives a window no size of its own).
+     */
+    static void fillScreen(android.app.Activity activity) {
+        android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+        View decor = activity.getWindow().getDecorView();
+        decor.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY));
+        decor.layout(0, 0, metrics.widthPixels, metrics.heightPixels);
+    }
+
+    /** The device's screen width, in pixels. */
+    static int screenWidth() {
+        return androidx.test.core.app.ApplicationProvider.getApplicationContext().getResources()
+                .getDisplayMetrics().widthPixels;
+    }
+
     /** Android's gravity bits by name, horizontal then vertical, so two layouts compare by what they mean. */
     static String gravity(int gravity) {
         StringBuilder found = new StringBuilder();

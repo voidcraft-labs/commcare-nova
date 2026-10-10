@@ -211,9 +211,11 @@ harness keeps, each with its reason.
 - **Android runs beside HQ's live unit, and HQ answers its network with its
   own views.** A claim about what a device does is observed on
   commcare-android's own classes (`proof/android`, Robolectric, one JVM and
-  one device a request), handed each state a shard serves, as Formplayer and
-  the Web Apps client are (`proof/android/observe.py`, called from
-  `proof/observe/served.py` and `proof4.py`), so the shards run on amd64,
+  one device a request, Android 10 drawing with Robolectric's native
+  graphics, a phone and a tablet held in landscape), handed each state a
+  shard serves, as Formplayer and the Web Apps client are
+  (`proof/android/observe.py`, called from `proof/observe/served.py` and
+  `proof4.py`), so the shards run on amd64,
   the only Linux Robolectric's native runtime ships for, with the reader's
   runtime and its JDK mounted at the paths it was built at
   (`proof/run.mjs::androidRuntime`). Every request the app's own HTTP client
@@ -252,9 +254,12 @@ harness keeps, each with its reason.
   the unit-test classpath lacks raises on the reader and on no worker's
   device. A walk follows the app's own navigation (a menu's own click, a
   list's own tap, a form's own finish button); what the walk cannot do as a
-  worker does it names and stops at. An `android@...` entry is held like
-  every other, by the check that reports it (`proof/checks/android.py`,
-  called from proofs 1, 3 and 4). commcare-android's own code is also held
+  worker does it names and stops at. A drawn picture is compared only where
+  nothing else of what it shows differs, and a tablet's difference only
+  where the phone does not show it (`android-tablet@...`): one symptom is
+  one difference. An `android@...` entry is held like every other, by the
+  check that reports it (`proof/checks/android.py`, called from proofs 1, 3
+  and 4). commcare-android's own code is also held
   where its runtime is built or restored, before any shard starts
   (`selfcheck.py`, `predicates.py`, which the lane's pytest does not
   collect); the proxy's transport is held in the lane (`test_peer.py`).

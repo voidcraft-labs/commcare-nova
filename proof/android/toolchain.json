@@ -1,5 +1,5 @@
 {
-	"description": "What the Android reader's runtime is built with beside the pins (proof/pins.json), each named exactly, so one build of the runtime is every build of it. build-runtime.sh fetches Gradle's distribution and Robolectric's Android runtime by these checksums, holds every dependency Gradle resolves to verification-metadata.xml where that file is beside this one, and refuses the Android SDK packages the build installed where one is not at the named revision or does not hold the named bytes (contents: the digest of every file the package's archive unpacks to, toolchain.py contents; the archives are those of Google's repository manifest, repository2-3.xml). The stage's workflow installs this JDK (.github/actions/proof-android-runtime). The reader's fingerprint names this file (proof/android/records.py), so a change here reads every archive again.",
+	"description": "What the Android reader's runtime is built with beside the pins (proof/pins.json), each named exactly, so one build of the runtime is every build of it. build-runtime.sh fetches Gradle's distribution and Robolectric's Android runtime by these checksums, holds every dependency Gradle resolves to verification-metadata.xml where that file is beside this one, and refuses the Android SDK packages the build installed where one is not at the named revision or does not hold the named bytes (contents: the digest of every file the package's archive unpacks to, toolchain.py contents; the archives are those of Google's repository manifest, repository2-3.xml). The runtime's action installs this JDK (.github/actions/proof-android-runtime), which the proof shards mount beside the runtime. The observation's fingerprint names this file (proof/observe/partition.py holds proof/android), so a change here observes every part again.",
 	"jdk": {
 		"distribution": "temurin",
 		"version": "17.0.13+11"
@@ -10,9 +10,9 @@
 		"sha256": "f1771298a70f6db5a29daf62378c4e18a17fc33c9ba6b14362e0cdf40610380d"
 	},
 	"robolectricAndroid": {
-		"file": "android-all-instrumented-6.0.1_r3-robolectric-r1-i7.jar",
-		"url": "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/6.0.1_r3-robolectric-r1-i7/android-all-instrumented-6.0.1_r3-robolectric-r1-i7.jar",
-		"sha256": "bc9148d548ce6875f0df9aadb0535ef2e3a5a8cf385f47a5c6c4060a7aab4e75"
+		"file": "android-all-instrumented-10-robolectric-5803371-i7.jar",
+		"url": "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/10-robolectric-5803371-i7/android-all-instrumented-10-robolectric-5803371-i7.jar",
+		"sha256": "700fb3bb88ff346969b955241b86d2f55d395488bf5df1e8eddfbd003980c78a"
 	},
 	"androidSdk": [
 		{

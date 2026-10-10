@@ -171,10 +171,12 @@ final class Queries {
             ModernHttpRequesterMock.setExpectedUrls(new String[0]);
             ModernHttpRequesterMock.setRequestPayloads(new String[0]);
         }
+        int held = steps();
         press(activity);
         // With no server, the test requester refuses the query as HQ refuses one it cannot read; a device served
         // by HQ shows HQ's own answer.
         found.put(Device.served() ? "afterServerAnswers" : "afterServerAnswers400", shown(activity));
+        back(held);
         return found;
     }
 
@@ -229,10 +231,33 @@ final class Queries {
         if (Device.served()) {
             // The worker presses Search: the screen sends what it built from the typed answers (CSQL among it) to
             // HQ's search view, which compiles it and answers; what the screen then shows.
+            int held = steps();
             press(activity);
             found.put("afterServerAnswers", shown(activity));
+            back(held);
         }
         return found;
+    }
+
+    /** How many steps the session's frame holds. */
+    private static int steps() {
+        return CommCareApplication.instance().getCurrentSessionWrapper().getSession().getFrame().getSteps().size();
+    }
+
+    /**
+     * The session as it stood before a probe's search was answered: a search the server answered pushes its
+     * results onto the session as a step (CommCareSession.setQueryDatum), and each such step is popped off again
+     * as the session pops a step (SessionFrame.popStep, then CommCareSession.syncState, which is
+     * CommCareSession.popStepInCurrentSessionFrame), so the screen the walk goes on with is the one the worker
+     * searched from, as before the probe.
+     */
+    private static void back(int held) {
+        org.commcare.session.CommCareSession session =
+                CommCareApplication.instance().getCurrentSessionWrapper().getSession();
+        while (session.getFrame().getSteps().size() > held) {
+            session.getFrame().popStep();
+            session.syncState();
+        }
     }
 
     /** What the search screen shows once the server answered: its error, and whether it handed home a result. */
