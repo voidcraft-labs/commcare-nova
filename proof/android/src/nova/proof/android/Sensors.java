@@ -35,13 +35,15 @@ import java.util.List;
  * fix below, as a phone's GPS would, and PollSensorAction writes it where the form polls into
  * (PollSensorAction.updateReference). The fix is the one the lane's Connect proofs give a visit, taken at the
  * lane's instant (ProofClock), and finer than any auto-capture accuracy a profile asks for, so the poll stops at
- * it.
+ * it; a request may name another place ({@code position}), or none, for a phone whose GPS finds no fix.
  */
 final class Sensors {
     static final double LATITUDE = 12.9716;
     static final double LONGITUDE = 77.5946;
     static final double ALTITUDE = 920.0;
     static final float ACCURACY = 5.0f;
+    /** Where the GPS puts the device: latitude, longitude, altitude, accuracy; null where it finds no fix. */
+    private static double[] position = {LATITUDE, LONGITUDE, ALTITUDE, ACCURACY};
     private static final List<String> LOCATION =
             Arrays.asList(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION);
 
@@ -66,6 +68,22 @@ final class Sensors {
         result.putExtra(REQUESTED, asked);
         result.putExtra(RESULTS, granted);
         Shadows.shadowOf(activity).receiveResult(request, Activity.RESULT_OK, result);
+    }
+
+    /**
+     * Where the request puts the device ({@code position}: {@code [latitude, longitude, altitude, accuracy]}, or
+     * null for a GPS that finds no fix); the lane's place where the request names none.
+     */
+    static void place(JSONObject request) throws Exception {
+        if (!request.has("position")) {
+            return;
+        }
+        if (request.isNull("position")) {
+            position = null;
+            return;
+        }
+        JSONArray given = request.getJSONArray("position");
+        position = new double[]{given.getDouble(0), given.getDouble(1), given.getDouble(2), given.getDouble(3)};
     }
 
     /** The device's location switched on, as a worker's phone has it before any form asks. */
@@ -98,18 +116,23 @@ final class Sensors {
         }
         answer(activity, Screens.permissionRequest);
         settle(activity);
-        Location fix = new Location(LocationManager.GPS_PROVIDER);
-        fix.setLatitude(LATITUDE);
-        fix.setLongitude(LONGITUDE);
-        fix.setAltitude(ALTITUDE);
-        fix.setAccuracy(ACCURACY);
-        fix.setTime(ProofClock.INSTANT);
-        fix.setElapsedRealtimeNanos(android.os.SystemClock.elapsedRealtimeNanos());
-        Shadows.shadowOf(locationManager()).simulateLocation(fix);
-        settle(activity);
         JSONObject gave = new JSONObject();
         gave.put("permissions", new JSONArray(LOCATION));
-        gave.put("location", LATITUDE + " " + LONGITUDE + " " + ALTITUDE + " " + ACCURACY);
+        if (position == null) {
+            // The GPS finds no fix: the app is given none.
+            gave.put("location", JSONObject.NULL);
+        } else {
+            Location fix = new Location(LocationManager.GPS_PROVIDER);
+            fix.setLatitude(position[0]);
+            fix.setLongitude(position[1]);
+            fix.setAltitude(position[2]);
+            fix.setAccuracy((float)position[3]);
+            fix.setTime(ProofClock.INSTANT);
+            fix.setElapsedRealtimeNanos(android.os.SystemClock.elapsedRealtimeNanos());
+            Shadows.shadowOf(locationManager()).simulateLocation(fix);
+            settle(activity);
+            gave.put("location", position[0] + " " + position[1] + " " + position[2] + " " + (float)position[3]);
+        }
         holder.put("deviceGave", gave);
     }
 

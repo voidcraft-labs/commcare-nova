@@ -28,6 +28,7 @@ WORKTREE = Path(__file__).resolve().parents[2]
 
 # Every file under these directories (repository-relative, ``/``-terminated), but under an excluded one.
 OBSERVATION_DIRECTORIES = (
+    "proof/android/",
     "proof/checks/compare/",
     "proof/connect/",
     "proof/core/",

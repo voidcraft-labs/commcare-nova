@@ -48,9 +48,16 @@ final class Updates {
         if (status != AppInstallStatus.Installed) {
             return found;
         }
-        Device.login();
-        if (request.has("restore")) {
-            found.put("restore", Device.restore(request.getString("restore")));
+        if (request.has("worker")) {
+            Device.serve(request.getJSONObject("worker"));
+        }
+        if (Device.served()) {
+            found.put("signIn", Device.signIn());
+        } else {
+            Device.login();
+            if (request.has("restore")) {
+                found.put("restore", Device.restore(request.getString("restore")));
+            }
         }
         Device.prefer(request.optJSONObject("preferences"));
         // The worker's own settings the request made, by name, so a reader of the answer knows which were theirs.

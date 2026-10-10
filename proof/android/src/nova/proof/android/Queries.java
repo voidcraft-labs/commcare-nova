@@ -105,12 +105,15 @@ final class Queries {
         Multimap<String, String> params = manager.getRawQueryParams(false);
         query.put("RemoteQuerySessionManager.getRawQueryParams", params(params));
 
-        File results = File.createTempFile("search-results", ".xml");
-        Files.write(results.toPath(), searchResults(params.get("case_type")));
-        String root = CommCareApplication.instance().getArchiveFileRoot().addArchiveFile(results.getParent());
-        ModernHttpRequesterMock.setResponseCodes(new Integer[]{200});
-        ModernHttpRequesterMock.setExpectedUrls(new String[0]);
-        ModernHttpRequesterMock.setRequestPayloads(new String[]{"jr://archive/" + root + "/" + results.getName()});
+        if (!Device.served()) {
+            File results = File.createTempFile("search-results", ".xml");
+            Files.write(results.toPath(), searchResults(params.get("case_type")));
+            String root = CommCareApplication.instance().getArchiveFileRoot().addArchiveFile(results.getParent());
+            ModernHttpRequesterMock.setResponseCodes(new Integer[]{200});
+            ModernHttpRequesterMock.setExpectedUrls(new String[0]);
+            ModernHttpRequesterMock.setRequestPayloads(new String[]{"jr://archive/" + root + "/"
+                    + results.getName()});
+        }
         press(activity);
         ShadowActivity shadow = Shadows.shadowOf(activity);
         query.put("finishing", activity.isFinishing());
@@ -163,16 +166,15 @@ final class Queries {
         found.put("answer", answer);
         found.put("RemoteQuerySessionManager.getErrors", strings(manager.getErrors()));
         found.put("RemoteQuerySessionManager.getRawQueryParams", params(manager.getRawQueryParams(false)));
-        ModernHttpRequesterMock.setResponseCodes(new Integer[]{400});
-        ModernHttpRequesterMock.setExpectedUrls(new String[0]);
-        ModernHttpRequesterMock.setRequestPayloads(new String[0]);
+        if (!Device.served()) {
+            ModernHttpRequesterMock.setResponseCodes(new Integer[]{400});
+            ModernHttpRequesterMock.setExpectedUrls(new String[0]);
+            ModernHttpRequesterMock.setRequestPayloads(new String[0]);
+        }
         press(activity);
-        TextView error = (TextView)((Activity)activity).findViewById(R.id.error_message);
-        JSONObject after = new JSONObject();
-        after.put("errorShown", error.getVisibility() == View.VISIBLE);
-        after.put("errorText", String.valueOf(error.getText()));
-        after.put("finishing", activity.isFinishing());
-        found.put("afterServerAnswers400", after);
+        // With no server, the test requester refuses the query as HQ refuses one it cannot read; a device served
+        // by HQ shows HQ's own answer.
+        found.put(Device.served() ? "afterServerAnswers" : "afterServerAnswers400", shown(activity));
         return found;
     }
 
@@ -224,7 +226,24 @@ final class Queries {
         found.put("given", given);
         found.put("RemoteQuerySessionManager.getErrors", strings(manager.getErrors()));
         found.put("RemoteQuerySessionManager.getRawQueryParams", params(manager.getRawQueryParams(false)));
+        if (Device.served()) {
+            // The worker presses Search: the screen sends what it built from the typed answers (CSQL among it) to
+            // HQ's search view, which compiles it and answers; what the screen then shows.
+            press(activity);
+            found.put("afterServerAnswers", shown(activity));
+        }
         return found;
+    }
+
+    /** What the search screen shows once the server answered: its error, and whether it handed home a result. */
+    private static JSONObject shown(QueryRequestActivity activity) throws Exception {
+        TextView error = (TextView)((Activity)activity).findViewById(R.id.error_message);
+        JSONObject after = new JSONObject();
+        after.put("errorShown", error.getVisibility() == View.VISIBLE);
+        after.put("errorText", String.valueOf(error.getText()));
+        after.put("finishing", activity.isFinishing());
+        after.put("resultCode", Shadows.shadowOf(activity).getResultCode());
+        return after;
     }
 
     /** Every case of the asked types in the device's case storage, under HQ's search root. */

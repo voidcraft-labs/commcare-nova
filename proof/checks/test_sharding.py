@@ -123,20 +123,6 @@ def test_a_document_the_timings_do_not_list_counts_as_their_median_document():
     assert sharding.estimate({})("corpus:new") == sharding.DEFAULT_SECONDS
 
 
-def test_an_android_group_counts_its_own_measure_else_the_median_android_group_else_its_document():
-    """The Android stage's cost follows what a device does with a document's archives, not what the proof
-    shards spent on it, so a stage job's bin is packed from the stage's own measures where there are any."""
-    timings = {"corpus:a": 20.0, "corpus:b": 30.0, "android:corpus:a": 200.0, "android:corpus:b": 50.0}
-    seconds = sharding.estimate(timings)
-    assert seconds("android:corpus:a") == 200.0
-    assert seconds("android:control:new") == seconds("android:corpus:new") == 200.0
-    # The documents' median is the proof shards' alone.
-    assert seconds("corpus:new") == 30.0
-    unmeasured = sharding.estimate({"corpus:a": 20.0, "corpus:b": 30.0})
-    assert unmeasured("android:corpus:a") == 20.0
-    assert unmeasured("android:corpus:new") == 30.0
-
-
 def test_the_timings_file_must_hold_groups(tmp_path):
     path = tmp_path / "timings.json"
     assert sharding.load_timings(path) == {}

@@ -47,6 +47,10 @@ final class Device {
     // made at login, before a restore brings the workers it registers.
     static final String USERNAME = "nova-proof-device";
     static final String PASSWORD = "123";
+    // The worker HQ made, where the device is served: they sign in with these (signIn).
+    private static String username;
+    private static String password;
+    private static boolean served;
     /** Whether a walk changed what the worker's sandbox holds (a form saved, a claim's sync). */
     static boolean dirty;
     private static String restorePath;
@@ -142,6 +146,78 @@ final class Device {
         }
         return status[0];
     }
+
+    /**
+     * The worker HQ made for the state the device is served, by the username they type at Android's sign-in
+     * (the name HQ gave them without the project space's, which Android's requests complete from the profile's
+     * cc_user_domain, HttpUtils.buildDomainUser) and their password, which they sign in with (signIn).
+     */
+    static void serve(JSONObject worker) throws Exception {
+        username = worker.getString("username");
+        password = worker.getString("password");
+        served = true;
+    }
+
+    /** Whether the device has a network and a worker of HQ's to sign in as. */
+    static boolean served() {
+        return served && Peer.on();
+    }
+
+    /**
+     * The worker signs in as on a worker's phone: the app's own sign-in pipeline (LoginController.performLogin,
+     * which LoginActivity's view model runs once its form is filled), which manages the worker's key record
+     * (ManageKeyRecordTask, asking the profile's key server for it), pulls their data with the app's own data
+     * pull and requester (DataPullTask, the profile's ota-restore-url, with the worker's own credentials and no
+     * session yet) and starts their session with the user the restore brought. Each request is the app's own,
+     * through the device's network. What the pipeline answered, as the app's own result.
+     *
+     * The pipeline runs as LoginActivity runs it, through the app's own view model (LoginViewModel.start), on the
+     * main thread, whose looper the reader runs until the view model holds the result.
+     */
+    static String signIn() {
+        // The test application's own start of a session (ProofApplication.startUserSession) makes up a user where
+        // the sandbox holds none and it was given a password to make one with, which a device signing in for the
+        // first time never has: it holds no user until its first restore brings one. So it is given none, and
+        // the pipeline goes on to the data pull as on a worker's phone.
+        application().setCachedUserPassword(null);
+        Peer.seed("sign-in");
+        Sensors.switchOn();
+        final org.commcare.login.LoginRequest request = new org.commcare.login.LoginRequest(
+                CommCareApplication.instance().getCurrentApp().getUniqueId(), username, password,
+                org.commcare.activities.LoginMode.PASSWORD, org.commcare.login.AuthSource.Manual, false, false,
+                false, org.commcare.activities.DataPullController.DataPullMode.NORMAL);
+        // What LoginActivity runs once its form is filled: its view model starts the pipeline in its own scope on
+        // the main thread, and hands the activity the result.
+        org.commcare.login.LoginViewModel model = new org.commcare.login.LoginViewModel(
+                (android.app.Application)ApplicationProvider.getApplicationContext());
+        final Object[] outcome = new Object[1];
+        model.start(request);
+        long deadline = System.nanoTime() + SIGN_IN_MILLIS * 1_000_000L;
+        while ((outcome[0] = model.getResult().getValue()) == null) {
+            ShadowLooper.idleMainLooper();
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("Android's sign-in did not end within " + SIGN_IN_MILLIS / 1000
+                        + " s.");
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        ShadowLooper.idleMainLooper();
+        if (outcome[0] instanceof Throwable) {
+            throw new IllegalStateException("Android's sign-in raised", (Throwable)outcome[0]);
+        }
+        if (outcome[0] instanceof org.commcare.login.LoginResult.Success) {
+            Cases.restored();
+        }
+        return String.valueOf(outcome[0]);
+    }
+
+    // How long the sign-in may take before the reader says it did not end.
+    private static final long SIGN_IN_MILLIS = 300_000;
 
     /** A worker on the seated app, logged in, as the project's tests make one. */
     static void login() {
@@ -291,10 +367,15 @@ final class Device {
      */
     static void reset() {
         CommCareApplication.instance().closeUserSession();
-        AppUtils.wipeSandboxForUser(USERNAME);
-        login();
-        if (restorePath != null) {
-            restore(restorePath);
+        if (served()) {
+            AppUtils.wipeSandboxForUser(username);
+            signIn();
+        } else {
+            AppUtils.wipeSandboxForUser(USERNAME);
+            login();
+            if (restorePath != null) {
+                restore(restorePath);
+            }
         }
         Forms.openedIn = -1;
         dirty = false;

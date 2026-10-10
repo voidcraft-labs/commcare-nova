@@ -5,9 +5,10 @@ name: Proof lane
 # weekly variants, the image comparisons (proof-image.yml) and the pin pull
 # request's prewarm (upstream-pins.yml). Called only. It emits the corpus at
 # `ref`, queues every group fresh with nothing shared between documents
-# (python3 -m proof.store.queue --fresh --no-dedupe), runs `shards` shards of
-# `image` on `runner`, then the Android stage on amd64 over what they
-# observed, holds the outputs to the lane's gate, and, as `store`
+# (python3 -m proof.store.queue --fresh --no-dedupe), builds or finds the
+# Android reader's runtime, runs `shards` shards of `image` on `runner`, each
+# handing every state it serves to a device beside HQ's live unit, holds the
+# outputs to the lane's gate, and, as `store`
 # asks, compares them with main's evidence store (a difference fails the run
 # with both records uploaded) and saves them as main's newest snapshot.
 #
@@ -36,13 +37,13 @@ on:
         type: string
         default: ''
       runner:
-        description: The shards' runner
+        description: The shards' runner (amd64, where the Android reader runs beside HQ)
         type: string
-        default: ubuntu-24.04-arm
+        default: ubuntu-24.04
       arch:
         description: The shards' architecture, as the store's keys name it
         type: string
-        default: arm64
+        default: amd64
       shards:
         description: How many shards run the lane
         type: number
@@ -75,10 +76,6 @@ on:
         description: Proof allocation (static by default; create and steal are claim diagnostics)
         type: string
         default: static
-      android-shards:
-        description: How many jobs run the Android stage (0 for proof/android/stage.json's)
-        type: number
-        default: 0
 
 permissions:
   contents: read
@@ -94,7 +91,6 @@ jobs:
     timeout-minutes: 20
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
-      android: ${{ steps.matrix.outputs.android }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -145,8 +141,6 @@ jobs:
             exit 1
           fi
           mv -T "$RUNNER_TEMP/native" "$RUNNER_TEMP/corpus/native"
-      # Keyed under the environment the shards run in (lane-env), so the Android
-      # stage finds each document's records under the key the shards kept them by.
       - name: Build the fresh queues
         env:
           DOCUMENTS: ${{ inputs.documents }}
@@ -162,10 +156,6 @@ jobs:
           python3 -m proof.store.queue main --fresh --no-dedupe --documents "$DOCUMENTS" \
             --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
             --out "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
-          python3 -m proof.store.queue android --fresh \
-            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
-            --android-platform linux-amd64 \
-            --out "$RUNNER_TEMP/lane/proof-android-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           tar -C "$RUNNER_TEMP/corpus" -cf - . |
             zstd -q -3 -T0 -o "$RUNNER_TEMP/lane/proof-corpus-$LABEL-$GITHUB_RUN_ATTEMPT.tar.zst"
       - name: Upload the corpus
@@ -189,33 +179,22 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 14
-      - name: Upload the Android queue
-        uses: actions/upload-artifact@v7
-        with:
-          path: ${{ runner.temp }}/lane/proof-android-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
-          archive: false
-          if-no-files-found: error
-          retention-days: 14
       - id: matrix
         env:
           SHARDS: ${{ inputs.shards }}
           RUNNER: ${{ inputs.runner }}
-          ANDROID_SHARDS: ${{ inputs.android-shards }}
         run: |
           matrix="$(node proof/run.mjs --matrix "$SHARDS" | jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          if [ "$ANDROID_SHARDS" = 0 ]; then ANDROID_SHARDS="$(jq -r .shards proof/android/stage.json)"; fi
-          android="$(jq -nc --argjson total "$ANDROID_SHARDS" '{include: [range(1; $total + 1) | {shard: ., total: $total}]}')"
-          echo "android=$android" >> "$GITHUB_OUTPUT"
 
   shard:
     name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
-    needs: emit
+    needs: [emit, android-runtime]
     runs-on: ${{ matrix.runner }}
-    # Every group runs fresh here, each state served to Formplayer and every
-    # run walked whole in the Web Apps client; the deadline catches a stuck
-    # shard only.
-    timeout-minutes: 120
+    # Every group runs fresh here, each state served to Formplayer, every run
+    # walked whole in the Web Apps client and each state handed to a device;
+    # the deadline catches a stuck shard only.
+    timeout-minutes: 330
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}
@@ -230,6 +209,7 @@ jobs:
             proof
             lib/commcare/surface
             .github/actions/proof-runtime
+            .github/actions/proof-android-runtime
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -251,6 +231,9 @@ jobs:
           PROOF_IMAGE="$image" docker compose -f proof/compose.yaml pull --quiet postgres
           wait "$pull"
       - uses: ./.github/actions/proof-runtime
+      # The Android reader's runtime and its JDK, mounted into the harness at the paths they have here.
+      - id: android
+        uses: ./.github/actions/proof-android-runtime
       - name: Download the early queue
         uses: actions/download-artifact@v8
         with:
@@ -263,7 +246,9 @@ jobs:
           WORKERS: ${{ matrix.workers }}
           LANE_ENV: ${{ inputs.lane-env }}
           CLAIMS: ${{ inputs.claims }}
+          PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
         run: |
+          export PROOF_ANDROID_JDK="$JAVA_HOME"
           while IFS= read -r assignment; do
             [ -n "$assignment" ] && export "${assignment?}"
           done <<< "$LANE_ENV"
@@ -288,13 +273,9 @@ jobs:
           path: ${{ runner.temp }}/proof-out/
           retention-days: 14
 
-  # The Android stage (proof/README.md, "The Android stage"): the reader's
-  # runtime, kept under the digest of everything a build of it reads, and one
-  # job a static bin of the Android queue's blocks, each reading its
-  # documents' archives from what the shards observed. Always on amd64,
-  # whatever the shards' runner: commcare-android's code runs on no other
-  # Linux. A fresh lane reads no answer from a store, so every archive is
-  # read by the reader.
+  # The Android reader's runtime (proof/android/README.md), kept under the
+  # digest of everything a build of it reads: built where no cache entry
+  # holds it, and held to the reader's own checks, before any shard starts.
   android-runtime:
     name: Android reader runtime (${{ inputs.label }})
     runs-on: ubuntu-24.04
@@ -310,69 +291,9 @@ jobs:
         with:
           build: 'true'
 
-  android:
-    name: Android ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
-    needs: [emit, shard, android-runtime]
-    if: ${{ !cancelled() && needs.emit.result == 'success' && needs.android-runtime.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.emit.outputs.android) }}
-    env:
-      ATTEMPT: ${{ github.run_attempt }}
-      SHARD: ${{ matrix.shard }}/${{ matrix.total }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-          sparse-checkout: |
-            proof
-            lib/commcare/surface
-            .github/actions/proof-android-runtime
-      - name: Record the candidate image in the lock
-        if: ${{ inputs.image != '' }}
-        run: node proof/ci/candidate.mjs --image "$CANDIDATE"
-      - id: runtime
-        uses: ./.github/actions/proof-android-runtime
-      - name: Download the Android queue
-        uses: actions/download-artifact@v8
-        with:
-          name: proof-android-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
-          path: ${{ runner.temp }}/lane
-      - name: Download the corpus
-        uses: actions/download-artifact@v8
-        with:
-          name: proof-corpus-${{ inputs.label }}-${{ github.run_attempt }}.tar.zst
-          path: ${{ runner.temp }}/lane
-      - name: Download every shard's output
-        uses: actions/download-artifact@v8
-        with:
-          pattern: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-*
-          path: ${{ runner.temp }}/proof-shards
-      - name: Android stage
-        env:
-          PROOF_ANDROID_RUNTIME: ${{ steps.runtime.outputs.runtime }}
-          TZ: UTC
-        run: |
-          mkdir -p "$RUNNER_TEMP/corpus"
-          zstd -q -d -c "$RUNNER_TEMP/lane/proof-corpus-$LABEL-$ATTEMPT.tar.zst" | tar -C "$RUNNER_TEMP/corpus" -xf -
-          shopt -s nullglob
-          python3 -m proof.android.stage run \
-            --queue "$RUNNER_TEMP/lane/proof-android-queue-$LABEL-$ATTEMPT.json" \
-            --corpus "$RUNNER_TEMP/corpus" --bin "$SHARD" --jobs "$(nproc)" \
-            --out "$RUNNER_TEMP/android-out" "$RUNNER_TEMP"/proof-shards/proof-out-*
-      - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() }}
-        with:
-          name: proof-android-out-${{ inputs.label }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/android-out/
-          if-no-files-found: ignore
-          retention-days: 14
-
   gate:
     name: Verdict and store (${{ inputs.label }})
-    needs: [emit, shard, android]
+    needs: [emit, shard]
     if: ${{ always() && needs.emit.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -398,10 +319,6 @@ jobs:
           path: ${{ runner.temp }}/proof-shards
       - uses: actions/download-artifact@v8
         with:
-          pattern: proof-android-out-${{ inputs.label }}-${{ github.run_attempt }}-*
-          path: ${{ runner.temp }}/proof-shards
-      - uses: actions/download-artifact@v8
-        with:
           pattern: proof-*queue-${{ inputs.label }}-${{ github.run_attempt }}.json
           path: ${{ runner.temp }}/queues
           merge-multiple: true
@@ -411,10 +328,9 @@ jobs:
         run: |
           shopt -s nullglob
           python3 -m proof.lane.gate \
-            "$RUNNER_TEMP"/proof-shards/proof-out-* "$RUNNER_TEMP"/proof-shards/proof-android-out-* \
+            "$RUNNER_TEMP"/proof-shards/proof-out-* \
             --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
-            --android-queue "$RUNNER_TEMP/queues/proof-android-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             --summary "$RUNNER_TEMP/verdict/verdict.json"
       # The store is held to whatever ran, whatever the verdict: a failing
       # item on main still observes records, and a key that missed an input
@@ -441,22 +357,21 @@ jobs:
           shopt -s nullglob
           python3 -m proof.store.audit compare --store "$RUNNER_TEMP/store/main" \
             --mismatches "$RUNNER_TEMP/audit" \
-            "$RUNNER_TEMP"/proof-shards/proof-out-* "$RUNNER_TEMP"/proof-shards/proof-android-out-*
+            "$RUNNER_TEMP"/proof-shards/proof-out-*
       # Saved whatever the verdict and the comparison (fresh records are what
       # the lane observes, so they replace the store even where a stored one
       # was wrong), but only when every shard ran: a shard that could not run
       # leaves its blocks' records out, and main's previous snapshot is kept
       # rather than replaced by one that lacks them.
       - name: Pack the fresh store
-        if: ${{ !cancelled() && inputs.store == 'save' && needs.shard.result == 'success' && needs.android.result == 'success' && steps.store.outputs.key != '' }}
+        if: ${{ !cancelled() && inputs.store == 'save' && needs.shard.result == 'success' && steps.store.outputs.key != '' }}
         id: pack
         run: |
           shopt -s nullglob
           python3 -m proof.store.pack pack --out "$RUNNER_TEMP/store/next" \
             --queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
-            --queue "$RUNNER_TEMP/queues/proof-android-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
-            "$RUNNER_TEMP"/proof-shards/proof-out-* "$RUNNER_TEMP"/proof-shards/proof-android-out-*
+            "$RUNNER_TEMP"/proof-shards/proof-out-*
       - name: Save main's newest snapshot
         if: ${{ !cancelled() && steps.pack.outcome == 'success' }}
         uses: actions/cache/save@v6

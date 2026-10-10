@@ -86,7 +86,7 @@ jobs:
           sparse-checkout: proof
       - name: Name the store's snapshots
         id: store
-        run: node proof/ci/store-keys.mjs --arch arm64
+        run: node proof/ci/store-keys.mjs --arch amd64
       - name: Delete all but the newest two
         env:
           GH_TOKEN: ${{ github.token }}

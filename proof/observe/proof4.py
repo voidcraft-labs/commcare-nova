@@ -1246,15 +1246,11 @@ class _Observation:
         return connect.forwarded(held.served, opportunity, label)
 
     def _forwards(self, forwarder, held, trace, core):
-        """What a served state forwarded, as its record keeps it: the walk's runs named, Core's submissions of
-        ``core`` (its trace on the state's build, or None) posted where the release's profile sends them."""
-        from proof.observe import connect
-
+        """What a served state forwarded, as its record keeps it: the walk's runs named, and a device's walks'
+        (``proof.android.hq``) by their walks."""
         if forwarder is None:
             return None
         forwarder.walked(trace)
-        if core is not None:
-            forwarder.devices(core, path=connect.release_post_path(held.served))
         return forwarder.take(self.blobs)
 
     def serve_b(self):
@@ -1276,7 +1272,10 @@ class _Observation:
                 with connect.reading(forwarder, "formplayer"):
                     side, trace = held.formplayer()
                 self.walk = script_of(trace)
-                record = {"served": True, **served._state(held, side, trace, files=self.b_build.files)}
+                record = {
+                    "served": True,
+                    **served._state(held, side, trace, files=self.b_build.files, label=self.ctx.over),
+                }
                 kept = self._forwards(forwarder, held, trace, self.baseline_trace)
                 if kept is not None:
                     record["connect"] = kept
@@ -1326,6 +1325,13 @@ class _Observation:
                 with connect.reading(forwarder, "formplayer"):
                     side, trace = serving.formplayer(self.walk)
                 record = {"formplayer": side, "clientReads": reads}
+                # What a worker's device makes of the saved app's release, and, where the save changed the profile,
+                # what a device on the state it was saved over holds once it updates to it, with a worker's own
+                # settings (``proof.android.observe``).
+                record["android"] = serving.android("save")
+                updated = self._device_update(serving, over, held, outcome)
+                if updated is not None:
+                    record["androidUpdate"] = updated
                 core = self.blobs.get_json(traced["trace"]) if traced and traced.get("trace") else None
                 kept_connect = self._forwards(forwarder, serving, trace, core)
                 if kept_connect is not None:
@@ -1349,6 +1355,27 @@ class _Observation:
             )
         self.served_kept[key] = record
         return record, side["trace"], reads
+
+    def _device_update(self, serving, over, held, outcome):
+        """A device on ``over``'s archive updated to the saved app's, over a worker's own settings, where the save
+        changed the profile; None where it did not."""
+        from proof.android import observe as android
+        from proof.observe.build import device_archive
+
+        before = device_archive(over.build, over.held.app)
+        after = device_archive(outcome, held.app)
+        if not before or not after or "entries" not in before or "entries" not in after:
+            return None
+        if dict(before["entries"]).get("profile.ccpr") == dict(after["entries"]).get("profile.ccpr"):
+            return None
+        return android.update(
+            serving.served,
+            self.blobs,
+            label="save:update",
+            before=android.archive_bytes(before["entries"]),
+            after=android.archive_bytes(after["entries"]),
+            incomplete=False,
+        )
 
     # One save's stored app, build and trace ----------------------------------------------------------------
 

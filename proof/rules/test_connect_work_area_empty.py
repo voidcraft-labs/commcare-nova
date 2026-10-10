@@ -16,7 +16,8 @@ and HQ's case processing differ only in the submission's element, which the
 rule erases. Each spelling is then served (``proof.formplayer.hq.serve``):
 Formplayer's walks differ only in the element of the instance it hands back
 and submits; and HQ's own receiver and Connect repeater forward each of
-Core's and Formplayer's submissions to one opportunity in Connect
+Formplayer's submissions and a device's (CommCare Android's own walks and
+send, ``proof.android.observe``) to one opportunity in Connect
 (``proof.observe.connect``), whose answers, tasks and rows are the same for
 both, though the payload that reached it holds the empty id for one and no
 id for the other. Where the element names a work area, Connect refuses the
@@ -25,9 +26,6 @@ delivery, and the rule leaves the element.
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 import pytest
 from lxml import etree
 
@@ -35,7 +33,6 @@ from proof.rules.conftest import (
     assert_spelled,
     build_differences,
     published,
-    restore,
     rewritten,
     runs_alike,
     shown,
@@ -86,21 +83,19 @@ def test_hq_builds_and_core_runs_the_empty_work_area_id_as_none(rule_documents, 
 @pytest.fixture(scope="module")
 def received(rule_documents, hq, core_runner, lane_services):
     """Each spelling of the deliver form (no ``work_area_id``, an empty one, one that names a work area) served,
-    walked by Formplayer, and its submissions (Formplayer's and Core's) forwarded by HQ to one opportunity in
-    Connect: Formplayer's trace and what Connect made of the submissions, by spelling."""
-    from proof.checks import casedata
+    walked by Formplayer and by a device, and its submissions (Formplayer's and the device's) forwarded by HQ to
+    one opportunity in Connect: Formplayer's trace and what Connect made of the submissions, by spelling."""
+    from proof.android import observe as android
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer import observe as formplayer_observe
     from proof.observe import connect, services
     from proof.observe.record import Blobs
-    from proof.observe.sessions import run_sessions
 
     document = rule_documents[DOCUMENT]
     spellings = {"none": None, "empty": _with_work_area(""), "named": _with_work_area(NAMED)}
     blobs, found = Blobs(), {}
-    walk = sessions = opportunity = None
-    with published(document, core_runner) as app, tempfile.TemporaryDirectory() as scratch:
-        restored = restore(app, casedata.case_database(document.document))
+    walk = opportunity = None
+    with published(document, core_runner) as app:
         runner = services.formplayer()
         try:
             for name, change in spellings.items():
@@ -109,16 +104,12 @@ def received(rule_documents, hq, core_runner, lane_services):
                     with formplayer_hq.serve(app.unit, document, app.app_id, runner=runner, label=name) as served:
                         if opportunity is None:
                             opportunity = connect.open_opportunity(served)
-                        archive = Path(scratch) / f"{name}.ccz"
-                        archive.write_bytes(served.archive())
-                        ran = run_sessions(core_runner, name, archive, restored, sessions).trace
-                        sessions = sessions or [list(run["script"]) for run in ran["runs"]]
                         with connect.forwarded(served, opportunity, name) as forwarder:
                             with forwarder.reading("formplayer"):
                                 _, trace = formplayer_observe.walked(served, runner, blobs, script=walk)
                             walk = walk or formplayer_observe.script_of(trace)
                             forwarder.walked(trace)
-                            forwarder.devices(ran, path=connect.release_post_path(served))
+                            android.app(served, blobs, label=name, archive=android.release_archive(served))
                             found[name] = {"formplayer": trace, "connect": blobs.get_json(forwarder.take(blobs))}
         finally:
             if opportunity is not None:
@@ -168,12 +159,12 @@ def test_formplayer_hands_the_two_forms_alike_but_for_the_element(received):
 
 def test_hq_forwards_the_empty_id_and_connect_makes_the_same_rows_of_it_as_of_none(received):
     """The payload that reached Connect holds ``"work_area_id": ""`` for the empty spelling and no such key for
-    Nova's, from Core's submission and from Formplayer's, and Connect answers, runs and holds the same."""
+    Nova's, from a device's submission and from Formplayer's, and Connect answers, runs and holds the same."""
     from proof.checks import connect as judge
 
     none, empty = received["none"]["connect"], received["empty"]["connect"]
-    assert sorted(none["runs"]) == sorted(empty["runs"]) == ["core", "formplayer"]
-    for reader in ("core", "formplayer"):
+    assert sorted(none["runs"]) == sorted(empty["runs"]) == ["android", "formplayer"]
+    for reader in ("android", "formplayer"):
         assert all("work_area_id" not in unit for unit in _deliver_units(none)[reader])
         assert [unit["work_area_id"] for unit in _deliver_units(empty)[reader]] == [""]
         assert [post["status"] for run in empty["runs"][reader] for post in run["posts"]] == [200]
@@ -188,7 +179,7 @@ def test_connect_refuses_a_delivery_whose_work_area_id_names_a_work_area_it_does
     from proof.checks import connect as judge
 
     named = received["named"]["connect"]
-    assert [unit["work_area_id"] for unit in _deliver_units(named)["core"]] == [NAMED]
+    assert [unit["work_area_id"] for unit in _deliver_units(named)["android"]] == [NAMED]
     found = judge.differences(received["none"]["connect"], named, check="proof4", document="-", artifact="connect")
     assert {(d.path, d.before, d.after) for d in found} == {
         ("/runs/*/posts/*/answer", "200", "400: invalid-work-area-case-id-specified")

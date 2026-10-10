@@ -20,6 +20,13 @@ there is none, and asking raises.
   a Connect document's observation serves an opportunity from
   (``proof.observe.connect``). Its logs go under the run's output
   (``$PROOF_OUT/connect-unit``).
+- ``android()``: the session's Android reader (``proof.android.client``:
+  commcare-android's own code under Robolectric, one JVM and one device a
+  request), which reads each served state beside HQ's unit, its network
+  answered by HQ's own views (``proof.android.hq``). It runs where
+  Robolectric's native runtime does (linux/amd64, where the lane's shards
+  run, and macOS), from the runtime ``PROOF_ANDROID_RUNTIME`` names; asking
+  for it anywhere else raises with the reason.
 - ``client_browser()``: an editor driver (node and Chromium) of the Web
   Apps client's own. Proof 4 shows a saved app in the client while the
   editor page that saved it is still open in the session's editor driver,
@@ -32,7 +39,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-_SESSION: dict = {"open": False, "formplayer": None, "validator": None, "browser": None, "connect": None}
+_SESSION: dict = {
+    "open": False,
+    "formplayer": None,
+    "validator": None,
+    "browser": None,
+    "connect": None,
+    "android": None,
+}
 
 
 class NoSession(RuntimeError):
@@ -44,10 +58,15 @@ def session(on_start=None):
     """The lifetime of the session's services; ``on_start(runner)`` is told each runner as it starts."""
     if _SESSION["open"]:
         raise NoSession("The session's services are already open in this process; one session owns them.")
-    _SESSION.update(open=True, formplayer=None, validator=None, browser=None, connect=None, on_start=on_start)
+    _SESSION.update(
+        open=True, formplayer=None, validator=None, browser=None, connect=None, android=None, on_start=on_start
+    )
     try:
         yield
     finally:
+        reader, _SESSION["android"] = _SESSION["android"], None
+        if reader is not None:
+            reader.close()
         runner, _SESSION["formplayer"] = _SESSION["formplayer"], None
         validating, _SESSION["validator"] = _SESSION["validator"], None
         browser, _SESSION["browser"] = _SESSION["browser"], None
@@ -146,3 +165,19 @@ def connect():
         runtime.__enter__()
         _SESSION["connect"] = runtime
     return _SESSION["connect"]
+
+
+def android():
+    """The session's Android reader, started on first use (its sources compiled against the runtime, once)."""
+    _require_session("the Android reader")
+    if _SESSION["android"] is None:
+        from proof.android.client import AndroidReader
+
+        reader = AndroidReader()
+        try:
+            reader.start()
+        except BaseException:
+            reader.close()
+            raise
+        _SESSION["android"] = reader
+    return _SESSION["android"]

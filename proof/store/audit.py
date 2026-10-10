@@ -57,7 +57,7 @@ MASKED = re.compile(
     r"|\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b"
 )
 # The entries an audit holds to the store: a transcript is replayed only where HQ answers alike, so any is right.
-AUDITED = ("parts", "documents", "judgments", "groups", "android")
+AUDITED = ("parts", "documents", "judgments", "groups")
 
 
 class StoreMismatch(AssertionError):
@@ -177,9 +177,9 @@ def masked(value) -> str:
 
 
 def _content(kind: str, entry, source) -> bytes:
-    """What a mismatch shows of an entry: a part's record, a judgment's evidence and an Android record as their
-    blobs, else the entry."""
-    if kind in ("parts", "judgments", "android"):
+    """What a mismatch shows of an entry: a part's record and a judgment's evidence as their blobs, else the
+    entry."""
+    if kind in ("parts", "judgments"):
         found = source.blob(entry["record"] if kind == "parts" else entry)
         if found is not None:
             return found

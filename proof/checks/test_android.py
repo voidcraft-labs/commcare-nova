@@ -338,7 +338,10 @@ def _update(**changes):
 def _proof4(save, base=None):
     record = {
         "configurations": {
-            "minimum": {"B": {"app": base or _app()}, "saves": {"B": [{"label": "app settings", **save}]}}
+            "minimum": {
+                "proof4": {"B": {"app": base or _app()}},
+                "saves": {"B": [{"label": "app settings", **save}]},
+            }
         }
     }
     return android.editability("document", record)
@@ -365,7 +368,7 @@ def test_a_second_vellum_save_is_compared_with_the_first():
     record = {
         "configurations": {
             "minimum": {
-                "B": {"app": _app()},
+                "proof4": {"B": {"app": _app()}},
                 "saves": {
                     "B": [
                         {"label": "vellum:m0.f0", "editor": "vellum", "over": None, "app": first},
@@ -505,3 +508,95 @@ def test_a_form_the_device_refused_and_yet_applied_is_reported_of_that_archive_a
     assert ("android@vellum@B@minimum", "/walks/*/steps/*/form/saved/applied-though-refused", "error") in _paths(
         _proof4(save, base=kept)
     )
+
+
+# The records a shard keeps, gathered for the judges ----------------------------------------------------------
+
+
+class _Blobs:
+    def __init__(self):
+        self.held = {}
+
+    def put(self, value):
+        digest = f"sha256:{len(self.held)}"
+        self.held[digest] = value
+        return digest
+
+    def get_json(self, digest):
+        return self.held[digest]
+
+
+class _Parts:
+    def __init__(self, a=None, b=None, b_aligned=None, b_edit=None):
+        self.a, self.b, self.b_aligned, self.b_edit = a, b, b_aligned, b_edit
+
+    def part(self, name):
+        return getattr(self, name)
+
+
+class _Records:
+    def __init__(self, blobs, configurations):
+        self.blobs, self.configurations = blobs, configurations
+
+
+def _device(blobs, answer, asked=()):
+    return {"answer": blobs.put(answer), "hq": blobs.put(list(asked))}
+
+
+def test_the_judges_read_each_device_a_shard_kept_where_the_unit_served_its_state():
+    """Contract: ``document_record`` gathers every device the unit read from the part records: A's from A's
+    served hook, proof 3's B and the local archive's (the device given the lane's input, and the one meeting
+    Android's own defaults) from ``b_aligned``, the installs and update beside them, and proof 4's states and
+    saves from each B's own record. Failure it catches: a device read and never judged, or one state's answer
+    judged as another's."""
+    blobs = _Blobs()
+    a, b, local, own, base, save = (_app() for _ in range(6))
+    own["signIn"] = "Failed(error=BadCredentials)"
+    installs, update = {"installs": [{"install": "Installed"}]}, {"install": "Installed"}
+    refused = {"url_name": "app_aware_remote_search", "status": 400, "said": "bad query", "raised": None}
+    parts = _Parts(
+        a={"hooks": {"served": {"A": {"android": _device(blobs, a, [refused])}}}},
+        b_aligned={
+            "served": {
+                "B": {"android": _device(blobs, b)},
+                "local": {"android": _device(blobs, own), "androidDelivered": _device(blobs, local)},
+                "devices": {"republish": {"installs": _device(blobs, installs), "update": _device(blobs, update)}},
+            }
+        },
+        b={
+            "proof4": {
+                "served": {"android": _device(blobs, base)},
+                "views": [
+                    {
+                        "scope": [None, None],
+                        "sections": [{"section": "app settings", "served": {"android": _device(blobs, save)}}],
+                    }
+                ],
+            }
+        },
+    )
+    record = android.document_record(_Records(blobs, {"minimum": parts}))
+    held = record["configurations"]["minimum"]
+    assert held["A"]["app"] is a and held["A"]["hq"] == [refused]
+    assert held["B"]["app"] is b and held["installs"] is installs and held["update"] is update
+    assert record["local"] == {"app": local, "asIs": own}
+    assert held["proof4"] == {"B": {"app": base}}
+    assert [(entry["label"], entry["app"]) for entry in held["saves"]["B"]] == [("app settings", save)]
+    found = {(d.artifact, d.path) for d in android.behavior("document", record)}
+    # The device meeting Android's own defaults signs in otherwise, and HQ refused a request of A's device.
+    assert ("android@local.ccz", "/network/signIn") in found
+    assert any(
+        artifact == "android@A" and path.startswith("/hq/app_aware_remote_search/400/") for artifact, path in found
+    )
+
+
+def test_a_sign_in_is_compared_as_a_worker_meets_it():
+    """Contract: two devices that both signed in sign in alike, whatever install or worker the app's success
+    names; a failure is its own. Failure it catches: every pair of states reported for the app's id in a
+    success."""
+    signed = _app(signIn="Success(appId=one, username=w)")
+    other = _app(signIn="Success(appId=two, username=w)")
+    failed = _app(signIn="Failed(error=NetworkUnavailable)")
+    assert android.signed_in_differences("d", signed, other) == []
+    (found,) = android.signed_in_differences("d", signed, failed)
+    assert (found.path, found.before, found.after) == ("/network/signIn", "Success", "Failed(error=NetworkUnavailable)")

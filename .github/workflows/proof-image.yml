@@ -17,16 +17,17 @@ name: Proof image
 #
 # Weekly, and by hand (with no ref), it also proves the image's variants
 # observe what the lane observes: the whole lane runs fresh on the slim image
-# for arm64 (what CI runs), on the full image for arm64, and on the slim image
-# for amd64 (proof-lane.yml), and the records are compared (python3 -m
-# proof.store.audit compare): full against slim, amd64 against arm64. It also
+# and on the full image, on amd64 (proof-lane.yml), where CI's shards run and
+# the Android reader runs beside HQ, and the records are compared (python3 -m
+# proof.store.audit compare): full against slim. The arm64 build serves a
+# person's arm64 machine, where every reader but Android runs. It also
 # emits the proof corpus and produces the native proofs' products (python3 -m
 # proof.native.produce) on each architecture, on the runner and inside the
 # pinned image, and holds the four alike, each to what CI ships (amd64, on
 # the runner): the corpus's every file but timings.json byte for byte, and
 # the products up to the ids their producers mint afresh in each production
 # (proof/ci/products.mjs). CI makes both once, on an x64 runner with the
-# runner's own Node, and the lane reads them on arm64 in the image.
+# runner's own Node, and the lane reads them on amd64 in the image.
 #
 # The image holds only public, licensed upstream sources and the recipe's own
 # files, so the package is public; HQ's lock resolves its git and URL sources
@@ -184,8 +185,8 @@ jobs:
             echo "Record the digest in proof/image.lock with the pins above."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  lane-slim-arm64:
-    name: Lane on the slim image, arm64
+  lane-slim:
+    name: Lane on the slim image
     needs: publish
     if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     permissions:
@@ -193,10 +194,10 @@ jobs:
     uses: ./.github/workflows/proof-lane.yml
     with:
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
-      label: image-slim-arm64
+      label: image-slim
 
-  lane-full-arm64:
-    name: Lane on the full image, arm64
+  lane-full:
+    name: Lane on the full image
     needs: publish
     if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     permissions:
@@ -204,25 +205,12 @@ jobs:
     uses: ./.github/workflows/proof-lane.yml
     with:
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.full-digest }}
-      label: image-full-arm64
-
-  lane-slim-amd64:
-    name: Lane on the slim image, amd64
-    needs: publish
-    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/proof-lane.yml
-    with:
-      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
-      label: image-slim-amd64
-      runner: ubuntu-24.04
-      arch: amd64
+      label: image-full
 
   lanes-compare:
     name: The image's variants observe alike
-    needs: [lane-slim-arm64, lane-full-arm64, lane-slim-amd64]
-    if: ${{ always() && needs.lane-slim-arm64.result == 'success' }}
+    needs: [lane-slim, lane-full]
+    if: ${{ always() && needs.lane-slim.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -238,17 +226,11 @@ jobs:
       # Each side is one lane run: --left and --right each take every shard
       # output that run uploaded, one directory per shard.
       - name: The slim image observes what the full one does
-        if: ${{ needs.lane-full-arm64.result == 'success' }}
+        if: ${{ needs.lane-full.result == 'success' }}
         run: |
           python3 -m proof.store.audit compare \
-            --left "$RUNNER_TEMP"/lanes/proof-out-image-full-arm64-* \
-            --right "$RUNNER_TEMP"/lanes/proof-out-image-slim-arm64-*
-      - name: amd64 observes what arm64 does
-        if: ${{ needs.lane-slim-amd64.result == 'success' }}
-        run: |
-          python3 -m proof.store.audit compare \
-            --left "$RUNNER_TEMP"/lanes/proof-out-image-slim-arm64-* \
-            --right "$RUNNER_TEMP"/lanes/proof-out-image-slim-amd64-*
+            --left "$RUNNER_TEMP"/lanes/proof-out-image-full-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-image-slim-*
       - name: Every variant's lane held
         env:
           RESULTS: ${{ toJSON(needs) }}

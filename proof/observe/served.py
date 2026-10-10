@@ -7,6 +7,11 @@ and keeps what its two readers make of it:
 
 - **Formplayer's sessions** (``proof.formplayer.observe``): the walk derived
   on the baseline state and replayed on every other;
+- **a worker's device** (``proof.android.observe``): the archive a worker
+  installs of the state, read by CommCare Android's own code, the worker
+  signing in and every walk down the app's menus, its network answered by
+  HQ's own views over the state (each form it saves sent to HQ's receiver,
+  each search to HQ's search view);
 - **the Web Apps client's screens** (``proof.webapps.observe``), read in the
   editor driver's Chromium on the same walk: what only the client decides
   (a description it shows or not, a tile cell's place, alignment and size,
@@ -102,6 +107,31 @@ class Serving:
     def reads(self) -> str:
         return client_reads(self.served.doc)
 
+    def android(self, label: str, archive: bytes | None = None, *, delivered: bool = False):
+        """What a worker's device makes of the state (``proof.android.observe.app``): the released build's
+        archive, or ``archive`` (Nova's local export) installed, over HQ's views of the state; with
+        ``delivered``, its restore and forms delivered to HQ's own addresses for the worker and the app
+        (``proof.android.hq``)."""
+        from proof.android import observe as android
+
+        archive = android.release_archive(self.served) if archive is None else archive
+        return android.app(self.served, self.blobs, label=label, archive=archive, delivered=delivered)
+
+    def devices(self, label: str, first: bytes, second: bytes, *, incomplete: bool = True):
+        """Two archives of one app on a device, over HQ's views of the state: installed in turn, and one device
+        updated from the first to the second with every form left incomplete before it (``proof.android
+        .observe``)."""
+        from proof.android import observe as android
+
+        return {
+            "installs": android.installs(
+                self.served, self.blobs, label=f"{label}:installs", first=first, second=second
+            ),
+            "update": android.update(
+                self.served, self.blobs, label=f"{label}:update", before=first, after=second, incomplete=incomplete
+            ),
+        }
+
     def release_differs(self, files):
         from proof.formplayer import observe
 
@@ -133,15 +163,38 @@ def serving(unit, document, app_id, *, driver, blobs, label, previous=None, chan
     return opened()
 
 
+def _devices(held, document, a_record, b_record, blobs) -> dict:
+    """Two exports of one app on a device (``Serving.devices``): Nova's two local exports, where the document has
+    both, and HQ's builds of A then B, where HQ released both."""
+    from proof.android import observe as android
+
+    found = {}
+    if document.local_ccz is not None:
+        again = document.local_ccz.parent / "local-again.ccz"
+        if again.is_file():
+            found["local"] = held.devices("local", document.local_ccz.read_bytes(), again.read_bytes())
+    a_state = (a_record or {}).get("state") or {}
+    b_state = (b_record or {}).get("state") or {}
+    if android.released(a_state.get("build")) and android.released(b_state.get("build")):
+        first = android.stored_archive(a_state.get("archive"), blobs)
+        second = android.stored_archive(b_state.get("archive"), blobs)
+        if first is not None and second is not None:
+            found["republish"] = held.devices("republish", first, second)
+    return found
+
+
 def refused(error) -> dict:
     """A state HQ releases no build of, as a record: what HQ raised making one, by its class."""
     return {"served": False, "refused": getattr(error, "raised", None) or "AppValidationError"}
 
 
-def _state(serving_, side, trace, *, files=None):
+def _state(serving_, side, trace, *, files=None, label=None):
     """One served state's record: Formplayer's side record, the client's screens on its walk, what the client
-    reads of the app, and whether the release is the build the other checks read."""
+    reads of the app, whether the release is the build the other checks read, and, with ``label``, what a
+    worker's device makes of the release."""
     recorded = {"formplayer": side, "clientReads": serving_.reads()}
+    if label is not None:
+        recorded["android"] = serving_.android(label)
     shown = serving_.webapps(trace)
     if shown is not None:
         recorded["webapps"] = shown
@@ -174,13 +227,9 @@ def observe(ctx):
             with connect.forwarded(held.served, opportunity, "A") as forwarder:
                 with connect.reading(forwarder, "formplayer"):
                     side, trace = held.formplayer()
-                state = _state(held, side, trace, files=ctx.build.files)
+                state = _state(held, side, trace, files=ctx.build.files, label="A")
                 if forwarder is not None:
                     forwarder.walked(trace)
-                    restore = getattr(ctx, "restore_a", None)
-                    if restore is not None:
-                        core = connect.core_sessions(ctx.core_runner, ctx.build.files, restore)
-                        forwarder.devices(core, path=connect.release_post_path(held.served))
                     kept = forwarder.take(ctx.blobs)
                     if kept is not None:
                         state["connect"] = kept
@@ -220,14 +269,19 @@ def aligned(
     blobs,
     connect=None,
     sessions=None,
+    b_record=None,
 ):
     """What the unit records with ``b_aligned``: the local archive's walk over HQ's state, and, where the raw
     builds of A and of B aligned to A differ, that build's walk and the client's screens on it. None where A
     was not served (its hook did not run, or HQ releases no build of A).
 
-    ``connect`` is the unit's opportunity holder (``proof.observe.connect.Holder``) and ``sessions`` proof 3's
-    sessions as the part records them: for a Connect app, each state also forwards what HQ receives to the
-    opportunity, Formplayer's submissions as its walk makes them and Core's as its sessions made them."""
+    A worker's device is handed each of those states too, and two exports of one app in turn
+    (``devices``): Nova's two local exports, and HQ's builds of A then B (``b_record`` the ``b`` part's record,
+    whose state keeps B's archive), each installed in turn and one updated to the other.
+
+    ``connect`` is the unit's opportunity holder (``proof.observe.connect.Holder``): for a Connect app, each
+    state also forwards what HQ receives to the opportunity, Formplayer's submissions as its walk makes them
+    and a device's as its walks send them. ``sessions`` is proof 3's sessions as the part records them."""
     from proof.formplayer.observe import script_of
     from proof.observe import connect as connect_
 
@@ -239,10 +293,6 @@ def aligned(
     from proof.webapps.hq import ReleaseRefused
 
     opportunity = connect.opportunity if connect is not None else None
-
-    def core_trace(side):
-        held_side = (sessions or {}).get(side) or {}
-        return blobs.get_json(held_side["trace"]) if held_side.get("trace") else None
 
     recorded = {}
     try:
@@ -260,23 +310,27 @@ def aligned(
                 if walks_b:
                     with connect_.reading(forwarder, "formplayer"):
                         side, trace = held.formplayer(script)
-                    recorded["B"] = _state(held, side, trace, files=b_aligned.files)
+                    recorded["B"] = _state(held, side, trace, files=b_aligned.files, label="B")
                     if forwarder is not None:
                         forwarder.walked(trace)
-                        forwarder.devices(core_trace("b"), path=connect_.release_post_path(held.served))
                         kept = forwarder.take(blobs)
                         if kept is not None:
                             recorded["B"]["connect"] = kept
+                recorded["devices"] = _devices(held, document, a_record, b_record, blobs)
                 if document.local_ccz is not None:
                     with connect_.reading(forwarder, "formplayer"):
                         local_side, local_trace = held.local(document, script)
-                    recorded["local"] = {"formplayer": local_side}
+                    # A device on Nova's local archive as Android meets it (its requests to Android's own defaults,
+                    # finding 59), and one given the input the lane gives Core over that archive.
+                    recorded["local"] = {
+                        "formplayer": local_side,
+                        "android": held.android("local", document.local_ccz.read_bytes()),
+                        "androidDelivered": held.android(
+                            "local:delivered", document.local_ccz.read_bytes(), delivered=True
+                        ),
+                    }
                     if forwarder is not None:
                         forwarder.walked(local_trace)
-                        # As the archive arranges it (no app named), and under the app's id.
-                        local_core = core_trace("local")
-                        forwarder.devices(local_core, path=connect_.local_post_path(document, held.served))
-                        forwarder.devices(local_core, path=connect_.release_post_path(held.served), reader="core@app")
                         kept = forwarder.take(blobs, archives=[document.local_ccz.read_bytes()])
                         if kept is not None:
                             recorded["local"]["connect"] = kept

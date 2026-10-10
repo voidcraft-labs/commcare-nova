@@ -308,7 +308,8 @@ def part_keys(inputs, name, databases, hooks=None):
     whose update sends B's bytes over B's cases has B's key. Nothing else of
     D′ is read over B-edit but what a hook declares. ``b_aligned`` is keyed
     under ``b`` with the local archive proof 3's sessions replay on
-    (``inputs.json``'s ``local`` role); its cases and B's lookups are
+    (``inputs.json``'s ``local`` role) and the local export a device installs
+    after it (``local-again``); its cases and B's lookups are
     ``b``'s. Each state's part also reads what each hook declares for that
     state (``hooks``: ``hook_inputs``).
     """
@@ -323,7 +324,11 @@ def part_keys(inputs, name, databases, hooks=None):
                 "b", a, {"inputs": requests, "caseDatabase": databases[part], "hooks": hooks.get(state, {})}
             )
     if "b" in keys:
-        keys["b_aligned"] = part_key("b_aligned", keys["b"], {"localArchive": inputs["local"].get("local")})
+        keys["b_aligned"] = part_key(
+            "b_aligned",
+            keys["b"],
+            {"localArchive": inputs["local"].get("local"), "localAgain": inputs["local"].get("local-again")},
+        )
     return keys
 
 
@@ -811,7 +816,7 @@ class _Unit:
             built.outcome, built.doc, built.identities = held.outcome, held.doc, held.identities
             self.b_built, self.mark_b = built, self.unit.mark()
 
-    def observe_b_aligned(self, a_record):
+    def observe_b_aligned(self, a_record, b_record=None):
         """B aligned to A, built, and proof 3's sessions, as the ``b_aligned`` record.
 
         From B's mark. Where HQ refused B there is no B to align, and the
@@ -881,6 +886,7 @@ class _Unit:
                 blobs=self.blobs,
                 connect=self.connect,
                 sessions=record.get("sessions"),
+                b_record=b_record,
             )
             if found is not None:
                 record["served"] = found
@@ -1028,7 +1034,7 @@ def observe_configuration(
                 with guard.observing(document, name, "b", hooks):
                     state.recreate_b(records.b, export.republish)
             if "b_aligned" in wanted:
-                settled("b_aligned", lambda: state.observe_b_aligned(records.a))
+                settled("b_aligned", lambda: state.observe_b_aligned(records.a, records.b))
             if "b_edit" in wanted:
                 update = document.edit.exports[name].update
                 settled("b_edit", lambda: state.observe_b("b_edit", update, "B-edit"))

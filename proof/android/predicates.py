@@ -14,12 +14,13 @@ classes, whether the two spellings differ for a worker and how.
 Every predicate is held here by one archive edit: the element HQ's build spells one way and Nova's local
 archive another (a hidden sort column's header, an image column's width, the claim a sync-on-form-entry build
 posts before a form, a list's sort keys) is written into the control's archive exactly as HQ's build of that
-control spells it, so the two archives differ in that element alone. The lane's Android stage
-(``proof.android.stage``) holds the same predicates on HQ's own builds of every document, as register entries
+control spells it, so the two archives differ in that element alone. The lane's shards hold the same
+predicates on HQ's own releases of every document, read by a device beside HQ's unit, as register entries
 (``android@...``); these say, wherever the reader runs, which element each rests on.
 
 It needs a reader runtime (``PROOF_ANDROID_RUNTIME``) and ``java``, and the standard library alone. Like
-``selfcheck.py`` it is not a ``test_*.py``: the lane's image holds no reader runtime.
+``selfcheck.py`` it is not a ``test_*.py``: it runs where the runtime is built or restored, before any shard
+starts, on the runner's own Python.
 """
 
 from __future__ import annotations

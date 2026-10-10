@@ -37,7 +37,7 @@ import java.nio.file.Files;
  * <li>{@code update}: install {@code archive}, then update the device to {@code update} (Updates).</li>
  * </ul>
  */
-@Config(application = CommCareTestApplication.class)
+@Config(application = ProofApplication.class)
 @RunWith(AndroidJUnit4.class)
 public class Reader {
     static final String REQUEST = "nova.proof.android.request";

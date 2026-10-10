@@ -1,7 +1,7 @@
 """``python -m proof.lane.gate``: the proof lane's verdict from every shard's output, on the standard library alone.
 
-    python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--android-queue FILE]
-        [--store DIR] [--surface FILE] [--summary FILE]
+    python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--store DIR] [--surface FILE]
+        [--summary FILE]
 
 It runs where the shards' outputs and the queues were downloaded, on the
 runner's own Python (3.12 or later) with no image: everything it imports is
@@ -9,11 +9,7 @@ the standard library or the proof's own standard-library modules
 (``proof.lane.blocks``, ``proof.lane.reader``, ``proof.checks.sharding``,
 ``proof.checks.registers``, ``proof.checks.differences``). With no queue
 named, it reads the ``queue.json`` a run on one machine writes into its
-output. The Android stage's outputs (``proof.android.stage``) are outputs
-like a shard's, and its queue (``--android-queue``) a queue like the other
-two: each document's Android group is a block that ran exactly once or is
-read from the store, its items passed, and its judges' evidence is held to
-the register beside the shards' own. Four sections, each with its problems:
+output. Four sections, each with its problems:
 
 1. Exactly once (``proof.checks.sharding.verify``): every queued block ran
    exactly once (a block two shards ran fails, whatever they wrote), every
@@ -65,9 +61,7 @@ def _section(problems, notes=(), **extra) -> dict:
 def _cached_dir(records, directory: Path) -> Path:
     """The cached groups' evidence written as checks write theirs, for the register to read beside the blocks'."""
     for record in records:
-        # A stage's evidence beside the shards' own of the same check on the same document, each a file.
-        stage = record.get("stage")
-        name = f"{record['kind']}-{record['document']}{'.' + stage if stage else ''}.json"
+        name = f"{record['kind']}-{record['document']}.json"
         path = directory / "checks" / record["check"] / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent="\t", ensure_ascii=False) + "\n", encoding="utf-8")
@@ -137,13 +131,11 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
     entries = registers.load_known_defects()
-    unseeded = _unseeded(outputs)
-    stages = (registers.LANE,) if unseeded else (registers.LANE, registers.ANDROID)
     records, problems = reader.cached_evidence(cached, store)
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        problems += registers.verify_evidence(directories, entries, unsampled=unsampled, stages=stages)
-    held = [entry for entry in entries if entry.stage in stages]
+        problems += registers.verify_evidence(directories, entries, unsampled=unsampled)
+    held = entries
     on_control_alone = sum(entry.document in unsampled for entry in held)
     notes = (
         [
@@ -154,33 +146,12 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         if unsampled
         else []
     )
-    if unseeded:
-        notes.append(
-            f"This run's shards ran with HQ's determinism off, so they kept no document's records under a key and"
-            f" the Android stage had none to read (proof.store.queue.android_groups); the register's"
-            f" {len(entries) - len(held)} Android entries are held by the seeded runs."
-        )
     sections["register"] = _section(
         problems, notes, cached=len(cached), unsampled=len(unsampled), heldOnControlAlone=on_control_alone
     )
 
     sections["surface"] = _surface(queues, verdict, store, committed)
     return {"holds": all(section["holds"] for section in sections.values()), "sections": sections}
-
-
-def _unseeded(outputs) -> bool:
-    """Whether the shards ran with HQ's determinism off, as each shard's output records its environment
-    (``serve.json``'s ``selection``): every one of them, or the run is read as seeded."""
-    found = []
-    for output in outputs:
-        serve = Path(output) / "serve.json"
-        if not serve.is_file():
-            continue
-        record = json.loads(serve.read_text(encoding="utf-8"))
-        if "android" in record:
-            continue
-        found.append(((record.get("selection") or {}).get("environment") or {}).get("PROOF_HQ_DETERMINISM"))
-    return bool(found) and all(value == "0" for value in found)
 
 
 TITLES = {
@@ -206,7 +177,6 @@ def _queues(arguments, outputs) -> list:
         for phase, path in (
             ("early", arguments.early_queue),
             ("main", arguments.queue),
-            ("android", arguments.android_queue),
         )
         if path is not None
     ]
@@ -228,7 +198,6 @@ def main(argv=None) -> int:
     parser.add_argument("outputs", nargs="+", type=Path, help="every shard's output directory")
     parser.add_argument("--early-queue", type=Path, help="the early queue the shards ran")
     parser.add_argument("--queue", type=Path, help="the main queue the shards ran")
-    parser.add_argument("--android-queue", type=Path, help="the Android queue the Android stage ran")
     parser.add_argument("--store", type=Path, help="the evidence store, for the groups the queues cache")
     parser.add_argument("--surface", type=Path, default=COMMITTED_SURFACE, help="the committed surface to compare")
     parser.add_argument("--summary", type=Path, help="where to write the verdict as JSON")

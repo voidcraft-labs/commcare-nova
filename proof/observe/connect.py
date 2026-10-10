@@ -24,15 +24,11 @@ it serves (``proof.observe.served``), each link its owner's code at the pins:
   token it asked Connect for.
 - **Formplayer's submissions** are the ones its walk of the state makes
   (``proof.formplayer.walk``), each received by HQ's receiver view as
-  before; **Core's** are the ones its sessions made on the state's build
-  (``proof.observe.sessions``), each posted to HQ's receiver view as a
-  device posts one: to the address the build's profile names
-  (``proof.connect.hq.post_path``), with the worker's own credentials. Nova's
-  local archive names no address, so its submissions go to the project
-  space's receiver with no app named (``core``), and once more where HQ's
-  own build's profile sends a device, which names the app (``core@app``):
-  that is how the lane shows what Connect would make of them if they named
-  their app.
+  before; **a device's** are the ones CommCare Android sent as its walks of
+  the state saved each form (``proof.android.hq``): the app's own send, to
+  the address the archive's profile names, with the worker's own
+  credentials, and the location the form's own poll of the device's sensor
+  wrote (``PollSensorAction``) in its meta, where the form holds one.
 - **Each run is one worker's**: it meets HQ as the unit's fork leaves it and
   Connect as the opportunity stood (``Forwarder.begin`` goes back to
   ``ready``), so no run reads what another's submission left in either.
@@ -42,19 +38,17 @@ it serves (``proof.observe.served``), each link its owner's code at the pins:
   Connect's answer, each task Connect ran, and the rows Connect then holds.
 
 What stands in for a person or a machine the lane does not have, each named
-where it is done: the opportunity's rows (``proof/connect/driver.py``), and a
-device's location fix, which only CommCare Android writes
-(``PollSensorAction``): a device's submission has ``FIX`` written into its
-meta's location node where the form holds one
-(``proof.connect.hq.with_fix``), so HQ's build's carries a location and the
-local archive's, which holds no node, carries none. Formplayer's submissions
-are as Formplayer made them (no browser gave it a location).
+where it is done: the opportunity's rows (``proof/connect/driver.py``).
+Formplayer's submissions are as Formplayer made them (no browser gave it a
+location); a device's location is the fix its GPS gave the app
+(``proof/android/src/.../Sensors.java``), which the app's own sensor poll
+wrote.
 
 A state's record is one blob: ``{"runs": {<reader>: [<run>...]}}``, each run
-named by what it ran (a walk's run by its script's digest, a device's by its
-place in Core's trace), so two states' runs pair by name. Every id
-Formplayer or Core drew is marked (``proof.formplayer.canonical``), and the
-app's and the build's ids are written ``@app`` and ``@build``, so the same
+named by what it ran (a Formplayer walk's run by its place in the walk's
+trace, a device's by its walk), so two states' runs pair by name. Every id
+Formplayer or a device drew is marked (``proof.formplayer.canonical``), and
+the app's and the build's ids are written ``@app`` and ``@build``, so the same
 inputs give the same bytes.
 """
 
@@ -70,8 +64,6 @@ CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 # The address Connect knows its HQ server by. Nothing is reached there: each request Connect makes of it is
 # answered by HQ's own view over the unit's state (``Opportunity.answer``).
 HQ_URL = "https://www.commcarehq.org"
-# The fix a device writes (latitude, longitude, altitude, accuracy), for each submission Core made.
-FIX = "12.97160 77.59460 920.0 5.0"
 # What an opportunity's manager sets its learn app to pass at; the Core runner answers a score above it.
 PASSING_SCORE = 5
 RECEIVER = "/api/receiver/"
@@ -185,46 +177,46 @@ def opportunity_record(opportunity) -> dict:
 
 
 class Forwarder:
-    """One served state forwarding to the opportunity: each run's forwards, and Core's submissions posted."""
+    """One served state forwarding to the opportunity: each run's forwards."""
 
     def __init__(self, served, opportunity):
         self.served, self.opportunity = served, opportunity
         self.views = _views(served)
         self.runs: dict = {}
         self._reader = None
-        self._received = []
-        self._exchanges = 0
-        self._name = None
+        self._run = None
+        # Every restore a device's HQ views answered, whose ids are HQ's and the app's (``take``).
+        self.restores = []
 
-    # A run of the served state (``proof.formplayer.hq.Served.run``) -------------------------------------------
+    # A run of the served state (``proof.formplayer.hq.Served.run``, or a device's walk) -------------------------
 
-    def begin(self, label: bytes):
+    def begin(self, label: bytes, *, reader=None, views=None, name=None):
+        """A run begins: what HQ's views (``views``, Formplayer's where none is named) received in it is the
+        run's, kept as ``reader``'s (the block's ``reading``, where none is named) under ``name``."""
         self.views.begin(b"connect|" + label, None)
         self.opportunity.views = self.views
         self.opportunity.put_back()
-        self._received = []
-        self._exchanges = len(self.served.hq.exchanges)
+        watched = views or self.served.hq
+        self._run = (reader or self._reader, watched, len(watched.exchanges), name)
 
     def end(self, label: bytes):
         from proof.connect import hq as connect_hq
         from proof.formplayer.hq import RECEIVERS
 
+        reader, watched, seen, name = self._run
+        self._run = None
         collected = self.opportunity.session.step("collect")
         if collected["exchanges"] or collected["tasks"]:
             self.opportunity.moved = True
         forwards = connect_hq.forwards(self.served.unit)
         self.opportunity.views = None
-        # What HQ's receiver answered Formplayer in this run, where the run was a walk's.
-        received = self._received + [
-            {"status": asked.status}
-            for asked in self.served.hq.exchanges[self._exchanges :]
-            if asked.url_name in RECEIVERS
-        ]
+        # What HQ's receiver answered in this run.
+        received = [{"status": asked.status} for asked in watched.exchanges[seen:] if asked.url_name in RECEIVERS]
         posts = [exchange for exchange in collected["exchanges"] if exchange["path"] == RECEIVER]
-        if self._reader is None or not (posts or forwards or received):
+        if reader is None or not (posts or forwards or received):
             return
-        name = self._name or hashlib.sha256(label).hexdigest()[:16]
-        self.runs.setdefault(self._reader, []).append(
+        name = name or hashlib.sha256(label).hexdigest()[:16]
+        self.runs.setdefault(reader, []).append(
             {
                 "run": name,
                 "received": received,
@@ -272,35 +264,6 @@ class Forwarder:
         finally:
             self._reader = held
 
-    # Core's submissions -----------------------------------------------------------------------------------------
-
-    def devices(self, trace, *, path: str, reader: str = "core", fix: str | None = FIX):
-        """Each submission of Core's ``trace`` posted to HQ's receiver at ``path`` as a device posts one, a run
-        of the served state each; with ``fix`` written where the form holds a location node."""
-        from proof.connect import hq as connect_hq
-        from proof.formplayer.hq import PASSWORD
-        from proof.observe.runs import submission_of
-        from proof.observe.sessions import unmarked_submission
-
-        with self.reading(reader):
-            for index, run in enumerate((trace or {}).get("runs") or []):
-                if submission_of(run) is None:
-                    continue
-                submission, _ = unmarked_submission(run)
-                if fix is not None:
-                    submission = connect_hq.with_fix(submission, fix)
-                self._name = f"core-{index}"
-                try:
-                    with self.served.run(f"{reader}-{index}"):
-                        request = connect_hq.device_request(path, self.served.username, PASSWORD, submission)
-                        answer = self.views(request)
-                        received = {"status": answer.status}
-                        if answer.status >= 400:
-                            received["said"] = answer.body[:300].decode("utf-8", "replace")
-                        self._received.append(received)
-                finally:
-                    self._name = None
-
     # The record -----------------------------------------------------------------------------------------------
 
     def take(self, blobs, *, archives=()):
@@ -316,7 +279,7 @@ class Forwarder:
         drawn = {served.app_id: APP, served.build_id: BUILD, self.opportunity.session.url: CONNECT}
         if served.usercase_id:
             drawn[served.usercase_id] = USERCASE
-        given = canonical.given_ids(served.hq.restores, [served.archive(), *archives])
+        given = canonical.given_ids([*served.hq.restores, *self.restores], [served.archive(), *archives])
         value, _ = canonical.mark(canonical.replace_text({"runs": runs}, drawn), given)
         return blobs.put_json(value)
 

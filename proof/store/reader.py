@@ -51,8 +51,7 @@ def cached_evidence(groups: Sequence, store: Path) -> list[dict]:
         problem = _outcome_problem(snapshot, cached.group, cached.judgments.get(OUTCOME))
         if problem is not None:
             problems.append(problem)
-        # A document's Android group holds its judges' evidence on that document (``android:corpus:<id>``).
-        kind, _, document = (lane_blocks.android_document(cached.group) or cached.group).partition(":")
+        kind, _, document = cached.group.partition(":")
         for check, key in sorted(cached.judgments.items()):
             if check == OUTCOME:
                 continue

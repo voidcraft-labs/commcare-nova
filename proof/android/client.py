@@ -13,10 +13,16 @@ otherwise fetch from the network. ``PROOF_ANDROID_RUNTIME`` names the runtime's 
 classes (``proof/android/src``) are compiled against that classpath when the reader starts, once, so a runtime
 is a function of the pins alone and a change to the reader needs no new one.
 
-A request is a JSON object (``Reader.java`` names them); its answer is what Android read. What Android itself
-gives for an input is part of an answer (an install status, a screen's own alert). A request the reader could not
-answer (an exception in the reader, a JVM that fails, a deadline) raises ``AndroidReaderError``, so no record
-holds it.
+A request is a JSON object (``Reader.java`` names them); its answer is what Android read. A request given a
+``peer`` is a device with a network: the app's own HTTP client goes through a loopback proxy this process
+answers (``proof.android.peer``, ``Peer.java``), every request it makes is answered by ``peer.http`` (in the
+lane, HQ's own views over the state the device is served, ``proof.android.hq``), and the device's messages of
+where its sessions begin go to ``peer.control``; all of them on the thread that made the request, while the
+JVM runs, so HQ answers each on the thread that holds its unit. A request given no peer is a device with no
+server: the project's test application answers its network with its own mocks, as in the project's own tests.
+What Android itself gives for an input is part of an answer (an install status, a screen's own alert). A
+request the reader could not answer (an exception in the reader, a JVM that fails, a deadline) raises
+``AndroidReaderError``, so no record holds it.
 
 Standard library only. The JVM runs through ``proof.processes`` where that runs (Linux, the lane), which stops
 and reaps everything the JVM started; on macOS, where a person runs the reader by hand, the JVM is a process
@@ -37,7 +43,12 @@ import threading
 import time
 from pathlib import Path
 
+from proof.android import peer as network
+
 RUNTIME_ENVIRONMENT = "PROOF_ANDROID_RUNTIME"
+# The JDK the runtime was built with (toolchain.json), where the reader runs beside the lane's image, whose own
+# JDK is another build.
+JDK_ENVIRONMENT = "PROOF_ANDROID_JDK"
 DEFAULT_RUNTIME = Path("/opt/android-reader")
 MAIN_CLASS = "nova.proof.android.Runner"
 SOURCE_DIR = Path(__file__).resolve().parent / "src"
@@ -150,6 +161,8 @@ class AndroidReader:
         self._lock = threading.Lock()
         # What each request took, in seconds, for the lane's budget.
         self.seconds: list[float] = []
+        # The authority the devices given a network trust (proof.android.peer), made once a reader.
+        self._network_authority = None
 
     def __enter__(self) -> AndroidReader:
         self.start()
@@ -191,7 +204,7 @@ class AndroidReader:
         classes.mkdir(parents=True)
         log_path = classes.parent / "javac.log"
         command = [
-            "javac", "-J-XX:+UseSerialGC", "-J-XX:TieredStopAtLevel=1", "-encoding", "UTF-8", "-nowarn",
+            _java("javac"), "-J-XX:+UseSerialGC", "-J-XX:TieredStopAtLevel=1", "-encoding", "UTF-8", "-nowarn",
             "-proc:none", "-d", str(classes), "-cp", os.pathsep.join([*android, *self._classpath()]), *sources,
         ]  # fmt: skip
         started = time.perf_counter()
@@ -238,14 +251,21 @@ class AndroidReader:
             shutil.rmtree(self._work, ignore_errors=True)
             self._work = None
 
-    def _command(self, request: Path, answer: Path, temporary: Path) -> tuple[list[str], str]:
+    def _command(self, request: Path, answer: Path, temporary: Path, proxy=None) -> tuple[list[str], str]:
         runtime = self._runtime_json()
+        network_properties = []
+        if proxy is not None:
+            network_properties = [
+                f"-Dnova.proof.android.peer={proxy.address}",
+                f"-Dnova.proof.android.peerAuthority={proxy.authority.certificate}",
+            ]
         command = [
-            "java",
+            _java("java"),
             *JVM_OPTIONS,
             f"-Drobolectric.dependency.dir={self._runtime / runtime['robolectric']}",
             f"-Dnova.proof.android.captures={CAPTURES_DIR}",
             f"-Djava.io.tmpdir={temporary}",
+            *network_properties,
             "-cp",
             os.pathsep.join([str(self._classes), *self._classpath()]),
             MAIN_CLASS,
@@ -254,8 +274,15 @@ class AndroidReader:
         ]
         return command, runtime["workdir"]
 
-    def request(self, op: str, *, deadline: float = REQUEST_SECONDS, **arguments) -> dict:
-        """One request's answer: what Android read, on a device of its own."""
+    def _authority(self) -> network.Authority:
+        with self._lock:
+            if self._network_authority is None:
+                self._network_authority = network.Authority(self._work / "authority")
+            return self._network_authority
+
+    def request(self, op: str, *, deadline: float = REQUEST_SECONDS, peer=None, **arguments) -> dict:
+        """One request's answer: what Android read, on a device of its own, with ``peer`` its network where one
+        is given (the module's docstring)."""
         if self._work is None:
             raise AndroidReaderError("The Android reader is not started; use it as a context manager.")
         with self._lock:
@@ -265,14 +292,20 @@ class AndroidReader:
         temporary.mkdir(parents=True)
         request_path, answer_path, log_path = scratch / "request.json", scratch / "answer.json", scratch / "jvm.log"
         request_path.write_text(json.dumps({"op": op, **arguments}), encoding="utf-8")
-        command, workdir = self._command(request_path, answer_path, temporary)
+        proxy = network.Proxy(peer, self._authority()) if peer is not None else None
+        command, workdir = self._command(request_path, answer_path, temporary, proxy)
         started = time.perf_counter()
         try:
             with open(log_path, "wb") as log:
                 try:
-                    status = _run(command, timeout=deadline, cwd=workdir, log=log)
+                    if proxy is None:
+                        status = _run(command, timeout=deadline, cwd=workdir, log=log)
+                    else:
+                        status = proxy.serve(command, timeout=deadline, cwd=workdir, log=log)
                 except OSError as error:
                     raise AndroidReaderError(f"The Android reader could not start java: {error}.") from error
+                except network.PeerFailed as error:
+                    raise PeerFailed(str(error), log=_tail(log_path)) from error
                 except Exception as error:  # the deadline, as either runner raises it
                     raise AndroidReaderError(
                         f"The Android reader did not answer the {op} request within {deadline} s and was stopped.",
@@ -299,7 +332,21 @@ class AndroidReader:
                 )
             return answer["ok"]
         finally:
+            if proxy is not None:
+                proxy.close()
             shutil.rmtree(scratch, ignore_errors=True)
+
+
+class PeerFailed(AndroidReaderError):
+    """What answered the device's network raised, which ends the request: the harness's refusal, never HQ's
+    answer (HQ's own views answer what they refuse)."""
+
+
+def _java(tool: str) -> str:
+    """The JDK tool the reader runs: the toolchain's JDK where ``PROOF_ANDROID_JDK`` names it (the one the
+    runtime was built with, ``toolchain.json``), else the one on the path."""
+    home = os.environ.get(JDK_ENVIRONMENT)
+    return str(Path(home) / "bin" / tool) if home else tool
 
 
 def _tail(path: Path) -> str:

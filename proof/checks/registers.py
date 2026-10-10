@@ -26,10 +26,10 @@ a symptom class::
   targeted one, pins the exact values; such an entry matches only there, and
   owns what it matches, so a class's unpinned entry holds none of it
   (``reconcile``).
-- An entry whose artifact is ``android@...`` is the Android stage's (``stage``): a difference in what
-  CommCare Android's own code read of two archives (``proof.checks.android``), which that stage's judge of
-  the entry's check reports and holds, on the entry's document and on its control. Every other entry is the
-  shards'. What a defect does on a device is such an entry, never a citation of Android's source.
+- An entry whose artifact is ``android@...`` is a difference in what CommCare Android's own code made of two
+  states a shard handed a device (``proof.checks.android``), reported and held by the entry's check like
+  every other entry's. What a defect does on a device is such an entry, never a citation of Android's
+  source.
 - An entry is a symptom, never an equivalence: two spellings every reader of which reads alike are a spelling
   rule, proven by tests that run each of those readers on both (``proof.rules``, CommCare Android among them,
   ``proof/android/predicates.py``), and the register holds no entry for them.
@@ -130,12 +130,6 @@ class Entry:
     kind: str | None = None
     values: dict | None = None
 
-    @property
-    def stage(self) -> str:
-        """Which stage of the lane shows the entry's class: ``android`` for an artifact the Android stage's
-        judges report (``android@...``, ``proof.checks.android``), else ``lane``, the shards' own checks."""
-        return stage_of(self.artifact)
-
     def matches(self, difference) -> bool:
         if difference.check != self.check or difference.path != self.path:
             return False
@@ -150,21 +144,6 @@ class Entry:
                 and difference.after == self.values["after"]
             )
         return True
-
-
-# The two stages a check's differences on one document come from: the shards' own check (``lane``), and the
-# Android stage's judge of the same check over what CommCare Android read (``android``). Each writes its
-# evidence apart and holds it to the entries of its own stage, and the gate holds both together.
-LANE, ANDROID = "lane", "android"
-ANDROID_ARTIFACT = "android@"
-
-
-def stage_of(artifact: str) -> str:
-    return ANDROID if artifact.startswith(ANDROID_ARTIFACT) else LANE
-
-
-def of_stage(entries, stage: str):
-    return tuple(entry for entry in entries if entry.stage == stage)
 
 
 def _kind(entry):
@@ -383,25 +362,19 @@ def accepted_moves(differences, moves):
 
 
 def _evidence(directories):
-    """Each check's differences on each document (``proof.checks.cases.evidence``), by (check, kind, id): the
-    shards' own and the Android stage's together (an evidence record's ``stage``), with which stages wrote
-    (``stages``, by the same key)."""
-    records, stages, problems = {}, {}, []
+    """Each check's differences on each document (``proof.checks.cases.evidence``), by (check, kind, id)."""
+    records, problems = {}, []
     for directory in directories:
         for path in sorted(Path(directory, "checks").glob("*/*.json")):
             record = json.loads(path.read_text(encoding="utf-8"))
             key = (record["check"], record["kind"], record["document"])
-            stage = record.get("stage", LANE)
-            if stage in stages.setdefault(key, set()):
-                problems.append(
-                    f"Two runs wrote the {stage} evidence of {record['check']} on {record['document']} ({path})."
-                )
-            stages[key].add(stage)
+            if key in records:
+                problems.append(f"Two runs wrote the evidence of {record['check']} on {record['document']} ({path}).")
             records.setdefault(key, []).extend(Difference(**difference) for difference in record["differences"])
-    return records, stages, problems
+    return records, problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset(), stages=(LANE, ANDROID)):
+def verify_evidence(directories, entries, *, unsampled=frozenset()):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -410,38 +383,27 @@ def verify_evidence(directories, entries, *, unsampled=frozenset(), stages=(LANE
     (``reconcile``), and every entry was seen on its document and on its
     control, which fails when the check never ran on either. ``unsampled``
     names the corpus documents a run over a sample left out: an entry naming
-    one is held on its control alone, and none ran on its document. ``stages`` names the stages whose entries
-    the run holds (an unseeded lane runs no Android stage, ``proof.lane.gate``).
+    one is held on its control alone, and none ran on its document.
     """
-    held_stages = frozenset(stages)
-    entries = [entry for entry in entries if entry.stage in held_stages]
-    records, stages, problems = _evidence(directories)
+    records, problems = _evidence(directories)
     if not records:
         return ["No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run."]
     for (check, kind, document), differences in sorted(records.items()):
         if kind == "corpus":
-            # Each stage's evidence is held to its own entries; a stage that wrote none for the document holds
-            # none of them here, and each of its entries is then reported below as not run.
-            wrote = stages[(check, kind, document)]
-            result = reconcile(check, document, differences, [entry for entry in entries if entry.stage in wrote])
+            result = reconcile(check, document, differences, entries)
             if not result.holds:
                 problems.append(result.explain())
     for entry in entries:
-        ran = "no shard" if entry.stage == LANE else "the Android stage never"
-        shown = entry.stage in stages.get((entry.check, "corpus", entry.document), ())
+        shown = (entry.check, "corpus", entry.document) in records
         if not shown and entry.document not in unsampled:
             problems.append(
-                f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, and {ran} ran"
+                f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, and no shard ran"
                 f" {entry.check} on {entry.document}, so nothing shows the defect is still there."
             )
-        on_control = (
-            records.get((entry.check, "control", entry.control))
-            if entry.stage in stages.get((entry.check, "control", entry.control), ())
-            else None
-        )
+        on_control = records.get((entry.check, "control", entry.control))
         if on_control is None:
             problems.append(
-                f"The known-defect entry {entry.id} retains its control {entry.control}, and {ran} ran"
+                f"The known-defect entry {entry.id} retains its control {entry.control}, and no shard ran"
                 f" {entry.check} on it, so nothing shows the check still sees the symptom there."
             )
         elif not any(entry.matches(replace(d, document=entry.document)) for d in on_control):

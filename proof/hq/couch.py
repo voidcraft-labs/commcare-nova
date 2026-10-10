@@ -367,6 +367,13 @@ def _map_program_by_code(doc):
         yield [_js_key(doc, "domain"), _js_key(doc, "code")], None
 
 
+def _map_mobile_auth_key_records(doc):
+    # corehq/apps/mobile_auth/_design/views/key_records/map.js (no reduce): the key records a device's sign-in
+    # asks HQ's key server view for (MobileAuthKeyRecord.key_for_time).
+    if doc.get("doc_type") == "MobileAuthKeyRecord":
+        yield [_js_key(doc, "domain"), _js_key(doc, "user_id"), _js_key(doc, "valid")], None
+
+
 def _map_hqmedia_by_hash(doc):
     # corehq/apps/hqmedia/_design/views/by_hash/map.js (no reduce);
     # hqmedia/models.py::CommCareMultimedia.get_by_hash queries it by key.
@@ -494,6 +501,7 @@ VIEWS = {
     "groups/by_name": (_map_groups_by_name, None),
     "groups/by_user": (_map_groups_by_user, None),
     "program_by_code/view": (_map_program_by_code, None),
+    "mobile_auth/key_records": (_map_mobile_auth_key_records, None),
     "schemas_by_xmlns_or_case_type/view": (_map_schemas_by_xmlns_or_case_type, "_count"),
     "hqmedia/by_hash": (_map_hqmedia_by_hash, None),
     "by_domain_doc_type_date/view": (_map_by_domain_doc_type_date, "_count"),

@@ -225,6 +225,14 @@ final class Forms {
         saved.put("cases", Cases.read());
         home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
         ShadowLooper.idleMainLooper();
+        if (Device.served()) {
+            // Home sends a form it was handed complete (HomeScreenBaseActivity.processReturnFromFormEntry starts
+            // its FormAndDataSyncer's ProcessAndSendTask), posting it where the profile says (the PostURL,
+            // FormSubmissionHelper) with the worker's credentials. What the device holds of each record once the
+            // send has ended: a record HQ took is no longer unsent.
+            Device.settle();
+            saved.put("afterSend", records());
+        }
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
 

@@ -77,10 +77,20 @@ final class Screens {
         // `profile` request's answer, so one device answers for both.
         found.put("areMMResourcesValidatedAfterInstall",
                 CommCareApplication.instance().getCurrentApp().areMMResourcesValidated());
-        Device.login();
-        found.put("profile", Profile.read());
-        if (request.has("restore")) {
-            found.put("restore", Device.restore(request.getString("restore")));
+        if (request.has("worker")) {
+            Device.serve(request.getJSONObject("worker"));
+        }
+        Sensors.place(request);
+        if (Device.served()) {
+            // The worker signs in as on their phone, which asks HQ for their key record and their data.
+            found.put("signIn", Device.signIn());
+            found.put("profile", Profile.read());
+        } else {
+            Device.login();
+            found.put("profile", Profile.read());
+            if (request.has("restore")) {
+                found.put("restore", Device.restore(request.getString("restore")));
+            }
         }
         Device.prefer(request.optJSONObject("preferences"));
         found.put("home", Home.read());
@@ -96,7 +106,7 @@ final class Screens {
             // (ActivityLaunchUtils.addCommandToSession), for a request that asks about one form.
             for (int i = 0; i < commands.length(); i++) {
                 String command = commands.getString(i);
-                walks.put(command, guarded(command, new ArrayList<>(), null, Forms::read));
+                walks.put(command, guarded(command, command, new ArrayList<>(), null, Forms::read));
             }
         } else {
             Deque<List<String>> pending = new ArrayDeque<>();
@@ -105,7 +115,7 @@ final class Screens {
             // goes down one level a choice.
             while (!pending.isEmpty()) {
                 List<String> choices = pending.removeFirst();
-                walks.put(name(choices), guarded(null, choices, pending, Forms::read));
+                walks.put(name(choices), guarded(name(choices), null, choices, pending, Forms::read));
             }
         }
         found.put("walks", walks);
@@ -134,12 +144,17 @@ final class Screens {
         boolean at(Intent started, JSONObject step, ShadowActivity home) throws Exception;
     }
 
-    private static JSONObject guarded(String command, List<String> choices, Deque<List<String>> pending,
-                                      FormStep form) throws Exception {
+    private static JSONObject guarded(String name, String command, List<String> choices,
+                                      Deque<List<String>> pending, FormStep form) throws Exception {
         Device.settle();
         if (Device.dirty) {
+            // The device made again, signed in again where HQ stands before any walk.
+            Peer.base(name);
             Device.reset();
         }
+        // HQ meets each walk as the served state stood once the worker signed in: a walk is one worker's session,
+        // and nothing an earlier walk sent HQ is there for it.
+        Peer.run(name);
         Sensors.forget();
         try {
             return walk(command, choices, pending, form);
@@ -171,8 +186,11 @@ final class Screens {
         wrapper.reset();
         StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
-        // Nothing is sent and no sync is run, as the project's own tests leave home (ActivityLaunchUtils).
-        home.setFormAndDataSyncer(new FormAndDataSyncerFake());
+        if (!Device.served()) {
+            // With no server, nothing is sent and no sync is run, as the project's own tests leave home
+            // (ActivityLaunchUtils). A device served by HQ keeps home's own, which sends each form it completes.
+            home.setFormAndDataSyncer(new FormAndDataSyncerFake());
+        }
         ShadowActivity shadow = Shadows.shadowOf(home);
         drain(shadow);
         if (command != null) {

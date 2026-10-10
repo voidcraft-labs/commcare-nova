@@ -45,10 +45,12 @@ final class Posts {
             }
             post.put("params", sent);
         }
-        ModernHttpRequesterMock.setResponseCodes(new Integer[]{200});
-        ModernHttpRequesterMock.setExpectedUrls(new String[0]);
-        ModernHttpRequesterMock.setRequestPayloads(new String[0]);
-        if (Device.restoreReference() != null) {
+        if (!Device.served()) {
+            ModernHttpRequesterMock.setResponseCodes(new Integer[]{200});
+            ModernHttpRequesterMock.setExpectedUrls(new String[0]);
+            ModernHttpRequesterMock.setRequestPayloads(new String[0]);
+        }
+        if (!Device.served() && Device.restoreReference() != null) {
             CommcareRequestEndpointsMock.setCaseFetchResponseCodes(new Integer[]{200});
             LocalReferencePullResponseFactory.setRequestPayloads(new String[]{Device.restoreReference()});
         }

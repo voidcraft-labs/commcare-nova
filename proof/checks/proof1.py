@@ -342,4 +342,7 @@ def document_identity(document, records):
                 tables_before,
                 tables_after,
             )
+    from proof.checks import android
+
+    found += android.identity(document.id, android.document_record(records))
     return found + local_identity_differences(document.id, observations.local_reports(records))

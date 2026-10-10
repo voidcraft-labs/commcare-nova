@@ -1339,4 +1339,7 @@ def document_editability(document, records):
         if state == EDIT:
             found += [over.named(d) for d in edit_refusals(document.id, records, name, record)]
         found += [over.named(d) for d in connect_beyond_a(document.id, records, name, record, moved=state == EDIT)]
+    from proof.checks import android
+
+    found += android.editability(document.id, android.document_record(records))
     return found + observations.soft_assertion_differences(records, CHECK), saves

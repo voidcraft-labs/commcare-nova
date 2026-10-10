@@ -544,6 +544,186 @@ async function laneFingerprints(image, id) {
 	return ["-e", `PROOF_FINGERPRINTS=${found.stdout.trim()}`];
 }
 
+/**
+ * The mounts and variables that hand the harness the Android reader's
+ * runtime (PROOF_ANDROID_RUNTIME, proof/android/README.md) and the JDK it was
+ * built with (PROOF_ANDROID_JDK), each read-only at the path it has on this
+ * machine: a runtime names its classpath by absolute paths, so it is read
+ * where it was built. None where neither is set; the harness then says where
+ * the reader cannot run when an observation asks for it.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function androidRuntime(env = process.env) {
+	const mounts = [];
+	const environment = [];
+	for (const name of ["PROOF_ANDROID_RUNTIME", "PROOF_ANDROID_JDK"]) {
+		const named = env[name];
+		if (!named) continue;
+		const directory = resolve(process.cwd(), named);
+		if (!existsSync(directory)) {
+			throw new Error(
+				`${name} names ${directory}, which does not exist. Name the directory proof/android/build-runtime.sh built (PROOF_ANDROID_RUNTIME) and the JDK it was built with (PROOF_ANDROID_JDK), or unset it.`,
+			);
+		}
+		mounts.push("-v", `${directory}:${directory}:ro`);
+		environment.push("-e", `${name}=${directory}`);
+	}
+	return { mounts, environment };
+}
+
+/** Bytes, from what `docker stats` prints of a container's memory (`1.25GiB / 15.6GiB`). */
+export function statsBytes(usage) {
+	const match = /^\s*([0-9.]+)\s*([kKMGT]?i?B)/.exec(usage ?? "");
+	if (!match) return null;
+	const scale = {
+		B: 1,
+		KiB: 1024,
+		MiB: 1024 ** 2,
+		GiB: 1024 ** 3,
+		TiB: 1024 ** 4,
+		kB: 1e3,
+		KB: 1e3,
+		MB: 1e6,
+		GB: 1e9,
+		TB: 1e12,
+	}[match[2]];
+	return scale === undefined ? null : Math.round(Number(match[1]) * scale);
+}
+
+function gib(bytes) {
+	return bytes == null ? "?" : `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+/**
+ * Watches the memory the lane's containers and this machine use while a run
+ * lasts, so a runner that dies says why: every thirty seconds each container
+ * of the compose project's memory (docker stats) and this machine's free
+ * memory (/proc/meminfo, where there is one) are sampled, a line is printed
+ * whenever a container's use passes its last printed peak by a tenth or five
+ * minutes have gone by, and the run's output gets memory.json with every
+ * container's peak (its cgroup's own memory.peak where this machine shows it,
+ * else the highest sample) and every sample. Returns the function that stops
+ * it and writes the file.
+ */
+function watchMemory(output, project) {
+	const peaks = new Map();
+	const printed = new Map();
+	const samples = [];
+	let lastLine = 0;
+	let hostLowest = null;
+	const started = Date.now();
+	const hostAvailable = async () => {
+		try {
+			const text = await readFile("/proc/meminfo", "utf8");
+			const field = (name) => {
+				const found = new RegExp(`^${name}:\\s+(\\d+) kB`, "m").exec(text);
+				return found ? Number(found[1]) * 1024 : null;
+			};
+			return { total: field("MemTotal"), available: field("MemAvailable") };
+		} catch {
+			return null;
+		}
+	};
+	const cgroupPeak = async (name) => {
+		const inspected = await capture("docker", [
+			"inspect",
+			"--format",
+			"{{.Id}}",
+			name,
+		]).catch(() => null);
+		const id = inspected?.stdout.trim();
+		if (!id) return null;
+		for (const path of [
+			`/sys/fs/cgroup/system.slice/docker-${id}.scope/memory.peak`,
+			`/sys/fs/cgroup/docker/${id}/memory.peak`,
+		]) {
+			try {
+				return Number((await readFile(path, "utf8")).trim());
+			} catch {
+				// Not this machine's layout.
+			}
+		}
+		return null;
+	};
+	const tick = async () => {
+		const stats = await capture("docker", [
+			"stats",
+			"--no-stream",
+			"--format",
+			"{{json .}}",
+		]).catch(() => null);
+		const containers = {};
+		for (const line of (stats?.stdout ?? "").split("\n")) {
+			if (!line.trim()) continue;
+			let row;
+			try {
+				row = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (!String(row.Name).startsWith(`${project}-`)) continue;
+			const bytes = statsBytes(String(row.MemUsage).split("/")[0]);
+			if (bytes == null) continue;
+			const name = String(row.Name).slice(project.length + 1);
+			containers[name] = bytes;
+			peaks.set(name, Math.max(peaks.get(name) ?? 0, bytes));
+		}
+		const host = await hostAvailable();
+		if (host?.available != null)
+			hostLowest = Math.min(hostLowest ?? host.available, host.available);
+		samples.push({
+			seconds: Math.round((Date.now() - started) / 1000),
+			containers,
+			host,
+		});
+		const rising = Object.entries(containers).some(
+			([name, bytes]) => bytes > (printed.get(name) ?? 0) * 1.1,
+		);
+		if (rising || Date.now() - lastLine >= 300_000) {
+			lastLine = Date.now();
+			for (const [name, bytes] of Object.entries(containers))
+				printed.set(name, Math.max(printed.get(name) ?? 0, bytes));
+			const parts = Object.entries(containers).map(
+				([name, bytes]) => `${name} ${gib(bytes)}`,
+			);
+			if (host?.available != null)
+				parts.push(`machine free ${gib(host.available)} of ${gib(host.total)}`);
+			console.error(
+				`Lane memory at ${samples.at(-1).seconds} s: ${parts.join(", ")}.`,
+			);
+		}
+	};
+	let running = tick();
+	const timer = setInterval(() => {
+		running = running.then(tick, tick);
+	}, 30_000);
+	return async () => {
+		clearInterval(timer);
+		await running.catch(() => {});
+		const found = {};
+		for (const [name, bytes] of peaks) {
+			found[name] = { sampled: bytes };
+		}
+		await Promise.all(
+			[...peaks.keys()].map(async (name) => {
+				const peak = await cgroupPeak(`${project}-${name}`);
+				if (peak != null) found[name].cgroup = peak;
+			}),
+		);
+		await writeFile(
+			join(output, "memory.json"),
+			`${JSON.stringify({ peaks: found, machineLowestFree: hostLowest, samples }, null, "\t")}\n`,
+		).catch(() => {});
+		const summary = Object.entries(found).map(
+			([name, peak]) => `${name} ${gib(peak.cgroup ?? peak.sampled)}`,
+		);
+		console.error(
+			`Lane memory peaks: ${summary.join(", ") || "none sampled"}${hostLowest != null ? `; the machine's free memory went as low as ${gib(hostLowest)}` : ""} (memory.json in the run's output).`,
+		);
+	};
+}
+
 /** `-e` flags for the variables the harness reads from this machine's environment. */
 function passedThrough(names = PASSED_THROUGH) {
 	return names.flatMap((name) =>
@@ -596,7 +776,7 @@ export async function surface({
  * and `environment` its own, and removes the lane (Postgres and its volume)
  * however the run ends.
  */
-async function runServer({ image, mounts, environment, serve }) {
+async function runServer({ image, mounts, environment, serve, output }) {
 	const project = `nova-proof-${randomBytes(4).toString("hex")}`;
 	const compose = ["compose", "-f", COMPOSE_FILE, "-p", project];
 	const env = { ...process.env, PROOF_IMAGE: image };
@@ -610,6 +790,7 @@ async function runServer({ image, mounts, environment, serve }) {
 	};
 	process.once("SIGINT", interrupted);
 	process.once("SIGTERM", interrupted);
+	const stopWatching = output ? watchMemory(output, project) : async () => {};
 	try {
 		return await execute(
 			"docker",
@@ -632,6 +813,7 @@ async function runServer({ image, mounts, environment, serve }) {
 	} finally {
 		process.off("SIGINT", interrupted);
 		process.off("SIGTERM", interrupted);
+		await stopWatching();
 		await down();
 	}
 }
@@ -646,6 +828,7 @@ export async function main(
 	const corpus = namedCorpus();
 	const extraction = namedExtraction();
 	const store = namedStore();
+	const android = androidRuntime();
 	const image = await harnessImage();
 	const id = await imageId(image);
 	const modules = await nodeModules(image, platform);
@@ -663,6 +846,7 @@ export async function main(
 			...(corpus ? ["-v", `${corpus}:/corpus:ro`] : []),
 			...extraction.mounts,
 			...store.mounts,
+			...android.mounts,
 		],
 		environment: [
 			...passedThrough(),
@@ -672,7 +856,9 @@ export async function main(
 			...(corpus ? ["-e", "PROOF_CORPUS=/corpus"] : []),
 			...extraction.environment,
 			...store.environment,
+			...android.environment,
 		],
+		output,
 		serve: [
 			"--workers",
 			String(lane.workers),
@@ -754,6 +940,7 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	}
 	const extraction = namedExtraction();
 	const store = namedStore();
+	const android = androidRuntime();
 	const timings = JSON.parse(await readFile(TIMINGS_FILE, "utf8"));
 	const workers =
 		options.workers ??
@@ -768,6 +955,7 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 		`${output}:/out`,
 		...extraction.mounts,
 		...store.mounts,
+		...android.mounts,
 	];
 	const environment = [
 		...passedThrough(),
@@ -777,6 +965,7 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 		...(await laneFingerprints(image, id)),
 		...extraction.environment,
 		...store.environment,
+		...android.environment,
 	];
 	const serve = ["--workers", String(workers)];
 	if (options.label) serve.push("--label", options.label);
@@ -802,7 +991,7 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	if (options.commandEnv.length > 0)
 		serve.push("--command-env", options.commandEnv.join(","));
 	console.error(`The proof shard writes its output into ${output}.`);
-	return runServer({ image, mounts, environment, serve });
+	return runServer({ image, mounts, environment, serve, output });
 }
 
 /**
@@ -841,38 +1030,6 @@ function mean(values) {
 }
 
 /**
- * Each group's seconds in one Android stage job's output: what its block
- * records (`blocks/<id>/block.json`, phase `android`) say each group took.
- */
-async function androidGroupSeconds(root, directory) {
-	const blocks = join(root, "blocks");
-	const found = [];
-	for (const id of existsSync(blocks) ? (await readdir(blocks)).sort() : []) {
-		const path = join(blocks, id, "block.json");
-		if (!existsSync(path)) continue;
-		const block = JSON.parse(await readFile(path, "utf8"));
-		if (block.phase !== "android") continue;
-		for (const group of block.groups ?? []) {
-			if (
-				typeof group.group !== "string" ||
-				typeof group.seconds !== "number"
-			) {
-				throw new Error(
-					`${join(directory, "blocks", id, "block.json")} records a group without its name and seconds (${JSON.stringify({ group: group.group, seconds: group.seconds })}). An Android stage job's block record names each group it ran and how long it took.`,
-				);
-			}
-			found.push([group.group, group.seconds]);
-		}
-	}
-	if (found.length === 0) {
-		throw new Error(
-			`${directory} is an Android stage job's output, but its blocks/ records no group it ran, so it measures none. Name the output of a finished Android stage job.`,
-		);
-	}
-	return found;
-}
-
-/**
  * proof/timings.json with each group's box-seconds measured by the runs whose
  * output directories are given: each worker's record (`timings/*.json`)
  * holds its groups' seconds and how many workers shared its box, and a
@@ -880,12 +1037,6 @@ async function androidGroupSeconds(root, directory) {
  * several runs measured it). The mean of what a worker's session shares and
  * of the servers' fixed costs (serve.json) are kept beside them, with the
  * execution settings as they were.
- *
- * An Android stage job's output (`python3 -m proof.android.stage run`, its
- * serve.json naming `android`) holds no worker records: the stage runs its
- * groups one at a time, each with every device of the box, so a group's
- * seconds in its block record (`blocks/<id>/block.json`) are its
- * box-seconds.
  */
 export async function refreshTimings(directories, previous) {
 	if (directories.length === 0) {
@@ -903,20 +1054,13 @@ export async function refreshTimings(directories, previous) {
 		const served = existsSync(serve)
 			? JSON.parse(await readFile(serve, "utf8"))
 			: {};
-		if (served.android) {
-			const stage = await androidGroupSeconds(root, directory);
-			for (const [group, seconds] of stage) {
-				measured.set(group, [...(measured.get(group) ?? []), seconds]);
-			}
-			continue;
-		}
 		const folder = join(root, "timings");
 		const files = existsSync(folder)
 			? (await readdir(folder)).filter((name) => name.endsWith(".json"))
 			: [];
 		if (files.length === 0) {
 			throw new Error(
-				`${directory} holds no timings/ from a lane run, so it measures no group. Name the output directory of a finished \`npm run proof\` run, CI shard or Android stage job.`,
+				`${directory} holds no timings/ from a lane run, so it measures no group. Name the output directory of a finished \`npm run proof\` run or CI shard.`,
 			);
 		}
 		for (const file of files) {

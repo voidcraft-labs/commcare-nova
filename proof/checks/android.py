@@ -1,24 +1,28 @@
-"""What CommCare Android made of a document's archives, judged: proofs 1, 3 and 4 over the Android stage's records.
+"""What CommCare Android made of a document's states, judged: proofs 1, 3 and 4 over the devices the unit read.
 
-The Android stage (``proof.android.stage``) has commcare-android's own code read every archive a device
-installs of a document, and hands the answers here as one document record (``proof.android.stage
-.document_record``)::
+Wherever the unit serves a state to Formplayer and the Web Apps client, it hands it to a worker's device too
+(``proof.android.observe``): commcare-android's own code installs the state's archive, the worker HQ made signs
+in on it, and every walk down the app's menus runs, its network answered by HQ's own views over the state. The
+part records keep each answer as a blob, and ``document_record`` gathers one document's::
 
     {"local": {"app", "installs", "update"},
-     "configurations": {<name>: {"A": {"app"}, "B": {"app"}, "B-edit": {"app"}, "installs", "update",
+     "configurations": {<name>: {"A": {"app"}, "B": {"app"}, "installs", "update",
+                                 "proof4": {"B": {"app"}, "B-edit": {"app"}},
                                  "saves": {"B": [{"label", "editor", "over", "app", "update"}], "B-edit": [...]}}}}
 
 each of ``app``, ``installs`` and ``update`` the reader's answer to that request (``proof/android/README.md``),
-absent where the document has no such archive. Nothing here runs the reader: every function reads the record.
+absent where the document has no such state. ``B`` is B aligned to A, served where its raw build differs from
+A's (proof 3's B); proof 4's states are B and B-edit as the unit served them. Nothing here runs the reader:
+every function reads the records.
 
-**Proof 3** (``behavior``): what a worker's device shows of Nova's local archive against HQ's build of A
-(``android@local.ccz``), and of HQ's build of B against A's (``android@B``), per configuration: the install, the
-profile as each of Android's readers gives it, the home screen, and every walk (``comparable_app``). And what
-stands on its own of HQ's build of A (``android@A``): each search screen that sent, for an answer holding both
-quote marks, the query HQ refuses (``/walks/*/steps/*/query/withAnswer/sent-unquotable-search``,
-``refused_searches``). And of every archive of proofs 3 and 4 on its own: each form the device did not save
-and yet left a mark of (``/walks/*/steps/*/form/saved/applied-though-refused``, ``applied_though_refused``),
-which Android's one transaction a form should never give.
+**Proof 3** (``behavior``): what a worker's device shows of Nova's local archive against HQ's release of A
+(``android@local.ccz``), and of HQ's release of B against A's (``android@B``), per configuration: the install,
+the sign-in, the profile as each of Android's readers gives it, the home screen, and every walk
+(``comparable_app``). And what stands on its own of HQ's release of A (``android@A``): each search screen that
+sent, for an answer holding both quote marks, the query HQ refuses (``/walks/*/steps/*/query/withAnswer
+/sent-unquotable-search``, ``refused_searches``). And of every state of proofs 3 and 4 on its own: each form
+the device did not save and yet left a mark of (``/walks/*/steps/*/form/saved/applied-though-refused``,
+``applied_though_refused``), which Android's one transaction a form should never give.
 
 **Proof 4** (``editability``): what a device shows of the app each editor save left against the state it was
 saved over (``android@<editor>@<state>@<configuration>``), and, where the save's profile is not the one it was
@@ -57,6 +61,7 @@ from __future__ import annotations
 import copy
 import json
 
+from proof.checks import served
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.differences import Difference, pointer_token
 
@@ -152,6 +157,8 @@ def comparable_app(answer: dict | None) -> dict | None:
     found = copy.deepcopy(answer)
     # What the install alone left of the media check is the profile reader's answer after it.
     found.pop("areMMResourcesValidatedAfterInstall", None)
+    if isinstance(found.get("signIn"), str):
+        found["signIn"] = signed_in(found["signIn"])
     profile = found.get("profile") or {}
     profile.pop("stored", None)
     for name in APP_LEFT_OUT:
@@ -170,6 +177,13 @@ def comparable_app(answer: dict | None) -> dict | None:
             _menu(step)
             _form(step)
     return found
+
+
+def signed_in(result: str) -> str:
+    """The app's own sign-in result (``LoginController``'s ``LoginResult``) as a worker meets it: ``Success``, or
+    the failure the app reports. A success's own fields name the install (the app's id) and the worker, which
+    every state shares."""
+    return "Success" if result.startswith("Success(") else result
 
 
 def _stopped_at(step: dict) -> str | None:
@@ -340,7 +354,7 @@ def refused_searches(answer: dict | None) -> list[tuple[str, str, dict]]:
                 continue
             sent = (probe.get("RemoteQuerySessionManager.getRawQueryParams") or {}).get("_xpath_query") or []
             if UNQUOTABLE in sent:
-                shown = (probe.get("afterServerAnswers400") or {}).get("errorText")
+                shown = (probe.get("afterServerAnswers") or probe.get("afterServerAnswers400") or {}).get("errorText")
                 at = f"/walks/{pointer_token(name)}/steps/{index}/query/withAnswer/sent-unquotable-search"
                 found.append(
                     ("/walks/*/steps/*/query/withAnswer/sent-unquotable-search", at, {"sent": sent, "shown": shown})
@@ -372,6 +386,19 @@ def _applied(check: str, document: str, artifact: str, answer: dict | None) -> l
     ]
 
 
+def signed_in_differences(document: str, a: dict | None, local: dict | None) -> list:
+    """Where a device on Nova's local archive signs in, against a device on HQ's release of A
+    (``/network/signIn``): the local archive names no server (finding 59), so its device asks Android's own
+    defaults, where HQ's build's asks the project space."""
+    if not a or not local or a.get("install") != INSTALLED or local.get("install") != INSTALLED:
+        return []
+    before, after = signed_in(str(a.get("signIn"))), signed_in(str(local.get("signIn")))
+    if before == after:
+        return []
+    path = "/network/signIn"
+    return [Difference("proof3", document, LOCAL, path, path, "changed", before, after)]
+
+
 def behavior(document: str, record: dict) -> list:
     found = []
     local = (record.get("local") or {}).get("app")
@@ -384,9 +411,15 @@ def behavior(document: str, record: dict) -> list:
         found += [
             Difference("proof3", document, A, path, at, "error", None, value) for path, at, value in refused_searches(a)
         ]
+        # Each request of the device's HQ's own views refused while A was served (a search a device built from
+        # a typed answer, compiled by HQ's own search view, among them), as Formplayer's are reported.
+        found += served.refusal_differences(
+            hq_refusals((held.get("A") or {}).get("hq")), check="proof3", document=document, artifact=A
+        )
         found += _applied("proof3", document, A, a)
         if local is not None:
             found += app_differences(a, local, check="proof3", document=document, artifact=LOCAL)
+        found += signed_in_differences(document, a, (record.get("local") or {}).get("asIs"))
         b = (held.get("B") or {}).get("app")
         if b is not None:
             found += _applied("proof3", document, REPUBLISH, b)
@@ -415,7 +448,7 @@ def editability(document: str, record: dict) -> list:
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
         for state in ("B", "B-edit"):
-            base = (held.get(state) or {}).get("app")
+            base = ((held.get("proof4") or {}).get(state) or {}).get("app")
             if base is None:
                 continue
             left = {None: base}
@@ -552,3 +585,119 @@ def identity(document: str, record: dict) -> list:
 
 
 JUDGES = {"proof1": identity, "proof3": behavior, "proof4": editability}
+
+
+# The records ---------------------------------------------------------------------------------------------------
+
+
+def _answer(held, blobs):
+    """A device's answer as a record keeps it (``proof.android.observe``), or None where it keeps none."""
+    if not isinstance(held, dict) or not held.get("answer"):
+        return None
+    return blobs.get_json(held["answer"])
+
+
+def _asked(held, blobs) -> list:
+    """Every request a device made of HQ with HQ's answer, as a record keeps them (``proof.android.hq``)."""
+    if not isinstance(held, dict) or not held.get("hq"):
+        return []
+    return blobs.get_json(held["hq"])
+
+
+def hq_refusals(asked) -> list:
+    """Each request of a device's HQ's views did not answer 2xx, as a served state's ``hq`` entries are written
+    (``proof.checks.served.refusal_differences``): the view, its status, what HQ said or raised."""
+    return [
+        {
+            "view": entry.get("url_name"),
+            "status": entry.get("status"),
+            "said": entry.get("said"),
+            "raised": entry.get("raised"),
+        }
+        for entry in asked or []
+        if not 200 <= int(entry.get("status") or 0) < 400
+    ]
+
+
+def _editor(view, section) -> str:
+    scope = view["scope"]
+    place = "" if scope[0] is None else f":m{scope[0]}" + ("" if scope[1] is None else f".f{scope[1]}")
+    return f"{section['section']}{place}"
+
+
+def _saves(proof4: dict, blobs) -> list:
+    """Each editor save of a proof 4 record a device read, as ``{label, editor, over, app, update}``: ``over``
+    the label of the save it was made over (None: the state the record is of). A save whose app was not served
+    (its build and what the client reads are the state's it was saved over) is not one a device reads apart."""
+    found = []
+
+    def entry(label, editor, over, saved):
+        served = saved.get("served") if isinstance(saved, dict) else None
+        if not isinstance(served, dict) or "refused" in served or not served.get("android"):
+            return False
+        found.append(
+            {
+                "label": label,
+                "editor": editor,
+                "over": over,
+                "app": _answer(served["android"], blobs),
+                "update": _answer(served.get("androidUpdate"), blobs),
+            }
+        )
+        return True
+
+    for view in proof4.get("views") or ():
+        for section in view.get("sections") or ():
+            entry(_editor(view, section), section["section"], None, section)
+    for form in proof4.get("vellum") or ():
+        m, f = form["scope"]
+        over = None
+        for editor, run in zip(("vellum", "vellum again"), form.get("runs") or (), strict=False):
+            label = f"{editor}:m{m}.f{f}"
+            if entry(label, editor, over, run):
+                over = label
+    return found
+
+
+def document_record(records) -> dict:
+    """One document's devices as the judges read them (the module's docstring), gathered from its part
+    records."""
+    blobs = records.blobs
+    found = {"local": {}, "configurations": {}}
+    for name in sorted(records.configurations):
+        parts = records.configurations[name]
+        held = {}
+        served_a = (((parts.a or {}).get("hooks") or {}).get("served") or {}).get("A") or {}
+        a = _answer(served_a.get("android"), blobs)
+        if a is not None:
+            held["A"] = {"app": a, "hq": _asked(served_a.get("android"), blobs)}
+        aligned = (parts.b_aligned or {}).get("served") or {}
+        b = _answer((aligned.get("B") or {}).get("android"), blobs)
+        if b is not None:
+            held["B"] = {"app": b}
+        # The local archive's device given the input the lane gives Core over it is the one its walks are
+        # compared from; the one that meets Android's own defaults is judged for where it signs in.
+        served_local = aligned.get("local") or {}
+        local = _answer(served_local.get("androidDelivered"), blobs)
+        if local is not None and "app" not in found["local"]:
+            found["local"]["app"] = local
+        own = _answer(served_local.get("android"), blobs)
+        if own is not None and "asIs" not in found["local"]:
+            found["local"]["asIs"] = own
+        devices = aligned.get("devices") or {}
+        for role, target in (("local", found["local"]), ("republish", held)):
+            pair = devices.get(role) or {}
+            for kind in ("installs", "update"):
+                answer = _answer(pair.get(kind), blobs)
+                if answer is not None and kind not in target:
+                    target[kind] = answer
+        for part, state in (("b", "B"), ("b_edit", "B-edit")):
+            record = parts.part(part) or {}
+            proof4 = record.get("proof4") or {}
+            base = _answer((proof4.get("served") or {}).get("android"), blobs)
+            if base is None:
+                continue
+            held.setdefault("proof4", {})[state] = {"app": base}
+            held.setdefault("saves", {})[state] = _saves(proof4, blobs)
+        found["configurations"][name] = held
+    return found

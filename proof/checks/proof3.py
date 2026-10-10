@@ -1095,4 +1095,7 @@ def document_behavior(document, records):
             has_local=document.local_ccz is not None,
             local_ccz=document.local_ccz,
         )
+    from proof.checks import android
+
+    found += android.behavior(document.id, android.document_record(records))
     return found + observations.soft_assertion_differences(records, CHECK)
