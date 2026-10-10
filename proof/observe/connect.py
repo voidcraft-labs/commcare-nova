@@ -210,8 +210,12 @@ class Forwarder:
             self.opportunity.moved = True
         forwards = connect_hq.forwards(self.served.unit)
         self.opportunity.views = None
-        # What HQ's receiver answered in this run.
-        received = [{"status": asked.status} for asked in watched.exchanges[seen:] if asked.url_name in RECEIVERS]
+        # What HQ's receiver answered of the forms of this run (a device's log report beside them is no form).
+        received = [
+            {"status": asked.status}
+            for asked in watched.exchanges[seen:]
+            if asked.url_name in RECEIVERS and not asked.report
+        ]
         posts = [exchange for exchange in collected["exchanges"] if exchange["path"] == RECEIVER]
         if reader is None or not (posts or forwards or received):
             return

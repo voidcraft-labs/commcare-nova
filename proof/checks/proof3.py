@@ -1028,15 +1028,15 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             else None,
         )
         if opportunity is not None and local.get("connect"):
-            # The archive's submissions as it arranges them (no app named) and under the app's id, each against
-            # A's from Core.
+            # Formplayer's submissions and a device's (the local archive's device given the lane's input, whose
+            # forms HQ takes under the app's id), each against A's from the same reader.
             found += connect.differences(
                 connect_a,
                 blobs.get_json(local["connect"]),
                 check=CHECK,
                 document=document,
                 artifact="connect@local.ccz",
-                readers={"formplayer": "formplayer", "core": "core", "core@app": "core"},
+                readers={"formplayer": "formplayer", "android": "android"},
             )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:

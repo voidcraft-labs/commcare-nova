@@ -1519,8 +1519,11 @@ because it names an install and not what a worker reads, or says again what
 a reader beside it says: the app's id and version (proof 1's), the
 profile's stored values (each reader's answer is compared, so a stored
 value no reader reads differently is no difference on a device that
-installs either), the media check's flags beside its reader, and what a
-successful sign-in names (the app's id and the worker). A drawn picture is
+installs either), the media check's flags beside its reader, what a
+successful sign-in names (the app's id and the worker), and the ids HQ drew
+for the app and for a state's release (the address a release's profile
+hands a device, and every request the device addresses by it), which a
+device's record writes `@app` and `@build`. A drawn picture is
 compared only where nothing else of its row or header differs: a row whose
 text or layout differs is that difference, and its picture would say it
 again.

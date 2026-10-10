@@ -61,7 +61,6 @@ from __future__ import annotations
 import copy
 import json
 
-from proof.checks import served
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.differences import Difference, pointer_token
 
@@ -479,6 +478,8 @@ def behavior(document: str, record: dict, *, device: str = "android") -> list:
         # a typed answer, compiled by HQ's own search view, among them), judged against what HQ's views refused
         # Formplayer's walk of the same state: a refusal of the same view, status and cause is Formplayer's
         # symptom (``formplayer@A``), and the device's own is what Formplayer's walk never met.
+        from proof.checks import served
+
         found += served.refusal_differences(
             device_only_refusals(held.get("A") or {}), check="proof3", document=document, artifact=a_artifact
         )
@@ -687,6 +688,8 @@ def hq_refusals(asked) -> list:
 
 
 def _refusal_class(entry) -> tuple:
+    from proof.checks import served
+
     cause = entry.get("raised") or served.refusal_cause(entry.get("said"))
     return (entry.get("view") or "unresolved", entry.get("status"), cause)
 

@@ -105,10 +105,11 @@ def _answers() -> dict:
 
 def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None) -> dict:
     from proof.android.hq import DevicePeer
+    from proof.formplayer.hq import DEVICE_REPORT
     from proof.observe import services
 
     reader = services.android()
-    peer = DevicePeer(served, label, delivered=delivered)
+    peer = DevicePeer(served, label, delivered=delivered, device=options.get("device", "phone"))
     with tempfile.TemporaryDirectory(prefix="proof-android-") as directory:
         arguments = dict(options)
         for role, content in archives.items():
@@ -130,7 +131,15 @@ def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered:
         sent.extend(
             submission.instance for submission in peer.views.submissions if DEVICE_REPORT not in submission.instance
         )
-    found = {"answer": blobs.put_json(answer), "hq": blobs.put_json([asdict(asked) for asked in peer.exchanges])}
+    # The ids HQ drew for the app and for the state's release name what every state of the app has one of (a
+    # release's own address, which its profile hands the device, and every request the device addresses by it),
+    # never what a worker reads, so they are written ``@app`` and ``@build`` as Connect's records write them.
+    from proof.formplayer import canonical
+
+    ids = {served.app_id: "@app", served.build_id: "@build"}
+    answer = canonical.replace_text(answer, ids)
+    asked = canonical.replace_text([asdict(entry) for entry in peer.exchanges], ids)
+    found = {"answer": blobs.put_json(answer), "hq": blobs.put_json(asked)}
     if pictures:
         found["pictures"] = pictures
     return found
@@ -138,8 +147,6 @@ def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered:
 
 # What ``app`` is given for a device whose GPS gives the lane's own fix (``Sensors.java``).
 LANE_FIX = "lane"
-# The namespace of the log report a device sends its server beside its forms (``DeviceReportRecord``).
-DEVICE_REPORT = b"http://code.javarosa.org/devicereport"
 
 
 def app(

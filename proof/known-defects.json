@@ -7315,16 +7315,6 @@
 		"control": "container-nested-query"
 	},
 	{
-		"id": "d59-local-archive-names-no-server-connect-local-ccz-posts-answer",
-		"defect": 59,
-		"part": "local archive names no server",
-		"check": "proof3",
-		"artifact": "connect@local.ccz",
-		"path": "/runs/*/posts/*/answer",
-		"document": "targeted-connect-deliver-rename",
-		"control": "targeted-connect-deliver-rename"
-	},
-	{
 		"id": "d34-connect-location-capture-connect-local-ccz-visits-flags-gps",
 		"defect": 34,
 		"part": "Connect location capture",

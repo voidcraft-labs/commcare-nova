@@ -92,6 +92,9 @@ RECEIVERS = frozenset(
     }
 )
 SEARCHES = frozenset({"remote_search", "app_aware_remote_search"})
+# The namespace of the log report a device posts to the receiver beside its forms (CommCare's
+# ``DeviceReportRecord``), which HQ keeps as the device's logs and forwards nowhere.
+DEVICE_REPORT = b"http://code.javarosa.org/devicereport"
 CLAIM = "claim_case"
 RESTORE = "ota_restore"
 PASSWORD = "proof-worker-password"
@@ -276,6 +279,8 @@ class Asked:
     refusal: str | None = None
     # Each error HQ logged answering it.
     logged: list = field(default_factory=list)
+    # Whether it posted a device's log report to the receiver (``DeviceReportRecord``), not a form.
+    report: bool = False
 
 
 @dataclass
@@ -329,7 +334,7 @@ class HqViews:
             # Whether Formplayer asks for an archive again depends on what the same Formplayer process installed
             # before, so a walk's record of what a step asked HQ leaves the download out (``exchanges`` keeps it).
             self.asked.append((url_name or "unresolved", str(answer.status)))
-        self._kept(request, url_name)
+        self._kept(request, url_name, asked)
         if url_name == RESTORE and answer.status == 200:
             self.restores.append(answer.body)
         return answer
@@ -371,13 +376,15 @@ class HqViews:
         headers += [("Set-Cookie", morsel.OutputString()) for morsel in response.cookies.values()]
         return HqAnswer(response.status_code, body, tuple(headers)), asked
 
-    def _kept(self, request: HqRequest, url_name) -> None:
+    def _kept(self, request: HqRequest, url_name, asked=None) -> None:
         """What a walk records of a request beside HQ's answer: a submission's instance, a search's parameters."""
         if request.method != "POST":
             return
         if url_name in RECEIVERS:
             parts = multipart_parts(request)
             instances = [content for name, content in parts if name == "xml_submission_file"]
+            if asked is not None and instances and DEVICE_REPORT in instances[0]:
+                asked.report = True
             self.submissions.append(
                 Submission(
                     path=request.path,

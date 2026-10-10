@@ -88,8 +88,8 @@ def test_a_devices_form_reaches_connect_through_hqs_own_receiver_and_repeater(fo
     Connect block and the fix the device's GPS gave the form's sensor poll; Connect answers 200 and holds the
     visit with that location."""
     run = _delivery(forwarded_delivery["kept"]["first"])
-    # The device's own send, then the device's log report beside it.
-    assert [received["status"] for received in run["received"]][:1] == [201]
+    # The device's own send (its log report beside it is no form, and HQ forwards it nowhere).
+    assert [received["status"] for received in run["received"]] == [201]
     (forward,) = run["forwards"]
     assert forward["state"] == "Success", forward
     (post,) = run["posts"]
@@ -122,5 +122,5 @@ def test_a_project_space_without_data_forwarding_forwards_nothing(forwarded_deli
     """HQ registers a repeat record only where the project space can forward data: without the privilege HQ's
     receiver takes the form and nothing reaches Connect."""
     (run,) = forwarded_delivery["unprivileged"]
-    assert [received["status"] for received in run["received"]][:1] == [201]
+    assert [received["status"] for received in run["received"]] == [201]
     assert (run["forwards"], run["posts"], run["state"]["visits"]) == ([], [], [])

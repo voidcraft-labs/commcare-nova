@@ -86,6 +86,8 @@ class DevicePeer:
     # Whether the device's restore and forms are delivered to HQ's own addresses for the worker and the app (the
     # module's last paragraph), for a device on an archive that names no server.
     delivered: bool = False
+    # The kind of device (``Reader.device``): a phone or a tablet.
+    device: str = "phone"
     exchanges: list = field(default_factory=list)
     _views: object = None
     _walk: object = None
@@ -134,12 +136,18 @@ class DevicePeer:
             if forwarding is not None:
                 # What HQ's receiver takes from the device in the walk is forwarded to Connect as the device's.
                 label = f"android|{self.label}|{name}".encode()
-                forwarding.begin(label, reader="android", views=self._views, name=f"android:{name}")
+                forwarding.begin(label, reader="android", views=self._views, name=self._run_name(name))
                 stack.callback(forwarding.end, label)
         except BaseException:
             stack.close()
             raise
         self._stack, self._walk = stack, name
+
+    def _run_name(self, walk: str) -> str:
+        """A walk's run as Connect's record names it: the walk, with the kind of device where it is not a phone,
+        so a phone's walk and a tablet's are two runs, each paired with the same device's walk of another
+        state."""
+        return walk if self.device == "phone" else f"{walk}@{self.device}"
 
     def _leave(self) -> None:
         stack, self._stack = self._stack, None
