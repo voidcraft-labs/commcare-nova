@@ -31,6 +31,7 @@ __all__ = [
     "EMAIL_BACKEND",
     "BASE_ADDRESS",
     "DEFAULT_PROTOCOL",
+    "MAPBOX_ACCESS_TOKEN",
 ]
 
 
@@ -110,3 +111,9 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 # Nova publishes to would. Nothing reaches it: the boot refuses the network.
 BASE_ADDRESS = "www.commcarehq.org"
 DEFAULT_PROTOCOL = "https"
+
+# The map layer HQ's pages draw maps with (Web Apps' location question, entries.js::GeoPointEntry, which draws
+# no map and takes no answer without one). Production names one, so a worker answers a location question on the
+# map; the map's pictures come from the layer's host, which the browser does not reach, and the map moves and
+# answers all the same.
+MAPBOX_ACCESS_TOKEN = "proof-map-layer"

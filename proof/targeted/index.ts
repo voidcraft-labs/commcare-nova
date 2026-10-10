@@ -8,6 +8,7 @@
  */
 
 import type { CorpusDocument } from "../corpus/documents";
+import { captureWidgets } from "./documents/captureWidgets";
 import {
 	closeConditions,
 	closeConditionUnparsable,
@@ -96,6 +97,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	saveToCaseRead,
 	supplyPointRead,
 	mediaSlots,
+	captureWidgets,
 ];
 
 /** Every targeted document, in a fixed order. */

@@ -51,18 +51,16 @@ logs in is on a real device. The requests (`Reader.java`):
     as its own row view shows it, with the media it names and whether the
     device holds the file; an item is chosen by the screen's own click;
   - a **case list** (`EntitySelectActivity`, `Lists.java`): its header row and
-    its first four rows as `EntityView` or `EntityViewTile` lay them out (each
-    cell's class, text, gravity, text size, image scale type and the width a
-    1000-pixel row gives it), which case each of its first fifty rows is (the
-    value a tap on it hands the session,
-    `DatumUtil.getReturnValueFromSelection`), its Sort menu
-    (`getSortOptionsList`) and the order each choice gives, and what a search
-    finds (`EntityListAdapter.filterByString`) for the first six words, in
-    the words' own order, that its first twelve rows show, each also
-    misspelled, with fuzzy search as installed, on and off. A corpus list
-    holds at most eight cases (`proof/observe/casedata.py`), so the order and
-    the words are every row's; a row past the fourth gives its case and its
-    words, and its layout is not recorded. The first case is opened as a tap opens it, and
+    every row as `EntityView` or `EntityViewTile` lay them out (each cell's
+    class, text, gravity, text size, image scale type and the width a
+    1000-pixel row gives it), which case each row is (the value a tap on it
+    hands the session, `DatumUtil.getReturnValueFromSelection`), its Sort
+    menu (`getSortOptionsList`) and the order each choice gives, and what a
+    search finds (`EntityListAdapter.filterByString`) for every word any row
+    shows, in the words' own order, each also misspelled, with fuzzy search
+    as installed, on and off (a sort's or a search's rows each by the first
+    text it shows). A filter that has not finished within two minutes fails
+    the request. The first case is opened as a tap opens it, and
     the case the list hands home is recorded; where the list has a case
     detail the detail screen's tabs and fields are read (`Details.java`) and
     its own button confirms. Each action the list offers (a search behind the list)
@@ -99,8 +97,8 @@ logs in is on a real device. The requests (`Reader.java`):
     unanswered, whatever its widget shows: a date widget shows today); each
     capture question given a file through its own screen (`Captures.java`):
     an image, video or document question's button opens Android's file
-    picker, which is handed a real small file of the reader's own
-    (`proof/android/captures`, the file the answer table names for the
+    picker, which is handed a real small file of the lane's own
+    (`proof/core/captures`, the file the answer table names for the
     question's kind), a signature question's button opens Android's drawing
     screen, where a stroke is drawn and saved, and an audio question's
     button records through the app's own recording screen and service, the

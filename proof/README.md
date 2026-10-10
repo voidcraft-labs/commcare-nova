@@ -306,15 +306,17 @@ or it fails the lane ("The registers", below).
   these left out. Not run in
   the client: a language other than the worker's default, a small screen's
   layout, App Preview (the same client under another HQ page), and a web
-  user signing in as a worker. The one request the page makes that nothing
-  answers is for a web font on another host, so text is laid out in the
-  browser's fallback face and no measured width or height is recorded. The
-  client walks every run of the walk whole ("The Web Apps driver"), and
-  answers each question through the widget it draws for it; it draws no
-  widget a worker can answer with a typed value for a map (a geopoint, where
-  the page has no map provider), a file, a signature or a question it does
-  not support, and such an answer is recorded as `unanswerable`, as a
-  worker could not give it either.
+  user signing in as a worker. The requests the page makes that nothing
+  answers are for a web font and a map's pictures on other hosts, so text is
+  laid out in the browser's fallback face, no measured width or height is
+  recorded, and a map is drawn without its pictures (it moves and answers
+  all the same). The client walks every run of the walk whole ("The Web Apps
+  driver"), and answers each question through the widget it draws for it: a
+  file question with the file Formplayer's walk uploaded, a signature with a
+  stroke on its pad, and a location question by dragging its map, so its
+  answer is the walk's place to the nearest pixel of the map. A question it
+  does not support draws no widget, and its answer is recorded as
+  `unanswerable`, as a worker could not give it either.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
   below), with these left out. ConnectID, the service Connect sends a
@@ -775,6 +777,10 @@ media slot Nova offers on a question and a group's label, which
 `proof/formplayer/test_media_slots.py` and `proof/webapps/test_media_slots.py`
 read on Formplayer and in the Web Apps client (defect 16); it is the one
 targeted document that carries uploaded media (`TargetedSpec.media`).
+`targeted-capture-widgets` holds one question of each kind a worker answers
+with a gesture (an image, a sound, a video, a document, a signature and a
+location), which `proof/webapps/test_widgets.py` holds Formplayer's walk and
+the Web Apps client to answering as a worker does.
 `targeted-search-button-label` owns the three unchanged search-label defect
 classes; their retained `case-operation-query` control stays byte-identical.
 These documents join the emitted corpus without joining balanced edit
@@ -1080,7 +1086,9 @@ the caches left, the second omits the fetch).
   (every menu command, the first case of each list, each list action once,
   each search) or replayed, each run starting as a worker starts after
   clearing their data and with Formplayer's caches empty, each form answered from the Core runner's answer
-  table and submitted as the client submits it. The trace is Formplayer's
+  table (a file question, signature included, given the table's file for its kind from `proof/core/captures`,
+  uploaded as the client uploads one to Formplayer's `answer_media`) and submitted as the client submits it,
+  the files with it. The trace is Formplayer's
   own JSON for every request, with what it asked HQ during each, the
   submission HQ received and the screen Formplayer's end of form navigation
   names next.
@@ -1246,11 +1254,16 @@ a step clicks what a worker clicks, or reads what the page shows.
   a lifetime a worker watches, and is not waited for. A step that waited
   out its deadline says what the client was still doing.
 - **A document's record** (`observe.py`): Formplayer's own walk of the
-  release, every run replayed whole in the browser in one page: the app's
+  release, every run replayed whole in the browser, each on a fresh page in
+  a fork of its own: the app's
   first screen, each choice clicked as a worker clicks it (a case's detail
   read where the client opens one), and where the run reached a form, each
-  of the walk's answers given through its widget in the walk's order, the
-  form read as the worker leaves it, Submit, and the screen the client lands
+  of the walk's answers given through its widget in the walk's order (a file
+  question's file chosen through the widget's own file input, a signature
+  drawn on its pad with the pointer, and a location question's map dragged
+  with the pointer until its centre is the walk's place, to the nearest
+  pixel: `steps/webapps/widget.js`, the driver's `files` and `draw` steps),
+  the form read as the worker leaves it, Submit, and the screen the client lands
   on, with what became of each answer (`answered`; `unanswerable` where the
   client draws no widget a worker could answer with it; `absent` where it
   draws no such question; `unchanged` where the widget already shows it, a
@@ -1287,6 +1300,7 @@ the client itself:
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
 | `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
+| Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the walk's place; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
 
 ### Served states

@@ -12,7 +12,10 @@ Formplayer shows them, which the run goes on with. With a script, each run
 replays it, and a choice the screen cannot take ends that run as
 ``unreplayable``. A run that reaches a form answers its
 questions from the lane's fixed answer table (``proof/core/answers.json``,
-whose values are already in the encoding Web Apps sends Formplayer), submits
+whose values are already in the encoding Web Apps sends Formplayer; a file
+question, signature included, is given the table's file for its kind from
+``proof/core/captures``, uploaded as the client uploads one, ``media_kind``
+and ``WebApps.answer_media``), submits
 it as the client does, and records Formplayer's answer, the submission HQ
 received and the screen Formplayer's end of form navigation names next.
 
@@ -68,6 +71,18 @@ DATA_TYPES = {
     "geo": "geopoint",
     "barcode": "barcode",
 }
+# The files a worker gives a file question, the ones every reader's walk gives (the answer table's novaKinds name
+# them), with the type a browser gives each file it uploads (by its extension).
+CAPTURES_DIR = Path(__file__).resolve().parents[1] / "core" / "captures"
+CONTENT_TYPES = {
+    "proof-image.jpg": "image/jpeg",
+    "proof-audio.mp3": "audio/mpeg",
+    "proof-video.mp4": "video/mp4",
+    "proof-file.pdf": "application/pdf",
+    "proof-signature.png": "image/png",
+}
+# A file question's control (Formplayer's ``control``, Core's ``Constants.CONTROL_*``) to the answer table's kind.
+MEDIA_CONTROLS = {10: "image", 12: "audio", 13: "video", 14: "file"}
 # What Web Apps sends in a multi-select list's selection once the cases are chosen
 # (commcare-core MultiSelectEntityScreen.USE_SELECTED_VALUES).
 USE_SELECTED_VALUES = "use_selected_values"
@@ -95,6 +110,20 @@ def typed_inputs(displays, answers) -> dict[str, str]:
             if 0 < index <= len(keys):
                 typed[display["id"]] = keys[index - 1]
     return typed
+
+
+def media_kind(question: Mapping[str, Any]) -> str | None:
+    """The kind of file a file question takes, as the Web Apps client draws its widget (``entries.js::getEntry``
+    for a binary question: an image control with the ``signature`` appearance draws a signature pad, and an image,
+    audio, video or document control a file chooser), or None for a question that takes no file (a binary
+    question of another control draws no widget a worker answers)."""
+    if question.get("datatype") != "binary":
+        return None
+    kind = MEDIA_CONTROLS.get(question.get("control"))
+    style = question.get("style") if isinstance(question.get("style"), dict) else {}
+    if kind == "image" and "signature" in str(style.get("raw") or "").split():
+        return "signature"
+    return kind
 
 
 def load_answer_table(path: Path = ANSWERS_PATH) -> dict[str, Any]:
@@ -181,6 +210,9 @@ class Walk:
     def _values(self, question: Mapping[str, Any]) -> list[str]:
         if question.get("datatype") == "info":
             return list(self.answer_table["controls"]["trigger"])
+        kind = media_kind(question)
+        if kind is not None:
+            return list(self.answer_table["novaKinds"].get(kind, ()))
         name = DATA_TYPES.get(question.get("datatype"))
         values = list(self.answer_table["dataTypes"].get(name, ())) if name else []
         today = self.clock.split("T", 1)[0]
@@ -206,9 +238,15 @@ class Walk:
             if pending is None:
                 break
             tried.add(pending["ix"])
+            kind = media_kind(pending)
             for value in self._values(pending)[:MAX_TRIES]:
-                answered = web.answer(session, pending["ix"], value)
-                attempts.append({"ix": pending["ix"], "value": value, "response": answered})
+                if kind is None:
+                    answered = web.answer(session, pending["ix"], value)
+                    attempts.append({"ix": pending["ix"], "value": value, "response": answered})
+                else:
+                    content = (CAPTURES_DIR / value).read_bytes()
+                    answered = web.answer_media(session, pending["ix"], value, content, CONTENT_TYPES[value])
+                    attempts.append({"ix": pending["ix"], "value": value, "media": kind, "response": answered})
                 if answered.get("status") == "accepted":
                     tree = answered.get("tree", tree)
                     break

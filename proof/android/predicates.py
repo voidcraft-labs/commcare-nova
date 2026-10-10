@@ -389,7 +389,7 @@ class Predicates(unittest.TestCase):
         slot shown on a device, which would make Nova's removal of it a loss a worker sees, or a comparison of
         screens that sees no media at all (the label's image)."""
         form = "modules-0/forms-0.xml"
-        image = (Path(__file__).resolve().parent / "captures" / "proof-image.jpg").read_bytes()
+        image = (Path(__file__).resolve().parents[1] / "core" / "captures" / "proof-image.jpg").read_bytes()
         hint = (
             '<input ref="/data/household/address"><label ref="jr:itext(&apos;household-address-label&apos;)"/>',
             '<input ref="/data/household/address"><label ref="jr:itext(&apos;household-address-label&apos;)"/>'
@@ -453,7 +453,7 @@ class Predicates(unittest.TestCase):
         the same screen as one that does not. Failure it catches: the message's image shown on a device, or a walk
         that never shows the message at all (its text is on the screen)."""
         form = "modules-0/forms-0.xml"
-        image = (Path(__file__).resolve().parent / "captures" / "proof-image.jpg").read_bytes()
+        image = (Path(__file__).resolve().parents[1] / "core" / "captures" / "proof-image.jpg").read_bytes()
         constrained = edited(
             LABELLED_REPEAT,
             self.work / "constrained.ccz",

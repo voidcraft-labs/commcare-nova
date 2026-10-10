@@ -36,7 +36,7 @@ import java.util.Map;
  * An image, video or document question (and an audio question whose appearance offers a file) opens Android's
  * file picker for a result (ImageWidget's choose button, VideoWidget's, DocumentWidget's, the audio widgets'); the
  * worker picks a real small file, here the one the lane's answer table names for the question's kind
- * (proof/core/answers.json, novaKinds), from the reader's own files (proof/android/captures, whose directory the
+ * (proof/core/answers.json, novaKinds), from the lane's own files (proof/core/captures, whose directory the
  * client names in the system property {@link #DIRECTORY}), and Android's form entry takes the picked file as it
  * takes any (FormEntryActivity.onActivityResultSessionSafe: ImageCaptureProcessing.processImageChooserResponse,
  * processChooserResponse), copying it into the form's own folder. A signature question opens Android's own

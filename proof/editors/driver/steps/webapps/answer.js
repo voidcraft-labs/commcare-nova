@@ -32,8 +32,10 @@
 // shows), and, once the client has drawn the form and is idle,
 // "absent" where it draws
 // no question at that index, and "unanswerable" where it draws no widget a
-// worker can answer with this value (a map, a file, a signature, an
-// unsupported question). So what it answers is the client's, never a time's.
+// worker can answer with this value (a map, an unsupported question). A file
+// or signature question is answered through media.js, with the driver's
+// "files" and "draw" steps. So what it answers is the client's, never a
+// time's.
 ({ ix, value, twelveHour }) => {
 	const ixOf = (question) => {
 		const shown = question.querySelector(":scope > .ix")?.textContent ?? "";

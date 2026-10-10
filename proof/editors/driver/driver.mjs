@@ -36,6 +36,10 @@
 //   "until" (a step file of proof/editors/driver/steps called with "arg":
 //   once, its value kept, or until it holds), "dispatch" (an event on the
 //   elements a selector finds), "click" (the element's own click),
+//   "files" and "draw" (the element a step file finds, called with
+//   `find`, given a chosen file, or the pointer pressed, moved through
+//   "stroke" and released, each point a fraction of its box and optionally
+//   pixels more),
 //   "mark" (the page's answered requests counted, for an "awaitRequest"
 //   with "sinceMark", which then waits for one answered after the mark, and
 //   with "unlessMissed" is skipped where the wait that a step allowed to
@@ -2137,7 +2141,9 @@ async function runSteps(page, run, steps) {
 				answeredAtMark = run.answered.length;
 				lastMissed = false;
 			} else if (
-				step.awaitRequest !== undefined &&
+				(step.awaitRequest !== undefined ||
+					step.files !== undefined ||
+					step.draw !== undefined) &&
 				step.unlessMissed &&
 				lastMissed
 			) {
@@ -2262,6 +2268,54 @@ async function runSteps(page, run, steps) {
 						"page",
 						`No element matches ${step.dispatch}, so the ${step.event ?? "change"} event went nowhere.`,
 					);
+			} else if (step.files !== undefined || step.draw !== undefined) {
+				// A worker's own input, which no page function can give: a file
+				// chosen in the browser's file chooser, or a stroke drawn with
+				// the pointer. The step file names the element (called with
+				// `find`), and Playwright gives the input as the browser does:
+				// the chosen file set on the file input with the input and
+				// change events a choice fires, or the pointer pressed at one
+				// point of the element, moved to another and released.
+				const name = step.files ?? step.draw;
+				const handle = await page.evaluateHandle(
+					`(${stepSource(name)})(${literal({ ...step.arg, find: true })})`,
+				);
+				try {
+					const element = handle.asElement();
+					if (!element)
+						throw new StepFailed(
+							"page",
+							`${name} found no element for ${JSON.stringify(step.arg)}, so nothing was given to it.`,
+						);
+					if (step.files !== undefined) {
+						await element.setInputFiles({
+							name: step.file.name,
+							mimeType: step.file.mimeType,
+							buffer: Buffer.from(step.file.base64, "base64"),
+						});
+					} else {
+						await element.scrollIntoViewIfNeeded({ timeout: run.remaining() });
+						const box = await element.boundingBox();
+						if (!box || box.width < 1 || box.height < 1)
+							throw new StepFailed(
+								"page",
+								`${name} found an element with no box to draw in for ${JSON.stringify(step.arg)}.`,
+							);
+						// A point is a fraction of the box across and down, and
+						// optionally whole pixels more each way.
+						const at = ([x, y, dx = 0, dy = 0]) => [
+							box.x + box.width * x + dx,
+							box.y + box.height * y + dy,
+						];
+						const [from, ...through] = step.stroke;
+						await page.mouse.move(...at(from));
+						await page.mouse.down();
+						for (const point of through) await page.mouse.move(...at(point));
+						await page.mouse.up();
+					}
+				} finally {
+					await handle.dispose();
+				}
 			} else if (step.click !== undefined) {
 				dialogsAtClick = run.dialogs.length;
 				const clicked = await pageValue(run.cdp, clickExpression(step.click));

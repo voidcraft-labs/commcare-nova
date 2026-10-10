@@ -11,6 +11,8 @@ click led to, as a worker acts only once the page has finished reacting.
 
 from __future__ import annotations
 
+import base64
+
 # What the page shows now (steps/webapps/screen.js).
 SCREEN = {"call": "webapps/screen"}
 # The page quiet: none of its requests in flight, none of the client's own short timers still set (a throttled
@@ -134,6 +136,47 @@ def answer(ix: str, value: str, *, twelve_hour: bool = False) -> list[dict]:
         {"awaitRequest": {"method": "POST", "pathname": ANSWER}, "sinceMark": True, "unlessMissed": True},
         SETTLE,
     ]
+
+
+ANSWER_MEDIA = "/formplayer/answer_media"
+# Where a worker's pen goes on a signature pad: pressed at one point, moved to another and lifted, as fractions of
+# the pad's box. One move, so the pad keeps every point however fast the browser sends them (signature_pad
+# throttles its moves by the clock, and keeps a stroke's first move and its end whatever the time between them).
+SIGNATURE_STROKE = [[0.2, 0.6], [0.8, 0.4]]
+
+
+def _gesture(ix: str, widget: str, give: dict, pathname: str) -> list[dict]:
+    arg = {"ix": ix, "widget": widget}
+    return [
+        {"mark": True},
+        {"until": "webapps/widget", "arg": arg, "within": ANSWERED_WITHIN_MS},
+        {**give, "arg": arg, "unlessMissed": True},
+        {"awaitRequest": {"method": "POST", "pathname": pathname}, "sinceMark": True, "unlessMissed": True},
+        SETTLE,
+    ]
+
+
+def answer_media(ix: str, kind: str, name: str, content: bytes, content_type: str) -> list[dict]:
+    """One file question answered through its widget, as a worker answers it: the file chosen through the
+    widget's own file input (an image, audio, video or document question), or, for a signature, a stroke drawn on
+    its pad (``steps/webapps/widget.js`` finds either, and the driver's ``files`` and ``draw`` steps give it),
+    then Formplayer's answer to the upload the client sent for it (``answer_media``), then the page quiet. The
+    file is the one Formplayer's walk uploaded (``kind`` and ``name``, from the answer table); a pad's picture is
+    the client's own. Where the client draws no such widget at that question, nothing is given and nothing is
+    waited for."""
+    if kind == "signature":
+        return _gesture(ix, "signature", {"draw": "webapps/widget", "stroke": SIGNATURE_STROKE}, ANSWER_MEDIA)
+    given = {"name": name, "mimeType": content_type, "base64": base64.b64encode(content).decode("ascii")}
+    return _gesture(ix, "file", {"files": "webapps/widget", "file": given}, ANSWER_MEDIA)
+
+
+def answer_place(ix: str, offset: tuple[int, int]) -> list[dict]:
+    """One location question answered on its map, as a worker answers one (``entries.js::GeoPointEntry``: the
+    answer is the map's centre whenever the map moves): the map pressed at its centre, dragged by ``offset``
+    pixels and released, in one move (Leaflet moves the map on each move of a drag, and a drag of one move ends
+    with no glide), then Formplayer's answer to the answer the client sent, then the page quiet."""
+    stroke = [[0.5, 0.5], [0.5, 0.5, offset[0], offset[1]]]
+    return _gesture(ix, "map", {"draw": "webapps/widget", "stroke": stroke}, ANSWER)
 
 
 def submit_and_land() -> list[dict]:

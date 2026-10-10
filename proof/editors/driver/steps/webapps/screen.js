@@ -31,7 +31,9 @@
 //   (and which is active) and each row's header and value as shown.
 // - `form`: a form's title; each question's label, whether it is
 //   required, the answer its widget shows (a text box's text, the labels of
-//   the options checked, a drop-down's chosen text), the error the client
+//   the options checked, a drop-down's chosen text, the name a file
+//   question shows of its file, "drawn" for a signature pad with a stroke
+//   on it, a location's latitude and longitude), the error the client
 //   shows for it and the media the browser lays out with it (`media`, each
 //   image, sound and video by its kind and the address the client gave it,
 //   the help dialog's left out until it is open); and each group's label
@@ -199,6 +201,26 @@
 	const shownAnswer = (question) => {
 		const widget = one(question, ".widget");
 		if (!widget) return null;
+		// A location's map shows its latitude and longitude above it
+		// (entry_geo.html), whatever its search box holds.
+		const coordinates = all(widget, ".coordinate");
+		if (coordinates.length) return coordinates.map(text);
+		// A signature pad shows the stroke drawn on it: whether any of its
+		// pixels is drawn (entry_signature.html).
+		const pad = one(widget, "canvas");
+		if (pad) {
+			const { width, height } = pad;
+			if (!width || !height) return null;
+			const pixels = pad
+				.getContext("2d")
+				.getImageData(0, 0, width, height).data;
+			for (let i = 3; i < pixels.length; i += 4) if (pixels[i]) return "drawn";
+			return null;
+		}
+		// A file question shows the name of the file chosen beside its Browse
+		// button (entry_file.html).
+		if (one(widget, "input[type=file]"))
+			return text(one(widget, "p.text-break"));
 		const checked = all(widget, "input.form-check-input:checked");
 		if (checked.length) {
 			return checked.map((input) =>

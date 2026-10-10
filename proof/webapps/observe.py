@@ -18,13 +18,15 @@ somewhere (``steps.SCREEN``):
   with the prompts as the client shows them;
 - a form the run reaches is answered question by question through the
   widgets the client draws, with each answer the walk gave, in its order
-  (``steps.answer``), read as the worker leaves it, submitted, and the
-  screen the client lands on read.
+  (``steps.answer``; a file question with the file the walk uploaded, chosen
+  through the widget's own file input, and a signature with a stroke drawn
+  on its pad, ``steps.answer_media``), read as the worker leaves it,
+  submitted, and the screen the client lands on read.
 
 Every step waits for the client's own arrival where it leads
-(``steps.arrive``, ``driver/steps/webapps/arrived.js``), never a time. Every
-run of one build is replayed in one page, from the home screen (the client's
-own Home breadcrumb leads back to it), so a document costs one page load.
+(``steps.arrive``, ``driver/steps/webapps/arrived.js``), never a time. Each
+run of a walk is replayed on a fresh page of its own, from the home screen,
+in a fork of the served state of its own (``shown``).
 
 What is recorded (``shown``):
 
@@ -52,10 +54,11 @@ Formplayer already made of it, which proofs 3 and 4 then compare.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from proof.formplayer.walk import Walk
+from proof.formplayer.walk import CAPTURES_DIR, CONTENT_TYPES, Walk
 from proof.webapps import steps
 from proof.webapps.session import Session
 
@@ -117,14 +120,46 @@ def _arrival(navigation: Mapping[str, Any] | None) -> list[dict]:
     return steps.arrive(selections, query_data=query_data, form=screen_kind(response) == "form")
 
 
-def _twelve_hour(response: Any, ix: str) -> bool:
+def _question(opened: Any, attempts: Sequence[Mapping[str, Any]], position: int) -> Mapping[str, Any]:
+    """The question an attempt answers, as Formplayer last showed it before the attempt: in the tree of the
+    latest answer before it that holds the question, else in the form as it opened."""
     from proof.formplayer.walk import questions
 
-    tree = response.get("tree") if isinstance(response, dict) else None
-    node = next((node for node in questions(tree or ()) if node.get("ix") == ix), None)
-    style = (node or {}).get("style") or {}
+    ix = str(attempts[position]["ix"])
+    shown = [attempt.get("response") for attempt in reversed(attempts[:position])]
+    for response in [*shown, opened]:
+        tree = response.get("tree") if isinstance(response, dict) else None
+        node = next((node for node in questions(tree or ()) if str(node.get("ix")) == ix), None)
+        if node is not None:
+            return node
+    return {}
+
+
+def _twelve_hour(question: Mapping[str, Any]) -> bool:
+    style = question.get("style") or {}
     raw = style.get("raw") if isinstance(style, dict) else style
     return TWELVE_HOUR in str(raw or "").split()
+
+
+# Where the Web Apps client's map opens for a location question (``entries.js::GeoPointEntry.DEFAULT``): the
+# centre and zoom with no answer, and the zoom it opens at on an answer the question already holds.
+MAP_OPENS = (30.0, 0.0, 1)
+MAP_ANSWER_ZOOM = 6
+
+
+def _map_pixel(lat: float, lon: float, zoom: int) -> tuple[float, float]:
+    """Where a place is on the client's map at a zoom, in pixels of the whole world's picture: Leaflet's own
+    projection (``CRS.EPSG3857``, spherical Mercator, a world 256 pixels wide at zoom 0, twice as wide at each
+    zoom after)."""
+    size = 256 * 2**zoom
+    latitude = max(-85.0511287798, min(85.0511287798, lat))
+    sine = math.sin(math.radians(latitude))
+    return (lon + 180.0) / 360.0 * size, (0.5 - math.log((1 + sine) / (1 - sine)) / (4 * math.pi)) * size
+
+
+def _place(value: str) -> tuple[float, float]:
+    latitude, longitude, *_ = str(value).split()
+    return float(latitude), float(longitude)
 
 
 def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict], list[tuple | None]]:
@@ -191,10 +226,33 @@ def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict],
     form = _form_step(run)
     if form is not None:
         opened = navigations[-1].get("response") if navigations else None
+        # Where each location question's map stands, as the client's drags leave it: (x, y, zoom).
+        maps: dict[str, tuple[float, float, int]] = {}
         for position, attempt in enumerate(form["answers"]):
-            answering = steps.answer(
-                str(attempt["ix"]), str(attempt["value"]), twelve_hour=_twelve_hour(opened, str(attempt["ix"]))
-            )
+            ix = str(attempt["ix"])
+            question = _question(opened, form["answers"], position)
+            if attempt.get("media"):
+                name = str(attempt["value"])
+                answering = steps.answer_media(
+                    ix, attempt["media"], name, (CAPTURES_DIR / name).read_bytes(), CONTENT_TYPES[name]
+                )
+            elif question.get("datatype") == "geo":
+                # The map is dragged from where it stands so that its centre comes to the walk's place, to the
+                # nearest pixel: the client's answer is the map's centre, so it is the place as near as a drag
+                # can bring it.
+                if ix not in maps:
+                    held = question.get("answer")
+                    if isinstance(held, list) and len(held) >= 2:
+                        maps[ix] = (*_map_pixel(float(held[0]), float(held[1]), MAP_ANSWER_ZOOM), MAP_ANSWER_ZOOM)
+                    else:
+                        maps[ix] = (*_map_pixel(MAP_OPENS[0], MAP_OPENS[1], MAP_OPENS[2]), MAP_OPENS[2])
+                x, y, zoom = maps[ix]
+                target = _map_pixel(*_place(attempt["value"]), zoom)
+                offset = (round(x - target[0]), round(y - target[1]))
+                maps[ix] = (x - offset[0], y - offset[1], zoom)
+                answering = steps.answer_place(ix, offset)
+            else:
+                answering = steps.answer(ix, str(attempt["value"]), twelve_hour=_twelve_hour(question))
             add(answering)
             what[len(what) - len(answering) + 1] = ("answer", position)
         # The form as the worker leaves it, then where Submit takes them.

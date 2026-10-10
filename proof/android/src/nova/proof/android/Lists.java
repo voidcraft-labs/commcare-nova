@@ -35,10 +35,10 @@ import java.util.Set;
 
 /**
  * What Android's case list shows for the list home opened (EntitySelectActivity): its Sort menu
- * (getSortOptionsList) and the order each of its choices puts the rows in; its header row and first rows as
+ * (getSortOptionsList) and the order each of its choices puts the rows in; its header row and every row as
  * EntityView or EntityViewTile lay them out, each cell with the width a 1000-pixel row gives it; and what a
  * search finds (EntityListAdapter.filterByString), with fuzzy search as the profile leaves it and then on and
- * off. The terms are the list's own: each word a row shows, and that word misspelled by its last letter, so a
+ * off. The terms are the list's own: each word any row shows, and that word misspelled by its last letter, so a
  * list is searched for what a worker reads on it.
  *
  * The first case is then opened as a tap opens it (onEntitySelected): where the list has a case detail, the
@@ -48,10 +48,8 @@ import java.util.Set;
 final class Lists {
     /** The width a row is measured at, so the widths Android gives its columns are comparable. */
     private static final int ROW_WIDTH = 1000;
-    private static final int MAX_ROWS = 4;
-    private static final int WORD_ROWS = 12;
-    private static final int ORDER_ROWS = 50;
-    private static final int MAX_TERMS = 6;
+    /** How long a list's filter thread may take before the reader gives up on the request. */
+    private static final long FILTER_MILLIS = 120000;
     private static final String FUZZY = "cc-fuzzy-search-enabled";
     /** Terms the request names for every list, beside each list's own; null where it names none. */
     static JSONArray searches;
@@ -99,7 +97,7 @@ final class Lists {
         step.put("list", list);
         list.put("alert", Screens.orNull(Views.alert(activity)));
 
-        // The header row and the first rows, measured, so each column has the width Android gives it.
+        // The header row and every row, measured, so each column has the width Android gives it.
         LinearLayout header = (LinearLayout)Screens.field(activity, "header");
         JSONArray headers = new JSONArray();
         for (int i = 0; header != null && i < header.getChildCount(); i++) {
@@ -108,14 +106,12 @@ final class Lists {
         list.put("header", headers);
         list.put("count", adapter.getCurrentCount());
         JSONArray shown = new JSONArray();
-        // The words searched for are the list's own, whatever order it shows its rows in: every word of its
-        // first rows, in the words' own order.
+        // The words searched for are the list's own, whatever order it shows its rows in: every word of every
+        // row, in the words' own order.
         Set<String> words = new java.util.TreeSet<>();
-        for (int i = 0; i < Math.min(adapter.getCurrentCount(), WORD_ROWS); i++) {
+        for (int i = 0; i < adapter.getCurrentCount(); i++) {
             JSONObject row = Views.describe(measured(adapter.getView(i, null, listView)));
-            if (i < MAX_ROWS) {
-                shown.put(row);
-            }
+            shown.put(row);
             words(row, words);
         }
         list.put("rows", shown);
@@ -124,7 +120,7 @@ final class Lists {
         Object datum = Screens.field(activity, "selectDatum");
         if (datum instanceof EntityDatum) {
             JSONArray order = new JSONArray();
-            for (int i = 0; i < Math.min(adapter.getCurrentCount(), ORDER_ROWS); i++) {
+            for (int i = 0; i < adapter.getCurrentCount(); i++) {
                 try {
                     order.put(Screens.orNull(Cases.unnamed(DatumUtil.getReturnValueFromSelection(adapter.getItem(i),
                             (EntityDatum)datum,
@@ -312,11 +308,7 @@ final class Lists {
         for (int i = 0; searches != null && i < searches.length(); i++) {
             terms.add(searches.getString(i));
         }
-        int own = 0;
         for (String word : words) {
-            if (own++ >= MAX_TERMS) {
-                break;
-            }
             terms.add(word);
             terms.add(misspelled(word));
         }
@@ -359,7 +351,7 @@ final class Lists {
 
     private static JSONArray firstCells(EntityListAdapter adapter, ListView listView) throws Exception {
         JSONArray matched = new JSONArray();
-        for (int row = 0; row < Math.min(adapter.getCurrentCount(), 12); row++) {
+        for (int row = 0; row < adapter.getCurrentCount(); row++) {
             matched.put(Screens.orNull(firstText(Views.describe(adapter.getView(row, null, listView)))));
         }
         return matched;
@@ -396,7 +388,11 @@ final class Lists {
         if (filterer != null) {
             Thread thread = (Thread)Screens.field(filterer, "thread");
             if (thread != null) {
-                thread.join(60000);
+                thread.join(FILTER_MILLIS);
+                if (thread.isAlive()) {
+                    throw new IllegalStateException("The list's filter thread did not finish within "
+                            + FILTER_MILLIS + " ms, so what the list shows is not settled.");
+                }
             }
         }
         ShadowLooper.idleMainLooper();

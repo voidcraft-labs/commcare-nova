@@ -19,6 +19,7 @@ DOCUMENTS = (
     "case-list-inline",
     "media-only",
     "search-browse",
+    "targeted-capture-widgets",
     "targeted-custom-tile",
     "targeted-empty-list-no-english",
     "targeted-form-link-hidden-target",

@@ -37,10 +37,10 @@ ANDROID_DIR = Path(__file__).resolve().parent
 ANSWERS = PROOF_DIR / "core" / "answers.json"
 PINS = PROOF_DIR / "pins.json"
 TOOLCHAIN = ANDROID_DIR / "toolchain.json"
-# The reader's files: its Java, the files its walks give capture questions, its client, what builds its runtime
-# and what plans its requests. A change to any of them reads every archive again.
+# The reader's files: its Java, its client, what builds its runtime and what plans its requests. A change to any of
+# them, to the answer table or to the files its walks give capture questions reads every archive again.
 READER_FILES = ("client.py", "records.py", "build-runtime.sh", "reader.init.gradle", "toolchain.json")
-READER_DIRECTORIES = ("src", "captures")
+READER_DIRECTORIES = ("src",)
 PINNED = ("commcare-android", "commcare-core")
 VERSION = 1
 LOCAL = "local.ccz"
@@ -78,16 +78,21 @@ def reader_files(root: Path = ANDROID_DIR) -> dict[str, str]:
     return found
 
 
-def fingerprint(platform: str, *, root: Path = ANDROID_DIR, pins: Path = PINS, answers: Path = ANSWERS) -> str:
-    """What names the reader an answer was read by: its files, the pins it runs, the answer table and where it
-    runs (``linux-amd64``, ``darwin-arm64``: Robolectric's native runtime is the platform's own)."""
+def fingerprint(
+    platform: str, *, root: Path = ANDROID_DIR, pins: Path = PINS, answers: Path = ANSWERS, captures: Path | None = None
+) -> str:
+    """What names the reader an answer was read by: its files, the pins it runs, the answer table, the files its
+    walks give capture questions and where it runs (``linux-amd64``, ``darwin-arm64``: Robolectric's native
+    runtime is the platform's own)."""
     pinned = json.loads(Path(pins).read_text(encoding="utf-8"))
+    given = Path(captures) if captures is not None else Path(root).parent / "core" / "captures"
     return keys.hashed(
         "android-reader",
         VERSION,
         dict(sorted(reader_files(root).items())),
         {name: pinned[name]["commit"] for name in PINNED},
         _blob_hash(Path(answers).read_bytes()),
+        {path.name: _blob_hash(path.read_bytes()) for path in sorted(given.iterdir()) if path.is_file()},
         platform,
     )
 

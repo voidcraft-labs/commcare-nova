@@ -91,7 +91,14 @@ harness keeps, each with its reason.
   client's own requests, over a build HQ released in a project space that
   has Web Apps (every configuration of the lane grants it). Never copy a
   client function into a test or call the client's code from a step: a step
-  clicks what a worker clicks or reads the document. The client reads some
+  clicks what a worker clicks, gives what a worker gives through the
+  browser itself (a file chosen in the file chooser, a stroke of the
+  pointer on a signature pad or a map: the driver's `files` and `draw`
+  steps), or reads the document. Every question a worker can answer, the
+  client answers: HQ names a map layer as production does
+  (`proof/hq/localsettings.py`), so a location question draws its map and
+  is answered by dragging it, though the layer's pictures are on a host the
+  browser does not reach. The client reads some
   things from the app HQ stores and never from the build (the logo,
   `cc-show-incomplete`), so a claim that two builds are alike says nothing
   of them: release the state and read the page. A step waits on what the
