@@ -292,7 +292,8 @@ harness keeps, each with its reason.
   reader, so the judge compares what Connect did (its answers, tasks and
   rows) and never a payload (`proof/checks/connect.py`). What stands in for
   a person or a machine the lane does not have is named where it is done
-  (the opportunity's rows, HQ's repeater's rows, Data Forwarding on the
+  (the opportunity's rows, the 404 retry production's Connect forwarder
+  gets, Data Forwarding on the
   plan, a device's location fix, ConnectID), and a new stand-in is a claim
   to justify there.
 - **What reaches a person through another of HQ's pages or views is run

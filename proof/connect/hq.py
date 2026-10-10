@@ -25,18 +25,25 @@ the payload to the address a served Connect answers at
 keeps of each forward is read back from its repeat records (``forwards``),
 and the payload is read where it arrived, in Connect.
 
-What is stated of the project space for that, each named where it is done:
-its plan has Data Forwarding (``proof.hq.seams.also_granted``); the repeater
-and its connection settings are rows made through HQ's models, holding what
-HQ's Connection Settings and Add Forwarder pages save for a forwarder to
-Connect (the pages themselves are not run: the second lists the project
-space's users from Elasticsearch, which the lane has none of); Connect is
-reached at a loopback address over
-plain HTTP, where a deployment's is reached over HTTPS, so oauthlib is told
-the transport is so (``OAUTHLIB_INSECURE_TRANSPORT``, its own switch for
-it), and HQ's own check of a forwarding address passes a loopback address
-while ``DEBUG`` is on, as the lane's HQ is
-(``motech/requests.py::validate_user_input_url_for_repeaters``).
+The project space's admin sets the forwarder up as a person does, through
+HQ's own pages (``forwarding``): signed in by Django's own ``login`` (the
+sign-in form is not run, as for every web user of the lane), they post HQ's
+Connection Settings page (``motech/views.py::ConnectionSettingsDetailView``)
+with Connect's receiver, OAuth's client credentials and their own address for
+notifications, and HQ's Add Forwarder page for Connect
+(``repeaters/views/repeaters.py::AddFormRepeaterView``, whose form lists the
+project space's users from HQ's own Elasticsearch) with that connection and
+every other field as the form offers it. What is stated of the project space
+for that, each named where it is done: its plan has Data Forwarding
+(``proof.hq.seams.also_granted``); the Add Forwarder page gives a forwarder
+to production's Connect address one more status to retry on (404, for the
+proxy in front of Connect), which the lane's Connect at another address is
+then given through HQ's own model method, as production's has it; Connect is
+reached at a loopback address over plain HTTP, where a deployment's is
+reached over HTTPS, so oauthlib is told the transport is so
+(``OAUTHLIB_INSECURE_TRANSPORT``, its own switch for it), and HQ's own check
+of a forwarding address passes a loopback address while ``DEBUG`` is on, as
+the lane's HQ is (``motech/requests.py::validate_user_input_url_for_repeaters``).
 
 ``Forwarded`` is what the package's own tests keep of one forward
 (``proof/connect/conftest.py``).
@@ -78,17 +85,74 @@ CONNECTION_NAME = "CommCare Connect"
 BOUNDARY = "proof-device-submission"
 
 
+# Where the admin's browser has HQ's page open: HQ's own origin, as these requests reach it (Django's request
+# factory names the host ``testserver``), which HQ's CSRF check holds a form's Referer to.
+PAGE_ORIGIN = "https://testserver/"
+
+
+class ForwarderPageRefused(AssertionError):
+    """HQ's Connection Settings or Add Forwarder page did not take the admin's form."""
+
+
+def _signed_in(unit, operation, label):
+    """The project space's admin as their browser holds them on HQ's pages: a session made by Django's own
+    ``login``, and the CSRF token, as the cookie and the form field a page's form posts."""
+    from django.conf import settings
+    from django.middleware.csrf import _get_new_csrf_string
+
+    from proof.formplayer import hq as formplayer_hq
+
+    with operation(f"connect:sign-in@{label}", b"connect-sign-in"):
+        session = formplayer_hq.sign_in(unit.web_user)
+        token = _get_new_csrf_string()
+    return f"{settings.SESSION_COOKIE_NAME}={session}; {settings.CSRF_COOKIE_NAME}={token}", token
+
+
+def _post_page(unit, path, fields, cookie, label):
+    """The admin's form posted to HQ's page at ``path``: answered by the view HQ's URLconf names, behind HQ's own
+    middleware and the view's own decorators. A page that takes its form answers with a redirect; one that
+    renders again has refused it, which raises."""
+    import hashlib
+    from urllib.parse import urlencode
+
+    from proof.formplayer import hq as formplayer_hq
+    from proof.formplayer.client import HqRequest
+
+    body = urlencode(fields).encode()
+    headers = (
+        ("Content-Type", "application/x-www-form-urlencoded"),
+        ("Cookie", cookie),
+        ("Referer", PAGE_ORIGIN),
+    )
+    digest = hashlib.sha256(f"connect-page|{label}|{path}|".encode() + body).digest()
+    with unit.committing(), unit.request(digest), formplayer_hq._language_put_back():
+        response = formplayer_hq._handler().get_response(
+            formplayer_hq.django_request(HqRequest("POST", path, "", headers, body))
+        )
+        if hasattr(response, "render") and not getattr(response, "is_rendered", True):
+            response.render()
+        content = b"".join(response.streaming_content) if response.streaming else response.content
+    if response.status_code != 302:
+        raise ForwarderPageRefused(
+            f"HQ's page {path} answered the admin's form with {response.status_code} where it redirects once it"
+            f" has taken it; the page it rendered begins: {content[:1500]!r}"
+        )
+
+
 @contextmanager
 def forwarding(unit, connect_url: str, operation, label: str):
     """The unit's project space forwarding each form it receives to the Connect at ``connect_url``, for the
-    block: Data Forwarding on its plan, and a Connect repeater over connection settings naming Connect's receiver
-    and its token address, made in an operation of the unit. The caller holds the fork that takes them back."""
+    block: Data Forwarding on its plan, and the connection settings and Connect forwarder its admin saves through
+    HQ's own pages. The caller holds the fork that takes them back."""
     from urllib.parse import urlsplit
 
     from corehq import privileges
-    from corehq.motech.const import OAUTH2_CLIENT
+    from corehq.motech.const import OAUTH2_CLIENT, REQUEST_POST
     from corehq.motech.models import ConnectionSettings
     from corehq.motech.repeaters.models import ConnectFormRepeater
+    from corehq.motech.repeaters.views.repeaters import DomainForwardingOptionsView
+    from corehq.motech.views import ConnectionSettingsDetailView
+    from django.urls import reverse
 
     from proof.hq.boot import GUARD
     from proof.hq.seams import also_granted
@@ -99,24 +163,55 @@ def forwarding(unit, connect_url: str, operation, label: str):
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     try:
         with also_granted(privileges.DATA_FORWARDING):
-            with operation(f"connect:repeater@{label}", b"connect-repeater"):
-                settings = ConnectionSettings(
-                    domain=unit.domain,
-                    name=CONNECTION_NAME,
-                    url=f"{connect_url}/api/receiver/",
-                    auth_type=OAUTH2_CLIENT,
-                    client_id=OAUTH_CLIENT["id"],
-                    token_url=f"{connect_url}/o/token/",
-                )
-                settings.plaintext_client_secret = OAUTH_CLIENT["secret"]
-                settings.save()
-                repeater = ConnectFormRepeater(
-                    domain=unit.domain, name=CONNECTION_NAME, connection_settings_id=settings.id
-                )
-                # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more
-                # status to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a
-                # proxy in front of Connect answers while it is overloaded). The lane's Connect is at another
-                # address, so the forwarder is given it here, as production's has it.
+            cookie, token = _signed_in(unit, operation, label)
+            _post_page(
+                unit,
+                reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain}),
+                [
+                    ("csrfmiddlewaretoken", token),
+                    # Every field the page draws, as the admin's browser posts them: what they typed, and the
+                    # rest as the page offers it (an empty box, a box left unticked posting nothing). A token
+                    # address is kept only under the "(Custom)" preset: with none, the page's save drops it
+                    # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a
+                    # token.
+                    ("name", CONNECTION_NAME),
+                    ("notify_addresses_str", unit.web_user.username),
+                    ("url", f"{connect_url}/api/receiver/"),
+                    ("auth_type", OAUTH2_CLIENT),
+                    ("username", ""),
+                    ("plaintext_password", ""),
+                    ("client_id", OAUTH_CLIENT["id"]),
+                    ("plaintext_client_secret", OAUTH_CLIENT["secret"]),
+                    ("auth_preset", "CUSTOM"),
+                    ("token_url", f"{connect_url}/o/token/"),
+                    ("refresh_url", ""),
+                    ("scope", ""),
+                ],
+                cookie,
+                f"connection-settings@{label}",
+            )
+            settings = ConnectionSettings.objects.get(domain=unit.domain, name=CONNECTION_NAME)
+            _post_page(
+                unit,
+                f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/",
+                [
+                    ("csrfmiddlewaretoken", token),
+                    ("connection_settings_id", str(settings.id)),
+                    ("name", ""),
+                    ("request_method", REQUEST_POST),
+                    # The form's own initial value for the box, which a person leaves ticked.
+                    ("include_app_id_param", "on"),
+                    ("white_listed_form_xmlns", ""),
+                ],
+                cookie,
+                f"connect-forwarder@{label}",
+            )
+            with operation(f"connect:retry-404@{label}", b"connect-retry-404"):
+                # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more status
+                # to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a proxy in
+                # front of Connect answers while it is overloaded). The lane's Connect is at another address, so
+                # the forwarder the page saved is given it here, as production's has it.
+                (repeater,) = ConnectFormRepeater.objects.filter(domain=unit.domain)
                 repeater.add_backoff_code(404)
                 repeater.save()
             yield

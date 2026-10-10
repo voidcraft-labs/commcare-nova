@@ -326,11 +326,11 @@ or it fails the lane ("The registers", below).
   each of Core's submissions where the form holds its node; where a device
   posts a form of an archive that names no address is Android's own default
   and is not run (the lane posts it to the project space's receiver with no
-  app named). HQ's Connect
-  repeater and its connection settings are made through HQ's models, holding what
-  HQ's pages save for a forwarder to Connect, not through either system's
-  pages (HQ's Add Forwarder page lists the project space's users from
-  Elasticsearch). The opportunity is made once, from A's release: a
+  app named). The project space's admin saves HQ's Connection Settings
+  page and its Add Forwarder page for Connect as a person does (signed in by
+  Django's own `login`, `proof/connect/hq.py::forwarding`), and the
+  forwarder is then given the 404 retry that page gives a forwarder to
+  production's Connect address. The opportunity is made once, from A's release: a
   manager who asks for its units again after an edit, or pays for a renamed
   unit, is not in the unit (`proof/connect/test_receiver.py` runs both), and
   neither is the distance check between two visits. HQ's Connect payload
