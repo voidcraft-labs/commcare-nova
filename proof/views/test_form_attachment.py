@@ -91,10 +91,13 @@ def _asked(unit, path, person, label) -> int:
 
     from proof.formplayer import hq as formplayer_hq
 
-    with unit.operation(f"sign-in:{label}", hashlib.sha256(label.encode()).digest()):
-        session = formplayer_hq.sign_in(person)
+    signed_in = formplayer_hq.sign_in(unit, person, PASSWORD, f"attachment:{label}")
     answer = ask(
-        unit, "GET", path, headers=(("Cookie", f"{settings.SESSION_COOKIE_NAME}={session}"),), label=f"file-{label}"
+        unit,
+        "GET",
+        path,
+        headers=(("Cookie", f"{settings.SESSION_COOKIE_NAME}={signed_in.session}"),),
+        label=f"file-{label}",
     )
     if answer.status == 200:
         assert answer.body == PHOTO, answer.body[:200]

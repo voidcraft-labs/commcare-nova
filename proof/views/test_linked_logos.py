@@ -42,16 +42,12 @@ ORIGIN = "https://testserver/"
 
 
 def _session(unit, person, label):
-    from django.conf import settings
-    from django.middleware.csrf import _get_new_csrf_string
-
+    """The person signed in through HQ's own sign-in form: the cookie their browser then sends, and the CSRF token
+    a page's form posts back."""
     from proof.formplayer import hq as formplayer_hq
 
-    with unit.operation(f"sign-in:{label}", hashlib.sha256(label.encode()).digest()):
-        session = formplayer_hq.sign_in(person)
-    token = _get_new_csrf_string()
-    cookie = f"{settings.SESSION_COOKIE_NAME}={session}; {settings.CSRF_COOKIE_NAME}={token}"
-    return cookie, token
+    signed_in = formplayer_hq.sign_in(unit, person, PASSWORD, f"linked:{label}")
+    return signed_in.cookie, signed_in.csrf
 
 
 def _form(fields) -> tuple[bytes, str]:

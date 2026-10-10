@@ -46,9 +46,10 @@ harness keeps, each with its reason.
   acknowledged without being processed, in the packages' own tests as in
   the lane's records (`proof/formplayer/apps.py::served`). What HQ lacks
   here is named where it
-  is answered, and stays that narrow: the worker's sign-in form (the session
-  is Django's own `login`), and Nova's local archive, which HQ does
-  not hold and Formplayer is handed as bytes. HQ's locks are real (HQ shares
+  is answered, and stays that narrow: Nova's local archive, which HQ does
+  not hold and Formplayer is handed as bytes. The worker signs in through
+  HQ's own sign-in form (`proof/formplayer/hq.py::sign_in`), as every
+  person the lane signs in does. HQ's locks are real (HQ shares
   Formplayer's Redis, as production does, and relies on it), and what HQ
   runs when a transaction commits runs where the commit would
   (`Unit.committing`). Each run of a walk is a fork of the unit, so no run

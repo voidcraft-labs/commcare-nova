@@ -303,8 +303,7 @@ or it fails the lane ("The registers", below).
   Formplayer one.
 - **What a served state does not show.** Formplayer and the Web Apps
   client read every state the lane builds ("Served states", below), with
-  these left out. The worker's
-  sign-in form is not run (the session is Django's own `login`). Not run in
+  these left out. Not run in
   the client: a language other than the worker's default, a small screen's
   layout, App Preview (the same client under another HQ page), and a web
   user signing in as a worker. The one request the page makes that nothing
@@ -327,8 +326,9 @@ or it fails the lane ("The registers", below).
   posts a form of an archive that names no address is Android's own default
   and is not run (the lane posts it to the project space's receiver with no
   app named). The project space's admin saves HQ's Connection Settings
-  page and its Add Forwarder page for Connect as a person does (signed in by
-  Django's own `login`, `proof/connect/hq.py::forwarding`), and the
+  page and its Add Forwarder page for Connect as a person does (signed in
+  through HQ's own sign-in form, each page's form posted as their browser
+  posts it, `proof/connect/hq.py::forwarding`), and the
   forwarder is then given the 404 retry that page gives a forwarder to
   production's Connect address. The opportunity is made once, from A's release: a
   manager who asks for its units again after an edit, or pays for a renamed
@@ -1589,9 +1589,11 @@ published into a check's own project space
   also reads a control no gate holds back, so a page that offered nothing
   would not pass.
 - **A person signed in** (`test_form_attachment.py`, `test_linked_logos.py`):
-  a session made by Django's own `login` for a person HQ's own models made
-  (a mobile worker, an administrator, a web user of a role HQ made), sent
-  as the browser's cookie, with HQ's CSRF token and its own origin where a
+  a person HQ's own models made (a mobile worker, an administrator, a web
+  user of a role HQ made) signs in through HQ's own sign-in form, their
+  username and password posted as their browser posts it
+  (`proof/formplayer/hq.py::sign_in`), and the session HQ set is sent as the
+  browser's cookie, with the CSRF token HQ set and its own origin where a
   page's form posts. A second project space a test states (a linked app's
   downstream) is seeded as the unit's own is, and its plan named to the
   privileges seam (`proof/hq/seams.py::another_project_space`).

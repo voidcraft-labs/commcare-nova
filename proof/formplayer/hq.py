@@ -28,10 +28,10 @@ What HQ needs for that, each made with HQ's own code by ``serve``:
 - **a released build**: HQ's ``Application.make_build`` and the build's
   save, then HQ's own ``release_build`` view (``proof.webapps.hq``), whose
   id is the one Formplayer asks HQ's archive download for;
-- **a signed-in worker**: a Django session made by Django's own ``login``,
-  the call HQ's sign-in view ends in once it has accepted a password. The
-  sign-in form itself (the password, a second factor) is not run; this is
-  the one thing here a person does that the harness does for them.
+- **a signed-in worker**: the worker's username and password posted to
+  their project space's sign-in page as their browser posts its form, and
+  taken by HQ's own sign-in view (``sign_in``), which checks them and makes
+  the session the browser then holds.
 
 What the harness's HQ lacks is answered by a seam, each named where it is:
 
@@ -151,6 +151,22 @@ def _handler():
 
 
 _HANDLER: dict = {}
+
+
+def respond(request):
+    """HQ's answer to a request Django's server hands it (``django_request``), from the handler with HQ's own
+    middleware, with nothing of the request left on the thread after it. HQ's field audit middleware keeps the
+    request it saw in a context variable it never resets (``field_audit/middleware.py::process_view``): a server's
+    next request replaces it, and nothing of HQ runs between two. Here HQ's own code also runs outside any request
+    (making a worker, a role, a release), and would record its changes as made by the last request's user, or
+    raise where that request signed its user in, so the variable is put back as it was."""
+    from field_audit.field_audit import request as audit_request
+
+    held = audit_request.get()
+    try:
+        return _handler().get_response(request)
+    finally:
+        audit_request.set(held)
 
 
 def django_request(request: HqRequest):
@@ -338,7 +354,7 @@ class HqViews:
             _Errors() as errors,
             _language_put_back(),
         ):
-            response = _handler().get_response(django_request(request))
+            response = respond(django_request(request))
             if hasattr(response, "render") and not getattr(response, "is_rendered", True):
                 response.render()
             body = b"".join(response.streaming_content) if response.streaming else response.content
@@ -496,19 +512,93 @@ def save_cases(unit, database, worker):
         )
 
 
-def sign_in(user) -> str:
-    """A Django session for ``user``, made by Django's own ``login``; its key, which the browser's cookie holds."""
-    from django.conf import settings
-    from django.contrib.auth import login
-    from django.contrib.sessions.backends.cache import SessionStore
-    from django.http import HttpRequest
+# Where a person's browser has HQ's page open: HQ's own origin, as the requests built here reach it (Django's request
+# factory names the host ``testserver``), which HQ's CSRF check holds a form's Referer to.
+PAGE_ORIGIN = "https://testserver"
 
-    request = HttpRequest()
-    request.META = {"SERVER_NAME": settings.BASE_ADDRESS.split(":")[0], "SERVER_PORT": "443"}
-    request.session = SessionStore()
-    login(request, user.get_django_user(), backend=settings.AUTHENTICATION_BACKENDS[0])
-    request.session.save()
-    return request.session.session_key
+
+class SignInRefused(AssertionError):
+    """HQ's sign-in view did not sign a person in with their username and password."""
+
+
+@dataclass(frozen=True)
+class SignedIn:
+    """What a person's browser holds once HQ's sign-in view has signed them in: the session cookie HQ set, and the
+    CSRF token HQ set as it signed them in, which a page's form posts back."""
+
+    session: str
+    csrf: str
+
+    @property
+    def cookie(self) -> str:
+        """The ``Cookie`` header the browser sends HQ with both."""
+        from django.conf import settings
+
+        return f"{settings.SESSION_COOKIE_NAME}={self.session}; {settings.CSRF_COOKIE_NAME}={self.csrf}"
+
+
+def sign_in(unit, user, password: str, label: str) -> SignedIn:
+    """``user`` signed in through HQ's own sign-in form, as their browser signs them in, and what the browser holds
+    then.
+
+    The form is posted to the view HQ's URLconf names for the page, behind HQ's own middleware: a mobile worker
+    signs in on their project space's page (``hqwebapp/views.py::domain_login``) with the name they were given,
+    which the view completes with the project space's, and a web user on HQ's own (``login``) with their email
+    address. Each page is a ``two_factor`` sign-in wizard whose first step is HQ's authentication form
+    (``CloudCareAuthenticationForm``, ``EmailAuthenticationForm``), so what the browser posts is the page's CSRF
+    token, the wizard's step and the person's username and password, each under the name the view reads it by
+    (the wizard's own prefix, the step's). HQ's form checks the password and the person's lockout, the wizard
+    asks for any second factor the person holds, and the view signs them in with Django's ``login`` and
+    redirects; the browser then holds the session cookie and the rotated CSRF token HQ's answer set. The page's
+    own drawing is not run (its template names a script only a deployment's whole bundle holds,
+    ``hq_shared_tags.py::webpack_bundles``), so the CSRF cookie the page would have set is drawn here. It runs in
+    a request of the unit keyed by ``label`` and the person, so HQ draws the same session every time. A view that
+    does not answer with the redirect it gives a person it signed in raises ``SignInRefused``.
+    """
+    from urllib.parse import urlencode
+
+    from corehq.apps.hqwebapp.views import CloudCareLoginView, HQLoginView
+    from corehq.apps.users.util import raw_username
+    from django.conf import settings
+    from django.middleware.csrf import _get_new_csrf_string
+    from django.urls import reverse
+
+    if user.is_commcare_user():
+        path, view, typed = reverse("domain_login", args=[user.domain]), CloudCareLoginView, raw_username(user.username)
+    else:
+        path, view, typed = reverse("login"), HQLoginView, user.username
+    step = view.AUTH_STEP
+    digest = hashlib.sha256(f"sign-in|{label}|{user.username}".encode()).digest()
+    raised: list = []
+    with unit.committing(), unit.request(digest), _raised_by_views(raised), _language_put_back():
+        token = _get_new_csrf_string()
+        body = urlencode(
+            [
+                ("csrfmiddlewaretoken", token),
+                (f"{view().get_prefix(None)}-current_step", step),
+                (f"{step}-username", typed),
+                (f"{step}-password", password),
+            ]
+        ).encode()
+        headers = (
+            ("Content-Type", "application/x-www-form-urlencoded"),
+            ("Cookie", f"{settings.CSRF_COOKIE_NAME}={token}"),
+            ("Referer", f"{PAGE_ORIGIN}{path}"),
+        )
+        response = respond(django_request(HqRequest("POST", path, "", headers, body)))
+        if hasattr(response, "render") and not getattr(response, "is_rendered", True):
+            response.render()
+        content = b"".join(response.streaming_content) if response.streaming else response.content
+    session = response.cookies.get(settings.SESSION_COOKIE_NAME)
+    if response.status_code != 302 or session is None or not session.value:
+        cause = "".join(traceback.format_exception(*raised[-1]))[-3000:] if raised else content[:1500]
+        raise SignInRefused(
+            f"HQ's sign-in page {path} answered {user.username}'s username and password with"
+            f" {response.status_code}{'' if session is not None else ' and no session'}, where it signs a person in"
+            f" with a redirect and a session cookie; it answered: {cause!r}"
+        )
+    csrf = response.cookies.get(settings.CSRF_COOKIE_NAME)
+    return SignedIn(session.value, csrf.value if csrf is not None and csrf.value else token)
 
 
 @dataclass
@@ -575,9 +665,8 @@ class Served:
         with self.unit.fork():
             _redis_of(self.runner)
             hq_redis.flush()
-            with self.unit.committing(), self.operation("formplayer:sign-in", label):
-                session_key = sign_in(self.worker)
-            self.hq.begin(label, session_key)
+            signed_in = sign_in(self.unit, self.worker, PASSWORD, f"formplayer:{label.decode('utf-8', 'replace')}")
+            self.hq.begin(label, signed_in.session)
             forwarding = self.forwarding
             if forwarding is not None:
                 forwarding.begin(label)

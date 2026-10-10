@@ -73,7 +73,7 @@ def ask(unit, method, path, *, body=b"", headers=(), query="", label="request") 
     # HQ's locale middleware leaves the request's language active on the thread; the next page the thread
     # renders (an editor page, answered with no middleware) must not inherit it.
     with unit.committing(), unit.request(digest), formplayer_hq._language_put_back():
-        response = formplayer_hq._handler().get_response(
+        response = formplayer_hq.respond(
             formplayer_hq.django_request(HqRequest(method, path, query, tuple(headers), body))
         )
         if hasattr(response, "render") and not getattr(response, "is_rendered", True):
