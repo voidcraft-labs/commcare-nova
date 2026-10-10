@@ -118,9 +118,13 @@ Four session fields describe "what phase is the builder in":
   It is also the initial-build authoring lock: the store retains the raw
   Project capability in `projectCanEdit`, while effective `canEdit` remains
   false from materialization through authoritative whole-build completion.
-  A stopped partial plan stays locked. Chat reads `useProjectCanEdit`; every
-  builder editor, stale imperative handler, doc gate, and reconciler reads
-  effective `canEdit`. `derivePhase` keeps a materialized unfinished app in
+  A stopped partial plan stays locked. Chat and Project resource operations
+  (files and Project data) read `useProjectCanEdit`; direct blueprint editors,
+  their stale imperative handlers, doc gates, and the reconciler read effective
+  `canEdit`. Uploading, deleting an unreferenced file, and starting extraction
+  do not edit the blueprint. Selecting media into a blueprint still requires
+  its authoring capability, independently of library management authority.
+  `derivePhase` keeps a materialized unfinished app in
   `Generating`, so its real tree surrounds the central progress card instead
   of opening the edit canvas after the first slice.
 
@@ -135,10 +139,10 @@ Run-boundary actions are orthogonal and atomic:
 
 ## Mutable app access
 
-BuilderSession is the one client owner of `{projectId, role, canEdit,
-accessPhase, scopeEpoch}`. Existing apps seed the first four values from the
-RSC's atomic app snapshot; `/build/new` seeds them from the active Project's
-role with `baseSeq: 0` while its in-memory doc and reconciler stay dormant.
+BuilderSession is the one client owner of `{projectId, role, projectCanEdit,
+canEdit, accessPhase, scopeEpoch}`. Existing apps seed Project identity and
+capability from the RSC's atomic app snapshot; `/build/new` seeds them from the
+active Project's role with `baseSeq: 0` while its in-memory doc and reconciler stay dormant.
 Creation's one-shot receipt carries the exact sequence-1 canonical starter
 blueprint plus its module/form/field UUIDs; the client installs that blueprint
 before activating the reconciler, so session identity and confirmed doc state
@@ -147,8 +151,8 @@ stays with the reconciler. A new app is promoted only through
 `activateCreatedApp`, which installs its server-returned app id and complete
 Project capability tuple in one store update before the reconciler opens.
 `beginAccessRefresh`
-atomically sets `canEdit=false`, enters `refreshing`, and advances the monotonic
-scope epoch once; repeated triggers coalesce. A failed GET moves to
+atomically clears `projectCanEdit` and `canEdit`, enters `refreshing`, and advances
+the monotonic scope epoch once; repeated triggers coalesce. A failed GET moves to
 `reconnecting` without reopening edits. Only an atomic authorized snapshot can
 restore `authorized`/`canEdit`; confirmed view loss and a repeated receiver
 upgrade rejection have distinct terminal phases. Components consume named

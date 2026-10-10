@@ -179,14 +179,21 @@ Preview answer preservation, and draft/copy-source reconciliation across tabs.
 A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves one atomic `{projectId, role, canEdit, baseSeq}` snapshot; `/build/new` resolves the same tuple from the active Project with `baseSeq: 0` while its in-memory store and reconciler remain dormant. Both creation paths carry that captured `projectId` back as `expectedProjectId` and authorize it directly, so another tab changing the session's active Project cannot redirect the pending build. Chat creation returns the complete server-derived tuple plus the exact sequence-1 canonical starter blueprint and its module/form/field UUIDs. The client strictly validates that receipt, installs its blueprint under a remote-apply bracket, and only then activates multiplayer against that same confirmed base; it never reconstructs a starter or promotes a persisted empty app. The session store owns its mutable capability tuple (`useCanEdit()` / `useAccessPhase()`), and `BlueprintEditableBridge` reacts to it through `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:
 
 1. **Data backstop (the choke point).** `useBlueprintMutations`, `useSwitchConnectMode`, and `useUndoRedo` all read `BlueprintEditableContext` through the one `lib/doc/builderWriteAdmission.ts` — when `false`, every gated dispatch, Connect-mode switch, and undo/redo no-ops with a "view-only access" message, so no canvas affordance can mutate the doc even if its control wasn't hidden. `useAutoSave` and the reconciler both refuse to PUT when `!canEdit`.
-2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, undo/redo) for a "View only" badge and the structure sidebar's app-settings gear (`AppSettingsButton`, in its app row) renders nothing; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + local Export stay (a viewer may preview and download), but HQ upload and media upload/delete/attach/replace/remove do not. Their event handlers re-read `session.getState().canEdit` so a stale rendered control still cannot start a Project write. The account file manager stays browse/preview-capable for viewers.
+2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, undo/redo) for a "View only" badge and the structure sidebar's app-settings gear (`AppSettingsButton`, in its app row) renders nothing; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + local Export stay (a viewer may preview and download), but HQ upload and media upload/delete/attach/replace/remove do not. Event handlers re-read the matching live capability: `projectCanEdit` for Project files and data, effective `canEdit` for blueprint changes. Both require current access and retain their captured Project scope, so stale controls cannot authorize a write. The account file manager stays browse/preview-capable for viewers.
 3. **Server enforcement is the authority.** Every write path (`PUT /api/apps/[id]`, `/api/chat`, MCP) independently re-gates at `edit`, so the UI flag is a UX nicety, never the security boundary.
 
 The same effective capability enforces the initial-build boundary for an
-editor. After design materialization, `projectCanEdit` keeps chat available but
+editor. After design materialization, `projectCanEdit` keeps chat and Project
+file operations available but
 `canEdit` stays false while `buildUnfinished` is true: the committed app tree
 fills in read-only around the central progress card, and no human autosave can
-race Nova's remaining slices. Whole-build completion releases it. After a
+race Nova's remaining slices. The chat picker and account Files manager permit
+uploads, unreferenced-file deletion, and extraction under Project edit authority.
+Chat can attach an uploaded or existing file to a typed answer while the app is
+locked; selecting media into the blueprint still requires app authoring authority.
+Project data controls also use Project authority without changing when their
+workspace mounts or relaxing admin/owner requirements for destructive operations.
+Whole-build completion releases the app authoring lock. After a
 settled interruption with committed work, the app tree remains inspectable but
 locked: no partial-plan transition can mark it complete or unlock authoring. A
 viewer sees the same stopped state without controls. Provider, transport,

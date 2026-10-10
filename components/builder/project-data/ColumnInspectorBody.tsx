@@ -34,7 +34,7 @@ import type {
 	LookupRevision,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
-import { useCanDelete, useCanEdit } from "@/lib/session/hooks";
+import { useCanDelete, useProjectCanEdit } from "@/lib/session/hooks";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
 import { LookupOrderingSection } from "./LookupOrderingSection";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
@@ -58,7 +58,7 @@ export function ColumnInspectorBody({
 	table: LookupTableSnapshot;
 	workspace: ProjectDataWorkspace;
 }) {
-	const canEdit = useCanEdit();
+	const canEdit = useProjectCanEdit();
 	const canDelete = useCanDelete();
 	const labelId = useId();
 	const wireNameId = useId();

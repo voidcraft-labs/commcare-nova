@@ -30,7 +30,11 @@ import type {
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useCanDelete, useCanEdit, useProjectId } from "@/lib/session/hooks";
+import {
+	useCanDelete,
+	useProjectCanEdit,
+	useProjectId,
+} from "@/lib/session/hooks";
 import { AddColumnDialog } from "./AddColumnDialog";
 import { CsvImportDialog } from "./CsvImportDialog";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
@@ -53,7 +57,7 @@ export function TableActions({
 	table: LookupTableSnapshot;
 	workspace: ProjectDataWorkspace;
 }) {
-	const canEdit = useCanEdit();
+	const canEdit = useProjectCanEdit();
 	const canDelete = useCanDelete();
 	const projectId = useProjectId();
 	const navigate = useNavigate();

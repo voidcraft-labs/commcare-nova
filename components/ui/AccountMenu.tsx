@@ -371,7 +371,7 @@ export function AccountMenu({
 				onOpenChange={setFileManagerOpen}
 				kinds={ASSET_KINDS}
 				iconLibrary="all"
-				canWrite={canManageFiles}
+				canManageFiles={canManageFiles}
 				appId={appId}
 			/>
 		</>

@@ -502,25 +502,23 @@ export function useIsLoading(): boolean {
  * never written, so every fallback consumer shares one stable, editable store. */
 const FALLBACK_SESSION_STORE = createBuilderSessionStore();
 
-/** Whether this session's user may edit the app — `true` for
- *  editor/admin/owner Project members (including a role-seeded new build),
- *  `false` for viewers. Drives the read-only builder experience: every edit
- *  affordance hides or disables on `false`, and `useAutoSave` refuses to PUT,
- *  so a viewer's stray local change never reaches the server (which would
- *  reject the write as a 404).
+/** Whether direct app-document authoring is currently allowed. Requires Project
+ *  edit capability with no unfinished initial build. Builder controls, mutation
+ *  gates, and autosave use this capability so human edits cannot race the
+ *  unfinished build. Project resources use {@link useProjectCanEdit} instead.
  *
- *  Provider-optional: a builder leaf rendered outside a `BuilderSessionProvider`
- *  (a standalone preview, a unit test) reads `true` from the fallback rather
- *  than throwing — read-only is a concept that only exists inside a session. */
+ *  Provider-optional: standalone builder leaves read `true` from the fallback.
+ *  Server write paths independently enforce Project membership. */
 export function useCanEdit(): boolean {
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	return useStore(store, (s) => s.canEdit);
 }
 
-/** The caller's durable Project capability, independent of the initial-build
- * authoring lock. Chat remains the control surface while Nova is assembling
- * the first complete app, so it needs this narrower read while every direct
- * builder editor uses {@link useCanEdit}. */
+/** The caller's Project edit capability, independent of the initial-build
+ *  authoring lock. Chat, file uploads/deletion/extraction, and Project data
+ *  controls use this authority; selecting media into a blueprint additionally
+ *  requires {@link useCanEdit}. Access refresh or loss clears both capabilities.
+ *  Resource operations must also preserve their captured Project scope. */
 export function useProjectCanEdit(): boolean {
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	return useStore(store, (s) => s.projectCanEdit);
