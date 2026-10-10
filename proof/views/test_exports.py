@@ -72,7 +72,7 @@ def _walked(served, runner):
     from proof.formplayer.walk import Walk
 
     with served.run("export"):
-        trace = Walk(runner, served.hq, domain=served.domain, app_id=served.build_id, scope=lambda name: nullcontext())
+        trace = Walk.of(served, runner=runner, scope=lambda name: nullcontext())
         walked = trace.run()
         yield walked
 

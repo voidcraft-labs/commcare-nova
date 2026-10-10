@@ -52,7 +52,7 @@ def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_
 
     with webapps_hq.project(webapps_documents[DOCUMENT]) as project:
         with project.released(formplayer_runner) as release:
-            walk = Walk(release.runner, release.hq, domain=release.domain, app_id=release.build_id, scope=release.run)
+            walk = Walk.of(release)
             derived = walk.run()
             (run,) = [each for each in derived["runs"] if any("answers" in step for step in each["steps"])]
             # The walk again, its uploads at the same places of their runs, so each draws the id the first drew.

@@ -205,6 +205,60 @@ const HOP_HEADERS = new Set([
 
 const tools = createRequire(path.join(TOOLS, "package.json"));
 const { chromium } = tools("playwright-core");
+
+// The web font HQ's pages load (hqwebapp/base.html links Google Fonts'
+// stylesheet for Nunito Sans, the face HQ's stylesheets name first), served
+// from the image (the font's own package, OFL-1.1, among the image's Node
+// tools) where the page asks Google for it, so the page lays its text out in
+// HQ's face; every other host stays refused.
+const FONTS_ORIGIN = "https://fonts.googleapis.com";
+const FONTS = {
+	"Nunito Sans": path.dirname(
+		tools.resolve("@fontsource/nunito-sans/package.json"),
+	),
+};
+
+/**
+ * Google Fonts' answer to a request of its stylesheet (`/css?family=Name:w1,w2`,
+ * `|` between families) or of a font file the stylesheet names (relative to
+ * it, `/files/<file>`), from the fonts the image holds: each weight asked for
+ * that the font has, in the order asked; null for anything else.
+ */
+async function webFont(url) {
+	if (url.pathname === "/css") {
+		const sheets = [];
+		for (const asked of (url.searchParams.get("family") ?? "").split("|")) {
+			const [family, weights = "400"] = asked.split(":");
+			const directory = FONTS[family];
+			if (!directory) return null;
+			for (const weight of weights.split(",")) {
+				const file = path.join(directory, `${weight}.css`);
+				const found = await readFile(file, "utf8").catch(() => null);
+				if (found !== null) sheets.push(found);
+			}
+		}
+		if (!sheets.length) return null;
+		return {
+			contentType: "text/css; charset=utf-8",
+			body: Buffer.from(sheets.join("\n")),
+		};
+	}
+	const name = url.pathname.startsWith("/files/")
+		? url.pathname.slice("/files/".length)
+		: null;
+	if (!name || name.includes("/")) return null;
+	for (const directory of Object.values(FONTS)) {
+		const body = await readFile(path.join(directory, "files", name)).catch(
+			() => null,
+		);
+		if (body !== null)
+			return {
+				contentType: name.endsWith(".woff2") ? "font/woff2" : "font/woff",
+				body,
+			};
+	}
+	return null;
+}
 const playwrightVersion = tools("playwright-core/package.json").version;
 
 const CONTENT_TYPES = {
@@ -1951,6 +2005,19 @@ class PageRun {
 		const url = new URL(request.url());
 		const entry = { method: request.method(), url: request.url() };
 		this.requests.push(entry);
+		if (url.origin === FONTS_ORIGIN) {
+			const font = await webFont(url);
+			if (font) {
+				entry.answeredBy = "font";
+				entry.status = 200;
+				await route.fulfill({
+					status: 200,
+					contentType: font.contentType,
+					body: font.body,
+				});
+				return;
+			}
+		}
 		if (url.origin !== ORIGIN) {
 			entry.answeredBy = "refused";
 			await route.abort("blockedbyclient");
@@ -2522,6 +2589,9 @@ async function runOperation(message) {
 	const context = await browser.newContext({
 		baseURL: ORIGIN,
 		javaScriptEnabled: true,
+		// The window the run's pages are laid out in (a phone's, for what a
+		// worker sees on a small screen), or Playwright's own desktop window.
+		...(message.viewport ? { viewport: message.viewport } : {}),
 	});
 	const started = Date.now();
 	let outcomes = [];

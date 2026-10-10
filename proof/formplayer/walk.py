@@ -4,19 +4,24 @@
 them against Core (``proof/core/src/nova/proof/core/SessionOp.java``), each a
 sequence of the requests the Web Apps client sends (``proof.formplayer.
 webapps``). Without a script one is derived: every command of every menu,
-depth first in menu order; at each case list the first case Formplayer lists;
-at each search screen the search a worker sends after typing the answer
-table's search answers into its prompts (``typed_inputs``, a step of its own
+depth first in menu order; at each case list every case Formplayer lists, each
+a run of its own (``proof.observe.walks.cases_opened``); at each search
+screen the search a worker sends after typing the answer table's search
+answers into its prompts (``typed_inputs``, a step of its own
 that HQ's search view answers), then the search sent with the prompts as
-Formplayer shows them, which the run goes on with. With a script, each run
-replays it, and a choice the screen cannot take ends that run as
-``unreplayable``. A run that reaches a form answers its
+Formplayer shows them, which the run goes on with. Every derived run is then walked again in each other
+language the app holds, the language chosen at the app's first screen as a
+worker chooses it in Web Apps (``proof.observe.walks``): the client then
+sends that locale on every request. With a script, each run replays it, and
+a choice the screen cannot take ends that run as ``unreplayable``. A run that reaches a form answers its
 questions from the lane's fixed answer table (``proof/core/answers.json``,
 whose values are already in the encoding Web Apps sends Formplayer; a file
 question, signature included, is given the table's file for its kind from
 ``proof/core/captures``, uploaded as the client uploads one, ``media_kind``
 and ``WebApps.answer_media``), submits
-it as the client does, and records Formplayer's answer, the submission HQ
+it as the client does (``submission``: every question the client holds valid,
+with the answer Formplayer last handed it, and ``prevalidated`` only where it
+holds every one valid), and records Formplayer's answer, the submission HQ
 received and the screen Formplayer's end of form navigation names next.
 
 Every run starts as a worker starts after clearing their data in Web Apps
@@ -52,6 +57,7 @@ from proof.core.client import DEFAULT_CLOCK
 from proof.formplayer import canonical
 from proof.formplayer.client import FormplayerRunner, HqHandler
 from proof.formplayer.webapps import FormplayerRefused, WebApps
+from proof.observe import walks
 
 ANSWERS_PATH = Path(__file__).resolve().parents[1] / "core" / "answers.json"
 MAX_RUNS = 500
@@ -115,6 +121,31 @@ def typed_inputs(displays, answers) -> dict[str, str]:
     return typed
 
 
+# The data types the Web Apps client draws a widget for (``entries.js::getEntry``, Formplayer's names as
+# ``form_entry/const.js`` holds them): a question of any other (a date and time) is drawn as unsupported, with
+# nothing a worker can answer it with.
+CLIENT_DATA_TYPES = frozenset(
+    {"str", "barcode", "int", "longint", "float", "select", "multiselect", "date", "time", "geo", "info"}
+)
+# Formplayer's name for a question's style that asks for an address, which the client answers only with the
+# geocoder (``const.js``, ``ADDRESS``).
+ADDRESS = "address"
+
+
+def answerable(question: Mapping[str, Any]) -> bool:
+    """Whether the Web Apps client draws a widget a worker answers ``question`` with (``entries.js::getEntry``):
+    a question of a data type it supports, but an address (which needs the project space's geocoder, which no
+    Nova export asks for) and a file question of a control it draws no chooser for. The walk answers only what a
+    worker in Web Apps can, so its submission is the client's."""
+    datatype = question.get("datatype")
+    if datatype == "binary":
+        return media_kind(question) is not None
+    style = question.get("style") if isinstance(question.get("style"), dict) else {}
+    if datatype in ("str", "barcode") and ADDRESS in str(style.get("raw") or "").split():
+        return False
+    return datatype in CLIENT_DATA_TYPES
+
+
 def media_kind(question: Mapping[str, Any]) -> str | None:
     """The kind of file a file question takes, as the Web Apps client draws its widget (``entries.js::getEntry``
     for a binary question: an image control with the ``signature`` appearance draws a signature pad, and an image,
@@ -127,6 +158,23 @@ def media_kind(question: Mapping[str, Any]) -> str | None:
     if kind == "image" and "signature" in str(style.get("raw") or "").split():
         return "signature"
     return kind
+
+
+def submission(tree: Sequence[Mapping[str, Any]], refused: set[str]) -> dict[str, Any]:
+    """What the Web Apps client submits of a form (``web_form_session.js::submitForm``, ``accumulateAnswers``):
+    each question it holds valid, by its index, with the answer Formplayer last handed it (a label's as ``OK``),
+    and ``prevalidated`` only where it holds every question valid. A question is not valid while Formplayer's
+    last answer to it was a validation error (``form_ui.js``, ``session.reconcile`` sets its ``serverError``, and
+    the next answer it takes clears it): ``refused`` holds those, by index."""
+    answers, prevalidated = {}, True
+    for node in questions(tree):
+        if node.get("type") != "question":
+            continue
+        if str(node.get("ix")) in refused:
+            prevalidated = False
+            continue
+        answers[node["ix"]] = "OK" if node.get("datatype") == "info" else node.get("answer")
+    return {"answers": answers, "prevalidated": prevalidated}
 
 
 def load_answer_table(path: Path = ANSWERS_PATH) -> dict[str, Any]:
@@ -168,6 +216,11 @@ class Walk:
     hq: HqHandler
     domain: str
     app_id: str
+    # The languages the app holds, its default first (``proof.observe.walks``): a run starts in the default, and
+    # a derived walk is walked again in each other.
+    languages: Sequence[str] = ()
+    # The locale every request names until a run chooses another; by default the app's default language, which
+    # is what the Web Apps page sends for a worker who never chose one.
     locale: str | None = None
     answer_table: Mapping[str, Any] = field(default_factory=load_answer_table)
     clock: str = DEFAULT_CLOCK
@@ -175,6 +228,20 @@ class Walk:
     # views over a unit's state (``proof.formplayer.hq.Served.run``) it is a fork of that state with the worker
     # signed in, so no run reads what another's submission left in HQ.
     scope: Callable[[str], Any] = lambda name: nullcontext()
+
+    @classmethod
+    def of(cls, served, *, runner=None, app_id: str | None = None, scope=None) -> Walk:
+        """The walk of a state HQ serves (``proof.formplayer.hq.Served``) in every language its app holds, each
+        run in a run of the state (``Served.run``) unless ``scope`` says otherwise; ``app_id`` names an archive HQ
+        does not hold in place of the released build (Nova's local archive)."""
+        return cls(
+            runner or served.runner,
+            served.hq,
+            domain=served.domain,
+            app_id=app_id or served.build_id,
+            languages=served.languages,
+            scope=scope or served.run,
+        )
 
     # -- one execution -----------------------------------------------------
 
@@ -186,7 +253,7 @@ class Walk:
             domain=self.domain,
             username=self.hq.username,
             app_id=self.app_id,
-            locale=self.locale,
+            locale=self.locale if self.locale is not None else walks.default_language(self.languages),
             # The Django session HQ made for the worker as the run began (``proof.formplayer.hq.Served.run``).
             session_key=self.hq.session_key,
         )
@@ -213,6 +280,9 @@ class Walk:
         )
 
     def _values(self, question: Mapping[str, Any]) -> list[str]:
+        if not answerable(question):
+            # Nothing a worker in Web Apps can give it.
+            return []
         if question.get("datatype") == "info":
             return list(self.answer_table["controls"]["trigger"])
         kind = media_kind(question)
@@ -223,10 +293,13 @@ class Walk:
         today = self.clock.split("T", 1)[0]
         return [value.replace("@clock:today", today).replace("@clock:now", self.clock) for value in values]
 
-    def _fill(self, web: WebApps, form: Mapping[str, Any]) -> tuple[list[dict], list[Mapping[str, Any]]]:
-        """Answers each question once from the table, in the order Formplayer lists them as they become relevant."""
+    def _fill(self, web: WebApps, form: Mapping[str, Any]) -> tuple[list[dict], list[Mapping[str, Any]], set[str]]:
+        """Answers each question once from the table, in the order Formplayer lists them as they become relevant;
+        with the attempts, the form's tree as the last accepted answer left it and the questions whose last answer
+        Formplayer refused as invalid (``submission``)."""
         session, tree = form["session_id"], form["tree"]
         tried: set[str] = set()
+        refused: set[str] = set()
         attempts: list[dict] = []
         for _ in range(MAX_QUESTIONS):
             pending = next(
@@ -252,20 +325,21 @@ class Walk:
                     content = (CAPTURES_DIR / value).read_bytes()
                     answered = web.answer_media(session, pending["ix"], value, content, CONTENT_TYPES[value])
                     attempts.append({"ix": pending["ix"], "value": value, "media": kind, "response": answered})
+                # The client marks a question invalid on a validation error and valid again on the next answer
+                # Formplayer takes (``form_ui.js``, ``session.reconcile``).
+                if answered.get("status") == "validation-error":
+                    refused.add(str(pending["ix"]))
+                else:
+                    refused.discard(str(pending["ix"]))
                 if answered.get("status") == "accepted":
                     tree = answered.get("tree", tree)
                     break
-        return attempts, tree
+        return attempts, tree, refused
 
-    def _submit(self, web: WebApps, form: Mapping[str, Any], tree) -> Any:
-        """The submission as the client makes it: every question's answer as the tree holds it, a label's as OK
-        (``web_form_session.js::submitForm``, ``accumulateAnswers``)."""
-        answers = {
-            node["ix"]: ("OK" if node.get("datatype") == "info" else node.get("answer"))
-            for node in questions(tree)
-            if node.get("type") == "question"
-        }
-        return web.submit(form["session_id"], answers)
+    def _submit(self, web: WebApps, form: Mapping[str, Any], tree, refused: set[str]) -> tuple[dict, Any]:
+        """The submission as the client makes it (``submission``), and Formplayer's answer to it."""
+        sent = submission(tree, refused)
+        return sent, web.submit(form["session_id"], sent["answers"], prevalidated=sent["prevalidated"])
 
     def execute(self, script: Sequence[Mapping[str, Any]], derive: bool):
         """One run of ``script``, inside the walk's scope for it; or, while deriving, the choices to branch on
@@ -305,6 +379,21 @@ class Walk:
                 kind = screen_kind(response)
                 if isinstance(response, dict) and isinstance(response.get("selections"), list):
                     selections = [str(selection) for selection in response["selections"]]
+                if cursor < len(script) and walks.LANGUAGE in script[cursor]:
+                    # A language chosen as a worker chooses it in Web Apps, from the menu over the app's screens
+                    # (``menus/views.js::LanguageOptionView``): the client asks for the same screen in that locale
+                    # (``web_form_session.js::changeLang``, ``menus/api.js``), and names it on every request after.
+                    choice = script[cursor]
+                    cursor += 1
+                    if kind not in ("commands", "entities", "query"):
+                        # The client draws that menu over a menu, a list or a search screen alone
+                        # (``menus/controller.js::showMenu``).
+                        end = "language-unoffered"
+                        break
+                    ran.append(choice)
+                    web.locale = choice[walks.LANGUAGE]
+                    response = navigate(locale=web.locale)
+                    continue
                 if kind == "commands":
                     commands = response.get("commands") or []
                     if cursor < len(script):
@@ -335,12 +424,12 @@ class Walk:
                         if not (taken or offered):
                             end = "unreplayable"
                             break
-                    elif derive and fresh_actions(response, actions, ran):
-                        # A list that offers actions (a search, a registration form) branches: its first case,
-                        # then each action this run has not taken from this list already (a search's results
-                        # are the same list again, offering the same search).
-                        first = [{"entity": entities[0]["id"]}] if entities else []
-                        return None, [*first, *fresh_actions(response, actions, ran)], ran
+                    elif derive and (len(entities) > 1 or fresh_actions(response, actions, ran)):
+                        # A list branches: each case it lists (``proof.observe.walks.cases_opened``), then each
+                        # action this run has not taken from this list already (a search's results are the same
+                        # list again, offering the same search).
+                        cases = [{"entity": case} for case in walks.cases_opened([e["id"] for e in entities])]
+                        return None, [*cases, *fresh_actions(response, actions, ran)], ran
                     elif not entities:
                         end = "empty-list"
                         break
@@ -392,11 +481,12 @@ class Walk:
                     query_data = {**query_data, key: {"inputs": {}, "execute": True}}
                     response = navigate()
                 elif kind == "form":
-                    attempts, tree = self._fill(web, response)
-                    submitted = self._submit(web, response, tree)
+                    attempts, tree, refused = self._fill(web, response)
+                    sent, submitted = self._submit(web, response, tree, refused)
                     steps.append(
                         {
                             "answers": attempts,
+                            "submitted": sent,
                             "submit": submitted,
                             "asked": self.hq.asked[asked_from:],
                             "submissions": [
@@ -428,7 +518,9 @@ class Walk:
     # -- every run -----------------------------------------------------------
 
     def run(self, script: Sequence[Sequence[Mapping[str, Any]]] | None = None) -> dict[str, Any]:
-        """Every run's trace: derived where ``script`` is None, else each of its runs replayed."""
+        """Every run's trace: derived where ``script`` is None, each derived run then walked again in each other
+        language the app holds (``proof.observe.walks.in_every_language``); else each of the script's runs
+        replayed."""
         runs = []
         started = time.perf_counter()
         with self.scope("forget-app"):
@@ -449,7 +541,11 @@ class Walk:
                     pending.extend([*ran, branch] for branch in reversed(branches))
                 else:
                     runs.append(run)
-        return {"derived": script is None, "clock": self.clock, "locale": self.locale, "runs": runs}
+            derived = [list(run["script"]) for run in runs]
+            for steps in walks.in_every_language(derived, self.languages)[len(derived) :]:
+                runs.append(self.execute(steps, derive=False)[0])
+        locale = self.locale if self.locale is not None else walks.default_language(self.languages)
+        return {"derived": script is None, "clock": self.clock, "locale": locale, "runs": runs}
 
 
 def script_of(trace: Mapping[str, Any]) -> list[list[Mapping[str, Any]]]:

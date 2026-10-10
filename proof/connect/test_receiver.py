@@ -55,10 +55,10 @@ class World:
         archives = out / "archives"
         archives.mkdir(exist_ok=True)
         for app in apps.values():
-            for name, content in app.archives.items():
+            for name, download in app.downloads.items():
                 path = archives / f"{app.document}.{name}.ccz"
-                path.write_bytes(content)
-                self._paths[(app.document, name)] = str(path)
+                path.write_bytes(download.body)
+                self._paths[(app.document, name)] = (download, str(path))
         self.unit, self.unit_renamed = self.deliver.renames["deliver"]
         self.task, self.task_renamed = self.deliver.renames["task"]
         self.module, self.module_renamed = self.learn.renames["module"]
@@ -78,15 +78,14 @@ class World:
         }
 
     def sync(self, learn="built", deliver="built", learn_app=None, deliver_app=None):
-        """Connect's sync over HQ's archives of the two apps: each as published, or after its edit ("renamed")."""
+        """Connect's sync of the two apps, its downloads answered as HQ's own archive view answered each: the app
+        as published and released, or after its edit ("renamed")."""
         learn_app, deliver_app = learn_app or self.learn, deliver_app or self.deliver
-        return {
-            "do": "sync",
-            "ccz": {
-                learn_app.app_id: self._paths[(learn_app.document, learn)],
-                deliver_app.app_id: self._paths[(deliver_app.document, deliver)],
-            },
-        }
+        answered = []
+        for app, name in ((learn_app, learn), (deliver_app, deliver)):
+            download, path = self._paths[(app.document, name)]
+            answered.append({"path": download.path, "query": download.query, "status": download.status, "body": path})
+        return {"do": "sync", "hq": answered}
 
     def pay(self, *units):
         return {"do": "pay", "name": "Visits", "deliverUnits": list(units)}
@@ -229,13 +228,14 @@ def test_the_form_that_delivers_also_completes_the_workers_assigned_task(world):
 
 
 def test_a_local_archives_submission_names_no_app_and_connect_refuses_it(world, connect_apps):
-    """HQ's build tells the device to post to the receiver under the app's id; Nova's local archive names no
+    """HQ's release tells the device to post to the receiver under the build's id; Nova's local archive names no
     submission URL at all, so no post from it names the app. Posted to the project space's receiver with no app
     named, HQ records no app, forwards a payload whose app id is null, and Connect refuses it and writes
     nothing. The same submission received under the app's id is accepted (the two tests above)."""
     for app in (world.learn, world.deliver):
-        with zipfile.ZipFile(io.BytesIO(app.archives["built"])) as built:
-            assert post_url(built.read("profile.ccpr")).endswith(f"/a/{app.domain}/receiver/{app.app_id}/")
+        release = app.downloads["built"]
+        with zipfile.ZipFile(io.BytesIO(release.body)) as built:
+            assert post_url(built.read("profile.ccpr")).endswith(f"/a/{app.domain}/receiver/{release.build_id}/")
         assert post_url(app.local_profile) is None
         unnamed = app.submissions["local-unnamed"]
         assert unnamed.forwarded.forwards is True

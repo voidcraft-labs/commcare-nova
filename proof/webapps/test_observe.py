@@ -18,6 +18,13 @@ Contracts:
   equal as canonical JSON: the record holds no id Formplayer drew, no time
   and no path. The plausible failure is a value the page writes from its
   clock or an id drawn outside an operation reaching a screen.
+- **Every run is replayed on a desktop and on a phone, in every language
+  the app holds, for every case of a list**, and the client submits what
+  Formplayer's walk submitted (``observe.submitted_alike`` raises
+  otherwise). The plausible failures are a replay that never chooses the
+  language (its screens the default's), a list whose later cases are not
+  walked, a phone's list whose later page is never turned to, and a walk
+  that submits what no worker in Web Apps can.
 - **A choice the replay has no click for is refused by name**, never
   skipped, so a walk that grows a new kind of choice ends the observation
   instead of thinning it.
@@ -29,11 +36,14 @@ import json
 
 import pytest
 
+from proof.observe import walks
 from proof.webapps import hq as webapps_hq
 from proof.webapps import observe
+from proof.webapps import steps as steps_module
 
-# Each document, and whether some run of its walk reaches a form (the second is a case list with no form).
-DOCUMENTS = (("targeted-custom-tile", True), ("case-list-browse", False))
+# Each document, and whether some run of its walk reaches a form (the second is a case list with no form; the
+# third holds two languages and a case list).
+DOCUMENTS = (("targeted-custom-tile", True), ("case-list-browse", False), ("localization-bilingual", True))
 
 
 def _canonical(value) -> str:
@@ -49,13 +59,17 @@ def test_a_documents_web_apps_observation_reads_every_screen_of_the_walk_and_is_
 
     with webapps_hq.project(webapps_documents[document]) as project:
         with project.released(formplayer_runner) as release:
-            walk = Walk(release.runner, release.hq, domain=release.domain, app_id=release.build_id, scope=release.run)
+            walk = Walk.of(release)
             walked = walk.run()
             first = observe.shown(release, editor_driver, walked)
             second = observe.observe(release, editor_driver)
     evidence("observation", first)
     assert first["runs"], "Formplayer's walk of the build made no run, so there is nothing a worker reaches."
-    for run, each in zip(first["runs"], walked["runs"], strict=True):
+    desktop = [run for run in first["runs"] if "viewport" not in run]
+    small = [run for run in first["runs"] if run.get("viewport") == observe.SMALL]
+    assert len(desktop) == len(small) == len(walked["runs"]) and len(first["runs"]) == 2 * len(walked["runs"])
+    assert [run["script"] for run in small] == [run["script"] for run in desktop]
+    for run, each in [*zip(desktop, walked["runs"], strict=True), *zip(small, walked["runs"], strict=True)]:
         assert "stopped" not in run, run
         assert len(run["screens"]) == observe._expected_screens(each)
         # The app's first screen is its menu, and no two screens in a row are the same screen read twice.
@@ -72,6 +86,19 @@ def test_a_documents_web_apps_observation_reads_every_screen_of_the_walk_and_is_
         assert run["submit"] == "submitted", run
         assert run["answers"] and all(said == "answered" for said in run["answers"]), run["answers"]
         assert "form" in run["screens"][-2] and "form" not in run["screens"][-1]
+    # Every case each list shows is walked, each in a run of its own, and every language the app holds.
+    lists = {
+        tuple(sorted(row["id"] for row in screen["list"]["rows"]))
+        for run in desktop
+        for screen in run["screens"]
+        if isinstance(screen.get("list"), dict) and screen["list"].get("rows")
+    }
+    for listed in lists:
+        chosen = {choice["entity"] for run in walked["runs"] for choice in run["script"] if "entity" in choice}
+        assert set(listed) <= chosen, (listed, chosen)
+    languages = release.languages
+    in_languages = {walks.language_of(run["script"]) for run in walked["runs"]}
+    assert in_languages == {None, *languages[1:]}, (in_languages, languages)
 
 
 def test_a_choice_the_replay_has_no_click_for_is_refused_and_a_known_one_is_replayed():
@@ -81,3 +108,25 @@ def test_a_choice_the_replay_has_no_click_for_is_refused_and_a_known_one_is_repl
     unknown = {"script": [{"swipe": "left"}], "steps": [{"request": {}, "response": {"type": "commands"}}]}
     with pytest.raises(observe.Unreplayable, match="swipe"):
         observe.clicks(unknown)
+
+
+def test_a_language_is_chosen_from_the_menu_and_a_later_page_is_turned_to_on_a_phone():
+    """A language choice opens the menu over the app's screens and clicks that language; on a phone a case past
+    the fifth of its list is reached by its page's button, and on a desktop by its row alone."""
+    run = {
+        "script": [{"language": "es"}, {"menu": 0}, {"entity": "c7"}],
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands"}},
+            {"request": {"selections": []}, "response": {"type": "commands"}},
+            {
+                "request": {"selections": ["0"]},
+                "response": {"type": "entities", "entities": [{"id": f"c{n}"} for n in range(1, 9)]},
+            },
+            {"request": {"selections": ["0", "c7"]}, "response": {"type": "commands"}},
+        ],
+    }
+    selectors = lambda made: [step["arg"]["selector"] for step in made if step.get("until") == "webapps/click"]  # noqa: E731
+    desktop, phone = selectors(observe.clicks(run)), selectors(observe.plan(run, small=True)[0])
+    assert desktop[:2] == [steps_module.MENU_DROPDOWN, steps_module.LANGUAGE_OPTION.format("es")]
+    assert steps_module.PAGE.format(1) in phone and steps_module.PAGE.format(1) not in desktop
+    assert desktop[-1] == phone[-1] == "#menu-region [id='row-c7']"

@@ -87,6 +87,46 @@ def navigate(
 
 # A case detail's Continue (``partials/case_detail.html``, ``module-case-detail``).
 CONTINUE = "#select-case"
+# The menu over the app's screens (``partials/menu/dropdown.html``, ``menu-dropdown-template``): its toggle, and
+# each language it offers, by the language's code (``language-option-template``).
+MENU_DROPDOWN = "#menu-dropdown > .dropdown-toggle"
+LANGUAGE_OPTION = "#menu-dropdown a.lang[id='{}']"
+NAVIGATE = "/formplayer/navigate_menu"
+
+
+# A case list's page button (``partials/pagination.html``: each page's item, by its index from 0), and how many
+# cases a page holds on a small screen (``menus/api.js``: five at or under ``SMALL_SCREEN_WIDTH_PX``).
+PAGE = "#menu-region li.page-item.js-page[data-id='{}']"
+SMALL_SCREEN_PAGE = 5
+
+
+def turn_to(page: int, *, within=None, or_skip_to=None) -> list[dict]:
+    """A case list turned to ``page`` as a worker turns it, by its page button, then Formplayer's answer to the
+    request the client sends for that page and the client's arrival."""
+    [step, _settle] = click(PAGE.format(page), visible=True, within=within, or_skip_to=or_skip_to)
+    return [
+        {"mark": True},
+        step,
+        {"awaitRequest": {"method": "POST", "pathname": NAVIGATE}, "sinceMark": True, "unlessMissed": True},
+        *arrive(any_screen=True),
+    ]
+
+
+def choose_language(code: str, arrival: list[dict], *, within=None, or_skip_to=None) -> list[dict]:
+    """A language chosen as a worker chooses it: the menu over the app's screens opened, the language clicked
+    (``menus/views.js::LanguageOptionView``), then Formplayer's answer to the request the client sends for the
+    same screen in that language (``web_form_session.js::changeLang`` asks it after loading the menus'
+    controller, so the route is already where it leads before anything is sent), then the client's arrival."""
+    [opened, _settle] = click(MENU_DROPDOWN, within=within, or_skip_to=or_skip_to)
+    [chosen, _settle] = click(LANGUAGE_OPTION.format(code), visible=True, within=within, or_skip_to=or_skip_to)
+    return [
+        opened,
+        SETTLE,
+        {"mark": True},
+        chosen,
+        {"awaitRequest": {"method": "POST", "pathname": NAVIGATE}, "sinceMark": True, "unlessMissed": True},
+        *arrival,
+    ]
 
 
 def searched(arrival: list[dict], end: str | None) -> list[dict]:

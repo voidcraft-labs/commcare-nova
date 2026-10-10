@@ -117,6 +117,15 @@ const PAGE_ENTRIES = [
 	// cloudcare/formplayer_home.html: Web Apps, the client the Web Apps
 	// driver runs against Formplayer (proof/webapps)
 	"cloudcare/js/formplayer/main",
+	// cloudcare/preview_app_base.html: App Preview, the same client under the
+	// app builder's preview page (proof/webapps)
+	"cloudcare/js/preview_app/main",
+	// motech/connection_settings_detail.html and
+	// repeaters/add_form_repeater.html: the Connection Settings and Add
+	// Forwarder pages a project space's admin sets Connect's forwarder up
+	// with (proof/connect/hq.py)
+	"motech/js/connection_settings_detail",
+	"repeaters/js/add_form_repeater",
 ];
 
 // HQ's form designer page entry, whose page JavaScript adds options to

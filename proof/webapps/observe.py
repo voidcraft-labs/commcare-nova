@@ -3,12 +3,14 @@
 Where ``proof.formplayer.observe`` keeps what Formplayer answers on a walk
 of a build, this keeps what the Web Apps client then shows a worker on the
 same walk. The walk is Formplayer's own, derived on the released build
-(``proof.formplayer.walk``: every menu command, the first case of each
-list, each list action once, each search, each form answered and
-submitted); each of its runs is then replayed whole in the browser by what a
+(``proof.formplayer.walk``: every menu command, every case of each list,
+each list action once, each search, each form answered and submitted, in
+every language the app holds); each of its runs is then replayed whole in the browser by what a
 worker does (``plan``), and the page is read after every step that leads
 somewhere (``steps.SCREEN``):
 
+- a language is chosen from the menu over the app's screens, as a worker
+  chooses one (``steps.choose_language``);
 - a menu choice is a click on that row of the menu;
 - a case is a click on its row, then, where the client opens the case's
   detail, a read of the detail and its Continue once the dialog is done
@@ -59,6 +61,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from proof.formplayer.walk import CAPTURES_DIR, CONTENT_TYPES, Walk
+from proof.observe import walks
 from proof.webapps import steps
 from proof.webapps.session import Session
 
@@ -67,6 +70,52 @@ HOME = "#breadcrumb-region .js-home a"
 
 class Unreplayable(AssertionError):
     """A run of Formplayer's walk holds a choice the browser replay has no click for."""
+
+
+class SubmittedOtherwise(AssertionError):
+    """The client submitted a run's form otherwise than Formplayer's walk of the same run: the walk is to submit
+    exactly what the client submits (``proof.formplayer.walk.submission``), so a difference is the harness's."""
+
+
+def _same_sent(walked, sent) -> bool:
+    """Whether the walk's value is the client's: equal, or a mark of an id Formplayer drew where the client holds
+    the id itself (``proof.formplayer.canonical``)."""
+    from proof.formplayer.canonical import TOKEN
+
+    if isinstance(walked, str) and walked.startswith(TOKEN):
+        return isinstance(sent, str)
+    if isinstance(walked, dict) and isinstance(sent, dict):
+        return walked.keys() == sent.keys() and all(_same_sent(walked[key], sent[key]) for key in walked)
+    if isinstance(walked, list) and isinstance(sent, list):
+        return len(walked) == len(sent) and all(_same_sent(a, b) for a, b in zip(walked, sent, strict=True))
+    return walked == sent
+
+
+def submitted_alike(served, walk_run: Mapping[str, Any], run) -> None:
+    """Holds the client's submission of a run's form (its ``submit-all`` request, the answers and
+    ``prevalidated`` it wrote) to Formplayer's walk of the same run; ``SubmittedOtherwise`` where they differ.
+    Nothing is held where either did not submit: where the client stopped or kept Submit disabled, its record
+    says so."""
+    from proof.formplayer import canonical
+    from proof.formplayer.observe import BUILD, USERCASE
+
+    form = _form_step(walk_run)
+    sent = [exchange.request_json() for exchange in run.answered("submit-all")]
+    if form is None or "submitted" not in form or not sent:
+        return
+    drawn = {served.build_id: BUILD}
+    if served.usercase_id:
+        drawn[served.usercase_id] = USERCASE
+    client = canonical.replace_text(
+        {"answers": sent[0].get("answers"), "prevalidated": sent[0].get("prevalidated")}, drawn
+    )
+    # The walk's trace as a record keeps it names these ids by their marks, and the walk as made names them as is.
+    if len(sent) != 1 or not _same_sent(canonical.replace_text(form["submitted"], drawn), client):
+        raise SubmittedOtherwise(
+            f"The Web Apps client submitted the run {list(walk_run['script'])!r} as {sent!r}, where Formplayer's walk"
+            f" of it submitted {form['submitted']!r}. The walk submits what the client submits"
+            " (proof/formplayer/walk.py::submission): find what the client holds otherwise."
+        )
 
 
 # A multi-select list's Continue below its cases (``partials/case_list/list.html``); the list's header holds a
@@ -162,7 +211,19 @@ def _place(value: str) -> tuple[float, float]:
     return float(latitude), float(longitude)
 
 
-def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict], list[tuple | None]]:
+def _page_of(screen: Any, case: str, small: bool) -> int:
+    """The page of a case list a case is on, as the client pages the list (0 where it pages nothing): Formplayer's
+    walk asks for a desktop's ten cases a page, which shows every case the lane's lists hold, and a small screen
+    is handed five a page (``steps.SMALL_SCREEN_PAGE``)."""
+    if not small or not isinstance(screen, dict):
+        return 0
+    ids = [str(entity.get("id")) for entity in screen.get("entities") or [] if isinstance(entity, dict)]
+    return ids.index(case) // steps.SMALL_SCREEN_PAGE if case in ids else 0
+
+
+def plan(
+    run: Mapping[str, Any], *, end: str | None = None, small: bool = False
+) -> tuple[list[dict], list[tuple | None]]:
     """The steps that replay one run of Formplayer's walk in the browser, whole, and beside each what it reads:
     ``("screen",)`` for each screen read, ``("answer", position)`` for each answer's outcome, ``("submit",)``
     for the submission's, or None.
@@ -174,7 +235,8 @@ def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict],
     in order, then submitted, and the screen the client lands on is read.
 
     With ``end`` (a label the caller places after the run), a choice the client shows nothing to click for is
-    recorded as missed and the rest of the run skipped, in place of failing the whole replay.
+    recorded as missed and the rest of the run skipped, in place of failing the whole replay. With ``small`` the
+    replay is on a small screen, where a case on a later page of its list is reached by that page's button.
     """
     made: list[dict] = []
     what: list[tuple | None] = []
@@ -189,7 +251,12 @@ def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict],
         # The screen the choice is made on is Formplayer's answer before it; where it leads, the request after it.
         screen = navigations[position].get("response") if position < len(navigations) else None
         arrival = _arrival(navigations[position + 1] if position + 1 < len(navigations) else None)
-        if "menu" in choice:
+        page = _page_of(screen, str(choice["entity"]), small) if "entity" in choice else 0
+        if page:
+            add(steps.turn_to(page, within=within, or_skip_to=end))
+        if walks.LANGUAGE in choice:
+            add(steps.choose_language(choice[walks.LANGUAGE], arrival, within=within, or_skip_to=end))
+        elif "menu" in choice:
             add(
                 steps.navigate(
                     f"{steps.MENU_ROW}:nth-child({choice['menu'] + 1})", arrival, within=within, or_skip_to=end
@@ -220,7 +287,8 @@ def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict],
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"
-                " (proof/webapps/observe.py::plan knows a menu row, a case, a list action and a search)."
+                " (proof/webapps/observe.py::plan knows a language, a menu row, a case, a list action and a"
+                " search)."
             )
         add([steps.SCREEN], ("screen",))
     form = _form_step(run)
@@ -271,8 +339,11 @@ def clicks(run: Mapping[str, Any], end: str | None = None) -> list[dict]:
     return plan(run, end=end)[0]
 
 
-def replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str) -> tuple[list[dict], list[tuple | None]]:
-    """Every run of a walk as one list of steps (``plan``), each from the home screen into the app, and beside
+def replay(
+    app_name: str, runs: Sequence[Mapping[str, Any]], home: str, *, small: bool = False
+) -> tuple[list[dict], list[tuple | None]]:
+    """Every run of a walk as one list of steps (``plan``, on a small screen with ``small``), each from the home
+    screen into the app, and beside
     each step what it reads: ``("home",)``, ``("screen", run)``, ``("answer", run, position)``,
     ``("submit", run)``, ``("end", run)`` (the screen a run ended on) or None. A run the client cannot follow
     ends where it stops, and the next starts from the home screen all the same."""
@@ -289,7 +360,7 @@ def replay(app_name: str, runs: Sequence[Mapping[str, Any]], home: str) -> tuple
         first = _arrival(navigations[0] if navigations else None)
         add(steps.navigate(steps.APP_TILE, first, app_name, within=steps.WITHIN_MS, or_skip_to=end))
         add([steps.SCREEN], ("screen", index))
-        run_steps, run_kinds = plan(run, end=end)
+        run_steps, run_kinds = plan(run, end=end, small=small)
         made.extend(run_steps)
         kinds.extend(None if kind is None else (kind[0], index, *kind[1:]) for kind in run_kinds)
         add([{"label": end}])
@@ -397,8 +468,14 @@ def _expected_screens(run: Mapping[str, Any]) -> int:
 def observe(served, driver) -> dict[str, Any]:
     """The Web Apps observation of one state HQ serves (``proof.formplayer.hq.Served``), every run of its walk
     replayed whole."""
-    walk = Walk(served.runner, served.hq, domain=served.domain, app_id=served.build_id, scope=served.run).run()
+    walk = Walk.of(served).run()
     return shown(served, driver, walk)
+
+
+# The windows each run is replayed in: a desktop's, then a phone's (``proof.webapps.session.SMALL_SCREEN``), where
+# the client lays its screens out for a small screen and pages a list five cases at a time. A run replayed on the
+# phone is recorded after every desktop run, marked ``"viewport": "small"``.
+SMALL = "small"
 
 
 def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
@@ -406,24 +483,35 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     (``proof.formplayer.hq.Served``): each run of the walk replayed whole in the browser (``replay``), each in a
     run of the served state of its own (a fork of HQ's state, the worker signed in afresh and starting over in
     Formplayer, a fresh page), as Formplayer's own walk runs each: a case one run's submission made is not in the
-    next run's list.
+    next run's list. Every run is replayed in a desktop's window and again in a phone's (``SMALL``).
 
     A run the client shows nothing to click for at some choice (once it has arrived, within ``steps.WITHIN_MS``)
     is recorded as far as it went, with ``stopped`` and the screen it ended on; each answer the client could not
     give is named (``unanswerable``, ``absent``, ``unchanged``, ``refused``), and so is a Submit it kept disabled;
     an error the client's own script raised is recorded by its message (``pageErrors``).
     """
+    from proof.webapps.session import SMALL_SCREEN
+
     session = Session(served, driver)
     found = None
-    for index, each in enumerate(walk["runs"]):
-        made, kinds = replay(served.doc["name"], [each], session.home)
-        # The run's deadline grows with its steps: a whole walk of a large form is many screens and answers.
-        run = session.run(made, name=f"webapps-{index}", deadline=180.0 + 2.0 * len(made))
-        one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
-        if found is None:
-            found = {**one, "runs": [], "pageErrors": []}
-        found["runs"].extend(one["runs"])
-        found["pageErrors"] = sorted({*found["pageErrors"], *one["pageErrors"]})
+    for small in (False, True):
+        for index, each in enumerate(walk["runs"]):
+            made, kinds = replay(served.doc["name"], [each], session.home, small=small)
+            # The run's deadline grows with its steps: a whole walk of a large form is many screens and answers.
+            run = session.run(
+                made,
+                name=f"webapps-{SMALL if small else 'desktop'}-{index}",
+                deadline=180.0 + 2.0 * len(made),
+                viewport=SMALL_SCREEN if small else None,
+            )
+            submitted_alike(served, each, run)
+            one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
+            if small:
+                one["runs"] = [{**held, "viewport": SMALL} for held in one["runs"]]
+            if found is None:
+                found = {**one, "runs": [], "pageErrors": []}
+            found["runs"].extend(one["runs"])
+            found["pageErrors"] = sorted({*found["pageErrors"], *one["pageErrors"]})
     if found is None:
         made, kinds = replay(served.doc["name"], [], session.home)
         found = _record(served.runner, driver, served.version, {"runs": []}, session.run(made), kinds)

@@ -186,9 +186,7 @@ def walked(runner, served, script=None, *, app_id=None, archives=()):
     from proof.formplayer.observe import marked
     from proof.formplayer.walk import Walk
 
-    trace = Walk(runner, served.hq, domain=served.domain, app_id=app_id or served.build_id, scope=served.run).run(
-        script
-    )
+    trace = Walk.of(served, runner=runner, app_id=app_id).run(script)
     return marked(trace, served=served, app_id=app_id, archives=archives, runner=runner)
 
 

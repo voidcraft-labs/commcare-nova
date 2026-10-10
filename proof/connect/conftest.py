@@ -6,9 +6,13 @@ ends. ``connect_apps`` publishes each document ``DOCUMENTS`` names into HQ
 as Nova's publish leaves it, and keeps everything Connect is ever given of
 it:
 
-- the archive HQ built of it, which Connect's sync downloads, and, where the
-  document carries the edit that renames its Connect block ids, the archive
-  HQ builds once Nova's publish of that edit is applied over it;
+- what HQ's own archive view answers Connect's download with
+  (``views/cli.py::direct_ccz``, the request Connect's sync makes:
+  ``opportunity/app_xml.py::get_form_xml_for_app``, ``latest=release``)
+  once HQ released the app as its Releases page releases one, and, where the
+  document carries the edit that renames its Connect block ids, its answer
+  once Nova's publish of that edit is applied over it and released
+  (``served_download``);
 - a submission of its Connect form from each runtime path, each made by
   Core's own session (``proof.observe.sessions``): on HQ's build, on Nova's
   local archive replaying the same script, on HQ's build and Nova's local
@@ -109,6 +113,19 @@ class Submitted:
         return self.forwarded.payload
 
 
+@dataclass(frozen=True)
+class Download:
+    """HQ's own answer to Connect's download of an app's archive: the request as Connect makes it (the path under
+    its HQ server's address, and the query), and what HQ's view answered."""
+
+    path: str
+    query: dict
+    status: int
+    body: bytes
+    # The released build HQ served.
+    build_id: str
+
+
 @dataclass
 class ConnectApp:
     """One Connect document as HQ holds it and as Connect is given it."""
@@ -119,8 +136,9 @@ class ConnectApp:
     username: str
     # The profile of Nova's local archive of the document.
     local_profile: bytes
-    # HQ's archive of the app ("built") and of the app after Nova's publish of its edit ("renamed").
-    archives: dict = field(default_factory=dict)
+    # HQ's answer to Connect's download of the app as published ("built") and after Nova's publish of its edit
+    # ("renamed"), each released (``served_download``).
+    downloads: dict = field(default_factory=dict)
     # Each Connect block's id in D and in the edit, by the block's element name.
     renames: dict = field(default_factory=dict)
     # By name: "<path>", "<path>@next" (the day after), each with "+fix", "+near" or "+far" where a fix was
@@ -130,18 +148,38 @@ class ConnectApp:
     submissions: dict = field(default_factory=dict)
 
 
-def zipped(files) -> bytes:
-    """HQ's build files as the archive HQ's download serves: each file at the path HQ's download arranges it at
-    (``proof.observe.build.arrange``)."""
-    from proof.observe.build import arrange
+# Where Connect downloads an app's archive from its HQ server, and what it asks first
+# (``opportunity/app_xml.py::get_form_xml_for_app``: the latest release, then the latest build, then the app as
+# saved, each only where the one before it was not answered).
+DOWNLOAD_PATH = "/a/{domain}/apps/api/download_ccz/"
+DOWNLOAD_LATEST = "release"
 
-    buffer = io.BytesIO()
-    with tempfile.TemporaryDirectory(prefix="proof-connect-archive-") as directory:
-        root = Path(arrange(files, Path(directory) / "build"))
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-            for path in sorted(p for p in root.rglob("*") if p.is_file()):
-                archive.write(path, path.relative_to(root).as_posix())
-    return buffer.getvalue()
+
+def served_download(app, document, label, *, change=None, edit=False) -> Download:
+    """HQ's own answer to the download Connect's sync makes of the app's archive, in a fork of the published
+    state: the app released as HQ's Releases page releases one (``proof.formplayer.hq.serve``; after ``change``,
+    Nova's publish of the edit, with the edit's worker and cases), then the request Connect makes answered by the
+    view HQ's URLconf names, behind HQ's own middleware, with the headers Connect sends (none)."""
+    from urllib.parse import urlencode
+
+    from proof.formplayer import hq as formplayer_hq
+    from proof.formplayer.client import HqRequest
+
+    path = DOWNLOAD_PATH.format(domain=app.unit.domain)
+    query = {"app_id": app.app_id, "latest": DOWNLOAD_LATEST}
+    with app.unit.fork():
+        if change is not None:
+            change()
+        with formplayer_hq.serve(app.unit, document, app.app_id, label=f"connect-{label}", edit=edit) as served:
+            views = formplayer_hq.HqViews(app.unit, served.username)
+            views.begin(f"connect-download-{label}".encode(), None)
+            answer = views(HqRequest("GET", path, urlencode(query), (), b""))
+            view = views.exchanges[-1].url_name
+            assert answer.status == 200 and view == "direct_ccz", (
+                f"HQ's own view answered Connect's download of {document.id}'s release ({label}) with"
+                f" {answer.status} from {view!r}, where its archive view serves the release: {answer.body[:600]!r}"
+            )
+            return Download(path, query, answer.status, bytes(answer.body), served.build_id)
 
 
 def connect_ids(archive: bytes) -> dict:
@@ -259,15 +297,20 @@ def _build_in_fork(app, name, change):
     return outcome
 
 
-def _edit_build(app, document):
-    """HQ's build of the app once Nova's publish of the document's edit is applied over it."""
+def _edit_publish(app, document):
+    """Nova's publish of the document's edit, applied over the published app."""
     from proof.observe import publish
 
     def change():
         refusal, _ = publish.update(app.unit, app.app_id, document.edit.exports[CONFIGURATION].update, "update")
         assert refusal is None, f"HQ refused Nova's publish of {document.id}'s edit: {refusal}"
 
-    return _build_in_fork(app, "edit", change)
+    return change
+
+
+def _edit_build(app, document):
+    """HQ's build of the app once Nova's publish of the document's edit is applied over it."""
+    return _build_in_fork(app, "edit", _edit_publish(app, document))
 
 
 def _vellum_saved_build(app, editor_driver, form_unique_id):
@@ -341,7 +384,7 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
         built = app.spell()
         assert built.build.files is not None and not built.build.raised, built.build.raised
         paths = _Paths(document, app, core_runner, scratch)
-        archives = {"built": zipped(built.build.files)}
+        downloads = {"built": served_download(app, document, "built")}
         if document.id in (DELIVER_KEY_NAMES, LEARN_KEY_NAMES):
             forms = paths.build_forms(built.build.files, "built")
             made = {f"hq#{position}": xml for position, xml in enumerate(forms, start=1)}
@@ -353,8 +396,10 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
         renames = {}
         if document.id in (DELIVER, LEARN):
             edited = _edit_build(app, document)
-            archives["renamed"] = zipped(edited.files)
-            before, after = connect_ids(archives["built"]), connect_ids(archives["renamed"])
+            downloads["renamed"] = served_download(
+                app, document, "renamed", change=_edit_publish(app, document), edit=True
+            )
+            before, after = connect_ids(downloads["built"].body), connect_ids(downloads["renamed"].body)
             renames = {block: (before[block], after[block]) for block in sorted(before)}
             assert all(old != new for old, new in renames.values()), (
                 f"{document.id}'s edit renames its Connect ids, and HQ's builds of it hold {renames}"
@@ -378,7 +423,7 @@ def _connect_app(document, core_runner, editor_driver, connect_runtime):
             app_id=app.app_id,
             username=next(iter(submissions.values())).payload["metadata"]["username"],
             local_profile=zipfile.ZipFile(document.local_ccz).read("profile.ccpr"),
-            archives=archives,
+            downloads=downloads,
             renames=renames,
             submissions=submissions,
         )
@@ -411,8 +456,8 @@ def connect_apps(hq, core_runner, editor_driver, connect_out, connect_documents,
     for app in apps.values():
         directory = connect_out / app.document
         directory.mkdir(parents=True, exist_ok=True)
-        for name, archive in app.archives.items():
-            (directory / f"{name}.ccz").write_bytes(archive)
+        for name, download in app.downloads.items():
+            (directory / f"{name}.ccz").write_bytes(download.body)
         for name, submitted in app.submissions.items():
             (directory / f"{name}.submission.xml").write_bytes(submitted.xml)
             (directory / f"{name}.payload.json").write_text(

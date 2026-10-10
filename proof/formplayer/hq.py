@@ -647,6 +647,12 @@ class Served:
         return self
 
     @property
+    def languages(self) -> list[str]:
+        """The languages the released app holds, its default first (``langs``, which HQ's Web Apps page hands
+        the client and from which it takes a worker's first language)."""
+        return [str(language) for language in self.doc.get("langs") or []]
+
+    @property
     def domain(self) -> str:
         return self.unit.domain
 

@@ -101,7 +101,7 @@ def walked(served, runner, blobs, *, script=None, app_id=None, archives=()):
     replayed. ``app_id`` names an archive HQ does not hold in place of the released build (the local archive)."""
     hq = served.hq
     first = len(hq.exchanges)
-    walk = Walk(runner, hq, domain=served.domain, app_id=app_id or served.build_id, scope=served.run)
+    walk = Walk.of(served, runner=runner, app_id=app_id)
     reference = blobs.put_json(marked(walk.run(script), served=served, app_id=app_id, archives=archives, runner=runner))
     # The trace as its record holds it (JSON's own values), which is what a judge reads.
     trace = blobs.get_json(reference)

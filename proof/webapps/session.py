@@ -130,6 +130,10 @@ class Run:
 
 
 FORM_SESSION = "<form session>"
+# A phone's window, as a worker on one lays the client out: narrower than the width under which the client draws
+# its small-screen layout and pages a case list five cases at a time (``formplayer/constants.js``,
+# ``SMALL_SCREEN_WIDTH_PX``, 992; ``menus/api.js``).
+SMALL_SCREEN = {"width": 390, "height": 844}
 
 
 def _is_screen(value) -> bool:
@@ -219,13 +223,21 @@ class Session:
             sent.append((name, value))
         return sent
 
-    def run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float = 180.0, name: str = "webapps") -> Run:
+    def run(
+        self,
+        steps: Sequence[Mapping[str, Any]],
+        *,
+        deadline: float = 180.0,
+        name: str = "webapps",
+        viewport: Mapping[str, int] | None = None,
+    ) -> Run:
         """Opens Web Apps' home page in a fresh browser context and runs ``steps`` after it has loaded, in one run
-        of the served state (``Served.run``: a fork of the unit, the worker signed in afresh)."""
+        of the served state (``Served.run``: a fork of the unit, the worker signed in afresh); in a window of
+        ``viewport``'s size where one is given (``SMALL_SCREEN``), else a desktop's."""
         with self.served.run(name):
-            return self._run(steps, deadline=deadline)
+            return self._run(steps, deadline=deadline, viewport=viewport)
 
-    def _run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float) -> Run:
+    def _run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float, viewport=None) -> Run:
         from django.test import override_settings
 
         editor_build()
@@ -279,6 +291,7 @@ class Session:
                     cookies={SESSION_COOKIE: self.hq.session_key},
                     seed=seed,
                     timers=True,
+                    viewport=viewport,
                 )
         except EditorDriverError as error:
             refused = "".join(

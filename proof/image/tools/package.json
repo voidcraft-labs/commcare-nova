@@ -1,8 +1,9 @@
 {
 	"name": "nova-proof-image-tools",
 	"private": true,
-	"description": "The proof image's own Node tools: esbuild bundles HQ's editor pages at image build time, acorn reads HQ's and Vellum's JavaScript for the surface extractor, playwright-core drives the image's Chromium for the editor driver, and sass is the compiler HQ's own stylesheet precompiler runs for the Web Apps page (HQ names no version of it).",
+	"description": "The proof image's own Node tools: esbuild bundles HQ's editor pages at image build time, acorn reads HQ's and Vellum's JavaScript for the surface extractor, playwright-core drives the image's Chromium for the editor driver, and sass is the compiler HQ's own stylesheet precompiler runs for the Web Apps page (HQ names no version of it), and Nunito Sans (OFL-1.1, the face HQ's stylesheets name and its pages load from Google Fonts), which the editor driver serves the pages for that request.",
 	"dependencies": {
+		"@fontsource/nunito-sans": "5.3.0",
 		"acorn": "8.18.0",
 		"acorn-walk": "8.3.5",
 		"esbuild": "0.28.2",
