@@ -242,6 +242,8 @@ def plan(run: Mapping[str, Any], *, end: str | None = None) -> tuple[list[dict],
                 # can bring it.
                 if ix not in maps:
                     held = question.get("answer")
+                    if isinstance(held, str):
+                        held = held.split()
                     if isinstance(held, list) and len(held) >= 2:
                         maps[ix] = (*_map_pixel(float(held[0]), float(held[1]), MAP_ANSWER_ZOOM), MAP_ANSWER_ZOOM)
                     else:

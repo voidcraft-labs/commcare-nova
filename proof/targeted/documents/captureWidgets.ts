@@ -2,7 +2,9 @@
  * `targeted-capture-widgets` (a harness contract: every question a worker
  * answers by a gesture is answered): a survey holding one question of each
  * kind a worker answers with something other than typed text, an image, a
- * sound, a video, a document, a signature and a location, then a text. Each
+ * sound, a video, a document, a signature and two locations (the second
+ * holding a place already, so its map opens zoomed in, far from the walk's
+ * place, and is dragged there in several strokes), then a text. Each
  * reader the lane runs gives each its answer the way a worker does
  * (`proof/webapps/test_widgets.py` holds the Web Apps client and
  * Formplayer's walk to it): Formplayer's walk uploads the answer table's file
@@ -71,6 +73,13 @@ export function captureWidgets() {
 								uuid: uuid("place"),
 								id: "place",
 								label: proseText("Place"),
+							}),
+							f({
+								kind: "geopoint",
+								uuid: uuid("here"),
+								id: "here",
+								label: proseText("Where you stand"),
+								default_value: "'0 0 0 0'",
 							}),
 							f({
 								kind: "text",

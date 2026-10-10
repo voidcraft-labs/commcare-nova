@@ -1,7 +1,8 @@
 """Every question a worker answers with a gesture is answered, by Formplayer's walk and by the Web Apps client.
 
 ``targeted-capture-widgets``: a survey holding an image, a sound, a video, a
-document, a signature and a location question, then a text, on HQ's release
+document and a signature question, two location questions (the second holding
+a place already), then a text, on HQ's release
 of Nova's export. Formplayer's own walk uploads the answer table's file for
 each file question, signature included, to Formplayer's ``answer_media``
 (``proof.formplayer.walk.media_kind``); the client is then given each answer
@@ -13,8 +14,10 @@ nearest pixel.
 Contract: every one of the form's answers is ``answered`` in the client, the
 form as the worker leaves it shows each (a file's name, the drawn pad, the
 map's latitude and longitude), and the form is submitted; the client sent Formplayer one upload per file
-question and one answer for the location, a latitude and longitude within a
-pixel of the walk's place at the map's opening zoom; and HQ's receiver was
+question, and each location's last answer is a latitude and longitude within
+a pixel of the walk's place at its map's opening zoom (the second's map,
+opening zoomed in far from it, is dragged there in several strokes, each
+answered); and HQ's receiver was
 handed each file both times, the walk's submission and the client's.
 A second walk replays the first, its uploads at the same places of their
 runs, and Formplayer takes each again. Plausible failures: a widget the
@@ -37,8 +40,9 @@ from proof.webapps.session import Session
 
 DOCUMENT = "targeted-capture-widgets"
 FILE_QUESTIONS = 5
-# A pixel of the map at the zoom it opens at (``observe.MAP_OPENS``): a world 512 pixels wide.
-PIXEL_DEGREES = 360 / 512
+# A pixel of each location's map at the zoom it opens at (``observe.MAP_OPENS``, ``observe.MAP_ANSWER_ZOOM``): a
+# world 512 pixels wide with no place held, 16384 with one.
+PIXEL_DEGREES = {"Place": 360 / 512, "Where you stand": 360 / 16384}
 
 
 def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_and_on_formplayer(
@@ -84,15 +88,21 @@ def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_
     names = {attempt["value"] for attempt in uploads if attempt["media"] != "signature"}
     assert {left[label] for label in ("Photo", "Voice note", "Clip", "Letter")} == names, left
     assert left["Signature"] == "drawn", left
-    assert all(coordinate.strip("?.") for coordinate in left["Place"]), left
+    assert all(coordinate.strip("?.") for label in PIXEL_DEGREES for coordinate in left[label]), left
 
-    # The location's answer is the map's centre, the walk's place to within a pixel.
+    # Each location's answer is its map's centre, the walk's place to within a pixel: the second's map opens on
+    # the place it holds, zoomed in and far from the walk's, so it is dragged there in several strokes, each
+    # answered, the last the place.
     places = load_answer_table()["dataTypes"]["geopoint"]
-    (place,) = [attempt for attempt in form["answers"] if attempt["value"] in places]
-    latitude, longitude = (float(part) for part in place["value"].split()[:2])
+    located = [attempt for attempt in form["answers"] if attempt["value"] in places]
+    assert len(located) == len(PIXEL_DEGREES), located
     answered = [json.loads(exchange.body) for exchange in replayed.answered("answer")]
-    (centre,) = [sent["answer"] for sent in answered if sent.get("ix") == place["ix"]]
-    assert abs(centre[0] - latitude) < PIXEL_DEGREES and abs(centre[1] - longitude) < PIXEL_DEGREES, centre
+    for place, (label, pixel) in zip(located, PIXEL_DEGREES.items(), strict=True):
+        latitude, longitude = (float(part) for part in place["value"].split()[:2])
+        moves = [sent["answer"] for sent in answered if sent.get("ix") == place["ix"]]
+        assert abs(moves[-1][0] - latitude) < pixel and abs(moves[-1][1] - longitude) < pixel, (label, moves)
+        if label == "Where you stand":
+            assert len(moves) > 1, moves
 
     # HQ's receiver was handed the files with the walk's submission and with the client's.
     assert len(submissions) == walked + 1

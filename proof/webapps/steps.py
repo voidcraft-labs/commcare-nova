@@ -172,11 +172,12 @@ def answer_media(ix: str, kind: str, name: str, content: bytes, content_type: st
 
 def answer_place(ix: str, offset: tuple[int, int]) -> list[dict]:
     """One location question answered on its map, as a worker answers one (``entries.js::GeoPointEntry``: the
-    answer is the map's centre whenever the map moves): the map pressed at its centre, dragged by ``offset``
-    pixels and released, in one move (Leaflet moves the map on each move of a drag, and a drag of one move ends
-    with no glide), then Formplayer's answer to the answer the client sent, then the page quiet."""
-    stroke = [[0.5, 0.5], [0.5, 0.5, offset[0], offset[1]]]
-    return _gesture(ix, "map", {"draw": "webapps/widget", "stroke": stroke}, ANSWER)
+    answer is the map's centre whenever the map moves): the map dragged by ``offset`` pixels from its middle, in as
+    few strokes as stay inside the map and the window, each pressed, moved once and released (Leaflet moves the
+    map on each move of a drag, and a drag of one move ends with no glide), each followed by Formplayer's answer
+    to the answer the client sent and the page quiet (the driver's ``drag``), then the page quiet."""
+    give = {"draw": "webapps/widget", "drag": list(offset), "answeredBy": {"method": "POST", "pathname": ANSWER}}
+    return _gesture(ix, "map", give, ANSWER)
 
 
 def submit_and_land() -> list[dict]:

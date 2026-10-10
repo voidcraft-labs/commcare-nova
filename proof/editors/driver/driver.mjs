@@ -39,7 +39,9 @@
 //   "files" and "draw" (the element a step file finds, called with
 //   `find`, given a chosen file, or the pointer pressed, moved through
 //   "stroke" and released, each point a fraction of its box and optionally
-//   pixels more),
+//   pixels more; or, with "drag", dragged that many pixels from its middle
+//   in strokes that stay inside it and the window, each followed by the
+//   page's answer to it, "answeredBy", and the page quiet),
 //   "mark" (the page's answered requests counted, for an "awaitRequest"
 //   with "sinceMark", which then waits for one answered after the mark, and
 //   with "unlessMissed" is skipped where the wait that a step allowed to
@@ -2093,6 +2095,61 @@ class PageRun {
 	}
 }
 
+/**
+ * Until the page is quiet: none of its requests in flight, and so still a
+ * frame and four tasks later (FRAME_AND_TASK). With `timers` (a run whose
+ * documents count their short timers, steps/page/timers.js), none of the
+ * page's own short timers is still set either: what such a timer runs may
+ * start a request, so the two are waited for in turn until both hold at once.
+ */
+async function runQuiet(run, timers) {
+	for (;;) {
+		await run.idle();
+		if (timers) {
+			await waitInPage(
+				run.cdp,
+				{ expression: "() => window.proofShortTimers() === 0" },
+				null,
+				{ polling: "raf", timeoutMs: run.remaining() },
+			);
+		}
+		await pageValue(run.cdp, FRAME_AND_TASK);
+		if (
+			!run.pageInFlight.size &&
+			!run.inFlight.size &&
+			(!timers || (await pageValue(run.cdp, "window.proofShortTimers()")) === 0)
+		)
+			return;
+	}
+}
+
+/**
+ * The strokes a drag of [dx, dy] whole pixels is made of: each from the
+ * middle of `box`, as few as keep every stroke's end inside the box and the
+ * window (`viewport`) with a margin, the pixels shared among them so they add
+ * up to the drag exactly.
+ */
+function dragStrokes([dx, dy], box, viewport) {
+	const margin = 8;
+	const middle = [box.x + box.width / 2, box.y + box.height / 2];
+	const reach = (half, from, size) =>
+		Math.max(1, Math.floor(Math.min(half, from, size - from) - margin));
+	const across = reach(box.width / 2, middle[0], viewport.width);
+	const down = reach(box.height / 2, middle[1], viewport.height);
+	const count = Math.max(
+		1,
+		Math.ceil(Math.abs(dx) / across),
+		Math.ceil(Math.abs(dy) / down),
+	);
+	const share = (total, index) =>
+		Math.trunc(((index + 1) * total) / count) -
+		Math.trunc((index * total) / count);
+	return Array.from({ length: count }, (_, index) => [
+		[0.5, 0.5],
+		[0.5, 0.5, share(dx, index), share(dy, index)],
+	]);
+}
+
 async function runSteps(page, run, steps) {
 	const outcomes = [];
 	// The dialogs the page had shown when the last click was made, and
@@ -2329,31 +2386,49 @@ async function runSteps(page, run, steps) {
 							box.x + box.width * x + dx,
 							box.y + box.height * y + dy,
 						];
-						// Every point of the stroke lands on the element itself:
-						// one that lands on something the page lays over it would
-						// press or move nothing the element hears.
-						for (const point of step.stroke) {
-							const [x, y] = at(point);
-							const covering = await element.evaluate(
-								(target, [left, top]) => {
-									const hit = document.elementFromPoint(left, top);
-									return hit === target || target.contains(hit)
-										? null
-										: (hit?.outerHTML ?? "nothing").slice(0, 200);
-								},
-								[x, y],
-							);
-							if (covering !== null)
-								throw new StepFailed(
-									"page",
-									`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, not on the element, so nothing would be drawn.`,
+						// A drag ("drag": whole pixels across and down) is made of
+						// strokes from the element's middle that each stay inside
+						// it and the window, as a person drags a map further than
+						// it shows in several strokes; after each, the page's
+						// answer to it ("answeredBy") and the page quiet again, so
+						// each stroke is one answer however fast the page is.
+						const strokes =
+							step.drag === undefined
+								? [step.stroke]
+								: dragStrokes(step.drag, box, page.viewportSize());
+						for (const stroke of strokes) {
+							// Every point of the stroke lands on the element itself:
+							// one that lands on something the page lays over it, or
+							// outside the window, would press or move nothing the
+							// element hears.
+							for (const point of stroke) {
+								const [x, y] = at(point);
+								const covering = await element.evaluate(
+									(target, [left, top]) => {
+										const hit = document.elementFromPoint(left, top);
+										return hit === target || target.contains(hit)
+											? null
+											: (hit?.outerHTML ?? "nothing").slice(0, 200);
+									},
+									[x, y],
 								);
+								if (covering !== null)
+									throw new StepFailed(
+										"page",
+										`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, not on the element, so nothing would be drawn.`,
+									);
+							}
+							const since = run.answered.length;
+							const [from, ...through] = stroke;
+							await page.mouse.move(...at(from));
+							await page.mouse.down();
+							for (const point of through) await page.mouse.move(...at(point));
+							await page.mouse.up();
+							if (step.drag !== undefined) {
+								await run.awaitRequest(step.answeredBy, since, null);
+								await runQuiet(run, true);
+							}
 						}
-						const [from, ...through] = step.stroke;
-						await page.mouse.move(...at(from));
-						await page.mouse.down();
-						for (const point of through) await page.mouse.move(...at(point));
-						await page.mouse.up();
 						// A canvas shows the stroke it took: one that shows none
 						// heard none of it.
 						const drew = await element.evaluate((target) => {
@@ -2415,31 +2490,7 @@ async function runSteps(page, run, steps) {
 				outcome.redirect = entry.redirect ?? null;
 				if (entry.redirectLoaded) await entry.redirectLoaded;
 			} else if (step.settle !== undefined) {
-				// The page is quiet: none of its requests in flight, and so still
-				// a frame and four tasks later (FRAME_AND_TASK). With "timers"
-				// (a run whose documents count their short timers,
-				// steps/page/timers.js), none of the page's own short timers is
-				// still set either: what such a timer runs may start a request,
-				// so the two are waited for in turn until both hold at once.
-				for (;;) {
-					await run.idle();
-					if (step.timers) {
-						await waitInPage(
-							run.cdp,
-							{ expression: "() => window.proofShortTimers() === 0" },
-							null,
-							{ polling: "raf", timeoutMs: run.remaining() },
-						);
-					}
-					await pageValue(run.cdp, FRAME_AND_TASK);
-					if (
-						!run.pageInFlight.size &&
-						!run.inFlight.size &&
-						(!step.timers ||
-							(await pageValue(run.cdp, "window.proofShortTimers()")) === 0)
-					)
-						break;
-				}
+				await runQuiet(run, Boolean(step.timers));
 			} else {
 				throw new StepFailed(
 					"request",
