@@ -38,8 +38,6 @@ import org.robolectric.shadows.ShadowLooper;
  * its incomplete-forms list hands it.
  */
 final class Updates {
-    private static final int MAX_INCOMPLETE = 12;
-
     private Updates() {
     }
 
@@ -75,7 +73,7 @@ final class Updates {
         if (request.optBoolean("incompleteForms")) {
             for (String command : new java.util.TreeSet<>(
                     CommCareApplication.instance().getCommCarePlatform().getCommandToEntryMap().keySet())) {
-                if (commands.size() < MAX_INCOMPLETE && CommCareApplication.instance().getCommCarePlatform()
+                if (CommCareApplication.instance().getCommCarePlatform()
                         .getEntry(command).getXFormNamespace() != null) {
                     commands.add(command);
                 }

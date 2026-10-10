@@ -51,14 +51,18 @@ logs in is on a real device. The requests (`Reader.java`):
     as its own row view shows it, with the media it names and whether the
     device holds the file; an item is chosen by the screen's own click;
   - a **case list** (`EntitySelectActivity`, `Lists.java`): its header row and
-    first rows as `EntityView` or `EntityViewTile` lay them out (each cell's
-    class, text, gravity, text size, image scale type and the width a
-    1000-pixel row gives it), which case each row is (the value a tap on it
-    hands the session, `DatumUtil.getReturnValueFromSelection`), its Sort
-    menu (`getSortOptionsList`) and the order each choice gives, and what a
-    search finds (`EntityListAdapter.filterByString`) for each word the
-    list's rows show and that word misspelled, with fuzzy search as
-    installed, on and off. The first case is opened as a tap opens it, and
+    its first four rows as `EntityView` or `EntityViewTile` lay them out (each
+    cell's class, text, gravity, text size, image scale type and the width a
+    1000-pixel row gives it), which case each of its first fifty rows is (the
+    value a tap on it hands the session,
+    `DatumUtil.getReturnValueFromSelection`), its Sort menu
+    (`getSortOptionsList`) and the order each choice gives, and what a search
+    finds (`EntityListAdapter.filterByString`) for the first six words, in
+    the words' own order, that its first twelve rows show, each also
+    misspelled, with fuzzy search as installed, on and off. A corpus list
+    holds at most eight cases (`proof/observe/casedata.py`), so the order and
+    the words are every row's; a row past the fourth gives its case and its
+    words, and its layout is not recorded. The first case is opened as a tap opens it, and
     the case the list hands home is recorded; where the list has a case
     detail the detail screen's tabs and fields are read (`Details.java`) and
     its own button confirms. Each action the list offers (a search behind the list)
@@ -84,7 +88,11 @@ logs in is on a real device. The requests (`Reader.java`):
     handler, and Robolectric's location service handing the app's own
     location controller the fix the lane's Connect proofs give a visit, at
     the lane's instant); each screen
-    `FormEntryActivityUIController.showNextView` moves to, each question
+    `FormEntryActivityUIController.showNextView` moves to (up to eighty,
+    `ended: "screens"` past them: the corpus's one form that reaches them,
+    in `fuzz-xform-20260930-10`, goes back from a repeat's dialog to the
+    question before it, beside a repeat inside a field list, defect 27, which
+    the manifest check reports there), each question
     answered from the lane's answer table (`proof/core/answers.json`, as the
     Core runner reads it) through the form's own controller and read back by
     its own widget (a question the form holds no answer for is recorded
@@ -113,8 +121,12 @@ logs in is on a real device. The requests (`Reader.java`):
     walk shows where a worker lands after a form.
 
   A walk ends where home starts nothing (with the alert home holds for the
-  worker), at a menu after a form, or at a screen it cannot leave, which it
-  names with what the screen shows. A walk that saved a form or claimed a
+  worker), at a menu after a form, at a screen it cannot leave, which it
+  names with what the screen shows, or, once it has followed three forms, at
+  a form it has already opened (`walkEnded: "forms"`: home starting the same
+  form again after it, which is every walk of the corpus that gets that far).
+  A form it has not opened yet is followed whatever the count, and a walk
+  that has taken two hundred steps without ending fails the request. A walk that saved a form or claimed a
   case leaves the next a device made again: the worker's sandbox wiped by
   the app's own call and the restore applied again.
 - **`installs`**: several archives installed in turn on one device, each
@@ -333,7 +345,8 @@ document without media keeps exactly its index files.
   device, and where Android would post it (the address the profile names, or
   Android's own default for a profile that names none) is not run. A search
   is answered with the device's own cases of the asked types, so what a
-  search's filter selects is not read, as on the lane's Formplayer.
+  search's filter selects is not read on a device (Formplayer's searches are
+  answered by HQ's own search view over HQ's own Elasticsearch).
 - **Drawing.** Robolectric lays views out and does not draw them: a cell's
   class, text, gravity, text size, scale type and width are read; a rendered
   picture, a played sound, a font's own metrics are not.

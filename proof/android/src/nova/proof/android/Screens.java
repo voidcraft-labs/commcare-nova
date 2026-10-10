@@ -40,16 +40,25 @@ import java.util.List;
  * (Lists), and each action the list offers (a search behind the list) is a walk of its own too; a search is sent and answered (Queries), a claim posted and its sync run (Posts); a form is answered
  * to its end and saved, and home is handed its result, so what home starts after a form is part of the same
  * walk (Forms). A walk ends where home starts nothing, at a menu after a form, at a screen the walk does not
- * answer (named, with what it shows), or at its limits.
+ * answer (named, with what it shows), or, once it has followed MAX_FORMS forms, at a form it has already opened.
  *
  * Android applies a completed form's case blocks to the device's own case database as it saves the form
  * (FormRecord.updateAndProcessRecord), so each walk that saved a form starts the next on a device made again:
  * the worker's sandbox wiped by the app's own call and the restore applied again (Device.reset).
  */
 final class Screens {
-    private static final int MAX_STEPS = 24;
+    /**
+     * The steps a walk may take before the reader gives up on it as one that never ends: no walk of the corpus
+     * comes near it (a form's loop ends at MAX_FORMS), so reaching it is the reader's failure, never a record.
+     */
+    private static final int MAX_STEPS = 200;
+    /**
+     * The forms a walk follows into before a form it has already opened ends it: home may start the same form
+     * again after it (a form's end that returns to its own list), and every walk of the corpus that reaches the
+     * bound is such a loop. A form the walk has not opened yet is followed whatever the count, so no form of a
+     * chain is left unread.
+     */
     private static final int MAX_FORMS = 3;
-    private static final int MAX_WALKS = 60;
     static final String ROOT = "root";
     /** A walk's choice of a list's own action, by its place among the list's actions. */
     static final String ACTION = "@action:";
@@ -92,13 +101,10 @@ final class Screens {
         } else {
             Deque<List<String>> pending = new ArrayDeque<>();
             pending.add(new ArrayList<>());
-            int count = 0;
+            // Every path the app's own menus offer, however many: a menu offers finitely many items and a walk
+            // goes down one level a choice.
             while (!pending.isEmpty()) {
                 List<String> choices = pending.removeFirst();
-                if (count++ >= MAX_WALKS) {
-                    found.put("walksLeft", pending.size() + 1);
-                    break;
-                }
                 walks.put(name(choices), guarded(null, choices, pending, Forms::read));
             }
         }
@@ -110,6 +116,13 @@ final class Screens {
             found.put("savedIncomplete", saved);
         }
         return found;
+    }
+
+    /** A walk the reader followed past MAX_STEPS: the reader cannot answer the request, so it raises. */
+    static final class WalkNeverEnds extends RuntimeException {
+        WalkNeverEnds(String message) {
+            super(message);
+        }
     }
 
     static String name(List<String> choices) {
@@ -130,6 +143,9 @@ final class Screens {
         Sensors.forget();
         try {
             return walk(command, choices, pending, form);
+        } catch (WalkNeverEnds reader) {
+            // The reader's own failure, never the app's: no record holds it.
+            throw reader;
         } catch (Throwable raised) {
             // What the app itself raised on the way is what a worker meets there (a crash); the next walk
             // starts on a device made again.
@@ -170,6 +186,7 @@ final class Screens {
         found.put("steps", steps);
         int depth = 0;
         int forms = 0;
+        java.util.Set<String> opened = new java.util.HashSet<>();
         Lists.action = null;
         for (int count = 0; ; count++) {
             // What the last screen asked the device for is that screen's.
@@ -189,8 +206,9 @@ final class Screens {
             step.put("screen", target.substring(target.lastIndexOf('.') + 1));
             step.put("session", session(wrapper));
             if (count >= MAX_STEPS) {
-                step.put("walkEnded", "steps");
-                break;
+                throw new WalkNeverEnds("A walk took " + count + " steps without ending, repeating a form"
+                        + " or leaving the app's screens (" + name(choices) + ", now at " + step + "); the reader"
+                        + " cannot say where it leads.");
             }
             if (target.equals(MenuActivity.class.getName())) {
                 if (forms == 0 && depth < choices.size()) {
@@ -241,10 +259,13 @@ final class Screens {
                     break;
                 }
             } else if (target.equals(FormEntryActivity.class.getName())) {
-                if (++forms > MAX_FORMS) {
+                String opening = String.valueOf(wrapper.getSession().getCommand());
+                if (forms >= MAX_FORMS && opened.contains(opening)) {
                     step.put("walkEnded", "forms");
                     break;
                 }
+                forms++;
+                opened.add(opening);
                 if (!form.at(started, step, shadow)) {
                     break;
                 }
