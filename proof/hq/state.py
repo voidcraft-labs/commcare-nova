@@ -125,6 +125,12 @@ def _seed(unit, configuration):
         User.objects.create(username=WEB_USER_USERNAME, email=WEB_USER_USERNAME, is_active=True)
         unit.couch.seed(build_config_document(configuration))
         unit.web_user = WebUser.wrap(unit.couch.seed(web_user_document(configuration)))
+        # Saving the Django account above asked HQ for its Couch user by username before the document was seeded
+        # (``users/signals.py::django_user_post_save_signal``), and HQ's cache keeps that answer: none. HQ's own
+        # save of a Couch user forgets what its caches hold of the user (``CouchUser.clear_quickcache_for_user``,
+        # which ``save`` runs), so the seed does too; otherwise every request the web user's session makes finds
+        # no Couch user until something else empties the caches, and HQ answers it as an ``InvalidUser``.
+        unit.web_user.clear_quickcache_for_user()
         if configuration.case_search_enabled:
             from corehq.apps.case_search.models import CaseSearchConfig
 

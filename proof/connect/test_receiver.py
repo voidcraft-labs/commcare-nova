@@ -35,6 +35,7 @@ from proof.connect.conftest import (
     DELIVER_KEY_NAMES,
     LEARN,
     LEARN_KEY_NAMES,
+    NEXT_DAY_CLOCK,
     TASK_NAMED_TASK,
     WRITTEN,
     WRITTEN_NEAR,
@@ -303,7 +304,10 @@ def test_the_distance_check_passes_over_a_delivery_that_carries_no_location(worl
         posts, state = world.delivered(name, within, world.post(deliver, first), world.post(deliver, then))
         answered(posts[0])
         answered(posts[1])
-        return next(visit for visit in state["visits"] if visit["entityId"] == "proof-worker-2026-01-16")
+        # The later visit, by the day it was made: a device's entity id names the worker by their user case, which
+        # HQ makes only where the project space has user cases, so the day is what tells the two visits apart.
+        (later,) = [visit for visit in state["visits"] if visit["visitDate"].startswith(NEXT_DAY_CLOCK[:10])]
+        return later
 
     near = second("distance-hq-near", "hq+fix", "hq@next+near")
     assert near["status"] == "pending" and flags(near) == ["location"]

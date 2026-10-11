@@ -117,6 +117,23 @@ def _chain(error):
     return found
 
 
+def test_a_new_unit_finds_its_web_user_by_username(hq, core_runner):
+    """The seed saves the web user's Django account before their Couch document, and HQ's signal on that save asks
+    for the Couch user by username, which HQ caches. The unit then answers HQ's own lookups by username with the
+    seeded user: a cached "none" made every request of their session an ``InvalidUser`` until something emptied
+    the caches (Connect's forwarder pages, refused with a 500, where nothing had)."""
+    with hq_check(CONFIGURATION) as (state, _):
+        from corehq.apps.users.models import CouchUser
+        from corehq.apps.users.util import username_to_user_id
+
+        username = state.web_user.username
+        # Inside an operation, under the unit's clock, as a request reads HQ's caches (outside one, the machine's
+        # clock has long passed the cached answer's timeout, and HQ asks again).
+        with state.operation("web-user-lookup", b"web-user"):
+            assert username_to_user_id(username) == state.web_user.get_id
+            assert CouchUser.get_by_username(username).get_id == state.web_user.get_id
+
+
 def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_runner):
     """A path that reaches a table the harness's database lacks fails the
     check, even where the query runs inside a Celery task HQ's save starts:
