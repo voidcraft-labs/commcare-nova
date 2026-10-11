@@ -289,7 +289,11 @@ def plan(
             add(steps.navigate(action, arrival, within=within, or_skip_to=end))
         elif "search" in choice:
             searching = steps.searched(arrival, end)
-            add(steps.navigate("#query-submit-button", searching, within=within, or_skip_to=end))
+            if small:
+                # On a small screen a search beside its list is folded away, and a worker opens it by the list's
+                # Refine search before its Search is there to press (``case_list/menu_header.html``).
+                add(steps.open_sidebar())
+            add(steps.navigate(steps.SEARCH_BUTTON, searching, visible=True, within=within, or_skip_to=end))
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"

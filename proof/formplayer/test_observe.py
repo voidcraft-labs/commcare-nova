@@ -66,7 +66,8 @@ def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_ea
     ]
     assert forms == [run["trace"][-1]["title"] for run in core["runs"]]
     # The client showed the same walk, the local archive was walked over HQ's state, and B was served for proof 4.
-    assert len(first.blobs.get_json(at_a["A"]["webapps"])["runs"]) == 4
+    # Each run in each of the client's windows: a desktop's, a phone's and App Preview's.
+    assert len(first.blobs.get_json(at_a["A"]["webapps"])["runs"]) == 3 * 4
     assert len(first.blobs.get_json(aligned["local"]["formplayer"]["trace"])["runs"]) == 4
     assert at_b["served"] and len(first.blobs.get_json(at_b["formplayer"]["trace"])["runs"]) == 4
 

@@ -166,6 +166,19 @@ def choose_preview_language(code: str, arrival: list[dict], *, within=None, or_s
     ]
 
 
+# A search's Search button (``query/list.html``), and on a small screen the list's Refine search, which unfolds
+# the search a list shows beside it (``case_list/menu_header.html``: the sidebar, folded under the large width).
+SEARCH_BUTTON = "#query-submit-button"
+REFINE_SEARCH = "#search-more[aria-expanded='false']"
+
+
+def open_sidebar() -> list[dict]:
+    """The search beside a case list unfolded on a small screen by the list's Refine search, where the client shows
+    it folded; nothing where it shows none (a search on a screen of its own), after the client has had
+    ``WITHIN_MS`` to draw one. The page is then quiet (the fold's own transition run)."""
+    return click(REFINE_SEARCH, visible=True, within=WITHIN_MS)
+
+
 def searched(arrival: list[dict], end: str | None) -> list[dict]:
     """``arrival`` for a click on a search's Search button, which the client may refuse to send where a prompt is
     invalid (``arrived.js``, ``search``): that answer ends the run (at ``end``), as a worker's search that cannot go
@@ -357,7 +370,7 @@ def search_list(text: str) -> list[dict]:
 
 def run_search() -> list[dict]:
     """A search screen's Search button."""
-    return click("#query-submit-button")
+    return click(SEARCH_BUTTON)
 
 
 def submit_form() -> list[dict]:
