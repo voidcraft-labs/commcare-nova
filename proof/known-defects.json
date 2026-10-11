@@ -7539,7 +7539,7 @@
 		"document": "targeted-close-condition-unparsable",
 		"control": "targeted-close-condition-unparsable",
 		"values": {
-			"before": "UnknownFailure",
+			"before": "InvalidResource",
 			"after": "Installed"
 		}
 	},
