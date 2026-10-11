@@ -179,6 +179,20 @@ def test_a_walk_that_takes_other_screens_is_one_difference():
     assert found[0].at == f"/walks/m0~1m0-f0/screens/{parted}"
 
 
+def test_a_walk_that_parts_is_compared_step_by_step_as_far_as_both_showed_the_same_screens():
+    """A search refused on one device stops its walk there: where the two part is one difference, and what the
+    device showed on the screens both reached (the search's address, say) is compared as any walk's is."""
+    local = _app()
+    steps = local["walks"]["m0/m0-f0"]["steps"]
+    steps[1]["list"]["searchUrl"] = "https://www.commcarehq.org/a/nova-proof/phone/search/__APP_ID__/"
+    del steps[2:]
+    parted = "after-EntitySelectActivity:FormEntryActivity:end"
+    assert _paths(_proof3(local)) == [
+        ("android@local.ccz", "/walks/*/screens/" + parted, "changed"),
+        ("android@local.ccz", "/walks/*/steps/*/list/searchUrl", "added"),
+    ]
+
+
 def test_a_walk_that_stops_at_a_form_is_named_by_the_alert_the_form_holds():
     """Two saves that leave a form a device does not save are two symptoms where the device says two things."""
     unsaved, stopped = _app(), _app()

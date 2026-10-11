@@ -7798,6 +7798,28 @@
 		"control": "case-list-browse"
 	},
 	{
+		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-entityselectactivity-end-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case goes no further)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-QueryRequestActivity:EntitySelectActivity:end",
+		"kind": "changed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-walks-removed",
+		"defect": 32,
+		"part": "searches from a local .ccz (the walks past a search that finds a case)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*",
+		"kind": "removed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
 		"id": "d53-android-proof3-local-ccz-query-withanswer-getrawqueryparams-removed",
 		"defect": 53,
 		"part": "zero-input search sentinel",
@@ -8082,39 +8104,6 @@
 		"kind": "changed",
 		"document": "case-capture-followup",
 		"control": "case-capture-followup"
-	},
-	{
-		"id": "d59-android-proof3-local-ccz-query-errortext-changed",
-		"defect": 59,
-		"part": "local archive names no server (a search a device signs with the username as typed)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/errorText",
-		"kind": "changed",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d59-android-proof3-local-ccz-query-typed-afterserveranswers-errortext-changed",
-		"defect": 59,
-		"part": "local archive names no server (a search a device signs with the username as typed)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
-		"kind": "changed",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
-	},
-	{
-		"id": "d59-android-proof3-local-ccz-query-withanswer-afterserveranswers-errortext-changed",
-		"defect": 59,
-		"part": "local archive names no server (a search a device signs with the username as typed)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
-		"kind": "changed",
-		"document": "targeted-search-hq-compile",
-		"control": "targeted-search-hq-compile"
 	},
 	{
 		"id": "d3-save-to-case-read-proof4-editor-vellum-again-case-1-error-0",

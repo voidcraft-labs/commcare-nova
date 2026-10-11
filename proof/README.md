@@ -1508,7 +1508,9 @@ One symptom is one difference: a walk whose screens part from the
 baseline's is named by where they part
 (`/walks/*/screens/after-<screen>:<the baseline's next>:<the other's next>`,
 the screen a walk stopped at named with the alert it holds for the worker,
-`FormEntryActivity!Error Saving your Form`) and its steps are not compared;
+`FormEntryActivity!Error Saving your Form`), and its steps are compared
+only as far as both walks showed the same screens (so a search refused on
+one device still shows what the worker read on the search screen);
 a form that takes another path of screens, a list whose rows are another
 kind of view, an archive Android does not install, each is that. A list
 records which case each row is and which case the walk opened: two lists

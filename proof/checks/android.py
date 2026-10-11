@@ -43,7 +43,9 @@ order is that (``/list/order``), and its rows are then compared case by case. A 
 same screens in the same order is that difference, named by where the two part
 (``/walks/*/screens/after-<the last screen both showed>:<the baseline's next>:<the other's next>``, each side's
 whole walk its value; the screen a walk stopped at is named with the alert it holds for the worker,
-``FormEntryActivity!Error Saving your Form``), and its steps are not compared one against another. A form
+``FormEntryActivity!Error Saving your Form``), and its steps are compared one against another only as far as
+both showed the same screens, the screen they part after among them (a search the server refused, say, shows
+there what the worker read on it). A form
 that takes another path of screens is that (``/form/path``); a list whose rows are another kind of view is
 that (``/list/rowClass``); an archive Android does not install is that (``/install``) and nothing of its app
 is compared. What a reader keys by a name is compared by that name and never by position: a menu's items by
@@ -347,9 +349,39 @@ def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
     return before, after
 
 
+def _shared_steps(walk_a: dict, walk_b: dict) -> list:
+    """The steps two walks took on the same screens before they part, each paired with the other's: what each
+    showed there, up to and at the last screen both showed."""
+    steps_a, steps_b = walk_a.get("steps"), walk_b.get("steps")
+    if "raised" in walk_a or "raised" in walk_b or not isinstance(steps_a, list) or not isinstance(steps_b, list):
+        return []
+    shared = []
+    for a, b in zip(steps_a, steps_b, strict=False):
+        if a.get("screen") != b.get("screen"):
+            break
+        shared.append((a, b))
+    if shared:
+        # The alert a walk stopped at is in the name of where the two part already.
+        shared[-1] = (_without_alert(shared[-1][0]), _without_alert(shared[-1][1]))
+    return shared
+
+
+def _without_alert(step: dict) -> dict:
+    """A step without the alerts ``_stopped_at`` reads."""
+    step = {name: value for name, value in step.items() if name != "alert"}
+    if isinstance(step.get("form"), dict):
+        form = {name: value for name, value in step["form"].items() if name != "alert"}
+        if isinstance(form.get("saved"), dict):
+            form["saved"] = {name: value for name, value in form["saved"].items() if name != "alert"}
+        step["form"] = form
+    if isinstance(step.get("list"), dict):
+        step["list"] = {name: value for name, value in step["list"].items() if name != "alertAfterChoice"}
+    return step
+
+
 def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
-    """The two comparable answers with each walk whose screens differ reduced to its screens, as one value,
-    and each step of the others reduced as ``_one_step`` reduces it."""
+    """The two comparable answers with each walk whose screens differ reduced to its screens, as one value, and
+    the steps both took before they part; and each step reduced as ``_one_step`` reduces it."""
     if not isinstance(before.get("walks"), dict) or not isinstance(after.get("walks"), dict):
         return before, after
     before, after = dict(before), dict(after)
@@ -360,7 +392,9 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
         a, b = _screens(walk_a), _screens(walk_b)
         if a != b:
             parted = _parted(a.split(SEPARATOR), b.split(SEPARATOR))
-            before["walks"][name], after["walks"][name] = {"screens": {parted: a}}, {"screens": {parted: b}}
+            steps = [_one_step(x, y) for x, y in _shared_steps(walk_a, walk_b)]
+            before["walks"][name] = {"screens": {parted: a}, "steps": [x for x, _ in steps]}
+            after["walks"][name] = {"screens": {parted: b}, "steps": [y for _, y in steps]}
         elif "steps" in walk_a and "steps" in walk_b:
             steps = [_one_step(x, y) for x, y in zip(walk_a["steps"], walk_b["steps"], strict=True)]
             before["walks"][name] = {**walk_a, "steps": [x for x, _ in steps]}
