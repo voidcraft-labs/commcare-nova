@@ -247,16 +247,24 @@ final class Queries {
     /**
      * The session as it stood before a probe's search was answered: a search the server answered pushes its
      * results onto the session as a step (CommCareSession.setQueryDatum), and each such step is popped off again
-     * as the session pops a step (SessionFrame.popStep, then CommCareSession.syncState, which is
-     * CommCareSession.popStepInCurrentSessionFrame), so the screen the walk goes on with is the one the worker
-     * searched from, as before the probe.
+     * by the session's own pop of one step (CommCareSession.popStepInCurrentSessionFrame: SessionFrame.popStep on
+     * the session's frame, then CommCareSession.syncState), so the screen the walk goes on with is the one the
+     * worker searched from, as before the probe. CommCareSession.getFrame hands back a copy, so it only counts.
      */
-    private static void back(int held) {
+    private static void back(int held) throws Exception {
         org.commcare.session.CommCareSession session =
                 CommCareApplication.instance().getCurrentSessionWrapper().getSession();
-        while (session.getFrame().getSteps().size() > held) {
-            session.getFrame().popStep();
-            session.syncState();
+        java.lang.reflect.Method pop =
+                org.commcare.session.CommCareSession.class.getDeclaredMethod("popStepInCurrentSessionFrame");
+        pop.setAccessible(true);
+        for (int size = steps(); size > held; ) {
+            pop.invoke(session);
+            int after = steps();
+            if (after >= size) {
+                throw new IllegalStateException("The session kept " + after + " steps after popping one of "
+                        + size + ", so the walk cannot go back to the screen the worker searched from.");
+            }
+            size = after;
         }
     }
 
