@@ -160,6 +160,8 @@ final class Screens {
             // The device made again, signed in again where HQ stands before any walk.
             Peer.base(name);
             Device.reset();
+            // What the sign-in set running (its log submission) ends in the sign-in's place.
+            Device.settle();
         }
         // HQ meets each walk as the served state stood once the worker signed in: a walk is one worker's session,
         // and nothing an earlier walk sent HQ is there for it.

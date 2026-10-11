@@ -324,6 +324,12 @@ final class Device {
      * opens the same list, which takes the pending load over (EntityLoaderTask.pendingTask) and reads cases from
      * the storage the reset has since closed; a worker's device has long finished such a load before its data is
      * cleared or the list opened again.
+     *
+     * The app also starts tasks of its own that are not in that list, on AsyncTask's pool: the log submission
+     * every sign-in starts (CommCareApplication.doReportMaintenance, CommCareUtil.executeLogSubmission) and the
+     * images a list loads (CachingAsyncImageLoader). Each is waited for until no thread of the pool is running
+     * one, so a request a sign-in started reaches HQ in the sign-in's own place and never in whichever walk is
+     * under way when it arrives.
      */
     @SuppressWarnings("unchecked")
     static void settle() throws Exception {
@@ -344,7 +350,16 @@ final class Device {
                 }
             }
             if (running.isEmpty()) {
-                return;
+                String busy = busyPoolThread();
+                if (busy == null) {
+                    return;
+                }
+                if (System.nanoTime() > deadline) {
+                    throw new IllegalStateException("A task the app set running on AsyncTask's pool (on " + busy
+                            + ") did not end within " + SETTLE_MILLIS / 1000 + " s.");
+                }
+                Thread.sleep(10);
+                continue;
             }
             for (android.os.AsyncTask<?, ?, ?> task : running) {
                 long left = deadline - System.nanoTime();
@@ -358,6 +373,33 @@ final class Device {
                 }
             }
         }
+    }
+
+    /**
+     * A thread of AsyncTask's pool (AsyncTask.THREAD_POOL_EXECUTOR, whose threads its factory names "AsyncTask
+     * #n") that is running a task, or null where every one waits for work. A thread waits for work only inside
+     * ThreadPoolExecutor.getTask; one anywhere else is running a task or about to, a thread the pool started for a
+     * task it was handed included, so a task handed to the pool before this is asked is never missed.
+     */
+    private static String busyPoolThread() {
+        for (java.util.Map.Entry<Thread, StackTraceElement[]> entry : Thread.getAllStackTraces().entrySet()) {
+            Thread thread = entry.getKey();
+            if (!thread.getName().startsWith("AsyncTask #") || !thread.isAlive()) {
+                continue;
+            }
+            boolean waiting = false;
+            for (StackTraceElement frame : entry.getValue()) {
+                if ("java.util.concurrent.ThreadPoolExecutor".equals(frame.getClassName())
+                        && "getTask".equals(frame.getMethodName())) {
+                    waiting = true;
+                    break;
+                }
+            }
+            if (!waiting) {
+                return thread.getName();
+            }
+        }
+        return null;
     }
 
     /**
