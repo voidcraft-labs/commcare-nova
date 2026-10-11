@@ -842,6 +842,23 @@ class Served {
 		return left;
 	}
 
+	/**
+	 * Tells Python a phase starts or ends (announcePhase) and waits until it is
+	 * ready. What Python does there (a section's fork read, and every reader
+	 * served the state its save left) is the harness's own work between the
+	 * page's steps, never the page's, so the deadline moves on by the time it
+	 * took: the deadline stops a stuck page, never one whose harness observed
+	 * more between its sections.
+	 */
+	async announce(name, event) {
+		const started = Date.now();
+		try {
+			await announcePhase(name, event);
+		} finally {
+			this.deadline += Date.now() - started;
+		}
+	}
+
 	imageRequested(url) {
 		this.images.push(url);
 	}
@@ -1495,7 +1512,7 @@ async function runView(message) {
 				"pages/save_state",
 				section.bar,
 			);
-			await announcePhase(`section:${index}`, "start");
+			await served.announce(`section:${index}`, "start");
 			served.phase = `section:${index}`;
 			await served.release(index, page);
 			if (served.redirected) {
@@ -1516,7 +1533,7 @@ async function runView(message) {
 			} while (after === null);
 			sections[index].after = after;
 			served.phase = `settled:${index}`;
-			await announcePhase(`section:${index}`, "end");
+			await served.announce(`section:${index}`, "end");
 		}
 		served.phase = "end";
 	} catch (error) {

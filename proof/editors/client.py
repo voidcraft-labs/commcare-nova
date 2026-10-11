@@ -483,7 +483,12 @@ class EditorDriver:
                 self._answer(received["hq"], answer)
                 continue
             if "phase" in received:
+                # What the caller does at a phase (a section's fork read and every reader served the state its
+                # save left) is the harness's own work between the page's steps, never the page's: the driver
+                # moves its deadline on by the time it waited for it, and so does this.
+                waited = time.perf_counter()
                 self._phase(received["phase"], on_phase)
+                ends += time.perf_counter() - waited
                 continue
             if received.get("id") != request_id:
                 self._stop_process()

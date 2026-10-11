@@ -340,6 +340,48 @@ def test_the_audit_keeps_a_section_hqs_view_raised_on_as_the_sections_answer(
     assert [(saved.save.status, saved.bar_state) for saved in view.sections] == [(500, RETRY), (200, SAVED)]
 
 
+# The deadline -------------------------------------------------------------------------------------
+
+
+def test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_deadline(
+    hq, core_runner, editor_driver
+):
+    """The lane serves each save's state to every reader inside that save's fork, between the page's steps (proof
+    4's ``section_fork``), which can take longer than the page's whole deadline. The deadline stops a stuck page,
+    never one whose harness observed more between its sections: here the harness's work at the sections together
+    outlasts the deadline and the client's grace beside it, and every section is still saved."""
+    import time
+    from contextlib import contextmanager
+
+    from proof.editors.client import CLIENT_GRACE_SECONDS
+
+    deadline = 120.0
+    # Each of the two sections holds the page this long once its save has settled.
+    pause = (deadline + CLIENT_GRACE_SECONDS) / 2 + 5
+    with hq_check(CONFIGURATION) as (state, _):
+        unit = CheckUnit(state)
+        app_id = suite_app(state)
+        module = operations.held_app(state, app_id).modules[0]
+        spec = pages.ViewSpec(
+            "view_module", app_id, module.unique_id, sections=(pages.MODULE_SETTINGS, pages.CASE_LIST)
+        )
+
+        @contextmanager
+        def observed_slowly(_index):
+            with unit.fork():
+                yield
+                time.sleep(pause)
+
+        with unit.fork():
+            view = pages.run_view(
+                editor_driver, HQAnswers(state, unit), spec, on_section=observed_slowly, deadline=deadline
+            )
+    assert view.seconds["view"] > deadline + CLIENT_GRACE_SECONDS, view.seconds
+    assert [saved.page for saved in view.sections] == list(spec.sections)
+    for saved in view.sections:
+        assert (saved.save.url_name, saved.bar_state) == (saved.page.save, SAVED)
+
+
 # A save that sends the page elsewhere ----------------------------------------------------------------
 
 
