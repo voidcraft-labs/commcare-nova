@@ -252,14 +252,32 @@ def _stylesheet(block):
 
     from proof.webapps import static
 
-    with static.compiled(), static.in_hq_root():
-        html = block.render({})
-    (href,) = lxml.html.fromstring(html).xpath("//link/@href")
-    served = static.serve(href)
+    with static.compiled():
+        with static.in_hq_root():
+            html = block.render({})
+        (href,) = lxml.html.fromstring(html).xpath("//link/@href")
+        served = static.serve(href)
     assert served is not None and served.status == 200, href
     # Its last line names the source map sass wrote beside it, a temporary file named afresh on every compile.
     rules = [line for line in served.body.decode("utf-8").splitlines() if not line.startswith("/*# sourceMappingURL=")]
     return static.unhashed(href), href, rules
+
+
+def test_a_compiled_stylesheet_is_served_whatever_was_served_before_it(hq):
+    """Contract: a page's compiled stylesheet is served by HQ's finders whichever block of the process first made
+    compressor's storage or the finders. Failure it catches: a static file served outside ``static.compiled`` (an
+    editor page's script) made the finder look in HQ's own root for the rest of the worker's life, so every Web Apps
+    page after it drew without HQ's stylesheets, as a worker's never does."""
+    from django.template import engines
+
+    from proof.webapps import static
+
+    held = static.serve("/static/nprogress/nprogress.css")
+    assert held is not None and held.status == 200
+    _, href, rules = _stylesheet(engines["django"].from_string(WEB_APPS_SCSS))
+    assert len(rules) > 10, href
+    # And a file outside the block is served from HQ's own finders again.
+    assert static.serve("/static/nprogress/nprogress.css").body == held.body
 
 
 def test_the_stylesheet_seam_compiles_each_source_once_and_as_hq_compiles_it(hq):

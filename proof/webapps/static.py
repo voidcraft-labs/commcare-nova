@@ -78,9 +78,36 @@ def compiled():
         with override_settings(
             COMPRESS_PRECOMPILERS=settings.AVAILABLE_COMPRESS_PRECOMPILERS, COMPRESS_ROOT=str(compiled_root())
         ):
-            yield
+            _forget_compressor_storage()
+            try:
+                yield
+            finally:
+                _forget_compressor_storage()
     finally:
         os.environ["PATH"] = held
+
+
+def _forget_compressor_storage() -> None:
+    """Drops the storage compressor writes compiled files to and the finder that serves them, so each is made
+    again for the ``COMPRESS_ROOT`` in force.
+
+    Each takes ``COMPRESS_ROOT`` once, when it is first made (``compressor/storage.py::DefaultStorage``,
+    ``CompressorFinder``'s storage, made by ``staticfiles/finders.py::get_finder``, which is cached), and
+    nothing remakes either when the setting changes. So whichever block made one first would decide where it
+    reads or writes for the rest of the process: a request served outside ``compiled`` before the first page
+    made the finder look in HQ's own root, and every later page's compiled stylesheet was then written where
+    the finder never looks, and served as HQ's 404.
+    """
+    from compressor.conf import settings as compressor_settings
+    from compressor.storage import compressor_file_storage, default_storage
+    from django.contrib.staticfiles.finders import get_finder
+    from django.core.files.storage import storages
+    from django.utils.functional import empty
+
+    default_storage._wrapped = empty
+    compressor_file_storage._wrapped = empty
+    storages._storages.pop(compressor_settings.COMPRESS_STORAGE_ALIAS, None)
+    get_finder.cache_clear()
 
 
 @contextmanager
