@@ -126,6 +126,11 @@ const PAGE_ENTRIES = [
 	// with (proof/connect/hq.py)
 	"motech/js/connection_settings_detail",
 	"repeaters/js/add_form_repeater",
+	// motech/connection_settings.html and repeaters/repeaters.html (whose
+	// base template names hqwebapp/js/base): the pages HQ sends the admin to
+	// once each of those saves
+	"motech/js/connection_settings",
+	"hqwebapp/js/base",
 ];
 
 // HQ's form designer page entry, whose page JavaScript adds options to
@@ -1185,36 +1190,40 @@ async function buildPageEntries(flavours, report) {
 	const manifests = new Map(flavours.map((f) => [f.manifest, {}]));
 	for (const entry of PAGE_ENTRIES) {
 		const owners = flavours.filter((f) => f.config.entry[entry]);
-		if (owners.length !== 1) {
+		if (owners.length === 0) {
 			refuse(
-				`HQ's webpack configurations name the page entry ${entry} ${owners.length} times; the harness expects exactly one.`,
+				`HQ's webpack configurations name no page entry ${entry}; the harness builds the entries HQ's own build does.`,
 			);
 		}
-		const [flavour] = owners;
-		const source = flavour.config.entry[entry].import;
-		checkBabelIsIdentity(source);
-		const record = { applied: {} };
-		const outdir = path.join(OUT, "static", flavour.folder);
-		const started = Date.now();
-		const result = await esbuild.build(
-			esbuildOptions(flavour, record, {
-				entryPoints: { [entry]: `${ENTRY_NAMESPACE}:${source}` },
-				outdir,
-			}),
-		);
-		manifests.get(flavour.manifest)[entry] = [`${entry}.js`];
-		report.pages.push({
-			entry,
-			folder: flavour.folder,
-			manifest: flavour.manifest,
-			source: path.relative(HQ, source),
-			bundle: path.join("static", flavour.folder, `${entry}.js`),
-			seconds: (Date.now() - started) / 1000,
-			strictModules: record.strictModules ?? 0,
-			externalsAsked: record.externalsAsked ?? 0,
-			inputs: inputsOf(result.metafile),
-			applied: record.applied,
-		});
+		// An entry several configurations name (hqwebapp/js/base, which HQ's
+		// generateDetails.js copies into the Bootstrap 3 configuration) is
+		// built by each, as HQ's own build does, so each manifest names it.
+		for (const flavour of owners) {
+			const source = flavour.config.entry[entry].import;
+			checkBabelIsIdentity(source);
+			const record = { applied: {} };
+			const outdir = path.join(OUT, "static", flavour.folder);
+			const started = Date.now();
+			const result = await esbuild.build(
+				esbuildOptions(flavour, record, {
+					entryPoints: { [entry]: `${ENTRY_NAMESPACE}:${source}` },
+					outdir,
+				}),
+			);
+			manifests.get(flavour.manifest)[entry] = [`${entry}.js`];
+			report.pages.push({
+				entry,
+				folder: flavour.folder,
+				manifest: flavour.manifest,
+				source: path.relative(HQ, source),
+				bundle: path.join("static", flavour.folder, `${entry}.js`),
+				seconds: (Date.now() - started) / 1000,
+				strictModules: record.strictModules ?? 0,
+				externalsAsked: record.externalsAsked ?? 0,
+				inputs: inputsOf(result.metafile),
+				applied: record.applied,
+			});
+		}
 	}
 	// HQ reads the manifests where its own build writes them.
 	const manifestDir = hqBuildArtifactsDir();

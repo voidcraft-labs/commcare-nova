@@ -118,9 +118,10 @@ def _drive_page(unit, path, steps, signed_in, label):
     from urllib.parse import urlsplit
 
     from django.conf import settings
+    from statici18n.templatetags.statici18n import statici18n
 
     from proof.editors.client import PageResponse
-    from proof.editors.hq import editor_build
+    from proof.editors.hq import csrf_drawn_from, editor_build, javascript_catalog
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
     from proof.observe import services
@@ -130,8 +131,16 @@ def _drive_page(unit, path, steps, signed_in, label):
     browser = (driver.ready or {}).get("origin")
     editor_build()
 
+    catalog = statici18n(settings.LANGUAGE_CODE)
+
     def answer(asked):
         parts = urlsplit(asked.url)
+        if asked.method == "GET" and parts.path == catalog:
+            # HQ's JavaScript translations, as a deployment's static build serves them (``compilejsi18n``): every
+            # page's script reads ``gettext`` from them.
+            return PageResponse(
+                200, [("Content-Type", "text/javascript; charset=utf-8")], javascript_catalog(settings.LANGUAGE_CODE)
+            )
         held = static.serve(parts.path) if asked.method == "GET" else None
         if held is not None:
             return held
@@ -144,7 +153,16 @@ def _drive_page(unit, path, steps, signed_in, label):
             headers.append((name, value))
         body = asked.body or b""
         digest = hashlib.sha256(f"connect-page|{label}|{asked.method}|{asked.url}|".encode() + body).digest()
-        with unit.committing(), unit.request(digest), formplayer_hq._language_put_back(), static.in_hq_root():
+        # Django masks the CSRF token it writes into each page it renders with a string it draws: drawn from the
+        # request's digest, as an editor page's are, so the form the page posts, and every key after it, is the
+        # same on every run.
+        with (
+            unit.committing(),
+            unit.request(digest),
+            csrf_drawn_from(digest),
+            formplayer_hq._language_put_back(),
+            static.in_hq_root(),
+        ):
             response = formplayer_hq.respond(
                 formplayer_hq.django_request(HqRequest(asked.method, parts.path, parts.query, tuple(headers), body))
             )
