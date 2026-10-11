@@ -7554,7 +7554,7 @@
 		"document": "targeted-invalid-question-ids",
 		"control": "targeted-invalid-question-ids",
 		"values": {
-			"before": "UnknownFailure",
+			"before": "InvalidResource",
 			"after": "Installed"
 		}
 	},
@@ -8194,6 +8194,61 @@
 		"control": "case-operation-relation"
 	},
 	{
+		"id": "d13-android-proof4-vellum-form-saved-aftersend-removed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/afterSend",
+		"kind": "removed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-casesastheformopened-added",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
+		"kind": "added",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-finishing-changed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/finishing",
+		"kind": "changed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-records-status-changed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/records/*/status",
+		"kind": "changed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-resultcode-removed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/resultCode",
+		"kind": "removed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
 		"id": "d46-android-proof4-vellum-form-saved-records-formrecord-getdisplayname-changed",
 		"defect": 46,
 		"part": "form renamed in HQ's editing language",
@@ -8735,6 +8790,94 @@
 		"kind": "added",
 		"document": "navigation-search-date-add",
 		"control": "navigation-search-date-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-errorshown-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-errortext-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-finishing-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/finishing",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-resultcode-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-errorshown-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-errortext-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-finishing-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/finishing",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-resultcode-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
 	},
 	{
 		"id": "d14-close-conditions-webapps-case-management-screens-kind",

@@ -1,0 +1,16 @@
+{
+	"footprint": [
+		"dce6771a-e324-5556-a023-4f94c595770a"
+	],
+	"footprintParts": {
+		"appWide": false,
+		"app": false,
+		"entities": [
+			"dce6771a-e324-5556-a023-4f94c595770a"
+		],
+		"modules": [
+			"dce6771a-e324-5556-a023-4f94c595770a"
+		],
+		"forms": []
+	}
+}

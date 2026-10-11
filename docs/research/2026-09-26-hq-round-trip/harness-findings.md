@@ -497,7 +497,7 @@ Formplayer's own application does over HQ's builds of Nova's exports:
     profile sends a device to the receiver under the build's own id, from
     which HQ reads the app and the build. commcare-android's own default
     for a profile with no `PostURL` is a fixed address of its own, which
-    names no project space of the app's: the Android stage reads the
+    names no project space of the app's: the Android reader reads the
     address a device would post to by Android's own reader
     (`FormSubmissionHelper.getFormPostURL`), and on the local archive it is
     `https://staging.commcarehq.org/receiver/submit/pf` where HQ's build
@@ -662,9 +662,10 @@ What the same runs show of earlier findings, each on the client
 
 The Android reader (`proof/android`) runs commcare-android's own application,
 installers, activities and views, at the Android pin beside the Core pin,
-under Robolectric, over the archives a lane run recorded: Nova's local
-exports and HQ's builds of A, B, B-edit and every editor save. It runs
-outside the lane's image (`proof/android/README.md`).
+under Robolectric, beside HQ's live unit in every proof shard, over each
+state the shard serves: Nova's local exports and HQ's builds of A, B, B-edit
+and every editor save, its network answered by HQ's own views in that
+state's fork (`proof/android/README.md`).
 
 63. **HQ's build installs on Android only with its media.** The lane hands
     Core HQ's build as HQ's index download arranges it
@@ -694,13 +695,13 @@ on Android, since both of its columns hold the same text, while
 that document's hidden sort column in the Sort menu, as finding 36 says of
 others.
 
-### Found by the Android stage
+### Found by Android in the unit
 
 The lane now has CommCare Android's own code read every archive a device
 installs of every document: Nova's local exports and HQ's builds of A, B,
 B-edit and every editor save, each walked from the first menu through every
 list, search, claim and form, installed twice, and updated with forms left
-incomplete (`proof/README.md`, "The Android stage"). Proofs 1, 3 and 4 judge
+incomplete (`proof/README.md`, "Android in the unit"). Proofs 1, 3 and 4 judge
 what it read. What that showed that the reader's own tests had not:
 
 67. **An incomplete form in a menu with grouped tiles cannot be reopened
@@ -729,7 +730,7 @@ what it read. What that showed that the reader's own tests had not:
     (`android@B` and `android@local.ccz`, proof 1,
     `/update/reopened/*/session`).
 
-What the stage shows of earlier defects and findings, each as a worker's
+What the device shows of earlier defects and findings, each as a worker's
 device meets it, on the documents the register names:
 
 - **Defect 1 (ids and xmlns).** After a republish, a form a worker left
@@ -757,7 +758,7 @@ device meets it, on the documents the register names:
   save a form (defect 13's, and defect 25's), it holds the cases it held as
   the form opened, and keeps the form's record aside (`limbo`): Android
   applies a form's case blocks in one transaction
-  (`FormRecord.updateAndProcessRecord`). The stage reports any refused form
+  (`FormRecord.updateAndProcessRecord`). The reader reports any refused form
   that left a case changed (`…/form/saved/applied-though-refused`), and no
   run has.
 - **Defect 4 and finding 34 (location capture).** A form of HQ's build with
@@ -771,7 +772,12 @@ device meets it, on the documents the register names:
   single-date prompt is a text box on Android; a worker who types into it
   sends what they typed inside the search's CSQL
   (`visit_date = date-add("proof", 'days', 7)`), where before the save the
-  device offered no box and sent `match-all()`.
+  device offered no box and sent `match-all()`. Where the input is a
+  datetime (`navigation-search-datetime-add`), HQ's search view refuses
+  what was typed (400, "Invalid datetime value. Must be a number or a ISO
+  8601 string."), and the device shows the worker HQ's error and stays on
+  the search screen (`…/query/typed/afterServerAnswers/*`,
+  `…/query/withAnswer/afterServerAnswers/*`).
 - **Defect 10.** A list with a label column or no sort shows its cases in
   another order on the local install, so the first case a worker sees is
   another one (`/list/order`, `/list/chose`), and a Sort choice orders them
