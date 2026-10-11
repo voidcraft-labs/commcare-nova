@@ -7592,13 +7592,13 @@
 		"control": "case-capture-followup"
 	},
 	{
-		"id": "d7-android-proof3-local-ccz-form-saved-aftersend-removed",
+		"id": "d7-android-proof3-local-ccz-form-saved-aftersend-changed",
 		"defect": 7,
 		"part": "saved and incomplete forms (a sent form the device keeps)",
 		"check": "proof3",
 		"artifact": "android@local.ccz",
 		"path": "/walks/*/steps/*/form/saved/afterSend/*",
-		"kind": "removed",
+		"kind": "changed",
 		"document": "case-capture-followup",
 		"control": "case-capture-followup"
 	},

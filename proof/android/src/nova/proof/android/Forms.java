@@ -226,6 +226,7 @@ final class Forms {
         Device.dirty = true;
         saved.put("records", changedSince(heldBefore));
         saved.put("cases", Cases.read());
+        java.util.Map<Integer, String> heldSaved = statuses();
         home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
         ShadowLooper.idleMainLooper();
         if (Device.served()) {
@@ -234,7 +235,7 @@ final class Forms {
             // FormSubmissionHelper) with the worker's credentials. What the device holds of each record once the
             // send has ended: a record HQ took is no longer unsent.
             Device.settle();
-            saved.put("afterSend", changedSince(heldBefore));
+            saved.put("afterSend", sent(heldSaved));
         }
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
@@ -280,6 +281,24 @@ final class Forms {
         for (FormRecord record : CommCareApplication.instance().getUserStorage(FormRecord.class)) {
             if (!record.getStatus().equals(before.get(record.getID()))) {
                 found.put(described(record));
+            }
+        }
+        return found;
+    }
+
+    /**
+     * What a send did to the records the device held once the form was saved ({@code before}, {@code statuses}):
+     * each record whose status the send changed, by its new status, or {@code gone} where the device no longer
+     * holds it (a record is sent, then kept or dropped as the saved forms setting says). Only the status: the
+     * record itself is the save's.
+     */
+    static JSONArray sent(java.util.Map<Integer, String> before) {
+        java.util.Map<Integer, String> after = statuses();
+        JSONArray found = new JSONArray();
+        for (Integer id : new java.util.TreeSet<>(before.keySet())) {
+            String now = after.getOrDefault(id, "gone");
+            if (!now.equals(before.get(id))) {
+                found.put(now);
             }
         }
         return found;
