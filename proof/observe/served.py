@@ -110,8 +110,8 @@ class Serving:
     def android(self, label: str, archive: bytes | None = None, *, delivered: bool = False, device: str = "phone"):
         """What a worker's device makes of the state (``proof.android.observe.app``): the released build's
         archive, or ``archive`` (Nova's local export) installed, over HQ's views of the state; with
-        ``delivered``, its restore and forms delivered to HQ's own addresses for the worker and the app
-        (``proof.android.hq``); on a phone, or a tablet held in landscape (``device``)."""
+        ``delivered``, its requests made as the worker HQ made and its restore and forms delivered to HQ's own
+        addresses for the worker and the app (``proof.android.hq``); on a phone, or a tablet held in landscape (``device``)."""
         from proof.android import observe as android
 
         archive = android.release_archive(self.served) if archive is None else archive

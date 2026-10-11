@@ -23,11 +23,14 @@ for it on every run.
 Nova's local archive names no server (finding 59), so a device on it makes its requests to Android's own
 defaults (``R.string.ota_restore_url``, ``R.string.PostURL``, with the username as typed, no project space
 named), and HQ's views answer them as they answer anything else. A second device on the same archive
-(``delivered``) is given the input the lane gives Core over that archive: its restore is what HQ's own restore
-view answers the worker, asked at the project space's restore address with the worker's own credentials, and
-each form it sends is taken by HQ's receiver under the app's id, as the released build's profile addresses it.
-Only the transport differs, which is what finding 59 names: the request the app wrote is kept as it wrote it,
-the device reads HQ's answer as its own, and nothing of either is changed.
+(``delivered``) is given the input the lane gives Core over that archive: every request it makes carries the
+worker's own credentials, by the full username HQ made (an archive that names no server names no project space
+to qualify the username as typed), its restore is what HQ's own restore view answers the worker, asked at the
+project space's restore address, and each form it sends is taken by HQ's receiver under the app's id, as the
+released build's profile addresses it. Every other request goes where the app addressed it, so a search runs
+at the address the archive names (finding 32's). Only the transport differs, which is what finding 59 names:
+the request the app wrote is kept as it wrote it, the device reads HQ's answer as its own, and nothing of
+either is changed.
 """
 
 from __future__ import annotations
@@ -159,9 +162,10 @@ class DevicePeer:
         from proof.formplayer.client import HqRequest
 
         path, headers, delivered = request.path, request.headers, None
-        if self.delivered and (is_restore(request) or is_submission(request)):
-            path, headers = self._delivery(request)
-            delivered = path
+        if self.delivered:
+            headers = self._credentials(request.headers)
+            if is_restore(request) or is_submission(request):
+                path = delivered = self._delivery(request)
         answer = self._views(HqRequest(request.method, path, request.query, headers, request.body))
         asked = self._views.exchanges[-1]
         self.exchanges.append(
@@ -178,30 +182,35 @@ class DevicePeer:
         )
         return answer.status, answer.headers, answer.body
 
-    def _delivery(self, request):
-        """Where HQ takes the device's restore or form for the worker and the app, and with whose credentials:
-        the project space's restore view (``ota_restore``), or the receiver the released build's profile
-        addresses (its ``PostURL``), each as the worker HQ made, by their full username."""
-        import base64
+    def _delivery(self, request) -> str:
+        """Where HQ takes the device's restore or form for the worker and the app: the project space's restore
+        view (``ota_restore``), or the receiver the released build's profile addresses (its ``PostURL``)."""
         import io
         import zipfile
 
         from django.urls import reverse
 
-        from proof.android import observe
         from proof.connect import hq as connect_hq
 
         served = self.served
         if is_restore(request):
-            path = reverse("ota_restore", args=[served.domain])
-        else:
-            with zipfile.ZipFile(io.BytesIO(served.archive())) as archive:
-                profile = archive.read("profile.ccpr") if "profile.ccpr" in archive.namelist() else None
-            path = connect_hq.post_path(profile, served.domain)
+            return reverse("ota_restore", args=[served.domain])
+        with zipfile.ZipFile(io.BytesIO(served.archive())) as archive:
+            profile = archive.read("profile.ccpr") if "profile.ccpr" in archive.namelist() else None
+        return connect_hq.post_path(profile, served.domain)
+
+    def _credentials(self, headers) -> tuple:
+        """The request's headers with the worker HQ made as its credentials, by their full username, in place
+        of any the app wrote (which name the username as typed, with no project space to qualify it)."""
+        import base64
+
+        from proof.android import observe
+
+        served = self.served
         worker = observe.worker(served)
         credentials = base64.b64encode(f"{served.worker.username}:{worker['password']}".encode()).decode()
-        headers = tuple((name, value) for name, value in request.headers if name.lower() != "authorization")
-        return path, (*headers, ("Authorization", f"Basic {credentials}"))
+        kept = tuple((name, value) for name, value in headers if name.lower() != "authorization")
+        return (*kept, ("Authorization", f"Basic {credentials}"))
 
     def close(self) -> None:
         self._leave()

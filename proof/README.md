@@ -1460,11 +1460,14 @@ Android's own defaults (`R.string.ota_restore_url`, `R.string.PostURL`,
 the username as typed): HQ's views answer those requests as they answer
 any, and the sign-in fails where HQ's build's succeeds
 (`android@local.ccz`, `/network/signIn`). A second device on the same
-archive is given the input the lane gives Core over that archive: its
-restore is what HQ's own restore view answers the worker, and each form it
-sends is taken by HQ's receiver under the app's id, as the released build's
-profile addresses it (`DevicePeer.delivered`). Only the transport differs;
-the request the app wrote is kept as written, and its walks are the ones
+archive is given the input the lane gives Core over that archive: every
+request it makes carries the worker's credentials by the full username HQ
+made, its restore is what HQ's own restore view answers the worker, and
+each form it sends is taken by HQ's receiver under the app's id, as the
+released build's profile addresses it (`DevicePeer.delivered`). Every
+other request goes where the archive addressed it, so its searches meet
+finding 32 at HQ's own search view. Only the transport differs; the
+request the app wrote is kept as written, and its walks are the ones
 compared with A's.
 
 **What is judged** (`proof/checks/android.py`, pure functions of the

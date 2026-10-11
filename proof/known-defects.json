@@ -7669,6 +7669,17 @@
 		"control": "case-list-browse"
 	},
 	{
+		"id": "d38-android-proof3-local-ccz-list-headerdrawn-texts-lines-changed",
+		"defect": 38,
+		"part": "image-map column width (a header drawn at the width it is given)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/headerDrawn/texts/*/lines",
+		"kind": "changed",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
 		"id": "d10-android-proof3-local-ccz-list-order-changed",
 		"defect": 10,
 		"part": "label-column and unsorted order",
@@ -7893,6 +7904,28 @@
 		"artifact": "android@case list@*",
 		"path": "/walks/*/steps/*/list/rows/*/children/*",
 		"kind": "added",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-rows-drawn-texts-added",
+		"defect": 14,
+		"part": "tiles (a row drawn with the field the save adds)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/drawn/texts/*",
+		"kind": "added",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-rows-drawn-height-changed",
+		"defect": 14,
+		"part": "tiles (a row drawn with the field the save adds)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/drawn/height",
+		"kind": "changed",
 		"document": "tile-grouped-browse",
 		"control": "tile-grouped-browse"
 	},

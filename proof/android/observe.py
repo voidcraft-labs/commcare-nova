@@ -161,11 +161,12 @@ def app(
     sent=None,
     device: str = "phone",
 ) -> dict:
-    """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's restore and forms
-    delivered to HQ's own addresses for the worker and the app (``proof.android.hq``); ``fix`` where the device's
-    GPS puts it (``[latitude, longitude, altitude, accuracy]``, or None for a GPS that finds no fix); ``clock`` the
-    device's instant where it is not the lane's; ``sent``, a list each form the device sent HQ is added to;
-    ``device`` a phone or a tablet held in landscape (``Reader.device``)."""
+    """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
+    the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
+    (``proof.android.hq``); ``fix`` where the device's GPS puts it (``[latitude, longitude, altitude,
+    accuracy]``, or None for a GPS that finds no fix); ``clock`` the device's instant where it is not the lane's;
+    ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
+    (``Reader.device``)."""
     options = {"answers": _answers(), "queryAnswer": QUERY_ANSWER, "device": device}
     if fix != LANE_FIX:
         options["position"] = fix
