@@ -22,7 +22,8 @@ JVM runs, so HQ answers each on the thread that holds its unit. A request given 
 server: the project's test application answers its network with its own mocks, as in the project's own tests.
 What Android itself gives for an input is part of an answer (an install status, a screen's own alert). A
 request the reader could not answer (an exception in the reader, a JVM that fails, a deadline) raises
-``AndroidReaderError``, so no record holds it.
+``AndroidReaderError``, so no record holds it. The devices of one machine together run on half its processors
+(``_slot``), so a browser's page, HQ and Formplayer beside them are never starved of the rest.
 
 Standard library only. The JVM runs through ``proof.processes`` where that runs (Linux, the lane), which stops
 and reaps everything the JVM started; on macOS, where a person runs the reader by hand, the JVM is a process
@@ -41,6 +42,7 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from proof.android import peer as network
@@ -90,6 +92,10 @@ JVM_OPTIONS = (
 # database through it; on linux/arm64 a device does not even start, for want of Conscrypt's library
 # (UnsatisfiedLinkError: conscrypt_openjdk_jni-linux-aarch_64).
 NATIVE_PLATFORMS = frozenset({("Linux", "x86_64"), ("Darwin", "arm64"), ("Darwin", "x86_64")})
+# Where the machine's places for a device's JVM are kept (``_slot``): a directory every process of the machine
+# that reads with Android shares, the system's temporary directory unless this names another.
+SLOTS_ENVIRONMENT = "PROOF_ANDROID_SLOTS"
+SLOT_POLL_SECONDS = 0.2
 
 
 class AndroidReaderError(Exception):
@@ -126,6 +132,34 @@ def unavailable(directory: Path | None = None) -> str | None:
             " (proof/android/README.md)."
         )
     return None
+
+
+@contextmanager
+def _slot():
+    """One of the machine's places for a device's JVM, held while it runs (``SLOTS_ENVIRONMENT``): every process of
+    the machine that reads with Android takes one, so the devices together keep to half the machine's processors
+    and the browser, HQ and Formplayer beside them keep the rest. A request waits for a place before its JVM
+    starts, so the wait is never counted against its deadline."""
+    import fcntl
+
+    directory = Path(os.environ.get(SLOTS_ENVIRONMENT) or Path(tempfile.gettempdir()) / "proof-android-slots")
+    directory.mkdir(parents=True, exist_ok=True)
+    count = max(1, (os.cpu_count() or 2) // 2)
+    while True:
+        for index in range(count):
+            handle = open(directory / f"{index}.lock", "a+b")  # noqa: SIM115 (held until the JVM exits)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.close()
+                continue
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                handle.close()
+            return
+        time.sleep(SLOT_POLL_SECONDS)
 
 
 def _run(command, *, timeout, cwd, log) -> int:
@@ -295,9 +329,9 @@ class AndroidReader:
         request_path.write_text(json.dumps({"op": op, **arguments}), encoding="utf-8")
         proxy = network.Proxy(peer, self._authority()) if peer is not None else None
         command, workdir = self._command(request_path, answer_path, temporary, proxy, drawn)
-        started = time.perf_counter()
         try:
-            with open(log_path, "wb") as log:
+            with _slot(), open(log_path, "wb") as log:
+                started = time.perf_counter()
                 try:
                     if proxy is None:
                         status = _run(command, timeout=deadline, cwd=workdir, log=log)

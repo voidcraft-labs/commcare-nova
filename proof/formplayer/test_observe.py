@@ -25,6 +25,8 @@ observations ask.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from proof.formplayer.walk import screen_kind
@@ -40,6 +42,42 @@ REMOTE_RESOURCE = "targeted-invalid-question-ids"
 def _served(found):
     held = found.configurations["minimum"]
     return held.a["hooks"]["served"], held.b_aligned["served"], held.b["proof4"]["served"]
+
+
+def _opened(value, blobs):
+    """``value`` with every blob it names that holds JSON read in its place, so two records that differ say where
+    inside a blob they do."""
+    if isinstance(value, dict):
+        return {key: _opened(item, blobs) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_opened(item, blobs) for item in value]
+    if isinstance(value, str) and value.startswith("sha256:"):
+        try:
+            return _opened(blobs.get_json(value), blobs)
+        except (KeyError, ValueError):
+            return value
+    return value
+
+
+def _differences(a, b, path=""):
+    """Each place where ``a`` and ``b`` differ, by its path, with both values' start."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        keys = sorted(set(a) | set(b), key=str)
+        return [found for key in keys for found in _differences(a.get(key), b.get(key), f"{path}/{key}")]
+    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        return [found for index, pair in enumerate(zip(a, b)) for found in _differences(*pair, f"{path}/{index}")]
+    if a == b:
+        return []
+    return [f"{path}: {json.dumps(a, sort_keys=True)[:300]} != {json.dumps(b, sort_keys=True)[:300]}"]
+
+
+def _same_served(first, again):
+    """Asserts two observations of one document served the same states, naming each place inside their blobs
+    where they do not."""
+    before, after = _served(first), _served(again)
+    if before != after:
+        found = _differences(_opened(list(before), first.blobs), _opened(list(after), again.blobs))
+        raise AssertionError("Two observations of one document served it differently:\n" + "\n".join(found[:40]))
 
 
 @pytest.mark.under_determinism
@@ -71,7 +109,7 @@ def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_ea
     assert at_b["served"] and len(first.blobs.get_json(at_b["formplayer"]["trace"])["runs"]) == 4
 
     again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
-    assert _served(again) == (at_a, aligned, at_b)
+    _same_served(first, again)
     assert again.digests() == first.digests()
 
 
@@ -84,7 +122,7 @@ def test_what_a_run_asks_hq_does_not_depend_on_an_earlier_observation_of_the_sam
     at_a = _served(first)[0]
     assert at_a["A"]["formplayer"]["asked"].get("case_fixture", 0) >= 1, at_a["A"]["formplayer"]["asked"]
     again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
-    assert _served(again) == _served(first)
+    _same_served(first, again)
 
 
 def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records_it_alike():

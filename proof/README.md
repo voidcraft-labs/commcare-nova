@@ -1536,8 +1536,13 @@ again.
 **What it costs.** A device's `app` request takes three to ten seconds of
 the JVM, and a document has as many as it has served states, so a shard's
 time grows by what the twenty jobs of the old stage took, divided among the
-shards. The runtime's build, when a pin or the toolchain moves, takes about
-eleven minutes with the reader's own checks, in the job before the shards.
+shards. The devices of one shard together run on half its processors (a
+JVM waits for one of `cpu_count // 2` places before it starts,
+`proof.android.client._slot`), so the browser's pages, HQ and Formplayer
+beside them keep the rest and meet their own deadlines; the wait is never
+counted against a request's. The runtime's build, when a pin or the
+toolchain moves, takes about eleven minutes with the reader's own checks,
+in the job before the shards.
 
 **Its tests.** `proof/android/test_peer.py` holds the proxy's transport in
 the lane: a request through it, plain or tunnelled, reaches the harness as

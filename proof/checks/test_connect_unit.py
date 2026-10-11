@@ -5,7 +5,7 @@ document whose app holds Connect blocks, the unit makes one opportunity in
 Connect while A is served and every state forwards to it: the records hold
 what Connect made of A's submissions, of the local archive's (as it arranges
 them, and under the app's id), of B-edit's and of each editor save that is
-served, Formplayer's submissions and Core's alike. The same inputs give the
+served, Formplayer's submissions and each device's alike. The same inputs give the
 same bytes, whichever address Connect answered at; and a part observed under
 an ``a`` the store holds comes out byte for byte the part observed with
 nothing stored, the opportunity made again as it was made. A document
@@ -85,21 +85,29 @@ def _answers(record, reader):
     return [post["status"] for run in record["runs"].get(reader) or [] for post in run["posts"]]
 
 
+def _every(statuses, status):
+    """Whether a reader's posts all got ``status``, and it made at least one."""
+    return bool(statuses) and set(statuses) == {status}
+
+
 @pytest.mark.under_determinism
 def test_every_state_of_a_connect_app_reaches_the_one_opportunity(observed):
     """The opportunity holds what the document authors, read by Connect from HQ's own archive view; and each
-    state's submissions, Formplayer's and Core's, reached Connect's receiver."""
+    state's submissions, Formplayer's and each device's, reached Connect's receiver."""
     opportunity = observed.configurations[CONFIGURATION].a["hooks"]["served"]["connect"]
     assert {asked["view"] for asked in opportunity["asked"]} == {"direct_ccz"}
     assert [unit["slug"] for unit in opportunity["catalog"]["deliverUnits"]] == ["home_visit"]
     states = _states(observed)
     for state in ("A", "b"):
-        assert (_answers(states[state], "formplayer"), _answers(states[state], "core")) == ([200], [200]), state
-    # The local archive: Formplayer cannot submit from it (finding 59), and a device's post names no app.
-    assert sorted(states["local"]["runs"]) == ["core", "core@app"]
-    assert (_answers(states["local"], "core"), _answers(states["local"], "core@app")) == ([400], [200])
+        assert _answers(states[state], "formplayer") == [200], state
+        assert _every(_answers(states[state], "android"), 200), state
+    # The local archive: Formplayer cannot submit from it (finding 59), and the device that meets Android's own
+    # defaults posts where no project space is named, so only the device given HQ's input reaches Connect.
+    assert sorted(states["local"]["runs"]) == ["android"]
+    assert _every(_answers(states["local"], "android"), 200)
     # After the edit that renames the deliver unit, the opportunity made before it refuses each delivery.
-    assert (_answers(states["b_edit"], "formplayer"), _answers(states["b_edit"], "core")) == ([400], [400])
+    assert _answers(states["b_edit"], "formplayer") == [400]
+    assert _every(_answers(states["b_edit"], "android"), 400)
     # A served save forwards too, and Connect holds of it what it held of the state it was saved over.
     assert states["b:saves"], "no editor save over B was served, so no save's submissions reached Connect"
     for save in states["b:saves"]:
@@ -108,7 +116,7 @@ def test_every_state_of_a_connect_app_reaches_the_one_opportunity(observed):
 
 @pytest.mark.under_determinism
 def test_each_run_met_the_opportunity_as_it_stood(observed):
-    """Formplayer's delivery and Core's each left one visit: neither run read the other's."""
+    """Formplayer's delivery and each device's walk each left one visit: no run read another's."""
     for run in [run for runs in _states(observed)["A"]["runs"].values() for run in runs]:
         assert len(run["state"]["visits"]) == 1, run["run"]
 
