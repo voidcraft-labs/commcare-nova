@@ -105,7 +105,11 @@ harness keeps, each with its reason.
   - *A step waits for the client's own timers under a second*
     (`proof/editors/driver/steps/page/timers.js`). A worker acts once the
     page has settled (an answer's throttle, a dialog's transition), and a
-    step that went on while one was set read the client mid-reaction.
+    step that went on while one was set read the client mid-reaction. The
+    client's progress bar's own timers (nprogress's trickle, which re-arms
+    itself while the bar shows, and its fade) are not waited for: a
+    lifetime a worker watches, as a notification's fade is, which changes
+    nothing but the bar.
   - *A page's repeating timers of 10 s or more are held*, the accepted seam
     above: a person who saves within 20 s.
 - **Web Apps is HQ's own client, clicked and read.** A claim about what a

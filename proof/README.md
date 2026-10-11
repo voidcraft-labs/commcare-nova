@@ -965,8 +965,9 @@ app, restore and trace) are blobs named by their sha256.
   operation over the same state gives the same bytes in any process.
 - **Speed** (`speed.py`, `buildcache.py`): only `DEBUG`'s speed effects (the
   cached template loader, no query log, the memoized webpack manifest), the
-  settings YAML parsed once, HQ's XPath validator in one long-lived node
-  child, and the build's pure computations kept once computed. Each computes
+  settings YAML parsed once, each SCSS source a page names compiled once,
+  HQ's XPath validator in one long-lived node child, and the build's pure
+  computations kept once computed. Each computes
   exactly what HQ computes; `PROOF_HQ_SPEED=0` leaves them all out to compare.
 - **Operations** (`operations.py`): publish, the media upload, app source,
   build, HQ's case processing of a submission, standalone form retention,
@@ -1284,8 +1285,15 @@ a step clicks what a worker clicks, or reads what the page shows.
   step that waited only for requests went on while that timer was set, so
   which value the client submitted depended on the runner's speed (a hosted
   run's list showed a case more). A notification's fade is a longer timer,
-  a lifetime a worker watches, and is not waited for. A step that waited
-  out its deadline says what the client was still doing.
+  a lifetime a worker watches, and is not waited for. Nor are the timers of
+  the progress bar the client shows while it waits on Formplayer
+  (`cloudcare/js/utils.js::showLoading`, nprogress's `NProgress.start` and
+  `done`): it re-arms a timer every 800 ms to creep forward while it shows,
+  which runs once more after the bar is done and does nothing, and fades
+  out over two of 200 ms. Counted, they held every step that asked
+  Formplayer for up to 800 ms after the client had drawn the answer, most
+  of a run's time. A step that waited out its deadline says what the
+  client was still doing.
 - **A document's record** (`observe.py`): Formplayer's own walk of the
   release (every case of each list, every language the app holds:
   `proof/observe/walks.py`), every run replayed whole in the browser, each on
@@ -1320,10 +1328,13 @@ a step clicks what a worker clicks, or reads what the page shows.
 The page's randomness is seeded, as an editor page's is, and its clock starts
 at HQ's epoch and runs on (`steps/page/seed.js`, `advancing`), so the
 client's own animations end and its debounced handlers run as in a worker's
-browser; nothing the client shows reads its clock. A session costs between
-one and two seconds (a document's publish and release about one more, its
-record three to four); about 0.7 s of each page load is HQ compiling the
-page's four stylesheets again.
+browser; nothing the client shows reads its clock. On one worker of a
+laptop a run costs about two seconds on a desktop or a phone and four to
+five in App Preview, against one for Formplayer's own walk of it; HQ
+compiles each stylesheet source a page names once a worker
+(`proof/hq/speed.py`, about 1.3 s of every page load before), and the
+progress bar's timers are not waited for (about 0.8 s of every step that
+asks Formplayer before).
 
 What its own tests observe on released builds of real Nova exports, each on
 the client itself:

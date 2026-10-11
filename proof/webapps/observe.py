@@ -372,7 +372,8 @@ def replay(
     screen into the app, and beside
     each step what it reads: ``("home",)``, ``("screen", run)``, ``("answer", run, position)``,
     ``("submit", run)``, ``("held", run, position)``, ``("end", run)`` (the screen a run ended on) or None. A run
-    the client cannot follow ends where it stops, and the next starts from the home screen all the same.
+    the client cannot follow ends where it stops, and the next starts from the home screen all the same; the last
+    run ends where it ended.
 
     With ``preview_as`` (a worker's username) the page is App Preview: its first screen is the app's own, where
     the person logs in as that worker (``steps.log_in_as``), sets the app's default language
@@ -405,8 +406,10 @@ def replay(
         kinds.extend(None if kind is None else (kind[0], index, *kind[1:]) for kind in run_kinds)
         add([{"label": end}])
         add([steps.SCREEN], ("end", index))
-        # Home by the client's own breadcrumb, or, where a run stopped or the client shows none, its address.
-        add([{"recover": {"click": HOME, "goto": home}}, *steps.arrive(any_screen=True)])
+        if index < len(runs) - 1:
+            # Home for the next run by the client's own breadcrumb, or, where a run stopped or the client shows none,
+            # its address. The last run's page is closed where it ended.
+            add([{"recover": {"click": HOME, "goto": home}}, *steps.arrive(any_screen=True)])
     return made, kinds
 
 
