@@ -603,11 +603,13 @@ function gib(bytes) {
  * whenever a container's use passes its last printed peak by a tenth or five
  * minutes have gone by, and the run's output gets memory.json with every
  * container's peak (its cgroup's own memory.peak where this machine shows it,
- * else the highest sample) and every sample. Returns the function that stops
- * it and writes the file.
+ * read at every sample, since the harness's container is gone once the run
+ * ends; else the highest sample) and every sample. Returns the function that
+ * stops it and writes the file.
  */
 function watchMemory(output, project) {
 	const peaks = new Map();
+	const cgroupPeaks = new Map();
 	const printed = new Map();
 	const samples = [];
 	let lastLine = 0;
@@ -669,6 +671,13 @@ function watchMemory(output, project) {
 			containers[name] = bytes;
 			peaks.set(name, Math.max(peaks.get(name) ?? 0, bytes));
 		}
+		await Promise.all(
+			Object.keys(containers).map(async (name) => {
+				const peak = await cgroupPeak(`${project}-${name}`);
+				if (peak != null)
+					cgroupPeaks.set(name, Math.max(cgroupPeaks.get(name) ?? 0, peak));
+			}),
+		);
 		const host = await hostAvailable();
 		if (host?.available != null)
 			hostLowest = Math.min(hostLowest ?? host.available, host.available);
@@ -684,8 +693,10 @@ function watchMemory(output, project) {
 			lastLine = Date.now();
 			for (const [name, bytes] of Object.entries(containers))
 				printed.set(name, Math.max(printed.get(name) ?? 0, bytes));
-			const parts = Object.entries(containers).map(
-				([name, bytes]) => `${name} ${gib(bytes)}`,
+			const parts = Object.entries(containers).map(([name, bytes]) =>
+				cgroupPeaks.has(name)
+					? `${name} ${gib(bytes)} (peak ${gib(cgroupPeaks.get(name))})`
+					: `${name} ${gib(bytes)}`,
 			);
 			if (host?.available != null)
 				parts.push(`machine free ${gib(host.available)} of ${gib(host.total)}`);
@@ -707,8 +718,11 @@ function watchMemory(output, project) {
 		}
 		await Promise.all(
 			[...peaks.keys()].map(async (name) => {
-				const peak = await cgroupPeak(`${project}-${name}`);
-				if (peak != null) found[name].cgroup = peak;
+				const peak = Math.max(
+					(await cgroupPeak(`${project}-${name}`)) ?? 0,
+					cgroupPeaks.get(name) ?? 0,
+				);
+				if (peak > 0) found[name].cgroup = peak;
 			}),
 		);
 		await writeFile(
