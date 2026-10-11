@@ -177,6 +177,41 @@ def submission(tree: Sequence[Mapping[str, Any]], refused: set[str]) -> dict[str
     return {"answers": answers, "prevalidated": prevalidated}
 
 
+def _echoed(tree, ix) -> tuple[bool, Any]:
+    """Whether Formplayer's tree holds the question at ``ix``, and its answer there."""
+    node = next((node for node in questions(tree or ()) if str(node.get("ix")) == str(ix)), None)
+    return node is not None, None if node is None else node.get("answer")
+
+
+def _sent_alike(echo, sent) -> bool:
+    """Whether Formplayer's answer for a question is the one the client sent it: the client sends a number as a
+    number and a multiple choice as a list of numbers (``entries.js``, each entry's ``onPreProcess``), where the
+    walk writes each as text, so the two are read alike in those spellings."""
+    if echo == sent:
+        return True
+    if isinstance(echo, list):
+        return " ".join(str(item) for item in echo) == str(sent)
+    if isinstance(echo, (int, float)) and not isinstance(echo, bool):
+        try:
+            return float(sent) == float(echo)
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _held_after(tree, ix, sent, kind, held):
+    """What the client holds of the question it just answered once Formplayer's answer arrives (``form_ui.js``,
+    the mapping's ``update``): Formplayer's answer where it is the one sent (the question no longer dirty), else
+    what was sent (still dirty, kept as the person left it); a file question keeps whatever Formplayer hands
+    back."""
+    found, echo = _echoed(tree, ix)
+    if not found:
+        return held.get(str(ix))
+    if kind is not None or _sent_alike(echo, sent):
+        return echo
+    return sent
+
+
 def load_answer_table(path: Path = ANSWERS_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -339,7 +374,7 @@ class Walk:
                 else:
                     refused.discard(str(pending["ix"]))
                 if answered.get("status") == "accepted":
-                    held[str(pending["ix"])] = value if kind is None else held.get(str(pending["ix"]))
+                    held[str(pending["ix"])] = _held_after(answered.get("tree"), pending["ix"], value, kind, held)
                     tree = self._reconcile(
                         web, session, answered.get("tree", tree), held, refused, resent, pending, len(attempts) - 1
                     )
@@ -376,12 +411,14 @@ class Walk:
             if changed is None:
                 return tree
             ix = str(changed.get("ix"))
-            answered = web.answer(session, changed["ix"], held[ix])
-            resent.append({"ix": changed["ix"], "value": held[ix], "after": after, "response": answered})
+            sent = held[ix]
+            answered = web.answer(session, changed["ix"], sent)
+            resent.append({"ix": changed["ix"], "value": sent, "after": after, "response": answered})
             just = ix
             if answered.get("status") != "accepted":
                 return tree
             tree = answered.get("tree", tree)
+            held[ix] = _held_after(tree, ix, sent, None, held)
         return tree
 
     @staticmethod
