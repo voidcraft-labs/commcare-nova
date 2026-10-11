@@ -86,9 +86,7 @@ def _evidence(outputs, *, but_for_draws: bool = False) -> tuple[dict, list[str]]
         for directory, _ in lane_blocks.read_manifests(Path(output)):
             for path in sorted(Path(directory, "checks").glob("*/*.json")):
                 record = json.loads(path.read_bytes())
-                # The Android stage's evidence of a check on a document is beside the shards' own of it.
-                check = record["check"] + (f" ({record['stage']})" if record.get("stage") else "")
-                identity = (check, record["kind"], record["document"])
+                identity = (record["check"], record["kind"], record["document"])
                 held = found.setdefault(identity, record)
                 if disk.canonical(held) == disk.canonical(record) or identity in differing:
                     continue

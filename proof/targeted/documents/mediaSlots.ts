@@ -6,7 +6,7 @@
  * every slot Nova writes, so what a worker sees of each is read where it is
  * drawn: Formplayer's answers and the Web Apps client's screens
  * (`proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`),
- * and a device's screens in every walk the Android stage makes.
+ * and a device's screens in every walk of every state a shard serves.
  *
  * The question's constraint takes `proof`, the answer table's second text,
  * and refuses its first, which ends in white space: every walk is shown the

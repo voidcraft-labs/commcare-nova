@@ -87,8 +87,8 @@ def unheld(monkeypatch):
         ({"document": "producer.plain", "values": {"before": "a", "after": "b"}}, "not a targeted document"),
         ({"values": {"before": "a"}}, "exactly before and after"),
         ({"kind": "moved"}, "or left out for every kind"),
-        # Two spellings every reader reads alike are a spelling rule, and what a device does is an entry of the
-        # Android stage: neither is a field an entry carries.
+        # Two spellings every reader reads alike are a spelling rule, and what a device does is an entry held by
+        # the check that reports it: neither is a field an entry carries.
         ({"equivalence": "Android's and Web Apps' readers take the value its absence gives"}, "beyond them"),
         ({"android": "HiddenPreferences.isSavedFormsEnabled (absent reads yes)"}, "beyond them"),
     ],
