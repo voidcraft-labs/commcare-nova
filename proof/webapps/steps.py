@@ -179,15 +179,22 @@ def open_sidebar() -> list[dict]:
     return click(REFINE_SEARCH, visible=True, within=WITHIN_MS)
 
 
-def searched(arrival: list[dict], end: str | None) -> list[dict]:
-    """``arrival`` for a click on a search's Search button, which the client may refuse to send where a prompt is
-    invalid (``arrived.js``, ``search``): that answer ends the run (at ``end``), as a worker's search that cannot go
-    on; where no run is replayed tolerantly (no ``end``), the arrival must hold."""
+def tolerant(arrival: list[dict], end: str | None, *, search: bool = False) -> list[dict]:
+    """``arrival`` for a replayed choice whose run may end where the client does not go on: where the client shows
+    an error and stays (Formplayer refused what it asked, ``arrived.js``), or, with ``search`` (a click on a
+    search's Search button), where it refuses to send the search (a prompt it marks invalid), the wait answers
+    so and the rest of the run is skipped (to ``end``), and the run's record ends on the screen the client stays
+    on. Where no run is replayed tolerantly (no ``end``), the arrival must hold."""
     [wait, settle] = arrival
     if end is None or wait["arg"].get("any"):
         return arrival
-    step = {**wait, "arg": {**wait["arg"], "search": True}, "within": ANSWERED_WITHIN_MS, "orSkipTo": end}
-    return [step, settle]
+    arg = {**wait["arg"], "search": True} if search else wait["arg"]
+    return [{**wait, "arg": arg, "within": ANSWERED_WITHIN_MS, "orSkipTo": end}, settle]
+
+
+def searched(arrival: list[dict], end: str | None) -> list[dict]:
+    """``arrival`` for a click on a search's Search button (``tolerant``, ``search``)."""
+    return tolerant(arrival, end, search=True)
 
 
 def open_case(row: str, selections: list, arrival: list[dict], *, within=None, or_skip_to=None) -> list[dict]:

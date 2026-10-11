@@ -254,7 +254,7 @@ def plan(
     for position, choice in enumerate(run["script"]):
         # The screen the choice is made on is Formplayer's answer before it; where it leads, the request after it.
         screen = navigations[position].get("response") if position < len(navigations) else None
-        arrival = _arrival(navigations[position + 1] if position + 1 < len(navigations) else None)
+        arrival = steps.tolerant(_arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end)
         page = _page_of(screen, str(choice["entity"]), small) if "entity" in choice else 0
         if page:
             add(steps.turn_to(page, within=within, or_skip_to=end))
@@ -288,7 +288,9 @@ def plan(
             action = f"{steps.LIST_ACTION}[data-index='{choice['action']}']"
             add(steps.navigate(action, arrival, within=within, or_skip_to=end))
         elif "search" in choice:
-            searching = steps.searched(arrival, end)
+            searching = steps.searched(
+                _arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end
+            )
             if small:
                 # On a small screen a search beside its list is folded away, and a worker opens it by the list's
                 # Refine search before its Search is there to press (``case_list/menu_header.html``).
@@ -389,7 +391,7 @@ def replay(
     for index, run in enumerate(runs):
         end = f"run-{index}"
         navigations = _navigations(run)
-        first = _arrival(navigations[0] if navigations else None)
+        first = steps.tolerant(_arrival(navigations[0] if navigations else None), end)
         if preview_as is not None:
             add(steps.log_in_as(preview_as))
             if preview_language is not None:
