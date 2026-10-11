@@ -642,6 +642,29 @@ def test_a_restore_empties_the_caches_and_puts_the_change_feed_back(hq, core_run
         assert unit.blob_db.snapshot() == files
 
 
+def test_a_restore_forgets_the_rows_hq_cached_a_foreign_value_of(hq, core_runner):
+    """HQ logs each sign-in with the user agent it came from (``UserAccessLog.user_agent``, a ``ForeignValue``),
+    keeping the agent's row id in an in-process cache as it makes the row. A row a branch made is gone once the
+    branch is restored, so the cache must be too: otherwise the next sign-in logged by that agent refers to a row
+    that is not there, and the unit refuses it where production's commit would fail. The control is the branch
+    itself, where the cached id names the row the branch made."""
+    from datetime import datetime
+
+    from corehq.apps.hqwebapp.models import UserAccessLog, UserAgent
+
+    agent = "proof-device-agent"
+    logged = {"action": "failure", "user_id": "w", "ip": "127.0.0.1", "path": "/a", "timestamp": datetime(2026, 1, 15)}
+    with hq_unit(Configuration(), root_key=_root("foreign-values")) as unit:
+        with unit.fork():
+            with unit.request(b"sign-in-1"):
+                made = UserAccessLog.objects.create(user_agent=agent, **logged)
+                assert UserAgent.objects.filter(pk=made.user_agent_fk_id, value=agent).exists()
+        assert not UserAgent.objects.filter(value=agent).exists()
+        with unit.request(b"sign-in-2"):
+            again = UserAccessLog.objects.create(user_agent=agent, **logged)
+        assert UserAgent.objects.filter(pk=again.user_agent_fk_id, value=agent).exists()
+
+
 def test_units_with_one_configuration_and_root_key_start_from_one_state(hq, core_runner):
     """A unit that wrote (an app, its build, its saved build's blobs and rows) leaves the worker's database as the
     next unit with the same configuration and root key found it."""

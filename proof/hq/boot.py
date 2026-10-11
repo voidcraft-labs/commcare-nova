@@ -786,9 +786,23 @@ def cache_census():
 
 
 def clear_caches():
-    """Empty every cache alias, so no check reads what another cached."""
+    """Empty every cache alias, so no check reads what another cached, and every in-process cache HQ keeps of
+    rows a restore takes back: each ``ForeignValue``'s LRU caches of the related rows it fetched or made
+    (``corehq/util/models.py::ForeignValue.get_value``, ``get_related``: the user agent of a sign-in HQ logs,
+    for one), which hold a row's id after the transaction that made it is rolled back, as HQ's own tests clear
+    them when their transaction rolls back (``corehq/util/test_utils.py::patch_foreign_value_caches``)."""
+    from django.apps import apps
     from django.conf import settings
     from django.core.cache import caches
 
     for alias in settings.CACHES:
         caches[alias].clear()
+    from corehq.util.models import ForeignValue
+
+    for model in apps.get_models():
+        for value in vars(model).values():
+            if isinstance(value, ForeignValue):
+                for name in ("get_value", "get_related"):
+                    held = value.__dict__.get(name)
+                    if held is not None and hasattr(held, "cache_clear"):
+                        held.cache_clear()

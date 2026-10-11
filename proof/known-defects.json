@@ -8051,6 +8051,39 @@
 		"control": "case-capture-followup"
 	},
 	{
+		"id": "d59-android-proof3-local-ccz-query-errortext-changed",
+		"defect": 59,
+		"part": "local archive names no server (a search a device signs with the username as typed)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/errorText",
+		"kind": "changed",
+		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-query-typed-afterserveranswers-errortext-changed",
+		"defect": 59,
+		"part": "local archive names no server (a search a device signs with the username as typed)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-query-withanswer-afterserveranswers-errortext-changed",
+		"defect": 59,
+		"part": "local archive names no server (a search a device signs with the username as typed)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile"
+	},
+	{
 		"id": "d3-save-to-case-read-proof4-editor-vellum-again-case-1-error-0",
 		"defect": 3,
 		"part": "unknown question for a property only a Save to Case block writes",
