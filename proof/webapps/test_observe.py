@@ -161,6 +161,11 @@ def test_app_preview_logs_in_as_the_worker_and_brings_each_question_on_screen_be
     }
     preview, kinds = observe.replay("App", [run], "/home", preview_as="worker", preview_language="en")
     desktop, _ = observe.replay("App", [run], "/home")
+    # Nothing is read or clicked in App Preview before it has finished starting (Formplayer's answer to the
+    # client's refresh of the app, then the client's own arrival): a Log in as clicked earlier had its list of
+    # workers drawn over by the first screen. Web Apps' own page reads its first screen at once.
+    assert preview[0] == {"awaitRequest": {"method": "POST", "pathname": steps_module.REFRESH}}
+    assert preview.index(steps_module.SCREEN) > 1 and desktop[0] == steps_module.SCREEN
     clicked = [step["arg"]["selector"] for step in preview if step.get("until") == "webapps/click"]
     assert clicked[:6] == [
         steps_module.LOG_IN_AS,

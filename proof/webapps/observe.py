@@ -392,12 +392,16 @@ def replay(
     or English where they have none (``cloudcare/preview_app.html``, ``request.user.language|default:'en'``),
     where Web Apps opens it in the worker's or the app's first, so the language is set to the app's first, from
     which a run's own choice of another then moves it as in Web Apps."""
-    made: list[dict] = [steps.SCREEN]
-    kinds: list[tuple | None] = [("home",)]
+    made: list[dict] = []
+    kinds: list[tuple | None] = []
 
     def add(more, kind=None):
         made.extend(more)
         kinds.extend([kind] * len(more))
+
+    if preview_as is not None:
+        add(steps.preview_started())
+    add([steps.SCREEN], ("home",))
 
     for index, run in enumerate(runs):
         end = f"run-{index}"

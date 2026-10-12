@@ -140,6 +140,11 @@ SMALL_SCREEN = {"width": 390, "height": 844}
 PREVIEW_FRAME = {"width": 250, "height": 444}
 
 
+def _api_answers(exchanges) -> list[tuple[str, bytes]]:
+    """The start of each answer HQ's APIs gave the page, by its path."""
+    return [(e.path, (e.response or b"")[:1500]) for e in exchanges if "/api/" in e.path]
+
+
 def _is_screen(value) -> bool:
     return isinstance(value, dict) and "route" in value and "alerts" in value
 
@@ -338,6 +343,9 @@ class Session:
                 f"\nFormplayer's failed answers:{refused or ' none'}"
                 f"\nFormplayer's exchanges: {[(e.method, e.path, e.status) for e in exchanges]}"
                 f"\nHQ's answers: {[(e.method, e.path, e.status) for e in answers.exchanges]}"
+                # What HQ's APIs answered the client (the users App Preview's Log in as lists, say): what the
+                # page then drew is read from them.
+                f"\nHQ's API answers: {_api_answers(answers.exchanges)}"
                 f"\nStatic files: {statics}"
                 # Where the run stood is its last steps: the screen it last read, and what it waited for after it.
                 f"\nThe run's last steps: {json.dumps(outcomes, ensure_ascii=False)[-6000:]}"

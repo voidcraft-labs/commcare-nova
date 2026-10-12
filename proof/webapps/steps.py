@@ -329,6 +329,18 @@ LOG_IN_AS = "#menu-region .js-restore-as-item"
 # (``partials/confirmation_modal.html``).
 USER_ROW = "tr.js-user[aria-label='{}']"
 CONFIRM = "#js-confirmation-confirm"
+# What App Preview asks Formplayer as it starts: to drop its install of the app (``formplayer/app.js``,
+# ``refreshApplication``, which ``start`` triggers in phone mode so the preview runs the app as it stands).
+REFRESH = "/formplayer/delete_application_dbs"
+
+
+def preview_started() -> list[dict]:
+    """App Preview done starting, by its own account: the client draws the app's first screen, asks Formplayer to
+    drop its install of the app, and once Formplayer answers draws the first screen again (``formplayer/app.js``,
+    ``refreshApplication`` then ``navigateHome``), so a worker acts once that answer has come and been drawn. A Log
+    in as clicked before then had its list of workers drawn over by the first screen, and the worker's row never
+    came."""
+    return [{"awaitRequest": {"method": "POST", "pathname": REFRESH}}, *arrive(any_screen=True)]
 
 
 def log_in_as(username: str) -> list[dict]:
