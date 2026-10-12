@@ -22,7 +22,12 @@ output. Four sections, each with its problems:
    (``proof.lane.reader``), held to ``proof/known-defects.json``. A run over
    a sample of the corpus (its main queue names the documents the sample
    leaves out, ``unsampled``) holds each entry naming one of those on its
-   control alone, and the section says how many entries it held so.
+   control alone, and the section says how many entries it held so. A run
+   without the readers (its queues say ``readers: false``,
+   ``proof.lane.readers``) leaves the served readers' entries
+   (``proof.checks.registers.served_entry``) to the nightly and holds every
+   other, and the section says how many it left; every shard must have run
+   in the profile its queues were built for (``serve.json``'s ``readers``).
 4. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
@@ -46,8 +51,10 @@ import tempfile
 from pathlib import Path
 
 from proof.checks import registers, sharding
+from proof.checks.differences import SERVED_ARTIFACTS
 from proof.lane import blocks as lane_blocks
 from proof.lane import reader
+from proof.lane import readers as lane_readers
 
 WORKTREE = sharding.PROOF_DIR.parent
 COMMITTED_SURFACE = WORKTREE / "lib" / "commcare" / "surface" / "surface.json"
@@ -130,28 +137,72 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
 
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
+    readers, problems = _profile(queues, outputs)
     entries = registers.load_known_defects()
-    records, problems = reader.cached_evidence(cached, store)
+    records, read_problems = reader.cached_evidence(cached, store)
+    problems += read_problems
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        problems += registers.verify_evidence(directories, entries, unsampled=unsampled)
-    held = entries
+        problems += registers.verify_evidence(directories, entries, unsampled=unsampled, readers=readers)
+    held = registers.held_entries(entries, readers=readers)
+    left = len(entries) - len(held)
     on_control_alone = sum(entry.document in unsampled for entry in held)
-    notes = (
-        [
+    notes = []
+    if not readers:
+        notes.append(
+            f"This run handed no state to the readers ({lane_readers.VARIABLE}=0, the pull request lane), so {left}"
+            f" of the register's {len(entries)} entries, whose artifacts only the served readers write"
+            f" ({', '.join(sorted(SERVED_ARTIFACTS))}), were left to the nightly run with every reader;"
+            f" the other {len(held)} were held."
+        )
+    if unsampled:
+        entries_held = f"the register's {len(held)} entries" if readers else f"the {len(held)} entries it held"
+        notes.append(
             f"This run checked a sample of the corpus, leaving {len(unsampled)} documents out, so {on_control_alone}"
-            f" of the register's {len(held)} entries name a document it did not run and were held on their"
-            f" controls alone; the other {len(held) - on_control_alone} were held on their documents and controls."
-        ]
-        if unsampled
-        else []
-    )
+            f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
+            f" {len(held) - on_control_alone} were held on their documents and controls."
+        )
     sections["register"] = _section(
-        problems, notes, cached=len(cached), unsampled=len(unsampled), heldOnControlAlone=on_control_alone
+        problems,
+        notes,
+        cached=len(cached),
+        unsampled=len(unsampled),
+        heldOnControlAlone=on_control_alone,
+        readers=readers,
+        leftToNightly=left,
     )
 
     sections["surface"] = _surface(queues, verdict, store, committed)
     return {"holds": all(section["holds"] for section in sections.values()), "sections": sections}
+
+
+def _profile(queues, outputs) -> tuple[bool, list[str]]:
+    """Whether the run handed its states to the readers, as its queues say (``readers``), and why the queues or a
+    shard do not agree on it: a shard of the other profile ran other groups and kept other records."""
+    profiles = {queue.readers for _, queue in queues}
+    problems = []
+    if len(profiles) > 1:
+        problems.append(
+            "The queues were built for two profiles, one with the readers and one without"
+            f" ({', '.join(f'the {phase} queue {_with(queue.readers)}' for phase, queue in queues)});"
+            f" build both with the same {lane_readers.VARIABLE}."
+        )
+    readers = all(profiles)
+    for output in outputs:
+        serve = Path(output) / lane_blocks.SERVE
+        if not serve.is_file():
+            continue
+        ran = json.loads(serve.read_text(encoding="utf-8")).get("readers", True)
+        if ran != readers:
+            problems.append(
+                f"{output} ran {_with(ran)} ({lane_readers.VARIABLE}), and its queues were built {_with(readers)},"
+                " so it ran other groups than they name and kept other records."
+            )
+    return readers, problems
+
+
+def _with(readers: bool) -> str:
+    return "with the readers" if readers else "without the readers"
 
 
 TITLES = {

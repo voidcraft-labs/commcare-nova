@@ -39,6 +39,12 @@ a symptom class::
   in the check that a value class reader closes, not a symptom of the export.
 - ``control`` is the directory under ``proof/controls/`` retaining the
   pre-fix inputs the check must keep showing the symptom on.
+- An entry whose artifact is a served reader's (``served_entry``: its first step one of
+  ``proof.checks.differences.SERVED_ARTIFACTS``, the names every check reports a reader's difference under) can be
+  shown only by a run that hands its states to the readers. A run without them (``PROOF_READERS=0``, the pull
+  request lane's, ``proof.lane.readers``) leaves such entries to the nightly run, which holds them: its checks hold
+  their differences to the other entries alone (``proof.checks.cases.load_register``), and the gate holds the run's
+  evidence to those (``verify_evidence``'s ``readers``).
 
 A check passes only when every difference it reports on a document falls in
 a registered class, and every entry naming that document and check matches
@@ -74,7 +80,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from proof.checks.differences import CHECKS, KINDS, Difference
+from proof.checks.differences import CHECKS, KINDS, Difference, served_artifact
 
 # The checks whose differences a test holds to the register (each one's test
 # module calls ``proof.checks.cases.hold``). An entry naming another check
@@ -163,6 +169,19 @@ class IdentityMove:
             and difference.path == self.path
             and fnmatch.fnmatchcase(difference.artifact, self.entity)
         )
+
+
+def served_entry(entry) -> bool:
+    """Whether a register entry (an ``Entry``, or an entry's raw object) names a served reader's artifact, which
+    only a run with the readers can show (``proof.checks.differences.served_artifact``)."""
+    artifact = entry.get("artifact") if isinstance(entry, dict) else entry.artifact
+    return isinstance(artifact, str) and served_artifact(artifact)
+
+
+def held_entries(entries, *, readers: bool = True):
+    """The entries a run holds: every one with the readers, and without them every one but the served readers'
+    (``served_entry``), which the nightly holds."""
+    return tuple(entries) if readers else tuple(entry for entry in entries if not served_entry(entry))
 
 
 def _load_list(path: Path, what: str):
@@ -374,7 +393,7 @@ def _evidence(directories):
     return records, problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset()):
+def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -383,8 +402,12 @@ def verify_evidence(directories, entries, *, unsampled=frozenset()):
     (``reconcile``), and every entry was seen on its document and on its
     control, which fails when the check never ran on either. ``unsampled``
     names the corpus documents a run over a sample left out: an entry naming
-    one is held on its control alone, and none ran on its document.
+    one is held on its control alone, and none ran on its document. Without
+    ``readers`` (a run that served no state to the readers) the served
+    readers' entries are left out (``held_entries``): no check of that run
+    could show one, and the nightly holds them.
     """
+    entries = held_entries(entries, readers=readers)
     records, problems = _evidence(directories)
     if not records:
         return ["No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run."]

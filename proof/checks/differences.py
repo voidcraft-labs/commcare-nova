@@ -54,6 +54,28 @@ from dataclasses import asdict, dataclass
 CHECKS = frozenset({"bar", "intent", "manifest", "sensitivity", "proof1", "proof2", "proof3", "proof4", "proof5"})
 KINDS = frozenset({"changed", "added", "removed", "error", "refused"})
 
+# What a served state's readers made of it (``proof.observe.served``) is reported under an artifact whose first
+# step names the reader, and every check that reports one names it from these: Formplayer's walks and the
+# requests HQ's views refused it (``formplayer@...``), the Web Apps client's screens (``webapps@...``), a phone's
+# and a tablet's reading of the state (``android@...``, ``android-tablet@...``, ``proof.checks.android``), what
+# CommCare Connect made of the state's submissions (``connect@...``, ``proof.checks.connect``), and a release HQ
+# served that is not the build the other checks read, or that HQ refused to release (``release@...``). Only the
+# served observation records any of them, so a run without the readers (``proof.lane.readers``) shows none, and
+# the gate leaves the register's entries naming one to the nightly (``proof.checks.registers.served_entry``).
+FORMPLAYER = "formplayer"
+WEBAPPS = "webapps"
+ANDROID = "android"
+ANDROID_TABLET = "android-tablet"
+CONNECT = "connect"
+RELEASE = "release"
+SERVED_ARTIFACTS = frozenset({FORMPLAYER, WEBAPPS, ANDROID, ANDROID_TABLET, CONNECT, RELEASE})
+
+
+def served_artifact(artifact: str) -> bool:
+    """Whether an artifact (a difference's, or a register entry's pattern) is a served reader's: its first step,
+    up to the first ``@``, is one of ``SERVED_ARTIFACTS``."""
+    return artifact.partition("@")[0] in SERVED_ARTIFACTS
+
 
 @dataclass(frozen=True)
 class Difference:

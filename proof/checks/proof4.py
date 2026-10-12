@@ -143,7 +143,7 @@ from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.trace import generated_labels
 from proof.checks.compare.versions import CONTENT_VERSION, apply_version_clause
 from proof.checks.compare.xml_tree import XmlNotWellFormed, compare_xml_trees, parse_xml
-from proof.checks.differences import Difference, pointer_token
+from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
 from proof.checks.proof2 import parsed_build
 from proof.checks.proof5 import DATA_MAPS, _language_maps
 from proof.observe.proof4 import (
@@ -1087,7 +1087,7 @@ class _Judged:
                 # HQ releases no build of the saved app, so a worker is never served it: by what HQ raised.
                 cause = f"/release-refused/{pointer_token(served['refused'])}"
                 found += _named(
-                    [Difference(CHECK, self.document, "release", cause, cause, "refused", None, served)], editor
+                    [Difference(CHECK, self.document, RELEASE, cause, cause, "refused", None, served)], editor
                 )
                 served = None
             elif served is not None and base.served is not None:
@@ -1116,7 +1116,7 @@ class _Judged:
             self._blob(served["formplayer"]["trace"]),
             check=CHECK,
             document=self.document,
-            artifact="formplayer",
+            artifact=FORMPLAYER,
             versions=versions,
             rules=RULES,
         )
@@ -1126,12 +1126,12 @@ class _Judged:
                 self._blob(served["webapps"]),
                 check=CHECK,
                 document=self.document,
-                artifact="webapps",
+                artifact=WEBAPPS,
             )
         if served.get("releaseDiffers"):
             cause = "/release-differs"
             found.append(
-                Difference(CHECK, self.document, "release", cause, cause, "refused", None, served["releaseDiffers"])
+                Difference(CHECK, self.document, RELEASE, cause, cause, "refused", None, served["releaseDiffers"])
             )
         if served.get("connect") is not None and base.get("connect") is not None:
             # A Connect app: what Connect made of the saved app's submissions against the state's it was saved
@@ -1143,7 +1143,7 @@ class _Judged:
                 self._blob(served["connect"]),
                 check=CHECK,
                 document=self.document,
-                artifact="connect",
+                artifact=CONNECT,
             )
         return _named(found, editor)
 
@@ -1265,7 +1265,7 @@ def edit_refusals(document, records, name, record):
         for entry in held["formplayer"]["hq"]
         if (entry.get("view"), entry.get("status"), entry.get("raised")) not in known
     ]
-    return compare.refusal_differences(new, check=CHECK, document=document, artifact="formplayer")
+    return compare.refusal_differences(new, check=CHECK, document=document, artifact=FORMPLAYER)
 
 
 def connect_beyond_a(document, records, name, record, *, moved):
@@ -1288,7 +1288,7 @@ def connect_beyond_a(document, records, name, record, *, moved):
             held["opportunity"]["catalog"],
             check=CHECK,
             document=document,
-            artifact="connect",
+            artifact=CONNECT,
         )
     if a.get("connect") is None:
         return []
@@ -1298,7 +1298,7 @@ def connect_beyond_a(document, records, name, record, *, moved):
         a["connect"]["catalog"],
         check=CHECK,
         document=document,
-        artifact="connect",
+        artifact=CONNECT,
         beyond=records.blobs.get_json(connect_a) if connect_a else {},
         moved=moved,
     )

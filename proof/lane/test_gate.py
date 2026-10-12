@@ -8,12 +8,19 @@ exactly once, every item passed, the evidence holds to the register, and the
 surface block's extraction is the committed surface byte for byte. A run
 whose queue names the documents its sample of the corpus left out holds each
 entry naming one on its control alone and says so; a run whose queue names
-none holds every entry on its document as well. The plausible failures: an
+none holds every entry on its document as well. A run without the readers
+(its queues built so, ``proof.lane.readers``) leaves the served readers'
+entries to the nightly and holds every other exactly as a run with them does,
+and says how many it left; a shard of the other profile fails it. The
+plausible failures: an
 import of pytest, pluggy, lxml or HQ creeping into the verify path (the gate
 would die on the runner), a verdict that passes a run with a missing block,
 a failed item, an unregistered difference, a stale surface or a cached group
 nothing can read, every sampled run failing on the entries it could never
-show, and a whole run passing without seeing an entry on its document.
+show, a whole run passing without seeing an entry on its document, a run
+without the readers failing on the readers' entries or passing over another
+entry it never saw, and a shard with the readers counted in a run without
+them.
 
 The standard-library test runs the gate in a child interpreter started with
 ``-S -I`` (no site-packages, no environment) and a ``sys.path`` of the
@@ -260,3 +267,73 @@ def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):
     register = result["sections"]["register"]
     assert not register["holds"] and register["cached"] == 1
     assert "no store reader" in register["problems"][0] or "no store directory" in register["problems"][0]
+
+
+def _served_lane(tmp_path, own_register, *, readers):
+    """A run that shows a bar entry's difference on its document and control, and no reader's: a register of that
+    entry and a Formplayer entry on the same document, and the queue and serve.json of the profile."""
+    from proof.checks import registers
+
+    control = next(path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir())
+    base = {"defect": 1, "part": "a part", "document": "a", "control": control}
+    own_register.write_text(
+        json.dumps(
+            [
+                {**base, "id": "bar-upload", "check": "bar", "artifact": "upload", "path": "/x"},
+                {**base, "id": "reader", "check": "proof3", "artifact": "formplayer@B", "path": "/runs/*/screen"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    shown = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
+    output, queue, committed = _lane(tmp_path, differences=[{**shown, "document": "a"}])
+    [document_dir] = [
+        directory for directory, record in lane_blocks.read_manifests(output) if record["phase"] == "main"
+    ]
+    lane_blocks.write_json(
+        document_dir / "checks" / "bar" / f"control-{control}.json",
+        {"check": "bar", "document": control, "kind": "control", "differences": [{**shown, "document": control}]},
+    )
+    serve = json.loads((output / lane_blocks.SERVE).read_text())
+    lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": readers})
+    value = json.loads(queue.read_text())
+    queue.write_text(json.dumps({**value, **({} if readers else {"readers": False})}))
+    return output, queue, committed
+
+
+def test_a_run_without_the_readers_leaves_the_readers_entries_to_the_nightly_and_holds_every_other(
+    tmp_path, own_register
+):
+    result = _run(*_served_lane(tmp_path / "without", own_register, readers=False))
+    register = result["sections"]["register"]
+    assert result["holds"] and register["holds"], register
+    assert register["readers"] is False and register["leftToNightly"] == 1
+    assert register["notes"][0].startswith(
+        "This run handed no state to the readers (PROOF_READERS=0, the pull request lane), so 1 of the register's 2"
+        " entries, whose artifacts only the served readers write"
+    )
+    assert register["notes"][0].endswith("were left to the nightly run with every reader; the other 1 were held.")
+
+    # With the readers the same evidence fails: the Formplayer entry was never seen, on its document or control.
+    with_readers = _run(*_served_lane(tmp_path / "with", own_register, readers=True))["sections"]["register"]
+    assert not with_readers["holds"] and with_readers["leftToNightly"] == 0
+    assert any("reader names proof3 on a, and no shard ran proof3 on a" in p for p in with_readers["problems"])
+
+    # The other entry is held exactly as before: without the readers, an unseen bar entry still fails.
+    output, queue, committed = _served_lane(tmp_path / "unseen", own_register, readers=False)
+    entries = json.loads(own_register.read_text())
+    own_register.write_text(json.dumps([*entries, {**entries[0], "id": "bar-other", "path": "/y"}]))
+    unseen = _run(output, queue, committed)["sections"]["register"]
+    assert not unseen["holds"] and unseen["leftToNightly"] == 1
+    assert any("bar-other" in problem for problem in unseen["problems"])
+
+
+def test_a_shard_of_the_other_profile_fails_the_run(tmp_path, own_register):
+    output, queue, committed = _served_lane(tmp_path, own_register, readers=False)
+    serve = json.loads((output / lane_blocks.SERVE).read_text())
+    lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": True})
+    register = _run(output, queue, committed)["sections"]["register"]
+    assert not register["holds"]
+    assert any(
+        "ran with the readers" in problem and "built without the readers" in problem for problem in register["problems"]
+    )
