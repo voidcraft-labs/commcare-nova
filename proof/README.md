@@ -438,7 +438,9 @@ The lane runs in one of two profiles (`proof/lane/readers.py`), and
   and the gate leaves the register's entries whose artifacts only the readers
   write (`formplayer@`, `webapps@`, `android@`, `android-tablet@`,
   `connect@`, `release@`, the names `proof/checks/differences.py` gives every
-  check that reports one) to the nightly, saying how many. A run with the
+  check that reports one, and a soft assertion HQ noted answering a reader's
+  request, named under that reader, `android@soft_assert:request:...`) to
+  the nightly, saying how many. A run with the
   readers holds every test marked by hand to asking for one, so no test
   leaves the pull request lane for a reader it never starts.
 
