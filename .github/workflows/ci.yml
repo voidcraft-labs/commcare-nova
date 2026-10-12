@@ -26,7 +26,7 @@ on:
       proof_shards:
         description: Proof jobs for a controlled comparison
         type: choice
-        options: [default, '2', '3', '4', '6', '8', '12', '14', '16']
+        options: [default, '2', '3', '4', '6', '8', '10', '12', '14', '16']
         default: default
       proof_claims:
         description: Proof allocation (static by default; create and steal are claim diagnostics)
@@ -55,8 +55,17 @@ permissions:
 # markers from subsequent listings, so `create` and `steal` remain explicit
 # diagnostic choices. The manual proof-claim-race.yml measures those service
 # assumptions; the aggregate gate rejects every duplicate or missing block.
+#
+# The pull request lane runs without the readers (proof/lane/readers.py,
+# PROOF_READERS=0): no state is served to Formplayer, the Web Apps client, a
+# device or Connect, and every test that starts one, with every register entry
+# only those readers show, is left to the nightly audit (proof-audit.yml), which
+# runs the whole lane with every reader and opens an issue when it fails. The
+# queue builders are given it as a lane variable, and run.mjs passes it into
+# the harness.
 env:
   PROOF_CLAIMS: ${{ inputs.proof_claims != 'default' && inputs.proof_claims || 'static' }}
+  PROOF_READERS: '0'
 
 # `.nvmrc` is canonical for Node; package.json's `devEngines` is canonical for
 # npm and mirrors Node so npm can enforce both before commands run. Every setup
@@ -216,7 +225,7 @@ jobs:
           python3 -m proof.store.queue main
           --corpus "$RUNNER_TEMP/corpus"
           --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope"
-          --timings proof/timings.json --arch amd64
+          --timings proof/timings.json --arch amd64 --lane-env "PROOF_READERS=$PROOF_READERS"
           --audit-seed "$GITHUB_RUN_ID"
           --out "$RUNNER_TEMP/lane/proof-queue-$GITHUB_RUN_ATTEMPT.json"
       - name: Pack the proof corpus
@@ -626,7 +635,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/lane"
           python3 -m proof.store.queue early \
             --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope" \
-            --timings proof/timings.json --arch amd64 \
+            --timings proof/timings.json --arch amd64 --lane-env "PROOF_READERS=$PROOF_READERS" \
             --out "$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json"
       - name: Upload the early queue
         uses: actions/upload-artifact@v7
@@ -644,28 +653,28 @@ jobs:
 
   proof:
     # One shard of the native-proof lane (proof/README.md): HQ's real build,
-    # Core's real runtime, Formplayer, the Web Apps client, CommCare Android
-    # and HQ's real editors over Nova's exports, in the pinned proof image
-    # beside a Postgres for HQ's state, on amd64, where Robolectric's native
-    # runtime runs commcare-android's own code beside HQ's live unit (the
-    # Android reader's runtime is restored from the Actions cache and
-    # mounted, with its JDK, at the paths it was built at). A shard installs
-    # nothing and emits nothing: it pulls the image and Postgres while it
-    # fetches the queues and, once quality has emitted it, the corpus; then
-    # one fork server (proof.lane.serve) boots HQ once, runs the early
-    # queue's blocks and the main queue's as it claims them (proof/ci), and
-    # its workers run each block's groups. A shard that starts after every
-    # block is claimed ends before it restores, fetches or waits for
-    # anything (the pulls it started are stopped with the job). Its job fails
-    # only when the shard itself cannot run; whether the proofs hold is the
-    # gate's.
+    # Core's real runtime and HQ's real editors over Nova's exports, in the
+    # pinned proof image beside a Postgres for HQ's state, on amd64 (the
+    # nightly's architecture, so the records main's audit saves are the ones
+    # a pull request reads), without the readers (PROOF_READERS=0, above). A
+    # shard installs nothing and emits nothing: it pulls the image and
+    # Postgres while it fetches the queues and, once quality has emitted it,
+    # the corpus; then one fork server (proof.lane.serve) boots HQ once, runs
+    # the early queue's blocks and the main queue's as it claims them
+    # (proof/ci), and its workers run each block's groups. A shard that
+    # starts after every block is claimed ends before it restores, fetches or
+    # waits for anything (the pulls it started are stopped with the job). Its
+    # job fails only when the shard itself cannot run; whether the proofs
+    # hold is the gate's.
     name: Proof ${{ matrix.shard }}/${{ matrix.total }}
-    needs: [proof-plan, proof-android-runtime]
+    needs: proof-plan
     runs-on: ${{ matrix.runner }}
-    # A shard serves each state of its documents to Formplayer, walks every
-    # run of each whole in the Web Apps client, a fresh page a run, and hands
-    # each to a device; the deadline only catches a stuck shard.
-    timeout-minutes: 330
+    # A shard of a pull request whose changes leave most groups in main's
+    # store ends in minutes; one of the whole lane observed afresh takes
+    # twelve to fifteen, its longest group (proof/editors) seven to nine on
+    # one worker (proof/README.md, "Timings and the ten-minute bound"). The
+    # deadline stops only a stuck shard.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.proof-plan.outputs.matrix) }}
@@ -679,7 +688,6 @@ jobs:
             proof
             lib/commcare/surface
             .github/actions/proof-runtime
-            .github/actions/proof-android-runtime
       # In the background, so they overlap every step up to the lane's start;
       # each writes its exit status when it ends, and holds none of the
       # step's output open, so the step ends at once.
@@ -697,10 +705,6 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
       - uses: ./.github/actions/proof-runtime
-      # The Android reader's runtime and its JDK, which the job before built or
-      # found kept, mounted into the harness at the paths they have here.
-      - id: android
-        uses: ./.github/actions/proof-android-runtime
       # Before anything else a shard would restore or fetch: a shard that
       # starts after every block is claimed ends here.
       - name: Download the early queue
@@ -785,10 +789,8 @@ jobs:
           PROOF_STORE: ${{ runner.temp }}/store/read
           PROOF_OUT_DIR: ${{ runner.temp }}/proof-out
           PROOF_EDITOR_AUDIT: '0.03'
-          PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
           WORKERS: ${{ matrix.workers }}
         run: |
-          export PROOF_ANDROID_JDK="$JAVA_HOME"
           set +e
           case "$PROOF_CLAIMS" in
             static) claim=(--claim static --bin "$SHARD") ;;
@@ -812,29 +814,6 @@ jobs:
           name: proof-out-${{ github.run_attempt }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/proof-out/
           retention-days: 14
-
-  proof-android-runtime:
-    # The Android reader's runtime (proof/android/README.md): commcare-android's
-    # own unit-test build at the pins, kept in the Actions cache under the
-    # digest of everything a build of it reads (proof/android/toolchain.py
-    # key), so it is built once a pin. A run that does not find it kept
-    # builds it from the pins, with every download named by commit, checksum
-    # or revision, and saves it for the proof shards and every later run.
-    # Every run then holds the reader to its own checks on it before any
-    # shard starts, since the reader's code changes without the runtime
-    # changing.
-    name: Android reader runtime
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: |
-            proof
-            .github/actions/proof-android-runtime
-      - uses: ./.github/actions/proof-android-runtime
-        with:
-          build: 'true'
 
   proof-lane-sample:
     # A dispatch that names a sample size also runs the lane the nightly
@@ -863,18 +842,13 @@ jobs:
     # `always()` keeps it from being skipped when a shard fails.
     name: Proofs
     runs-on: ubuntu-latest
-    needs: [proof-plan, proof, proof-android-runtime]
+    needs: [proof-plan, proof]
     if: ${{ always() }}
     steps:
       - name: Every proof shard ran
         env:
           RESULT: ${{ needs.proof.result }}
-          RUNTIME: ${{ needs.proof-android-runtime.result }}
         run: |
-          if [ "$RUNTIME" != "success" ]; then
-            echo "::error::The Android reader's runtime job finished with result '$RUNTIME', so no shard could hand a state to a device. Open \"Android reader runtime\": its build, or the reader's own checks on it, say why."
-            exit 1
-          fi
           if [ "$RESULT" != "success" ]; then
             echo "::error::Proof shards finished with result '$RESULT': a shard could not run its blocks. Open the failing shard job; the verdict below still lists every block that ran."
             exit 1

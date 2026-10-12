@@ -8,14 +8,22 @@ name: Proof audit
 # inputs say.
 #
 # Nightly, on main: the whole lane fresh (every group, nothing shared between
-# documents, every editor view live), compared with main's newest store
-# snapshot (a record that differs is a key that missed an input, and fails
-# the run with both records uploaded), then saved as main's newest snapshot,
-# which every pull request reads, and older snapshots of the same image are
-# deleted. The weekly pin pull request runs the same lane for its candidate
-# image (upstream-pins.yml calls proof-lane.yml), prewarming main's store.
+# documents, every editor view live) in both of its profiles
+# (proof/lane/readers.py): with every reader, the only run that hands each
+# served state to Formplayer, the Web Apps client, a device and Connect and
+# runs every test that starts one; and without them, as a pull request's lane
+# runs. Each is compared with main's newest store snapshot (a record that
+# differs is a key that missed an input, and fails the run with both records
+# uploaded); then both are merged into one snapshot and saved as main's newest
+# (proof-store-save.yml), which every pull request reads, so a pull request
+# that changes no proof input finds every group cached, and older snapshots of
+# the same image are deleted. A scheduled run that fails in either profile
+# opens an issue. The weekly pin pull request runs the same two lanes for its
+# candidate image (upstream-pins.yml calls proof-lane.yml), prewarming main's
+# store.
 #
-# Weekly, on main, the lane is also run fresh four more ways. Three run the
+# Weekly, on main, the lane is also run fresh four more ways, each with every
+# reader. Three run the
 # queue builder's fixed 24-document sample (a sampled run holds each register
 # entry naming a document the sample left out on its control alone, and its
 # verdict says so): a baseline; Nova's emission and HQ unseeded (their draws
@@ -67,14 +75,42 @@ jobs:
     uses: ./.github/workflows/proof-lane.yml
     with:
       label: audit
-      store: save
+      store: pack
+
+  # The pull request lane's profile over main: the records and judgments every
+  # pull request's lane reads for the groups it did not change.
+  nightly-no-readers:
+    name: Nightly, without the readers
+    if: ${{ inputs.nightly == true || github.event.schedule == '23 3 * * *' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: audit-no-readers
+      readers: false
+      shards: 8
+      store: pack
+
+  # One snapshot of both profiles' records, saved whatever either verdict (as
+  # a single lane's save is), when every shard of both ran.
+  save:
+    name: Save main's store
+    needs: [nightly, nightly-no-readers]
+    if: ${{ !cancelled() && needs.nightly.result != 'skipped' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-store-save.yml
+    with:
+      labels: |
+        audit
+        audit-no-readers
 
   # Keeps the newest two of main's snapshots of the image the audit ran, so a
   # pull request opened while the newest is being written still reads one.
   prune:
     name: Delete older snapshots
-    needs: nightly
-    if: ${{ needs.nightly.result == 'success' }}
+    needs: save
+    if: ${{ needs.save.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -98,10 +134,10 @@ jobs:
               gh cache delete --repo "$GITHUB_REPOSITORY" "$key"
             done
 
-  # A scheduled audit that fails says so where it is seen.
+  # A scheduled audit that fails, in either profile, says so where it is seen.
   report:
     name: Report a failed audit
-    needs: nightly
+    needs: [nightly, nightly-no-readers, save]
     if: ${{ failure() && github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -114,7 +150,7 @@ jobs:
         run: |
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "The proof lane's nightly audit failed" \
-            --body "The nightly audit recomputed the proof lane fresh and it did not hold: either a stored record differs from the fresh one (a key that missed an input; the run uploads both) or the fresh lane failed. The run: $RUN_URL"
+            --body "The nightly audit recomputed the proof lane fresh, with every reader and without them, and it did not hold: either a stored record differs from the fresh one (a key that missed an input; the run uploads both), a fresh lane failed, or main's store could not be saved. The lane with every reader is the only one that runs Formplayer, the Web Apps client, CommCare Android and Connect, so a failure there is one no pull request's lane showed. The run: $RUN_URL"
 
   weekly-baseline:
     name: Weekly baseline
