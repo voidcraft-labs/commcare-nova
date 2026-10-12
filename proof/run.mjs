@@ -1054,42 +1054,115 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 export const SHARD_BUDGET_SECONDS = 2.5 * 3600;
 /** A sized shard's deadline: twice what it is expected to take, within these bounds, in minutes. */
 const DEADLINE_MINUTES = { floor: 60, ceiling: 345 };
+/** The most shards a lane is sized to. */
+const MOST_SHARDS = 256;
 
 /**
- * How many shards hold the queues' blocks (each `estimate` its box-seconds:
- * the wall time of one shard's box running it) so that none is expected to
- * run past `budget` seconds, and the deadline each shard is given.
+ * What each of `count` shards is expected to run, in seconds of its wall
+ * time, over the queues' blocks as every shard bins them
+ * (proof.checks.sharding.static_bins: the early queue's blocks and then the
+ * main queue's, heaviest first, each to the least loaded bin, ties to the
+ * lowest): a bin's box-seconds, or
+ * the longest group in it on one of its `workers`, whichever is longer.
  */
-export function sizedShards(queues, budget = SHARD_BUDGET_SECONDS) {
-	const estimates = queues.flatMap((queue) =>
-		(queue.blocks ?? []).map((block) => Number(block.estimate) || 0),
+export function shardSpans(queues, count, workers = 4) {
+	const loads = new Array(count).fill(0);
+	const longest = new Array(count).fill(0);
+	// The early queue first: the main queue's bins start from its loads (proof.lane.serve).
+	for (const queue of queues) {
+		const blocks = [...(queue.blocks ?? [])].sort(
+			(a, b) =>
+				(Number(b.estimate) || 0) - (Number(a.estimate) || 0) ||
+				(String(a.id) < String(b.id)
+					? -1
+					: String(a.id) > String(b.id)
+						? 1
+						: 0),
+		);
+		for (const block of blocks) {
+			const estimate = Number(block.estimate) || 0;
+			let index = 0;
+			for (let candidate = 1; candidate < count; candidate++) {
+				if (loads[candidate] < loads[index]) index = candidate;
+			}
+			loads[index] += estimate;
+			// A block of one group runs on one worker; a block of several holds only groups shorter than a block.
+			const wall =
+				(block.groups ?? []).length === 1 ? estimate * workers : estimate;
+			longest[index] = Math.max(longest[index], wall);
+		}
+	}
+	return loads.map((load, index) => Math.max(load, longest[index]));
+}
+
+/** The longest any one block of the queues runs on a shard, in seconds. */
+function longestBlock(queues, workers) {
+	let found = { wall: 0, names: [] };
+	for (const queue of queues) {
+		for (const block of queue.blocks ?? []) {
+			const estimate = Number(block.estimate) || 0;
+			const wall =
+				(block.groups ?? []).length === 1 ? estimate * workers : estimate;
+			if (wall > found.wall) {
+				found = {
+					wall,
+					names: (block.groups ?? []).map((group) => group.group),
+				};
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * The fewest shards over which no shard is expected to run past `budget`
+ * seconds (`shardSpans`), and the deadline each is given: twice its expected
+ * work. Refuses, loudly, a block that alone is expected to run past it, and a
+ * lane no count of shards holds.
+ */
+export function sizedShards(
+	queues,
+	budget = SHARD_BUDGET_SECONDS,
+	workers = 4,
+) {
+	const longest = longestBlock(queues, workers);
+	if (longest.wall > budget) {
+		throw new Error(
+			`The block of ${longest.names.join(", ")} is expected to run ${Math.round(longest.wall)} s on one shard, past the ${budget} s a shard is given within GitHub's six-hour job limit. Split it (proof.checks.sharding.SPLIT), or refresh proof/timings.json if its measure is stale.`,
+		);
+	}
+	for (let shards = 1; shards <= MOST_SHARDS; shards++) {
+		const spans = shardSpans(queues, shards, workers);
+		const expected = Math.max(0, ...spans);
+		if (expected <= budget) {
+			const deadline = Math.min(
+				DEADLINE_MINUTES.ceiling,
+				Math.max(DEADLINE_MINUTES.floor, Math.ceil((2 * expected) / 60)),
+			);
+			return { shards, deadline, expected };
+		}
+	}
+	throw new Error(
+		`No count of shards up to ${MOST_SHARDS} keeps every shard's expected work within ${budget} s; the queues' estimates say why (proof/timings.json).`,
 	);
-	const total = estimates.reduce((sum, value) => sum + value, 0);
-	const largest = Math.max(0, ...estimates);
-	const shards = Math.max(1, Math.ceil(total / budget));
-	// Greedy bins hold a shard's share of the whole plus at most one block more, and never more than the whole.
-	const expected = Math.min(total, total / shards + largest);
-	const deadline = Math.min(
-		DEADLINE_MINUTES.ceiling,
-		Math.max(DEADLINE_MINUTES.floor, Math.ceil((2 * expected) / 60)),
-	);
-	return { shards, deadline, total, expected };
 }
 
 /**
  * CI's proof matrix: `shards` jobs (`default`: proof/timings.json's
  * execution for the profile, `readers`; `auto`: as many as the `queues`
- * need, `sizedShards`) on the execution's runner, each a fork server of the
- * execution's workers, with its deadline in minutes where the matrix is sized.
+ * need within a shard's budget, `sizedShards`) on the execution's runner,
+ * each a fork server of the execution's workers, with its deadline in minutes
+ * where the matrix is sized.
  */
 export function proofMatrix(shards, timings, readers = true, queues = []) {
 	const execution = timingsProfile(timings, readers).execution ?? {};
-	const sized = shards === "auto" ? sizedShards(queues) : undefined;
+	const workers = count(execution.workers, "The worker count");
+	const sized =
+		shards === "auto" ? sizedShards(queues, undefined, workers) : undefined;
 	const total = count(
 		sized ? sized.shards : shards === "default" ? execution.shards : shards,
 		"The shard count",
 	);
-	const workers = count(execution.workers, "The worker count");
 	if (typeof execution.runner !== "string" || !execution.runner) {
 		throw new Error(
 			`proof/timings.json's ${profileName(readers)} execution names no runner for the shards (profiles.${profileName(readers)}.execution.runner).`,

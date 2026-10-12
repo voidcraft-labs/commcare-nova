@@ -340,6 +340,11 @@ def test_documents_sharing_a_parts_inputs_share_a_block_unless_dedupe_is_off(tmp
             if any(g["group"] == name for g in block["groups"])
         )
 
+    # The copy measured as its sibling is, so only the shared inputs, never its estimate, put the two together.
+    timings = json.loads((checkout / "proof" / "timings.json").read_text())
+    for profile in timings["profiles"].values():
+        profile["groups"]["corpus:copy"] = profile["groups"]["corpus:two"]
+    write_files(checkout, {"proof/timings.json": json.dumps(timings)})
     deduped = _build(checkout, tmp_path / "deduped.json", corpus=corpus)
     assert holding(deduped, "corpus:copy") == ("corpus:copy", "corpus:one")
     apart = _build(checkout, tmp_path / "apart.json", "--no-dedupe", corpus=corpus)

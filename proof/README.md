@@ -2853,7 +2853,9 @@ explicit diagnostic mode, and `proof_shards` selects another shard count.
   every reader costs about 300 worker-hours whole, so no lane runs it fresh
   every night: each lane with the readers sizes its shards from its queue
   (`node proof/run.mjs --matrix auto`, `proof/run.mjs::sizedShards`: no shard
-  expected past two and a half hours, its deadline twice its expected work)
+  expected past two and a half hours as every shard bins the queues, its
+  deadline twice its expected work; a block alone expected past that fails
+  the plan, naming it)
   and runs at most fourteen at once, leaving six runners for pull requests;
   GitHub queues the rest, and queued time is no job's.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
@@ -2872,9 +2874,10 @@ nightly and opens an issue when it fails. `proof/timings.json` holds each
 profile's group costs in box-seconds and its CI `execution` (shards, runner,
 workers per shard): `readers` for the nightly's lane, `no-readers` for the
 pull request lane's. The queue builder packs each profile's blocks from its
-own costs (a group it does not list counts the median document's or a
-default), and `node proof/run.mjs --timings <output>...` refreshes the
-profile its outputs ran in, keeping the other; `--box-workers 4` measures a
+own costs (a group it does not list is counted at the 90th percentile of the
+measured groups of its kind, so a stale profile oversizes a lane), and `node
+proof/run.mjs --timings <output>...` refreshes the profile its outputs ran
+in, keeping the other and its execution; `--box-workers 4` measures a
 run on a machine that gives each worker a vCPU, as a CI shard does, by a CI
 box's four workers. Measure a change to the harness by the work it does: the
 CPU-seconds the harness's and Postgres's containers use (their cgroups' CPU

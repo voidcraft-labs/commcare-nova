@@ -137,18 +137,19 @@ def test_each_group_is_collected_from_where_its_tests_are():
     assert sharding.collection_roots(["corpus:a@minimum"]) == [PROOF / "checks"]
 
 
-def test_a_document_the_timings_do_not_list_counts_as_their_median_document():
-    """A sample's documents change with its size and seed, so most are unmeasured; counting each at the
-    default would let a shard of heavy documents pass for a light one."""
-    timings = {"corpus:a": 20.0, "corpus:b": 30.0, "corpus:c": 40.0, "proof/native": 100.0}
+def test_a_group_the_timings_do_not_list_counts_high_among_those_of_its_kind():
+    """A sample's documents change with its size and seed, and a profile may be stale or partial, so many groups
+    are unmeasured; counting each at a typical cost would let a shard of heavy ones pass for a light one and run
+    past its deadline, so each counts at the 90th percentile of its kind."""
+    timings = {f"corpus:{n}": float(n) for n in range(1, 11)} | {"proof/native": 100.0, "proof/core": 4.0}
     seconds = sharding.estimate(timings)
-    assert seconds("corpus:b") == 30.0
-    assert seconds("corpus:new") == seconds("control:new") == 30.0
+    assert seconds("corpus:3") == 3.0
+    assert seconds("corpus:new") == seconds("control:new") == 10.0
     # A document split by configuration counts half its whole measure.
-    assert seconds("corpus:c@minimum") == 20.0
-    assert seconds("corpus:new@maximum") == 30.0
-    assert seconds("proof/new") == sharding.DEFAULT_SECONDS
-    assert sharding.estimate({})("corpus:new") == sharding.DEFAULT_SECONDS
+    assert seconds("corpus:6@minimum") == 3.0
+    assert seconds("corpus:new@maximum") == 10.0
+    assert seconds("proof/new") == 100.0
+    assert sharding.estimate({})("corpus:new") == sharding.estimate({})("proof/new") == sharding.DEFAULT_SECONDS
 
 
 def test_the_timings_file_holds_each_profiles_groups_and_a_run_reads_its_own(tmp_path, monkeypatch):
@@ -180,6 +181,18 @@ def test_the_timings_file_holds_each_profiles_groups_and_a_run_reads_its_own(tmp
 def _block(*names, estimate=1.0, fresh=()):
     groups = tuple(lane_blocks.QueuedGroup(name, name in fresh) for name in names)
     return lane_blocks.Block(lane_blocks.block_id(names), estimate, groups)
+
+
+def test_the_main_queues_bins_start_from_the_early_queues_so_no_shard_holds_both_heaviest_blocks():
+    """A shard runs its bin of each queue (proof.lane.serve): binned apart, the heaviest early block and the
+    heaviest main block both land on the first shard, which then runs twice what the others do."""
+    early = [_block("proof/a", estimate=10.0), _block("proof/b", estimate=1.0)]
+    main = [_block("corpus:x", estimate=10.0), _block("corpus:y", estimate=1.0)]
+    loads = [sum(block.estimate for block in members) for members in sharding.static_bins(early, 2)]
+    assert loads == [10.0, 1.0]
+    after = sharding.static_bins(main, 2, loads)
+    assert [[block.names for block in members] for members in after] == [[("corpus:y",)], [("corpus:x",)]]
+    assert [[block.names for block in members] for members in sharding.static_bins(main, 2)][0] == [("corpus:x",)]
 
 
 def test_static_bins_are_the_same_however_the_blocks_are_listed_and_balance_by_estimate():

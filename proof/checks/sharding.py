@@ -36,9 +36,10 @@ its states are served to the readers: the seconds of one worker's wall time the
 group took, without what the worker's session shares (its services), divided
 by the number of workers that shared a CI box (``proof.lane.timings``; ``node
 proof/run.mjs --timings`` writes them). ``load_timings`` reads the run's own
-profile. A document or control it does not list counts the median of those it
-lists, since a sample's documents change with its size and seed; any other
-group it does not list counts ``DEFAULT_SECONDS`` (``estimate``).
+profile. A group it does not list is counted high, at the 90th percentile of
+those it lists of its kind (documents and controls, or the rest), so a stale or
+partial profile oversizes a lane rather than overrunning its shards
+(``estimate``).
 
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
 claimed by one shard. ``static_bins`` splits the blocks across ``n`` shards
@@ -207,11 +208,30 @@ def load_timings(path: Path = TIMINGS, *, readers: bool | None = None):
     return groups
 
 
+# The share of measured groups an unmeasured one is counted above: a stale or partial profile then oversizes a
+# lane rather than overrunning its shards' deadlines.
+UNMEASURED_PERCENTILE = 0.9
+
+
+def _percentile(values, share):
+    """The value ``share`` of the sorted ``values`` reach (the 90th percentile at 0.9), or None for none."""
+    values = sorted(values)
+    return values[min(len(values) - 1, int(share * len(values)))] if values else None
+
+
 def estimate(timings):
-    """Each group's box-seconds: measured where ``timings`` lists it, else the median measured document for a
-    document or control, else ``DEFAULT_SECONDS``."""
-    documents = sorted(seconds for group, seconds in timings.items() if group.startswith(DOCUMENT_KINDS))
-    document = documents[len(documents) // 2] if documents else DEFAULT_SECONDS
+    """Each group's box-seconds: measured where ``timings`` lists it, else counted high: a document or control at
+    the 90th percentile of the measured documents (``UNMEASURED_PERCENTILE``), any other group at that of the
+    measured groups that are not documents, each at least ``DEFAULT_SECONDS``."""
+    measured = [(group, float(seconds)) for group, seconds in timings.items()]
+    document = max(
+        DEFAULT_SECONDS,
+        _percentile([s for g, s in measured if g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE) or 0.0,
+    )
+    other = max(
+        DEFAULT_SECONDS,
+        _percentile([s for g, s in measured if not g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE) or 0.0,
+    )
 
     def seconds(group):
         if group in timings:
@@ -222,24 +242,26 @@ def estimate(timings):
             whole, _, configuration = group.partition("@")
             if configuration and whole in timings:
                 return float(timings[whole]) / 2
-            return float(document)
-        return DEFAULT_SECONDS
+            return document
+        return other
 
     return seconds
 
 
-def static_bins(blocks: Sequence, count: int) -> list[list]:
+def static_bins(blocks: Sequence, count: int, loads: Sequence[float] | None = None) -> list[list]:
     """The blocks split into ``count`` bins by greedy longest-processing-time balancing over their estimates.
 
     Heaviest first (ties by id), each to the least loaded bin (ties to the
-    lowest); each bin keeps the queue's order. The same blocks give the same
-    bins on every shard, whatever order they are listed in.
+    lowest), each bin starting from its share of ``loads`` (what each shard
+    already runs: the early queue's bins, for the main queue's); each bin
+    keeps the queue's order. The same blocks give the same bins on every
+    shard, whatever order they are listed in.
     """
     if count < 1:
         raise ShardError(f"Blocks are split into at least one bin; asked for {count}.")
     position = {block.id: index for index, block in enumerate(blocks)}
     bins: list[list] = [[] for _ in range(count)]
-    loads = [0.0] * count
+    loads = [float(load) for load in loads] if loads is not None else [0.0] * count
     for block in sorted(blocks, key=lambda block: (-block.estimate, block.id)):
         index = min(range(count), key=lambda bin_index: (loads[bin_index], bin_index))
         bins[index].append(block)

@@ -477,13 +477,13 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
 
 
 def _queue_file(path, *groups_per_block, readers=None):
-    """A queue of ``groups_per_block``, built for the profile the nested run inherits (``proof.lane.readers``)
-    unless ``readers`` names the other."""
+    """A queue of ``groups_per_block``, built for the readers the nested run inherits (``proof.lane.readers``)
+    unless ``readers`` names another set."""
     blocks = tuple(
         lane_blocks.Block(lane_blocks.block_id(names), 1.0, tuple(lane_blocks.QueuedGroup(name) for name in names))
         for names in groups_per_block
     )
-    built = lane_readers.served() if readers is None else readers
+    built = lane_readers.named() if readers is None else readers
     lane_blocks.write_json(path, lane_blocks.queue_json(lane_blocks.Queue(blocks, readers=built)))
     return blocks
 
@@ -589,14 +589,14 @@ def test_an_early_queue_holding_a_group_that_reads_the_corpus_is_refused_before_
     # Refused before anything was booted, restored or compiled.
     assert record["fixed"] == {} and "Booted HQ" not in finished.output
 
-    # A queue built for the other profile (proof.lane.readers): its groups and keys are that profile's.
+    # A queue built for another set of readers (proof.lane.readers): its groups and keys are that set's.
     other = tmp_path / "other.json"
-    _queue_file(other, ["proof/core"], readers=not lane_readers.served())
+    _queue_file(other, ["proof/core"], readers=lane_readers.NONE if lane_readers.served() else lane_readers.EVERY)
     out = tmp_path / "other-out"
     finished = _serve(out, options=["--early-queue", other, "--claim", "static"])
     assert finished.returncode == 2, finished.tail()
     [problem] = json.loads((out / lane_blocks.SERVE).read_text())["problems"]
-    assert problem.startswith(f"The queue {other} was built with") and "the other profile's" in problem
+    assert problem.startswith(f"The queue {other} was built for") and "the other set's" in problem
     assert "Booted HQ" not in finished.output
 
 

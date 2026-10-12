@@ -399,7 +399,7 @@ class Server:
             self.phases["main"] = PhaseInfo("main", [*self._base_args(), str(PROOF_DIR), *ignored])
             self.broker.add_phase("main", static=static)
             if options.queue.exists():
-                self.broker.offer("main", self._binned(self._load(options.queue, "main")))
+                self.broker.offer("main", self._binned(self._load(options.queue, "main"), after=self._early()))
             else:
                 self._start_wait()
 
@@ -409,15 +409,25 @@ class Server:
         except lane_blocks.QueueError as error:
             raise Refused(f"The {phase} queue cannot be run: {error}") from error
 
-    def _binned(self, queue: lane_blocks.Queue) -> list:
+    def _binned(self, queue: lane_blocks.Queue, *, after: lane_blocks.Queue | None = None) -> list:
         """The queue's blocks this shard takes, in its order: with ``--bin I/N``, bin I of N alone where it claims
-        statically, and otherwise every block, its own bin's first (``sharding.claim_order``)."""
+        statically, and otherwise every block, its own bin's first (``sharding.claim_order``). The main queue's
+        bins start from the early queue's (``after``), so one shard does not hold the heaviest block of both."""
         if self.options.bin is None:
             return list(queue.blocks)
         index, count = self.options.bin
         if self.options.claim != "static":
             return sharding.claim_order(queue.blocks, index, count)
-        return sharding.static_bins(queue.blocks, count)[index - 1]
+        loads = None
+        if after is not None:
+            loads = [sum(block.estimate for block in members) for members in sharding.static_bins(after.blocks, count)]
+        return sharding.static_bins(queue.blocks, count, loads)[index - 1]
+
+    def _early(self) -> lane_blocks.Queue | None:
+        """The early queue, for the main queue's bins to start from; None without one."""
+        if self.options.early_queue is None:
+            return None
+        return self._load(self.options.early_queue, "early")
 
     # Commands --------------------------------------------------------------------------
 
@@ -513,7 +523,7 @@ class Server:
             self.broker.cancel("main")
             return
         say(f"The main queue arrived after {seconds} s: {len(queue.blocks)} blocks.")
-        self.broker.offer("main", self._binned(queue))
+        self.broker.offer("main", self._binned(queue, after=self._early()))
 
     # Collecting ------------------------------------------------------------------------------
 

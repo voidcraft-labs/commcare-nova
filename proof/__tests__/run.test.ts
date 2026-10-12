@@ -22,6 +22,7 @@ import {
 	runOutput,
 	SHARD_BUDGET_SECONDS,
 	shardOptions,
+	shardSpans,
 	sizedShards,
 	statsBytes,
 } from "../run.mjs";
@@ -772,22 +773,37 @@ it("plans CI's shards on the execution's runner, or as many as asked for", () =>
 
 it("sizes a lane from its queues so no shard is expected past its budget, and gives each shard a deadline from it", () => {
 	const hour = 3600;
-	const queue = (...estimates: number[]) => ({
-		blocks: estimates.map((estimate) => ({ estimate })),
+	// Blocks of several groups, each a box's hours; one block of one group runs on one worker of four.
+	const block = (id: string, estimate: number, groups = 2) => ({
+		id,
+		estimate,
+		groups: Array.from({ length: groups }, (_, index) => ({
+			group: `corpus:${id}-${index}`,
+		})),
 	});
-	// Ten hours of work: four shards of two and a half, plus at most one block more each.
-	const sized = sizedShards([queue(5 * hour, 3 * hour), queue(2 * hour)]);
-	expect(sized.shards).toBe(Math.ceil((10 * hour) / SHARD_BUDGET_SECONDS));
-	expect(sized.expected).toBe((10 * hour) / sized.shards + 5 * hour);
-	// Twice what a shard is expected to take, never past GitHub's six-hour job limit.
-	expect(sized.deadline).toBe(345);
-	expect(sizedShards([queue(600)])).toMatchObject({ shards: 1, deadline: 60 });
-	// One block: the shard runs it whole, so its deadline is twice that.
-	expect(sizedShards([queue(1.5 * hour)])).toMatchObject({
+	const queue = (...blocks: ReturnType<typeof block>[]) => ({ blocks });
+	// Ten hours: four shards of two and a half, as the shards' own greedy bins split them.
+	const ten = [
+		queue(block("a", 2.5 * hour), block("b", 2.5 * hour)),
+		queue(block("c", 2.5 * hour), block("d", 2.5 * hour)),
+	];
+	const sized = sizedShards(ten);
+	expect(sized.shards).toBe(4);
+	expect(sized.expected).toBe(2.5 * hour);
+	expect(sized.deadline).toBe(300);
+	// Each queue is binned apart, heaviest first to the least loaded bin, so a shard holds a block of each.
+	expect(shardSpans(ten, 2)).toEqual([5 * hour, 5 * hour]);
+	expect(sizedShards([queue(block("small", 600))])).toMatchObject({
 		shards: 1,
-		deadline: 180,
+		deadline: 60,
 	});
 	expect(sizedShards([])).toMatchObject({ shards: 1, deadline: 60 });
+	// A block of one group runs on one worker: its box-seconds times four are its shard's wall.
+	expect(shardSpans([queue(block("one", hour, 1))], 1)).toEqual([4 * hour]);
+	// Refused loudly where a block alone is expected past the budget.
+	expect(() => sizedShards([queue(block("huge", hour, 1))])).toThrow(
+		"is expected to run 14400 s on one shard",
+	);
 	const timings = {
 		profiles: {
 			readers: {
@@ -795,14 +811,13 @@ it("sizes a lane from its queues so no shard is expected past its budget, and gi
 			},
 		},
 	};
-	const matrix = proofMatrix("auto", timings, true, [queue(10 * hour)]);
-	expect(matrix.include).toHaveLength(
-		Math.ceil((10 * hour) / SHARD_BUDGET_SECONDS),
-	);
-	expect(new Set(matrix.include.map((entry) => entry.deadline)).size).toBe(1);
+	const matrix = proofMatrix("auto", timings, true, ten);
+	expect(matrix.include).toHaveLength(4);
+	expect(matrix.include[0]?.deadline).toBe(300);
 	expect(proofMatrix("default", timings).include[0]).not.toHaveProperty(
 		"deadline",
 	);
+	expect(SHARD_BUDGET_SECONDS).toBe(2.5 * hour);
 });
 
 it("writes each group's box-seconds the workers measured, averaging runs, with the servers' fixed costs", async () => {
