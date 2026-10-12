@@ -33,7 +33,13 @@ links", "Case lists and search", and defects 21 to 30.
 9. **Form links with CommCare's semantics** (defect 26): every matching
    destination runs, in the author's order, with "otherwise", self-links as
    "start this form again", and the validator refusing link targets HQ does not
-   offer.
+   offer. This step also owns what a link's case value may name. Step 2 leaves
+   two register entries for a value that names no case, where HQ makes a case
+   out of the linked form's update
+   (`d26-a-link-names-no-case-soft-assert-casedb-base-get-case-from-case-update`
+   and
+   `d26-a-link-names-no-case-soft-assert-proof3-casedb-base-get-case-from-case-update`),
+   and this step's exit removes them.
 10. **`group.fieldList`** (defect 27).
 11. **Explicit preloads and markdown** (defect 28).
 12. **Renamed menu concepts** (defect 29): `Module.caseListRegistrationForm`,

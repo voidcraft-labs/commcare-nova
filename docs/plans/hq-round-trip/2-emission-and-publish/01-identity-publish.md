@@ -641,7 +641,17 @@ do with a code is under "Lane".
 `proof/targeted/documents/hqSideState.ts`. `proof/corpus/editKinds.ts` and
 `proof/corpus/workforce.ts` build their language mutations through
 `lib/doc/languageMutations.ts`, so every `edit/batch.json` that adds or
-relabels a language gains `wireCode`, which shows in the corpus diff. Every
+relabels a language gains `wireCode`, which shows in the corpus diff. This
+pull request adds no fixed document and no edit kind, but it changes what
+three generators propose, and which document draws which edit follows
+which proposals the gate admits (part 04, Defect 7 and finding 62: saved and
+incomplete forms differ by reader, "The new edit kind moves the corpus's
+edits"). So it compares each document's `intendedKind` and
+`configurations.json` in its own corpus with its parent's before its lane
+run. Of the entries it moves or registers, one is read after an edit,
+`d1-language-codes-build-profile-raised`, on `targeted-hq-side-state`, whose
+edit is written and not drawn; every other is read on A, B, the local
+archive or the device's update from A to B. Every
 corpus document with a localization root gains `wireCodes`; `localization-mandarin`'s two Mandarin
 branches take the preferred spelling and one suffixed code where today both
 are suffixed, which shows in the corpus `index.json` diff and nowhere in a
@@ -1834,8 +1844,18 @@ device that updates, Connect's post and forward):
   placeholder in the case fixture URL a stack step carries, which
   `with_runtime_app_id` replaces with the search URL's. The documents these
   four name (`case-list-inline`, `search-hidden-link`,
-  `targeted-close-conditions`) were not in this run; the whole lane holds
-  them at this pull request.
+  `targeted-close-conditions`) were not in this run.
+- Executed during planning, without the readers, with A5's bytes written
+  into the local archives of every document of the lane's branch with main
+  merged (360, in one state with pull request 5's bytes and the fixes
+  planning implemented): `d32-search-url-trace-requests-url` and
+  `d32-search-url-trace-url` stop showing on `case-list-inline`, and
+  `d32-search-url-trace-stackaftersubmit-steps` on `search-hidden-link`.
+  Each stays held on its control. Of the classes that run shows with no
+  entry, none is A5's: none names a URL, a server property or an app id.
+  `d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status` is
+  Formplayer's, which that run does not serve; the whole lane holds it on
+  `targeted-close-conditions` at this pull request.
 
 **What the working submit shows.** Before this pull request the local
 archive's submit fails for want of a `PostURL`, so nothing past it is
@@ -2249,7 +2269,7 @@ something production does not.
 | `proof/corpus/targetPeer.ts::TargetPeer` | The peer that answers Nova's requests at capture. It holds a whole assumed source in place of `profile` alone (`holdProfile` becomes `holdSource`), answers the source read after a create with the shell's source (`doc_type: "Application"`, the configuration's `build_spec.version`, an empty `profile`, the shell's `langs`, `modules: []`, `_attachments: {}`). That assumed source is built from the captured `create.body` by the `APP_SHELL_KEYS` table of A3: a key the table's row holds is answered as the shell sent it, `build_spec.version` is always the configuration's because HQ discards the body's, and a key the row does not hold is answered as HQ's default for an app created without it. So pull requests 5 and 13 change the peer's shell source with the list, and `proof/hq/operations.py::publish_capture`'s `CapturedSourceNotHeld` holds each version of it to HQ's own read of the shell. It answers the second import as an update of the app the first made, and counts both imports. |
 | `proof/corpus/entryWriter.ts` | Writes the two-import layout for a corpus entry: `create.body`, `content.body`, `"layout": 2`, `placeholderAppId` and `assumedSource` in each sidecar, where it writes `assumedSourceProfile` today. It also writes `import-file.zip` beside the exports: the HQ import file for D, built by the function `/api/compile/json` calls (`expandDoc` with no target, then `buildHqJsonExportArchive` with the rendered guide), which `proof/checks/corpus.py` reads as `Document.import_file` and A6's lane tests import. `proof/corpus/emitCorpus.ts`'s layout comment and `inputs.json` name it. |
 | `proof/corpus/__tests__/emitCorpus.test.ts` | Reads the new layout (a `content` step beside `create`), and A4's media observation. |
-| `proof/corpus/publish.ts::PublishInput`, `::PublishCapture` | `sourceProfile` becomes `source`, and `assumedSourceProfile` becomes `assumedSource`: the fields of HQ's source the captured body depends on. In this pull request those are `doc_type`, `build_spec.version` and `profile`; work items B and D add theirs. The profile an update is captured over is the one the import before it left in HQ: the shell's HQ default here, and from pull request 5 the profile the content update writes, the seventeen settings with `cc-show-saved` and `cc-show-incomplete` taken from the document's `appSettings` (`no` for both at the default every corpus document holds), so every republish and edit sidecar changes in that pull request (part 04, Finding 40: an HQ settings save writes its defaults into the profile). Executed during planning with pull request 5's bodies: while the sidecars still named `{}`, `proof/observe/publish.py::update` refused every update as captured over another profile than HQ serves, and with the sidecars naming the create's profile the run went through. |
+| `proof/corpus/publish.ts::PublishInput`, `::PublishCapture` | `sourceProfile` becomes `source`, and `assumedSourceProfile` becomes `assumedSource`: the fields of HQ's source the captured body depends on. In this pull request those are `doc_type`, `build_spec.version` and `profile`; work items B and D add theirs. The profile an update is captured over is the one the import before it left in HQ. For the content update that is the shell's HQ default. For the republish and the edit it is what the content update wrote: in this pull request Nova's search custom property (`custom_properties` `cc-index-case-search-results`) on the 72 documents whose capture writes it and nothing on the rest, as `assumedSourceProfile` holds today; and from pull request 5 the seventeen settings beside it, with `cc-show-saved` and `cc-show-incomplete` taken from the document's `appSettings`. Those two are `no` in every sidecar: every corpus document holds the default, and the one edit that changes a setting, `setAppSettings` on four documents (part 04, Defect 7 and finding 62: saved and incomplete forms differ by reader), is the last update captured for its document, over D's profile. So every republish and edit sidecar changes in pull request 5 (part 04, Finding 40: an HQ settings save writes its defaults into the profile). Executed during planning with pull request 5's bodies: while the sidecars still named `{}`, `proof/observe/publish.py::update` refused every update as captured over another profile than HQ serves, and with the sidecars naming the create's profile the run went through. Executed again without the readers over every document of the lane's branch with main merged (360): an update whose body and sidecar left the custom property out was refused on each of the 72, and with it carried beside the seventeen every update went through. |
 | `proof/corpus/publish.ts::capturePublish`, a capture-time assertion | The republish is captured twice and the two import bodies must be byte equal: a third publish sends the second's bytes. The capture throws otherwise. |
 | `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). Every corpus archive is compiled for a project space, as every archive Nova serves is, and its profile holds the four server properties of A5. |
 | `proof/corpus/publish.ts::sendsTheSame` and the header comment | No longer cite `multimedia_map`: the media upload follows from the prepared assets. The header says ids are derived. |
