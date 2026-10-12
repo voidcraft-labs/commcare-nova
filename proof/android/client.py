@@ -59,7 +59,10 @@ SOURCE_DIR = Path(__file__).resolve().parent / "src"
 # request's key names what it reads, and the reader's fingerprint names the files (records.fingerprint).
 CAPTURES_DIR = Path(__file__).resolve().parents[1] / "core" / "captures"
 COMPILE_SECONDS = 300.0
-REQUEST_SECONDS = 300.0
+# A device walks every path of the app, every case of each list and every language (Screens.java) in one JVM:
+# a second or two a walk beside HQ, and the longest request of the slices that proved it took 139 s on a machine
+# running twice its processors' load. A request past this says how far it walked (``_unanswered``).
+REQUEST_SECONDS = 900.0
 LOG_LIMIT = 256 * 1024
 # How much of that a failure's message carries, and the header Runner.java prints JUnit's report of the reader's
 # own failure under (``Failure.getTestHeader``: the test method and its class).
@@ -78,19 +81,36 @@ CLOCK_READ = "new Date()"
 CLOCK_REPLACEMENT = "nova.proof.android.ProofClock.now()"
 # The project runs its unit tests with -noverify and a 2 GB heap (app/build.gradle, testOptions.unitTests.all).
 # The zone and locale are fixed so nothing Android formats depends on the machine, and Robolectric reads its
-# Android runtime from the runtime's own directory, never the network. Stopping at the client compiler leaves the
-# code cache at the 48 MB HotSpot gives a JVM without tiers, which a device fills about thirty seconds into a
-# request: the JVM then compiles nothing more, and cannot make a method handle's intrinsic either, so the app
-# raised an InternalError ("no such method: MethodHandle.linkToStatic") wherever it first needed one, which a
-# record kept as a crash of the app, or the JVM ended the request. The cache is reserved at the size HotSpot gives
-# a tiered JVM (as the runners' is, proof/core/client.py), and a request whose JVM filled it all the same is
-# refused (``CODE_CACHE_FULL``): what such a JVM read is not what Android does.
+# Android runtime from the runtime's own directory, never the network.
+#
+# The code cache is reserved at 240 MB, the size HotSpot gives a JVM with both compilers (as the runners' is,
+# proof/core/client.py), whatever compilers run. At the 48 MB a JVM that stops at the client compiler gets, a
+# device filled it about thirty seconds into a request: the JVM then compiles nothing more, and cannot make a
+# method handle's intrinsic either, so the app raised an InternalError ("no such method:
+# MethodHandle.linkToStatic") wherever it first needed one, which a record kept as a crash of the app, or the JVM
+# ended the request. A request whose JVM filled it all the same is refused (``CODE_CACHE_FULL``): what such a JVM
+# read is not what Android does.
+#
+# A device walks every path, case and language of an app in one JVM: hundreds of screens, minutes of the same
+# code. Two settings are for that, each measured on one request of 106 walks (basic_tests.ccz with two cases,
+# selfcheck.py's own), alone on one machine:
+#
+# - Both of the JVM's compilers (no -XX:TieredStopAtLevel=1, which a JVM that lives seconds would want): 96 s
+#   against 168 s with the client compiler alone, and 191 CPU-seconds against 304.
+# - A young generation of 1200 MB with survivor spaces of 300 MB each. Every theme a screen's views are made
+#   with is a table Robolectric keeps outside the Java object that owns it and frees once the collector has
+#   found the owner dead (its resources are a port of Android's native ones), some 200 KB each and several a
+#   screen. With the default young generation (a third of the heap, survivors a tenth of that) those tables
+#   overflow the survivor space and are promoted, and the serial collector empties the old generation only by
+#   stopping the device: a full collection of a second or more every five, 35 s of the request's 96. With
+#   this one they die young: 75 s, 13 of them collecting, and no full collection for want of room.
 JVM_OPTIONS = (
     "-noverify",
     "-Xmx2g",
+    "-Xmn1200m",
+    "-XX:SurvivorRatio=2",
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+UseSerialGC",
-    "-XX:TieredStopAtLevel=1",
     "-XX:ReservedCodeCacheSize=240m",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
