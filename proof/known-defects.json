@@ -643,6 +643,106 @@
 		"control": "localization-optional"
 	},
 	{
+		"id": "d13-blank-translations-formplayer-vellum-response-caption",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/caption",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-caption-markdown",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/caption_markdown",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-help",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/children/*/help",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-hint",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/children/*/hint",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-caption",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/caption",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-caption-markdown",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/caption_markdown",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-help",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/children/*/help",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-hint",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/children/*/hint",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-webapps-vellum-group-label",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/form/groups/*/label",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-webapps-vellum-question-label",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/form/questions/*/label",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
 		"id": "d13-datetime-leaves-form-jr-type-datetime-savetocase-leaf-type",
 		"defect": 13,
 		"part": "datetime leaves",
@@ -7311,6 +7411,39 @@
 		"check": "proof4",
 		"artifact": "webapps@vellum@*",
 		"path": "/runs/*/screens/*/kind",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-run-ends-answers",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (Formplayer refuses the saved form as it opens, so App Preview's run of it ends there)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/answers",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-run-ends-screens",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (Formplayer refuses the saved form as it opens, so App Preview's run of it ends there)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-run-ends-submit",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (Formplayer refuses the saved form as it opens, so App Preview's run of it ends there)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/submit",
+		"kind": "removed",
 		"document": "container-nested-query",
 		"control": "container-nested-query"
 	},
