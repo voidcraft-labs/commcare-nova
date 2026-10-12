@@ -33,6 +33,10 @@ on:
         type: choice
         options: [default, create, steal, static]
         default: default
+      proof_fresh:
+        description: Queue every proof group fresh, reading nothing from the evidence store (a whole run, the one the sensitivity effects are written from)
+        type: boolean
+        default: false
       lane_sample:
         description: Also run the audit's lane (proof-lane.yml, every group fresh) over a sample of this many documents, storing nothing
         type: string
@@ -216,7 +220,9 @@ jobs:
       # (proof.lane.blocks.CORPUS_PACKAGES), packed into blocks, each group either
       # queued fresh or read from the store when every one of its judgments is
       # keyed there, and the audit sample recomputed. A store the restores
-      # did not find (a first run, or a miss) is read as empty.
+      # did not find (a first run, or a miss) is read as empty. A dispatch
+      # with proof_fresh queues every group fresh and reads nothing from the
+      # store (--fresh): one whole run on this ref, which keeps nothing.
       - name: Build the proof queue
         id: build
         if: ${{ steps.store.outcome == 'success' }}
@@ -226,7 +232,7 @@ jobs:
           --corpus "$RUNNER_TEMP/corpus"
           --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope"
           --timings proof/timings.json --arch amd64 --lane-env "PROOF_READERS=$PROOF_READERS"
-          --audit-seed "$GITHUB_RUN_ID"
+          --audit-seed "$GITHUB_RUN_ID" ${{ inputs.proof_fresh && '--fresh' || '' }}
           --out "$RUNNER_TEMP/lane/proof-queue-$GITHUB_RUN_ATTEMPT.json"
       - name: Pack the proof corpus
         id: pack
@@ -640,12 +646,17 @@ jobs:
           key: ${{ steps.store.outputs.scope }}none
           restore-keys: ${{ steps.store.outputs.scope }}
       - name: Build the early queue
+        env:
+          PROOF_FRESH: ${{ inputs.proof_fresh }}
         run: |
           mkdir -p "$RUNNER_TEMP/lane"
+          # A dispatch with proof_fresh queues every group fresh, as quality queues the main queue's.
+          fresh=()
+          if [ "$PROOF_FRESH" = true ]; then fresh=(--fresh); fi
           python3 -m proof.store.queue early \
             --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope" \
             --timings proof/timings.json --arch amd64 --lane-env "PROOF_READERS=$PROOF_READERS" \
-            --out "$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json"
+            "${fresh[@]}" --out "$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json"
       - name: Upload the early queue
         uses: actions/upload-artifact@v7
         with:

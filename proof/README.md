@@ -178,11 +178,61 @@ writes every gate entry's effects (into
 evidence of one whole run over a whole corpus, for review in the pull request
 that changes them. It reads only each named block directory's
 `checks/sensitivity/`, and a group the queue cached runs nowhere and writes
-none, so the run must be one that reused no stored judgment: a local
-`npm run proof` with no `PROOF_STORE`, or `proof-lane.yml`'s fresh run. Name
-every block of it (of every shard, for `proof-lane.yml`), and the corpus it
-read: `<output>/corpus` where the run emitted it, or the directory
-`PROOF_CORPUS` named.
+none, so the run must be one in which every corpus document's group ran. The
+writer holds the evidence to that itself: where a document of the corpus is
+missing, or two runs both wrote one, it writes nothing and names them, so
+handing it a run that is not whole costs nothing. Name every block of the run
+(of every shard), and the corpus it read.
+
+**When a pull request writes them again.** When its sensitivity check fails
+on a difference a flipped gate made that the gate's effects do not name, and
+when it adds or removes a gate entry. Under a flip Nova's publish refuses,
+the check's message says to write the effects again; under one it accepts,
+the difference is first refused as one no register entry names, its artifact
+ending `@<the gate>` (`suite.xml@toggle/...`). A pin move, an emission change
+that reaches a part of the build a gate changes, and a new document are what
+bring one. Nothing fails for an effect no flip shows any longer: only writing
+the effects again drops it.
+
+**From which run.** With no cap on the pull request lane, a pull request's
+own CI run is whole whenever none of its documents was read from the store:
+
+- **The change moved every document's key**: the observation's code (most of
+  `proof/`, and `gates.json` itself, which the observation partition holds),
+  the image, a judge's file (every document judged again from its records),
+  or an emission change that reached every document. Write the effects from
+  that run's artifacts: each shard's output (`proof-out-<attempt>-<shard>`,
+  kept fourteen days) and the corpus it read (`proof-corpus-<attempt>.tar.zst`,
+  kept three days; or the corpus emitted again at the same commit, which
+  lists the same documents):
+
+  ```bash
+  gh run download <run id> --pattern 'proof-out-*' --dir <outputs>
+  node --conditions=react-server --import ./proof/corpus/entropy.mts --import tsx proof/corpus/emit.ts --out <corpus>
+  python3 -m proof.checks.sensitivity effects <outputs>/proof-out-*/blocks/* --corpus <corpus>
+  ```
+
+- **The change moved only some documents' keys**: the run read the others
+  from the store, their evidence is not in its blocks, and the writer refuses
+  it. Run the lane whole on the branch: dispatch CI with `proof_fresh` (`gh
+  workflow run ci.yml --ref <branch> -f proof_fresh=true`), which queues
+  every group fresh, reads nothing from the store and keeps nothing (about
+  thirteen minutes, "Timings and what the lane is expected to take"), then
+  write the effects from that run's artifacts as above. Where CI is not to
+  be used, the same on a machine with Docker and no `PROOF_STORE`, about four
+  worker-hours, since a document is observed whole whichever check asks:
+
+  ```bash
+  PROOF_READERS=0 npm run proof -- --workers <n> proof/checks/test_sensitivity.py
+  python3 -m proof.checks.sensitivity effects .proof/out/blocks/*
+  ```
+
+The readers change nothing here: the flips are built, never run, so a run
+without them writes the same evidence. A run whose sensitivity check failed
+is a run to write from, since the check writes its evidence before it fails.
+The push that carries the new effects changes `gates.json`, which the
+observation's fingerprint names, so its CI run observes every document again
+and holds each to the effects as written.
 
 ### Proofs 1 to 5
 
@@ -2944,7 +2994,11 @@ The run steps reach the artifact service with the job's runtime token, which
 `.github/actions/proof-runtime` exports and the lane's server passes to its
 claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
 the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
-explicit diagnostic mode, and `proof_shards` selects another shard count.
+explicit diagnostic mode, `proof_shards` selects another shard count, and
+`proof_fresh` queues every group fresh, reading nothing from the store and
+keeping nothing: one whole run on a branch, which the sensitivity effects are
+written from where a pull request's own run read documents from the store
+("Configuration sensitivity").
 
 ### The other workflows
 
