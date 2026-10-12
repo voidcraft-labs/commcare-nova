@@ -1309,6 +1309,14 @@ a step clicks what a worker clicks, or reads what the page shows.
   drawn on its pad with the pointer, and a location question's map dragged
   with the pointer until its centre is the walk's place, to the nearest
   pixel: `steps/webapps/widget.js`, the driver's `files` and `draw` steps),
+  and Formplayer's walk gives what the client gives: where the build holds a
+  location question, the walk is derived once, each run that answers one is
+  replayed in a desktop's window and a phone's, and the walk is derived
+  again with the place the client's map gave each (`observe.py::derived_places`),
+  kept as the run's script's last choice with the table's places the map was
+  dragged toward (`proof/observe/walks.py`), so every state's walk gives the
+  client's own place and every replay of it makes the same drags; the
+  client's submission is held to the walk's (`observe.py::submitted_alike`),
   the form read as the worker leaves it, Submit, and the screen the client lands
   on, with what became of each answer (`answered`; `unanswerable` where the
   client draws no widget a worker could answer with it; `absent` where it
@@ -1351,7 +1359,7 @@ the client itself:
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
 | `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
-| Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the walk's place; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
+| Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
 
 ### Served states

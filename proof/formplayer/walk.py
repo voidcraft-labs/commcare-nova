@@ -286,16 +286,28 @@ class Walk:
     locale: str | None = None
     answer_table: Mapping[str, Any] = field(default_factory=load_answer_table)
     clock: str = DEFAULT_CLOCK
+    # The place the Web Apps client's map gave each location question of a run (``proof.webapps.observe.
+    # places_given``), by the run's choices (``walks.run_key``) and the question's index: a derived run that
+    # reaches its form answers each such question with it, and keeps it in its script (``{"places": ...}``).
+    places: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    # The places a phone's map gave, where they are not a desktop's: each such run is walked again with them, as
+    # the run the phone replays (``walks.WINDOW``).
+    small_places: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    # The answer table's places the worker dragged each location question's map toward to give its place, by the
+    # run and the question's index (``walks.TOWARD``), which the walk keeps with each place for the client's
+    # replay to make the same drags.
+    toward: Mapping[str, Mapping[str, Sequence[str]]] = field(default_factory=dict)
     # What each run happens inside: a context manager made from the run's name. Where HQ answers with its own
     # views over a unit's state (``proof.formplayer.hq.Served.run``) it is a fork of that state with the worker
     # signed in, so no run reads what another's submission left in HQ.
     scope: Callable[[str], Any] = lambda name: nullcontext()
 
     @classmethod
-    def of(cls, served, *, runner=None, app_id: str | None = None, scope=None) -> Walk:
+    def of(cls, served, *, runner=None, app_id: str | None = None, scope=None, places=None) -> Walk:
         """The walk of a state HQ serves (``proof.formplayer.hq.Served``) in every language its app holds, each
         run in a run of the state (``Served.run``) unless ``scope`` says otherwise; ``app_id`` names an archive HQ
-        does not hold in place of the released build (Nova's local archive)."""
+        does not hold in place of the released build (Nova's local archive), and ``places`` the place the
+        client's map gave each location question on a desktop and on a phone (``proof.observe.walks.Places``)."""
         return cls(
             runner or served.runner,
             served.hq,
@@ -303,6 +315,9 @@ class Walk:
             app_id=app_id or served.build_id,
             languages=served.languages,
             scope=scope or served.run,
+            places=dict(places.desktop) if places else {},
+            small_places=dict(places.small) if places else {},
+            toward=dict(places.toward) if places else {},
         )
 
     # -- one execution -----------------------------------------------------
@@ -341,10 +356,14 @@ class Walk:
             {"app_id": self.app_id, "domain": self.domain, "username": self.hq.username, "restoreAs": None},
         )
 
-    def _values(self, question: Mapping[str, Any]) -> list[str]:
+    def _values(self, question: Mapping[str, Any], given: Mapping[str, Any] | None = None) -> list[Any]:
         if not answerable(question):
             # Nothing a worker in Web Apps can give it.
             return []
+        if given and question.get("datatype") == "geo" and str(question.get("ix")) in given:
+            # The place the client's map gave it: the client answers a location question with its map's centre,
+            # to the pixel a drag brings it, so the walk gives what the client gives.
+            return [given[str(question.get("ix"))]]
         if question.get("datatype") == "info":
             return list(self.answer_table["controls"]["trigger"])
         kind = media_kind(question)
@@ -359,12 +378,13 @@ class Walk:
         return values
 
     def _fill(
-        self, web: WebApps, form: Mapping[str, Any]
+        self, web: WebApps, form: Mapping[str, Any], given: Mapping[str, Any] | None = None, toward=None
     ) -> tuple[list[dict], list[Mapping[str, Any]], set[str], list[dict]]:
         """Answers each question once from the table, in the order Formplayer lists them as they become relevant;
         with the attempts, the form's tree as the last accepted answer left it, the questions whose last answer
         Formplayer refused as invalid (``submission``), and what the client sent of its own along the way
-        (``_reconcile``)."""
+        (``_reconcile``). A location question ``given`` a place is answered with it, its attempt keeping the table's
+        places the client's map was dragged ``toward`` to give it."""
         session, tree = form["session_id"], form["tree"]
         tried: set[str] = set()
         refused: set[str] = set()
@@ -381,7 +401,7 @@ class Walk:
                     if node.get("type") == "question"
                     and node.get("datatype") != "info"
                     and node.get("ix") not in tried
-                    and self._values(node)
+                    and self._values(node, given)
                 ),
                 None,
             )
@@ -389,10 +409,13 @@ class Walk:
                 break
             tried.add(pending["ix"])
             kind = media_kind(pending)
-            for value in self._values(pending)[:MAX_TRIES]:
+            for value in self._values(pending, given)[:MAX_TRIES]:
                 if kind is None:
                     answered = web.answer(session, pending["ix"], value)
-                    attempts.append({"ix": pending["ix"], "value": value, "response": answered})
+                    attempt = {"ix": pending["ix"], "value": value, "response": answered}
+                    if given and str(pending["ix"]) in given and (toward or {}).get(str(pending["ix"])):
+                        attempt[walks.TOWARD] = list(toward[str(pending["ix"])])
+                    attempts.append(attempt)
                 else:
                     content = (CAPTURES_DIR / value).read_bytes()
                     answered = web.answer_media(session, pending["ix"], value, content, CONTENT_TYPES[value])
@@ -603,7 +626,20 @@ class Walk:
                     query_data = {**query_data, key: {"inputs": {}, "execute": True}}
                     response = navigate()
                 elif kind == "form":
-                    attempts, tree, refused, resent = self._fill(web, response)
+                    # The places the client's map gave the form's location questions, with the table's places it
+                    # was dragged toward to give them: the script's own, where it is replayed, else those the walk
+                    # was handed for this run.
+                    given, toward = None, None
+                    if cursor < len(script) and walks.PLACES in script[cursor]:
+                        given, toward = script[cursor][walks.PLACES], script[cursor].get(walks.TOWARD)
+                        ran.append(dict(script[cursor]))
+                        cursor += 1
+                    elif cursor >= len(script):
+                        key = walks.run_key(ran)
+                        given, toward = self.places.get(key), self.toward.get(key, {})
+                        if given:
+                            ran.append(walks.places_choice(given, toward))
+                    attempts, tree, refused, resent = self._fill(web, response, given, toward)
                     sent, submitted = self._submit(web, response, tree, refused)
                     steps.append(
                         {
@@ -642,8 +678,8 @@ class Walk:
 
     def run(self, script: Sequence[Sequence[Mapping[str, Any]]] | None = None) -> dict[str, Any]:
         """Every run's trace: derived where ``script`` is None, each derived run then walked again in each other
-        language the app holds (``proof.observe.walks.in_every_language``); else each of the script's runs
-        replayed."""
+        language the app holds (``proof.observe.walks.in_every_language``), and each run a phone gives other places
+        walked again with them (``small_places``); else each of the script's runs replayed."""
         runs = []
         started = time.perf_counter()
         with self.scope("forget-app"):
@@ -667,6 +703,13 @@ class Walk:
             derived = [list(run["script"]) for run in runs]
             for steps in walks.in_every_language(derived, self.languages)[len(derived) :]:
                 runs.append(self.execute(steps, derive=False)[0])
+            # Each run whose places a phone's map gives otherwise, walked again with the phone's.
+            for run in list(runs):
+                key = walks.run_key(run["script"])
+                small = self.small_places.get(key)
+                if small and small != walks.places_of(run["script"]):
+                    chosen = walks.places_choice(small, self.toward.get(key, {}), window="small")
+                    runs.append(self.execute([*walks.navigation(run["script"]), chosen], derive=False)[0])
         locale = self.locale if self.locale is not None else walks.default_language(self.languages)
         return {"derived": script is None, "clock": self.clock, "locale": locale, "runs": runs}
 

@@ -96,12 +96,14 @@ def _refusals(hq) -> list:
     return found
 
 
-def walked(served, runner, blobs, *, script=None, app_id=None, archives=()):
+def walked(served, runner, blobs, *, script=None, app_id=None, archives=(), places=None):
     """Formplayer's walk of one served state, as a record, and the trace: derived where ``script`` is None, else
-    replayed. ``app_id`` names an archive HQ does not hold in place of the released build (the local archive)."""
+    replayed. ``app_id`` names an archive HQ does not hold in place of the released build (the local archive);
+    ``places``, the place the Web Apps client's map gives each location question a derived run answers
+    (``proof.webapps.observe.derived_places``)."""
     hq = served.hq
     first = len(hq.exchanges)
-    walk = Walk.of(served, runner=runner, app_id=app_id)
+    walk = Walk.of(served, runner=runner, app_id=app_id, places=places)
     reference = blobs.put_json(marked(walk.run(script), served=served, app_id=app_id, archives=archives, runner=runner))
     # The trace as its record holds it (JSON's own values), which is what a judge reads.
     trace = blobs.get_json(reference)

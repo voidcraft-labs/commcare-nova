@@ -278,6 +278,10 @@ class Asked:
     logged: list = field(default_factory=list)
 
 
+# What ``HqViews`` keeps of what Formplayer asked, each a list in the order it was asked.
+_KEPT = ("asked", "exchanges", "submissions", "searches", "claims", "restores", "noted")
+
+
 @dataclass
 class HqViews:
     """HQ, as Formplayer reaches it: every request answered by HQ's own views over ``unit``."""
@@ -305,6 +309,17 @@ class HqViews:
     @property
     def domain(self) -> str:
         return self.unit.domain
+
+    @contextmanager
+    def forgetting(self):
+        """What Formplayer asks of HQ inside the block forgotten once it ends, so a walk made there to learn
+        something (``proof.webapps.observe.derived_places``) leaves nothing in a state's record."""
+        kept = {name: len(getattr(self, name)) for name in _KEPT}
+        try:
+            yield self
+        finally:
+            for name, length in kept.items():
+                del getattr(self, name)[length:]
 
     def begin(self, run: bytes, session_key: str | None) -> None:
         """A run starts: its requests are numbered from one under ``run``, and the worker's session is this one."""

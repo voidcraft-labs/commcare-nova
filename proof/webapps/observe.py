@@ -206,8 +206,10 @@ def _map_pixel(lat: float, lon: float, zoom: int) -> tuple[float, float]:
     return (lon + 180.0) / 360.0 * size, (0.5 - math.log((1 + sine) / (1 - sine)) / (4 * math.pi)) * size
 
 
-def _place(value: str) -> tuple[float, float]:
-    latitude, longitude, *_ = str(value).split()
+def _place(value) -> tuple[float, float]:
+    """A place the walk gave a location question: the answer table's text (latitude, longitude, altitude and
+    accuracy), or the latitude and longitude the client's map gave (``proof.observe.walks.PLACES``)."""
+    latitude, longitude, *_ = value if isinstance(value, list) else str(value).split()
     return float(latitude), float(longitude)
 
 
@@ -251,7 +253,7 @@ def plan(
 
     navigations = _navigations(run)
     within = None if end is None else steps.WITHIN_MS
-    for position, choice in enumerate(run["script"]):
+    for position, choice in enumerate(walks.navigation(run["script"])):
         # The screen the choice is made on is Formplayer's answer before it; where it leads, the request after it.
         screen = navigations[position].get("response") if position < len(navigations) else None
         arrival = steps.tolerant(_arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end)
@@ -311,6 +313,8 @@ def plan(
         for position, attempt in enumerate(form["answers"]):
             ix = str(attempt["ix"])
             question = _question(opened, form["answers"], position)
+            # Gestures made before the one whose answer is the attempt's.
+            before: list[dict] = []
             if attempt.get("media"):
                 name = str(attempt["value"])
                 answering = steps.answer_media(
@@ -319,7 +323,8 @@ def plan(
             elif question.get("datatype") == "geo":
                 # The map is dragged from where it stands so that its centre comes to the walk's place, to the
                 # nearest pixel: the client's answer is the map's centre, so it is the place as near as a drag
-                # can bring it.
+                # can bring it. Where the walk gave the place the client's map gave, the map is dragged toward
+                # the table's places it was dragged toward to give it (``walks.TOWARD``), the same drags.
                 if ix not in maps:
                     held = question.get("answer")
                     if isinstance(held, str):
@@ -328,17 +333,22 @@ def plan(
                         maps[ix] = (*_map_pixel(float(held[0]), float(held[1]), MAP_ANSWER_ZOOM), MAP_ANSWER_ZOOM)
                     else:
                         maps[ix] = (*_map_pixel(MAP_OPENS[0], MAP_OPENS[1], MAP_OPENS[2]), MAP_OPENS[2])
-                x, y, zoom = maps[ix]
-                target = _map_pixel(*_place(attempt["value"]), zoom)
-                offset = (round(x - target[0]), round(y - target[1]))
-                maps[ix] = (x - offset[0], y - offset[1], zoom)
-                answering = steps.answer_place(ix, offset)
+                answering = []
+                for aim in attempt.get(walks.TOWARD) or [attempt["value"]]:
+                    # Only the last drag's answer is the attempt's.
+                    before += answering
+                    x, y, zoom = maps[ix]
+                    target = _map_pixel(*_place(aim), zoom)
+                    offset = (round(x - target[0]), round(y - target[1]))
+                    maps[ix] = (x - offset[0], y - offset[1], zoom)
+                    answering = steps.answer_place(ix, offset)
             else:
                 answering = steps.answer(ix, str(attempt["value"]), twelve_hour=_twelve_hour(question))
             if preview:
                 bringing = steps.advance(ix, or_skip_to=end)
                 add(bringing)
                 what[len(what) - len(bringing)] = ("held", position)
+            add(before)
             add(answering)
             what[len(what) - len(answering) + 1] = ("answer", position)
         if preview:
@@ -520,9 +530,106 @@ def _expected_screens(run: Mapping[str, Any]) -> int:
 
 def observe(served, driver) -> dict[str, Any]:
     """The Web Apps observation of one state HQ serves (``proof.formplayer.hq.Served``), every run of its walk
-    replayed whole."""
-    walk = Walk.of(served).run()
+    replayed whole: the walk derived with the places the client's map gives its location questions
+    (``derived_places``)."""
+    walk = Walk.of(served, places=derived_places(served, driver)).run()
     return shown(served, driver, walk)
+
+
+def location_questions(run: Mapping[str, Any]) -> dict[str, list]:
+    """The index of each location question a run's form answered, with the places the walk gave it, in order: the
+    table's places a worker drags the question's map toward."""
+    form = _form_step(run)
+    if form is None:
+        return {}
+    navigations = _navigations(run)
+    opened = navigations[-1].get("response") if navigations else None
+    found: dict[str, list] = {}
+    for position, attempt in enumerate(form["answers"]):
+        if not attempt.get("media") and _question(opened, form["answers"], position).get("datatype") == "geo":
+            found.setdefault(str(attempt["ix"]), []).append(attempt["value"])
+    return found
+
+
+def places_given(served, driver, walk: Mapping[str, Any]) -> walks.Places:
+    """The place the client's map gives each location question of each run of ``walk`` that answers one, by the
+    run's choices (``proof.observe.walks.run_key``) and the question's index, on a desktop and on a phone: each
+    such run replayed whole in each window, as ``shown`` replays it, and the last answer the client sent
+    Formplayer for the question read from the request it sent (``entries.js::GeoPointEntry.updateCenter``: the
+    map's centre each time it moves). A phone's are kept only where they are not a desktop's."""
+    from proof.webapps.session import SMALL_SCREEN
+
+    session = Session(served, driver)
+    found: dict[str | None, dict[str, dict[str, Any]]] = {None: {}, SMALL: {}}
+    toward: dict[str, dict[str, list]] = {}
+    for index, each in enumerate(walk["runs"]):
+        asked = location_questions(each)
+        if not asked:
+            continue
+        toward[walks.run_key(each["script"])] = asked
+        for window, viewport in ((None, None), (SMALL, SMALL_SCREEN)):
+            made, _ = replay(served.doc["name"], [each], session.home, small=window == SMALL)
+            run = session.run(
+                made,
+                name=f"webapps-places-{window or 'desktop'}-{index}",
+                deadline=180.0 + 2.0 * len(made),
+                viewport=viewport,
+            )
+            given: dict[str, Any] = {}
+            for exchange in run.answered("answer"):
+                sent = exchange.request_json() or {}
+                if str(sent.get("ix")) in asked:
+                    given[str(sent["ix"])] = sent.get("answer")
+            if given:
+                found[window][walks.run_key(each["script"])] = given
+    desktop = found[None]
+    small = {key: given for key, given in found[SMALL].items() if desktop.get(key) != given}
+    return walks.Places(desktop, small, toward)
+
+
+def derived_places(served, driver, *, runner=None) -> walks.Places | None:
+    """The places the client's map gives the location questions of the walk Formplayer derives of a served
+    state (``places_given``), for that walk to be derived again with them (``proof.formplayer.walk.Walk.places``):
+    None, and nothing run, where the state's build asks no location (``asks_location``).
+
+    The first derivation and the client's runs on it are runs of the state of their own (each named ``places:``),
+    and leave nothing in what the state's records keep: what Formplayer asked HQ in them is forgotten
+    (``HqViews.forgetting``), and a Connect app's forwards in them are kept as nobody's
+    (``proof.observe.connect.Forwarder.reading``), each run meeting the opportunity as it stood."""
+    import json
+    from contextlib import nullcontext
+
+    from proof.formplayer import observe as formplayer_observe
+
+    if not asks_location(served.archive()):
+        return None
+    forwarding = getattr(served, "forwarding", None)
+    kept_as_nobodys = forwarding.reading(None) if forwarding is not None else nullcontext()
+    with served.hq.forgetting(), kept_as_nobodys:
+        walk = Walk.of(served, runner=runner, scope=lambda name: served.run(f"places:{name}")).run()
+        # As a state's record holds it, the ids Formplayer drew marked, which the replay reads as any value.
+        marked = json.loads(json.dumps(formplayer_observe.marked(walk, served=served, runner=runner)))
+        return places_given(served, driver, marked)
+
+
+def asks_location(archive: bytes) -> bool:
+    """Whether a build's forms hold a location question: a bind of XForms' ``geopoint`` type, which Formplayer
+    hands the client as a ``geo`` question."""
+    import io
+    import zipfile
+
+    from proof.checks.compare.xml_tree import parse_xml
+
+    with zipfile.ZipFile(io.BytesIO(archive)) as held:
+        for name in held.namelist():
+            if not name.endswith(".xml") or "/forms-" not in f"/{name}":
+                continue
+            for element in parse_xml(held.read(name)).iter():
+                if isinstance(element.tag, str) and element.tag.rsplit("}", 1)[-1] == "bind":
+                    kind = element.get("type") or ""
+                    if kind.rsplit(":", 1)[-1] == "geopoint":
+                        return True
+    return False
 
 
 # The windows each run is replayed in: a desktop's, then a phone's (``proof.webapps.session.SMALL_SCREEN``), where
@@ -539,7 +646,8 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     (``proof.formplayer.hq.Served``): each run of the walk replayed whole in the browser (``replay``), each in a
     run of the served state of its own (a fork of HQ's state, the worker signed in afresh and starting over in
     Formplayer, a fresh page), as Formplayer's own walk runs each: a case one run's submission made is not in the
-    next run's list. Every run is replayed in a desktop's window and again in a phone's (``SMALL``), then in App
+    next run's list. Every run is replayed in a desktop's window and again in a phone's (``SMALL``; a run the
+    walk gave a phone's own places in place of a desktop's, ``walks.runs_for``), then in App
     Preview (``PREVIEW``): the same client under the page HQ's app builder shows the app in, for the project
     space's admin, who logs in as the worker there, over the app as it stands (HQ's download makes its archive from
     the stored app, where Web Apps runs the release), in the builder's phone-sized frame, where the client shows a
@@ -560,7 +668,8 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     windows += ((PREVIEW, Session(served, driver, preview=True), PREVIEW_FRAME),)
     found = None
     for window, session, viewport in windows:
-        for index, each in enumerate(walk["runs"]):
+        # A phone replays the runs given its own places in place of those given a desktop's (``walks.runs_for``).
+        for index, each in walks.runs_for(walk["runs"], window if window == SMALL else None):
             made, kinds = replay(
                 served.doc["name"],
                 [each],

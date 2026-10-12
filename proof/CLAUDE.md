@@ -132,7 +132,13 @@ harness keeps, each with its reason.
   client answers: HQ names a map layer as production does
   (`proof/hq/localsettings.py`), so a location question draws its map and
   is answered by dragging it, though the layer's pictures are on a host the
-  browser does not reach. The client reads some
+  browser does not reach. Formplayer's walk submits what the client submits
+  (`proof/webapps/observe.py::submitted_alike` holds the two alike): it sends
+  the answers the client's own reconciliation sends, chooses an option as the
+  client binds it (by its label), and gives a location the place the
+  client's map gave, each window's own (`derived_places`), which every
+  replay gives again by the same drags; a difference between the two is the
+  harness's to find, never a check to loosen. The client reads some
   things from the app HQ stores and never from the build (the logo,
   `cc-show-incomplete`), so a claim that two builds are alike says nothing
   of them: release the state and read the page. A step waits on what the

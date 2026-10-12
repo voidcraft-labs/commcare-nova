@@ -23,6 +23,27 @@ the same runs on every reader:
   and a form or a list that reads it can show the worker something else. A
   run is named by the case it chose (``{"entity": <case id>}``), so the runs
   of two states line up case by case.
+- **Every location the client can give.** The Web Apps client answers a
+  location question with its map's centre (``entries.js::GeoPointEntry``),
+  which a worker moves by dragging the map toward the answer table's place,
+  so the place it gives is the one a drag of whole pixels brings the map to,
+  never the table's place itself. The client gives it first, on the walk as
+  derived; the walk is then derived again with each run's places
+  (``Walk.places``), and a run that reached a form with one keeps them as
+  its script's last choice, with the table's places the worker dragged
+  toward to give each (``{"places": {<question index>: [<latitude>,
+  <longitude>]}, "toward": {<question index>: [<the table's place>, ...]}}``),
+  so every state's walk gives the client's own places and every replay of
+  it makes the same drags. A drag aimed at the place a drag gave would not
+  do: Leaflet rounds the map's pixel origin (``Map.js::_getNewPixelOrigin``),
+  so its centre sits up to half a pixel from where the place it opened on
+  projects, and an aim at a place a drag gave can fall on that half pixel
+  and round the other way. A phone's map is laid out at another size,
+  and a drag of the same pixels brings it to a place a fraction of a pixel
+  away (Leaflet divides the pointer's travel by the map's own scale, its
+  laid-out width over its whole pixels): where a phone's places differ, the
+  run is walked again with them (``{"places": {...}, "toward": {...},
+  "window": "small"}``), and the phone replays that run in its place.
 
 Standard library only: the Android stage reads it outside the image.
 """
@@ -30,10 +51,28 @@ Standard library only: the Android stage reads it outside the image.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 # A script's choice of a language, made at the app's first screen.
 LANGUAGE = "language"
+# A script's last choice where its run reached a form with a location question: the place the client's map gave
+# each one, by the question's index, and beside them (``TOWARD``) the answer table's places the worker dragged the
+# map toward to give it, in order.
+PLACES = "places"
+TOWARD = "toward"
+# Where a run's places are a window's own, the window (``"small"``, a phone's): the run that window replays in place
+# of the one whose places are a desktop's.
+WINDOW = "window"
+
+
+class Places(NamedTuple):
+    """The place the client's map gave each location question of each run, by the run (``run_key``) and the
+    question's index: on a desktop, and on a phone where a phone's differ; and the answer table's places the
+    worker dragged its map toward to give it (the same in every window)."""
+
+    desktop: Mapping[str, Mapping[str, Any]]
+    small: Mapping[str, Mapping[str, Any]]
+    toward: Mapping[str, Mapping[str, Sequence[str]]]
 
 
 def default_language(languages: Sequence[str]) -> str | None:
@@ -65,3 +104,45 @@ def language_of(script: Sequence[Mapping[str, Any]]) -> str | None:
 def cases_opened(case_ids: Sequence[str]) -> list[str]:
     """The cases a walk opens at a list showing ``case_ids`` (in the list's order): every one of them."""
     return list(dict.fromkeys(case_ids))
+
+
+def run_key(script: Sequence[Mapping[str, Any]]) -> str:
+    """A run named by what it chose up to its form, but the places it gave there: the key its places are kept by."""
+    import json
+
+    return json.dumps(navigation(script), sort_keys=True)
+
+
+def navigation(script: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """A script's choices a worker makes on the app's screens: all of them but the places it gave at its form."""
+    return [choice for choice in script if PLACES not in choice]
+
+
+def places_of(script: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
+    """The places a run gave its form's location questions (empty where it gave none)."""
+    return next((choice[PLACES] for choice in script if PLACES in choice), {})
+
+
+def places_choice(places: Mapping[str, Any], toward: Mapping[str, Sequence[str]], window: str | None = None) -> dict:
+    """The script's last choice for a run that gives ``places``, dragged ``toward`` the table's, in ``window``."""
+    choice: dict[str, Any] = {PLACES: dict(places), TOWARD: {ix: list(values) for ix, values in toward.items()}}
+    if window is not None:
+        choice[WINDOW] = window
+    return choice
+
+
+def window_of(script: Sequence[Mapping[str, Any]]) -> str | None:
+    """The window whose places a run gave (None for a desktop's, and for a run that gave none)."""
+    return next((choice.get(WINDOW) for choice in script if PLACES in choice), None)
+
+
+def runs_for(runs: Sequence[Mapping[str, Any]], window: str | None) -> list[tuple[int, Mapping[str, Any]]]:
+    """The runs a window replays, each with its place in the walk: a desktop's, every run but those given a
+    phone's places; a window's own, its runs in place of those of the same choices given a desktop's."""
+    own = {run_key(run["script"]) for run in runs if window is not None and window_of(run["script"]) == window}
+    return [
+        (index, run)
+        for index, run in enumerate(runs)
+        if window_of(run["script"]) == window
+        or (window_of(run["script"]) is None and window is not None and run_key(run["script"]) not in own)
+    ]
