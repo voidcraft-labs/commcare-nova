@@ -475,6 +475,48 @@ lane with every reader over what changed and each week runs it whole, each
 opening an issue when it fails; they are the backstop for what a slice
 missed, never the first run of a reader change.
 
+### Running the lane on another machine
+
+A slice with every reader, or the whole lane, wants a machine larger than a
+laptop: Linux on amd64 (the Android reader's native runtime ships for no
+other Linux), about 3 GB of memory a worker, and a vCPU a worker, which
+saturates it (more workers than vCPUs only slow each). `run.mjs` sizes
+Postgres's client cap from the worker count (125 a worker, at least 500,
+`proof/compose.yaml`). `proof/remote/` runs the lane on such a machine from
+your working tree, over ssh:
+
+```bash
+proof/remote/run.sh <host> --provision --android-licenses <a directory holding an accepted SDK's licenses/>
+proof/remote/run.sh <host> -- --workers 8 proof/checks -k "<document id>"
+proof/remote/run.sh <host> --env PROOF_READERS=0 -- --workers 32                  # the pull request lane, whole
+```
+
+`--provision` copies the tree to the host and runs `proof/remote/provision.sh`
+there, which makes a fresh Ubuntu 24.04 amd64 machine a proof machine: Docker,
+the Node and npm versions `.nvmrc` and `package.json` name, the JDK
+`proof/android/toolchain.json` names (at `/opt/proof-jdk`), the limits many
+workers reach, one install of Nova's dependencies for the lock, the harness
+image and Postgres pulled, and the Android reader's runtime built and held to
+its own checks (`~/proof-android-reader`; its build installs Android SDK
+packages, which only an SDK whose license a person accepted may receive, so
+it is built only where `--android-licenses` names one). A run copies the
+tree (without `.git`, `node_modules` or `.proof`, so uncommitted edits run)
+to `~/proof-remote/<slot>` on the host (`--slot`, the tree's directory name
+by default, keeps two trees apart on one host), links its `node_modules`
+from that install, runs `npm run proof -- <arguments>` there with the
+runtime and the JDK and each `--env`, and copies the output back to
+`.proof/remote/<slot>-<stamp>/`, where `python3 -m proof.lane.gate` reads it.
+
+On Google Cloud, for example, a spot VM is the cheapest such machine: create
+one from the `ubuntu-2404-lts-amd64` image family with no external address
+(`gcloud compute instances create <name> --project <project> --zone <zone>
+--machine-type n2-standard-32 --provisioning-model SPOT --image-family
+ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 200GB
+--no-address`), reach it through Identity-Aware Proxy with an ssh config
+entry whose `ProxyCommand` is `gcloud compute start-iap-tunnel %h 22
+--listen-on-stdin --project <project> --zone <zone>`, and name that entry as
+the host. A preempted spot VM keeps its disk: start it again and rerun.
+
 ### Where a run writes
 
 Each run writes into a directory of its own under `.proof/runs/`, and
