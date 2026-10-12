@@ -135,6 +135,7 @@ def _deliver_units(record):
     }
 
 
+@pytest.mark.reader  # ``received`` serves both spellings to Formplayer and Connect
 def test_formplayer_hands_the_two_forms_alike_but_for_the_element(received):
     from proof.checks import served
 
@@ -157,6 +158,7 @@ def test_formplayer_hands_the_two_forms_alike_but_for_the_element(received):
     assert compared("named", (RULE,)), "the rule erased a work area id that names a work area"
 
 
+@pytest.mark.reader  # ``received`` serves both spellings to Formplayer and Connect
 def test_hq_forwards_the_empty_id_and_connect_makes_the_same_rows_of_it_as_of_none(received):
     """The payload that reached Connect holds ``"work_area_id": ""`` for the empty spelling and no such key for
     Nova's, from a device's submission and from Formplayer's, and Connect answers, runs and holds the same."""
@@ -173,6 +175,7 @@ def test_hq_forwards_the_empty_id_and_connect_makes_the_same_rows_of_it_as_of_no
     assert judge.differences(none, empty, check="proof4", document="-", artifact="connect") == []
 
 
+@pytest.mark.reader  # ``received`` serves both spellings to Formplayer and Connect
 def test_connect_refuses_a_delivery_whose_work_area_id_names_a_work_area_it_does_not_hold(received):
     """The control: Connect reads a ``work_area_id`` that holds anything, so the two spellings are two forms to
     it and the rule must leave the element."""

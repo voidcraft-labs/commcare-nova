@@ -12,7 +12,8 @@ for a run without one, by the server from its own collection
      "blocks": [{"id": <block_id of its groups>, "estimate": <box-seconds>,
                  "groups": [{"group": <group>, "fresh": <bool>}, ...]}, ...],
      "cached": [{"group": <group>, "judgments": {<check>: <judgment key>}}, ...],
-     "unsampled": [<document id>, ...]}
+     "unsampled": [<document id>, ...],
+     "readers": false}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
 (from ``proof-plan``), and the main queue (from ``quality``, once the corpus
@@ -28,7 +29,11 @@ holds: it runs nowhere, and the gate reads its judgments from the store.
 ``unsampled``, only in the queue of a run over a sample of the corpus
 (``proof.store.queue.sampled``), names the corpus documents the sample
 leaves out (``unsampled_documents``): none of them runs, and the gate holds
-the register's entries naming one on their controls alone.
+the register's entries naming one on their controls alone. ``readers``, only
+in the queue of a run without the readers (``PROOF_READERS=0``,
+``proof.lane.readers``), is false: the server refuses it in a run with them
+(and a queue without it in a run without them), and the gate leaves the
+register's entries only the readers show to the nightly.
 
 A block's run leaves ``blocks/<id>/`` in the output of the shard that ran it:
 
@@ -161,6 +166,8 @@ class Queue:
     fingerprints: Mapping[str, str] = field(default_factory=dict)
     # The corpus documents the run's sample leaves out; none for a run over the whole corpus.
     unsampled: tuple[str, ...] = ()
+    # Whether the run hands its served states to the readers (proof.lane.readers).
+    readers: bool = True
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
@@ -250,9 +257,13 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
     for name in sorted(seen_groups):
         if name.startswith("corpus:") and name[len("corpus:") :].partition("@")[0] in unsampled:
             problems.append(f"{name} is run or read, and the queue names its document as one its sample leaves out")
+    readers = value.get("readers", True)
+    if not isinstance(readers, bool):
+        problems.append(f"its readers is {readers!r}, not true or false")
+        readers = True
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled))
+    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers)
 
 
 def load_queue(path: Path, *, check_names: bool = True) -> Queue:
@@ -280,6 +291,7 @@ def queue_json(queue: Queue) -> dict:
         ],
         "cached": [{"group": cached.group, "judgments": dict(cached.judgments)} for cached in queue.cached],
         **({"unsampled": list(queue.unsampled)} if queue.unsampled else {}),
+        **({} if queue.readers else {"readers": False}),
     }
 
 

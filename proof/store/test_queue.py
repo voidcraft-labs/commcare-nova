@@ -72,7 +72,8 @@ def _build(checkout, out, *arguments, corpus=None, phase="main", stores=()):
 
 @pytest.fixture
 def lane(checkout, corpus):
-    timings = {"groups": {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0, "proof/core": 2.0}}
+    groups = {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0, "proof/core": 2.0}
+    timings = {"profiles": {"readers": {"groups": groups}, "no-readers": {"groups": groups}}}
     write_files(checkout, {"proof/timings.json": json.dumps(timings)})
     return checkout, corpus
 
@@ -367,6 +368,41 @@ def test_the_early_queue_reads_no_corpus_and_the_main_queue_holds_what_reads_it(
     left = sorted({"one", "two"} - set(kept))
     assert [entry["id"] for entry in index["unsampled"]] == left and sampled["unsampled"] == left
     assert queue.main(["early", "--documents", "sample:1", "--out", str(tmp_path / "x.json")]) == 2
+
+
+def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_the_rest_apart(tmp_path, lane):
+    """``--lane-env PROOF_READERS=0`` (proof.lane.readers): no package every test of which starts a reader, no
+    control only the served readers' entries name, every key that profile's, and the queue says so."""
+    checkout, corpus = lane
+    write_files(
+        checkout,
+        {
+            "proof/connect/test_receiver.py": "def test_receiver():\n    pass\n",
+            "proof/controls/plain/document.json": "{}",
+            "proof/controls/reader/document.json": "{}",
+        },
+    )
+    register = [
+        {"id": "d1", "control": "plain", "artifact": "upload"},
+        {"id": "d2", "control": "reader", "artifact": "formplayer@B"},
+        {"id": "d3", "control": "reader", "artifact": "android-tablet@vellum@*"},
+    ]
+    (checkout / "proof" / "known-defects.json").write_text(json.dumps(register))
+    every = _build(checkout, tmp_path / "every.json", corpus=corpus)
+    without = _build(checkout, tmp_path / "without.json", "--lane-env", "PROOF_READERS=0", corpus=corpus)
+    assert {"control:plain", "control:reader", "proof/connect"} <= set(every["classes"]["observed"])
+    assert set(every["classes"]["observed"]) - set(without["classes"]["observed"]) == {
+        "control:reader",
+        "proof/connect",
+    }
+    assert "readers" not in every and without["readers"] is False
+    assert lane_blocks.parse_queue(without).readers is False and lane_blocks.parse_queue(every).readers is True
+    assert every["environment"]["PROOF_READERS"] == "on" and without["environment"]["PROOF_READERS"] == "off"
+    keyed = {queued["group"]: queued["key"] for value in (every,) for b in value["blocks"] for queued in b["groups"]}
+    apart = {queued["group"]: queued["key"] for b in without["blocks"] for queued in b["groups"]}
+    assert set(apart) <= set(keyed) and all(keyed[group] != apart[group] for group in apart)
+    early = _build(checkout, tmp_path / "early.json", "--lane-env", "PROOF_READERS=0", phase="early")
+    assert early["readers"] is False
 
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.

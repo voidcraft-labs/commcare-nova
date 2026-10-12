@@ -33,6 +33,14 @@ there is none, and asking raises.
   mid-run, each save released into a fork of its own; a driver runs one
   operation at a time, so the client has a second browser, as a worker's
   is another browser than the person's who edits the app.
+
+Formplayer, the client's browser, Connect and the Android reader are the
+served readers. In a run without them (``PROOF_READERS=0``,
+``proof.lane.readers``) asking for one raises ``ReadersOff``, so a test that
+starts a reader and is not marked ``reader`` fails there rather than running
+half; ``asked()`` counts the requests for one, by which a run with them holds
+each test marked by hand to starting one (``proof/conftest.py``). The
+validation Formplayer is HQ's (its build asks for it), never refused.
 """
 
 from __future__ import annotations
@@ -51,6 +59,20 @@ _SESSION: dict = {
 
 class NoSession(RuntimeError):
     """An observation asked for the session's Formplayer outside a session that owns one."""
+
+
+class ReadersOff(RuntimeError):
+    """A served reader was asked for in a run without the readers (``PROOF_READERS=0``)."""
+
+
+# How many times a served reader was asked for in this process (``asked``).
+_ASKED = [0]
+
+
+def asked() -> int:
+    """How many times this process has asked for a served reader (Formplayer, the client's browser, Connect, the
+    Android reader), started or already running."""
+    return _ASKED[0]
 
 
 @contextmanager
@@ -88,6 +110,21 @@ def session(on_start=None):
                         runner.close()
 
 
+def _reader(what):
+    """A served reader asked for: counted, and refused in a run without the readers."""
+    from proof.lane import readers
+
+    _ASKED[0] += 1
+    if not readers.served():
+        raise ReadersOff(
+            f"Something asked for {what}, and this run hands no state to the readers (PROOF_READERS=0, the pull"
+            " request lane's profile). A test that starts a served reader runs only with them: mark it reader"
+            " (pytest.mark.reader, proof/lane/readers.py), or give it the fixture that starts the reader"
+            " (formplayer_runner, connect_runtime), so a run without the readers leaves it to the nightly."
+        )
+    _require_session(what)
+
+
 def _require_session(what):
     if not _SESSION["open"]:
         raise NoSession(
@@ -99,7 +136,7 @@ def _require_session(what):
 
 def client_browser():
     """The Web Apps client's own editor driver (node and Chromium), started on first use."""
-    _require_session("the Web Apps client's browser")
+    _reader("the Web Apps client's browser")
     if _SESSION["browser"] is None:
         from proof.editors.client import EditorDriver
 
@@ -115,7 +152,7 @@ def client_browser():
 
 def formplayer():
     """The session's Formplayer runner, started on first use."""
-    _require_session("Formplayer")
+    _reader("Formplayer")
     if _SESSION["formplayer"] is None:
         from proof.formplayer.client import FormplayerRunner
 
@@ -151,7 +188,7 @@ def validator():
 
 def connect():
     """The session's Connect runtime, started on first use (its fetch and its migrations, once a session)."""
-    _require_session("Connect")
+    _reader("Connect")
     if _SESSION["connect"] is None:
         import os
         import tempfile
@@ -169,7 +206,7 @@ def connect():
 
 def android():
     """The session's Android reader, started on first use (its sources compiled against the runtime, once)."""
-    _require_session("the Android reader")
+    _reader("the Android reader")
     if _SESSION["android"] is None:
         from proof.android.client import AndroidReader
 

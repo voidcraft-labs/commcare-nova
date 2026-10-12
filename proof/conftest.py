@@ -38,6 +38,15 @@ seeded emission. The weekly unseeded run leaves both real
 (``PROOF_HQ_DETERMINISM=0``, ``PROOF_ENTROPY=real``) to compare what it
 observes with a seeded run's, and there no request is answered alike twice
 and no update sends its republish's bytes, so those tests are skipped.
+
+A test marked ``reader`` starts a served reader (``proof.lane.readers``):
+every test whose fixtures reach one that starts one (``readers.FIXTURES``) is
+marked here, and a test that starts one itself is marked by hand. A run
+without the readers (``PROOF_READERS=0``) deselects them, and there the
+session's services refuse to start a reader, so a test left unmarked that
+starts one fails. A run with the readers holds each test marked by hand to
+asking for one (``proof.observe.services.asked``), so no test leaves the pull
+request lane for a reader it never starts.
 """
 
 from __future__ import annotations
@@ -163,10 +172,12 @@ def network():
 
 
 def pytest_collection_modifyitems(config, items):
-    """Each group's items together, groups in the order they first appear (``proof.checks.sharding``), and the
-    ``under_determinism`` tests skipped where HQ's determinism is off or the corpus was emitted unseeded."""
+    """Each group's items together, groups in the order they first appear (``proof.checks.sharding``), the
+    ``under_determinism`` tests skipped where HQ's determinism is off or the corpus was emitted unseeded, and the
+    tests that start a served reader marked ``reader`` and, in a run without the readers, deselected."""
     from proof.checks.sharding import order_by_group
     from proof.hq import determinism
+    from proof.lane import readers
 
     if not determinism.ENABLED or _emitted_unseeded():
         unseeded = pytest.mark.skip(
@@ -176,7 +187,63 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if item.get_closest_marker("under_determinism") is not None:
                 item.add_marker(unseeded)
+    for item in items:
+        if readers.FIXTURES & set(getattr(item, "fixturenames", ())):
+            item.add_marker(readers.MARK)
+        elif item.get_closest_marker(readers.MARK) is not None:
+            item.stash[_MARKED_BY_HAND] = True
+    if not readers.served():
+        deselected = [item for item in items if item.get_closest_marker(readers.MARK) is not None]
+        if deselected:
+            config.hook.pytest_deselected(items=deselected)
+            items[:] = [item for item in items if item.get_closest_marker(readers.MARK) is None]
     items[:] = order_by_group(items)
+
+
+# An item marked ``reader`` by hand rather than by its fixtures: a run with the readers holds it to asking for one.
+_MARKED_BY_HAND = pytest.StashKey[bool]()
+# What ``proof.observe.services.asked`` counted when a hand-marked item's setup began.
+_ASKED_AT_SETUP = pytest.StashKey[int]()
+# Each fixture whose own setup asked for a served reader, by where it is defined and its name: a test that reads a
+# wider fixture set up before it (a module's observation, say) asks through it.
+_ASKING_FIXTURES: set[tuple[str, str]] = set()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_fixture_setup(fixturedef, request):
+    from proof.observe import services
+
+    before = services.asked()
+    try:
+        return (yield)
+    finally:
+        if services.asked() > before:
+            _ASKING_FIXTURES.add((fixturedef.baseid, fixturedef.argname))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    if item.stash.get(_MARKED_BY_HAND, False):
+        from proof.observe import services
+
+        item.stash[_ASKED_AT_SETUP] = services.asked()
+    return (yield)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    result = yield
+    if _ASKED_AT_SETUP in item.stash:
+        from proof.observe import services
+
+        fixtures = [definitions[-1] for definitions in item._fixtureinfo.name2fixturedefs.values() if definitions]
+        through = any((fixture.baseid, fixture.argname) in _ASKING_FIXTURES for fixture in fixtures)
+        assert through or services.asked() > item.stash[_ASKED_AT_SETUP], (
+            f"{item.nodeid} is marked reader by hand, and neither it nor a fixture it reads asked for a served reader"
+            " (Formplayer, the Web Apps client's browser, a device, Connect: proof.observe.services): a run without"
+            " the readers leaves it out for nothing. Take the mark off, so the pull request lane runs it."
+        )
+    return result
 
 
 def _emitted_unseeded() -> bool:

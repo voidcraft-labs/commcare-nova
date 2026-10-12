@@ -249,7 +249,7 @@ def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_
     # (the Web Apps client's screens) and proof 4's at B and B-edit (HQ's editors, and the client after a save).
     assert "editor_driver" in {field.name for field in dataclasses.fields(unit.HookContext)}
     assert "editor_driver" in {field.name for field in dataclasses.fields(unit.BContext)}
-    driving = {name: states for name, function, states in unit.HOOKS if name in ("served", "proof4")}
+    driving = {name: states for name, function, states in unit.EVERY_HOOK if name in ("served", "proof4")}
     assert driving == {"served": ("A",), "proof4": ("B", "B-edit")}
     browser = importlib.import_module("proof.observe.browser")
     # Each declares the driver's code among what it reads, which joins those parts' keys.

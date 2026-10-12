@@ -729,9 +729,22 @@ it("refuses a shard with no queue, a main queue without a corpus, a missing earl
 
 it("plans CI's shards on the execution's runner, or as many as asked for", () => {
 	const timings = {
-		execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
-		groups: { g: 1 },
+		profiles: {
+			readers: {
+				execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
+				groups: { g: 1 },
+			},
+			"no-readers": {
+				execution: { shards: 6, workers: 4, runner: "ubuntu-24.04" },
+				groups: { g: 0.1 },
+			},
+		},
 	};
+	// Each profile plans from its own execution: the pull request lane's shards are not the nightly's.
+	expect(proofMatrix("default", timings, false).include).toHaveLength(6);
+	expect(proofMatrix("default", timings, false).include[0]?.runner).toBe(
+		"ubuntu-24.04",
+	);
 	const matrix = proofMatrix("default", timings);
 	expect(matrix.include).toHaveLength(14);
 	expect(matrix.include[0]).toEqual({
@@ -746,8 +759,13 @@ it("plans CI's shards on the execution's runner, or as many as asked for", () =>
 	);
 	expect(() => proofMatrix("0", timings)).toThrow("whole number");
 	expect(() =>
-		proofMatrix("default", { execution: { shards: 2, workers: 4 } }),
+		proofMatrix("default", {
+			profiles: { readers: { execution: { shards: 2, workers: 4 } } },
+		}),
 	).toThrow("names no runner");
+	expect(() => proofMatrix("default", timings.profiles.readers)).toThrow(
+		"whole number",
+	);
 });
 
 it("writes each group's box-seconds the workers measured, averaging runs, with the servers' fixed costs", async () => {
@@ -793,10 +811,20 @@ it("writes each group's box-seconds the workers measured, averaging runs, with t
 		// A shard's wait for the main queue is time spent on another job, not one of its fixed costs.
 		JSON.stringify({ fixed: { boot: 4, template: 1 }, waits: { queue: 90 } }),
 	);
-	const refreshed = await refreshTimings([first, second], {
-		execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
-		groups: { stale: 1 },
-	});
+	const previous = {
+		profiles: {
+			readers: {
+				execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
+				groups: { stale: 1 },
+			},
+			"no-readers": {
+				execution: { shards: 6, workers: 4, runner: "ubuntu-24.04" },
+				groups: { kept: 2 },
+			},
+		},
+	};
+	const refreshed = (await refreshTimings([first, second], previous)).profiles
+		.readers;
 	expect(refreshed.execution).toEqual({
 		shards: 14,
 		workers: 4,
@@ -811,6 +839,40 @@ it("writes each group's box-seconds the workers measured, averaging runs, with t
 		"proof/hq": 10,
 		"proof/native": 25,
 	});
+	// Runs without the readers refresh that profile alone, the other kept as it was; on a box that gives each
+	// worker a vCPU, as a CI shard does, a worker-second is a CI worker's, divided by the workers a CI box holds.
+	for (const directory of [first, second]) {
+		const served = JSON.parse(
+			await readFile(join(directory, "serve.json"), "utf8"),
+		);
+		await writeFile(
+			join(directory, "serve.json"),
+			JSON.stringify({ ...served, readers: false }),
+		);
+	}
+	const without = await refreshTimings([first, second], previous, {
+		boxWorkers: 4,
+	});
+	expect(without.profiles.readers).toEqual(previous.profiles.readers);
+	expect(without.profiles["no-readers"].execution).toEqual(
+		previous.profiles["no-readers"].execution,
+	);
+	// corpus:a: 8/4 twice; proof/native: 80/4 and 60/4.
+	expect(without.profiles["no-readers"].groups).toEqual({
+		"corpus:a": 2,
+		"proof/hq": 10,
+		"proof/native": 17.5,
+	});
+	expect(without.profiles["no-readers"].measured.basis).toContain(
+		"divided by 4",
+	);
+	await writeFile(
+		join(first, "serve.json"),
+		JSON.stringify({ fixed: {}, readers: true }),
+	);
+	await expect(refreshTimings([first, second], previous)).rejects.toThrow(
+		"both of the lane's profiles",
+	);
 	await expect(refreshTimings([scratch], {})).rejects.toThrow(
 		"holds no timings/ from a lane run",
 	);

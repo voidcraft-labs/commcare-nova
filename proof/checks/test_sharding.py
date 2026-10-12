@@ -123,14 +123,30 @@ def test_a_document_the_timings_do_not_list_counts_as_their_median_document():
     assert sharding.estimate({})("corpus:new") == sharding.DEFAULT_SECONDS
 
 
-def test_the_timings_file_must_hold_groups(tmp_path):
+def test_the_timings_file_holds_each_profiles_groups_and_a_run_reads_its_own(tmp_path, monkeypatch):
+    """A group costs far more where its states are served to the readers, so each profile packs by its own
+    measures (proof.lane.readers): a run without the readers reads the no-readers groups, and a profile the file
+    does not measure yet is read as unmeasured, never as the other's."""
     path = tmp_path / "timings.json"
     assert sharding.load_timings(path) == {}
-    path.write_text(json.dumps({"execution": {"shards": 14, "workers": 4}, "groups": {"corpus:a": 2.5}}))
+    execution = {"shards": 14, "workers": 4}
+    profiles = {
+        "readers": {"execution": execution, "groups": {"corpus:a": 25.0}},
+        "no-readers": {"execution": execution, "groups": {"corpus:a": 2.5}},
+    }
+    path.write_text(json.dumps({"profiles": profiles}))
+    assert sharding.load_timings(path, readers=True) == {"corpus:a": 25.0}
+    assert sharding.load_timings(path, readers=False) == {"corpus:a": 2.5}
+    monkeypatch.setenv("PROOF_READERS", "0")
     assert sharding.load_timings(path) == {"corpus:a": 2.5}
-    path.write_text(json.dumps({"corpus:a": 2.5}))
-    with pytest.raises(sharding.ShardError, match="groups"):
-        sharding.load_timings(path)
+    monkeypatch.delenv("PROOF_READERS")
+    assert sharding.load_timings(path) == {"corpus:a": 25.0}
+    path.write_text(json.dumps({"profiles": {"readers": profiles["readers"]}}))
+    assert sharding.load_timings(path, readers=False) == {}
+    for written in ({"corpus:a": 2.5}, {"groups": {"corpus:a": 2.5}}, {"profiles": {"readers": {"groups": [1]}}}):
+        path.write_text(json.dumps(written))
+        with pytest.raises(sharding.ShardError, match="profiles"):
+            sharding.load_timings(path, readers=True)
 
 
 def _block(*names, estimate=1.0, fresh=()):

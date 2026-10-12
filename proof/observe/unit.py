@@ -116,16 +116,29 @@ B_UNREAD_ROLES = frozenset({"verdict", "document"})
 STATES = ("A", "B", "B-edit")
 # The document's local part, which the local hooks observe with (``observe_local``).
 LOCAL = "local"
-# Each observation hook: its module under ``proof.observe``, the function the unit calls, the states it is
-# called at.
-HOOKS = (
+# A served to Formplayer, the Web Apps client, a device and Connect (the baseline of proof 3's comparisons of
+# them), where the run hands its states to the readers (``proof.lane.readers``).
+SERVED = ("served", "observe", ("A",))
+EVERY_HOOK = (
     ("intent", "observe", STATES),
     ("intent", "observe_local", (LOCAL,)),
     ("manifest", "observe_local", (LOCAL,)),
-    # A served to Formplayer and the Web Apps client (the baseline of proof 3's comparisons of them).
-    ("served", "observe", ("A",)),
+    SERVED,
     ("proof4", "observe_b", ("B", "B-edit")),
 )
+
+
+def hooks(environ=None):
+    """Each observation hook the unit calls: its module under ``proof.observe``, the function the unit calls, the
+    states it is called at. The served hook only where the run hands its states to the readers
+    (``proof.lane.readers.served``, ``PROOF_READERS``): without it no state is served, and so B and proof 4's saves
+    are served to nothing (``BContext.serve``)."""
+    from proof.lane import readers
+
+    return tuple(hook for hook in EVERY_HOOK if hook != SERVED or readers.served(environ))
+
+
+HOOKS = hooks()
 
 
 class HookContractError(TypeError):
@@ -265,10 +278,11 @@ def _module(name):
         raise
 
 
-def hook_modules():
-    """Each observation hook that exists: ``[(name, module, function, states)]``."""
+def hook_modules(hooked=None):
+    """Each observation hook that exists, of ``hooked`` (``HOOKS`` by default): ``[(name, module, function,
+    states)]``."""
     found = []
-    for name, function, states in HOOKS:
+    for name, function, states in HOOKS if hooked is None else hooked:
         module = _module(name)
         if module is None:
             continue
@@ -284,11 +298,11 @@ def hook_modules():
     return found
 
 
-def hook_inputs(document):
+def hook_inputs(document, hooked=None):
     """What each hook that exists reads beyond its part's own inputs, by state (``local`` too):
-    ``{state: {hook: inputs}}``."""
+    ``{state: {hook: inputs}}``; ``hooked`` is ``hook_modules``'s."""
     found = {state: {} for state in (*STATES, LOCAL)}
-    for name, module, _, states in hook_modules():
+    for name, module, _, states in hook_modules(hooked):
         for state in states:
             if state == "B-edit" and document.edit is None:
                 continue

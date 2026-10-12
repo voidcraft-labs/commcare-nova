@@ -87,6 +87,7 @@ def read(rule_documents, hq, core_runner, lane_services):
         return served_readings(app, {"nova": None, "saved": _aligned("start"), "centred": _aligned("center")})
 
 
+@pytest.mark.reader  # ``read`` serves each spelling to Formplayer and the client (``served_readings``)
 def test_formplayer_hands_start_or_none_and_nothing_else_differs(read):
     found = formplayer_differences(read["nova"], read["saved"])
     assert found, "Formplayer's walk reached no tile, so the two spellings were never read apart"
@@ -101,6 +102,7 @@ def _alignments(reading):
     return [cell["alignSelf"] for screen in screens(reading) for cell in (screen.get("list") or {}).get("cells") or []]
 
 
+@pytest.mark.reader  # ``read`` serves each spelling to Formplayer and the client (``served_readings``)
 def test_the_client_lays_the_cell_out_alike_and_moves_it_for_another_alignment(read):
     for name in ("nova", "saved"):
         computed = _alignments(read[name])

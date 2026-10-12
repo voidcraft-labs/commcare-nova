@@ -25,13 +25,15 @@ groups so; its main phase collects the rest of ``proof/``, which finds a
 document's branch items too.
 
 Timings. ``proof/timings.json`` holds each group's measured cost in
-box-seconds: the seconds of one worker's wall time the group took, without
-what the worker's session shares (its services), divided by the number of
-workers that shared the box (``proof.lane.timings``; ``node proof/run.mjs
---timings`` writes them). A document or control it does not list counts the
-median of those it lists, since a sample's documents change with its size and
-seed; any other group it does not list counts ``DEFAULT_SECONDS``
-(``estimate``).
+box-seconds, for each of the lane's two profiles (``profiles``: ``readers``
+and ``no-readers``, ``proof.lane.readers``), since a group costs far more where
+its states are served to the readers: the seconds of one worker's wall time the
+group took, without what the worker's session shares (its services), divided
+by the number of workers that shared a CI box (``proof.lane.timings``; ``node
+proof/run.mjs --timings`` writes them). ``load_timings`` reads the run's own
+profile. A document or control it does not list counts the median of those it
+lists, since a sample's documents change with its size and seed; any other
+group it does not list counts ``DEFAULT_SECONDS`` (``estimate``).
 
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
 claimed by one shard. ``static_bins`` splits the blocks across ``n`` shards
@@ -55,6 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
 TIMINGS = PROOF_DIR / "timings.json"
@@ -142,18 +145,24 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     return sorted(roots)
 
 
-def load_timings(path: Path = TIMINGS):
-    """The box-seconds per group ``proof/timings.json`` holds (its ``groups``); empty when it does not exist."""
+def load_timings(path: Path = TIMINGS, *, readers: bool | None = None):
+    """The box-seconds per group ``proof/timings.json`` holds for a profile (its ``profiles.<profile>.groups``): the
+    run's own (``proof.lane.readers.served``) unless ``readers`` names one. Empty when the file does not exist or
+    holds no measure of that profile."""
     if not path.exists():
         return {}
     value = json.loads(path.read_text(encoding="utf-8"))
-    groups = value.get("groups") if isinstance(value, dict) else None
+    profiles = value.get("profiles") if isinstance(value, dict) else None
+    name = lane_readers.profile(lane_readers.served() if readers is None else readers)
+    profile = profiles.get(name, {}) if isinstance(profiles, dict) else None
+    groups = profile.get("groups", {}) if isinstance(profile, dict) else None
     if not isinstance(groups, dict) or not all(
         isinstance(seconds, (int, float)) and not isinstance(seconds, bool) for seconds in groups.values()
     ):
         raise ShardError(
-            f'{path} holds the lane\'s box-seconds per group under groups ({{"groups": {{<group>: <box-seconds>}}}});'
-            " write it with `node proof/run.mjs --timings <output directory>...`."
+            f"{path} holds the lane's box-seconds per group for each profile under profiles"
+            f' ({{"profiles": {{"{name}": {{"groups": {{<group>: <box-seconds>}}}}}}}}); write it with'
+            " `node proof/run.mjs --timings <output directory>...`."
         )
     return groups
 

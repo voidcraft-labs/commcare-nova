@@ -56,6 +56,13 @@ exits 0 once the queue is at ``--queue`` (``PROOF_LANE_QUEUE``) and the
 corpus at ``PROOF_CORPUS``, or 3 when the corpus emission failed (its
 marker exists); any other exit is the server's failure.
 
+Profiles. The server runs in the lane's profile ``PROOF_READERS`` names
+(``proof.lane.readers``: with the readers, or without them as the pull
+request lane runs), records it in ``serve.json`` (``readers``) and in the
+queue a run without queues writes, and refuses a queue built for the other
+profile (``readers`` in the queue): its groups and the keys its records are
+read under are that profile's.
+
 Claims. ``--claim static`` owns every block (with ``--bin I/N``, the blocks
 of bin I of N, ``proof.checks.sharding.static_bins``). Otherwise each block
 is claimed by running the shell command with ``{block}`` replaced by the
@@ -111,6 +118,7 @@ import pytest
 from proof import processes
 from proof.checks import sharding
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 from proof.lane import worker as lane_worker
 from proof.lane.broker import WAIT, Broker
 from proof.store.keys import SELECTION_ENVIRONMENT
@@ -258,6 +266,8 @@ class Server:
             "claims": [],
             "workersRun": [],
             "problems": self.problems,
+            # Whether the run hands its served states to the readers (PROOF_READERS, proof.lane.readers).
+            "readers": lane_readers.served(),
             # What the server collected with beyond its own arguments, and in what environment: a run of any
             # other selection holds only some of each group's items, and one in another environment than the queue
             # keys a package group under ran it otherwise, so the evidence store keeps no such outcome
@@ -298,6 +308,9 @@ class Server:
                 f"The main queue {options.queue} does not exist, and nothing waits for it: add --wait-for with the"
                 " command that brings it."
             )
+        for path, phase in ((options.early_queue, "early"), (options.queue, "main")):
+            if path is not None and path.exists():
+                self._refuse_profile(self._load(path, phase), path)
         if options.early_queue is not None:
             early = self._load(options.early_queue, "early")
             reading = sorted(name for name in early.groups() if lane_blocks.reads_corpus(name))
@@ -317,6 +330,18 @@ class Server:
         for name in options.command_env:
             if name in os.environ:
                 self.command_env[name] = os.environ.pop(name)
+
+    def _refuse_profile(self, queue: lane_blocks.Queue, path: Path):
+        """Refuse a queue built for the other profile: its groups and keys are that profile's."""
+        here = lane_readers.served()
+        if queue.readers != here:
+            built, runs = ("with", "without") if queue.readers else ("without", "with")
+            raise Refused(
+                f"The queue {path} was built {built} the readers, and this shard runs {runs} them"
+                f" ({lane_readers.VARIABLE}={os.environ.get(lane_readers.VARIABLE, 'unset')}): its groups and the keys"
+                f" its records are read under are the other profile's. Build the queue with --lane-env"
+                f" {lane_readers.VARIABLE}=0 for a shard without the readers, and without it for one with them."
+            )
 
     def _prepare(self):
         """Boot, template, javac and warm, once, before any fork."""
@@ -482,7 +507,8 @@ class Server:
             return
         try:
             queue = lane_blocks.load_queue(self.options.queue)
-        except lane_blocks.QueueError as error:
+            self._refuse_profile(queue, self.options.queue)
+        except (lane_blocks.QueueError, Refused) as error:
             self.problems.append(f"The main queue cannot be run: {error}")
             self.broker.cancel("main")
             return
@@ -556,6 +582,7 @@ class Server:
                 if self.options.bin is not None
                 else lane_blocks.single_block(estimates)
             )
+            queue = replace(queue, readers=lane_readers.served())
             corpus = os.environ.get("PROOF_CORPUS")
             if corpus and Path(corpus, "index.json").is_file():
                 # A corpus the queue builder sampled names the documents it leaves out, for the gate.

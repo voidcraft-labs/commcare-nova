@@ -63,7 +63,17 @@ their controls alone (``proof.checks.registers.verify_evidence``).
 
 Each queued group names its key (``key``): a document's document key, a
 package's or the surface block's outcome key, which ``proof.store.pack``
-keeps its outcome under. The same inputs write the same bytes.
+keeps its outcome under. The queue records the environment those keys name
+(``environment``, ``proof.store.keys.environment``), which ``pack`` holds a
+run's recorded one to before it keeps a package group's outcome. The same
+inputs write the same bytes.
+
+``--lane-env PROOF_READERS=0`` builds the queues of a run without the readers
+(``proof.lane.readers``): every key names that profile, no package whose
+every test starts a reader is queued (``readers.PACKAGES``), nor a control
+only the served readers' register entries name
+(``proof.checks.registers.served_entry``), and the queue says
+``readers: false``.
 
 Standard library and git only.
 """
@@ -79,8 +89,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from proof.checks import sharding
+from proof.checks import registers, sharding
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 from proof.store import disk, fingerprints, keys, pack
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
@@ -155,13 +166,18 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
     return sorted(found)
 
 
-def control_groups(known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS) -> list[str]:
-    """The controls the register names whose directories exist (``proof.checks.cases.control_params``)."""
+def control_groups(
+    known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS, *, readers: bool = True
+) -> list[str]:
+    """The controls the register's held entries name whose directories exist (``proof.checks.cases.control_params``):
+    every entry with the readers, and without them every one but the served readers'
+    (``proof.checks.registers.held_entries``)."""
     try:
         entries = json.loads(known_defects.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
-    named = {entry.get("control") for entry in entries if isinstance(entry, dict)}
+    held = registers.held_entries([entry for entry in entries if isinstance(entry, dict)], readers=readers)
+    named = {entry.get("control") for entry in held}
     return sorted(f"control:{name}" for name in named if isinstance(name, str) and (controls / name).is_dir())
 
 
@@ -251,6 +267,8 @@ class Builder:
         # The environment the lane's shards run in: proof/compose.yaml's, with what a run sets beyond it
         # (proof-lane.yml's lane-env, ``--lane-env``), which the keys their records are kept under name.
         self.environ = {**keys.LANE_ENVIRONMENT, **(environ or {})}
+        # Whether the shards hand their states to the readers (PROOF_READERS, proof.lane.readers).
+        self.readers = lane_readers.served(self.environ)
         self.scope = keys.record_scope(found, self.environ)
         self.document_scope = keys.document_scope(found, self.environ)
         self.fresh = fresh
@@ -365,7 +383,9 @@ def _by_name(group: Group) -> str:
     return group.name
 
 
-def queue_value(groups: list[Group], found: dict, *, dedupe: bool = True, unsampled=()) -> dict:
+def queue_value(
+    groups: list[Group], found: dict, *, dedupe: bool = True, unsampled=(), readers: bool = True, environment=None
+) -> dict:
     running = [group for group in groups if group.status != "cached"]
     by_name = {group.name: group for group in groups}
     packed = blocks(running, dedupe=dedupe)
@@ -379,6 +399,7 @@ def queue_value(groups: list[Group], found: dict, *, dedupe: bool = True, unsamp
             ),
             dict(sorted(found.items())),
             tuple(sorted(unsampled)),
+            readers,
         )
     )
     for block in value["blocks"]:
@@ -392,11 +413,21 @@ def queue_value(groups: list[Group], found: dict, *, dedupe: bool = True, unsamp
         for status in ("cached", "judged", "observed")
     }
     value["fresh"] = sorted(group.name for group in groups if group.fresh)
+    # The environment every key above names (proof.store.keys.environment), which proof.store.pack holds a run's to.
+    value["environment"] = keys.environment(keys.LANE_ENVIRONMENT if environment is None else environment)
     return value
 
 
+def queued_packages(builder: Builder, proof_dir: Path = PROOF_DIR) -> list[str]:
+    """The package groups with a test module, but, without the readers, those whose every test starts one
+    (``proof.lane.readers.PACKAGES``), of which such a run collects nothing."""
+    return [name for name in package_groups(proof_dir) if builder.readers or name not in lane_readers.PACKAGES]
+
+
 def early(builder: Builder, proof_dir: Path = PROOF_DIR) -> list[Group]:
-    return [builder.package(name, {}) for name in package_groups(proof_dir) if not lane_blocks.reads_corpus(name)]
+    return [
+        builder.package(name, {}) for name in queued_packages(builder, proof_dir) if not lane_blocks.reads_corpus(name)
+    ]
 
 
 def package_data(name: str, corpus: Path, files: dict[str, str], checkout: Path) -> dict:
@@ -422,9 +453,9 @@ def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR) -> 
     emitted = [*listed, *lane_blocks.unsampled_documents(corpus)]
     files = {identifier: keys.files_digest(corpus / identifier) for identifier in emitted}
     groups = [builder.document(f"corpus:{identifier}", corpus / identifier, files[identifier]) for identifier in listed]
-    for name in control_groups(proof_dir / "known-defects.json", proof_dir / "controls"):
+    for name in control_groups(proof_dir / "known-defects.json", proof_dir / "controls", readers=builder.readers):
         groups.append(builder.document(name, proof_dir / "controls" / name.partition(":")[2]))
-    for name in package_groups(proof_dir):
+    for name in queued_packages(builder, proof_dir):
         if lane_blocks.reads_corpus(name):
             groups.append(builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent)))
     return groups
@@ -485,7 +516,7 @@ def main(argv=None) -> int:
         builder = Builder(
             arguments.store,
             found,
-            sharding.load_timings(arguments.timings),
+            sharding.load_timings(arguments.timings, readers=lane_readers.served(environ)),
             fresh=arguments.fresh,
             environ=environ,
         )
@@ -499,16 +530,19 @@ def main(argv=None) -> int:
             if arguments.audit_seed and not arguments.fresh:
                 audit_sample(groups, arguments.audit_seed, arguments.audit_units)
         dedupe = not arguments.no_dedupe
-        value = queue_value(groups, found, dedupe=dedupe, unsampled=unsampled)
+        value = queue_value(
+            groups, found, dedupe=dedupe, unsampled=unsampled, readers=builder.readers, environment=builder.environ
+        )
         write_queue(arguments.out, value)
     except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
         print(error, file=sys.stderr)
         return 2
     classes = ", ".join(f"{len(names)} {status}" for status, names in value["classes"].items())
     left_out = f"; {len(value['unsampled'])} documents left out of the sample" if value.get("unsampled") else ""
+    profile = "" if builder.readers else " (without the readers)"
     print(
-        f"The {arguments.phase} queue holds {len(value['blocks'])} blocks; {classes}; {len(value['fresh'])} fresh"
-        f"{left_out}; built in {time.perf_counter() - started:.2f} s."
+        f"The {arguments.phase} queue{profile} holds {len(value['blocks'])} blocks; {classes}; {len(value['fresh'])}"
+        f" fresh{left_out}; built in {time.perf_counter() - started:.2f} s."
     )
     return 0
 
