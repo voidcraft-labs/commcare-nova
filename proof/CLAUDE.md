@@ -6,8 +6,10 @@ restore and Connect repeater, CommCare Core's runtime, Formplayer's
 application, HQ's Web Apps client, CommCare Android's own app and CommCare
 Connect's own server, over a reproducible corpus. Every pull request runs it
 without the readers (`PROOF_READERS=0`, `proof/lane/readers.py`: HQ and Core
-whole, no state served to Formplayer, the client, a device or Connect); the
-nightly runs it whole with every reader and opens an issue when it fails.
+whole, no state served to Formplayer, the client, a device or Connect); each
+night runs it with every reader over what changed since main's last store
+snapshot, and each week runs it whole and fresh, which is what proves the
+store's keys; a scheduled failure of either opens an issue.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -203,8 +205,13 @@ harness keeps, each with its reason.
   Core. The surface extractor matches no source text by pattern either.
 - **CI ends within ten minutes; what cannot fit runs nightly.** The pull
   request lane runs without the readers (`proof/README.md`, "The lane in CI"
-  and "Timings and the ten-minute bound"), and the nightly audit runs the
-  whole lane fresh with every reader and opens an issue when it fails. The two
+  and "Timings and the ten-minute bound"). The lane with every reader costs
+  about 300 worker-hours whole, against GitHub's free plan of twenty jobs at
+  once and six hours a job, so each night runs it against main's store (what
+  changed since the last snapshot) and each week runs it whole and fresh (the
+  run that proves the store's keys), each sizing its shards from its queue to
+  stay within two and a half hours a shard and fourteen at once; a scheduled
+  failure of either opens an issue. The two
   profiles are one lane: nothing loosens between them, every check that runs
   holds exactly as it does nightly, the gate leaves only the served readers'
   register entries to the nightly, and every key the store keeps names its

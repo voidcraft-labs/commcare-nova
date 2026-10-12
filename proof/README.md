@@ -470,9 +470,10 @@ python3 -m unittest proof.android.selfcheck proof.android.predicates -v         
 A document's checks are one group on one worker, so more workers than the
 documents you select buy nothing. Read only the gate's problems that name your
 documents and the entries on them: an entry on a document the slice did not
-run shows as not run, which is expected for a slice. The nightly audit runs
-the whole lane with every reader and opens an issue when it fails; it is the
-backstop for what a slice missed, never the first run of a reader change.
+run shows as not run, which is expected for a slice. Each night runs the
+lane with every reader over what changed and each week runs it whole, each
+opening an issue when it fails; they are the backstop for what a slice
+missed, never the first run of a reader change.
 
 ### Where a run writes
 
@@ -2035,32 +2036,35 @@ reused is only what a key names whole, and the reuse is audited:
   observed whole and held to the store, a mismatch written under `audit/` and
   failing its group. A share of live editor runs (`PROOF_EDITOR_AUDIT`) is
   rerun on a fresh page;
-- **nightly, on main** (`proof-audit.yml`): the whole lane fresh, nothing
-  shared between documents and every editor view live, in both profiles
-  ("The lane's two profiles"): with every reader, the one run that hands every
-  served state to Formplayer, the Web Apps client, a device and Connect, and
-  without them, as a pull request runs. Each is compared with main's newest
-  snapshot (`python3 -m proof.store.audit compare`), and the two are merged
-  into the newest snapshot every pull request reads. A scheduled audit that
-  fails in either profile opens an issue. A merge to main writes nothing to
-  main's store (only the audit and the pin pull request's prewarm do,
-  "Changing a pin", below), so
+- **nightly, on main** (`proof-audit.yml`): the lane in both profiles ("The
+  lane's two profiles"), with every reader and without them, each queued as a
+  pull request's is, against main's newest snapshot: every group whose key
+  changed since it was saved is observed, the audit sample afresh, and the
+  rest read. The two are merged over main's snapshot into the newest one
+  every pull request reads. A scheduled night that fails in either profile
+  opens an issue. A merge to main writes nothing to main's store (only the
+  nightly, the weekly audit and the pin pull request's prewarm do, "Changing
+  a pin", below), so
   a pull request opened right after a large merge is cold: its queue
-  observes every group the merge changed until the nightly audit refreshes
-  main's store;
-- **weekly** (`proof-audit.yml`): four fresh runs. Three run a fixed
-  24-document sample: a baseline, one with Nova's emission and HQ unseeded,
+  observes every group the merge changed until the nightly refreshes main's
+  store;
+- **weekly** (`proof-audit.yml`): the fresh audit, what proves the store's
+  keys. The whole lane runs fresh, nothing shared between documents, in both
+  profiles, each compared with main's newest snapshot (`python3 -m
+  proof.store.audit compare`); the two replace that snapshot whole, so a key
+  no current run reads leaves the store once a week. Three more fresh runs,
+  each with every reader, hold a fixed 24-document sample: a baseline, one with Nova's emission and HQ unseeded,
   compared with the baseline (equal once every drawn id and clock reading is
   read as one value, with defects 1 and 9 still showing), and one with HQ's
   speed seams off, compared with it (equal). A sampled run checks every control and package but only
   the sampled documents, so it holds each register entry naming a document
   the sample left out on its control alone ("Known defects", above). The
-  fourth runs the whole corpus with every memo verified, every editor view
-  rerun the slow way and every document's HQ branches held to fresh states,
-  and must pass on its own, as each of the four must. Each runs with every
-  reader, handing every served state to a device in its shards ("Android in
-  the unit"), its queues keyed under the lane's own environment
-  (`--lane-env`).
+  whole lane with every reader also verifies every memo on every hit, reruns
+  every editor view the slow way and holds every document's HQ branches to
+  fresh states. Each must hold, and a scheduled week that fails opens an
+  issue. Each lane with the readers hands every served state to a device in
+  its shards ("Android in the unit"), its queues keyed under the lane's own
+  environment (`--lane-env`).
   `proof-image.yml` compares the slim image with the full one, both on
   amd64, where the lane's shards run.
 
@@ -2672,8 +2676,8 @@ CI must end within ten minutes, so a pull request's lane runs without the
 readers (`PROOF_READERS=0`, "The lane's two profiles"): HQ, Core and HQ's
 editors over every document, every check held to the register, and no state
 handed to Formplayer, the Web Apps client, a device or Connect. What the
-readers prove runs in the nightly audit (below), which runs the whole lane
-with every reader and opens an issue when it fails; a change a reader would
+readers prove runs each night over what changed and each week whole (below),
+each opening an issue when it fails; a change a reader would
 show is proven on a proof machine before it is pushed ("Proving a reader
 change before you push"). `ci.yml` sets `PROOF_READERS: '0'` for the whole
 workflow, and runs the lane beside the existing jobs:
@@ -2780,15 +2784,24 @@ explicit diagnostic mode, and `proof_shards` selects another shard count.
   `ci.yml`'s `lane_sample` input runs it from a branch over a sample of that
   many documents, storing nothing, to hold a change to it before main's
   audit runs it.
-- **`proof-audit.yml`**: the nightly audit and the weekly comparisons ("The
-  evidence store and its audits", above). Nightly it runs `proof-lane.yml`
-  twice over main, with every reader and without them, and
-  **`proof-store-save.yml`** merges the two packed stores into the one
-  snapshot the run saves (`python3 -m proof.store.pack merge`: every key
-  names its profile, so the two never share one), so a pull request that
-  changes no proof input finds every group cached and its lane is setup and
-  the gate. A scheduled run that fails in either profile, or cannot save the
-  store, opens an issue. The weekly runs keep every reader.
+- **`proof-audit.yml`**: the nightly runs and the weekly fresh audit ("The
+  evidence store and its audits", above). Each night it runs `proof-lane.yml`
+  twice over main against main's store (`fresh: false`), with every reader
+  and without them, and **`proof-store-save.yml`** merges the two packed
+  stores over main's snapshot into the one the run saves (`python3 -m
+  proof.store.pack merge`: every key names its profile, so the two never
+  share one), so a pull request that changes no proof input finds every group
+  cached and its lane is setup and the gate. Each week it runs both profiles
+  whole and fresh, which replace the snapshot, beside the sampled
+  comparisons. A scheduled night or week that fails, or cannot save the
+  store, opens an issue. The repository is on GitHub's free plan for
+  organizations (twenty jobs at once, six hours a job) and the lane with
+  every reader costs about 300 worker-hours whole, so no lane runs it fresh
+  every night: each lane with the readers sizes its shards from its queue
+  (`node proof/run.mjs --matrix auto`, `proof/run.mjs::sizedShards`: no shard
+  expected past two and a half hours, its deadline twice its expected work)
+  and runs at most fourteen at once, leaving six runners for pull requests;
+  GitHub queues the rest, and queued time is no job's.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
   weekly, and for the weekly pin pull request.
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
@@ -2818,13 +2831,16 @@ parallelism on a larger machine buys nothing there.
 **The whole lane with every reader.** Serving each state to Formplayer and
 the Web Apps client, walking every run of it whole in the client, a fresh
 page a run, and handing it to a phone and a tablet beside HQ's unit made a
-document's group cost ten to thirty times what it did. The `readers` costs
-come from a hosted run with every reader observing a fresh store (run
-37962682043: sixteen shards of 31 to 36 minutes): about 29,900 box-seconds
-(about 120,000 worker-seconds) over 450 groups, its longest
-`proof/formplayer` at about 2,000 seconds on one worker. No shard count fits
-that into ten minutes, so it is the nightly's (`proof-audit.yml`), on
-sixteen shards with a 330-minute deadline that stops only a stuck shard.
+document's group cost ten to thirty times what it did: 800 to 2,400 seconds
+on one worker once every reader observes in the unit (a small document's,
+32 seconds without the readers, took 898 with them), about 300 worker-hours
+for the whole lane, most of it the devices' JVMs and the client's walks. No
+shard count fits that into ten minutes, and on GitHub's free plan a fresh
+whole lane every night would hold every runner for about five hours, so the
+nightly runs it against main's store, observing what changed, and the weekly
+runs it whole (`proof-audit.yml`). Each sizes its shards from its queue's
+estimates, which come from the `readers` costs, to stay within two and a
+half hours a shard.
 
 **The pull request lane.** The `no-readers` costs come from one run of the
 whole lane without the readers on a 32-vCPU proof machine at 32 workers, one
@@ -3005,8 +3021,8 @@ each is stated here as it is built.
     that sets the lane's shape records those measurements and the person sets
     the lane's target before it merges. Once every reader joined, the person
     set it: CI ends within ten minutes, the pull request lane runs without
-    the readers, and the nightly runs the whole lane with them ("The lane in
-    CI", "Timings and the ten-minute bound").
+    the readers, and the nightly and weekly runs hold the lane with them ("The
+    lane in CI", "Timings and the ten-minute bound").
 12. **A known defect is a strict register entry, not a skipped test** ("The
     registers").
 13. **Accepted identity moves are a register too**,

@@ -1,9 +1,11 @@
 name: Proof store save
 
 # Saves one snapshot of main's evidence store from several calls of the proof
-# lane in one run (proof-lane.yml with `store: pack`): the nightly audit's two
+# lane in one run (proof-lane.yml with `store: pack`): the nightly's two
 # profiles (with every reader, and without them as a pull request's lane runs,
-# proof/lane/readers.py), and the pin pull request's prewarm of both. Each call
+# proof/lane/readers.py), each queued against main's store, so merged over
+# main's snapshot (`base`); and the weekly fresh audit's two, which replace it
+# whole, so a key no current run reads is dropped once a week. Each call
 # packed what it observed as an artifact (proof-store-<label>-<attempt>); this
 # merges them (python3 -m proof.store.pack merge: every key names its profile,
 # so the two never hold one key) and saves the result under the run's key,
@@ -25,6 +27,10 @@ on:
         description: The candidate image those calls ran, recorded in the lock (proof/image.lock's by default)
         type: string
         default: ''
+      base:
+        description: Whether main's newest snapshot is merged beneath them (calls queued against it, which packed only what it lacked)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -51,6 +57,13 @@ jobs:
       - name: Name the store's snapshots
         id: store
         run: node proof/ci/store-keys.mjs --arch amd64
+      - name: Restore main's evidence store
+        if: ${{ inputs.base }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
       # A run whose calls packed nothing has no such artifact; the next step then saves nothing.
       - uses: actions/download-artifact@v8
         continue-on-error: true
@@ -61,8 +74,11 @@ jobs:
         id: merge
         env:
           LABELS: ${{ inputs.labels }}
+          BASE: ${{ inputs.base }}
         run: |
           sources=()
+          # Main's snapshot first, so each call's newer records are read over it (an absent one holds nothing).
+          if [ "$BASE" = true ]; then sources+=("$RUNNER_TEMP/store/main"); fi
           while IFS= read -r label; do
             [ -n "$label" ] || continue
             packed="$RUNNER_TEMP/packed/proof-store-$label-$GITHUB_RUN_ATTEMPT"

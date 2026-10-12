@@ -56,9 +56,11 @@
 // corpus: with `--queue`, PROOF_CORPUS must name the directory the corpus is
 // downloaded or brought into (mounted writable).
 //
-// `node proof/run.mjs --matrix [shards|default]` prints CI's proof matrix
-// (proof/timings.json's execution of the profile PROOF_READERS names: shards
-// on its runner, workers each), and `node proof/run.mjs --timings <output
+// `node proof/run.mjs --matrix [shards|default|auto <queue file>...]` prints
+// CI's proof matrix (proof/timings.json's execution of the profile
+// PROOF_READERS names: shards on its runner, workers each; with `auto`, as many
+// shards as keep each within SHARD_BUDGET_SECONDS of the queues' estimated
+// work, each with its deadline), and `node proof/run.mjs --timings <output
 // directory>... [--box-workers n]` writes the box-seconds per group those runs
 // measured into proof/timings.json, under the profile they ran in.
 
@@ -1048,15 +1050,43 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	return runServer({ image, mounts, environment, serve, output });
 }
 
+/** What a shard of a lane sized from its queues (`auto`) is given to run, in seconds: within GitHub's six-hour job limit with margin. */
+export const SHARD_BUDGET_SECONDS = 2.5 * 3600;
+/** A sized shard's deadline: twice what it is expected to take, within these bounds, in minutes. */
+const DEADLINE_MINUTES = { floor: 60, ceiling: 345 };
+
+/**
+ * How many shards hold the queues' blocks (each `estimate` its box-seconds:
+ * the wall time of one shard's box running it) so that none is expected to
+ * run past `budget` seconds, and the deadline each shard is given.
+ */
+export function sizedShards(queues, budget = SHARD_BUDGET_SECONDS) {
+	const estimates = queues.flatMap((queue) =>
+		(queue.blocks ?? []).map((block) => Number(block.estimate) || 0),
+	);
+	const total = estimates.reduce((sum, value) => sum + value, 0);
+	const largest = Math.max(0, ...estimates);
+	const shards = Math.max(1, Math.ceil(total / budget));
+	// Greedy bins hold a shard's share of the whole plus at most one block more, and never more than the whole.
+	const expected = Math.min(total, total / shards + largest);
+	const deadline = Math.min(
+		DEADLINE_MINUTES.ceiling,
+		Math.max(DEADLINE_MINUTES.floor, Math.ceil((2 * expected) / 60)),
+	);
+	return { shards, deadline, total, expected };
+}
+
 /**
  * CI's proof matrix: `shards` jobs (`default`: proof/timings.json's
- * execution for the profile, `readers`) on the execution's runner, each a
- * fork server of the execution's workers.
+ * execution for the profile, `readers`; `auto`: as many as the `queues`
+ * need, `sizedShards`) on the execution's runner, each a fork server of the
+ * execution's workers, with its deadline in minutes where the matrix is sized.
  */
-export function proofMatrix(shards, timings, readers = true) {
+export function proofMatrix(shards, timings, readers = true, queues = []) {
 	const execution = timingsProfile(timings, readers).execution ?? {};
+	const sized = shards === "auto" ? sizedShards(queues) : undefined;
 	const total = count(
-		shards === "default" ? execution.shards : shards,
+		sized ? sized.shards : shards === "default" ? execution.shards : shards,
 		"The shard count",
 	);
 	const workers = count(execution.workers, "The worker count");
@@ -1071,6 +1101,7 @@ export function proofMatrix(shards, timings, readers = true) {
 			total,
 			workers,
 			runner: execution.runner,
+			...(sized ? { deadline: sized.deadline } : {}),
 		})),
 	};
 }
@@ -1215,13 +1246,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		shard(rest).then(done, failed);
 	} else if (command === "--matrix") {
 		readFile(TIMINGS_FILE, "utf8")
-			.then((text) => {
+			.then(async (text) => {
+				const queues = await Promise.all(
+					rest
+						.slice(1)
+						.map(async (path) => JSON.parse(await readFile(path, "utf8"))),
+				);
 				console.log(
 					JSON.stringify(
 						proofMatrix(
 							rest[0] ?? "default",
 							JSON.parse(text),
 							readersServed(),
+							queues,
 						),
 					),
 				);

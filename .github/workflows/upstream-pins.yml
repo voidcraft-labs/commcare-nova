@@ -120,7 +120,7 @@ jobs:
       surface: upstream-surface
       label: prewarm
       readers: false
-      shards: 8
+      shards: '8'
       store: save
       # The pull request's own CI gives the verdict; a prewarm keeps what it
       # observed whatever it is.

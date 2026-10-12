@@ -20,7 +20,9 @@ import {
 	proofMatrix,
 	refreshTimings,
 	runOutput,
+	SHARD_BUDGET_SECONDS,
 	shardOptions,
+	sizedShards,
 	statsBytes,
 } from "../run.mjs";
 
@@ -765,6 +767,41 @@ it("plans CI's shards on the execution's runner, or as many as asked for", () =>
 	).toThrow("names no runner");
 	expect(() => proofMatrix("default", timings.profiles.readers)).toThrow(
 		"whole number",
+	);
+});
+
+it("sizes a lane from its queues so no shard is expected past its budget, and gives each shard a deadline from it", () => {
+	const hour = 3600;
+	const queue = (...estimates: number[]) => ({
+		blocks: estimates.map((estimate) => ({ estimate })),
+	});
+	// Ten hours of work: four shards of two and a half, plus at most one block more each.
+	const sized = sizedShards([queue(5 * hour, 3 * hour), queue(2 * hour)]);
+	expect(sized.shards).toBe(Math.ceil((10 * hour) / SHARD_BUDGET_SECONDS));
+	expect(sized.expected).toBe((10 * hour) / sized.shards + 5 * hour);
+	// Twice what a shard is expected to take, never past GitHub's six-hour job limit.
+	expect(sized.deadline).toBe(345);
+	expect(sizedShards([queue(600)])).toMatchObject({ shards: 1, deadline: 60 });
+	// One block: the shard runs it whole, so its deadline is twice that.
+	expect(sizedShards([queue(1.5 * hour)])).toMatchObject({
+		shards: 1,
+		deadline: 180,
+	});
+	expect(sizedShards([])).toMatchObject({ shards: 1, deadline: 60 });
+	const timings = {
+		profiles: {
+			readers: {
+				execution: { shards: 16, workers: 4, runner: "ubuntu-24.04" },
+			},
+		},
+	};
+	const matrix = proofMatrix("auto", timings, true, [queue(10 * hour)]);
+	expect(matrix.include).toHaveLength(
+		Math.ceil((10 * hour) / SHARD_BUDGET_SECONDS),
+	);
+	expect(new Set(matrix.include.map((entry) => entry.deadline)).size).toBe(1);
+	expect(proofMatrix("default", timings).include[0]).not.toHaveProperty(
+		"deadline",
 	);
 });
 
