@@ -83,16 +83,27 @@ DEFAULT_MAX_HEAP = "1g"
 # date arithmetic do not depend on the machine (EntityStringFilterer lower-cases
 # with Locale.getDefault(); DateUtils reads the default zone). HotSpot writes its
 # own messages (an out-of-memory exit, VM warnings) to standard output unless
-# told otherwise, and standard output is the protocol, so they go to stderr.
+# told otherwise, and standard output is the protocol, so they go to stderr:
+# its VM output by DisplayVMOutputToStderr, and its unified log, whose warnings
+# go to standard output by default, by -Xlog (a Formplayer that filled its code
+# cache once wrote "CodeCache is full" where its next answer belonged).
 # The serial collector and the client compiler alone keep the runner's CPU at
 # what its requests need: a lane worker's runner serves a few documents, and
 # the optimizing compiler's work for them costs more CPU than it saves.
-# Neither changes what a request computes.
+# Stopping at the client compiler leaves the code cache at the size HotSpot
+# gives a JVM without tiers (48 MB), which a Formplayer serving a worker's
+# documents for a quarter of an hour filled, after which HotSpot compiles
+# nothing more and every request is interpreted; the cache is reserved at the
+# size HotSpot gives a tiered JVM (240 MB) and committed only as it fills.
+# None of this changes what a request computes.
 JVM_OPTIONS = (
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+DisplayVMOutputToStderr",
+    "-Xlog:disable",
+    "-Xlog:all=warning:stderr:uptime,level,tags",
     "-XX:+UseSerialGC",
     "-XX:TieredStopAtLevel=1",
+    "-XX:ReservedCodeCacheSize=240m",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
     "-Duser.country=US",
