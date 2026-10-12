@@ -127,7 +127,7 @@ def _drive_page(unit, path, steps, signed_in, label):
     from proof.observe import services
     from proof.webapps import static
 
-    driver = services.client_browser()
+    driver = services.client_browser("connect")
     browser = (driver.ready or {}).get("origin")
     editor_build()
 

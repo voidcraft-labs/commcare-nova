@@ -33,7 +33,9 @@ there is none, and asking raises.
   editor page that saved it is still open in the session's editor driver,
   mid-run, each save released into a fork of its own; a driver runs one
   operation at a time, so the client has a second browser, as a worker's
-  is another browser than the person's who edits the app.
+  is another browser than the person's who edits the app. The project
+  space's admin sets Connect's forwarder up on HQ's pages in the same
+  browser, asked for as Connect's.
 
 Formplayer, the client's browser, Connect and the Android reader are the
 served readers. In a run that leaves a reader out (``PROOF_READERS``,
@@ -137,9 +139,11 @@ def _require_session(what):
         )
 
 
-def client_browser():
-    """The Web Apps client's own editor driver (node and Chromium), started on first use."""
-    _reader("webapps", "the Web Apps client's browser")
+def client_browser(reader: str = "webapps"):
+    """The Web Apps client's own editor driver (node and Chromium), started on first use. It is also the browser
+    the project space's admin sets Connect's forwarder up in (``proof.connect.hq.forwarding``), which asks for it
+    as Connect's (``reader``), so a run that names Connect and not the client still has it."""
+    _reader(reader, "the Web Apps client's browser" if reader == "webapps" else f"the browser {reader} is set up in")
     if _SESSION["browser"] is None:
         from proof.editors.client import EditorDriver
 

@@ -119,12 +119,13 @@ class Serving:
 
     def formplayer(self, script=None):
         """Formplayer's walk of the state: replayed where ``script`` is given, else derived, with the places the
-        client's map gives its location questions where the observation shows the client
-        (``proof.webapps.observe.derived_places``), so the walk submits what the client submits."""
+        client's map gives its location questions where the observation shows the client (it was given a driver,
+        and the run hands its states to the client; ``proof.webapps.observe.derived_places``), so the walk
+        submits what the client submits."""
         from proof.formplayer import observe
 
         places = None
-        if script is None and self.driver is not None:
+        if script is None and self.driver is not None and observes("webapps"):
             from proof.observe import services
             from proof.webapps import observe as webapps
 

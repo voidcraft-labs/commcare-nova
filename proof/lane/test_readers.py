@@ -207,6 +207,36 @@ def test_the_services_refuse_every_served_reader_without_the_readers_and_count_e
         services.android()
     with pytest.raises(services.ReadersOff, match="only formplayer, android"):
         services.client_browser()
+    # Connect's forwarder is set up in the same browser, asked for as Connect's: a slice of Connect alone has it.
+    monkeypatch.setenv(readers.VARIABLE, "connect")
+    with pytest.raises(services.NoSession):
+        services.client_browser("connect")
+    with pytest.raises(services.ReadersOff, match="only formplayer, connect"):
+        services.client_browser()
+
+
+def test_a_slice_without_the_client_walks_formplayer_without_the_clients_browser(monkeypatch):
+    """Formplayer's derived walk gives each location question the place the client's map gives, which it learns
+    in the client's browser, only where the run hands its states to the client: a slice of a device alone walks
+    Formplayer with the answer table's places and asks for no browser (it once did, and every such slice failed
+    with ``ReadersOff``)."""
+    from proof.formplayer import observe as formplayer_observe
+    from proof.observe import served
+
+    walked = []
+
+    def walk(served_state, runner, blobs, *, script=None, places=None):
+        walked.append(places)
+        return "side", "trace"
+
+    monkeypatch.setattr(formplayer_observe, "walked", walk)
+    monkeypatch.setitem(services._SESSION, "open", False)
+    held = served.Serving(object(), object(), object(), object())
+    monkeypatch.setenv(readers.VARIABLE, "android")
+    assert held.formplayer() == ("side", "trace") and walked == [None]
+    monkeypatch.setenv(readers.VARIABLE, "all")
+    with pytest.raises(services.NoSession, match="the Web Apps client's browser"):
+        held.formplayer()
 
 
 def test_without_the_readers_the_unit_calls_no_served_hook_and_every_part_is_keyed_apart():
