@@ -473,9 +473,33 @@
 		},
 		"no-readers": {
 			"execution": {
-				"shards": 8,
+				"shards": 16,
 				"runner": "ubuntu-24.04",
-				"workers": 4
+				"workers": 4,
+				"bound": 600,
+				"slots": [
+					125,
+					125,
+					125,
+					192,
+					202,
+					206,
+					206,
+					209,
+					220,
+					245,
+					250,
+					261,
+					268,
+					285,
+					291,
+					334,
+					336,
+					342
+				],
+				"fixed": 157,
+				"gate": 45,
+				"basis": "execution.shards: the most shards the pull request lane is fitted to, and its count where none is fitted; execution.slots: when each runner the account's twenty-job limit leaves for a shard frees, in seconds after the workflow starts, from pull request run 38081646423's jobs, none earlier than the plan, which waits for quality's main queue; execution.fixed: what each shard spends beside its blocks, the pull and setup (75), the lane's start and collection (20), each worker's own Elasticsearch and validation Formplayer (56) and the upload (6); execution.gate: the gate job after the last shard; execution.bound: the seconds the workflow has."
 			},
 			"measured": {
 				"at": "2026-10-12",

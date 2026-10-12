@@ -2747,10 +2747,15 @@ workflow, and runs the lane beside the existing jobs:
 - **`proof-plan`** builds the early queue (groups that need no corpus: the
   surface block and every package whose tests read none; the lane's server
   refuses an early queue holding a document's, a control's or a package in
-  `proof.lane.blocks.CORPUS_PACKAGES`) and the matrix
-  (`node proof/run.mjs --matrix`, from `proof/timings.json`'s `no-readers`
-  execution). It waits for `smoke-plan`, so its shards queue behind every
-  existing job.
+  `proof.lane.blocks.CORPUS_PACKAGES`) and the matrix from both queues
+  (`node proof/run.mjs --matrix fit`, `proof/run.mjs::fittedShards`: the
+  fewest shards with which the lane is expected to end within its bound, by
+  `proof/timings.json`'s `no-readers` execution), so a pull request whose
+  groups main's store holds takes one shard and leaves the runners to the
+  tests and smoke. It waits for `quality`, which builds the main queue, and
+  for `smoke-plan`, so its shards queue behind every existing job; without a
+  main queue (a failed emission) it fits the early queue alone, which is all
+  that runs.
 - **`proof`** ("Proof i/n", `ubuntu-24.04`, x64, the nightly's architecture,
   so the records main's audit saves are the ones it reads) installs nothing,
   runs none of Nova's TypeScript and needs no Android runtime: it pulls the
@@ -2918,34 +2923,48 @@ now takes more than about 240 seconds at that density.
 A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
 the job's start to the pulled image and Postgres (the other setup overlaps
 it), about 20 to start the lane (Postgres, HQ's boot, its template, the Core
-runner's classes, the warm-up) and collect, and 6 to upload, beside about 20
-for the plan before the shards and 45 for the gate after them. GitHub's
-limit of about twenty jobs at once across CI, which the test, smoke and
-build jobs hold for their first three to four minutes, starts most shards one
-to four minutes late (run 38081646423 started its ten shards from 44 to 205
-seconds, and later shards wait for the test and smoke jobs to end). Over
-those start times the lane observed afresh ends at about 850 seconds on eight
-shards, 757 on ten, 730 on twelve and 686 to 695 on fourteen to twenty: its
-late shards can hold only about 185 seconds of work each, so ten minutes
-hold about 11,800 worker-seconds at most. The default is eight shards
-(`execution.shards`).
+runner's classes, the warm-up) and collect, each worker's own Elasticsearch
+and validation Formplayer (about 56), and 6 to upload, beside 45 for the gate
+after the shards. GitHub's limit of about twenty jobs at once across CI,
+which the test, smoke and build jobs hold for their first three to four
+minutes, starts most shards one to four minutes late, in no fixed order (run
+38081646423 started its ten shards from 44 to 205 seconds, and later shards
+wait for the test and smoke jobs to end). The `no-readers` execution records
+those as its `slots` (when each runner frees for a shard, no earlier than the
+main queue at about 125 seconds), its `fixed` and `gate` costs and its
+`bound`, 600 seconds, which `fittedShards` plans from: a lane of N shards ends
+when its N-th slot opens, plus the fixed cost, the heaviest bin and the gate.
+
+Every shard bins the queues alike (`proof.checks.sharding.static_bins`:
+heaviest block first, each to the least loaded bin), the main queue's bins
+starting from the early queue's loads so no shard holds the heaviest block of
+both; each block runs on exactly one shard, which the gate holds. A bin's
+expected wall time is its box-seconds, or its longest one-group block on one
+worker when that is longer. `sizedShards`, for the lanes with the readers,
+refuses a block that alone is expected past a shard's budget, and a planning
+step that would hand any shard more than the budget fails loudly instead of
+starting.
 
 What a pull request runs is what its changes leave out of main's store, which
-the nightly fills with both profiles:
+the nightly fills with both profiles. By the execution's measures:
 
-- **No proof input changed** (most of Nova): every group is cached, and the
-  lane is a shard's setup, its empty bins and the gate, about three minutes.
+- **No proof input changed** (most of Nova): every group is cached; one
+  shard's setup, its empty bins and the gate end at about 330 seconds.
 - **Nova's emission changed in a few documents**: those documents are
   observed again (a median document 24 seconds on one worker), and with them
-  the package groups whose tests read every document, the longest about 240
-  seconds: the lane ends in seven to ten minutes.
+  the 23 package groups whose tests read the corpus (about 2,100
+  worker-seconds): ten documents take three shards and end at about 565
+  seconds, the longest package group on one worker setting that floor; forty
+  end at about 605 and a hundred at about 645, just past the bound.
 - **The harness changed** (any file under `proof/`, or Nova's package
   manifest or lock): every package group runs again, about 2,350
-  worker-seconds over 28 groups, inside ten minutes.
+  worker-seconds over the package groups, on three shards, ending at about
+  565 seconds.
 - **Most documents, the observation's code or the image changed**: every
-  group runs afresh, about 16,000 worker-seconds, and the lane takes eleven
-  to fourteen minutes, past the bound. An emission change in Nova re-emits
-  most documents, so this is the case the bound is set for.
+  group runs afresh, about 16,000 worker-seconds; the soonest end is about
+  770 seconds on fifteen shards, past the bound, since the late slots hold
+  little work each. An emission change in Nova re-emits most documents, so
+  this case is real; the planner takes the count that ends soonest.
 
 The pin pull request is prewarmed in the pull request lane's profile
 (`upstream-pins.yml`), so its CI reads its records like any other pull

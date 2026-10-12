@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
 	androidRuntime,
+	fittedShards,
 	laneOptions,
 	proofMatrix,
 	refreshTimings,
@@ -818,6 +819,55 @@ it("sizes a lane from its queues so no shard is expected past its budget, and gi
 		"deadline",
 	);
 	expect(SHARD_BUDGET_SECONDS).toBe(2.5 * hour);
+});
+
+it("fits the pull request lane to its bound with the fewest shards the runners' slots allow", () => {
+	const block = (id: string, estimate: number) => ({
+		id,
+		estimate,
+		groups: [{ group: `corpus:${id}-a` }, { group: `corpus:${id}-b` }],
+	});
+	const execution = {
+		shards: 8,
+		slots: [40, 100, 200, 300],
+		fixed: 150,
+		gate: 50,
+		bound: 600,
+	};
+	// Nothing to run: one shard, setup and the gate.
+	expect(fittedShards([{ blocks: [] }], execution)).toEqual({
+		shards: 1,
+		ends: 240,
+		fits: true,
+	});
+	// 600 box-seconds: one shard would end at 840 s, two at 100 + 150 + 300 + 50 = 600.
+	const work = [{ blocks: [block("a", 300), block("b", 300)] }];
+	expect(fittedShards(work, execution)).toEqual({
+		shards: 2,
+		ends: 600,
+		fits: true,
+	});
+	// More than any count holds: the count that ends soonest (past the measured slots a shard starts at the
+	// last), said not to fit.
+	const more = [
+		{ blocks: Array.from({ length: 8 }, (_, i) => block(`m${i}`, 300)) },
+	];
+	expect(fittedShards(more, execution)).toEqual({
+		shards: 8,
+		ends: 800,
+		fits: false,
+	});
+	expect(() => fittedShards(work, { ...execution, slots: [] })).toThrow(
+		"names no slots",
+	);
+	const timings = {
+		profiles: {
+			"no-readers": {
+				execution: { ...execution, workers: 4, runner: "ubuntu-24.04" },
+			},
+		},
+	};
+	expect(proofMatrix("fit", timings, false, work).include).toHaveLength(2);
 });
 
 it("writes each group's box-seconds the workers measured, averaging runs, with the servers' fixed costs", async () => {

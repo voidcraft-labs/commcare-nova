@@ -1148,19 +1148,60 @@ export function sizedShards(
 }
 
 /**
+ * The fewest shards with which the pull request lane is expected to end
+ * within its bound, from the profile's execution: `slots`, when each runner
+ * the account's job limit leaves a shard frees after the workflow starts, as
+ * a measured run's jobs freed them; `fixed`, what each shard spends beside
+ * its blocks (the pull, the lane's start, each worker's own servers, the
+ * upload); `gate`, the gate after the last shard; `bound`, the seconds the
+ * workflow has; `shards`, the most it takes. Where no count ends within the
+ * bound, the count that ends soonest.
+ */
+export function fittedShards(queues, execution, workers = 4) {
+	const slots = [...(execution.slots ?? [])].sort((a, b) => a - b);
+	const most = count(execution.shards, "The most shards");
+	if (slots.length === 0) {
+		throw new Error(
+			"proof/timings.json's execution names no slots (when each runner frees for a shard), so the lane cannot be fitted to its bound.",
+		);
+	}
+	let best;
+	for (let shards = 1; shards <= most; shards++) {
+		const start = slots[Math.min(shards, slots.length) - 1];
+		const ends =
+			start +
+			Number(execution.fixed ?? 0) +
+			Math.max(0, ...shardSpans(queues, shards, workers)) +
+			Number(execution.gate ?? 0);
+		if (!best || ends < best.ends) best = { shards, ends };
+		if (ends <= Number(execution.bound)) return { shards, ends, fits: true };
+	}
+	return { ...best, fits: false };
+}
+
+/**
  * CI's proof matrix: `shards` jobs (`default`: proof/timings.json's
  * execution for the profile, `readers`; `auto`: as many as the `queues`
- * need within a shard's budget, `sizedShards`) on the execution's runner,
- * each a fork server of the execution's workers, with its deadline in minutes
- * where the matrix is sized.
+ * need within a shard's budget, `sizedShards`; `fit`: the fewest with which
+ * the pull request lane ends within its bound, `fittedShards`) on the
+ * execution's runner, each a fork server of the execution's workers, with
+ * its deadline in minutes where the matrix is sized.
  */
 export function proofMatrix(shards, timings, readers = true, queues = []) {
 	const execution = timingsProfile(timings, readers).execution ?? {};
 	const workers = count(execution.workers, "The worker count");
 	const sized =
 		shards === "auto" ? sizedShards(queues, undefined, workers) : undefined;
+	const fitted =
+		shards === "fit" ? fittedShards(queues, execution, workers) : undefined;
 	const total = count(
-		sized ? sized.shards : shards === "default" ? execution.shards : shards,
+		sized
+			? sized.shards
+			: fitted
+				? fitted.shards
+				: shards === "default"
+					? execution.shards
+					: shards,
 		"The shard count",
 	);
 	if (typeof execution.runner !== "string" || !execution.runner) {
