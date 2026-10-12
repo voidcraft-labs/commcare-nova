@@ -61,6 +61,10 @@ CAPTURES_DIR = Path(__file__).resolve().parents[1] / "core" / "captures"
 COMPILE_SECONDS = 300.0
 REQUEST_SECONDS = 300.0
 LOG_LIMIT = 256 * 1024
+# How much of that a failure's message carries, and the header Runner.java prints JUnit's report of the reader's
+# own failure under (``Failure.getTestHeader``: the test method and its class).
+SHOWN_LOG = 8 * 1024
+FAILURE_HEADER = "(nova.proof.android.Reader): "
 # Core's clock reads an app's logic reaches (now(), today(), and the dow() of a suite's XPath texts): the reader
 # compiles these three classes from Core's own source in the runtime, with that one expression reading the
 # reader's clock, ahead of Core's on the classpath, as the Core runner does (proof/core/client.py, whose names
@@ -99,11 +103,24 @@ SLOT_POLL_SECONDS = 0.2
 
 
 class AndroidReaderError(Exception):
-    """A request the reader refused or could not complete; ``log`` is what the JVM wrote."""
+    """A request the reader refused or could not complete; ``log`` is what the JVM wrote, whose end the message
+    carries (``SHOWN_LOG``), so a failure says why the JVM stopped wherever it is reported."""
 
     def __init__(self, message: str, *, log: str = ""):
         super().__init__(message)
         self.log = log
+
+    def __str__(self) -> str:
+        message = super().__str__()
+        if not self.log:
+            return message
+        # JUnit's report of the reader's own failure, which Runner.java prints under the test's header, and
+        # otherwise the end of the log: the app logs on after the report, so the end alone can miss it.
+        at = self.log.rfind(FAILURE_HEADER)
+        if at != -1:
+            start = self.log.rfind("\n", 0, at) + 1
+            return f"{message}\nWhat JUnit reported of the reader:\n{self.log[start : start + SHOWN_LOG]}"
+        return f"{message}\nThe end of what the JVM wrote:\n{self.log[-SHOWN_LOG:]}"
 
 
 class AndroidReaderUnavailable(AndroidReaderError):
