@@ -7780,17 +7780,6 @@
 		"control": "case-list-browse"
 	},
 	{
-		"id": "d10-android-proof3-local-ccz-list-chose-changed",
-		"defect": 10,
-		"part": "label-column and unsorted order (the first case)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/steps/*/list/chose",
-		"kind": "changed",
-		"document": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
-	},
-	{
 		"id": "d38-android-proof3-local-ccz-list-header-children-layoutwidth-changed",
 		"defect": 38,
 		"part": "image-map column width",
@@ -8289,17 +8278,6 @@
 		"check": "proof4",
 		"artifact": "android@case management@*",
 		"path": "/walks/*/steps/*/list/order",
-		"kind": "changed",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d14-android-proof4-case-management-list-chose-changed",
-		"defect": 14,
-		"part": "non-writing follow-up (HQ applies the touch, so the touched case moves after its ties in HQ's next search)",
-		"check": "proof4",
-		"artifact": "android@case management@*",
-		"path": "/walks/*/steps/*/list/chose",
 		"kind": "changed",
 		"document": "case-list-inline",
 		"control": "case-list-inline"
