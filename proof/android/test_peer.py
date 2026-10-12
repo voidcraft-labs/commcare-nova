@@ -7,7 +7,10 @@ answer reaches the client with a ``Date`` the server's clock wrote where the ans
 device's own reaches ``peer.control``; and what answers the network refusing a request ends the request with
 ``PeerFailed`` after the device is answered. Plausible failures: a tunnel whose inner request is read as the
 tunnel's (a lost path, a lost body), a body cut at a chunk, a certificate the client refuses, an answer the
-client never reads, a refusal that leaves the device waiting until its deadline.
+client never reads, a refusal that leaves the device waiting until its deadline. A device that runs past its
+deadline is stopped and the request ends with ``PastDeadline``, which the reader's client reports as a request
+left unanswered, with how far the device had walked (``proof.android.client``); the failure there is a deadline
+read as a JVM that could not start, which a ``TimeoutError`` (an ``OSError``) was.
 
 The device here is a Python process making its requests through the proxy with the authority as its only
 trust, as the JVM's client does (CommCare Android's own client is held to the same proxy in
@@ -131,3 +134,27 @@ def test_a_request_the_harness_cannot_answer_ends_the_request_after_the_device_i
             _serve(peer, Path(directory))
     # The request before it was answered; nothing after it was asked.
     assert [r.path for r in peer.requests] == ["/a/space/phone/restore/"]
+
+
+def test_a_device_past_its_deadline_is_stopped_and_reported_as_unanswered_with_how_far_it_walked():
+    from proof.android import client
+
+    with tempfile.TemporaryDirectory(prefix="proof-android-peer-") as directory:
+        scratch = Path(directory)
+        proxy = network.Proxy(Recorded(), network.Authority(scratch / "authority"))
+        # A device that ends two walks, writes more than the log's kept end, and then never answers.
+        device = "import sys, time\n" + "\n".join(
+            f"print('nova-proof walk {name} in 12 ms', file=sys.stderr)" for name in ("root", "m0/@case:patient-2")
+        )
+        device += f"\nprint('x' * {client.LOG_LIMIT + 1}, file=sys.stderr, flush=True)\ntime.sleep(600)\n"
+        log_path = scratch / "device.log"
+        try:
+            with open(log_path, "wb") as log, pytest.raises(network.PastDeadline) as stopped:
+                proxy.serve([sys.executable, "-I", "-c", device], timeout=3, cwd=str(scratch), log=log)
+        finally:
+            proxy.close()
+        assert not isinstance(stopped.value, OSError)
+        error = client._unanswered("app", 3, log_path)
+    assert "did not answer the app request within 3 s" in str(error)
+    assert "It had ended 2 walks, the last m0/@case:patient-2 in 12 ms." in str(error)
+    assert len(error.log) <= client.LOG_LIMIT

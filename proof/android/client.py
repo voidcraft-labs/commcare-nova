@@ -360,13 +360,6 @@ class AndroidReader:
                 self._network_authority = network.Authority(self._work / "authority")
             return self._network_authority
 
-    @staticmethod
-    def _unanswered(op, deadline, log_path) -> AndroidReaderError:
-        return AndroidReaderError(
-            f"The Android reader did not answer the {op} request within {deadline} s and was stopped.",
-            log=_tail(log_path),
-        )
-
     def request(self, op: str, *, deadline: float = REQUEST_SECONDS, peer=None, drawn=None, **arguments) -> dict:
         """One request's answer: what Android read, on a device of its own, with ``peer`` its network where one
         is given (the module's docstring), and each picture it draws written into the directory ``drawn`` names,
@@ -392,14 +385,13 @@ class AndroidReader:
                         status = proxy.serve(command, timeout=deadline, cwd=workdir, log=log)
                 except network.PeerFailed as error:
                     raise PeerFailed(str(error), log=_tail(log_path)) from error
-                except (TimeoutError, subprocess.TimeoutExpired) as error:
-                    # Ahead of OSError, which the peer's TimeoutError also is: a JVM that ran past its deadline
-                    # started, and its log says how far it got.
-                    raise self._unanswered(op, deadline, log_path) from error
                 except OSError as error:
                     raise AndroidReaderError(f"The Android reader could not start java: {error}.") from error
-                except Exception as error:  # the deadline, as the Linux runner raises it (proof.processes.TimedOut)
-                    raise self._unanswered(op, deadline, log_path) from error
+                except Exception as error:
+                    # The deadline, as each runner raises it, none of them an OSError (the peer's PastDeadline,
+                    # subprocess.TimeoutExpired, proof.processes.TimedOut): a JVM that ran past its deadline
+                    # started, and its log says how far it got.
+                    raise _unanswered(op, deadline, log_path) from error
             if _wrote(log_path, CODE_CACHE_FULL):
                 raise AndroidReaderError(
                     f"The Android reader's JVM filled its code cache answering the {op} request, after which it"
@@ -452,6 +444,25 @@ def _wrote(path: Path, marker: bytes) -> bool:
             return any(marker in line for line in log)
     except OSError:
         return False
+
+
+# The line the JVM writes as it ends each walk (Screens.java, guarded): the walk and how long it took.
+WALKED = "nova-proof walk "
+
+
+def _unanswered(op: str, deadline: float, log_path: Path) -> AndroidReaderError:
+    """The error for a request the JVM did not answer by its deadline, naming how far it had walked."""
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    walked = [line[len(WALKED) :] for line in lines if line.startswith(WALKED)]
+    reached = f" It had ended {len(walked)} walks, the last {walked[-1]}." if walked else ""
+    return AndroidReaderError(
+        f"The Android reader did not answer the {op} request within {deadline} s and was stopped.{reached}"
+        " The end of its output is this error's log.",
+        log=_tail(log_path),
+    )
 
 
 def _tail(path: Path) -> str:

@@ -223,6 +223,7 @@ final class Screens {
         // and nothing an earlier walk sent HQ is there for it.
         Peer.run(name);
         Sensors.forget();
+        long began = System.nanoTime();
         try {
             return walk(command, choices, pending, form);
         } catch (WalkNeverEnds reader) {
@@ -235,6 +236,11 @@ final class Screens {
             JSONObject failed = new JSONObject();
             failed.put("raised", Reader.raised(raised));
             return failed;
+        } finally {
+            // Where a request's time went, in the JVM's log: a request that passes its deadline says how far
+            // it walked (client.py, WALKED).
+            System.err.println("nova-proof walk " + name + " in " + (System.nanoTime() - began) / 1_000_000
+                    + " ms");
         }
     }
 

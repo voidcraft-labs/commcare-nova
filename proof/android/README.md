@@ -400,10 +400,12 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
 
 `test_peer.py`, `test_screens.py` and `proof/checks/test_android.py` run in
 the lane: the proxy's transport (a request through it, plain or tunnelled,
-reaches the harness as the client wrote it, its answer the client, and a
-request the harness cannot answer ends the request), that every screen the
-reader builds is built where its end is kept (`Opened.java`), and the judges
-over planted differences and the records a shard keeps.
+reaches the harness as the client wrote it, its answer the client, a request
+the harness cannot answer ends the request, and a device past its deadline
+is stopped and reported as a request left unanswered, with how far it had
+walked), that every screen the reader builds is built where its end is kept
+(`Opened.java`), and the judges over planted differences and the records a
+shard keeps.
 
 `proof/checks/test_device_archive.py` runs in the lane too: the archive a
 state keeps is HQ's own download with the media its suite names, and a

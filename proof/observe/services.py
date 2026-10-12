@@ -58,6 +58,9 @@ _SESSION: dict = {
     "connect": None,
     "android": None,
 }
+# What each device request of the session took, in seconds (a JVM of its own, every walk of one served state on
+# one device), kept past the session's end for its summary (``proof/conftest.py``).
+ANDROID_SECONDS: list[float] = []
 
 
 class NoSession(RuntimeError):
@@ -91,6 +94,7 @@ def session(on_start=None):
     finally:
         reader, _SESSION["android"] = _SESSION["android"], None
         if reader is not None:
+            ANDROID_SECONDS.extend(reader.seconds)
             reader.close()
         runner, _SESSION["formplayer"] = _SESSION["formplayer"], None
         validating, _SESSION["validator"] = _SESSION["validator"], None
