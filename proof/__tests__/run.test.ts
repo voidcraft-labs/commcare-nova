@@ -16,15 +16,11 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
 	androidRuntime,
-	fittedShards,
 	laneOptions,
 	proofMatrix,
 	refreshTimings,
 	runOutput,
-	SHARD_BUDGET_SECONDS,
 	shardOptions,
-	shardSpans,
-	sizedShards,
 	statsBytes,
 } from "../run.mjs";
 
@@ -772,39 +768,7 @@ it("plans CI's shards on the execution's runner, or as many as asked for", () =>
 	);
 });
 
-it("sizes a lane from its queues so no shard is expected past its budget, and gives each shard a deadline from it", () => {
-	const hour = 3600;
-	// Blocks of several groups, each a box's hours; one block of one group runs on one worker of four.
-	const block = (id: string, estimate: number, groups = 2) => ({
-		id,
-		estimate,
-		groups: Array.from({ length: groups }, (_, index) => ({
-			group: `corpus:${id}-${index}`,
-		})),
-	});
-	const queue = (...blocks: ReturnType<typeof block>[]) => ({ blocks });
-	// Ten hours: four shards of two and a half, as the shards' own greedy bins split them.
-	const ten = [
-		queue(block("a", 2.5 * hour), block("b", 2.5 * hour)),
-		queue(block("c", 2.5 * hour), block("d", 2.5 * hour)),
-	];
-	const sized = sizedShards(ten);
-	expect(sized.shards).toBe(4);
-	expect(sized.expected).toBe(2.5 * hour);
-	expect(sized.deadline).toBe(300);
-	// Each queue is binned apart, heaviest first to the least loaded bin, so a shard holds a block of each.
-	expect(shardSpans(ten, 2)).toEqual([5 * hour, 5 * hour]);
-	expect(sizedShards([queue(block("small", 600))])).toMatchObject({
-		shards: 1,
-		deadline: 60,
-	});
-	expect(sizedShards([])).toMatchObject({ shards: 1, deadline: 60 });
-	// A block of one group runs on one worker: its box-seconds times four are its shard's wall.
-	expect(shardSpans([queue(block("one", hour, 1))], 1)).toEqual([4 * hour]);
-	// Refused loudly where a block alone is expected past the budget.
-	expect(() => sizedShards([queue(block("huge", hour, 1))])).toThrow(
-		"is expected to run 14400 s on one shard",
-	);
+it("prints the matrix of a planned count, with the plan's deadline where it gives one", () => {
 	const timings = {
 		profiles: {
 			readers: {
@@ -812,62 +776,19 @@ it("sizes a lane from its queues so no shard is expected past its budget, and gi
 			},
 		},
 	};
-	const matrix = proofMatrix("auto", timings, true, ten);
-	expect(matrix.include).toHaveLength(4);
-	expect(matrix.include[0]?.deadline).toBe(300);
-	expect(proofMatrix("default", timings).include[0]).not.toHaveProperty(
-		"deadline",
-	);
-	expect(SHARD_BUDGET_SECONDS).toBe(2.5 * hour);
-});
-
-it("fits the pull request lane to its bound with the fewest shards the runners' slots allow", () => {
-	const block = (id: string, estimate: number) => ({
-		id,
-		estimate,
-		groups: [{ group: `corpus:${id}-a` }, { group: `corpus:${id}-b` }],
+	const planned = proofMatrix("4", timings, true, "300");
+	expect(planned.include).toHaveLength(4);
+	expect(planned.include[3]).toEqual({
+		shard: 4,
+		total: 4,
+		workers: 4,
+		runner: "ubuntu-24.04",
+		deadline: 300,
 	});
-	const execution = {
-		shards: 8,
-		slots: [40, 100, 200, 300],
-		fixed: 150,
-		gate: 50,
-		bound: 600,
-	};
-	// Nothing to run: one shard, setup and the gate.
-	expect(fittedShards([{ blocks: [] }], execution)).toEqual({
-		shards: 1,
-		ends: 240,
-		fits: true,
-	});
-	// 600 box-seconds: one shard would end at 840 s, two at 100 + 150 + 300 + 50 = 600.
-	const work = [{ blocks: [block("a", 300), block("b", 300)] }];
-	expect(fittedShards(work, execution)).toEqual({
-		shards: 2,
-		ends: 600,
-		fits: true,
-	});
-	// More than any count holds: the count that ends soonest (past the measured slots a shard starts at the
-	// last), said not to fit.
-	const more = [
-		{ blocks: Array.from({ length: 8 }, (_, i) => block(`m${i}`, 300)) },
-	];
-	expect(fittedShards(more, execution)).toEqual({
-		shards: 8,
-		ends: 800,
-		fits: false,
-	});
-	expect(() => fittedShards(work, { ...execution, slots: [] })).toThrow(
-		"names no slots",
-	);
-	const timings = {
-		profiles: {
-			"no-readers": {
-				execution: { ...execution, workers: 4, runner: "ubuntu-24.04" },
-			},
-		},
-	};
-	expect(proofMatrix("fit", timings, false, work).include).toHaveLength(2);
+	const counted = proofMatrix("default", timings);
+	expect(counted.include).toHaveLength(16);
+	expect(counted.include[0]).not.toHaveProperty("deadline");
+	expect(() => proofMatrix("auto", timings)).toThrow("The shard count");
 });
 
 it("writes each group's box-seconds the workers measured, averaging runs, with the servers' fixed costs", async () => {

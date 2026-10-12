@@ -612,8 +612,7 @@ class Server:
         accounted = set()
         for path in (self.options.early_queue, self.options.queue):
             if path is not None and path.exists():
-                queue = lane_blocks.load_queue(path)
-                accounted |= queue.groups() | {entry.group for entry in queue.cached}
+                accounted |= lane_blocks.load_queue(path).accounted()
         info.record["unaccounted"] = sorted(set(info.by_group) - accounted)
         queued = {name for block in self.broker.phases[info.name].blocks for name in block.names}
         missing = sorted(queued - set(info.by_group))

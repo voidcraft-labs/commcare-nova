@@ -598,14 +598,18 @@ jobs:
     # the harness's packages that do not read it, the surface, HQ's
     # self-checks; the lane's server refuses one holding a document's,
     # a control's or a package of proof.lane.blocks.CORPUS_PACKAGES), built
-    # from the commit and the evidence store, and CI's proof matrix sized
-    # from both queues (proof/run.mjs --matrix fit: the fewest shards with
-    # which the lane is expected to end within its bound, from the slots the
-    # account's job limit leaves it), so a pull request whose groups the store
-    # holds takes one shard and leaves the runners to the tests and smoke. It
-    # waits for quality, which uploads the main queue before its lint and
-    # type-check, and runs whether or not those pass: a lint failure is
-    # quality's check, never the proofs'.
+    # from the commit and the evidence store, and the plan over both queues
+    # (python3 -m proof.lane.plan fit): the fewest shards with which the lane
+    # is expected to end within ten minutes of the workflow's start, from the
+    # slots the account's job limit leaves it, so a pull request whose groups
+    # the store holds takes one shard and leaves the runners to the tests and
+    # smoke. Ten minutes is a guarantee: where no count holds every group the
+    # lane runs, the groups that do not fit are deferred to the nightly,
+    # chosen by the sha256 of the head commit and each group's name, so each
+    # push defers another subset; the queues it uploads name them, and the
+    # gate lists them. It waits for quality, which uploads the main queue
+    # before its lint and type-check, and runs whether or not those pass: a
+    # lint failure is quality's check, never the proofs'.
     name: Proof execution plan
     needs: [smoke-plan, quality]
     if: ${{ !cancelled() && needs.smoke-plan.result == 'success' }}
@@ -643,6 +647,35 @@ jobs:
             --store "$RUNNER_TEMP/store/main" --store "$RUNNER_TEMP/store/scope" \
             --timings proof/timings.json --arch amd64 --lane-env "PROOF_READERS=$PROOF_READERS" \
             --out "$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json"
+      # The main queue, where quality built it; without one (a failed emission) only the early queue runs, and
+      # the lane is planned over it alone.
+      - name: Download the main queue
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: proof-queue-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/quality
+      # The fewest shards with which the lane ends within ten minutes, and, where none holds every group it runs,
+      # what it leaves to the nightly (python3 -m proof.lane.plan fit): the queues it writes are the ones the
+      # shards and the gate read, each naming what it deferred.
+      - name: Plan the lane
+        id: matrix
+        env:
+          PROOF_SHARDS: ${{ inputs.proof_shards || 'fit' }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          built="$RUNNER_TEMP/quality/proof-queue-$GITHUB_RUN_ATTEMPT.json"
+          main="$RUNNER_TEMP/lane/proof-planned-queue-$GITHUB_RUN_ATTEMPT.json"
+          queues=(--early "$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json")
+          if [ -f "$built" ]; then cp "$built" "$main"; queues+=(--main "$main"); fi
+          shards="$PROOF_SHARDS"
+          if [ "$shards" = fit ]; then
+            python3 -m proof.lane.plan fit "${queues[@]}" --seed "$HEAD" > "$RUNNER_TEMP/lane/plan.json"
+            cat "$RUNNER_TEMP/lane/plan.json"
+            shards="$(jq -r .shards "$RUNNER_TEMP/lane/plan.json")"
+          fi
+          matrix="$(node proof/run.mjs --matrix "$shards")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - name: Upload the early queue
         uses: actions/upload-artifact@v7
         with:
@@ -650,23 +683,13 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 14
-      # The main queue, where quality built it; without one (a failed emission) only the early queue runs, and
-      # the matrix is fitted to it alone.
-      - name: Download the main queue
-        continue-on-error: true
-        uses: actions/download-artifact@v8
+      - name: Upload the planned main queue
+        uses: actions/upload-artifact@v7
         with:
-          name: proof-queue-${{ github.run_attempt }}.json
-          path: ${{ runner.temp }}/lane
-      - id: matrix
-        env:
-          PROOF_SHARDS: ${{ inputs.proof_shards || 'fit' }}
-        run: |
-          main="$RUNNER_TEMP/lane/proof-queue-$GITHUB_RUN_ATTEMPT.json"
-          queues=("$RUNNER_TEMP/lane/proof-early-queue-$GITHUB_RUN_ATTEMPT.json")
-          if [ -f "$main" ]; then queues+=("$main"); fi
-          matrix="$(node proof/run.mjs --matrix "$PROOF_SHARDS" "${queues[@]}")"
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          path: ${{ runner.temp }}/lane/proof-planned-queue-${{ github.run_attempt }}.json
+          archive: false
+          if-no-files-found: ignore
+          retention-days: 14
 
   proof:
     # One shard of the native-proof lane (proof/README.md): HQ's real build,
@@ -740,7 +763,7 @@ jobs:
           mode=create
           if [ "$PROOF_CLAIMS" = steal ]; then mode=steal; fi
           set +e
-          node proof/ci/drained.mjs --queue "proof-queue-$ATTEMPT.json" \
+          node proof/ci/drained.mjs --queue "proof-planned-queue-$ATTEMPT.json" \
             --failed "proof-emission-failed-$ATTEMPT" --prefix "proof-claim-$ATTEMPT-" --mode "$mode" \
             "$RUNNER_TEMP/lane/proof-early-queue-$ATTEMPT.json" > "$RUNNER_TEMP/lane/left.json"
           cat "$RUNNER_TEMP/lane/left.json"
@@ -775,7 +798,7 @@ jobs:
         if: ${{ steps.left.outputs.left == 'true' }}
         run: |
           set +e
-          node proof/ci/wait.mjs --once --queue "proof-queue-$ATTEMPT.json" \
+          node proof/ci/wait.mjs --once --queue "proof-planned-queue-$ATTEMPT.json" \
             --corpus "proof-corpus-$ATTEMPT.tar.zst" --failed "proof-emission-failed-$ATTEMPT" \
             --queue-to "$RUNNER_TEMP/lane/queue/queue.json" --corpus-to "$RUNNER_TEMP/corpus"
           code=$?
@@ -818,7 +841,7 @@ jobs:
             --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$ATTEMPT.json" \
             --queue "$RUNNER_TEMP/lane/queue/queue.json" \
             "${claim[@]}" \
-            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$ATTEMPT.json --corpus proof-corpus-$ATTEMPT.tar.zst --failed proof-emission-failed-$ATTEMPT" \
+            --wait-for "node proof/ci/wait.mjs --queue proof-planned-queue-$ATTEMPT.json --corpus proof-corpus-$ATTEMPT.tar.zst --failed proof-emission-failed-$ATTEMPT" \
             --command-env ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL
           code=$?
           # 0: every item passed; 1: an item failed, which the gate reports
@@ -883,7 +906,8 @@ jobs:
         with:
           pattern: proof-out-${{ github.run_attempt }}-*
           path: ${{ runner.temp }}/proof-shards
-      # The early and main queues (proof-early-queue, proof-queue).
+      # The early queue and the planned main queue (proof-early-queue, proof-planned-queue), beside the main
+      # queue quality built.
       - name: Download the queues
         if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
         uses: actions/download-artifact@v8
@@ -914,7 +938,7 @@ jobs:
       - name: The shards ran every block once and held every difference to the register
         if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
         run: |
-          if [ ! -f "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" ]; then
+          if [ ! -f "$RUNNER_TEMP/queues/proof-planned-queue-$GITHUB_RUN_ATTEMPT.json" ]; then
             echo "::error::The run holds no main queue: \"Lint & type-check\" did not emit the proof corpus or build the queue, so no corpus document ran. Its proof steps (from \"Emit the proof corpus\" on) say which one failed and why."
             exit 1
           fi
@@ -928,7 +952,7 @@ jobs:
           fi
           python3 -m proof.lane.gate "${outputs[@]}" \
             --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$GITHUB_RUN_ATTEMPT.json" \
-            --queue "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/queues/proof-planned-queue-$GITHUB_RUN_ATTEMPT.json" \
             --store "$RUNNER_TEMP/store/read" --summary "$RUNNER_TEMP/verdict/verdict.json"
       - name: Upload the verdict
         if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
@@ -989,7 +1013,7 @@ jobs:
         run: |
           shopt -s nullglob
           queues=()
-          for queue in proof-early-queue proof-queue; do
+          for queue in proof-early-queue proof-planned-queue; do
             if [ -f "$RUNNER_TEMP/queues/$queue-$GITHUB_RUN_ATTEMPT.json" ]; then
               queues+=(--queue "$RUNNER_TEMP/queues/$queue-$GITHUB_RUN_ATTEMPT.json")
             fi

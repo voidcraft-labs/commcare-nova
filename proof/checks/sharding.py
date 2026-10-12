@@ -49,8 +49,9 @@ the queues: every queued block ran exactly once (a block two shards ran
 fails, whatever they wrote: a run that reads its records from the evidence
 store writes what any other run of it writes, so two alike show only that a
 claim did not hold), every group of a block ran every item its worker
-collected for it, cached groups ran nowhere, no block ran that no queue
-holds, and every shard that collected a phase collected the same items.
+collected for it, cached and deferred groups ran nowhere, no block ran that
+no queue holds, and every shard that collected a phase collected the same
+items.
 """
 
 from __future__ import annotations
@@ -333,6 +334,7 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
     queued: dict[str, tuple[str, lane_blocks.Block]] = {}
     group_phase: dict[str, str] = {}
     cached: set[str] = set()
+    deferred: set[str] = set()
     for phase, queue in queues:
         for block in queue.blocks:
             if block.id in queued:
@@ -345,9 +347,14 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
                 group_phase[name] = phase
         for entry in queue.cached:
             cached.add(entry.group)
+        for entry in queue.deferred:
+            deferred.add(entry.group)
     both = sorted(cached & set(group_phase))
     if both:
         problems.append(f"The queues both run and read from the store {_shown(both)}.")
+    both = sorted(deferred & (cached | set(group_phase)))
+    if both:
+        problems.append(f"The queues both defer to the nightly and run or read {_shown(both)}.")
 
     runs: dict[str, list[tuple[Path, Path, dict]]] = {}
     phases: dict[str, dict[str, list[str]]] = {}
@@ -374,6 +381,9 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
             ran_cached = sorted(cached & {group["group"] for group in record["groups"]})
             if ran_cached:
                 problems.append(f"{directory} ran {_shown(ran_cached)}, which the queues read from the store.")
+            ran_deferred = sorted(deferred & {group["group"] for group in record["groups"]})
+            if ran_deferred:
+                problems.append(f"{directory} ran {_shown(ran_deferred)}, which the queues defer to the nightly.")
     for phase, digests in sorted(phases.items()):
         if len(digests) > 1:
             problems.append(

@@ -39,7 +39,7 @@ name: Proof audit
 # fails opens an issue.
 #
 # Every lane that runs the readers sizes its shards from its queue's measured
-# cost (proof/run.mjs::sizedShards: no shard expected past two and a half
+# cost (python3 -m proof.lane.plan size: no shard expected past two and a half
 # hours) and runs at most fourteen at once, leaving six runners for pull
 # requests. A dispatch runs the nightly, the weekly, or both, as its inputs
 # say.

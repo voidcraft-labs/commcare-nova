@@ -11,7 +11,7 @@ name: Proof lane
 # is observed afresh), builds or finds the Android reader's runtime, runs the
 # shards (`shards`: a count, or `auto`, as many as keep each shard's expected
 # work within two and a half hours of GitHub's six-hour job limit, each with a
-# deadline from it, proof/run.mjs::sizedShards; at most fourteen at once, so
+# deadline from it, python3 -m proof.lane.plan size; at most fourteen at once, so
 # six of the account's twenty runners stay free for pull requests) of `image`
 # on `runner`, each handing every state it serves to a device beside HQ's live
 # unit, holds the outputs to the lane's gate, and, as `store`
@@ -60,7 +60,7 @@ on:
         type: string
         default: amd64
       shards:
-        description: How many shards run the lane, or auto (sized from the queues' estimates, proof/run.mjs::sizedShards)
+        description: How many shards run the lane, or auto (sized from the queues' estimates, python3 -m proof.lane.plan size)
         type: string
         default: auto
       fresh:
@@ -233,9 +233,17 @@ jobs:
           SHARDS: ${{ inputs.shards }}
           RUNNER: ${{ inputs.runner }}
         run: |
-          matrix="$(node proof/run.mjs --matrix "$SHARDS" \
-            "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
-            "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" |
+          shards="$SHARDS"
+          deadline=()
+          if [ "$shards" = auto ]; then
+            plan="$(python3 -m proof.lane.plan size \
+              "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+              "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json")"
+            echo "$plan"
+            shards="$(jq -r .shards <<< "$plan")"
+            deadline=(--deadline "$(jq -r .deadline <<< "$plan")")
+          fi
+          matrix="$(node proof/run.mjs --matrix "$shards" "${deadline[@]}" |
             jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
@@ -246,7 +254,7 @@ jobs:
     if: ${{ !cancelled() && needs.emit.result == 'success' && (needs.android-runtime.result == 'success' || (!inputs.readers && needs.android-runtime.result == 'skipped')) }}
     runs-on: ${{ matrix.runner }}
     # A sized matrix gives each shard twice the work it is expected to run
-    # (proof/run.mjs::sizedShards); a counted one, the hours a shard of the
+    # (python3 -m proof.lane.plan size); a counted one, the hours a shard of the
     # whole lane with every reader takes on sixteen shards.
     timeout-minutes: ${{ matrix.deadline || 330 }}
     strategy:

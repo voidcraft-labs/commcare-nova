@@ -1,6 +1,7 @@
 """The gate decides the lane from the shards' outputs alone, on a Python with nothing but its standard library.
 
-Contracts (``proof.lane.gate``): the gate and ``python -m
+Contracts (``proof.lane.gate``): the gate, the lane's planner
+(``proof.lane.plan``) and ``python -m
 proof.checks.sharding verify`` import nothing beyond the standard library and
 the proof's own standard-library modules, since they run on the runner's
 Python with no image; and the gate holds when, and only when, every block ran
@@ -8,7 +9,11 @@ exactly once, every item passed, the evidence holds to the register, and the
 surface block's extraction is the committed surface byte for byte. A run
 whose queue names the documents its sample of the corpus left out holds each
 entry naming one on its control alone and says so; a run whose queue names
-none holds every entry on its document as well. A run without the readers
+none holds every entry on its document as well. A pull request whose queues
+defer groups to the nightly holds an entry whose document was deferred on its
+control alone, one whose control was deferred on its document alone, leaves
+one with both deferred to the nightly by name, fails a shard that ran a
+deferred group, and lists every deferred group under a heading of its own. A run without the readers
 (its queues built so, ``proof.lane.readers``) leaves the served readers'
 entries to the nightly and holds every other exactly as a run with them does,
 and says how many it left; a shard of the other profile fails it. The
@@ -50,7 +55,7 @@ CHILD = """
 import json, sys, sysconfig
 sys.path[:] = [{worktree!r}] + [path for path in sys.path if path.startswith(sysconfig.get_paths()["stdlib"])]
 from proof.checks import sharding
-from proof.lane import gate
+from proof.lane import gate, plan
 codes = [
     gate.main({gate_args!r}),
     sharding.main({verify_args!r}),
@@ -256,6 +261,93 @@ def test_a_sampled_run_holds_the_entries_on_documents_it_left_out_on_their_contr
         " and controls."
     ]
     assert "Note: This run checked a sample of the corpus" in gate._markdown(sampled)
+
+
+def test_a_pull_request_that_deferred_groups_holds_each_entry_on_what_ran_and_lists_what_it_deferred(
+    tmp_path, own_register
+):
+    """One entry's document deferred (held on its control), one's control deferred (held on its document), one with
+    both deferred (left to the nightly, named); every deferred group listed under its own heading."""
+    from proof.checks import registers
+
+    first, second, third = [path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir()][:3]
+    base = {"defect": 1, "part": "a part", "check": "bar", "artifact": "upload"}
+    own_register.write_text(
+        json.dumps(
+            [
+                {**base, "id": "document-deferred", "document": "b", "control": first, "path": "/x"},
+                {**base, "id": "control-deferred", "document": "a", "control": second, "path": "/y"},
+                {**base, "id": "both-deferred", "document": "c", "control": third, "path": "/z"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    shown = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
+    on_a = {**shown, "path": "/y", "at": "/y", "document": "a"}
+    output, queue, committed = _lane(tmp_path, differences=[on_a])
+    [document_dir] = [
+        directory for directory, record in lane_blocks.read_manifests(output) if record["phase"] == "main"
+    ]
+    lane_blocks.write_json(
+        document_dir / "checks" / "bar" / f"control-{first}.json",
+        {"check": "bar", "document": first, "kind": "control", "differences": [{**shown, "document": first}]},
+    )
+
+    # Nothing deferred: each entry misses its document or its control.
+    whole = _run(output, queue, committed)
+    assert not whole["holds"] and whole["deferred"] == []
+    assert "Deferred to the nightly" not in gate._markdown(whole)
+
+    value = json.loads(queue.read_text())
+    deferred = [
+        {"group": "control:" + second, "estimate": 5.0},
+        {"group": "control:" + third, "estimate": 5.0},
+        {"group": "corpus:b", "estimate": 6.0},
+        {"group": "corpus:c", "estimate": 7.0},
+        {"group": "proof/editors", "estimate": 60.0},
+    ]
+    queue.write_text(json.dumps({**value, "deferred": deferred}))
+    result = _run(output, queue, committed)
+    register = result["sections"]["register"]
+    assert result["holds"] and register["holds"], register
+    assert register["deferredHeldOnControlAlone"] == 1 and register["deferredHeldOnDocumentAlone"] == 1
+    assert register["deferredLeftToNightly"] == ["both-deferred"]
+    assert register["notes"] == [
+        "The pull request's planner deferred 5 groups to the nightly so the lane ends within its bound (2 documents,"
+        ' 2 controls, 1 package groups; listed under "Deferred to the nightly"): 1 entries naming a deferred'
+        " document were held on their controls alone, 1 naming a deferred control on their documents alone, and 1"
+        " whose document and control were both deferred are left to the nightly: both-deferred."
+    ]
+    assert result["deferred"] == deferred
+    markdown = gate._markdown(result)
+    assert "### Deferred to the nightly" in markdown and "- proof/editors (60 box-seconds)" in markdown
+    assert markdown.index("### Deferred to the nightly") > markdown.index("Every difference holds to the register")
+
+    # An entry held on what ran still fails there: its control deferred, its document must show it.
+    entries = json.loads(own_register.read_text())
+    own_register.write_text(json.dumps([*entries, {**entries[1], "id": "unseen", "document": "z", "path": "/w"}]))
+    unseen = _run(output, queue, committed)["sections"]["register"]
+    assert not unseen["holds"]
+    assert any("unseen names bar on z, its control" in problem for problem in unseen["problems"])
+
+
+def test_a_deferred_group_a_shard_ran_fails_and_a_deferred_surface_is_left_to_the_nightly(tmp_path):
+    output, queue, committed = _lane(tmp_path)
+    value = json.loads(queue.read_text())
+    surface = next(block for block in value["blocks"] if block["groups"][0]["group"] == "surface")
+    others = [block for block in value["blocks"] if block is not surface]
+    queue.write_text(json.dumps({**value, "blocks": others, "deferred": [{"group": "surface", "estimate": 60.0}]}))
+    result = _run(output, queue, committed)
+    assert not result["sections"]["exactlyOnce"]["holds"]
+    assert any("which the queues defer to the nightly" in p for p in result["sections"]["exactlyOnce"]["problems"])
+    assert result["sections"]["surface"]["holds"] and result["sections"]["surface"]["verdict"] == "deferred"
+
+    # Its shard ran only what the queue runs: the deferred surface leaves nothing to fail.
+    output, queue, committed = _lane(tmp_path / "kept", with_surface_block=False)
+    value = json.loads(queue.read_text())
+    queue.write_text(json.dumps({**value, "deferred": [{"group": "surface", "estimate": 60.0}]}))
+    kept = _run(output, queue, committed)
+    assert kept["holds"], kept
 
 
 def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):

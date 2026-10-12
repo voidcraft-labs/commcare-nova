@@ -402,7 +402,7 @@ def _evidence(directories):
     return records, problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
+def verify_evidence(directories, entries, *, unsampled=frozenset(), unrun_controls=frozenset(), readers=True):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -410,15 +410,18 @@ def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True
     registered class with every entry for that document needed
     (``reconcile``), and every entry was seen on its document and on its
     control, which fails when the check never ran on either. ``unsampled``
-    names the corpus documents a run over a sample left out: an entry naming
-    one is held on its control alone, and none ran on its document. Without
+    names the corpus documents a run did not run (left out of its sample, or
+    deferred to the nightly): an entry naming one is held on its control
+    alone. ``unrun_controls`` names the controls it deferred: an entry
+    naming one is held on its document alone, and one whose document and
+    control both did not run is held on neither (the caller names it). Without
     ``readers`` (a run that served no state to the readers) the served
     readers' entries are left out (``held_entries``): no check of that run
     could show one, and the nightly holds them.
     """
     entries = held_entries(entries, readers=readers)
     records, problems = _evidence(directories)
-    if not records:
+    if not records and not (unsampled or unrun_controls):
         return ["No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run."]
     for (check, kind, document), differences in sorted(records.items()):
         if kind == "corpus":
@@ -426,6 +429,16 @@ def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True
             if not result.holds:
                 problems.append(result.explain())
     for entry in entries:
+        if entry.control in unrun_controls:
+            if entry.document in unsampled:
+                continue
+            if (entry.check, "corpus", entry.document) not in records:
+                problems.append(
+                    f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, its control"
+                    f" {entry.control} did not run, and no shard ran {entry.check} on {entry.document}, so nothing"
+                    " shows the defect is still there."
+                )
+            continue
         shown = (entry.check, "corpus", entry.document) in records
         if not shown and entry.document not in unsampled:
             problems.append(

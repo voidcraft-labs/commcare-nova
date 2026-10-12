@@ -2752,15 +2752,17 @@ workflow, and runs the lane beside the existing jobs:
 - **`proof-plan`** builds the early queue (groups that need no corpus: the
   surface block and every package whose tests read none; the lane's server
   refuses an early queue holding a document's, a control's or a package in
-  `proof.lane.blocks.CORPUS_PACKAGES`) and the matrix from both queues
-  (`node proof/run.mjs --matrix fit`, `proof/run.mjs::fittedShards`: the
-  fewest shards with which the lane is expected to end within its bound, by
-  `proof/timings.json`'s `no-readers` execution), so a pull request whose
-  groups main's store holds takes one shard and leaves the runners to the
-  tests and smoke. It waits for `quality`, which builds the main queue, and
-  for `smoke-plan`, so its shards queue behind every existing job; without a
-  main queue (a failed emission) it fits the early queue alone, which is all
-  that runs.
+  `proof.lane.blocks.CORPUS_PACKAGES`) and plans the lane over both queues
+  (`python3 -m proof.lane.plan fit`, "Deferred to the nightly", below): the
+  fewest shards with which it is expected to end within ten minutes, so a
+  pull request whose groups main's store holds takes one shard and leaves
+  the runners to the tests and smoke, and, where no count holds every group
+  it runs, the groups it leaves to the nightly. It uploads the early queue
+  and the planned main queue (`proof-planned-queue-<attempt>.json`), which
+  the shards and the gate read. It waits for `quality`, which builds the
+  main queue, and for `smoke-plan`, so its shards queue behind every
+  existing job; without a main queue (a failed emission) it plans the early
+  queue alone, which is all that runs.
 - **`proof`** ("Proof i/n", `ubuntu-24.04`, x64, the nightly's architecture,
   so the records main's audit saves are the ones it reads) installs nothing,
   runs none of Nova's TypeScript and needs no Android runtime: it pulls the
@@ -2799,17 +2801,24 @@ its problems:
 
 1. **Exactly once**: every queued block ran exactly once (a block two shards
    ran fails, whatever they wrote), every group ran every item its worker
-   collected, cached groups ran nowhere, and the shards collected alike.
+   collected, cached and deferred groups ran nowhere, and the shards
+   collected alike.
 2. **Tests**: every item that ran passed, or ended as pytest's marks on it
    allow.
 3. **Register**: the evidence of every block that ran, with the cached groups'
    evidence read from the store, held to `proof/known-defects.json`, and
-   every entry seen on its document and its control.
+   every entry seen on its document and its control; an entry whose document
+   was deferred is held on its control alone, one whose control was deferred
+   on its document alone, and one with both deferred is left to the nightly
+   and named.
 4. **Surface**: the surface block's extraction, or the store's for this image
    and extractor, is byte for byte the committed `surface.json`.
 
-It prints each section, writes the whole to `--summary` (uploaded as the run's
-verdict), and appends it to the job's summary.
+It prints each section and, under a heading of its own ("Deferred to the
+nightly"), every group the plan deferred with its estimate, so a reviewer
+sees what the nightly will cover; writes the whole to `--summary` (uploaded
+as the run's verdict), and appends it to the job's summary. A deferred
+surface block leaves the surface section to the nightly.
 
 ### Claims
 
@@ -2833,7 +2842,8 @@ The run steps reach the artifact service with the job's runtime token, which
 `.github/actions/proof-runtime` exports and the lane's server passes to its
 claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
 the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
-explicit diagnostic mode, and `proof_shards` selects another shard count.
+explicit diagnostic mode, and `proof_shards` selects another shard count,
+which runs every group the store does not hold and defers nothing.
 
 ### The other workflows
 
@@ -2862,12 +2872,11 @@ explicit diagnostic mode, and `proof_shards` selects another shard count.
   organizations (twenty jobs at once, six hours a job) and the lane with
   every reader costs about 300 worker-hours whole, so no lane runs it fresh
   every night: each lane with the readers sizes its shards from its queue
-  (`node proof/run.mjs --matrix auto`, `proof/run.mjs::sizedShards`: no shard
-  expected past two and a half hours as every shard bins the queues, its
-  deadline twice its expected work; a block alone expected past that fails
-  the plan, naming it)
-  and runs at most fourteen at once, leaving six runners for pull requests;
-  GitHub queues the rest, and queued time is no job's.
+  (`python3 -m proof.lane.plan size`: no shard expected past two and a half
+  hours as every shard bins the queues, its deadline twice its expected
+  work; a group alone expected past that fails the plan, naming it) and runs
+  at most fourteen at once, leaving six runners for pull requests; GitHub
+  queues the rest, and queued time is no job's.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
   weekly, and for the weekly pin pull request.
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
@@ -2878,9 +2887,10 @@ explicit diagnostic mode, and `proof_shards` selects another shard count.
 
 ### Timings and the ten-minute bound
 
-CI must end within ten minutes of the workflow's start, counting setup, the
-image pull and the gate, and aim for five on average; what cannot fit runs
-nightly and opens an issue when it fails. `proof/timings.json` holds each
+CI ends within ten minutes of the workflow's start, counting setup, the
+image pull and the gate, and aims for five on average: the pull request lane
+is planned to that bound, and what does not fit is deferred to the nightly,
+which opens an issue when it fails ("Deferred to the nightly", below). `proof/timings.json` holds each
 profile's group costs in box-seconds and its CI `execution` (shards, runner,
 workers per shard): `readers` for the nightly's lane, `no-readers` for the
 pull request lane's. The queue builder packs each profile's blocks from its
@@ -2933,46 +2943,78 @@ the job's start to the pulled image and Postgres (the other setup overlaps
 it), about 20 to start the lane (Postgres, HQ's boot, its template, the Core
 runner's classes, the warm-up) and collect, each worker's own Elasticsearch
 and its first build's wait on the shard's validation Formplayer (about 45),
-and 6 to upload, beside 45 for the gate after the shards. GitHub's limit of about twenty jobs at once across CI,
-which the test, smoke and build jobs hold for their first three to four
-minutes, starts most shards one to four minutes late, in no fixed order (run
-38081646423 started its ten shards from 44 to 205 seconds, and later shards
-wait for the test and smoke jobs to end). The `no-readers` execution records
-those as its `slots` (when each runner frees for a shard, no earlier than the
-main queue at about 125 seconds), its `fixed` and `gate` costs and its
-`bound`, 600 seconds, which `fittedShards` plans from: a lane of N shards ends
-when its N-th slot opens, plus the fixed cost, the heaviest bin and the gate.
+and 6 to upload, beside 45 for the gate after the shards. GitHub's limit of
+about twenty jobs at once across CI, which the test, smoke and build jobs hold
+for their first three to four minutes, starts most shards one to four minutes
+late, in no fixed order (run 38081646423 started its ten shards from 44 to
+205 seconds, and later shards wait for the test and smoke jobs to end). The
+`no-readers` execution records those as its `slots` (when each runner frees
+for a shard, no earlier than the main queue at about 125 seconds), its
+`fixed` and `gate` costs and its `bound`, 600 seconds, which the planner
+plans from (`python3 -m proof.lane.plan`): a lane of N shards is expected to
+end when its N-th slot opens, every shard charged that late start, plus the
+fixed cost, the longest span and the gate.
 
 Every shard bins the queues alike (`proof.checks.sharding.static_bins`:
 heaviest block first, each to the least loaded bin), the main queue's bins
 starting from the early queue's loads so no shard holds the heaviest block of
-both; each block runs on exactly one shard, which the gate holds. A bin's
-expected wall time is its box-seconds, or its longest one-group block on one
-worker when that is longer. `sizedShards`, for the lanes with the readers,
-refuses a block that alone is expected past a shard's budget, and a planning
-step that would hand any shard more than the budget fails loudly instead of
-starting.
+both; each block runs on exactly one shard, which the gate holds. A shard's
+expected span is its bin's box-seconds, or the longest group in it on one
+worker (its box-seconds times four) when that is longer. For the lanes with
+the readers, `plan size` refuses a group that alone is expected past a
+shard's budget, naming it, so the planning step fails loudly instead of
+starting a shard that would run out its six hours.
+
+#### Deferred to the nightly
+
+Ten minutes is a guarantee, so the pull request lane never grows past it:
+`python3 -m proof.lane.plan fit` takes the fewest shards (up to
+`execution.shards`) with which the groups the store does not hold end within
+the bound, and where no count holds them all, it defers what does not fit to
+the nightly, documents and package groups alike. For each count it keeps
+groups in the order of the sha256 of the pull request's head commit and the
+group's name, each while that count still ends within the bound (no group
+longer than a shard of that count holds, no more than all of them hold), and
+takes the count that keeps the most work; the rest are deferred. How much is
+deferred follows from the lane's measures; which groups, from the commit, so
+each push defers another subset and no group that a pull request's shards
+can hold goes unchecked on every push. The planned queues name what they
+deferred (`deferred`, with each group's estimate); the server accounts for
+those groups and runs none of them, and the gate holds the register over
+what ran exactly as it does otherwise, treating a deferred document as an
+unsampled one (its entries held on their controls alone), an entry whose
+control was deferred on its document alone, and an entry with both deferred
+as the nightly's, named. Its summary lists every deferred group under
+"Deferred to the nightly". The nightly needs nothing more: it observes every
+group main's store lacks, which includes every group a merged pull request
+deferred. An agent whose change defers groups runs them on a proof machine
+before it pushes (`proof/CLAUDE.md`).
 
 What a pull request runs is what its changes leave out of main's store, which
-the nightly fills with both profiles. By the execution's measures:
+the nightly fills with both profiles. By the execution's measures (the plan
+of each case, deferring by two commits):
 
-- **No proof input changed** (most of Nova): every group is cached; one
-  shard's setup, its empty bins and the gate end at about 320 seconds.
-- **Nova's emission changed in a few documents**: those documents are
-  observed again (a median document 24 seconds on one worker), and with them
-  the 23 package groups whose tests read the corpus (about 2,100
-  worker-seconds): ten documents take three shards and end at about 555
-  seconds, the longest package group on one worker setting that floor; forty
-  end at about 595, and a hundred at about 635, past the bound.
-- **The harness changed** (any file under `proof/`, or Nova's package
-  manifest or lock): every package group runs again, about 2,350
-  worker-seconds over the package groups, on three shards, ending at about
-  555 seconds.
-- **Most documents, the observation's code or the image changed**: every
-  group runs afresh, about 16,000 worker-seconds; the soonest end is about
-  755 seconds on fifteen shards, past the bound, since the late slots hold
-  little work each. An emission change in Nova re-emits most documents, so
-  this case is real; the planner takes the count that ends soonest.
+| The change | Shards | Ends | Deferred |
+| --- | --- | --- | --- |
+| No proof input changed (most of Nova) | 1 | 316 s | nothing |
+| Nova's emission in 10 documents, with the 23 package groups that read the corpus | 3 | 554 s | nothing |
+| 40 documents | 3 | 594 s | nothing |
+| 100 documents | 7 | 587 s | `proof/checks` (238 s on one worker, more than seven shards hold) |
+| The harness (any file under `proof/`, or Nova's package manifest or lock): every package group | 3 | 554 s | nothing |
+| Every group afresh (most documents, the observation's code or the image) | 13 | 600 s | about 2,200 of 4,019 box-seconds: 182 to 194 documents and controls and 14 to 16 package groups |
+
+On thirteen shards a shard holds about 141 seconds, so the groups longer than
+that on one worker are deferred on every fresh push: the eight package groups
+of more than 141 seconds (`proof/checks`, `surface`, `proof/hq`,
+`proof/editors`, `proof/formplayer` and the split modules and tests of
+`proof/lane/test_forkserver.py` and `proof/editors/test_view_equivalence.py`)
+and twelve documents and controls (the `fuzz-suite-20260930` and
+`fuzz-xform-20260930` documents of 143 to 212 seconds and the
+`case-extension` documents and controls). Each runs on a pull request that
+changes fewer groups, where three shards hold about 280 seconds each, and
+every night. An emission change in Nova re-emits most documents, so the
+fresh case is real; it ends in ten minutes by leaving more than half its
+work to the nightly.
 
 The pin pull request is prewarmed in the pull request lane's profile
 (`upstream-pins.yml`), so its CI reads its records like any other pull

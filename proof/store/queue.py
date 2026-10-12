@@ -63,7 +63,8 @@ their controls alone (``proof.checks.registers.verify_evidence``).
 
 Each queued group names its key (``key``): a document's document key, a
 package's or the surface block's outcome key, which ``proof.store.pack``
-keeps its outcome under. The queue records the environment those keys name
+keeps its outcome under; and its estimate (``estimate``), which a pull
+request's planner reads when it defers groups (``proof.lane.plan``). The queue records the environment those keys name
 (``environment``, ``proof.store.keys.environment``), which ``pack`` holds a
 run's recorded one to before it keeps a package group's outcome. The same
 inputs write the same bytes.
@@ -427,6 +428,9 @@ def queue_value(
     )
     for block in value["blocks"]:
         for queued in block["groups"]:
+            # Each group's share of its block's estimate, which a pull request's planner splits it by
+            # (proof.lane.plan).
+            queued["estimate"] = round(by_name[queued["group"]].estimate, 3)
             if by_name[queued["group"]].key is not None:
                 queued["key"] = by_name[queued["group"]].key
             if by_name[queued["group"]].document is not None:

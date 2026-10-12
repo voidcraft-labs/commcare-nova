@@ -231,6 +231,22 @@ harness keeps, each with its reason.
   The pull request lane's shard count is set from such measures to end inside
   the bound; never buy speed with more workers or processes than a four-vCPU
   job serves, and never with a seam that computes something HQ would not.
+- **Ten minutes is a guarantee: what a pull request's lane cannot fit is
+  deferred to the nightly.** `python3 -m proof.lane.plan fit` plans the lane
+  to the bound from `proof/timings.json`'s measured slots and costs and
+  defers the groups that do not fit, documents and package groups alike,
+  chosen by the head commit; the planned queues name them, the gate holds
+  the register over what ran (an entry whose document or control was
+  deferred on the other, one with both deferred named for the nightly) and
+  lists every deferred group under "Deferred to the nightly"
+  (`proof/README.md`, "Deferred to the nightly"). The nightly is the
+  backstop, never the first run: an agent whose change defers groups (the
+  gate's list, or `python3 -m proof.lane.plan fit` over the change's queues)
+  runs those groups on a proof machine before it pushes (`npm run proof`,
+  `proof/remote/run.sh`, with `PROOF_READERS=0` and a `-k` of the deferred
+  documents, or the deferred package groups' paths), and says in the pull
+  request that they held. A deferral never loosens a check: it moves where a
+  group runs, never what it holds.
 - **Android runs beside HQ's live unit, and HQ answers its network with its
   own views.** A claim about what a device does is observed on
   commcare-android's own classes (`proof/android`, Robolectric, one JVM and
