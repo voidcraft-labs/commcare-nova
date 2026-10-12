@@ -297,7 +297,7 @@ def _served_lane(tmp_path, own_register, *, readers):
     serve = json.loads((output / lane_blocks.SERVE).read_text())
     lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": readers})
     value = json.loads(queue.read_text())
-    queue.write_text(json.dumps({**value, **({} if readers else {"readers": False})}))
+    queue.write_text(json.dumps({**value, **({} if readers is True else {"readers": readers})}))
     return output, queue, committed
 
 
@@ -328,6 +328,23 @@ def test_a_run_without_the_readers_leaves_the_readers_entries_to_the_nightly_and
     assert any("bar-other" in problem for problem in unseen["problems"])
 
 
+def test_a_run_of_some_readers_leaves_exactly_the_others_entries_and_says_which(tmp_path, own_register):
+    """PROOF_READERS=android: the Formplayer entry is held (its run observed Formplayer), the webapps entry left."""
+    output, queue, committed = _served_lane(tmp_path, own_register, readers=["formplayer", "android"])
+    entries = json.loads(own_register.read_text())
+    reader = entries[1]
+    own_register.write_text(json.dumps([entries[0], {**reader, "id": "client", "artifact": "webapps@B"}]))
+    register = _run(output, queue, committed)["sections"]["register"]
+    assert register["holds"] and register["leftToNightly"] == 1, register
+    assert register["readers"] == ["formplayer", "android"]
+    assert "observed only formplayer, android (PROOF_READERS=formplayer,android)" in register["notes"][0]
+    assert "whose artifacts webapps, connect write" in register["notes"][0]
+    # The Formplayer entry is this run's to hold: never seen, it fails here.
+    own_register.write_text(json.dumps([entries[0], reader]))
+    held = _run(output, queue, committed)["sections"]["register"]
+    assert not held["holds"] and held["leftToNightly"] == 0
+
+
 def test_a_shard_of_the_other_profile_fails_the_run(tmp_path, own_register):
     output, queue, committed = _served_lane(tmp_path, own_register, readers=False)
     serve = json.loads((output / lane_blocks.SERVE).read_text())
@@ -335,5 +352,5 @@ def test_a_shard_of_the_other_profile_fails_the_run(tmp_path, own_register):
     register = _run(output, queue, committed)["sections"]["register"]
     assert not register["holds"]
     assert any(
-        "ran with the readers" in problem and "built without the readers" in problem for problem in register["problems"]
+        "ran with every reader" in problem and "built for no reader" in problem for problem in register["problems"]
     )

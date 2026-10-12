@@ -226,8 +226,12 @@ def test_the_image_architecture_and_environment_change_what_runs_on_them(checkou
     # profile reads the other's; and naming the readers' default changes nothing.
     without = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "0"}
     assert _changed(before, _all_keys(checkout, corpus, environ=without)) == set(KEYS)
-    with_readers = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "1"}
+    with_readers = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "all"}
     assert _changed(before, _all_keys(checkout, corpus, environ=with_readers)) == set()
+    # A slice of the readers is a set of its own, apart from every reader and from none.
+    android = _all_keys(checkout, corpus, environ={**keys.LANE_ENVIRONMENT, "PROOF_READERS": "android"})
+    assert _changed(before, android) == set(KEYS)
+    assert _changed(_all_keys(checkout, corpus, environ=without), android) == set(KEYS)
     # The audit switches only check: the lane's shards run with the editor audit on and still read the store. The
     # image sets where its checkouts are, which its digest names: the queue builder, outside it, keys alike.
     audited = {**keys.LANE_ENVIRONMENT, "PROOF_EDITOR_AUDIT": "0.03", "PROOF_VERIFY_MEMOS": "1"}

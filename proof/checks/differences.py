@@ -69,12 +69,27 @@ ANDROID_TABLET = "android-tablet"
 CONNECT = "connect"
 RELEASE = "release"
 SERVED_ARTIFACTS = frozenset({FORMPLAYER, WEBAPPS, ANDROID, ANDROID_TABLET, CONNECT, RELEASE})
+# The reader each served artifact is the record of (``proof.lane.readers.READERS``): a release is the one HQ serves
+# Formplayer, and a tablet is a device.
+READER_OF = {
+    FORMPLAYER: "formplayer",
+    RELEASE: "formplayer",
+    WEBAPPS: "webapps",
+    ANDROID: "android",
+    ANDROID_TABLET: "android",
+    CONNECT: "connect",
+}
 
 
 def served_artifact(artifact: str) -> bool:
     """Whether an artifact (a difference's, or a register entry's pattern) is a served reader's: its first step,
     up to the first ``@``, is one of ``SERVED_ARTIFACTS``."""
     return artifact.partition("@")[0] in SERVED_ARTIFACTS
+
+
+def artifact_reader(artifact: str) -> str | None:
+    """The reader whose record a served artifact is (``READER_OF``), or None for any other artifact."""
+    return READER_OF.get(artifact.partition("@")[0])
 
 
 @dataclass(frozen=True)

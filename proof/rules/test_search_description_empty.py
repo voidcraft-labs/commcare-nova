@@ -99,7 +99,7 @@ def read(rule_documents, hq, core_runner, lane_services):
         return served_readings(app, {"nova": None, "saved": _described(""), "text": _described(TEXT)})
 
 
-@pytest.mark.reader  # ``read`` serves each spelling to Formplayer and the client (``served_readings``)
+@pytest.mark.reader("formplayer", "webapps")  # ``read`` serves each spelling to Formplayer and the client
 def test_formplayer_hands_white_space_for_the_empty_description_and_nothing_else_differs(read):
     found = formplayer_differences(read["nova"], read["saved"])
     assert found, "Formplayer's walk reached no search, so the two spellings were never read apart"
@@ -115,7 +115,7 @@ def _descriptions(reading):
     return [screen["query"]["description"] for screen in screens(reading) if screen.get("query")]
 
 
-@pytest.mark.reader  # ``read`` serves each spelling to Formplayer and the client (``served_readings``)
+@pytest.mark.reader("formplayer", "webapps")  # ``read`` serves each spelling to Formplayer and the client
 def test_the_client_shows_no_description_for_either_and_shows_one_that_holds_text(read):
     for name in ("nova", "saved"):
         shown_there = _descriptions(read[name])

@@ -148,6 +148,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     left = len(entries) - len(held)
     on_control_alone = sum(entry.document in unsampled for entry in held)
     notes = []
+    unnamed = [name for name in lane_readers.READERS if name not in readers]
     if not readers:
         notes.append(
             f"This run handed no state to the readers ({lane_readers.VARIABLE}=0, the pull request lane), so {left}"
@@ -155,8 +156,15 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
             f" ({', '.join(sorted(SERVED_ARTIFACTS))}), were left to the nightly run with every reader;"
             f" the other {len(held)} were held."
         )
+    elif unnamed:
+        notes.append(
+            f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
+            f"{lane_readers.canonical(readers)}), so {left} of the register's {len(entries)} entries, whose"
+            f" artifacts {', '.join(unnamed)} write, were left to the nightly run with every reader; the other"
+            f" {len(held)} were held."
+        )
     if unsampled:
-        entries_held = f"the register's {len(held)} entries" if readers else f"the {len(held)} entries it held"
+        entries_held = f"the register's {len(held)} entries" if not left else f"the {len(held)} entries it held"
         notes.append(
             f"This run checked a sample of the corpus, leaving {len(unsampled)} documents out, so {on_control_alone}"
             f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
@@ -168,7 +176,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         cached=len(cached),
         unsampled=len(unsampled),
         heldOnControlAlone=on_control_alone,
-        readers=readers,
+        readers=lane_readers.to_record(readers),
         leftToNightly=left,
     )
 
@@ -176,33 +184,33 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     return {"holds": all(section["holds"] for section in sections.values()), "sections": sections}
 
 
-def _profile(queues, outputs) -> tuple[bool, list[str]]:
-    """Whether the run handed its states to the readers, as its queues say (``readers``), and why the queues or a
-    shard do not agree on it: a shard of the other profile ran other groups and kept other records."""
-    profiles = {queue.readers for _, queue in queues}
+def _profile(queues, outputs) -> tuple[frozenset, list[str]]:
+    """The readers the run handed its states to, as its queues say (``readers``), and why the queues or a shard do
+    not agree on them: a shard of another set ran other groups and kept other records."""
+    sets = {queue.readers for _, queue in queues}
     problems = []
-    if len(profiles) > 1:
+    if len(sets) > 1:
+        built = ", ".join(f"the {phase} queue for {lane_readers.described(queue.readers)}" for phase, queue in queues)
         problems.append(
-            "The queues were built for two profiles, one with the readers and one without"
-            f" ({', '.join(f'the {phase} queue {_with(queue.readers)}' for phase, queue in queues)});"
-            f" build both with the same {lane_readers.VARIABLE}."
+            f"The queues were built for different readers ({built}); build both with the same {lane_readers.VARIABLE}."
         )
-    readers = all(profiles)
+    readers = next(iter(sets)) if len(sets) == 1 else lane_readers.EVERY
     for output in outputs:
         serve = Path(output) / lane_blocks.SERVE
         if not serve.is_file():
             continue
-        ran = json.loads(serve.read_text(encoding="utf-8")).get("readers", True)
+        try:
+            ran = lane_readers.from_record(json.loads(serve.read_text(encoding="utf-8")).get("readers"))
+        except lane_readers.ReadersError as error:
+            problems.append(f"{output}: {error}")
+            continue
         if ran != readers:
             problems.append(
-                f"{output} ran {_with(ran)} ({lane_readers.VARIABLE}), and its queues were built {_with(readers)},"
-                " so it ran other groups than they name and kept other records."
+                f"{output} ran with {lane_readers.described(ran)} ({lane_readers.VARIABLE}), and its queues were"
+                f" built for {lane_readers.described(readers)}, so it ran other groups than they name and kept other"
+                " records."
             )
     return readers, problems
-
-
-def _with(readers: bool) -> str:
-    return "with the readers" if readers else "without the readers"
 
 
 TITLES = {

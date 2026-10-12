@@ -35,8 +35,8 @@ there is none, and asking raises.
   is another browser than the person's who edits the app.
 
 Formplayer, the client's browser, Connect and the Android reader are the
-served readers. In a run without them (``PROOF_READERS=0``,
-``proof.lane.readers``) asking for one raises ``ReadersOff``, so a test that
+served readers. In a run that leaves a reader out (``PROOF_READERS``,
+``proof.lane.readers``) asking for it raises ``ReadersOff``, so a test that
 starts a reader and is not marked ``reader`` fails there rather than running
 half; ``asked()`` counts the requests for one, by which a run with them holds
 each test marked by hand to starting one (``proof/conftest.py``). The
@@ -110,17 +110,19 @@ def session(on_start=None):
                         runner.close()
 
 
-def _reader(what):
-    """A served reader asked for: counted, and refused in a run without the readers."""
+def _reader(reader, what):
+    """A served reader asked for: counted, and refused in a run that leaves it out."""
     from proof.lane import readers
 
     _ASKED[0] += 1
-    if not readers.served():
+    named = readers.named()
+    if reader not in named:
         raise ReadersOff(
-            f"Something asked for {what}, and this run hands no state to the readers (PROOF_READERS=0, the pull"
-            " request lane's profile). A test that starts a served reader runs only with them: mark it reader"
-            " (pytest.mark.reader, proof/lane/readers.py), or give it the fixture that starts the reader"
-            " (formplayer_runner, connect_runtime), so a run without the readers leaves it to the nightly."
+            f"Something asked for {what}, and this run hands its states to {readers.described(named)}"
+            f" ({readers.VARIABLE}={readers.canonical(named)}). A test that starts a served reader runs only where"
+            f" the run names it: mark it reader (pytest.mark.reader('{reader}'), proof/lane/readers.py), or give it"
+            " the fixture that starts the reader (formplayer_runner, connect_runtime), so a run that leaves the"
+            " reader out leaves the test to the nightly."
         )
     _require_session(what)
 
@@ -136,7 +138,7 @@ def _require_session(what):
 
 def client_browser():
     """The Web Apps client's own editor driver (node and Chromium), started on first use."""
-    _reader("the Web Apps client's browser")
+    _reader("webapps", "the Web Apps client's browser")
     if _SESSION["browser"] is None:
         from proof.editors.client import EditorDriver
 
@@ -152,7 +154,7 @@ def client_browser():
 
 def formplayer():
     """The session's Formplayer runner, started on first use."""
-    _reader("Formplayer")
+    _reader("formplayer", "Formplayer")
     if _SESSION["formplayer"] is None:
         from proof.formplayer.client import FormplayerRunner
 
@@ -188,7 +190,7 @@ def validator():
 
 def connect():
     """The session's Connect runtime, started on first use (its fetch and its migrations, once a session)."""
-    _reader("Connect")
+    _reader("connect", "Connect")
     if _SESSION["connect"] is None:
         import os
         import tempfile
@@ -206,7 +208,7 @@ def connect():
 
 def android():
     """The session's Android reader, started on first use (its sources compiled against the runtime, once)."""
-    _reader("the Android reader")
+    _reader("android", "the Android reader")
     if _SESSION["android"] is None:
         from proof.android.client import AndroidReader
 

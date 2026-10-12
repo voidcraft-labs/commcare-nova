@@ -108,7 +108,7 @@ env:
   CANDIDATE: ${{ inputs.image }}
   # The lane's profile (proof/lane/readers.py): the queue builders are given it as a lane variable, and run.mjs
   # passes it into the harness.
-  PROOF_READERS: ${{ inputs.readers && '1' || '0' }}
+  PROOF_READERS: ${{ inputs.readers && 'all' || '0' }}
 
 jobs:
   emit:

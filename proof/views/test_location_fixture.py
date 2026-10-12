@@ -122,7 +122,7 @@ def _device_restore(unit, served, label) -> bytes:
     return answer.body
 
 
-@pytest.mark.reader  # walks a release in the session's Formplayer
+@pytest.mark.reader("formplayer")  # walks a release in the session's Formplayer
 def test_a_device_restores_the_flat_fixture_by_the_apps_choice_and_web_apps_by_the_project_spaces(
     hq, core_runner, lane_services, view_documents, published
 ):

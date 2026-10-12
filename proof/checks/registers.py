@@ -80,7 +80,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from proof.checks.differences import CHECKS, KINDS, Difference, served_artifact
+from proof.checks.differences import CHECKS, KINDS, Difference, artifact_reader, served_artifact
 
 # The checks whose differences a test holds to the register (each one's test
 # module calls ``proof.checks.cases.hold``). An entry naming another check
@@ -178,10 +178,19 @@ def served_entry(entry) -> bool:
     return isinstance(artifact, str) and served_artifact(artifact)
 
 
-def held_entries(entries, *, readers: bool = True):
-    """The entries a run holds: every one with the readers, and without them every one but the served readers'
-    (``served_entry``), which the nightly holds."""
-    return tuple(entries) if readers else tuple(entry for entry in entries if not served_entry(entry))
+def held_entries(entries, *, readers=True):
+    """The entries a run holds: those whose artifacts no served reader writes, and those whose reader the run
+    observes. ``readers`` is the set it observes (``proof.lane.readers``), true for every reader and false for
+    none; the nightly holds the rest."""
+    if readers is True:
+        return tuple(entries)
+    observed = frozenset() if readers is False else frozenset(readers)
+
+    def held(entry):
+        artifact = entry.get("artifact") if isinstance(entry, dict) else entry.artifact
+        return not served_entry(entry) or artifact_reader(artifact) in observed
+
+    return tuple(entry for entry in entries if held(entry))
 
 
 def _load_list(path: Path, what: str):

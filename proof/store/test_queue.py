@@ -45,6 +45,7 @@ import pytest
 
 from proof.checks.corpus import Document
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 from proof.observe import unit
 from proof.store import disk, fingerprints, pack, queue, runtime
 from proof.store.conftest import (
@@ -401,13 +402,23 @@ def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_t
         "proof/connect",
     }
     assert "readers" not in every and without["readers"] is False
-    assert lane_blocks.parse_queue(without).readers is False and lane_blocks.parse_queue(every).readers is True
-    assert every["environment"]["PROOF_READERS"] == "on" and without["environment"]["PROOF_READERS"] == "off"
+    assert lane_blocks.parse_queue(without).readers == lane_readers.NONE
+    assert lane_blocks.parse_queue(every).readers == lane_readers.EVERY
+    assert every["environment"]["PROOF_READERS"] == "all" and without["environment"]["PROOF_READERS"] == "0"
     keyed = {queued["group"]: queued["key"] for value in (every,) for b in value["blocks"] for queued in b["groups"]}
     apart = {queued["group"]: queued["key"] for b in without["blocks"] for queued in b["groups"]}
     assert set(apart) <= set(keyed) and all(keyed[group] != apart[group] for group in apart)
     early = _build(checkout, tmp_path / "early.json", "--lane-env", "PROOF_READERS=0", phase="early")
     assert early["readers"] is False
+    # A slice of the readers queues what it observes: the package only Connect's tests fill where it names
+    # Connect, and each control an entry of a reader it names holds.
+    android = _build(checkout, tmp_path / "android.json", "--lane-env", "PROOF_READERS=android", corpus=corpus)
+    assert android["readers"] == ["formplayer", "android"]
+    assert android["environment"]["PROOF_READERS"] == "formplayer,android"
+    assert "proof/connect" not in android["classes"]["observed"]
+    assert {"control:plain", "control:reader"} <= set(android["classes"]["observed"])
+    connect = _build(checkout, tmp_path / "connect.json", "--lane-env", "PROOF_READERS=connect", corpus=corpus)
+    assert "proof/connect" in connect["classes"]["observed"]
 
 
 def test_a_split_module_and_its_tests_are_queued_as_groups_of_their_own_keyed_by_their_packages_data(

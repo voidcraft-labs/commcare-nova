@@ -78,7 +78,9 @@ PART_KINDS = frozenset({"a", "b", "b_aligned", "local"})
 # outcome is kept under names which of the two profiles made it, and neither profile reads the other's.
 ENVIRONMENT_VARIABLES = ("PYTHONHASHSEED", "TZ", "PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM", "PROOF_READERS")
 # Switches read as on unless set to "0".
-SWITCHES = frozenset({"PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM", "PROOF_READERS"})
+SWITCHES = frozenset({"PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM"})
+# The readers a run observes, written as the set it names (proof.lane.readers.canonical): all, 0, or a list.
+READERS = "PROOF_READERS"
 # The environment proof/compose.yaml gives the harness, which the queue builder's keys assume, with what a run sets
 # beyond it (proof-lane.yml's lane-env, the builder's --lane-env).
 LANE_ENVIRONMENT = {"PYTHONHASHSEED": "0", "TZ": "UTC"}
@@ -123,11 +125,16 @@ def part_key(kind: str, parent: bytes | None, inputs: dict) -> bytes:
 
 
 def environment(environ: Mapping[str, str]) -> dict:
-    """What of ``environ`` changes what an observation records (``ENVIRONMENT_VARIABLES``), switches as on or off."""
+    """What of ``environ`` changes what an observation records (``ENVIRONMENT_VARIABLES``), switches as on or off
+    and the readers as the set they name."""
+    from proof.lane import readers
+
     found = {}
     for name in ENVIRONMENT_VARIABLES:
         value = environ.get(name)
-        if name in SWITCHES:
+        if name == READERS:
+            found[name] = readers.canonical(readers.parse(value))
+        elif name in SWITCHES:
             found[name] = "off" if value == "0" else "on"
         else:
             found[name] = value

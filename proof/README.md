@@ -390,6 +390,7 @@ beside the image and removes when it ends (`proof/compose.yaml`).
 ```bash
 npm run proof                                           # the whole harness, with every reader (the nightly's lane)
 PROOF_READERS=0 npm run proof                           # the pull request lane: no state served to a reader
+PROOF_READERS=android npm run proof -- proof/checks -k <document>  # prove an Android change: Formplayer and a device only
 npm run proof -- proof/checks/test_bar.py               # one check over every document
 npm run proof -- proof/checks -k targeted-time-ordering # every check of one document
 npm run proof -- proof/native                           # the native proofs
@@ -416,11 +417,21 @@ and fuzz sample (`proof/corpus/defaults.ts`).
 ### The lane's two profiles
 
 The lane runs in one of two profiles (`proof/lane/readers.py`), and
-`PROOF_READERS` picks it:
+`PROOF_READERS` picks it; a slice may also name some readers alone:
 
 - **With the readers** (the default, and the nightly's): every state a unit
   serves is handed to Formplayer, the Web Apps client, a device and, for a
   Connect app, Connect's own server ("Served states"), and every test runs.
+- **Some of them** (`PROOF_READERS=android`, or a comma list of
+  `formplayer`, `webapps`, `android` and `connect`), for proving one
+  reader's change on a slice: a document's group walks every reader in 15 to
+  40 minutes on one worker, and one reader in a fraction of that. Every
+  reader named brings Formplayer, whose walk the client replays, whose
+  submissions Connect receives, and along which B and proof 4's saves are
+  served to a device. The served hook observes those readers alone and names
+  them in its parts' keys, the tests that start another are left out, and the
+  gate leaves exactly the entries whose artifacts the others write and says
+  which. CI never sets anything but `0` and every reader.
 - **Without them** (`PROOF_READERS=0`, the pull request lane's): HQ, Core and
   HQ's editors run as they always do, every check holds its differences to
   the register as it always does, and nothing is handed to a reader. The unit
@@ -455,11 +466,12 @@ reader packages (`proof/formplayer`, `proof/webapps`, `proof/android`,
 `proof/connect`), `proof/observe/served.py` and `proof/observe/connect.py`,
 `proof/checks/served.py`, `proof/checks/android.py`, `proof/checks/connect.py`,
 a register entry naming a reader's artifact, and a pin. Run that reader's
-slice with the readers on (the default), over the documents your change
-touches:
+slice with that reader on (`PROOF_READERS=<reader>`, or every reader, the
+default), over the documents your change touches:
 
 ```bash
 export PROOF_ANDROID_RUNTIME=<the runtime build-runtime.sh built> PROOF_ANDROID_JDK=<the JDK it was built with>
+PROOF_READERS=android npm run proof -- --workers 8 proof/checks -k "<document id>"  # each state, on a device
 npm run proof -- --workers 8 proof/checks -k "<document id> or <another id>"   # each served state, every reader
 npm run proof -- --workers 4 proof/formplayer proof/webapps                     # the readers' own tests
 npm run proof -- --workers 4 proof/connect proof/rules                          # Connect, and the rules' readers
@@ -565,7 +577,7 @@ It passes these into the container unchanged, each only when set:
 | Variable | What it does |
 | --- | --- |
 | `PROOF_CORPUS_SAMPLE`, `PROOF_CORPUS_SEED` | The fuzz sample's size and the corpus seed, for a corpus the run emits. |
-| `PROOF_READERS=0` | The pull request lane's profile: no state handed to a reader, no test that starts one ("The lane's two profiles", above). |
+| `PROOF_READERS` | The readers the run hands its states to: unset or `all` for every one, `0` for none (the pull request lane's profile), or a comma list for a slice ("The lane's two profiles", above). |
 | `PROOF_HQ_SPEED=0` | HQ without its speed seams (`proof/hq/speed.py`), to compare. |
 | `PROOF_HQ_DETERMINISM=0` | HQ's entropy and clock left real (`proof/hq/determinism.py`), to compare. The tests marked `under_determinism` are skipped, and the store holds two records of one key to each other with their drawn values masked. |
 | `PROOF_VERIFY_MEMOS=1` | Every memo, kept build and kept trace computed again on every hit and held to the kept answer. |

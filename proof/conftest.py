@@ -39,11 +39,12 @@ seeded emission. The weekly unseeded run leaves both real
 observes with a seeded run's, and there no request is answered alike twice
 and no update sends its republish's bytes, so those tests are skipped.
 
-A test marked ``reader`` starts a served reader (``proof.lane.readers``):
-every test whose fixtures reach one that starts one (``readers.FIXTURES``) is
-marked here, and a test that starts one itself is marked by hand. A run
-without the readers (``PROOF_READERS=0``) deselects them, and there the
-session's services refuse to start a reader, so a test left unmarked that
+A test marked ``reader`` starts a served reader (``proof.lane.readers``), the
+readers it starts the mark's arguments (none for every one): every test whose
+fixtures reach one that starts one (``readers.FIXTURES``) is marked here, and
+a test that starts one itself is marked by hand. A run that leaves out a
+reader a test starts (``PROOF_READERS``) deselects the test, and there the
+session's services refuse to start that reader, so a test left unmarked that
 starts one fails. A run with the readers holds each test marked by hand to
 asking for one (``proof.observe.services.asked``), so no test leaves the pull
 request lane for a reader it never starts.
@@ -187,16 +188,21 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if item.get_closest_marker("under_determinism") is not None:
                 item.add_marker(unseeded)
+    named = readers.named()
+    needs = {}
     for item in items:
-        if readers.FIXTURES & set(getattr(item, "fixturenames", ())):
-            item.add_marker(readers.MARK)
-        elif item.get_closest_marker(readers.MARK) is not None:
+        started = [readers.FIXTURES[name] for name in getattr(item, "fixturenames", ()) if name in readers.FIXTURES]
+        mark = item.get_closest_marker(readers.MARK)
+        if started:
+            needs[item.nodeid] = frozenset().union(*started)
+            item.add_marker(getattr(pytest.mark, readers.MARK)(*sorted(needs[item.nodeid])))
+        elif mark is not None:
             item.stash[_MARKED_BY_HAND] = True
-    if not readers.served():
-        deselected = [item for item in items if item.get_closest_marker(readers.MARK) is not None]
-        if deselected:
-            config.hook.pytest_deselected(items=deselected)
-            items[:] = [item for item in items if item.get_closest_marker(readers.MARK) is None]
+            needs[item.nodeid] = readers.with_brought(mark.args) if mark.args else readers.EVERY
+    deselected = [item for item in items if not needs.get(item.nodeid, frozenset()) <= named]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if needs.get(item.nodeid, frozenset()) <= named]
     items[:] = order_by_group(items)
 
 

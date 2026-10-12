@@ -141,8 +141,36 @@ def test_a_run_without_the_readers_deselects_each_test_that_starts_one_and_refus
     assert "ReadersOff" in output and "mark it reader" in output
 
 
+def test_a_run_of_some_readers_runs_the_tests_of_those_alone(tmp_path):
+    """PROOF_READERS=formplayer: the test whose fixture starts Formplayer runs, every test marked for every reader
+    (a bare mark) is left out, and the services refuse the readers the run leaves out."""
+    outcomes, deselected, output = _child(tmp_path, "formplayer")
+    assert deselected == 4, output[-3000:]
+    assert outcomes == {
+        "test_plain": "PASSED",
+        "test_by_fixture": "PASSED",
+        "test_unmarked_asks": "PASSED",
+    }, output[-3000:]
+
+
+def test_the_readers_a_run_names_bring_formplayer_and_nothing_else_is_a_set_of_them():
+    assert readers.parse(None) == readers.parse("all") == readers.parse(" ") == readers.EVERY
+    assert readers.parse("0") == readers.NONE and not readers.served({readers.VARIABLE: "0"})
+    assert readers.parse("android") == {"android", "formplayer"}
+    assert readers.parse("webapps, connect") == {"webapps", "connect", "formplayer"}
+    for refused in ("android,phone", ",", "none"):
+        with pytest.raises(readers.ReadersError, match="comma list of formplayer, webapps, android, connect"):
+            readers.parse(refused)
+    # As the store's keys and a run's records write a set, and read it back.
+    for value in ("all", "0", "android", "webapps,connect"):
+        found = readers.parse(value)
+        assert readers.from_record(readers.to_record(found)) == found
+        assert readers.parse(readers.canonical(found)) == found
+    assert readers.canonical(readers.parse("connect,android")) == "formplayer,android,connect"
+
+
 def test_a_run_with_the_readers_runs_every_test_and_holds_each_marked_by_hand_to_asking_for_one(tmp_path):
-    outcomes, deselected, output = _child(tmp_path, "1")
+    outcomes, deselected, output = _child(tmp_path, "all")
     assert deselected == 0, output[-3000:]
     assert outcomes == {
         "test_plain": "PASSED",
@@ -169,10 +197,16 @@ def test_the_services_refuse_every_served_reader_without_the_readers_and_count_e
     # HQ's own form validation is not a reader's: outside a session it is refused for the session alone.
     with pytest.raises(services.NoSession):
         services.validator()
-    monkeypatch.setenv(readers.VARIABLE, "1")
+    monkeypatch.setenv(readers.VARIABLE, "all")
     with pytest.raises(services.NoSession):
         services.formplayer()
     assert services.asked() == before + 5
+    # A slice of the readers: those it names are asked for as ever, the others refused.
+    monkeypatch.setenv(readers.VARIABLE, "android")
+    with pytest.raises(services.NoSession):
+        services.android()
+    with pytest.raises(services.ReadersOff, match="only formplayer, android"):
+        services.client_browser()
 
 
 def test_without_the_readers_the_unit_calls_no_served_hook_and_every_part_is_keyed_apart():

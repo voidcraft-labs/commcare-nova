@@ -111,7 +111,7 @@ export function profileName(readers) {
 	return readers ? "readers" : "no-readers";
 }
 
-/** Whether this machine's environment runs the lane with the readers (PROOF_READERS unset or not `0`). */
+/** Whether this machine's environment runs the lane with any reader (PROOF_READERS unset, `all`, or a list): a slice of some readers is planned by the readers profile. */
 function readersServed(env = process.env) {
 	return env.PROOF_READERS !== "0";
 }
@@ -1126,6 +1126,11 @@ async function runsReaders(directories) {
 		const served = existsSync(serve)
 			? JSON.parse(await readFile(serve, "utf8"))
 			: {};
+		if (Array.isArray(served.readers) && served.readers.length < 4) {
+			throw new Error(
+				`${directory} ran with only some readers (PROOF_READERS=${served.readers.join(",")}), a slice whose groups cost what neither of the lane's profiles does. Name the outputs of runs with every reader or with none.`,
+			);
+		}
 		profiles.add(served.readers !== false);
 	}
 	if (profiles.size > 1) {

@@ -56,12 +56,12 @@ exits 0 once the queue is at ``--queue`` (``PROOF_LANE_QUEUE``) and the
 corpus at ``PROOF_CORPUS``, or 3 when the corpus emission failed (its
 marker exists); any other exit is the server's failure.
 
-Profiles. The server runs in the lane's profile ``PROOF_READERS`` names
-(``proof.lane.readers``: with the readers, or without them as the pull
-request lane runs), records it in ``serve.json`` (``readers``) and in the
-queue a run without queues writes, and refuses a queue built for the other
-profile (``readers`` in the queue): its groups and the keys its records are
-read under are that profile's.
+Readers. The server runs with the readers ``PROOF_READERS`` names
+(``proof.lane.readers``: every one, none as the pull request lane runs, or a
+slice's few), records them in ``serve.json`` (``readers``) and in the queue a
+run without queues writes, and refuses a queue built for another set
+(``readers`` in the queue): its groups and the keys its records are read
+under are that set's.
 
 Claims. ``--claim static`` owns every block (with ``--bin I/N``, the blocks
 of bin I of N, ``proof.checks.sharding.static_bins``). Otherwise each block
@@ -266,8 +266,8 @@ class Server:
             "claims": [],
             "workersRun": [],
             "problems": self.problems,
-            # Whether the run hands its served states to the readers (PROOF_READERS, proof.lane.readers).
-            "readers": lane_readers.served(),
+            # The readers the run hands its served states to (PROOF_READERS, proof.lane.readers).
+            "readers": lane_readers.to_record(lane_readers.named()),
             # What the server collected with beyond its own arguments, and in what environment: a run of any
             # other selection holds only some of each group's items, and one in another environment than the queue
             # keys a package group under ran it otherwise, so the evidence store keeps no such outcome
@@ -332,15 +332,15 @@ class Server:
                 self.command_env[name] = os.environ.pop(name)
 
     def _refuse_profile(self, queue: lane_blocks.Queue, path: Path):
-        """Refuse a queue built for the other profile: its groups and keys are that profile's."""
-        here = lane_readers.served()
+        """Refuse a queue built for another set of readers: its groups and keys are that set's."""
+        here = lane_readers.named()
         if queue.readers != here:
-            built, runs = ("with", "without") if queue.readers else ("without", "with")
             raise Refused(
-                f"The queue {path} was built {built} the readers, and this shard runs {runs} them"
-                f" ({lane_readers.VARIABLE}={os.environ.get(lane_readers.VARIABLE, 'unset')}): its groups and the keys"
-                f" its records are read under are the other profile's. Build the queue with --lane-env"
-                f" {lane_readers.VARIABLE}=0 for a shard without the readers, and without it for one with them."
+                f"The queue {path} was built for {lane_readers.described(queue.readers)}, and this shard runs with"
+                f" {lane_readers.described(here)} ({lane_readers.VARIABLE}="
+                f"{os.environ.get(lane_readers.VARIABLE, 'unset')}): its groups and the keys its records are read"
+                f" under are the other set's. Build the queue with --lane-env {lane_readers.VARIABLE}="
+                f"{lane_readers.canonical(here)}."
             )
 
     def _prepare(self):
@@ -582,7 +582,7 @@ class Server:
                 if self.options.bin is not None
                 else lane_blocks.single_block(estimates)
             )
-            queue = replace(queue, readers=lane_readers.served())
+            queue = replace(queue, readers=lane_readers.named())
             corpus = os.environ.get("PROOF_CORPUS")
             if corpus and Path(corpus, "index.json").is_file():
                 # A corpus the queue builder sampled names the documents it leaves out, for the gate.

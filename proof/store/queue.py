@@ -68,12 +68,12 @@ keeps its outcome under. The queue records the environment those keys name
 run's recorded one to before it keeps a package group's outcome. The same
 inputs write the same bytes.
 
-``--lane-env PROOF_READERS=0`` builds the queues of a run without the readers
-(``proof.lane.readers``): every key names that profile, no package whose
-every test starts a reader is queued (``readers.PACKAGES``), nor a control
-only the served readers' register entries name
-(``proof.checks.registers.served_entry``), and the queue says
-``readers: false``.
+``--lane-env PROOF_READERS=<readers>`` builds the queues of a run that hands
+its states to those readers alone (``proof.lane.readers``; ``0`` for none):
+every key names that set, no package whose every test starts a reader the
+set leaves out is queued (``readers.PACKAGES``), nor a control only those
+readers' register entries name (``proof.checks.registers.held_entries``),
+and the queue names the set (``readers``).
 
 Standard library and git only.
 """
@@ -191,12 +191,10 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
     return sorted(found)
 
 
-def control_groups(
-    known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS, *, readers: bool = True
-) -> list[str]:
+def control_groups(known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS, *, readers=True) -> list[str]:
     """The controls the register's held entries name whose directories exist (``proof.checks.cases.control_params``):
-    every entry with the readers, and without them every one but the served readers'
-    (``proof.checks.registers.held_entries``)."""
+    every entry but those whose artifacts the readers a run leaves out write (``readers``, the set it observes;
+    ``proof.checks.registers.held_entries``)."""
     try:
         entries = json.loads(known_defects.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -292,8 +290,8 @@ class Builder:
         # The environment the lane's shards run in: proof/compose.yaml's, with what a run sets beyond it
         # (proof-lane.yml's lane-env, ``--lane-env``), which the keys their records are kept under name.
         self.environ = {**keys.LANE_ENVIRONMENT, **(environ or {})}
-        # Whether the shards hand their states to the readers (PROOF_READERS, proof.lane.readers).
-        self.readers = lane_readers.served(self.environ)
+        # The readers the shards hand their states to (PROOF_READERS, proof.lane.readers).
+        self.readers = lane_readers.named(self.environ)
         self.scope = keys.record_scope(found, self.environ)
         self.document_scope = keys.document_scope(found, self.environ)
         self.fresh = fresh
@@ -444,12 +442,12 @@ def queue_value(
 
 
 def queued_packages(builder: Builder, proof_dir: Path = PROOF_DIR) -> list[str]:
-    """The package groups with a test module, but, without the readers, those of a package whose every test starts
-    one (``proof.lane.readers.PACKAGES``), of which such a run collects nothing."""
+    """The package groups with a test module, but those of a package whose every test starts a reader the run
+    leaves out (``proof.lane.readers.PACKAGES``), of which such a run collects nothing."""
     return [
         name
         for name in package_groups(proof_dir)
-        if builder.readers or lane_blocks.package_of(name) not in lane_readers.PACKAGES
+        if lane_readers.PACKAGES.get(lane_blocks.package_of(name), frozenset()) <= builder.readers
     ]
 
 
@@ -569,7 +567,7 @@ def main(argv=None) -> int:
         return 2
     classes = ", ".join(f"{len(names)} {status}" for status, names in value["classes"].items())
     left_out = f"; {len(value['unsampled'])} documents left out of the sample" if value.get("unsampled") else ""
-    profile = "" if builder.readers else " (without the readers)"
+    profile = "" if builder.readers == lane_readers.EVERY else f" (for {lane_readers.described(builder.readers)})"
     print(
         f"The {arguments.phase} queue{profile} holds {len(value['blocks'])} blocks; {classes}; {len(value['fresh'])}"
         f" fresh{left_out}; built in {time.perf_counter() - started:.2f} s."

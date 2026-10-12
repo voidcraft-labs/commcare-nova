@@ -1235,8 +1235,10 @@ class _Observation:
     def _forwarded(self, held, label):
         """The served state forwarding to the unit's Connect opportunity (``proof.observe.connect.forwarded``),
         where the document has one."""
-        from proof.observe import connect
+        from proof.observe import connect, served
 
+        if not served.observes("connect"):
+            return connect.forwarded(held.served, None, label)
         if self.connect is not None and self.connect.opportunity is None and connect.is_connect(self.b_build.files):
             # The app holds no Connect block at A and holds one here (an edit made it a Connect app): its
             # opportunity is made from this release, the first there is to make one from.
@@ -1360,8 +1362,11 @@ class _Observation:
         """A device on ``over``'s archive updated to the saved app's, over a worker's own settings, where the save
         changed the profile; None where it did not."""
         from proof.android import observe as android
+        from proof.observe import served
         from proof.observe.build import device_archive
 
+        if not served.observes("android"):
+            return None
         before = device_archive(over.build, over.held.app)
         after = device_archive(outcome, held.app)
         if not before or not after or "entries" not in before or "entries" not in after:
