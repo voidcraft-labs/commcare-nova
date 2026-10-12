@@ -566,3 +566,91 @@ def test_a_gate_the_runs_flipped_that_no_gate_entry_names_is_refused(tmp_path, m
     assert sensitivity.main(["effects", *_blocks(out), "--gates", str(_gates(tmp_path)), "--out", str(written)]) == 1
     assert "toggle/NOT_A_GATE_ENTRY, which no gate entry names" in capsys.readouterr().err
     assert {e["id"]: e.get("effects") for e in json.loads(written.read_text())}[EMPTY_CASE_LIST_TEXT]
+
+
+# Holding the committed effects to a whole run ---------------------------------
+
+
+def _queue(tmp_path, *document_ids, unsampled=()):
+    """A queue naming the documents as the lane's main queue names them: run, or read from the store."""
+    queue = tmp_path / "queue.json"
+    groups = [{"group": f"corpus:{identifier}", "fresh": True} for identifier in document_ids[1:]]
+    value = {
+        "blocks": [{"groups": [*groups, {"group": "control:a-control", "fresh": True}, {"group": "proof/checks"}]}],
+        "cached": [{"group": f"corpus:{document_ids[0]}", "judgments": {}}],
+        **({"unsampled": list(unsampled)} if unsampled else {}),
+    }
+    queue.write_text(json.dumps(value))
+    return queue
+
+
+def test_the_committed_effects_are_held_to_one_whole_runs_and_each_difference_is_named(tmp_path, monkeypatch, capsys):
+    """What no check of one document can see: an effect the file names that no flip shows any longer. The whole
+    run's evidence holds the file both ways, as the writer would write it, and writes nothing."""
+    out = _whole_run(tmp_path, monkeypatch)
+    blocks = _blocks(out)
+    written = tmp_path / "written.json"
+    assert sensitivity.main(["effects", *blocks, "--gates", str(_gates(tmp_path)), "--out", str(written)]) == 0
+    capsys.readouterr()
+
+    # The file that run writes holds to it, read from the corpus beside the blocks or from the queues it ran.
+    summary = tmp_path / "effects.json"
+    assert sensitivity.main(["held", *blocks, "--gates", str(written), "--summary", str(summary)]) == 0
+    assert json.loads(summary.read_text()) == {"holds": True, "stale": [], "lacking": [], "problems": []}
+    queue = _queue(tmp_path, "one", "two")
+    assert sensitivity.main(["held", *blocks, "--gates", str(written), "--queue", str(queue)]) == 0
+    assert "holds: The committed sensitivity effects are what this run's flips showed" in capsys.readouterr().out
+
+    # Each way the file can differ from the run is named, and nothing is written to it.
+    entries = json.loads(written.read_text())
+    by_id = {entry["id"]: entry for entry in entries}
+    unflipped = sensitivity.flag_gate("SESSION_ENDPOINTS")
+    never = next(entry for entry in entries if "effects" not in entry and entry["id"] != unflipped)
+    by_id[EMPTY_CASE_LIST_TEXT]["effects"].append({"artifact": "suite.xml", "path": "/suite/menu[*]"})
+    by_id[unflipped]["effects"] = [{"artifact": "suite.xml", "path": "/suite/entry[*]/datum[*]"}]
+    by_id[SYNC]["effects"] = []
+    never["effects"] = []
+    del by_id[sensitivity.COMMTRACK]["effects"]
+    edited = tmp_path / "edited.json"
+    edited.write_text(sensitivity.format_gates(entries))
+    before = edited.read_bytes()
+    step_summary = tmp_path / "step.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary))
+    assert sensitivity.main(["held", *blocks, "--gates", str(edited), "--summary", str(summary)]) == 1
+    found = json.loads(summary.read_text())
+    assert found["holds"] is False
+    stale = [
+        {"gate": EMPTY_CASE_LIST_TEXT, "artifact": "suite.xml", "path": "/suite/menu[*]"},
+        {"gate": unflipped, "artifact": "suite.xml", "path": "/suite/entry[*]/datum[*]"},
+    ]
+    assert sorted(found["stale"], key=lambda effect: effect["gate"]) == sorted(stale, key=lambda e: e["gate"])
+    assert found["lacking"] == [{"gate": SYNC, "artifact": "suite.xml", "path": "/suite/entry[*]/post[*]"}]
+    said = "\n".join(found["problems"])
+    assert f"{EMPTY_CASE_LIST_TEXT} names the effect suite.xml /suite/menu[*], and no flip of it in this run" in said
+    assert f"{unflipped} names the effect suite.xml /suite/entry[*]/datum[*], and this run flipped that gate" in said
+    assert f"A flip of {SYNC} showed suite.xml /suite/entry[*]/post[*], which its effects do not name." in said
+    assert f"{never['id']} holds an empty effects list, and this run flipped that gate nowhere" in said
+    assert f"This run flipped {sensitivity.COMMTRACK} and it changed nothing, and the entry holds no effects" in said
+    assert found["problems"][-1].startswith("Write the effects again from this run's evidence")
+    assert edited.read_bytes() == before
+    assert "- Fails: The committed sensitivity effects" in step_summary.read_text()
+    assert f"  - A flip of {SYNC} showed" in step_summary.read_text()
+
+    # The same effects, written another way than the writer writes them, are not the file the writer gives.
+    respaced = tmp_path / "respaced.json"
+    respaced.write_text(json.dumps(json.loads(written.read_text()), indent=2))
+    assert sensitivity.main(["held", *blocks, "--gates", str(respaced), "--summary", str(summary)]) == 1
+    assert "is not written as the writer writes it" in json.loads(summary.read_text())["problems"][0]
+
+    # Evidence that is not one whole run holds nothing: a document the queues run that no block wrote, and a
+    # queue over a sample of the corpus.
+    more = _queue(tmp_path, "one", "two", "three")
+    assert (
+        sensitivity.main(["held", *blocks, "--gates", str(written), "--queue", str(more), "--summary", str(summary)])
+        == 1
+    )
+    problems = json.loads(summary.read_text())["problems"]
+    assert problems[0].startswith("The evidence is not one whole run") and "(three)" in problems[1]
+    sampled = _queue(tmp_path, "one", "two", unsampled=["three"])
+    assert sensitivity.main(["held", *blocks, "--gates", str(written), "--queue", str(sampled)]) == 1
+    assert "a run over a sample of the corpus" in capsys.readouterr().out

@@ -283,7 +283,9 @@ harness keeps, each with its reason.
     comparisons over a 24-document sample that turns each week (its seed
     the run's ISO year and week, so every document is compared within
     fifteen weeks, and a dispatch that names the seed runs the same sample
-    again).
+    again). The whole run without the readers also holds the committed
+    sensitivity effects to its own flips both ways, so an effect no flip
+    shows any longer fails the week by name.
   The lane with every reader costs about 300 worker-hours whole, against
   GitHub's free plan of twenty jobs at once and six hours a job, so each
   lane with the readers sizes its shards from its queue

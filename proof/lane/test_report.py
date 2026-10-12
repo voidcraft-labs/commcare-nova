@@ -138,6 +138,53 @@ def test_a_weeks_issue_names_the_sample_and_the_seed_that_runs_it_again():
     assert "It checked a sample" not in body.split("### Lane `weekly-verified`")[1]
 
 
+def test_a_whole_lanes_issue_names_each_effect_the_file_and_the_run_disagree_on(tmp_path):
+    """The lane that held the committed sensitivity effects to its own flips (``effects.json`` beside its verdict):
+    each stale effect and each the file lacks is named, with the lines that write them again from that run; a lane
+    that held them says so, and one that did not hold them (no file) says nothing of them."""
+    effects = {
+        "holds": False,
+        "stale": [{"gate": "toggle/A", "artifact": "suite.xml", "path": "/suite/menu[*]"}],
+        "lacking": [
+            {"gate": "toggle/B", "artifact": "suite.xml", "path": "/suite/x"},
+            {"gate": "toggle/B", "artifact": "suite.xml", "path": "/suite/y"},
+        ],
+        "problems": [
+            "toggle/A names the effect suite.xml /suite/menu[*], and no flip of it in this run showed that: a stale"
+            " effect.",
+            "A flip of toggle/B showed suite.xml /suite/x, which its effects do not name.",
+            "A flip of toggle/B showed suite.xml /suite/y, which its effects do not name.",
+        ],
+    }
+    held = {**_verdict(False, [], problems=()), "holds": True}
+    for label, found in (("weekly-no-readers", effects), ("held", {**effects, "holds": True, "problems": []})):
+        directory = tmp_path / label
+        directory.mkdir()
+        (directory / "verdict.json").write_text(json.dumps(held))
+        (directory / "effects.json").write_text(json.dumps(found))
+    (tmp_path / "apart").mkdir()
+    (tmp_path / "apart" / "verdict.json").write_text(json.dumps(held))
+    out = tmp_path / "issue.md"
+    lanes = [f"--lane={label}={tmp_path / label / 'verdict.json'}" for label in ("weekly-no-readers", "held", "apart")]
+    run = "https://example.test/o/r/actions/runs/4242"
+    assert report.main(["--kind", "weekly", "--run", run, "--commit", "c", "--out", str(out), *lanes]) == 0
+    body = out.read_text()
+    failed, rest = body.split("### Lane `held`")
+    assert "### Lane `weekly-no-readers` (with no reader)\n\nIts verdict held." in failed
+    assert "are not what this run's flips showed, over every document observed afresh: 1 effect the file" in failed
+    assert "names that no flip showed, 2 effects a flip showed that the file lacks." in failed
+    assert "- toggle/A names the effect suite.xml /suite/menu[*], and no flip of it in this run showed that" in failed
+    assert "- A flip of toggle/B showed suite.xml /suite/y, which its effects do not name." in failed
+    assert "gh run download 4242 --pattern 'proof-out-weekly-no-readers-*' --dir proof-outputs" in failed
+    assert (
+        "python3 -m proof.checks.sensitivity effects proof-outputs/proof-out-*/blocks/* --corpus proof-corpus" in failed
+    )
+    held_lane, apart = rest.split("### Lane `apart`")
+    assert "The committed sensitivity effects are what this run's flips showed." in held_lane
+    assert "sensitivity effects" not in apart
+    assert "the committed sensitivity effects are not what the whole fresh run's flips showed" in body
+
+
 def test_a_package_with_more_failures_than_a_command_names_reruns_the_modules_that_hold_them():
     failed = [f"lane/test_gate.py::test_{index}" for index in range(report.MOST_ITEMS + 1)]
     many = {"group": "proof/lane", "why": ["13 of its 40 items failed"], "failed": failed, "items": failed}

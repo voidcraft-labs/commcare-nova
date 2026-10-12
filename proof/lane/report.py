@@ -32,6 +32,13 @@ The weekly's comparison lanes check a sample of the corpus that turns each
 week (``proof.store.queue.sampled``), so the issue names the seed that chose
 it (``--sample-seed``, and each sampled lane's verdict) and the sample's
 documents, and how to run the week again on the same sample.
+
+A whole fresh lane also holds the committed sensitivity effects to what its
+own flips showed (``python3 -m proof.checks.sensitivity held``, which writes
+``effects.json`` beside the lane's verdict). Where they differ the lane's
+section names each effect the file holds that no flip showed and each a flip
+showed that the file lacks, and gives the lines that write the effects again
+from that run's artifacts.
 """
 
 from __future__ import annotations
@@ -53,6 +60,8 @@ MOST_ITEMS = 12
 # How much of one reason is quoted, and how many of a section's problems.
 REASON_CHARACTERS = 400
 SECTION_PROBLEMS = 3
+# The most differences between the committed effects and a run's that one lane lists.
+MOST_EFFECTS = 80
 
 OPENINGS = {
     "nightly": (
@@ -65,8 +74,8 @@ OPENINGS = {
         "The weekly fresh audit recomputed the proof lane whole over main at `{commit}`, with every reader and"
         " without them, beside its sampled comparisons, and it did not hold: a fresh lane failed, a stored record"
         " differs from the fresh one (a key that missed an input; the lane's \"Compare the fresh records with main's"
-        ' store" step uploads both), a comparison failed (the "Weekly comparisons" job says which), or main\'s'
-        " store could not be saved."
+        ' store" step uploads both), a comparison failed (the "Weekly comparisons" job says which), the committed'
+        " sensitivity effects are not what the whole fresh run's flips showed, or main's store could not be saved."
     ),
 }
 
@@ -118,8 +127,43 @@ def _reason(text: str) -> str:
     return first if len(first) <= REASON_CHARACTERS else first[:REASON_CHARACTERS] + " [cut]"
 
 
-def _lane(label: str, verdict: Mapping | None, elsewhere: set[str]) -> list[str]:
-    """One lane's section: what its gate said, and its failing groups with their commands."""
+def _effects(label: str, effects: Mapping | None, run: str) -> list[str]:
+    """What a whole fresh lane found of the committed sensitivity effects, where it held them to its run."""
+    if effects is None:
+        return []
+    if effects.get("holds"):
+        return ["The committed sensitivity effects are what this run's flips showed.", ""]
+    problems = effects.get("problems") or []
+    lines = [
+        "The committed sensitivity effects (`lib/commcare/surface/entries/gates.json`) are not what this run's"
+        f" flips showed, over every document observed afresh: {_count(len(effects.get('stale') or []), 'effect')}"
+        f" the file names that no flip showed, {_count(len(effects.get('lacking') or []), 'effect')} a flip showed"
+        " that the file lacks.",
+        "",
+        *(f"- {_reason(problem)}" for problem in problems[:MOST_EFFECTS]),
+    ]
+    if len(problems) > MOST_EFFECTS:
+        artifact = f"proof-lane-verdict-{label}-<attempt>"
+        lines.append(f"- And {len(problems) - MOST_EFFECTS} more: `verdict/effects.json` in `{artifact}` names each.")
+    identifier = run.rstrip("/").rpartition("/")[2] or "<run id>"
+    lines += [
+        "",
+        "To write them again from this run's own evidence, at the commit above, and review what changes:",
+        "",
+        "```bash",
+        f"gh run download {identifier} --pattern 'proof-out-{label}-*' --dir proof-outputs",
+        "node --conditions=react-server --import ./proof/corpus/entropy.mts --import tsx proof/corpus/emit.ts"
+        " --out proof-corpus",
+        "python3 -m proof.checks.sensitivity effects proof-outputs/proof-out-*/blocks/* --corpus proof-corpus",
+        "```",
+        "",
+    ]
+    return lines
+
+
+def _lane(label: str, verdict: Mapping | None, elsewhere: set[str], run: str = "") -> list[str]:
+    """One lane's section: what its gate said, its failing groups with their commands, and what it found of the
+    committed sensitivity effects where it held them."""
     if verdict is None:
         return [
             f"### Lane `{label}`",
@@ -136,8 +180,9 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str]) -> list[str]
         seed = f"seed `{sample['seed']}`" if sample.get("seed") else "no seed, the ranking's first"
         documents = ", ".join(sample["documents"])
         sampled = [f"It checked a sample of {len(sample['documents'])} documents ({seed}): {documents}.", ""]
+    effects = _effects(label, verdict.get("effects"), run)
     if verdict.get("holds"):
-        return [title, "", *sampled, "Its verdict held.", ""]
+        return [title, "", *sampled, "Its verdict held.", "", *effects]
     lines = [title, "", *sampled]
     for key, section in verdict.get("sections", {}).items():
         problems = [problem for problem in section.get("problems", []) if not problem.startswith("  ")]
@@ -149,7 +194,7 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str]) -> list[str]
     lines.append("")
     if not failing:
         lines += ["No problem names one group, so there is no slice to rerun: the problems above say what to fix.", ""]
-        return lines
+        return [*lines, *effects]
     if readers:
         lines += [
             f"{_count(len(failing), 'group')} failed where a reader ran, so each reruns on a proof machine"
@@ -175,7 +220,7 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str]) -> list[str]
             f" (`proof-lane-verdict-{label}-<attempt>`, `verdict/verdict.json`, `failing`) names each.",
             "",
         ]
-    return lines
+    return [*lines, *effects]
 
 
 def body(
@@ -212,16 +257,24 @@ def body(
             "",
         ]
     for label, verdict in lanes:
-        lines += _lane(label, verdict, without)
+        lines += _lane(label, verdict, without, run)
     return "\n".join(lines).rstrip() + "\n"
 
 
 def _load(path: Path) -> Mapping | None:
+    """A lane's verdict, with what it found of the committed effects (``effects.json`` beside it) where it held
+    them; None where the lane left no verdict."""
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return value if isinstance(value, dict) and "sections" in value else None
+    if not isinstance(value, dict) or "sections" not in value:
+        return None
+    try:
+        effects = json.loads(Path(path).with_name("effects.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return value
+    return {**value, "effects": effects} if isinstance(effects, dict) else value
 
 
 def main(argv: Sequence[str] | None = None) -> int:
