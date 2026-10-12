@@ -152,7 +152,9 @@ The requests (`Reader.java`):
     it keeps by the moment it took it, so a record writes such a name as
     `@capture:` and the file given; a
     repeat's "add another?" dialog answered by its own
-    choices; then the worker's finish button and the app's own save, which
+    choices (where an alert holds the repeat's screen instead, as a save
+    the form refused when the worker left its last repeat does, the form
+    ends at the alert); then the worker's finish button and the app's own save, which
     applies the form's case blocks to the device's case database as it
     saves (`FormRecord.updateAndProcessRecord`), and home handed the result.
     Each form record is written with the location its saved instance holds

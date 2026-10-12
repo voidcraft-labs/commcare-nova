@@ -133,6 +133,12 @@ final class Forms {
                 ended = "end unsaved";
                 break;
             }
+            if (!screen.isNull("alert")) {
+                // An alert holds the screen, a repeat's among them: a save the form refused as the worker left
+                // its last repeat shows its alert where the repeat's dialog was.
+                ended = "alert";
+                break;
+            }
             if (event.equals("PROMPT_NEW_REPEAT")) {
                 // The dialog Android shows at a repeat: go back, add a row, leave the repeat, each a button of
                 // its own (HorizontalPaneledChoiceDialog), pressed as a worker presses it.
@@ -157,10 +163,6 @@ final class Forms {
                 ShadowLooper.idleMainLooper();
                 before = null;
                 continue;
-            }
-            if (!screen.isNull("alert")) {
-                ended = "alert";
-                break;
             }
             if (now.equals(before)) {
                 screen.put("held", true);
