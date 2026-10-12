@@ -287,8 +287,11 @@ def test_a_form_that_takes_another_path_is_one_difference_and_a_case_is_compared
     assert _paths(_proof3(other)) == [("android@local.ccz", "/walks/*/steps/*/form/saved/cases/*", "changed")]
 
 
-def test_a_search_that_sends_the_query_hq_refuses_stands_on_its_own_and_one_core_stopped_does_not():
-    """Finding 48 on a device: the screen sends the suite's placeholder for a value no XPath string holds."""
+def test_a_search_that_sends_the_query_hq_refuses_stands_on_its_own_whatever_errors_core_holds():
+    """Finding 48 on a device: the screen sends the suite's placeholder for a value no XPath string holds, and
+    sends it whatever errors Core's query manager holds for the prompts, which the screen never reads
+    (``QueryRequestUiController.setupUI``). Failure it catches: the placeholder a device sent left unreported
+    because Core named an error the device does not act on."""
 
     def searching(errors, sent):
         app = _app()
@@ -317,9 +320,9 @@ def test_a_search_that_sends_the_query_hq_refuses_stands_on_its_own_and_one_core
     found = _proof3(copy.deepcopy(sent), a=sent)
     assert _paths(found) == [("android@A", "/walks/*/steps/*/query/withAnswer/sent-unquotable-search", "error")]
     assert found[0].at == "/walks/m0~1m0-f0/steps/1/query/withAnswer/sent-unquotable-search"
-    assert found[0].after == {"sent": ["age > 3", android.UNQUOTABLE], "shown": "Client-side error"}
-    stopped = searching({"name": "The value holds both quote marks."}, ["age > 3", android.UNQUOTABLE])
-    assert _proof3(copy.deepcopy(stopped), a=stopped) == []
+    assert found[0].after == {"sent": ["age > 3", android.UNQUOTABLE], "hq": None, "shown": "Client-side error"}
+    erring = searching({"name": "The value holds both quote marks."}, ["age > 3", android.UNQUOTABLE])
+    assert _paths(_proof3(copy.deepcopy(erring), a=erring)) == _paths(found)
     quoted = searching({}, ["age > 3", 'name = "it\'s"'])
     assert _proof3(copy.deepcopy(quoted), a=quoted) == []
 
@@ -667,6 +670,46 @@ def test_a_tablet_reports_only_what_the_phone_does_not_show():
         ),
     ]
     assert [d.path for d in android.tablet_only(phone, tablet)] == ["/walks/*/steps/*/list/detail/pane"]
+
+
+def test_hqs_refusal_of_the_search_that_sent_the_placeholder_is_that_searchs_one_difference():
+    """Contract: where A's device sent the suite's placeholder for an answer holding both quote marks (finding
+    48), HQ's search view refusing that request is the same symptom, reported once with what the screen sent and
+    showed; another refusal in the same walk is still the device's own. Failure it catches: one symptom reported
+    twice (the placeholder sent, and HQ refusing it), or HQ's refusal of another search hidden behind it."""
+    record = {"configurations": {"minimum": {"A": {"app": _app(), "formplayerHq": []}}}}
+    app = record["configurations"]["minimum"]["A"]["app"]
+    app["walks"]["m0/m0-f0"]["steps"].insert(
+        1,
+        {
+            "screen": "QueryRequestActivity",
+            "query": {
+                "withAnswer": {
+                    "RemoteQuerySessionManager.getErrors": {},
+                    "RemoteQuerySessionManager.getRawQueryParams": {"_xpath_query": [android.UNQUOTABLE]},
+                    "afterServerAnswers": {"errorText": "Client-side error (code 400)"},
+                }
+            },
+        },
+    )
+    search = "https://www.commcarehq.org/a/d/phone/search/@build/?case_type=p&_xpath_query="
+    placeholder = {
+        "walk": "m0/m0-f0",
+        "url": search + "search-value-mixes-quote-marks%28%29",
+        "url_name": "app_aware_remote_search",
+        "status": 400,
+        "said": "'search-value-mixes-quote-marks' is not a valid standalone function",
+        "raised": None,
+    }
+    other = {**placeholder, "url": search + "age%20%3E%203", "said": "Unknown function x"}
+    record["configurations"]["minimum"]["A"]["hq"] = [placeholder, other]
+    found = android.behavior("document", record)
+    assert sorted((d.artifact, d.path) for d in found) == [
+        ("android@A", "/hq/app_aware_remote_search/400/unknown-function-x"),
+        ("android@A", "/walks/*/steps/*/query/withAnswer/sent-unquotable-search"),
+    ]
+    sent = next(d for d in found if d.path.endswith("sent-unquotable-search"))
+    assert sent.after["hq"] == {key: placeholder[key] for key in ("url_name", "status", "said", "raised")}
 
 
 def test_a_devices_refusal_is_its_own_only_where_formplayers_walk_never_met_it():

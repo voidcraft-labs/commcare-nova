@@ -19,10 +19,12 @@ every function reads the records.
 (``android@local.ccz``), and of HQ's release of B against A's (``android@B``), per configuration: the install,
 the sign-in, the profile as each of Android's readers gives it, the home screen, and every walk
 (``comparable_app``). And what stands on its own of HQ's release of A (``android@A``): each search screen that
-sent, for an answer holding both quote marks, the query HQ refuses (``/walks/*/steps/*/query/withAnswer
-/sent-unquotable-search``, ``refused_searches``). And of every state of proofs 3 and 4 on its own: each form
-the device did not save and yet left a mark of (``/walks/*/steps/*/form/saved/applied-though-refused``,
-``applied_though_refused``), which Android's one transaction a form should never give.
+sent, for an answer holding both quote marks, the query HQ refuses, with HQ's answer to it (``/walks/*/steps/*
+/query/withAnswer/sent-unquotable-search``, ``refused_searches``), and each other request of A's device HQ's
+views refused that they did not refuse Formplayer's walk with (``/hq/<view>/<status>/<what HQ said>``). And
+of every state of proofs 3 and 4 on its own: each form the device did not save and yet left a mark of
+(``/walks/*/steps/*/form/saved/applied-though-refused``, ``applied_though_refused``), which Android's one
+transaction a form should never give.
 
 **Proof 4** (``editability``): what a device shows of the app each editor save left against the state it was
 saved over (``android@<editor>@<state>@<configuration>``), and, where the save's profile is not the one it was
@@ -424,23 +426,45 @@ UNQUOTABLE = "search-value-mixes-quote-marks()"
 A = "android@A"
 
 
-def refused_searches(answer: dict | None) -> list[tuple[str, str, dict]]:
+def _sends_unquotable(entry) -> bool:
+    """Whether a device's request (a record's ``hq`` entry, ``proof.android.hq.Exchange``) sent the placeholder
+    in its search query."""
+    from urllib.parse import parse_qs, urlsplit
+
+    query = parse_qs(urlsplit(entry.get("url") or "").query, keep_blank_values=True)
+    return UNQUOTABLE in query.get("_xpath_query", [])
+
+
+def refused_searches(answer: dict | None, asked=()) -> list[tuple[str, str, dict, int | None]]:
     """Each search screen of an ``app`` answer that sent, for an answer holding both quote marks, the query HQ
-    refuses, with no error of its own: ``(structural path, concrete path, what it sent and then showed)``. It
-    stands on its own of one archive: Formplayer stops the same search at the screen, and a device sends it."""
+    refuses: ``(structural path, concrete path, what it sent, what HQ's search view answered it and what the
+    screen then showed, the place in ``asked`` of the request that sent it)``. It stands on its own of one
+    archive: Formplayer stops the same search at the screen, and a device sends it whatever errors Core holds for
+    its prompts, which the screen never reads (its Search button calls ``QueryRequestActivity.makeQueryRequest``
+    unconditionally, ``QueryRequestUiController.setupUI``). ``asked`` is every request the device made of HQ (a
+    record's ``hq``), in which the walk's request carrying the placeholder is that search's, and HQ's answer to
+    it is part of the one symptom."""
+    sending = {}
+    for place, entry in enumerate(asked or ()):
+        if _sends_unquotable(entry):
+            sending.setdefault(entry.get("walk"), []).append(place)
     found = []
     for name, walk in sorted(((answer or {}).get("walks") or {}).items()):
         for index, step in enumerate(walk.get("steps") or []):
             probe = (step.get("query") or {}).get("withAnswer") if isinstance(step.get("query"), dict) else None
-            if not probe or probe.get("RemoteQuerySessionManager.getErrors"):
+            if not probe:
                 continue
             sent = (probe.get("RemoteQuerySessionManager.getRawQueryParams") or {}).get("_xpath_query") or []
             if UNQUOTABLE in sent:
                 shown = (probe.get("afterServerAnswers") or probe.get("afterServerAnswers400") or {}).get("errorText")
+                places = sending.get(name) or []
+                place = places.pop(0) if places else None
+                hq = None
+                if place is not None:
+                    hq = {key: asked[place].get(key) for key in ("url_name", "status", "said", "raised")}
                 at = f"/walks/{pointer_token(name)}/steps/{index}/query/withAnswer/sent-unquotable-search"
-                found.append(
-                    ("/walks/*/steps/*/query/withAnswer/sent-unquotable-search", at, {"sent": sent, "shown": shown})
-                )
+                value = {"sent": sent, "hq": hq, "shown": shown}
+                found.append(("/walks/*/steps/*/query/withAnswer/sent-unquotable-search", at, value, place))
     return found
 
 
@@ -504,18 +528,22 @@ def behavior(document: str, record: dict, *, device: str = "android") -> list:
         a = (held.get("A") or {}).get("app")
         if a is None:
             continue
+        refused = refused_searches(a, (held.get("A") or {}).get("hq"))
         found += [
-            Difference("proof3", document, a_artifact, path, at, "error", None, value)
-            for path, at, value in refused_searches(a)
+            Difference("proof3", document, a_artifact, path, at, "error", None, value) for path, at, value, _ in refused
         ]
         # Each request of the device's HQ's own views refused while A was served (a search a device built from
         # a typed answer, compiled by HQ's own search view, among them), judged against what HQ's views refused
         # Formplayer's walk of the same state: a refusal of the same view, status and cause is Formplayer's
-        # symptom (``formplayer@A``), and the device's own is what Formplayer's walk never met.
+        # symptom (``formplayer@A``), and the device's own is what Formplayer's walk never met. HQ's refusal of
+        # a search that sent the placeholder is that search's symptom, reported with it just above.
         from proof.checks import served
 
         found += served.refusal_differences(
-            device_only_refusals(held.get("A") or {}), check="proof3", document=document, artifact=a_artifact
+            device_only_refusals(held.get("A") or {}, beside={place for *_, place in refused}),
+            check="proof3",
+            document=document,
+            artifact=a_artifact,
         )
         found += _applied("proof3", document, a_artifact, a)
         if local is not None:
@@ -706,9 +734,10 @@ def _asked(held, blobs) -> list:
     return blobs.get_json(held["hq"])
 
 
-def hq_refusals(asked) -> list:
+def hq_refusals(asked, *, beside=frozenset()) -> list:
     """Each request of a device's HQ's views did not answer 2xx, as a served state's ``hq`` entries are written
-    (``proof.checks.served.refusal_differences``): the view, its status, what HQ said or raised."""
+    (``proof.checks.served.refusal_differences``): the view, its status, what HQ said or raised. ``beside`` names
+    the places in ``asked`` of requests another difference already reports with HQ's answer."""
     return [
         {
             "view": entry.get("url_name"),
@@ -716,8 +745,8 @@ def hq_refusals(asked) -> list:
             "said": entry.get("said"),
             "raised": entry.get("raised"),
         }
-        for entry in asked or []
-        if not 200 <= int(entry.get("status") or 0) < 400
+        for place, entry in enumerate(asked or [])
+        if not 200 <= int(entry.get("status") or 0) < 400 and place not in beside
     ]
 
 
@@ -728,12 +757,12 @@ def _refusal_class(entry) -> tuple:
     return (entry.get("view") or "unresolved", entry.get("status"), cause)
 
 
-def device_only_refusals(held: dict) -> list:
-    """The device's refused requests of a served state (``hq_refusals``) whose view, status and cause HQ's views
-    did not refuse Formplayer's walk of the same state with (``formplayerHq``, a served state's record of its
-    walk's refusals)."""
+def device_only_refusals(held: dict, *, beside=frozenset()) -> list:
+    """The device's refused requests of a served state (``hq_refusals``, but those ``beside`` names) whose view,
+    status and cause HQ's views did not refuse Formplayer's walk of the same state with (``formplayerHq``, a
+    served state's record of its walk's refusals)."""
     met = {_refusal_class(entry) for entry in held.get("formplayerHq") or []}
-    return [entry for entry in hq_refusals(held.get("hq")) if _refusal_class(entry) not in met]
+    return [entry for entry in hq_refusals(held.get("hq"), beside=beside) if _refusal_class(entry) not in met]
 
 
 def _editor(view, section) -> str:

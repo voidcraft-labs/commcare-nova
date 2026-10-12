@@ -1493,12 +1493,15 @@ records, called from proofs 1, 3 and 4, each difference under an
   whose session, as Android itself stored it, home cannot read
   (`/update/reopened/*/session`).
 - **Of each state alone**, under proofs 3 and 4: a search that sent, for
-  an answer holding both quote marks, the query HQ refuses (`android@A`,
-  `…/query/withAnswer/sent-unquotable-search`); each request of A's device
-  HQ's own views refused with a view, status and cause it did not refuse
-  Formplayer's walk of A with (`android@A`, `/hq/<view>/<status>/<what HQ
-  said>`, a search built from a typed answer among them; one Formplayer's
-  walk met too is `formplayer@A`'s); and a form the
+  an answer holding both quote marks, the query HQ refuses, whatever errors
+  Core holds for its prompts, which the screen never reads (`android@A`,
+  `…/query/withAnswer/sent-unquotable-search`, with HQ's answer to that
+  request, which is the same symptom and no difference of its own); each
+  other request of A's device HQ's own views refused with a view, status
+  and cause it did not refuse Formplayer's walk of A with (`android@A`,
+  `/hq/<view>/<status>/<what HQ said>`, a search built from a typed answer
+  among them; one Formplayer's walk met too is `formplayer@A`'s); and a
+  form the
   device did not save and yet left a mark of
   (`…/form/saved/applied-though-refused`: the cases it holds are not the
   ones it held as the form opened), which Android's one transaction a form
