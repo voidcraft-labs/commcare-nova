@@ -7691,6 +7691,17 @@
 		"control": "case-list-browse"
 	},
 	{
+		"id": "d38-android-proof3-local-ccz-list-headerdrawn-height-changed",
+		"defect": 38,
+		"part": "image-map column width (a header drawn at the width it is given)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/headerDrawn/height",
+		"kind": "changed",
+		"document": "media-only",
+		"control": "media-only"
+	},
+	{
 		"id": "d10-android-proof3-local-ccz-list-order-changed",
 		"defect": 10,
 		"part": "label-column and unsorted order",
