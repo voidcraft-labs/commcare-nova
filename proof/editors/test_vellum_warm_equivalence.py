@@ -129,6 +129,11 @@ def test_warm_vellum_runs_equal_fresh_pages_at_hqs_load_delay(hq, core_runner, e
             if loads:
                 assert warm.saved and warm.save_button == "saved", (warm.save_refusal, warm.modals)
                 assert warm.created_xml
+            else:
+                # The modal Vellum shows its refusal in is shown by the time the run ends, on a warm host as on
+                # a fresh page (Bootstrap shows it only after its backdrop's transition).
+                for run in (warm, fresh):
+                    assert [text for text in run.modals if "multiple unnamed instance elements" in text], run.modals
             runs.append(warm)
 
     # Each run after the first reused the host (the first may reuse one an earlier test left), or would have
