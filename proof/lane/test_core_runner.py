@@ -92,23 +92,30 @@ with client.CoreRunner() as runner:
 
 
 def test_the_jvms_own_warnings_never_reach_a_runners_protocol_stream(tmp_path):
-    # A program the JVM compiles from source in its own process, given the runners' options with the code cache
-    # shrunk to the least the JVM takes, so it fills and the JVM warns as a worker's long session made it warn.
+    # A program the JVM compiles from source in its own process, given the runners' options with the room for
+    # compiled methods shrunk until it fills, so the JVM warns as a worker's long session made it warn. The cache is
+    # split (HotSpot's segmented code cache) so that what the interpreter itself needs, its adapters and stubs,
+    # keeps room of its own: in one small cache the compiled methods filled it first on some runs, and the JVM then
+    # failed for want of an adapter ("Out of space in CodeCache for adapters", on a busy 128-vCPU machine), which a
+    # runner's 240 MB never meets.
     (tmp_path / "Answer.java").write_text(
         'class Answer { public static void main(String[] a) { System.out.println("{}"); } }', encoding="utf-8"
     )
     assert "-XX:ReservedCodeCacheSize=240m" in JVM_OPTIONS
+    small = (
+        "-XX:+SegmentedCodeCache",
+        "-XX:ReservedCodeCacheSize=6244k",
+        "-XX:NonNMethodCodeHeapSize=5m",
+        "-XX:ProfiledCodeHeapSize=1m",
+        "-XX:NonProfiledCodeHeapSize=100k",
+    )
     output, errors = tmp_path / "out.txt", tmp_path / "err.txt"
     with output.open("wb") as stdout, errors.open("wb") as stderr:
         status = processes.run(
-            ["java", *JVM_OPTIONS, "-XX:ReservedCodeCacheSize=2600k", "Answer.java"],
-            timeout=120,
-            cwd=tmp_path,
-            stdout=stdout,
-            stderr=stderr,
+            ["java", *JVM_OPTIONS, *small, "Answer.java"], timeout=120, cwd=tmp_path, stdout=stdout, stderr=stderr
         )
     assert status == 0, errors.read_text()[-4000:]
-    assert "CodeCache is full" in errors.read_text(), "The JVM did not fill its code cache, so nothing was shown."
+    assert "is full. Compiler has been disabled." in errors.read_text(), "The JVM did not fill its code cache."
     assert output.read_text() == "{}\n"
 
 
