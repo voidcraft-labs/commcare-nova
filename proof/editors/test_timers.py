@@ -14,11 +14,24 @@ timer is still set, or before the request a timer started has been answered
 debounce); a cleared timer still counted, so a settle never returns; a long
 timer waited for (a notification's fade); and pages that count timers in a
 run that never asked for it.
+
+The client's progress bar (HQ's own nprogress, loaded from HQ's checkout) is
+not waited for: its trickle re-arms itself every 800 ms while it shows, and
+runs once more after it is done. The plausible failures: the bar's timers
+counted, so a settle with the bar showing never returns and every step after
+a request waits out the trickle; and a page's own short timer set beside the
+bar left uncounted with them.
 """
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from proof.editors.client import EditorDriver, PageResponse
+
+# HQ's own copy of the progress bar its Web Apps client bundles (``cloudcare/js/utils.js`` imports it).
+NPROGRESS = Path(os.environ.get("PROOF_HQ", "/opt/hq"), "node_modules", "nprogress", "nprogress.js")
 
 # Far past any settle, and a second or more: a timer the settle does not wait for.
 LONG_MS = 20_000
@@ -38,11 +51,28 @@ setTimeout(() => {{ window.long = true; }}, {LONG_MS});
 <p>HQ</p>"""
 
 
-def _answer(asked):
+# The bar (drawn into the page's body, which the page therefore has first) started as the client starts it around a
+# request and left showing, so its trickle re-arms itself every 800 ms for as long as the page lives, then a short
+# timer of the page's own once the request is answered, which the settle still waits for.
+BAR_PAGE = """<!doctype html>
+<p>HQ</p>
+<script src="/a/proof/nprogress.js"></script>
+<script>
+window.done = false;
+NProgress.start();
+fetch("/a/proof/answer/").then(() => {
+  setTimeout(() => { window.done = true; }, 200);
+});
+</script>"""
+
+
+def _answer(asked, page=PAGE):
     def answer(request):
         asked.append(request.url)
         if request.url.endswith("/a/proof/apps/"):
-            return PageResponse(200, [("Content-Type", "text/html; charset=utf-8")], PAGE.encode())
+            return PageResponse(200, [("Content-Type", "text/html; charset=utf-8")], page.encode())
+        if request.url.endswith("/a/proof/nprogress.js"):
+            return PageResponse(200, [("Content-Type", "text/javascript")], NPROGRESS.read_bytes())
         return PageResponse(200, [("Content-Type", "application/json")], b"{}")
 
     return answer
@@ -89,3 +119,29 @@ def test_a_run_that_does_not_ask_counts_no_timers():
     assert long is False
     assert ran_cleared is False
     assert pending is None
+
+
+def test_a_settle_waits_for_the_pages_own_short_timer_and_not_for_the_progress_bars():
+    asked = []
+    read = {"eval": "() => [window.done, NProgress.status, window.proofShortTimers()]"}
+    with EditorDriver() as driver:
+        result = driver.run(
+            [
+                {"goto": "/a/proof/apps/"},
+                {"waitFor": "window.NProgress !== undefined"},
+                {"settle": True, "timers": True},
+                read,
+            ],
+            answer=_answer(asked, BAR_PAGE),
+            deadline=40,
+            timers=True,
+        )
+    done, status, pending = result["outcomes"][-1]["value"]
+    assert result["pageErrors"] == []
+    # The page's own timer, set once the request was answered, ran before the settle returned.
+    assert done is True
+    assert "http://hq.proof.test/a/proof/answer/" in asked, asked
+    # The bar still shows, its trickle set again and again, and the settle returned with nothing of the page's own
+    # pending.
+    assert isinstance(status, float)
+    assert pending == 0

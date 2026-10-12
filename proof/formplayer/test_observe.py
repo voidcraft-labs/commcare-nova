@@ -20,7 +20,10 @@ the first read the case its end-of-form link fetches (HQ's
 ``case_fixture``) from the first's cache and asked HQ nothing, while one
 started later asked: a hosted run recorded both for one key. Each run starts
 with Formplayer's caches empty (``FormplayerRunner.forget_caches``), so both
-observations ask.
+walks ask. That contract and the remote resource's are Formplayer's walk
+alone, so those tests walk the served state with Formplayer and nothing
+else (``proof.formplayer.apps``), where a whole observation would also show
+every state to the client in three windows.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import json
 
 import pytest
 
+from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
 from proof.observe.unit import observe_document
 
@@ -127,7 +131,8 @@ def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_ea
     ]
     assert forms == [run["trace"][-1]["title"] for run in core["runs"]]
     # The client showed the same walk, the local archive was walked over HQ's state, and B was served for proof 4.
-    assert len(first.blobs.get_json(at_a["A"]["webapps"])["runs"]) == 4
+    # Each run in each of the client's windows: a desktop's, a phone's and App Preview's.
+    assert len(first.blobs.get_json(at_a["A"]["webapps"])["runs"]) == 3 * 4
     assert len(first.blobs.get_json(aligned["local"]["formplayer"]["trace"])["runs"]) == 4
     assert at_b["served"] and len(first.blobs.get_json(at_b["formplayer"]["trace"])["runs"]) == 4
 
@@ -136,16 +141,24 @@ def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_ea
     _same_parts(first, again)
 
 
+def _asked(trace) -> list:
+    """What each step of a walk's trace asked HQ, by the view and its status, in order."""
+    return [list(map(tuple, step.get("asked") or ())) for run in trace["runs"] for step in run["steps"]]
+
+
 @pytest.mark.under_determinism
-def test_what_a_run_asks_hq_does_not_depend_on_an_earlier_observation_of_the_same_document(
-    hq, core_runner, editor_driver, formplayer_runner, formplayer_documents
+def test_what_a_run_asks_hq_does_not_depend_on_an_earlier_walk_of_the_same_state(
+    hq, core_runner, formplayer_runner, formplayer_documents
 ):
-    document = formplayer_documents[FETCHED_AGAIN]
-    first = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
-    at_a = _served(first)[0]
-    assert at_a["A"]["formplayer"]["asked"].get("case_fixture", 0) >= 1, at_a["A"]["formplayer"]["asked"]
-    again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
-    _same_served(first, again)
+    with apps.published(formplayer_documents[FETCHED_AGAIN], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served:
+            first = apps.walked(formplayer_runner, served)
+            # Seconds later, well inside the five minutes Formplayer keeps what a query fetched.
+            again = apps.walked(formplayer_runner, served)
+    asked = _asked(first)
+    assert any(view == "case_fixture" for step in asked for view, _ in step), asked
+    assert _asked(again) == asked
+    assert again == first
 
 
 def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records_it_alike():
@@ -170,16 +183,17 @@ def test_a_trace_names_formplayers_own_address_by_a_mark_so_every_runner_records
 
 
 def test_a_resource_formplayer_reads_at_its_remote_location_is_answered_by_hqs_own_view(
-    hq, core_runner, editor_driver, formplayer_runner, formplayer_documents
+    hq, core_runner, formplayer_runner, formplayer_documents
 ):
     """Where the archive's copy of a form cannot be installed, Core reads it at the remote location HQ's profile
     names under the build's own address (``JavaHttpReference``, a URL connection Formplayer's RestTemplate never
     sees). The runner sends that connection to HQ's peer, as Formplayer's replace-host mode sends its other
     requests (``PeerUrls.java``), so HQ's own download view answers it; before, it left for the address HQ's
     settings name, over the network, and one hosted run waited on it past the request's deadline."""
-    found = observe_document(
-        formplayer_documents[REMOTE_RESOURCE], core_runner=core_runner, editor_driver=editor_driver
-    )
-    at_a = _served(found)[0]["A"]["formplayer"]
-    assert at_a["asked"].get("app_download_file", 0) >= 1, at_a["asked"]
-    assert at_a["hq"] == [], at_a["hq"]
+    with apps.published(formplayer_documents[REMOTE_RESOURCE], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served:
+            trace = apps.walked(formplayer_runner, served)
+            refused = [(asked.url_name, asked.status) for asked in served.hq.exchanges if not 200 <= asked.status < 300]
+    asked = _asked(trace)
+    assert any(view == "app_download_file" for step in asked for view, _ in step), asked
+    assert refused == [], refused

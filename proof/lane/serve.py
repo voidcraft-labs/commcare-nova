@@ -578,6 +578,21 @@ class Server:
         for node_id, group in collector.groups.items():
             info.by_group.setdefault(group, []).append(node_id)
         info.digest = lane_blocks.collection_digest(info.groups)
+        if (
+            emits
+            and any(lane_blocks.reads_corpus(group) for group in info.by_group)
+            and not (self.out / "corpus" / "index.json").is_file()
+        ):
+            # A package whose tests read the corpus as they run, where the collection read none: emitted here,
+            # once, before any worker starts. Every group of a local run is one block, with one output directory,
+            # and two workers each emitting the corpus into it at once removed each other's files.
+            from proof.checks.corpus import CorpusLayoutError, emit_corpus
+
+            say("The selection's tests read the corpus as they run, so the lane emits it before any worker starts.")
+            try:
+                emit_corpus(self.out / "corpus")
+            except CorpusLayoutError as error:
+                raise Refused(str(error)) from error
         if not os.environ.get("PROOF_CORPUS") and (self.out / "corpus" / "index.json").is_file():
             # The collection emitted the corpus (proof.checks.corpus.corpus_root); every worker reads that one.
             os.environ["PROOF_CORPUS"] = str(self.out / "corpus")

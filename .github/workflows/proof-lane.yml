@@ -253,9 +253,13 @@ jobs:
     # Without the readers the Android runtime job is skipped, and the shards run all the same.
     if: ${{ !cancelled() && needs.emit.result == 'success' && (needs.android-runtime.result == 'success' || (!inputs.readers && needs.android-runtime.result == 'skipped')) }}
     runs-on: ${{ matrix.runner }}
-    # A sized matrix gives each shard twice the work it is expected to run
-    # (python3 -m proof.lane.plan size); a counted one, the hours a shard of the
-    # whole lane with every reader takes on sixteen shards.
+    # With the readers, each state a group serves goes to Formplayer and a
+    # device, and every run is walked whole in the Web Apps client on a
+    # desktop, on a phone and in App Preview, for every case of each list and
+    # in every language the app holds. A sized matrix gives each shard twice
+    # the work it is expected to run (python3 -m proof.lane.plan size); a
+    # counted one, the hours a shard of the whole lane with every reader takes
+    # on sixteen shards.
     timeout-minutes: ${{ matrix.deadline || 330 }}
     strategy:
       fail-fast: false

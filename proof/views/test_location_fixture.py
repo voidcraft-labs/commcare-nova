@@ -159,7 +159,9 @@ def test_a_device_restores_the_flat_fixture_by_the_apps_choice_and_web_apps_by_t
                     walk = walk or formplayer_observe.script_of(trace)
                     assert served.hq.restores, "Formplayer asked HQ for no restore"
                     web_apps = _flat_fixture(served.hq.restores[-1])
-                    moved = [owner == clinic.location_id for owner in _owners_written(trace)]
+                    # Whether each submission of the walk moved its case to the clinic: the walk opens the form for
+                    # every case its list offers, and each answers the same.
+                    moved = sorted({owner == clinic.location_id for owner in _owners_written(trace)})
                     found[choice, syncs] = {"device": device, "webApps": web_apps, "moved": moved}
     places = ["north", "north_clinic"]
     there = {"device": places, "webApps": places, "moved": [True]}

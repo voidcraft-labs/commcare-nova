@@ -17,6 +17,7 @@ import pytest
 DOCUMENTS = (
     "case-list-browse",
     "case-list-inline",
+    "localization-bilingual",
     "media-only",
     "search-browse",
     "targeted-capture-widgets",

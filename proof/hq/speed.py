@@ -55,6 +55,17 @@ reads, each computing exactly what HQ computes without it:
   metadata row and file are as they were, a form's questions kept past the
   harness's cache clears (with the flag reads that compute them made again),
   and the language names file parsed once (``proof.hq.buildcache``).
+- **Stylesheets.** HQ's development server compiles a page's SCSS on every
+  load of the page (django-compressor's ``precompile``, HQ's
+  ``hqwebapp/precompilers.py::SassFilter``, a filter class, which compressor
+  keeps no cache for), about 0.7 s of each Web Apps page the lane opens.
+  ``SassMemo`` keeps each compile by the source's path and the sha256 of its
+  text and the options compressor hands the filter, and gives the kept CSS
+  again: ``sass`` reads the source and the partials it imports from the
+  image's checkout, which nothing changes, so a compile of one source gives
+  the same rules every time (its last line names the source map sass wrote
+  beside it, a temporary file named afresh on every compile, which
+  ``proof.webapps.static.unhashed`` already reads past).
 - **The cyclic collector.** Python examines its youngest generation every
   2,000 net allocations of container objects and the older two after every
   10 of the one below (``gc.get_threshold()`` is (2000, 10, 10)). HQ's app
@@ -207,6 +218,38 @@ class YamlMemo:
         return copy.deepcopy(self.parsed[key])
 
 
+# Stylesheets ----------------------------------------------------------------
+
+
+class SassMemo:
+    """HQ's SCSS precompiler (``SassFilter.input``) once per source: each compile kept by the filter's class, the
+    source's path and the sha256 of its text, and the options compressor hands the filter."""
+
+    def __init__(self, compile_):
+        self._compile = compile_
+        self.compiled: dict[tuple, str] = {}
+        self.hits = 0
+
+    def __get__(self, filter_, owner=None):
+        if filter_ is None:
+            return self
+        return lambda **options: self(filter_, **options)
+
+    def __call__(self, filter_, **options):
+        content = filter_.content.encode("utf-8") if isinstance(filter_.content, str) else bytes(filter_.content)
+        key = (
+            type(filter_).__qualname__,
+            filter_.filename,
+            hashlib.sha256(content).hexdigest(),
+            tuple(sorted((name, str(value)) for name, value in options.items())),
+        )
+        if key in self.compiled:
+            self.hits += 1
+        else:
+            self.compiled[key] = self._compile(filter_, **options)
+        return self.compiled[key]
+
+
 # XPath validator ------------------------------------------------------------
 
 
@@ -357,6 +400,7 @@ def _seams():
     import yaml
     from corehq.apps.app_manager import commcare_settings
     from corehq.apps.app_manager.xpath_validator import wrapper
+    from corehq.apps.hqwebapp.precompilers import SassFilter
     from corehq.apps.hqwebapp.utils import webpack
     from django.db.backends.base.base import BaseDatabaseWrapper
     from memoized import memoized
@@ -364,7 +408,9 @@ def _seams():
     from proof.hq import buildcache, seams
 
     _HQ_ORIGINALS.setdefault("validate_xpath", wrapper.validate_xpath)
+    _HQ_ORIGINALS.setdefault("sass_input", SassFilter.input)
     return [
+        mock.patch.object(SassFilter, "input", SassMemo(_HQ_ORIGINALS["sass_input"])),
         mock.patch.object(BaseDatabaseWrapper, "queries_logged", property(_production_queries_logged)),
         seams.rebound(webpack.get_webpack_manifest, memoized(webpack.get_webpack_manifest)),
         mock.patch.object(commcare_settings, "yaml", YamlMemo(yaml)),

@@ -46,7 +46,7 @@ def test_web_apps_shows_a_questions_label_media_and_no_group_hint_or_message_med
 
     with webapps_hq.project(webapps_documents[DOCUMENT]) as project:
         with project.released(formplayer_runner) as release:
-            walk = Walk(release.runner, release.hq, domain=release.domain, app_id=release.build_id, scope=release.run)
+            walk = Walk.of(release)
             (run,) = [each for each in walk.run()["runs"] if any("answers" in step for step in each["steps"])]
             session = Session(release, editor_driver)
             made, kinds = observe.replay(release.doc["name"], [run], session.home)

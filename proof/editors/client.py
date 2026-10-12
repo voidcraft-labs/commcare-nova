@@ -357,6 +357,7 @@ class EditorDriver:
         cookies: Mapping[str, str] | None = None,
         seed: Mapping[str, Any] | None = None,
         timers: bool = False,
+        viewport: Mapping[str, int] | None = None,
     ) -> dict[str, Any]:
         """Runs page steps in a fresh browser context, answering the page's HQ requests with ``answer``.
 
@@ -366,9 +367,13 @@ class EditorDriver:
         epoch}``) fixes the pages' clock and randomness
         (``driver/steps/page/seed.js``). With ``timers`` every document counts
         its short one-off timers (``driver/steps/page/timers.js``), for the
-        steps that settle on them.
+        steps that settle on them. ``viewport`` (``{width, height}``) is the
+        window the pages are laid out in, where it is not Playwright's own
+        desktop one.
         """
         message: dict[str, Any] = {"op": "run", "steps": list(steps)}
+        if viewport is not None:
+            message["viewport"] = dict(viewport)
         if cookies:
             message["cookies"] = cookie_list(cookies)
         if seed is not None:

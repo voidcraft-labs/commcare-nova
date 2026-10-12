@@ -274,6 +274,19 @@ or it fails the lane ("The registers", below).
 
 ### What the lane does not observe
 
+What the lane observes is bounded by what Nova emits: a behavior that
+depends on nothing in Nova's app is outside it, because no export can change
+it and no symptom of an export can show in it. A worker's sign-in form, a
+web user signing in as a worker, and the notifications Connect sends a worker
+through ConnectID are such behaviors. The lane passes through the first two
+where a walk needs them (every person signs in through HQ's own sign-in
+form, and App Preview's admin logs in as the worker through the client's own
+Log in as), and holds no claim about them; ConnectID is not in the lane, and
+each notification task Connect queues runs up to that request, which is
+recorded and fails as a connection that could not be made. Everything that
+depends on Nova's export is observed, and what is left out of that is listed
+here.
+
 - **What a device does not show.** CommCare Android's own code is handed
   every state the lane serves, beside HQ's live unit, and proofs 1, 3 and 4
   judge what it did ("Android in the unit", below), with these left out.
@@ -283,42 +296,22 @@ or it fails the lane ("The registers", below).
   row is laid out and searched, and its Sort read). A device is handed the
   states HQ releases: a document whose build of A HQ's validation refuses
   has no device, as it has no Formplayer.
-- **What a served state does not show.** Formplayer and the Web Apps
-  client read every state the lane builds ("Served states", below), with
-  these left out. Formplayer's derived walk takes the first case of each
-  list (and the client replays that walk), so a form opened for any other
-  case of a list is not walked. Not run on Formplayer or in the client: a
-  language other than the worker's default, though corpus documents carry
-  two and three languages. Not run in the client: a small screen's
-  layout, App Preview (the same client under another HQ page), and a web
-  user signing in as a worker. The requests the page makes that nothing
-  answers are for a web font and a map's pictures on other hosts, so text is
-  laid out in the browser's fallback face, no measured width or height is
-  recorded, and a map is drawn without its pictures (it moves and answers
-  all the same). The client walks every run of the walk whole ("The Web Apps
-  driver"), and answers each question through the widget it draws for it: a
-  file question with the file Formplayer's walk uploaded, a signature with a
-  stroke on its pad, and a location question by dragging its map, so its
-  answer is the walk's place to the nearest pixel of the map. A question it
-  does not support draws no widget, and its answer is recorded as
-  `unanswerable`, as a worker could not give it either.
 - **What Connect in the unit does not show.** Every Connect document's
   submissions are forwarded to Connect in its unit ("Connect in the unit",
-  below), with these left out. ConnectID, the service Connect sends a
-  worker's notifications through, is not in the lane: each notification
-  task Connect queues is run up to that request, which is recorded and
-  fails as a connection that could not be made. A device's location fix,
+  below), with these left out. A device's location fix
   is the one the device's GPS gives the app, which the app's own sensor
   poll (`PollSensorAction`) writes where the form holds the node. The
   project space's admin saves HQ's Connection Settings
   page and its Add Forwarder page for Connect as a person does (signed in
-  through HQ's own sign-in form, each page's form posted as their browser
-  posts it, `proof/connect/hq.py::forwarding`), and the
+  through HQ's own sign-in form, each page opened in Chromium with its own
+  JavaScript, typed into, chosen from and saved by its own button,
+  `proof/connect/hq.py::forwarding`), and the
   forwarder is then given the 404 retry that page gives a forwarder to
   production's Connect address. The opportunity is made once, from A's release: a
   manager who asks for its units again after an edit, or pays for a renamed
-  unit, is not in the unit (`proof/connect/test_receiver.py` runs both), and
-  neither is the distance check between two visits. HQ's Connect payload
+  unit, is not in the unit, and neither is the distance check between two
+  visits, since each run meets the opportunity as it stood
+  (`proof/connect/test_receiver.py` runs all three). HQ's Connect payload
   carries no attachments, so Connect's download of a visit's attachments
   runs and asks HQ for nothing.
 - **A configuration Nova's publish refuses is not checked** (decision 19).
@@ -1053,8 +1046,9 @@ app, restore and trace) are blobs named by their sha256.
   operation over the same state gives the same bytes in any process.
 - **Speed** (`speed.py`, `buildcache.py`): only `DEBUG`'s speed effects (the
   cached template loader, no query log, the memoized webpack manifest), the
-  settings YAML parsed once, HQ's XPath validator in one long-lived node
-  child, and the build's pure computations kept once computed. Each computes
+  settings YAML parsed once, each SCSS source a page names compiled once,
+  HQ's XPath validator in one long-lived node child, and the build's pure
+  computations kept once computed. Each computes
   exactly what HQ computes; `PROOF_HQ_SPEED=0` leaves them all out to compare.
 - **Operations** (`operations.py`): publish, the media upload, app source,
   build, HQ's case processing of a submission, standalone form retention,
@@ -1169,14 +1163,19 @@ the caches left, the second omits the fetch).
   `cloudcare/js/form_entry/web_form_session.js`), with HQ's session cookie
   and Formplayer's CSRF cookie as a browser holds them.
 - **The walk** (`walk.py`): scripted sessions as the Core runner's, derived
-  (every menu command, the first case of each list, each list action once,
-  each search) or replayed, each run starting as a worker starts after
+  (every menu command, every case of each list, each list action once, each
+  search, each in every language the app holds: `proof/observe/walks.py`,
+  below) or replayed, each run starting as a worker starts after
   clearing their data, with Formplayer's caches empty and no row of an earlier run's uploads (the lane seeds
   the ids Formplayer draws for uploads by a request's place in its run, so two runs draw the same ones, where
   production's never meet: `FormplayerRunner.forget_media`), each form answered from the Core runner's answer
   table (a file question, signature included, given the table's file for its kind from `proof/core/captures`,
   uploaded as the client uploads one to Formplayer's `answer_media`) and submitted as the client submits it,
-  the files with it. The trace is Formplayer's
+  the files with it: a question the client draws no widget for (a date and time, `walk.py::answerable`) is
+  left as a worker in Web Apps leaves it, and the submission holds every question the client holds valid with
+  `prevalidated` only where it holds each one so (`walk.py::submission`), which the client's own submission of
+  the same run is held to wherever the client replays it (`proof/webapps/observe.py::submitted_alike`: a
+  difference ends the observation as the harness's own). The trace is Formplayer's
   own JSON for every request, with what it asked HQ during each, the
   submission HQ received and the screen Formplayer's end of form navigation
   names next.
@@ -1293,12 +1292,44 @@ a step clicks what a worker clicks, or reads what the page shows.
   CORS rule and CSRF token then judge the request as they judge
   production's. Every run starts as a worker who cleared their data, on
   Formplayer's own install of the build.
+- **App Preview** (`session.py`, `preview`). The same client under the page
+  HQ's app builder shows the app in (`cloudcare/views.py::PreviewAppView`,
+  the bundle the image builds from `cloudcare/js/preview_app/main`), opened
+  at the size of the builder's frame (250 by 444 pixels,
+  `app_manager/partials/preview_app.html`) for the project space's admin,
+  signed in through HQ's own sign-in form. The client hands Formplayer the
+  app's own id, and HQ's download makes the archive from the stored app as
+  it stands (`views/cli.py::direct_ccz`, `latest=save`), where Web Apps runs
+  the release. Once App Preview has finished starting (it drops Formplayer's
+  install of the app and draws its first screen again when Formplayer
+  answers, `formplayer/app.js::refreshApplication`, which the replay waits
+  for: `steps.py::preview_started`), the admin logs in as the worker from
+  the app's first screen,
+  as a person in the builder does (its Log in as, the worker's row of the
+  list HQ's `LoginAsUsers` view answers over HQ's Elasticsearch, and the
+  confirmation), so the preview runs over the worker's cases; HQ draws Log in
+  as only where the plan has it, so for App Preview's runs the project space
+  states the plan has Log In As (`proof/hq/seams.py::also_granted`), without
+  which the admin previews the app as themselves, with none of the worker's
+  cases. App Preview opens an app in the person's own language, or English
+  where they have none (`cloudcare/preview_app.html`), and offers a
+  language in its Settings alone (`layout/views/settings.js::
+  LangSettingView`), so the admin sets the app's first language there
+  before each run, as a worker meets it in Web Apps, and a run that chooses
+  another chooses it there too. The client shows a person who is not Dimagi's a form one question a
+  screen (`preview_app/main.js`), so each question is brought on screen by
+  the form's own Next before it is answered and the form submitted by its
+  Complete at its last screen (`driver/steps/webapps/advance.js`, the
+  driver's `advance`); a Next the client keeps from being pressed ends the
+  run there, recorded `held`.
 - **Stylesheets** (`static.py`). What a worker sees is the client's markup
   under HQ's stylesheets, so the page has them: HQ's own precompiler compiles
   the SCSS the page names (HQ's test settings switch it off, and HQ's own
   note there says how a test turns it on), and HQ's static finders serve the
-  compiled files and every other static file the page asks for. The one
-  request nothing answers is for a web font on another host.
+  compiled files and every other static file the page asks for. The web
+  font HQ's pages load from Google Fonts, Nunito Sans (OFL-1.1), is served
+  from the image's own copy of it (`proof/image/tools`), so text is laid out
+  in HQ's own face.
 - **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
   a selector and a text name, an answer given through a question's own
   widget (`answer.js`: a text box typed into, an option or check box
@@ -1339,24 +1370,46 @@ a step clicks what a worker clicks, or reads what the page shows.
   step that waited only for requests went on while that timer was set, so
   which value the client submitted depended on the runner's speed (a hosted
   run's list showed a case more). A notification's fade is a longer timer,
-  a lifetime a worker watches, and is not waited for. A step that waited
-  out its deadline says what the client was still doing.
+  a lifetime a worker watches, and is not waited for. Nor are the timers of
+  the progress bar the client shows while it waits on Formplayer
+  (`cloudcare/js/utils.js::showLoading`, nprogress's `NProgress.start` and
+  `done`): it re-arms a timer every 800 ms to creep forward while it shows,
+  which runs once more after the bar is done and does nothing, and fades
+  out over two of 200 ms. Counted, they held every step that asked
+  Formplayer for up to 800 ms after the client had drawn the answer, most
+  of a run's time. A step that waited out its deadline says what the
+  client was still doing.
 - **A document's record** (`observe.py`): Formplayer's own walk of the
-  release, every run replayed whole in the browser, each on a fresh page in
-  a fork of its own: the app's
-  first screen, each choice clicked as a worker clicks it (a case's detail
+  release (every case of each list, every language the app holds:
+  `proof/observe/walks.py`), every run replayed whole in the browser, each on
+  a fresh page in a fork of its own, in a desktop's window, again in a
+  phone's (390 by 844 pixels, where the client lays its screens out for a
+  small screen and pages a list five cases at a time, so a case on a later
+  page is reached by that page's button), and again in App Preview: the app's
+  first screen, a language chosen from the menu over the app's screens where
+  the run chose one, each choice clicked as a worker clicks it (a case's detail
   read where the client opens one), and where the run reached a form, each
   of the walk's answers given through its widget in the walk's order (a file
   question's file chosen through the widget's own file input, a signature
   drawn on its pad with the pointer, and a location question's map dragged
   with the pointer until its centre is the walk's place, to the nearest
   pixel: `steps/webapps/widget.js`, the driver's `files` and `draw` steps),
+  and Formplayer's walk gives what the client gives: where the build holds a
+  location question, the walk is derived once, each run that answers one is
+  replayed in a desktop's window and a phone's, and the walk is derived
+  again with the place the client's map gave each (`observe.py::derived_places`),
+  kept as the run's script's last choice with the table's places the map was
+  dragged toward (`proof/observe/walks.py`), so every state's walk gives the
+  client's own place and every replay of it makes the same drags; the
+  client's submission is held to the walk's (`observe.py::submitted_alike`),
   the form read as the worker leaves it, Submit, and the screen the client lands
   on, with what became of each answer (`answered`; `unanswerable` where the
   client draws no widget a worker could answer with it; `absent` where it
   draws no such question; `unchanged` where the widget already shows it, a
   default, for which the client sends nothing; `refused` where the widget's
-  own check refuses it and sends nothing) and of Submit (`submitted`, `disabled`, `absent`),
+  own check refuses it and sends nothing; `held` where App Preview's Next was
+  kept from being pressed before it) and of Submit (`submitted`, `disabled`,
+  `absent`, `held`),
   each decided once the client is idle, never by a time. A search the client
   refuses to send (a prompt it marks invalid) ends its run there. Where the client shows nothing to click
   for a choice, its record of that run ends there, with `stopped` and the
@@ -1368,10 +1421,13 @@ a step clicks what a worker clicks, or reads what the page shows.
 The page's randomness is seeded, as an editor page's is, and its clock starts
 at HQ's epoch and runs on (`steps/page/seed.js`, `advancing`), so the
 client's own animations end and its debounced handlers run as in a worker's
-browser; nothing the client shows reads its clock. A session costs between
-one and two seconds (a document's publish and release about one more, its
-record three to four); about 0.7 s of each page load is HQ compiling the
-page's four stylesheets again.
+browser; nothing the client shows reads its clock. On one worker of a
+laptop a run costs about two seconds on a desktop or a phone and four to
+five in App Preview, against one for Formplayer's own walk of it; HQ
+compiles each stylesheet source a page names once a worker
+(`proof/hq/speed.py`, about 1.3 s of every page load before), and the
+progress bar's timers are not waited for (about 0.8 s of every step that
+asks Formplayer before).
 
 What its own tests observe on released builds of real Nova exports, each on
 the client itself:
@@ -1388,7 +1444,7 @@ the client itself:
 | The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
 | The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
 | `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
-| Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the walk's place; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
+| Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
 | An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
 
 ### Served states
@@ -1410,9 +1466,13 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   fork of the unit with the worker signed in afresh, so a submission HQ's
   receiver processed is in HQ while its run lasts and gone for the next.
 - **The Web Apps client** is shown the same walk in a browser of its own
-  (`proof/observe/services.py::client_browser`), every run whole, its forms
+  (`proof/observe/services.py::client_browser`), every run whole, on a
+  desktop, on a phone and in App Preview, its forms
   answered through their widgets and submitted, and its screens are read
-  after every step that leads somewhere. It is shown a state only where Formplayer's trace or
+  after every step that leads somewhere. Its submission of each run is held
+  to the walk's (`proof/webapps/observe.py::submitted_alike`), since the walk
+  submits what the client submits; App Preview's, which holds only its last
+  screen's answers, is not. It is shown a state only where Formplayer's trace or
   what HQ's page hands it of the app is not the baseline's: the client
   reads nothing else, so the same answers and the same page show the same
   screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).
@@ -1885,7 +1945,7 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 13, datetime leaves | the save drops the leaf's type and HQ stores only the date | proof 4, then 3 | a datetime written to a case |
 | 13, root create id | the save turns a live create id into a load-time value, and a later update fails ("Unable to update or close case", `CaseXmlParser`) | proof 4, then 3 | a create keyed by a form answer at the form root |
 | 13, `#form/` defaults and block ids | Vellum marks a default that reads `#form/…` and a read of another block's `case/@case_id` as errors | proof 4 | a default reading another answer; two blocks sharing a case id |
-| 13, blank translations | the save fills an explicitly empty translation from the default language | proof 4, then 2 | a multilingual form with an empty translation |
+| 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language) | proof 4, then 2 | a multilingual form with an empty translation |
 | 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; a case id a form link forwards that no form created becomes a case HQ makes without a create block; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set") | proof 4, then 3 | a follow-up form that writes nothing; `case-list-inline`; the form-link expander documents |
 | 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | `targeted-close-conditions`, `targeted-close-condition-unparsable` |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
@@ -2218,8 +2278,13 @@ Every link is its owner's code:
    asked Connect for, to a served Connect over a real connection
    (`proof/connect/hq.py::forwarding`). The payload is read where it
    arrived, so its bytes are the ones HQ sent.
-5. **Connect** reads the app's learn module, deliver unit and task from HQ's
-   archive (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
+5. **Connect** reads the app's learn module, deliver unit and task from the
+   archive HQ's own view serves it of HQ's release
+   (`proof/connect/conftest.py::served_download`: the app released as HQ's
+   Releases page releases one, and the very request Connect's sync makes,
+   `download_ccz` with `latest=release`, answered by `views/cli.py::
+   direct_ccz` behind HQ's middleware), and of the release of the edit
+   (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
    `app_xml.py::get_task_units_for_app`) and receives each payload through
    its own URLconf, OAuth authentication, serializer and request transaction
    (`/api/receiver/`, `form_receiver/views.py::FormReceiver`,
@@ -2228,12 +2293,13 @@ Every link is its owner's code:
 What stands in for a person or a machine the lane does not have is written
 down where it is done: the opportunity, its worker, a payment unit, the claim
 and an assigned task are made through Connect's models with the factories
-Connect's own tests use (`proof/connect/driver.py`); in a scenario of these
-tests Connect's download of an app's archive is answered with the archive HQ
-built (the unit's is answered by HQ's own view); and a device's location
-is the fix its GPS gives the app (`Sensors.java`), which the form's own
-sensor poll writes into the form a device's walk saves and sends HQ
-(`proof/connect/conftest.py::_devices`).
+Connect's own tests use (`proof/connect/driver.py`); a scenario runs in
+Connect's process with no HQ beside it, so its download of an app's archive
+is answered with HQ's own answer to that same request, kept when HQ's view
+answered it, and a request HQ's view was not asked is refused; and a
+device's location is the fix its GPS gives the app (`Sensors.java`), which
+the form's own sensor poll writes into the form a device's walk saves and
+sends HQ (`proof/connect/conftest.py::_devices`).
 
 ### The runtime
 
@@ -2274,7 +2340,7 @@ carry the edit renaming their Connect ids), and, for finding 60,
 `targeted-connect-learn-key-names`:
 
 - Connect reads exactly the authored learn module, deliver unit and task from
-  HQ's builds.
+  HQ's releases.
 - A learn submission and a delivery, from HQ's build and from Nova's local
   archive, each received under the app's id, leave Connect the same rows: the
   module completed and the assessment scored; the visit approved and paid.
@@ -2296,7 +2362,8 @@ carry the edit renaming their Connect ids), and, for finding 60,
 - Finding 61: a deliver form that also holds a task loses its own visit while
   the task is assigned.
 
-Each run leaves, under its block's `connect/`: each document's archives, each
+Each run leaves, under its block's `connect/`: each document's archive as
+HQ's view served it, each
 path's submission and HQ's payload for it (`<document>/`), every scenario's
 steps with the rows after each (`scenario.<name>.json`) and its timings; the
 runtime's logs, with each session's, are under `connect-unit/`.

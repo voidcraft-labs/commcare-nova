@@ -19,7 +19,9 @@
 //   {"reply": rid, "status", "headers": [[name, value], ...], "bodyBase64"}
 //   before anything else happens in the page that waits on it. A view
 //   operation also sends {"phase": {"pid", "name", "event"}} as it starts and
-//   ends each section, and waits for {"phaseReady": pid} before it goes on.
+//   ends each section, and waits for {"phaseReady": pid} before it goes on;
+//   that wait is Python's work, and moves the operation's deadline on by as
+//   long as it took (Python's own deadline for the operation likewise).
 // - The operation ends with {"id", "ok": true, "result"} or {"id", "ok":
 //   false, "error": {"kind", "message", ...}}; by then every request the page
 //   made has been answered or abandoned.
@@ -50,6 +52,12 @@
 //   with "orDialog", or until the page answers the last click with a dialog
 //   and sends nothing, the outcome's "unsent" naming the dialog, after which
 //   every step marked "unlessUnsent" is skipped),
+//   "advance" (a step file asked again and again as a wait's predicate,
+//   each "next" it answers followed by the page's answer to the request it
+//   caused, "answeredBy", and the page quiet, until it answers otherwise:
+//   a form shown one question a screen stepped forward by its own Next;
+//   its last answer the outcome's value, any but true and those "passes"
+//   names skipping to "orSkipTo"),
 //   "followRedirect" (that, and when HQ's answer sent the page elsewhere,
 //   until the redirected document has loaded) and "settle" (until none of
 //   the page's requests is in flight, a frame and a task later still; with
@@ -205,6 +213,60 @@ const HOP_HEADERS = new Set([
 
 const tools = createRequire(path.join(TOOLS, "package.json"));
 const { chromium } = tools("playwright-core");
+
+// The web font HQ's pages load (hqwebapp/base.html links Google Fonts'
+// stylesheet for Nunito Sans, the face HQ's stylesheets name first), served
+// from the image (the font's own package, OFL-1.1, among the image's Node
+// tools) where the page asks Google for it, so the page lays its text out in
+// HQ's face; every other host stays refused.
+const FONTS_ORIGIN = "https://fonts.googleapis.com";
+const FONTS = {
+	"Nunito Sans": path.dirname(
+		tools.resolve("@fontsource/nunito-sans/package.json"),
+	),
+};
+
+/**
+ * Google Fonts' answer to a request of its stylesheet (`/css?family=Name:w1,w2`,
+ * `|` between families) or of a font file the stylesheet names (relative to
+ * it, `/files/<file>`), from the fonts the image holds: each weight asked for
+ * that the font has, in the order asked; null for anything else.
+ */
+async function webFont(url) {
+	if (url.pathname === "/css") {
+		const sheets = [];
+		for (const asked of (url.searchParams.get("family") ?? "").split("|")) {
+			const [family, weights = "400"] = asked.split(":");
+			const directory = FONTS[family];
+			if (!directory) return null;
+			for (const weight of weights.split(",")) {
+				const file = path.join(directory, `${weight}.css`);
+				const found = await readFile(file, "utf8").catch(() => null);
+				if (found !== null) sheets.push(found);
+			}
+		}
+		if (!sheets.length) return null;
+		return {
+			contentType: "text/css; charset=utf-8",
+			body: Buffer.from(sheets.join("\n")),
+		};
+	}
+	const name = url.pathname.startsWith("/files/")
+		? url.pathname.slice("/files/".length)
+		: null;
+	if (!name || name.includes("/")) return null;
+	for (const directory of Object.values(FONTS)) {
+		const body = await readFile(path.join(directory, "files", name)).catch(
+			() => null,
+		);
+		if (body !== null)
+			return {
+				contentType: name.endsWith(".woff2") ? "font/woff2" : "font/woff",
+				body,
+			};
+	}
+	return null;
+}
 const playwrightVersion = tools("playwright-core/package.json").version;
 
 const CONTENT_TYPES = {
@@ -315,14 +377,23 @@ function askHq(request) {
 	});
 }
 
-/** Tells Python a phase starts or ends, and waits until Python is ready for what follows. */
-function announcePhase(name, event, detail = {}) {
+/**
+ * Tells Python a phase starts or ends, and waits until Python is ready for
+ * what follows. The wait is Python's own work (the caller's fork opened, or
+ * what HQ's state holds after a section read and served to Formplayer and
+ * the Web Apps client), not the page's, so `served`'s deadline, which
+ * catches a stuck page, is moved on by as long as it took.
+ */
+async function announcePhase(served, name, event, detail = {}) {
 	const pid = nextPhaseId++;
-	return new Promise((resolve, reject) => {
+	const started = Date.now();
+	const ready = await new Promise((resolve, reject) => {
 		pendingPhases.set(pid, { resolve, reject });
 		send({ phase: { pid, name, event, ...detail } });
 		trace(`phase ${pid}: ${name} ${event}`);
 	});
+	served.deadline += Date.now() - started;
+	return ready;
 }
 
 // -- the origin --------------------------------------------------------------
@@ -397,7 +468,8 @@ async function handleRequest(request, response) {
 	}
 	// The operation this request belongs to: its own page's, and only while
 	// that page is serving one.
-	const owner = REUSED_PAGES.get(request.headers[PAGE_HEADER]) ?? null;
+	const named = request.headers[PAGE_HEADER];
+	const owner = REUSED_PAGES.get(named) ?? RUN_PAGES.get(named) ?? null;
 	const served = owner?.serving ?? null;
 	if (url.pathname.startsWith(STATIC_PREFIX)) {
 		// The image's own files change nothing in HQ, whenever a page asks;
@@ -816,6 +888,15 @@ const REUSED_PAGES = new Map([
 	[vellumPage.name, vellumPage],
 ]);
 
+// The page of each "run" operation in progress, by the name its requests
+// carry (PAGE_HEADER). A run's requests are answered through its context's
+// route (PageRun.route), but Chromium follows an HTTP redirect the route
+// answered with itself, past the route, to the origin: the origin serves
+// that request to its run (PageRun.handle), as a person's browser follows
+// HQ's redirect after a form's post.
+const RUN_PAGES = new Map();
+let runPages = 0;
+
 // -- what a served operation records ------------------------------------------
 
 /** One served operation: its requests, the page's errors and dialogs, each in the phase it happened in. */
@@ -840,23 +921,6 @@ class Served {
 		if (left <= 0)
 			throw new StepFailed("deadline", "The page run outlived its deadline.");
 		return left;
-	}
-
-	/**
-	 * Tells Python a phase starts or ends (announcePhase) and waits until it is
-	 * ready. What Python does there (a section's fork read, and every reader
-	 * served the state its save left) is the harness's own work between the
-	 * page's steps, never the page's, so the deadline moves on by the time it
-	 * took: the deadline stops a stuck page, never one whose harness observed
-	 * more between its sections.
-	 */
-	async announce(name, event) {
-		const started = Date.now();
-		try {
-			await announcePhase(name, event);
-		} finally {
-			this.deadline += Date.now() - started;
-		}
 	}
 
 	imageRequested(url) {
@@ -1512,7 +1576,7 @@ async function runView(message) {
 				"pages/save_state",
 				section.bar,
 			);
-			await served.announce(`section:${index}`, "start");
+			await announcePhase(served, `section:${index}`, "start");
 			served.phase = `section:${index}`;
 			await served.release(index, page);
 			if (served.redirected) {
@@ -1533,7 +1597,7 @@ async function runView(message) {
 			} while (after === null);
 			sections[index].after = after;
 			served.phase = `settled:${index}`;
-			await served.announce(`section:${index}`, "end");
+			await announcePhase(served, `section:${index}`, "end");
 		}
 		served.phase = "end";
 	} catch (error) {
@@ -1928,6 +1992,47 @@ class PageRun {
 		for (const waiter of [...this.waiters]) waiter();
 	}
 
+	record(entry) {
+		this.requests.push(entry);
+	}
+
+	/**
+	 * A request of the run's page that reached the origin past its route: the
+	 * one Chromium sends following an HTTP redirect HQ answered a request
+	 * with. It is HQ's to answer, as every request of the run is.
+	 */
+	async handle({ request, response, url, body }) {
+		const entry = { method: request.method, url: url.href };
+		this.requests.push(entry);
+		const handled = (async () => {
+			try {
+				const reply = await askHq({
+					method: request.method,
+					url: url.href,
+					headers: pageHeaders(request),
+					bodyBase64: body ? body.toString("base64") : null,
+					phase: "run",
+					forwarded: null,
+				});
+				entry.answeredBy = "hq";
+				entry.status = reply.status;
+				deliver(response, reply);
+			} catch (error) {
+				entry.answeredBy = "failed";
+				entry.error = String(error.message ?? error);
+				response.destroy();
+			}
+		})();
+		this.inFlight.add(handled);
+		try {
+			await handled;
+		} finally {
+			this.inFlight.delete(handled);
+			this.answered.push(entry);
+			this.notify();
+		}
+	}
+
 	/** Follows the page's requests in flight, through a DevTools session of the driver's own (PageRequests). */
 	async watch(context, page) {
 		this.page = page;
@@ -1968,6 +2073,19 @@ class PageRun {
 		const url = new URL(request.url());
 		const entry = { method: request.method(), url: request.url() };
 		this.requests.push(entry);
+		if (url.origin === FONTS_ORIGIN) {
+			const font = await webFont(url);
+			if (font) {
+				entry.answeredBy = "font";
+				entry.status = 200;
+				await route.fulfill({
+					status: 200,
+					contentType: font.contentType,
+					body: font.body,
+				});
+				return;
+			}
+		}
 		if (url.origin !== ORIGIN) {
 			entry.answeredBy = "refused";
 			await route.abort("blockedbyclient");
@@ -2008,7 +2126,11 @@ class PageRun {
 				const reply = await askHq({
 					method: request.method(),
 					url: request.url(),
-					headers: await request.allHeaders(),
+					headers: Object.fromEntries(
+						Object.entries(await request.allHeaders()).filter(
+							([name]) => name !== PAGE_HEADER,
+						),
+					),
 					bodyBase64: body ? body.toString("base64") : null,
 					phase: "run",
 					forwarded: null,
@@ -2468,6 +2590,37 @@ async function runSteps(page, run, steps) {
 				} finally {
 					await handle.dispose();
 				}
+			} else if (step.advance !== undefined) {
+				// A form shown one question a screen stepped forward as a person
+				// steps it: the step file presses the form's own Next ("next")
+				// until it answers otherwise, and after each press the page's
+				// answer to the request it sent ("answeredBy") and the page quiet
+				// are waited for before it is asked again. Its last answer is the
+				// outcome's value; any but true and those "passes" names ends the
+				// run where a missed wait does, with "orSkipTo".
+				outcome.advanced = 0;
+				for (;;) {
+					const from = run.answered.length;
+					const said = await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.advance) },
+						step.arg,
+						{ polling: "raf", timeoutMs: run.remaining() },
+					);
+					if (said !== "next") {
+						outcome.value = said;
+						break;
+					}
+					outcome.advanced += 1;
+					await run.awaitRequest(step.answeredBy, from);
+					await runQuiet(run, Boolean(step.timers));
+				}
+				lastMissed = outcome.value !== true;
+				const passes = step.passes ?? [true];
+				if (!passes.includes(outcome.value) && step.orSkipTo !== undefined) {
+					skipTo = step.orSkipTo;
+					missed = true;
+				}
 			} else if (step.click !== undefined) {
 				dialogsAtClick = run.dialogs.length;
 				const clicked = await pageValue(run.cdp, clickExpression(step.click));
@@ -2536,9 +2689,23 @@ async function runSteps(page, run, steps) {
 
 async function runOperation(message) {
 	const run = new PageRun(Date.now() + (message.deadlineMs ?? 60000));
+	runPages += 1;
+	const name = `run-${runPages}`;
+	const owner = {
+		name,
+		serving: run,
+		statics: { editors: 0, missing: 0 },
+		close: async () => {},
+	};
+	RUN_PAGES.set(name, owner);
 	const context = await browser.newContext({
 		baseURL: ORIGIN,
 		javaScriptEnabled: true,
+		// Every request the run's page sends names it (RUN_PAGES).
+		extraHTTPHeaders: { [PAGE_HEADER]: name },
+		// The window the run's pages are laid out in (a phone's, for what a
+		// worker sees on a small screen), or Playwright's own desktop window.
+		...(message.viewport ? { viewport: message.viewport } : {}),
 	});
 	const started = Date.now();
 	let outcomes = [];
@@ -2590,6 +2757,9 @@ async function runOperation(message) {
 	await context.close().catch(() => {});
 	trace(`closed; draining ${run.inFlight.size} requests`);
 	await run.drain();
+	// A request of the page that arrives once its run is over is a stray.
+	owner.serving = null;
+	RUN_PAGES.delete(name);
 	failure = withStrays(failure);
 	const result = {
 		outcomes,

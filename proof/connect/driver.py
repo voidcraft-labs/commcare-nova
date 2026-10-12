@@ -17,8 +17,10 @@ form is Connect's own code:
   reads its Connect blocks with ``opportunity/app_xml.py``, and
   ``app_xml.py::get_task_units_for_app``, whose task units become task types
   as Connect's manager pages make them. The one thing answered for it is the
-  download itself (``httpx.get`` to HQ's ``download_ccz``), with the archive
-  HQ built for that app; any other request it makes is refused.
+  download itself (``httpx.get`` to HQ's ``download_ccz``), with what HQ's own
+  archive view answered that very request over the app HQ released
+  (``proof/connect/conftest.py::served_download``); any other request it
+  makes is refused.
 - ``post`` sends one payload to Connect's form receiver through Connect's own
   URLconf, middleware, OAuth authentication and request transaction
   (``/api/receiver/``, ``form_receiver/views.py::FormReceiver``), as HQ's
@@ -179,14 +181,15 @@ class Scenario:
 
     def sync_step(self, step):
         """Connect's own reading of the opportunity's apps: its sync of learn modules and deliver units, and the
-        deliver app's task units made task types. ``step["ccz"]`` names the archive HQ built for each app id."""
+        deliver app's task units made task types. ``step["hq"]`` holds what HQ's own archive view answered each
+        download Connect makes (its path, query, status and the file holding the body)."""
         import httpx
         from commcare_connect.opportunity import app_xml
         from commcare_connect.opportunity.models import TaskType
         from commcare_connect.opportunity.tasks import sync_learn_modules_and_deliver_units
         from django.core.cache import cache
 
-        if "ccz" not in step:
+        if "hq" not in step:
             # Connect's own download, from its HQ server (``serve``: HQ's own view answers it).
             cache.delete(f"task_units_{self.opportunity.deliver_app.cc_app_id}")
             sync_learn_modules_and_deliver_units(self.opportunity)
@@ -197,31 +200,23 @@ class Scenario:
                     defaults={"name": unit.name, "description": unit.description or ""},
                 )
             return {}
-        archives = {app_id: Path(path).read_bytes() for app_id, path in step["ccz"].items()}
+        server = self.opportunity.deliver_app.hq_server.url
+        answers = [(f"{server}{held['path']}", held["query"], held["status"], held["body"]) for held in step["hq"]]
         asked = []
         real_get = httpx.get
 
         def hq_download(url, params=None, **kwargs):
-            app = next(
-                (
-                    app
-                    for app in (self.opportunity.learn_app, self.opportunity.deliver_app)
-                    if url == f"{app.hq_server.url}/a/{app.cc_domain}/apps/api/download_ccz/"
-                    and (params or {}).get("app_id") == app.cc_app_id
-                ),
-                None,
-            )
-            if app is None:
+            sent = {name: str(value) for name, value in (params or {}).items()}
+            answer = next((held for held in answers if held[0] == url and held[1] == sent), None)
+            if answer is None:
                 raise AssertionError(
-                    f"Connect's sync asked HQ for {url} with {params}, which is not the CCZ download of either of the"
-                    " opportunity's apps. The proof answers only that download, with the archive HQ built; look at"
-                    " what commcare_connect/opportunity/app_xml.py::get_form_xml_for_app asks for at the pin."
+                    f"Connect's sync asked HQ for {url} with {params}, which HQ's own archive view was not asked: the"
+                    f" proof answers each download with HQ's own answer to that very request ({answers!r}); look"
+                    " at what commcare_connect/opportunity/app_xml.py::get_form_xml_for_app asks for at the pin."
                 )
-            asked.append({"app": app.cc_app_id, "latest": (params or {}).get("latest")})
+            asked.append({"app": sent.get("app_id"), "latest": sent.get("latest")})
             request = httpx.Request("GET", url, params=params)
-            if app.cc_app_id not in archives:
-                return httpx.Response(404, request=request)
-            return httpx.Response(200, content=archives[app.cc_app_id], request=request)
+            return httpx.Response(answer[2], content=Path(answer[3]).read_bytes(), request=request)
 
         httpx.get = hq_download
         try:

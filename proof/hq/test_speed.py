@@ -7,7 +7,8 @@ failures: a template whose output depends on the loader that compiled it or on
 the engine's debug option, a cached template that keeps state from one render
 into the next, a manifest or YAML parse that differs from a fresh read, and a
 YAML structure shared between callers that mutate it (HQ's settings loaders
-pop and rewrite what they parse).
+pop and rewrite what they parse), and a stylesheet compile kept for one
+source given for another, or kept with rules other than HQ's compile's.
 
 Each page is rendered three times over one state under one operation key (so
 its CSRF token and clock are the same): with the seams, with HQ's DEBUG boot
@@ -234,3 +235,68 @@ def test_queries_are_logged_only_when_a_test_asks_for_them(hq, core_runner):
             assert [query["sql"] for query in captured.captured_queries] == ["select 1"]
         with speed.off():
             assert connection.queries_logged is True
+
+
+# The Web Apps page's own stylesheet block, as ``cloudcare/partials/web_apps_stylesheets.html`` writes it.
+WEB_APPS_SCSS = (
+    "{% load compress %}{% load hq_shared_tags %}{% compress css %}"
+    '<link type="text/scss" rel="stylesheet" media="all"'
+    " href=\"{% static 'cloudcare/scss/formplayer-common.scss' %}\" />"
+    "{% endcompress %}"
+)
+
+
+def _stylesheet(block):
+    """The block rendered as the Web Apps page renders it, and the compiled file it names as HQ's finders serve it."""
+    import lxml.html
+
+    from proof.webapps import static
+
+    with static.compiled():
+        with static.in_hq_root():
+            html = block.render({})
+        (href,) = lxml.html.fromstring(html).xpath("//link/@href")
+        served = static.serve(href)
+    assert served is not None and served.status == 200, href
+    # Its last line names the source map sass wrote beside it, a temporary file named afresh on every compile.
+    rules = [line for line in served.body.decode("utf-8").splitlines() if not line.startswith("/*# sourceMappingURL=")]
+    return static.unhashed(href), href, rules
+
+
+def test_a_compiled_stylesheet_is_served_whatever_was_served_before_it(hq):
+    """Contract: a page's compiled stylesheet is served by HQ's finders whichever block of the process first made
+    compressor's storage or the finders. Failure it catches: a static file served outside ``static.compiled`` (an
+    editor page's script) made the finder look in HQ's own root for the rest of the worker's life, so every Web Apps
+    page after it drew without HQ's stylesheets, as a worker's never does."""
+    from django.template import engines
+
+    from proof.webapps import static
+
+    held = static.serve("/static/nprogress/nprogress.css")
+    assert held is not None and held.status == 200
+    _, href, rules = _stylesheet(engines["django"].from_string(WEB_APPS_SCSS))
+    assert len(rules) > 10, href
+    # And a file outside the block is served from HQ's own finders again.
+    assert static.serve("/static/nprogress/nprogress.css").body == held.body
+
+
+def test_the_stylesheet_seam_compiles_each_source_once_and_as_hq_compiles_it(hq):
+    from corehq.apps.hqwebapp.precompilers import SassFilter
+    from django.template import engines
+
+    block = engines["django"].from_string(WEB_APPS_SCSS)
+    with speed.on():
+        memo = SassFilter.__dict__["input"]
+        assert isinstance(memo, speed.SassMemo)
+        hits = memo.hits
+        first = _stylesheet(block)
+        second = _stylesheet(block)
+        assert memo.hits > hits
+    with speed.off():
+        assert not isinstance(SassFilter.__dict__["input"], speed.SassMemo)
+        debug_boot = _stylesheet(block)
+    # The kept compile names the same file again, and holds HQ's own compile's rules.
+    assert first[1] == second[1]
+    assert first[0] == debug_boot[0]
+    assert first[2] == second[2] == debug_boot[2]
+    assert len(first[2]) > 10
