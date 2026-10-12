@@ -869,7 +869,9 @@ no worker could meet), which `proof/formplayer/test_end_of_form.py` runs on
 Formplayer and on Core (finding 58). `targeted-empty-list-no-english` is the
 Web Apps driver's: an app written in Spanish alone, whose empty-list message
 `proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
-module settings save (finding 41). The focused `stableWitnesses.test.ts` holds every emitted byte
+module settings save (finding 41), and whose second menu lists no case, so
+the lane's own walk of each state shows the client that message too and
+proof 4's records hold it (`webapps@module settings@*`). The focused `stableWitnesses.test.ts` holds every emitted byte
 to an emission after an unrelated document advances the fixture counter and
 changes that balance.
 

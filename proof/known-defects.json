@@ -6922,7 +6922,7 @@
 		"check": "proof4",
 		"artifact": "webapps@module settings@*",
 		"path": "/runs/*/screens/*/list/empty/html",
-		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
+		"document": "targeted-empty-list-no-english",
 		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
 	},
 	{
@@ -6932,7 +6932,7 @@
 		"check": "proof4",
 		"artifact": "webapps@module settings@*",
 		"path": "/runs/*/screens/*/list/empty/text",
-		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
+		"document": "targeted-empty-list-no-english",
 		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
 	},
 	{

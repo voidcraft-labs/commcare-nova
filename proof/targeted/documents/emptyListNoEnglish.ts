@@ -12,12 +12,20 @@
  * what a worker sees on an empty list before and after that save, under
  * the document's `maximum` configuration, which holds the flag.
  *
+ * A second menu, "Archivo", lists no client at all (its list's filter
+ * matches none), so the lane's own walk of every state it serves shows the
+ * Web Apps client an empty list: the document's records hold what the client
+ * draws there before and after the save (`webapps@module settings@*`), where
+ * they once showed it only on another document's sampled edit, which a
+ * change to the edit batches moved away.
+ *
  * Fixed values: Amina is the one client, and a list search for a name no
  * client has leaves the list empty.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
+import { matchNone } from "@/lib/domain/predicate";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 
@@ -54,6 +62,30 @@ export function emptyListNoEnglish() {
 								uuid: uuid("notes"),
 								id: "notes",
 								label: proseText("Notas"),
+							}),
+						],
+					},
+				],
+			},
+			{
+				uuid: uuid("archive-module"),
+				name: "Archivo",
+				caseType: "client",
+				caseListConfig: caseListOf(
+					[plainColumn(uuid("archive-name"), "case_name", "Nombre")],
+					{ filter: matchNone() },
+				),
+				forms: [
+					{
+						uuid: uuid("archive-form"),
+						name: "Baja",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("reason"),
+								id: "reason",
+								label: proseText("Motivo"),
 							}),
 						],
 					},
