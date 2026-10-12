@@ -390,19 +390,68 @@ def accepted_moves(differences, moves):
 
 
 def _evidence(directories):
-    """Each check's differences on each document (``proof.checks.cases.evidence``), by (check, kind, id)."""
+    """Each check's differences on each document (``proof.checks.cases.evidence``), by (check, kind, id), and each
+    problem reading them with the group it names."""
     records, problems = {}, []
     for directory in directories:
         for path in sorted(Path(directory, "checks").glob("*/*.json")):
             record = json.loads(path.read_text(encoding="utf-8"))
             key = (record["check"], record["kind"], record["document"])
             if key in records:
-                problems.append(f"Two runs wrote the evidence of {record['check']} on {record['document']} ({path}).")
+                problems.append(
+                    (
+                        f"Two runs wrote the evidence of {record['check']} on {record['document']} ({path}).",
+                        (f"{record['kind']}:{record['document']}",),
+                    )
+                )
             records.setdefault(key, []).extend(Difference(**difference) for difference in record["differences"])
     return records, problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset(), unrun_controls=frozenset(), readers=True):
+def held_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
+    """``verify_evidence``'s problems, each with the lane's groups a rerun of which shows it again: the document's
+    (``corpus:<id>``) where a check's differences on it do not hold or an entry was not seen on it, the control's
+    (``control:<id>``) where an entry's control did not run or no longer shows it; none where no one group does."""
+    entries = held_entries(entries, readers=readers)
+    records, problems = _evidence(directories)
+    if not records:
+        return [("No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run.", ())]
+    for (check, kind, document), differences in sorted(records.items()):
+        if kind == "corpus":
+            result = reconcile(check, document, differences, entries)
+            if not result.holds:
+                problems.append((result.explain(), (f"corpus:{document}",)))
+    for entry in entries:
+        shown = (entry.check, "corpus", entry.document) in records
+        if not shown and entry.document not in unsampled:
+            problems.append(
+                (
+                    f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, and no shard ran"
+                    f" {entry.check} on {entry.document}, so nothing shows the defect is still there.",
+                    (f"corpus:{entry.document}",),
+                )
+            )
+        on_control = records.get((entry.check, "control", entry.control))
+        if on_control is None:
+            problems.append(
+                (
+                    f"The known-defect entry {entry.id} retains its control {entry.control}, and no shard ran"
+                    f" {entry.check} on it, so nothing shows the check still sees the symptom there.",
+                    (f"control:{entry.control}",),
+                )
+            )
+        elif not any(entry.matches(replace(d, document=entry.document)) for d in on_control):
+            problems.append(
+                (
+                    f"The known-defect entry {entry.id}'s control {entry.control} no longer shows {entry.check}"
+                    f" {entry.artifact} {entry.path}{_kind(entry)}.",
+                    (f"control:{entry.control}",),
+                )
+            )
+    return problems
+
+
+def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -410,53 +459,14 @@ def verify_evidence(directories, entries, *, unsampled=frozenset(), unrun_contro
     registered class with every entry for that document needed
     (``reconcile``), and every entry was seen on its document and on its
     control, which fails when the check never ran on either. ``unsampled``
-    names the corpus documents a run did not run (left out of its sample, or
-    deferred to the nightly): an entry naming one is held on its control
-    alone. ``unrun_controls`` names the controls it deferred: an entry
-    naming one is held on its document alone, and one whose document and
-    control both did not run is held on neither (the caller names it). Without
+    names the corpus documents a run over a sample left out: an entry naming
+    one is held on its control alone, and none ran on its document. Without
     ``readers`` (a run that served no state to the readers) the served
     readers' entries are left out (``held_entries``): no check of that run
     could show one, and the nightly holds them.
     """
-    entries = held_entries(entries, readers=readers)
-    records, problems = _evidence(directories)
-    if not records and not (unsampled or unrun_controls):
-        return ["No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run."]
-    for (check, kind, document), differences in sorted(records.items()):
-        if kind == "corpus":
-            result = reconcile(check, document, differences, entries)
-            if not result.holds:
-                problems.append(result.explain())
-    for entry in entries:
-        if entry.control in unrun_controls:
-            if entry.document in unsampled:
-                continue
-            if (entry.check, "corpus", entry.document) not in records:
-                problems.append(
-                    f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, its control"
-                    f" {entry.control} did not run, and no shard ran {entry.check} on {entry.document}, so nothing"
-                    " shows the defect is still there."
-                )
-            continue
-        shown = (entry.check, "corpus", entry.document) in records
-        if not shown and entry.document not in unsampled:
-            problems.append(
-                f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, and no shard ran"
-                f" {entry.check} on {entry.document}, so nothing shows the defect is still there."
-            )
-        on_control = records.get((entry.check, "control", entry.control))
-        if on_control is None:
-            problems.append(
-                f"The known-defect entry {entry.id} retains its control {entry.control}, and no shard ran"
-                f" {entry.check} on it, so nothing shows the check still sees the symptom there."
-            )
-        elif not any(entry.matches(replace(d, document=entry.document)) for d in on_control):
-            problems.append(
-                f"The known-defect entry {entry.id}'s control {entry.control} no longer shows {entry.check}"
-                f" {entry.artifact} {entry.path}{_kind(entry)}."
-            )
-    return problems
+    found = held_evidence(directories, entries, unsampled=unsampled, readers=readers)
+    return [problem for problem, _ in found]
 
 
 def main(argv):

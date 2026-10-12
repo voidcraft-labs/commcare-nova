@@ -28,11 +28,6 @@ output. Four sections, each with its problems:
    (``proof.checks.registers.served_entry``) to the nightly and holds every
    other, and the section says how many it left; every shard must have run
    in the profile its queues were built for (``serve.json``'s ``readers``).
-   A pull request's queues may defer groups to the nightly (``deferred``,
-   ``proof.lane.plan``): a deferred document is held as an unsampled one is,
-   an entry whose control was deferred is held on its document alone, and
-   one whose document and control were both deferred is left to the nightly
-   and named.
 4. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
@@ -40,11 +35,12 @@ output. Four sections, each with its problems:
    so this is also what holds the extractor to the same bytes at the same
    pins (``proof/surface/test_extraction.py``).
 
-It prints each section, and every deferred group under a heading of its own
-("Deferred to the nightly"), so a reviewer sees what the nightly will cover;
-writes the whole as JSON to ``--summary`` when named, and appends it as
-Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. A deferred surface
-block leaves the surface section to the nightly. It
+It prints each section, writes the whole as JSON to ``--summary`` when named,
+and appends it as Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. The
+JSON names each group a problem is about (``failing``: the group, why, the
+items of it that failed and every item it holds), which the nightly's and the
+weekly's issue turn into the command that reruns that group alone
+(``proof.lane.report``). It
 exits 0 when every section holds, 1 when one does not, and 2 when its
 arguments cannot be read.
 """
@@ -132,12 +128,30 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     """The verdict over ``outputs`` (each shard's output directory) and ``queues`` (``(phase, Queue)`` pairs)."""
     verdict = sharding.verify(queues, outputs)
     sections = {"exactlyOnce": _section(verdict.problems, verdict.notes, blocks=len(verdict.chosen))}
+    # Each group a problem names, with why and the items it holds, for whoever reruns it (proof.lane.report).
+    by_group: dict[str, dict] = {}
+    collected: dict[str, list[str]] = {}
+
+    def fails(group: str, why: str) -> dict:
+        entry = by_group.setdefault(group, {"group": group, "why": [], "failed": []})
+        entry["why"].append(why)
+        return entry
+
+    for name, reasons in verdict.groups.items():
+        for why in reasons:
+            fails(name, why)
 
     failing, ran = [], 0
     for directory in verdict.chosen.values():
         record = json.loads((directory / lane_blocks.MANIFEST).read_text(encoding="utf-8"))
         ran += sum(len(group["outcomes"]) for group in record["groups"])
         failing += lane_blocks.failing_items(record)
+        for group in record["groups"]:
+            collected[group["group"]] = list(group["collected"])
+            failed = sorted(node for node, outcome in group["outcomes"].items() if outcome in lane_blocks.FAILING)
+            if failed:
+                why = f"{len(failed)} of its {len(group['outcomes'])} items failed"
+                fails(group["group"], why)["failed"] = failed
     sections["tests"] = _section(
         [f"{len(failing)} of the {ran} items run failed:"] + [f"  {item}" for item in failing[:50]] if failing else [],
         items=ran,
@@ -145,29 +159,19 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
 
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
-    deferred = sorted((entry for _, queue in queues for entry in queue.deferred), key=lambda entry: entry.group)
-    deferred_documents = frozenset(
-        entry.group[len("corpus:") :].partition("@")[0] for entry in deferred if entry.group.startswith("corpus:")
-    )
-    deferred_controls = frozenset(
-        entry.group[len("control:") :] for entry in deferred if entry.group.startswith("control:")
-    )
     readers, problems = _profile(queues, outputs)
     entries = registers.load_known_defects()
     records, read_problems = reader.cached_evidence(cached, store)
     problems += read_problems
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        problems += registers.verify_evidence(
-            directories,
-            entries,
-            unsampled=unsampled | deferred_documents,
-            unrun_controls=deferred_controls,
-            readers=readers,
-        )
+        for problem, groups in registers.held_evidence(directories, entries, unsampled=unsampled, readers=readers):
+            problems.append(problem)
+            for group in groups:
+                fails(group, problem)
     held = registers.held_entries(entries, readers=readers)
     left = len(entries) - len(held)
-    on_control_alone = sum(entry.document in unsampled and entry.control not in deferred_controls for entry in held)
+    on_control_alone = sum(entry.document in unsampled for entry in held)
     notes = []
     unnamed = [name for name in lane_readers.READERS if name not in readers]
     if not readers:
@@ -191,24 +195,6 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
             f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
             f" {len(held) - on_control_alone} were held on their documents and controls."
         )
-    # Entries a deferral moved off their documents or controls; an entry whose document did not run (deferred, or
-    # left out of a sample) and whose control was deferred is held on neither, and named for the nightly.
-    unrun = unsampled | deferred_documents
-    deferred_both = sorted(entry.id for entry in held if entry.document in unrun and entry.control in deferred_controls)
-    deferred_control_alone = sum(
-        entry.document in deferred_documents - unsampled and entry.control not in deferred_controls for entry in held
-    )
-    deferred_document_alone = sum(entry.control in deferred_controls and entry.document not in unrun for entry in held)
-    if deferred:
-        notes.append(
-            f"The pull request's planner deferred {len(deferred)} groups to the nightly so the lane ends within its"
-            f" bound ({len(deferred_documents)} documents, {len(deferred_controls)} controls,"
-            f" {len(deferred) - len(deferred_documents) - len(deferred_controls)} package groups; listed under"
-            f' "Deferred to the nightly"): {deferred_control_alone} entries naming a deferred document were held'
-            f" on their controls alone, {deferred_document_alone} naming a deferred control on their documents"
-            f" alone, and {len(deferred_both)} whose document and control were both deferred are left to the"
-            f" nightly{': ' + ', '.join(deferred_both) if deferred_both else ''}."
-        )
     sections["register"] = _section(
         problems,
         notes,
@@ -217,23 +203,15 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         heldOnControlAlone=on_control_alone,
         readers=lane_readers.to_record(readers),
         leftToNightly=left,
-        deferredHeldOnControlAlone=deferred_control_alone,
-        deferredHeldOnDocumentAlone=deferred_document_alone,
-        deferredLeftToNightly=deferred_both,
     )
 
-    if any(entry.group == SURFACE for entry in deferred):
-        sections["surface"] = _section(
-            [],
-            ["The surface block was deferred to the nightly, which compares its extraction with the committed one."],
-            verdict="deferred",
-        )
-    else:
-        sections["surface"] = _surface(queues, verdict, store, committed)
+    sections["surface"] = _surface(queues, verdict, store, committed)
+    for problem in sections["surface"]["problems"]:
+        fails(SURFACE, problem)
     return {
         "holds": all(section["holds"] for section in sections.values()),
         "sections": sections,
-        "deferred": [{"group": entry.group, "estimate": entry.estimate} for entry in deferred],
+        "failing": [{**entry, "items": collected.get(group, [])} for group, entry in sorted(by_group.items())],
     }
 
 
@@ -274,28 +252,12 @@ TITLES = {
 }
 
 
-def _deferred_lines(result: dict) -> list[str]:
-    """Each group the planner deferred, with its estimate, for the heading a reviewer reads them under."""
-    return [f"{entry['group']} ({entry['estimate']:g} box-seconds)" for entry in result.get("deferred", [])]
-
-
 def _markdown(result: dict) -> str:
     lines = ["## Proof lane", ""]
     for key, section in result["sections"].items():
         lines.append(f"- {'Holds' if section['holds'] else 'Fails'}: {TITLES[key]}")
         lines += [f"  - Note: {line.strip()}" for line in section["notes"][:20]]
         lines += [f"  - {line.strip()}" for line in section["problems"][:20]]
-    deferred = _deferred_lines(result)
-    if deferred:
-        lines += [
-            "",
-            "### Deferred to the nightly",
-            "",
-            f"This pull request's lane left these {len(deferred)} groups to the nightly so it ends within ten"
-            " minutes; the nightly observes every group main's store lacks.",
-            "",
-        ]
-        lines += [f"- {line}" for line in deferred]
     return "\n".join(lines) + "\n"
 
 
@@ -342,11 +304,6 @@ def main(argv=None) -> int:
             print(f"  note: {note}")
         for problem in section["problems"]:
             print(f"  {problem}")
-    deferred = _deferred_lines(result)
-    if deferred:
-        print(f"Deferred to the nightly ({len(deferred)} groups):")
-        for line in deferred:
-            print(f"  {line}")
     if arguments.summary is not None:
         lane_blocks.write_json(arguments.summary, result)
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")

@@ -49,9 +49,8 @@ the queues: every queued block ran exactly once (a block two shards ran
 fails, whatever they wrote: a run that reads its records from the evidence
 store writes what any other run of it writes, so two alike show only that a
 claim did not hold), every group of a block ran every item its worker
-collected for it, cached and deferred groups ran nowhere, no block ran that
-no queue holds, and every shard that collected a phase collected the same
-items.
+collected for it, cached groups ran nowhere, no block ran that no queue
+holds, and every shard that collected a phase collected the same items.
 """
 
 from __future__ import annotations
@@ -101,8 +100,8 @@ def parse_shard(value: str, variable: str):
 # are groups of their own too (its other tests are the module's group): what one package's tests cost on one
 # worker, measured at a CI shard's density (proof/timings.json), would otherwise bound the pull request lane's
 # shard that runs it. Each package's group, module and test here stays within about 240 seconds at that density
-# (proof/README.md, "Timings and the ten-minute bound"): proof/editors took 701 seconds whole, proof/lane 470,
-# proof/checks 375 and proof/hq 260.
+# (proof/README.md, "Timings and what the lane is expected to take"): proof/editors took 701 seconds whole,
+# proof/lane 470, proof/checks 375 and proof/hq 260.
 SPLIT: dict[str, tuple[str, ...]] = {
     "checks/test_alignment.py": (),
     "checks/test_judge_purity.py": (),
@@ -290,6 +289,8 @@ class Verdict:
     notes: list[str] = field(default_factory=list)
     # Each block's run that counts: the directory of its first run.
     chosen: dict[str, Path] = field(default_factory=dict)
+    # Why each group a problem names did not run whole, once: what a rerun of that group would settle.
+    groups: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _shown(names, limit=5):
@@ -298,7 +299,7 @@ def _shown(names, limit=5):
     return shown + (f" and {len(names) - limit} more" if len(names) > limit else "")
 
 
-def _verify_run(block, record, where, problems):
+def _verify_run(block, record, where, problems, groups):
     expected = {group.group: group.fresh for group in block.groups}
     ran = {group["group"]: group for group in record["groups"]}
     if set(ran) != set(expected):
@@ -306,21 +307,30 @@ def _verify_run(block, record, where, problems):
             f"{where} ran block {block.id} with the groups {_shown(ran)}, and the queue's block holds"
             f" {_shown(expected)}."
         )
+        for name in sorted(set(expected) - set(ran)):
+            groups.setdefault(name, []).append("the shard that ran its block did not run it")
     for name, group in sorted(ran.items()):
+
+        def named(problem, why, name=name):
+            problems.append(problem)
+            groups.setdefault(name, []).append(why)
+
         if name in expected and group["fresh"] != expected[name]:
             problems.append(f"{where} ran {name} with fresh {group['fresh']}, and the queue asks {expected[name]}.")
         if group["failure"]:
-            problems.append(f"{where}: {name} did not finish: {group['failure']}")
+            named(f"{where}: {name} did not finish: {group['failure']}", f"it did not finish: {group['failure']}")
         collected, ran_items = set(group["collected"]), set(group["outcomes"])
         if not collected:
-            problems.append(
+            named(
                 f"{where}: its worker collected no item of {name}, so nothing of it ran; the queue names a group"
-                " this lane's tests do not hold."
+                " this lane's tests do not hold.",
+                "its worker collected no item of it",
             )
         if collected - ran_items:
-            problems.append(
+            named(
                 f"{where}: {name} left {len(collected - ran_items)} of its {len(collected)} collected items unrun"
-                f" ({_shown(collected - ran_items, 3)})."
+                f" ({_shown(collected - ran_items, 3)}).",
+                f"{len(collected - ran_items)} of its {len(collected)} collected items did not run",
             )
         if ran_items - collected:
             problems.append(
@@ -335,7 +345,6 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
     queued: dict[str, tuple[str, lane_blocks.Block]] = {}
     group_phase: dict[str, str] = {}
     cached: set[str] = set()
-    deferred: set[str] = set()
     for phase, queue in queues:
         for block in queue.blocks:
             if block.id in queued:
@@ -348,14 +357,9 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
                 group_phase[name] = phase
         for entry in queue.cached:
             cached.add(entry.group)
-        for entry in queue.deferred:
-            deferred.add(entry.group)
     both = sorted(cached & set(group_phase))
     if both:
         problems.append(f"The queues both run and read from the store {_shown(both)}.")
-    both = sorted(deferred & (cached | set(group_phase)))
-    if both:
-        problems.append(f"The queues both defer to the nightly and run or read {_shown(both)}.")
 
     runs: dict[str, list[tuple[Path, Path, dict]]] = {}
     phases: dict[str, dict[str, list[str]]] = {}
@@ -382,9 +386,6 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
             ran_cached = sorted(cached & {group["group"] for group in record["groups"]})
             if ran_cached:
                 problems.append(f"{directory} ran {_shown(ran_cached)}, which the queues read from the store.")
-            ran_deferred = sorted(deferred & {group["group"] for group in record["groups"]})
-            if ran_deferred:
-                problems.append(f"{directory} ran {_shown(ran_deferred)}, which the queues defer to the nightly.")
     for phase, digests in sorted(phases.items()):
         if len(digests) > 1:
             problems.append(
@@ -405,9 +406,11 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
                 f"No shard's output holds block {identifier} of the {phase} queue ({_shown(block.names, 4)}): no"
                 " shard claimed it, or the shard that did never finished."
             )
+            for name in block.names:
+                verdict.groups.setdefault(name, []).append("no shard's output holds its block")
             continue
         for _, directory, record in ran:
-            _verify_run(block, record, str(directory), problems)
+            _verify_run(block, record, str(directory), problems, verdict.groups)
         if len(ran) > 1:
             views = [lane_blocks.comparable(directory, record) for _, directory, record in ran]
             differing = sorted(name for name in set().union(*views) if len({view.get(name) for view in views}) > 1)

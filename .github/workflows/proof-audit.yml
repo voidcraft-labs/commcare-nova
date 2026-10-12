@@ -19,7 +19,9 @@ name: Proof audit
 # every group whose key changed since the last snapshot is observed. Both are
 # merged over main's snapshot into its newest (proof-store-save.yml, `base`),
 # which every pull request reads, and older snapshots of the image are
-# deleted. A scheduled night that fails in either profile opens an issue.
+# deleted. A scheduled night that fails in either profile opens an issue
+# that names each failing group and the command that reruns it alone
+# (python3 -m proof.lane.report).
 #
 # Weekly, on main: the fresh audit, what proves the store's keys. The whole
 # lane runs fresh with every reader (every group, nothing shared between
@@ -36,7 +38,7 @@ name: Proof audit
 # nothing but the masked values; and HQ's speed seams off (the XPath
 # validator server, the settings memo, the cached templates), compared with
 # it, which must change nothing. Each must hold, and a scheduled week that
-# fails opens an issue.
+# fails opens an issue, written as a failed night's is.
 #
 # Every lane that runs the readers sizes its shards from its queue's measured
 # cost (python3 -m proof.lane.plan size: no shard expected past two and a half
@@ -145,7 +147,10 @@ jobs:
               gh cache delete --repo "$GITHUB_REPOSITORY" "$key"
             done
 
-  # A scheduled night that fails, in either profile, says so where it is seen.
+  # A scheduled night that fails, in either profile, says so where it is seen:
+  # an issue naming each lane's failing groups, why, and the command that
+  # reruns each one alone at this commit (python3 -m proof.lane.report), so
+  # whoever fixes it reruns the smallest slice and not the night.
   report:
     name: Report a failed night
     needs: [nightly, nightly-no-readers, save]
@@ -153,15 +158,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read
       issues: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - name: Download the lanes' verdicts
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-lane-verdict-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verdicts
       - env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          lanes=()
+          for label in audit audit-no-readers; do
+            lanes+=(--lane "$label=$RUNNER_TEMP/verdicts/proof-lane-verdict-$label-$GITHUB_RUN_ATTEMPT/verdict/verdict.json")
+          done
+          python3 -m proof.lane.report --kind nightly --run "$RUN_URL" --commit "$GITHUB_SHA" "${lanes[@]}" \
+            --out "$RUNNER_TEMP/issue.md"
           gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "The proof lane's nightly run failed" \
-            --body "The nightly ran the proof lane over main, with every reader and without them, observing every group whose key changed since main's last snapshot, and it did not hold: a lane failed, or main's store could not be saved. The lane with every reader is the only one that runs Formplayer, the Web Apps client, CommCare Android and Connect, so a failure there is one no pull request's lane showed. The run: $RUN_URL"
+            --title "The proof lane's nightly run failed" --body-file "$RUNNER_TEMP/issue.md"
 
   weekly-baseline:
     name: Weekly baseline
@@ -283,7 +303,8 @@ jobs:
             exit 1
           fi
 
-  # A scheduled week that fails says so where it is seen.
+  # A scheduled week that fails says so where it is seen, as a failed night
+  # does: each lane's failing groups and the command that reruns each alone.
   weekly-report:
     name: Report a failed week
     needs: [weekly-compare, weekly-no-readers, weekly-save]
@@ -291,12 +312,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read
       issues: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - name: Download the lanes' verdicts
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-lane-verdict-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verdicts
       - env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          lanes=()
+          for label in weekly-verified weekly-no-readers weekly-baseline weekly-unseeded weekly-unseamed; do
+            lanes+=(--lane "$label=$RUNNER_TEMP/verdicts/proof-lane-verdict-$label-$GITHUB_RUN_ATTEMPT/verdict/verdict.json")
+          done
+          python3 -m proof.lane.report --kind weekly --run "$RUN_URL" --commit "$GITHUB_SHA" "${lanes[@]}" \
+            --out "$RUNNER_TEMP/issue.md"
           gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "The proof lane's weekly audit failed" \
-            --body "The weekly fresh audit recomputed the proof lane whole, with every reader and without them, and with its sampled comparisons it did not hold: a stored record differs from the fresh one (a key that missed an input; the run uploads both), a fresh lane or a comparison failed, or main's store could not be saved. The run: $RUN_URL"
+            --title "The proof lane's weekly audit failed" --body-file "$RUNNER_TEMP/issue.md"
