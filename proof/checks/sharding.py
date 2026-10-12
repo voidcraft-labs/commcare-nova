@@ -105,6 +105,7 @@ def parse_shard(value: str, variable: str):
 # proof/checks 375 and proof/hq 260.
 SPLIT: dict[str, tuple[str, ...]] = {
     "checks/test_alignment.py": (),
+    "checks/test_judge_purity.py": (),
     "checks/test_proof4_editability.py": (),
     "editors/test_pages.py": (),
     "editors/test_reused_pages.py": (),

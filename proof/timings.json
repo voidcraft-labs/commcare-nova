@@ -477,6 +477,7 @@
 				"runner": "ubuntu-24.04",
 				"workers": 4,
 				"bound": 600,
+				"margin": 60,
 				"slots": [
 					125,
 					125,
@@ -499,7 +500,7 @@
 				],
 				"fixed": 146,
 				"gate": 45,
-				"basis": "execution.shards: the most shards python3 -m proof.lane.plan fit plans the pull request lane to, and its count where a dispatch asks for the default; execution.slots: when each runner the account's twenty-job limit leaves for a shard frees, in seconds after the workflow starts, from pull request run 38081646423's jobs, none earlier than the plan, which waits for quality's main queue; execution.fixed: what each shard spends beside its blocks, the pull and setup (75), the lane's start and collection (20), each worker's own Elasticsearch and its first build's wait on the shard's one validation Formplayer (45, 11 less than when each worker started its own, measured on four vCPUs) and the upload (6); execution.gate: the gate job after the last shard; execution.bound: the seconds the workflow has, which the plan holds every pull request's lane to by deferring what does not fit."
+				"basis": "execution.shards: the most shards python3 -m proof.lane.plan fit plans the pull request lane to, and its count where a dispatch asks for the default; execution.slots: when each runner the account's twenty-job limit leaves for a shard frees, in seconds after the workflow starts, from pull request run 38081646423's jobs, none earlier than the plan, which waits for quality's main queue; execution.fixed: what each shard spends beside its blocks, the pull and setup (75), the lane's start and collection (20), each worker's own Elasticsearch and its first build's wait on the shard's one validation Formplayer (45, 11 less than when each worker started its own, measured on four vCPUs) and the upload (6); execution.gate: the gate job after the last shard; execution.bound: the seconds the workflow has, which the plan holds every pull request's lane to by deferring what does not fit; execution.margin: the seconds of it the plan leaves unplanned against runner variance, so it plans to 540."
 			},
 			"measured": {
 				"at": "2026-10-12",
@@ -940,8 +941,9 @@
 				"corpus:xpath-context": 1.382,
 				"proof": 0.129,
 				"proof/android": 0.166,
-				"proof/checks": 59.587,
+				"proof/checks": 46.2,
 				"proof/checks/test_alignment.py": 0.323,
+				"proof/checks/test_judge_purity.py": 13.275,
 				"proof/checks/test_proof4_editability.py": 34.417,
 				"proof/core": 6.061,
 				"proof/corpus": 0.576,

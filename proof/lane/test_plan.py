@@ -2,14 +2,14 @@
 
 Contracts (``proof.lane.plan``): a lane with the readers takes the fewest shards over which no shard is expected
 past its budget, each with twice its expected work as a deadline, and a group that alone would run past the budget
-fails the plan by name. A pull request's lane takes the fewest shards with which it ends within the bound, every
-shard charged the latest start of the slots its count uses; where no count holds every group, it defers groups,
-documents and packages alike, until it does, keeping the most work any count can hold, and which groups it defers
-follows the seed (the head commit), so every group that can run is run on some push. The queues it rewrites hold
-every group once: run in a block whose id and estimate follow its groups, read from the store, or deferred with
-its estimate. The plausible failures: a plan whose lane runs past its bound, a lane deferred though it fits, the
-same groups deferred on every push, a deferral that keeps less than a count could, and a rewritten queue that loses
-a group or a block whose id no longer names its groups.
+fails the plan by name. A pull request's lane takes the fewest shards with which it ends within its bound less a
+margin held against runner variance, every shard charged the latest start of the slots its count uses; where no
+count holds every group, it defers groups, documents and packages alike, until it does, keeping the most work any
+count can hold, and which groups it defers follows the seed (the head commit), so every group that can run is run
+on some push. The queues it rewrites hold every group once: run in a block whose id and estimate follow its
+groups, read from the store, or deferred with its estimate. The plausible failures: a plan whose lane runs past
+its target, a lane deferred though it fits, the same groups deferred on every push, a deferral that keeps less
+than a count could, and a rewritten queue that loses a group or a block whose id no longer names its groups.
 """
 
 from __future__ import annotations
@@ -120,6 +120,16 @@ def test_the_rewritten_queues_hold_every_group_once_with_blocks_named_by_what_th
     assert accounted == set(lane.groups()) | {"corpus:stored"}
 
 
+def test_the_margin_is_left_unplanned_so_the_lane_ends_before_its_bound():
+    # Sixty seconds of margin: forty documents no longer fit on eight shards (each holds 90, not 150).
+    margined = plan.Execution(**{**EXECUTION.__dict__, "margin": 60.0})
+    assert margined.target == 540.0 and margined.capacity(8) == 90.0
+    lane = _lane(_queue(), _documents(40))
+    deferred = plan.deferral(lane, margined, "head")
+    assert deferred and plan.fitted(lane.without(deferred), margined)[1] <= 540.0
+    assert plan.deferral(lane, EXECUTION, "head") == set()
+
+
 def test_a_lane_with_the_readers_is_sized_to_its_budget_and_refuses_a_group_past_it():
     lane = _lane(_queue([("proof/core", 100.0)]), _documents(100, 90.0))
     sized = plan.size(lane, workers=4, budget=3600.0)
@@ -149,7 +159,8 @@ def test_the_command_rewrites_both_queues_in_place_and_prints_the_plan(tmp_path,
     arguments = ["fit", "--early", str(early), "--main", str(main), "--seed", "head", "--timings", str(timings)]
     assert plan.main(arguments) == 0
     printed = json.loads(capsys.readouterr().out)
-    assert printed["fits"] is True and printed["ends"] <= 600 and len(printed["deferred"]) == 9
+    assert printed["fits"] is True and printed["ends"] <= printed["target"] == 600
+    assert len(printed["deferred"]) == 9
     written = lane_blocks.load_queue(main).deferred + lane_blocks.load_queue(early).deferred
     assert sorted(entry.group for entry in written) == printed["deferred"]
     # Without a main queue (a failed emission) the early queue alone is planned.

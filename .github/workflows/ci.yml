@@ -709,11 +709,10 @@ jobs:
     name: Proof ${{ matrix.shard }}/${{ matrix.total }}
     needs: proof-plan
     runs-on: ${{ matrix.runner }}
-    # A shard of a pull request whose changes leave most groups in main's
-    # store ends in minutes; one of the whole lane observed afresh takes
-    # about ten, its longest group about four on one worker
-    # (proof/README.md, "Timings and the ten-minute bound"). The deadline
-    # stops only a stuck shard.
+    # The plan gives each shard what ends within the lane's ten minutes, at
+    # most about six of them from the shard's start (proof/README.md,
+    # "Timings and the ten-minute bound"). The deadline stops only a stuck
+    # shard.
     timeout-minutes: 20
     strategy:
       fail-fast: false

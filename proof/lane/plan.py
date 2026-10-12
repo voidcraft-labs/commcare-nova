@@ -19,18 +19,20 @@ given a deadline of twice its expected work. A group that alone is expected
 past the budget fails the plan, naming it.
 
 ``fit`` is the pull request lane, whose bound is a guarantee: the workflow
-ends within the profile's ``execution.bound`` of its start. A lane of N
-shards is expected to end when its N-th runner frees (``execution.slots``,
-measured, sorted; every shard is assumed to start that late, since the
-account's job limit starts them in no fixed order), plus each shard's fixed
-cost (``execution.fixed``), its longest span, and the gate
+ends within the profile's ``execution.bound`` of its start. It plans to the
+bound less ``execution.margin``, held against runner variance (its target).
+A lane of N shards is expected to end when its N-th runner frees
+(``execution.slots``, measured, sorted; every shard is charged that late
+start, since the account's job limit starts them in no fixed order), plus
+each shard's fixed cost (``execution.fixed``), its longest span, and the gate
 (``execution.gate``). It takes the fewest shards, up to
-``execution.shards``, with which the queues end within the bound. Where no
-count holds them all, it keeps groups in the order of the sha256 of the seed
-(the pull request's head commit) and each group's name, each kept while some
-count still ends within the bound, and defers the rest to the nightly,
-documents and package groups alike: each push defers another subset, so no
-document goes unchecked on every pull request. It rewrites both queues in
+``execution.shards``, with which the queues end within the target. Where no
+count holds them all, it defers groups to the nightly, documents and package
+groups alike (``deferral``): for each count it keeps groups in the order of
+the sha256 of the seed (the pull request's head commit) and each group's
+name while that count still ends within the target, and takes the count
+that keeps the most work, so each push defers another subset of the groups a
+shard can hold. It rewrites both queues in
 place: a deferred group leaves its block (whose id and estimate follow its
 remaining groups) for the queue's ``deferred``, which the server accounts
 for and the gate reads (``proof.lane.gate``). It prints the plan as JSON:
@@ -166,6 +168,8 @@ class Execution:
     slots: tuple[float, ...]
     fixed: float
     gate: float
+    # Seconds of the bound the plan leaves unplanned, against runner variance.
+    margin: float = 0.0
 
     @classmethod
     def of(cls, value: Mapping) -> Execution:
@@ -177,6 +181,7 @@ class Execution:
                 tuple(sorted(float(slot) for slot in value["slots"])),
                 float(value["fixed"]),
                 float(value["gate"]),
+                float(value.get("margin", 0.0)),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise PlanError(
@@ -191,9 +196,14 @@ class Execution:
         """When the last of ``count`` shards is expected to start: the ``count``-th slot, or the last measured."""
         return self.slots[min(count, len(self.slots)) - 1]
 
+    @property
+    def target(self) -> float:
+        """When the plan has the lane end: the bound less the margin."""
+        return self.bound - self.margin
+
     def capacity(self, count: int) -> float:
-        """The seconds each of ``count`` shards may run within the bound."""
-        return self.bound - self.start(count) - self.fixed - self.gate
+        """The seconds each of ``count`` shards may run within the target."""
+        return self.target - self.start(count) - self.fixed - self.gate
 
 
 def ends(lane: Lane, count: int, execution: Execution) -> float:
@@ -201,11 +211,11 @@ def ends(lane: Lane, count: int, execution: Execution) -> float:
 
 
 def fitted(lane: Lane, execution: Execution) -> tuple[int, float]:
-    """The fewest shards with which the lane ends within the bound, and when; else the count that ends soonest."""
+    """The fewest shards with which the lane ends within the target, and when; else the count that ends soonest."""
     best = None
     for count in range(1, execution.shards + 1):
         end = ends(lane, count, execution)
-        if end <= execution.bound:
+        if end <= execution.target:
             return count, end
         if best is None or end < best[1]:
             best = (count, end)
@@ -260,12 +270,12 @@ def priority(seed: str, name: str) -> str:
 
 
 def deferral(lane: Lane, execution: Execution, seed: str) -> set[str]:
-    """The groups the lane leaves to the nightly to end within the bound; none where it ends within it whole.
+    """The groups the lane leaves to the nightly to end within the target; none where it ends within it whole.
 
     For each count of shards, the groups are kept in their order (``priority``) while that count still ends
-    within the bound; the count that keeps the most work is taken, so how much is deferred follows from the
+    within the target; the count that keeps the most work is taken, so how much is deferred follows from the
     lane's measures and only which groups from the seed."""
-    if fitted(lane, execution)[1] <= execution.bound:
+    if fitted(lane, execution)[1] <= execution.target:
         return set()
     order = sorted(lane.groups(), key=lambda group: priority(seed, group))
     best: tuple[float, int, set[str]] | None = None
@@ -282,8 +292,8 @@ def deferral(lane: Lane, execution: Execution, seed: str) -> set[str]:
             best = (kept.total, count, deferred)
     if best is None:
         raise PlanError(
-            "No count of shards leaves a shard any time within the bound (proof/timings.json's no-readers"
-            " execution: its slots, fixed and gate pass its bound), so nothing can run."
+            "No count of shards leaves a shard any time within the target (proof/timings.json's no-readers"
+            " execution: its slots, fixed, gate and margin pass its bound), so nothing can run."
         )
     return best[2]
 
@@ -376,7 +386,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 {
                     "shards": count,
                     "ends": round(end, 3),
-                    "fits": end <= execution.bound,
+                    "target": execution.target,
+                    "fits": end <= execution.target,
                     "deferred": sorted(deferred),
                     "deferredSeconds": round(sum(seconds[name] for name in deferred), 3),
                 }

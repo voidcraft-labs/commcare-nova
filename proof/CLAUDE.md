@@ -205,48 +205,55 @@ harness keeps, each with its reason.
   `xpathParse`, `xpathStrings`, `xpathSame`), HQ's (eulxml, js-xpath), or
   `proof/rules/_xpath.py`, the port of Core's lexer that its test holds to
   Core. The surface extractor matches no source text by pattern either.
-- **CI ends within ten minutes; what cannot fit runs nightly.** The pull
-  request lane runs without the readers (`proof/README.md`, "The lane in CI"
-  and "Timings and the ten-minute bound"). The lane with every reader costs
-  about 300 worker-hours whole, against GitHub's free plan of twenty jobs at
-  once and six hours a job, so each night runs it against main's store (what
-  changed since the last snapshot) and each week runs it whole and fresh (the
-  run that proves the store's keys), each sizing its shards from its queue to
-  stay within two and a half hours a shard and fourteen at once; a scheduled
-  failure of either opens an issue. The two
-  profiles are one lane: nothing loosens between them, every check that runs
-  holds exactly as it does nightly, the gate leaves only the served readers'
-  register entries to the nightly, and every key the store keeps names its
-  profile. So a change to Nova's emission or to what a reader observes
+- **Three lanes, and ten minutes is a guarantee.** (`proof/README.md`,
+  "The lane in CI".)
+  - **Pull request** (`ci.yml`): the lane without the readers
+    (`PROOF_READERS=0`), planned by `python3 -m proof.lane.plan fit` to end
+    within ten minutes of the workflow's start (to 540 s, a 60 s margin held
+    against runner variance) from `proof/timings.json`'s measured slots and
+    costs. What does not fit is deferred to the nightly, documents and
+    package groups alike, chosen by the head commit; the planned queues name
+    the deferred groups, the gate holds the register over what ran (an entry
+    whose document or control was deferred is held on the other, one with
+    both deferred named for the nightly) and lists every deferred group under
+    "Deferred to the nightly". A deferral never loosens a check: it moves
+    where a group runs, never what it holds.
+  - **Nightly** (`proof-audit.yml`): both profiles over main against main's
+    store, so every group main's store lacks is observed, every group a
+    merged pull request deferred among them, and the two are merged into the
+    snapshot every pull request reads.
+  - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
+    that proves the store's keys and replaces the snapshot, beside the
+    sampled comparisons.
+  The lane with every reader costs about 300 worker-hours whole, against
+  GitHub's free plan of twenty jobs at once and six hours a job, so each
+  lane with the readers sizes its shards from its queue
+  (`python3 -m proof.lane.plan size`: within two and a half hours a shard,
+  fourteen at once); a scheduled night or week that fails opens an issue.
+  The two profiles are one lane: nothing loosens between them, every check
+  that runs holds exactly as it does nightly, the gate leaves only the
+  served readers' register entries to the nightly, and every key the store
+  keeps names its profile. The nightly is the backstop, never the first run:
+  a change to Nova's emission or to what a reader observes
   (`proof/formplayer`, `proof/webapps`, `proof/android`, `proof/connect`,
   `proof/observe/served.py`, a reader's judge or register entry, a pin) is
   proven by running that reader's slice with the readers on a proof machine
   before it is pushed (`proof/README.md`, "Proving a reader change before you
-  push"), the nightly the backstop, never the first run. A test that starts a
-  served reader is marked `reader`, by its fixture or by hand, and the
-  readers-off run refuses one left unmarked. Every hosted job has four vCPUs,
-  so optimize the work, never the parallelism: measure a change in CPU-seconds
-  (the harness's and Postgres's container cgroups) and wall time with the
-  worker count, per document, per check, per group and per job's fixed cost.
-  The pull request lane's shard count is set from such measures to end inside
-  the bound; never buy speed with more workers or processes than a four-vCPU
-  job serves, and never with a seam that computes something HQ would not.
-- **Ten minutes is a guarantee: what a pull request's lane cannot fit is
-  deferred to the nightly.** `python3 -m proof.lane.plan fit` plans the lane
-  to the bound from `proof/timings.json`'s measured slots and costs and
-  defers the groups that do not fit, documents and package groups alike,
-  chosen by the head commit; the planned queues name them, the gate holds
-  the register over what ran (an entry whose document or control was
-  deferred on the other, one with both deferred named for the nightly) and
-  lists every deferred group under "Deferred to the nightly"
-  (`proof/README.md`, "Deferred to the nightly"). The nightly is the
-  backstop, never the first run: an agent whose change defers groups (the
-  gate's list, or `python3 -m proof.lane.plan fit` over the change's queues)
-  runs those groups on a proof machine before it pushes (`npm run proof`,
+  push"), and an agent whose change defers groups (the gate's list, or
+  `python3 -m proof.lane.plan fit` over the change's queues) runs those
+  groups on a proof machine before it pushes (`npm run proof` or
   `proof/remote/run.sh`, with `PROOF_READERS=0` and a `-k` of the deferred
-  documents, or the deferred package groups' paths), and says in the pull
-  request that they held. A deferral never loosens a check: it moves where a
-  group runs, never what it holds.
+  documents or the deferred package groups' paths) and says in the pull
+  request that they held. A test that starts a served reader is marked
+  `reader`, by its fixture or by hand, and the readers-off run refuses one
+  left unmarked. Every hosted job has four vCPUs, so optimize the work, never
+  the parallelism: measure a change in CPU-seconds (the harness's and
+  Postgres's container cgroups) and wall time with the worker count, per
+  document, per check, per group and per job's fixed cost, and refresh
+  `proof/timings.json` from such a run (`node proof/run.mjs --timings`), which
+  every plan reads; never buy speed with more workers or processes than a
+  four-vCPU job serves, and never with a seam that computes something HQ
+  would not.
 - **Android runs beside HQ's live unit, and HQ answers its network with its
   own views.** A claim about what a device does is observed on
   commcare-android's own classes (`proof/android`, Robolectric, one JVM and
