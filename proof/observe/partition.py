@@ -15,6 +15,18 @@ observation is handed and calls (``Captured.upload``, ``Export``,
 (``proof.observe.builds``, through the comparators); and the shard parsing
 ``proof/hq/database.py`` names its databases by.
 
+A pytest test module (``test_*.py``, ``proof/pytest.ini``'s ``python_files``;
+never a ``conftest.py`` or a helper) is in no directory's share of it: a test
+calls the observation and is no part of it, so an edit to one observes no
+document again. That is exact while nothing the observation imports is a test
+module, which ``test_judge_purity`` holds over the same closure
+(``imported_by``), and the read guard refuses a test module's file to an open
+observation as it refuses any file outside the partition
+(``proof.store.guard``). A test module's items run in its package's group,
+whose key names every file of the harness; the one whose items run in
+documents' groups, HQ's branch proof, is the judge's
+(``proof.store.fingerprints.DOCUMENT_GROUP_TESTS``).
+
 Standard library only, so the lane's queue builder can read it without the
 image.
 """
@@ -61,10 +73,18 @@ OBSERVATION_FILES = frozenset(
 OBSERVATION_ROOTS = ("proof.observe.*", "proof.checks.corpus", "proof.conftest")
 
 
+def is_test_module(path) -> bool:
+    """Whether a repository-relative path is a pytest test module, as ``proof/pytest.ini`` names them."""
+    name = PurePosixPath(path).name
+    return name.startswith("test_") and name.endswith(".py")
+
+
 def observes(path) -> bool:
     """Whether a repository-relative path is in the observation partition."""
     path = PurePosixPath(path).as_posix()
     if any(path.startswith(excluded) for excluded in OBSERVATION_EXCLUDED):
+        return False
+    if is_test_module(path):
         return False
     return path in OBSERVATION_FILES or any(path.startswith(directory) for directory in OBSERVATION_DIRECTORIES)
 
@@ -110,17 +130,18 @@ def _roots(root, roots):
             yield name
 
 
-def import_closure(roots=OBSERVATION_ROOTS, root=WORKTREE):
-    """The repository-relative files of every ``proof`` module the roots may import, transitively.
+def imported_by(roots=OBSERVATION_ROOTS, root=WORKTREE):
+    """The repository-relative file of every ``proof`` module the roots may import, transitively, each with the
+    file that first led to it (None for a root).
 
     Every import statement counts, at module level or inside a function, so
     a module a function imports when it runs is in the closure. A package's
     ``__init__.py`` runs when a module under it is imported, so it counts
     too, unless it holds nothing but its docstring.
     """
-    found, pending = {}, list(_roots(root, roots))
+    found, pending = {}, [(name, None) for name in _roots(root, roots)]
     while pending:
-        name = pending.pop()
+        name, importer = pending.pop()
         if name.split(".")[0] != "proof" or name in found:
             continue
         path = _module_file(root, name)
@@ -128,8 +149,15 @@ def import_closure(roots=OBSERVATION_ROOTS, root=WORKTREE):
             continue
         tree = ast.parse(path.read_bytes(), filename=str(path))
         is_package = path.name == "__init__.py"
-        found[name] = None if is_package and _runs_nothing(tree) else path.relative_to(root).as_posix()
+        relative = path.relative_to(root).as_posix()
+        found[name] = (None if is_package and _runs_nothing(tree) else relative, importer)
         parts = name.split(".")
-        pending += [".".join(parts[:index]) for index in range(1, len(parts))]
-        pending += [module for module in _imported(tree, name, is_package) if module]
-    return sorted(path for path in found.values() if path is not None)
+        pending += [(".".join(parts[:index]), importer) for index in range(1, len(parts))]
+        pending += [(module, relative) for module in _imported(tree, name, is_package) if module]
+    return {path: importer for path, importer in found.values() if path is not None}
+
+
+def import_closure(roots=OBSERVATION_ROOTS, root=WORKTREE):
+    """The repository-relative files of every ``proof`` module the roots may import, transitively
+    (``imported_by``)."""
+    return sorted(imported_by(roots, root))
