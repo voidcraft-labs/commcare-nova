@@ -332,8 +332,9 @@ here.
   forwarder is then given the 404 retry that page gives a forwarder to
   production's Connect address. The opportunity is made once, from A's release: a
   manager who asks for its units again after an edit, or pays for a renamed
-  unit, is not in the unit (`proof/connect/test_receiver.py` runs both), and
-  neither is the distance check between two visits. HQ's Connect payload
+  unit, is not in the unit, and neither is the distance check between two
+  visits, since each run meets the opportunity as it stood
+  (`proof/connect/test_receiver.py` runs all three). HQ's Connect payload
   carries no attachments, so Connect's download of a visit's attachments
   runs and asks HQ for nothing.
 - **A configuration Nova's publish refuses is not checked** (decision 19).
@@ -1219,7 +1220,11 @@ a step clicks what a worker clicks, or reads what the page shows.
   signed in through HQ's own sign-in form. The client hands Formplayer the
   app's own id, and HQ's download makes the archive from the stored app as
   it stands (`views/cli.py::direct_ccz`, `latest=save`), where Web Apps runs
-  the release. The admin logs in as the worker from the app's first screen,
+  the release. Once App Preview has finished starting (it drops Formplayer's
+  install of the app and draws its first screen again when Formplayer
+  answers, `formplayer/app.js::refreshApplication`, which the replay waits
+  for: `steps.py::preview_started`), the admin logs in as the worker from
+  the app's first screen,
   as a person in the builder does (its Log in as, the worker's row of the
   list HQ's `LoginAsUsers` view answers over HQ's Elasticsearch, and the
   confirmation), so the preview runs over the worker's cases; HQ draws Log in
