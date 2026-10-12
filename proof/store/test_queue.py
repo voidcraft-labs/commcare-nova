@@ -71,7 +71,12 @@ def _build(checkout, out, *arguments, corpus=None, phase="main", stores=()):
 
 
 @pytest.fixture
-def lane(checkout, corpus):
+def lane(checkout, corpus, monkeypatch):
+    # The synthetic checkout's packages run whole: the lane's own splits name modules of the real one
+    # (proof.checks.sharding.SPLIT), and the test of splitting names its own.
+    from proof.checks import sharding
+
+    monkeypatch.setattr(sharding, "SPLIT", {})
     groups = {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0, "proof/core": 2.0}
     timings = {"profiles": {"readers": {"groups": groups}, "no-readers": {"groups": groups}}}
     write_files(checkout, {"proof/timings.json": json.dumps(timings)})
@@ -403,6 +408,51 @@ def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_t
     assert set(apart) <= set(keyed) and all(keyed[group] != apart[group] for group in apart)
     early = _build(checkout, tmp_path / "early.json", "--lane-env", "PROOF_READERS=0", phase="early")
     assert early["readers"] is False
+
+
+def test_a_split_module_and_its_tests_are_queued_as_groups_of_their_own_keyed_by_their_packages_data(
+    tmp_path, lane, monkeypatch
+):
+    """proof.checks.sharding.SPLIT: a module of a package's is a group of its own where it keeps a test it does not
+    split off, each test it splits off one more, and the package's own group stays only while another module is
+    left in it. Each is keyed apart, by its package's data (what its tests read)."""
+    from proof.checks import sharding
+
+    checkout, corpus = lane
+    write_files(
+        checkout,
+        {
+            "proof/editors/test_slow.py": (
+                "def test_one():\n    pass\n\n\nclass TestTwo:\n    def test_two(self):\n        pass\n"
+            ),
+            "proof/core/test_whole.py": "def test_a():\n    pass\n\n\ndef test_b():\n    pass\n",
+        },
+    )
+    monkeypatch.setattr(
+        sharding, "SPLIT", {"editors/test_slow.py": ("test_one", "test_two"), "core/test_whole.py": ("test_a",)}
+    )
+    assert queue.package_groups(checkout / "proof") == [
+        "proof/checks",
+        "proof/core",
+        "proof/core/test_whole.py",
+        "proof/core/test_whole.py::test_a",
+        "proof/editors",
+        "proof/editors/test_slow.py::test_one",
+        "proof/editors/test_slow.py::test_two",
+        "surface",
+    ]
+    main = _build(checkout, tmp_path / "main.json", corpus=corpus)
+    early = _build(checkout, tmp_path / "early.json", phase="early")
+
+    def names(value):
+        return {queued["group"]: queued.get("key") for block in value["blocks"] for queued in block["groups"]}
+
+    assert {"proof/editors", "proof/editors/test_slow.py::test_one", "proof/editors/test_slow.py::test_two"} <= set(
+        names(main)
+    )
+    assert {"proof/core", "proof/core/test_whole.py", "proof/core/test_whole.py::test_a"} <= set(names(early))
+    keys = [*names(main).values(), *names(early).values()]
+    assert len(set(keys)) == len(keys)
 
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.

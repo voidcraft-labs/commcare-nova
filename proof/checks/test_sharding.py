@@ -44,6 +44,11 @@ class _Item:
     path: Path
     callspec: _Callspec | None = None
 
+    @property
+    def originalname(self):
+        """The test's own name, as pytest gives a parametrized item's."""
+        return self.nodeid.rpartition("::")[2].partition("[")[0]
+
 
 def _items():
     items = [
@@ -88,6 +93,29 @@ def test_items_are_grouped_by_document_by_package_and_the_surface_block():
     assert groups["test_top.py::test"] == "proof"
     for group in set(groups.values()):
         assert lane_blocks.group_problem(group) is None, group
+
+
+def test_a_split_module_and_each_test_it_names_are_groups_of_their_own_and_read_what_their_package_reads(
+    monkeypatch,
+):
+    """A group runs on one worker, so a package whose tests a shard cannot hold whole runs as several (SPLIT); each
+    is still its package's, in the phase and with the data its package's tests read."""
+    monkeypatch.setattr(sharding, "SPLIT", {"hq/test_boot.py": ("test_slow",)})
+    items = [
+        _Item("hq/test_boot.py::test_slow[one]", PROOF / "hq/test_boot.py"),
+        _Item("hq/test_boot.py::test_slow[two]", PROOF / "hq/test_boot.py"),
+        _Item("hq/test_boot.py::test_fast", PROOF / "hq/test_boot.py"),
+        _Item("hq/test_build.py::test", PROOF / "hq/test_build.py"),
+    ]
+    groups = [sharding.item_group(item) for item in items]
+    assert groups == ["proof/hq/test_boot.py::test_slow"] * 2 + ["proof/hq/test_boot.py", "proof/hq"]
+    for group in groups:
+        assert lane_blocks.group_problem(group) is None, group
+        assert lane_blocks.package_of(group) == "proof/hq"
+        assert lane_blocks.reads_corpus(group) == lane_blocks.reads_corpus("proof/hq")
+    assert sharding.collection_roots(groups) == [PROOF / "hq", PROOF / "hq/test_boot.py"]
+    for refused in ("proof/hq/boot.py", "proof/hq/test_boot.py::", "proof/hq/test_boot.py::a b", "proof/h-q"):
+        assert lane_blocks.group_problem(refused) is not None, refused
 
 
 def test_each_groups_items_run_together_in_first_appearance_order():

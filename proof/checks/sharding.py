@@ -15,7 +15,12 @@ observations, a package's session services) is built once, by one worker:
 - every other item belongs to its package under ``proof/`` (``proof/native``,
   ``proof/editors``, ``proof/core``, ``proof/hq``, ``proof/checks``,
   ``proof/lane``, …), and an item of a test module at ``proof/`` itself to
-  ``proof``.
+  ``proof``; but a test module ``SPLIT`` names is a group of its own
+  (``proof/<package>/<module>.py``), and each test it names in that module
+  one more (``proof/<package>/<module>.py::<test>``): a group runs on one
+  worker, so a package whose tests take longer than a pull request's shard
+  can hold runs as several groups. A split group reads what its package
+  reads, so it is keyed by its package's data (``proof.store.queue``).
 
 The items of each group run back to back (``order_by_group``).
 ``collection_roots`` names what pytest collects for a set of groups: a
@@ -90,6 +95,36 @@ def parse_shard(value: str, variable: str):
     return index, count
 
 
+# The package test modules that are groups of their own, by their path under proof/, each with the tests of it that
+# are groups of their own too (its other tests are the module's group): what one package's tests cost on one
+# worker, measured at a CI shard's density (proof/timings.json), would otherwise bound the pull request lane's
+# shard that runs it. Each package's group, module and test here stays within about 240 seconds at that density
+# (proof/README.md, "Timings and the ten-minute bound"): proof/editors took 701 seconds whole, proof/lane 470,
+# proof/checks 375 and proof/hq 260.
+SPLIT: dict[str, tuple[str, ...]] = {
+    "checks/test_alignment.py": (),
+    "checks/test_proof4_editability.py": (),
+    "editors/test_pages.py": (),
+    "editors/test_reused_pages.py": (),
+    "editors/test_seeding.py": (),
+    "editors/test_vellum_warm_equivalence.py": (),
+    "editors/test_view_equivalence.py": (
+        "test_held_sections_of_corpus_documents_equal_fresh_page_saves",
+        "test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_deadline",
+    ),
+    "hq/test_branches.py": (),
+    "lane/test_forkserver.py": (
+        "test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings",
+        "test_two_forked_workers_write_the_evidence_one_unforked_session_writes",
+    ),
+}
+
+
+def split_groups(module: str) -> tuple[str, ...]:
+    """The groups a ``SPLIT`` module's items fall in, beside the module's own: one per test it names."""
+    return tuple(f"proof/{module}::{test}" for test in SPLIT.get(module, ()))
+
+
 def item_group(item, proof_dir: Path = PROOF_DIR) -> str:
     """The group one collected item belongs to."""
     callspec = getattr(item, "callspec", None)
@@ -107,6 +142,10 @@ def item_group(item, proof_dir: Path = PROOF_DIR) -> str:
         return "proof"
     if relative.parts[0] == SURFACE:
         return SURFACE
+    module = relative.as_posix()
+    if module in SPLIT:
+        test = getattr(item, "originalname", None) or getattr(item, "nodeid", "").rpartition("::")[2].partition("[")[0]
+        return f"proof/{module}::{test}" if test in SPLIT[module] else f"proof/{module}"
     return f"proof/{relative.parts[0]}"
 
 
@@ -141,7 +180,8 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
         elif group == "proof":
             roots.update(proof_dir.glob("test_*.py"))
         elif group.startswith("proof/"):
-            roots.add(proof_dir / group[len("proof/") :])
+            # A package's directory, or the test module a split group is (its tests collected with it).
+            roots.add(proof_dir / group[len("proof/") :].partition("::")[0])
     return sorted(roots)
 
 

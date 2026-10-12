@@ -20,9 +20,11 @@ A lane has two queues: the early queue, of groups whose tests need no corpus
 is emitted). A group is every item of one corpus document (``corpus:<id>``), of
 one document under one configuration (``corpus:<id>@<configuration>``, for a
 document heavy enough to split), of one control (``control:<id>``), of one
-package (``proof``, ``proof/<package>``), the surface block (``surface``), or
-the HQ self-checks (``hq-selfchecks``); ``proof.checks.sharding.item_group``
-names the group of a collected item. A block's id is the sha256 of its
+package (``proof``, ``proof/<package>``), of one test module a package's
+group splits off (``proof/<package>/<module>.py``) or one test of it
+(``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``),
+the surface block (``surface``), or the HQ self-checks (``hq-selfchecks``);
+``proof.checks.sharding.item_group`` names the group of a collected item. A block's id is the sha256 of its
 groups' names, sorted and joined by newlines (``block_id``), so the id names
 what the block holds. A cached group is one whose every judgment the store
 holds: it runs nowhere, and the gate reads its judgments from the store.
@@ -106,10 +108,20 @@ def group_problem(name) -> str | None:
     if name in SINGLE_GROUPS:
         return None
     if name.startswith("proof/"):
-        package = name[len("proof/") :]
-        if package and "/" not in package and package.isidentifier():
+        package, _, module = name[len("proof/") :].partition("/")
+        if not package.isidentifier():
+            return f"{name!r} names no package directly under proof/"
+        if not module:
             return None
-        return f"{name!r} names no package directly under proof/"
+        path, _, test = module.partition("::")
+        if (
+            path.endswith(".py")
+            and path.rpartition("/")[2].startswith("test_")
+            and not any(character.isspace() for character in path)
+            and (not test and "::" not in module or test.isidentifier())
+        ):
+            return None
+        return f"{name!r} names no test module of a package (proof/<package>/<module>.py) or test of one (::<test>)"
     for kind in DOCUMENT_KINDS:
         if name.startswith(kind):
             rest = name[len(kind) :]
@@ -121,13 +133,22 @@ def group_problem(name) -> str | None:
             return None
     return (
         f"{name!r} is none of corpus:<id>, corpus:<id>@<configuration>, control:<id>, proof, proof/<package>,"
-        " surface or hq-selfchecks"
+        " proof/<package>/<module>.py[::<test>], surface or hq-selfchecks"
     )
 
 
+def package_of(name: str) -> str:
+    """The package a group belongs to: ``proof/<package>`` for its own group and every module or test it splits off
+    (``proof/<package>/<module>.py[::<test>]``), and the group itself for any other."""
+    if name.startswith("proof/"):
+        return "proof/" + name[len("proof/") :].partition("/")[0]
+    return name
+
+
 def reads_corpus(name: str) -> bool:
-    """Whether the group ``name`` reads the corpus: a document's, a control's, or a package in ``CORPUS_PACKAGES``."""
-    return name.startswith(DOCUMENT_KINDS) or name in CORPUS_PACKAGES
+    """Whether the group ``name`` reads the corpus: a document's, a control's, or one of a package in
+    ``CORPUS_PACKAGES`` (its own group, or a module or test it splits off)."""
+    return name.startswith(DOCUMENT_KINDS) or package_of(name) in CORPUS_PACKAGES
 
 
 def block_id(groups: Iterable[str]) -> str:

@@ -77,8 +77,18 @@ from proof.lane import readers as lane_readers
 PROOF = sharding.PROOF_DIR
 WORKTREE = PROOF.parent
 INI = PROOF / "pytest.ini"
-# Lane positions no lane runs: the nested server's databases are proof_hq_w701_ and on.
+# Lane positions no lane runs, ten for each of the lane's own workers: the nested servers of the worker at position
+# i name their databases proof_hq_w<701 + 10 i>_ and on, so this module's tests, split into groups of their own
+# (proof.checks.sharding.SPLIT) and run by different workers at once, never meet in one database.
 NESTED_BASE = 700
+
+
+def _nested_base() -> int:
+    """The first lane position this worker's nested servers take: read as each runs, since the lane's server
+    imports this module before it forks the worker that runs it."""
+    return NESTED_BASE + 10 * sharding.parse_shard(os.environ.get("PROOF_WORKER", "1/1"), "PROOF_WORKER")[0]
+
+
 DEADLINE_SECONDS = 1200
 # How long an interrupted run has to stop what it started before its group is killed.
 GRACE_SECONDS = 120
@@ -154,7 +164,7 @@ def _run_to_end(command, log: Path, **extra) -> Finished:
 
 def _serve(out, pytest_args=(), *, workers=2, options=(), **extra) -> Finished:
     command = [sys.executable, "-m", "proof.lane.serve", "--out", out, "--workers", workers]
-    command += ["--worker-base", NESTED_BASE, *options]
+    command += ["--worker-base", _nested_base(), *options]
     if pytest_args:
         command += ["--", *pytest_args]
     return _run_to_end(command, Path(f"{out}.log"), **extra)
@@ -404,7 +414,7 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
         tmp_path / "plain.log",
         PROOF_OUT=str(plain_out),
         **_own_corpus(corpus),
-        PROOF_WORKER=f"{NESTED_BASE + 3}/{NESTED_BASE + 3}",
+        PROOF_WORKER=f"{_nested_base() + 3}/{_nested_base() + 3}",
     )
     assert plain.returncode in (0, 1), plain.tail()
 

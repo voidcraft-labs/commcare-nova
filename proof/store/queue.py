@@ -152,8 +152,21 @@ class Group:
         self.observed_estimate = self.estimate
 
 
+def test_functions(path: Path) -> list[str]:
+    """The tests a test module defines, read from its source: its module-level ``test_*`` functions and the
+    ``test_*`` methods of its ``Test*`` classes, by name."""
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    tests = [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            tests += [item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    return [name for name in tests if name.startswith("test_")]
+
+
 def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
-    """Every package group with a test module (``proof.checks.sharding.item_group``'s names)."""
+    """Every package group with a test module (``proof.checks.sharding.item_group``'s names): a package's own, each
+    module of it ``proof.checks.sharding.SPLIT`` names that keeps a test it does not split off, and each test it
+    splits off."""
     found = set()
     if any(proof_dir.glob("test_*.py")):
         found.add("proof")
@@ -161,8 +174,20 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
         tests = [
             p for p in directory.rglob("test_*.py") if "__pycache__" not in p.parts and "node_modules" not in p.parts
         ]
-        if tests:
-            found.add(SURFACE if directory.name == SURFACE else f"proof/{directory.name}")
+        if not tests:
+            continue
+        if directory.name == SURFACE:
+            found.add(SURFACE)
+            continue
+        for test in tests:
+            module = test.relative_to(proof_dir).as_posix()
+            if module not in sharding.SPLIT:
+                found.add(f"proof/{directory.name}")
+                continue
+            defined = set(test_functions(test))
+            found.update(group for group in sharding.split_groups(module) if group.rpartition("::")[2] in defined)
+            if defined - set(sharding.SPLIT[module]):
+                found.add(f"proof/{module}")
     return sorted(found)
 
 
@@ -419,9 +444,13 @@ def queue_value(
 
 
 def queued_packages(builder: Builder, proof_dir: Path = PROOF_DIR) -> list[str]:
-    """The package groups with a test module, but, without the readers, those whose every test starts one
-    (``proof.lane.readers.PACKAGES``), of which such a run collects nothing."""
-    return [name for name in package_groups(proof_dir) if builder.readers or name not in lane_readers.PACKAGES]
+    """The package groups with a test module, but, without the readers, those of a package whose every test starts
+    one (``proof.lane.readers.PACKAGES``), of which such a run collects nothing."""
+    return [
+        name
+        for name in package_groups(proof_dir)
+        if builder.readers or lane_blocks.package_of(name) not in lane_readers.PACKAGES
+    ]
 
 
 def early(builder: Builder, proof_dir: Path = PROOF_DIR) -> list[Group]:
@@ -431,9 +460,10 @@ def early(builder: Builder, proof_dir: Path = PROOF_DIR) -> list[Group]:
 
 
 def package_data(name: str, corpus: Path, files: dict[str, str], checkout: Path) -> dict:
-    """What the package ``name`` reads of the corpus, as digests (``PACKAGE_DATA``)."""
+    """What the package group ``name`` reads of the corpus, as digests (``PACKAGE_DATA``): a module or test a
+    package's group splits off reads what its package reads."""
     found = {}
-    for kind, read in PACKAGE_DATA.get(name, CORPUS_DATA).items():
+    for kind, read in PACKAGE_DATA.get(lane_blocks.package_of(name), CORPUS_DATA).items():
         if kind == "native":
             found[kind] = keys.native_digest(corpus)
             continue

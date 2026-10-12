@@ -355,7 +355,9 @@ def test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_d
 
     from proof.editors.client import CLIENT_GRACE_SECONDS
 
-    deadline = 120.0
+    # A deadline the page's own work keeps well within, so the sections' pauses, which together outlast it and
+    # the client's grace, are the test's whole wait.
+    deadline = 30.0
     # Each of the two sections holds the page this long once its save has settled.
     pause = (deadline + CLIENT_GRACE_SECONDS) / 2 + 5
     with hq_check(CONFIGURATION) as (state, _):

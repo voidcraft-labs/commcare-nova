@@ -128,7 +128,12 @@ def test_a_fresh_flag_that_is_not_a_boolean_and_a_name_no_queue_holds_are_refuse
     def nested(value):
         value["blocks"][1]["groups"][0]["group"] = "proof/hq/xpath"
 
-    assert "'proof/hq/xpath' names no package directly under proof/" in _refusal(nested)
+    assert "'proof/hq/xpath' names no test module of a package (proof/<package>/<module>.py)" in _refusal(nested)
+
+    def split(value):
+        value["blocks"][1]["groups"][0]["group"] = "proof/hq/test_boot.py::"
+
+    assert "'proof/hq/test_boot.py::' names no test module of a package" in _refusal(split)
 
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.
@@ -174,7 +179,7 @@ def test_the_packages_the_early_phase_refuses_are_those_whose_tests_read_the_cor
         return bool(seen & CORPUS_READERS)
 
     reading = {
-        sharding.item_group(SimpleNamespace(path=path))
+        lane_blocks.package_of(sharding.item_group(SimpleNamespace(path=path)))
         for name, path in modules.items()
         if (path.name.startswith("test_") or path.name == "conftest.py") and reaches_a_reader(name)
     }
