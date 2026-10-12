@@ -160,6 +160,33 @@ def media_kind(question: Mapping[str, Any]) -> str | None:
     return kind
 
 
+def chosen_as_the_client_answers(question: Mapping[str, Any], value: str) -> str:
+    """A choice the answer table gives a select or a multi-select (its options' 1-based indices, space-separated)
+    as the Web Apps client answers it: the client binds each option to its label (``entry_select.html``,
+    ``checkedValue: $data``), so options that share a label are one choice, and the answer it sends names the
+    first option of each chosen label (``entries.js``, ``SingleSelectEntry`` and ``MultiSelectEntry``:
+    ``_.indexOf(choices, value)``)."""
+    style = question.get("style") if isinstance(question.get("style"), dict) else {}
+    styles = set(str(style.get("raw") or "").split())
+    # The styles under which the client draws another widget (``entries.js::getEntry``: a drop-down, a
+    # combobox, buttons, a table of choice labels), each of which answers by the option's own index.
+    drawn_otherwise = {"minimal", "label"} | (
+        {"combobox", "button-select", "list-nolabel"} if question.get("datatype") == "select" else set()
+    )
+    if styles & drawn_otherwise:
+        return value
+    choices = list(question.get("choices") or [])
+    found: list[str] = []
+    for index in str(value).split():
+        if not index.isdigit() or not 0 < int(index) <= len(choices):
+            found.append(index)
+            continue
+        first = str(choices.index(choices[int(index) - 1]) + 1)
+        if first not in found:
+            found.append(first)
+    return " ".join(found)
+
+
 def submission(tree: Sequence[Mapping[str, Any]], refused: set[str]) -> dict[str, Any]:
     """What the Web Apps client submits of a form (``web_form_session.js::submitForm``, ``accumulateAnswers``):
     each question it holds valid, by its index, with the answer Formplayer last handed it (a label's as ``OK``),
@@ -326,7 +353,10 @@ class Walk:
         name = DATA_TYPES.get(question.get("datatype"))
         values = list(self.answer_table["dataTypes"].get(name, ())) if name else []
         today = self.clock.split("T", 1)[0]
-        return [value.replace("@clock:today", today).replace("@clock:now", self.clock) for value in values]
+        values = [value.replace("@clock:today", today).replace("@clock:now", self.clock) for value in values]
+        if question.get("datatype") in ("select", "multiselect"):
+            values = list(dict.fromkeys(chosen_as_the_client_answers(question, value) for value in values))
+        return values
 
     def _fill(
         self, web: WebApps, form: Mapping[str, Any]

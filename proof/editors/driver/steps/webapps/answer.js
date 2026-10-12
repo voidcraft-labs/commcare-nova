@@ -12,8 +12,9 @@
 //   the value typed in, through the element's own value setter, and the
 //   input, keyup and change events a browser fires, which the client's
 //   knockout bindings read;
-// - option buttons and check boxes: a click on each chosen option, and on
-//   each option chosen before that the value leaves out;
+// - option buttons and check boxes: a click on each chosen label's first
+//   option, and on each label checked before that the value leaves out
+//   (options that share a label are one choice to the client);
 // - a drop-down: the chosen option selected, and its change event;
 // - a date or a time: the value typed in the format the client's picker
 //   reads, and its change event, which the picker parses: a date as the
@@ -101,17 +102,33 @@
 		),
 	];
 	if (options.length) {
+		// The client binds each option to its label (entry_select.html,
+		// `checkedValue: $data`, which knockout writes as the input's value),
+		// so options that share a label are one choice: checking one checks
+		// each, and its answer names the first (entries.js, MultiSelectEntry
+		// and SingleSelectEntry, `_.indexOf(choices, value)`). A worker
+		// reaches the chosen labels, each by its first option.
 		const chosen = new Set(
 			value
 				.split(" ")
 				.filter(Boolean)
-				.map((index) => Number(index) - 1),
+				.map((index) => options[Number(index) - 1]?.value)
+				.filter((label) => label !== undefined),
 		);
-		if (options.every((option, index) => option.checked === chosen.has(index)))
-			return "unchanged";
-		options.forEach((option, index) => {
-			if (option.checked !== chosen.has(index)) option.click();
-		});
+		const checked = new Set(
+			options.filter((option) => option.checked).map((option) => option.value),
+		);
+		const labels = [...new Set(options.map((option) => option.value))];
+		const differing = labels.filter(
+			(label) => chosen.has(label) !== checked.has(label),
+		);
+		if (!differing.length) return "unchanged";
+		for (const label of differing) {
+			const option = options.find((each) => each.value === label);
+			// A radio already checked stays checked when it is clicked.
+			if (option.type === "radio" && !chosen.has(label)) continue;
+			option.click();
+		}
 		return true;
 	}
 
