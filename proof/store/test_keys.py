@@ -221,6 +221,13 @@ def test_the_image_architecture_and_environment_change_what_runs_on_them(checkou
     # started in.
     unseamed = {**keys.LANE_ENVIRONMENT, "PROOF_HQ_SPEED": "0"}
     assert _changed(before, _all_keys(checkout, corpus, environ=unseamed)) == set(KEYS)
+    # A run without the readers (proof.lane.readers) records no served state and runs no test that starts one:
+    # every record, judgment, transcript and package outcome is keyed apart from a run with them, so neither
+    # profile reads the other's; and naming the readers' default changes nothing.
+    without = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "0"}
+    assert _changed(before, _all_keys(checkout, corpus, environ=without)) == set(KEYS)
+    with_readers = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "1"}
+    assert _changed(before, _all_keys(checkout, corpus, environ=with_readers)) == set()
     # The audit switches only check: the lane's shards run with the editor audit on and still read the store. The
     # image sets where its checkouts are, which its digest names: the queue builder, outside it, keys alike.
     audited = {**keys.LANE_ENVIRONMENT, "PROOF_EDITOR_AUDIT": "0.03", "PROOF_VERIFY_MEMOS": "1"}
