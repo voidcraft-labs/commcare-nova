@@ -41,9 +41,18 @@ import java.util.Set;
  * off. The terms are the list's own: each word any row shows, and that word misspelled by its last letter, so a
  * list is searched for what a worker reads on it.
  *
- * The first case is then opened as a tap opens it (onEntitySelected): where the list has a case detail, the
- * detail screen (EntityDetailActivity) is read, each tab's fields as shown, and confirmed by its own button; the
- * list's result goes back to home.
+ * Which cases it lists, in its order, are the cases a walk opens of it, each in a walk of its own (Screens):
+ * the case a walk names is opened as a tap on its row opens it (onEntitySelected), and a walk whose case the
+ * list does not show ends there; where the walk names none (a list a form leads to) its own case is opened
+ * where the list shows it, else the first. Where the list has a case detail, the detail screen
+ * (EntityDetailActivity) is read, each tab's fields as shown, and confirmed by its own button; the list's result
+ * goes back to home.
+ *
+ * A screen is read once where the device is the same: the walk that ends at a list reads it, and each walk that
+ * goes on from there (to a case, to an action) opens the same list on the same device and records only what
+ * it chooses; the walk that ends with a case reads its detail, and each walk that goes on from the case opens
+ * the detail and presses its confirm button without reading it again. A list a form leads to is read where
+ * the walk reaches it, since the form changed the device.
  */
 final class Lists {
     /** The width a row is measured at, so the widths Android gives its columns are comparable. */
@@ -59,7 +68,26 @@ final class Lists {
     static Integer action;
     /** How many actions the list last read offers. */
     static int offered;
-    /** The lists (by the session's command and the case it asks for) a request has sorted and searched. */
+    /** Set by the walk: the case to open, which the list must show; null where the walk names none. */
+    static String choice;
+    /** Set by the walk: the case to open where the list shows it, else its first; null for the first. */
+    static String preferred;
+    /** Set by the walk: read the list and open no case (each case is a walk of its own). */
+    static boolean branch;
+    /**
+     * Set by the walk for a list it chooses at (a case, an action): the walk that ended at this list read it, so
+     * this one records only what it chooses there, as a menu the walk passes records only its choice (Menus).
+     */
+    static boolean passing;
+    /** Set by the walk: the case's detail was read by the walk that ended with the case; only confirm it. */
+    static boolean confirming;
+    /** The cases the list last read shows, in its order, by the value a tap on each row hands the session. */
+    static List<String> cases = new ArrayList<>();
+    /**
+     * The lists (by the session's command and the case it asks for, in the language the app then shows) a request
+     * has sorted and searched: what a Sort choice orders by and what a search matches are the texts a row shows,
+     * which are the language's.
+     */
     private static final Set<String> probed = new java.util.HashSet<>();
 
     private Lists() {
@@ -67,6 +95,7 @@ final class Lists {
 
     static boolean read(Intent started, JSONObject step, ShadowActivity home) throws Exception {
         offered = 0;
+        cases = new ArrayList<>();
         EntitySelectActivity activity =
                 Robolectric.buildActivity(EntitySelectActivity.class, started).setup().get();
         loaded(activity);
@@ -95,69 +124,50 @@ final class Lists {
         }
         JSONObject list = new JSONObject();
         step.put("list", list);
-        list.put("alert", Screens.orNull(Views.alert(activity)));
+        // What the list shows as it opened is read by the walk that ends there; a walk that chooses at it
+        // records its choice alone.
+        Set<String> words = passing ? new java.util.TreeSet<>() : shown(activity, adapter, listView, list);
 
-        // The header row and every row, measured, so each column has the width Android gives it.
-        LinearLayout header = (LinearLayout)Screens.field(activity, "header");
-        JSONArray headers = new JSONArray();
-        for (int i = 0; header != null && i < header.getChildCount(); i++) {
-            headers.put(Views.describe(measured(header.getChildAt(i))));
-        }
-        list.put("header", headers);
-        list.put("count", adapter.getCurrentCount());
-        JSONArray shown = new JSONArray();
-        // The words searched for are the list's own, whatever order it shows its rows in: every word of every
-        // row, in the words' own order.
-        Set<String> words = new java.util.TreeSet<>();
-        for (int i = 0; i < adapter.getCurrentCount(); i++) {
-            JSONObject row = Views.describe(measured(adapter.getView(i, null, listView)));
-            shown.put(row);
-            words(row, words);
-        }
-        list.put("rows", shown);
-        // The header and every row as a worker sees them on the device's screen, drawn: each row at the width the
-        // screen gives the list (all of a phone's, the left pane of a tablet's), or a grid cell's where the list
-        // lays its tiles out in a grid.
-        JSONObject drawn = new JSONObject();
-        Views.fillScreen((Activity)activity);
-        View visible = (View)Screens.field(activity, "visibleView");
-        int width = visible != null && visible.getWidth() > 0 ? visible.getWidth() : Views.screenWidth();
-        if (header != null) {
-            drawn.put("header", Views.drawn(header, width));
-        }
-        Detail shown_ = (Detail)Screens.field(activity, "shortSelect");
-        int cell = shown_ != null && shown_.shouldBeLaidOutInGrid()
-                ? width / Math.max(1, shown_.getNumEntitiesToDisplayPerRow()) : width;
-        JSONArray drawnRows = new JSONArray();
-        for (int i = 0; i < adapter.getCurrentCount(); i++) {
-            drawnRows.put(Views.drawn(adapter.getView(i, null, listView), cell));
-        }
-        drawn.put("rows", drawnRows);
-        list.put("drawn", drawn);
         // Which case each row is, in the order the list shows them: the value a tap on the row hands the
         // session (DatumUtil.getReturnValueFromSelection), so two lists compare row for row by the case.
         Object datum = Screens.field(activity, "selectDatum");
+        List<String> rowCases = new ArrayList<>();
         if (datum instanceof EntityDatum) {
             JSONArray order = new JSONArray();
             for (int i = 0; i < adapter.getCurrentCount(); i++) {
+                String value;
                 try {
-                    order.put(Screens.orNull(Cases.unnamed(DatumUtil.getReturnValueFromSelection(adapter.getItem(i),
+                    value = Cases.unnamed(DatumUtil.getReturnValueFromSelection(adapter.getItem(i),
                             (EntityDatum)datum,
-                            CommCareApplication.instance().getCurrentSessionWrapper().getEvaluationContext()))));
+                            CommCareApplication.instance().getCurrentSessionWrapper().getEvaluationContext()));
                 } catch (RuntimeException raised) {
-                    order.put("raised " + raised.getClass().getName());
+                    value = "raised " + raised.getClass().getName();
                 }
+                order.put(Screens.orNull(value));
+                rowCases.add(value);
             }
-            list.put("order", order);
+            if (!passing) {
+                list.put("order", order);
+            }
+        }
+        // The cases a walk opens of it: each it lists, once, in its order (proof/observe/walks.py, cases_opened).
+        for (String listed : rowCases) {
+            if (listed != null && !listed.startsWith("raised ") && !cases.contains(listed)) {
+                cases.add(listed);
+            }
         }
 
-        list.put("EntitySelectActivity.getSortOptionsList", Views.choices(sortOptions(activity)));
+        if (!passing) {
+            list.put("EntitySelectActivity.getSortOptionsList", Views.choices(sortOptions(activity)));
+        }
         // What a worker's Sort choice and searches give, each on a list of its own opened as this one was, so
         // this one stays as it opened: the Sort menu's choices in turn, then the searches with fuzzy search as
         // installed, and on lists opened with the worker's own setting on and off (the list reads the setting
-        // when it opens, EntityListAdapter). Once a request for each list a session asks for (the first time
-        // a walk reaches it): the walks that pass the same list again read its rows and choose its case.
-        if (!brief && probed.add(String.valueOf(step.opt("session")))) {
+        // when it opens, EntityListAdapter). Once a request for each list a session asks for in each language
+        // (the first time a walk reads it): a walk that reads the same list again, past a form, reads its rows
+        // and opens its case.
+        if (!brief && !passing && probed.add(step.opt("session") + "@" + org.javarosa.core.services.locale.Localization
+                .getCurrentLocale())) {
             list.put("sorted", sorted(started));
             list.put("searches", searched(started, words));
         }
@@ -170,7 +180,9 @@ final class Lists {
         for (org.commcare.suite.model.Action offer : actions) {
             named.put(Screens.orNull(offer.getDisplay() == null ? null : offer.getDisplay().evaluate().getName()));
         }
-        list.put("actions", named);
+        if (!passing) {
+            list.put("actions", named);
+        }
         offered = actions.size();
         if (action != null) {
             list.put("took", action);
@@ -193,18 +205,32 @@ final class Lists {
             return true;
         }
 
-        if (adapter.getCurrentCount() == 0) {
+        if ((branch && !cases.isEmpty()) || adapter.getCurrentCount() == 0) {
+            // Each case is a walk of its own (Screens), or there is none to open. A list that names none of
+            // its rows' cases (each raised as it was asked) has no case to name a walk by: this walk opens its
+            // first row.
             return false;
         }
-        // The first case, opened as a tap opens it.
-        activity.onEntitySelected(0);
+        int index = 0;
+        if (choice != null) {
+            index = rowCases.indexOf(choice);
+            if (index < 0) {
+                // The walk's case is not on this list: the worker cannot open it.
+                list.put("unlisted", choice);
+                return false;
+            }
+        } else if (preferred != null && rowCases.contains(preferred)) {
+            index = rowCases.indexOf(preferred);
+        }
+        // The case, opened as a tap on its row opens it.
+        activity.onEntitySelected(index);
         ShadowLooper.idleMainLooper();
         Intent detail = shadow.getNextStartedActivity();
         if (detail != null && detail.getComponent() != null
                 && EntityDetailActivity.class.getName().equals(detail.getComponent().getClassName())) {
             JSONObject shownDetail = new JSONObject();
             list.put("detail", shownDetail);
-            ShadowActivity detailShadow = detail(detail, shownDetail);
+            ShadowActivity detailShadow = detail(detail, shownDetail, !confirming);
             if (detailShadow == null) {
                 return false;
             }
@@ -226,7 +252,7 @@ final class Lists {
                         org.commcare.utils.SerializationUtil.deserializeFromIntent(selected,
                                 EntityDetailActivity.CONTEXT_REFERENCE,
                                 org.javarosa.core.model.instance.TreeReference.class);
-                if (chosenDetail != null && reference != null) {
+                if (chosenDetail != null && reference != null && !confirming) {
                     shownDetail.put("tabs", Details.read(activity, chosenDetail, reference));
                 }
             }
@@ -255,6 +281,54 @@ final class Lists {
     }
 
     /**
+     * The list as it opened, into {@code list}: the alert it holds, its header row and every row, measured and
+     * drawn. Returns every word its rows show.
+     */
+    private static Set<String> shown(EntitySelectActivity activity, EntityListAdapter adapter, ListView listView,
+                                     JSONObject list) throws Exception {
+        Set<String> words = new java.util.TreeSet<>();
+        list.put("alert", Screens.orNull(Views.alert(activity)));
+
+        // The header row and every row, measured, so each column has the width Android gives it.
+        LinearLayout header = (LinearLayout)Screens.field(activity, "header");
+        JSONArray headers = new JSONArray();
+        for (int i = 0; header != null && i < header.getChildCount(); i++) {
+            headers.put(Views.describe(measured(header.getChildAt(i))));
+        }
+        list.put("header", headers);
+        list.put("count", adapter.getCurrentCount());
+        JSONArray shown = new JSONArray();
+        // The words searched for are the list's own, whatever order it shows its rows in: every word of every
+        // row, in the words' own order.
+        for (int i = 0; i < adapter.getCurrentCount(); i++) {
+            JSONObject row = Views.describe(measured(adapter.getView(i, null, listView)));
+            shown.put(row);
+            words(row, words);
+        }
+        list.put("rows", shown);
+        // The header and every row as a worker sees them on the device's screen, drawn: each row at the width the
+        // screen gives the list (all of a phone's, the left pane of a tablet's), or a grid cell's where the list
+        // lays its tiles out in a grid.
+        JSONObject drawn = new JSONObject();
+        Views.fillScreen((Activity)activity);
+        View visible = (View)Screens.field(activity, "visibleView");
+        int width = visible != null && visible.getWidth() > 0 ? visible.getWidth() : Views.screenWidth();
+        if (header != null) {
+            drawn.put("header", Views.drawn(header, width));
+        }
+        Detail shown_ = (Detail)Screens.field(activity, "shortSelect");
+        int cell = shown_ != null && shown_.shouldBeLaidOutInGrid()
+                ? width / Math.max(1, shown_.getNumEntitiesToDisplayPerRow()) : width;
+        JSONArray drawnRows = new JSONArray();
+        for (int i = 0; i < adapter.getCurrentCount(); i++) {
+            drawnRows.put(Views.drawn(adapter.getView(i, null, listView), cell));
+        }
+        drawn.put("rows", drawnRows);
+        list.put("drawn", drawn);
+        return words;
+    }
+
+    /**
      * Waits for the list's cases: the activity loads them on a task of its own (EntityLoaderTask) and shows the
      * list when the task's result reaches the main thread.
      */
@@ -274,7 +348,7 @@ final class Lists {
     static boolean confirm(Intent started, JSONObject step, ShadowActivity home) throws Exception {
         JSONObject shown = new JSONObject();
         step.put("detail", shown);
-        ShadowActivity shadow = detail(started, shown);
+        ShadowActivity shadow = detail(started, shown, true);
         if (shadow == null) {
             return false;
         }
@@ -283,16 +357,22 @@ final class Lists {
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
 
-    /** Reads the detail screen and presses its confirm button; null where the screen does not then finish. */
-    private static ShadowActivity detail(Intent started, JSONObject shown) throws Exception {
+    /**
+     * Opens the detail screen and presses its confirm button, reading each tab's fields first where
+     * {@code reading}; null where the screen does not then finish.
+     */
+    private static ShadowActivity detail(Intent started, JSONObject shown, boolean reading) throws Exception {
         EntityDetailActivity activity =
                 Robolectric.buildActivity(EntityDetailActivity.class, started).setup().get();
         ShadowLooper.idleMainLooper();
         ShadowActivity shadow = Shadows.shadowOf((Activity)activity);
         if (!activity.isFinishing()) {
-            Detail detail = (Detail)Screens.field(activity, "detail");
-            shown.put("tabs", Details.read(activity, detail,
-                    (org.javarosa.core.model.instance.TreeReference)Screens.field(activity, "mTreeReference")));
+            if (reading) {
+                Detail detail = (Detail)Screens.field(activity, "detail");
+                shown.put("tabs", Details.read(activity, detail,
+                        (org.javarosa.core.model.instance.TreeReference)Screens.field(activity,
+                                "mTreeReference")));
+            }
             shown.put("alert", Screens.orNull(Views.alert(activity)));
             Button next = (Button)((Activity)activity).findViewById(R.id.entity_select_button);
             shown.put("confirm", next == null || next.getVisibility() != View.VISIBLE ? JSONObject.NULL

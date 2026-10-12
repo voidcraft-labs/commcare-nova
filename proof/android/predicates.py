@@ -619,7 +619,6 @@ class Predicates(unittest.TestCase):
             name: self.walked(archive, SYNC_ON_ENTRY_RESTORE)
             for name, archive in (("held", SYNC_ON_ENTRY), ("claimed", always))
         }
-        searched = "m0/@action:0/m0-f0"
         self.assertEqual(self.steps(answers["held"], "PostRequestActivity"), [])
         claims = self.steps(answers["claimed"], "PostRequestActivity")
         self.assertTrue(claims)
@@ -629,10 +628,18 @@ class Predicates(unittest.TestCase):
             self.assertIs(step["post"]["finishing"], True)
             self.assertEqual(step["post"]["resultCode"], -1)
         for name, answer in answers.items():
-            screens = [step["screen"] for step in answer["walks"][searched]["steps"]]
-            self.assertIn("QueryRequestActivity", screens, name)
-            self.assertIn("FormEntryActivity", screens, name)
-            self.assertEqual("PostRequestActivity" in screens, name == "claimed")
+            # Each case the search finds is a walk of its own, on to the form.
+            searched = [
+                walk
+                for walk_name, walk in answer["walks"].items()
+                if walk_name.startswith("m0/@action:0/@case:") and walk_name.endswith("/m0-f0")
+            ]
+            self.assertTrue(searched, sorted(answer["walks"]))
+            for walk in searched:
+                screens = [step["screen"] for step in walk["steps"]]
+                self.assertIn("QueryRequestActivity", screens, name)
+                self.assertIn("FormEntryActivity", screens, name)
+                self.assertEqual("PostRequestActivity" in screens, name == "claimed")
 
     def test_a_forms_title_names_its_completed_save_and_not_the_header_a_worker_opens_it_under(self):
         """Finding 46. Contract: Android names a completed save by the form's own title

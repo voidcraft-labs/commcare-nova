@@ -266,6 +266,10 @@ final class Forms {
                 started.getIntExtra(FormEntryActivity.KEY_FORM_RECORD_ID, -1))));
         form.put("languages", new JSONArray(FormEntryActivity.mFormController.getLanguages() == null
                 ? new String[0] : FormEntryActivity.mFormController.getLanguages()));
+        // The language the form opened in: the app's own language where the form holds it.
+        org.javarosa.form.api.FormEntryController entry = (org.javarosa.form.api.FormEntryController)Screens.field(
+                FormEntryActivity.mFormController, "mFormEntryController");
+        form.put("language", Screens.orNull(entry.getModel().getLanguage()));
     }
 
     /** Every form record the device holds by its id, with its status. */

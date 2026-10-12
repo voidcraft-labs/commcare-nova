@@ -17,6 +17,11 @@ on a device each configuration's unit served: one archive, but its device's netw
 HQ (its searches compiled by that HQ under that configuration's flags, its restore that state's), so it is
 compared with the same configuration's A. Nothing here runs the reader: every function reads the records.
 
+A walk is named by what it chose (``proof/android/README.md``): its menus' commands, a list's action
+(``@action:<n>``), the case it opened at its first list (``@case:<id>``), and, for a walk in a language other than
+the one the app starts in, that language first (``@language:<code>``), so two devices' walks pair by name, case by
+case and language by language.
+
 **Proof 3** (``behavior``): what a worker's device shows of Nova's local archive against HQ's release of A
 (``android@local.ccz``), and of HQ's release of B against A's (``android@B``), per configuration: the install,
 the sign-in, the profile as each of Android's readers gives it, the home screen, and every walk
@@ -383,14 +388,64 @@ def _without_alert(step: dict) -> dict:
     return step
 
 
+# A walk's choice of a case at a list (``Screens.java``, ``CASE``), and the name of the walk that chose nothing.
+CASE = "@case:"
+ROOT = "root"
+
+
+def _listed(walk) -> list | None:
+    """The cases the list a walk ended at shows, in its order; None where it ended at no list that says."""
+    steps = walk.get("steps") if isinstance(walk, dict) else None
+    held = steps[-1].get("list") if steps else None
+    order = held.get("order") if isinstance(held, dict) else None
+    if isinstance(order, str):
+        return order.split(SEPARATOR)
+    return list(order) if isinstance(order, list) else None
+
+
+def _without_unlisted_cases(walks: dict, others: dict) -> dict:
+    """``walks`` without each walk of a case the other device's list does not show. Two lists that show other
+    cases are that list's one difference (``/list/order``, at the walk that ended there on both devices); the
+    walk of a case only one of them shows, and every walk on from it, is that difference again, and has no
+    walk of the other device to be compared with."""
+    kept = dict(walks)
+    for name in set(walks) - set(others):
+        parts = name.split("/")
+        for at, part in enumerate(parts):
+            if not part.startswith(CASE):
+                continue
+            ended = "/".join(parts[:at]) or ROOT
+            listed = _listed(others.get(ended)) if ended in walks else None
+            if listed is None:
+                break
+            if part[len(CASE) :] not in listed:
+                del kept[name]
+                break
+    return kept
+
+
 def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
     """The two comparable answers with each walk whose screens differ reduced to its screens, as one value, and
-    the steps both took before they part; and each step reduced as ``_one_step`` reduces it."""
+    the steps both took before they part; each step reduced as ``_one_step`` reduces it; and without the walks
+    of a case the other device's list does not show (``_without_unlisted_cases``)."""
     if not isinstance(before.get("walks"), dict) or not isinstance(after.get("walks"), dict):
         return before, after
     before, after = dict(before), dict(after)
-    before["walks"], after["walks"] = dict(before["walks"]), dict(after["walks"])
+    before["walks"], after["walks"] = (
+        _without_unlisted_cases(before["walks"], after["walks"]),
+        _without_unlisted_cases(after["walks"], before["walks"]),
+    )
     for name in set(before["walks"]) & set(after["walks"]):
+        unoffered = [
+            (walk.get("language") or {}).get("unoffered") for walk in (before["walks"][name], after["walks"][name])
+        ]
+        if any(unoffered):
+            # A language one device's app does not offer is that walk's one difference, the languages its Change
+            # Language dialog offers: the walk goes no further.
+            for held in (before["walks"], after["walks"]):
+                offered = (held[name].get("language") or {}).get("offered") or []
+                held[name] = {"language": {"offered": _joined(offered)}}
+            continue
         walk_a, walk_b = _to_first_other_choice(before["walks"][name], after["walks"][name])
         before["walks"][name], after["walks"][name] = walk_a, walk_b
         a, b = _screens(walk_a), _screens(walk_b)

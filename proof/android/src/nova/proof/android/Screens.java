@@ -1,6 +1,7 @@
 package nova.proof.android;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 
 import org.commcare.CommCareApplication;
 import org.commcare.activities.CommCareActivity;
@@ -14,8 +15,10 @@ import org.commcare.activities.StandardHomeActivity;
 import org.commcare.android.mocks.FormAndDataSyncerFake;
 import org.commcare.engine.resource.AppInstallStatus;
 import org.commcare.models.AndroidSessionWrapper;
+import org.commcare.preferences.MainConfigurablePreferences;
 import org.commcare.session.CommCareSession;
 import org.commcare.session.SessionFrame;
+import org.javarosa.core.services.locale.Localization;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.robolectric.Robolectric;
@@ -36,11 +39,27 @@ import java.util.List;
  *
  * A walk is one session from the app's first menu. Each menu the session reaches is read (Menus), and every item
  * it offers is a walk of its own, so a session is walked down every path the app's own menus offer and no
- * further: an item a menu hides is reached by no walk. At a case list the first case is opened and confirmed
- * (Lists), and each action the list offers (a search behind the list) is a walk of its own too; a search is sent and answered (Queries), a claim posted and its sync run (Posts); a form is answered
- * to its end and saved, and home is handed its result, so what home starts after a form is part of the same
- * walk (Forms). A walk ends where home starts nothing, at a menu after a form, at a screen the walk does not
- * answer (named, with what it shows), or, once it has followed MAX_FORMS forms, at a form it has already opened.
+ * further: an item a menu hides is reached by no walk. A case list is read where the walk reaches it, and each
+ * case it lists is a walk of its own that opens it and confirms it (Lists), as each action the list offers (a
+ * search behind the list) is: every case of a list, in the list's order, as every reader's walk opens them
+ * (proof/observe/walks.py, cases_opened), each walk named by the case it chose (CASE). A search is sent and
+ * answered (Queries), a claim posted and its sync run (Posts); a form is answered to its end and saved, and home
+ * is handed its result, so what home starts after a form is part of the same walk (Forms), and a list it reaches
+ * there is answered with the walk's own case where it lists it, else its first. A walk ends where home starts
+ * nothing, at a menu after a form, at a screen the walk does not answer (named, with what it shows), or, once it
+ * has followed MAX_FORMS forms, at a form it has already opened.
+ *
+ * The app is walked in the language it starts in, and then again in each other language the request names (the
+ * languages the app holds but its first, proof/observe/walks.py, chosen): each such walk chooses its language
+ * first on home's own Change Language dialog (Languages), as a worker chooses one, and is named by it
+ * (LANGUAGE), and each language's walks are its own, down what its menus and lists offer in it. Once they
+ * have run, the language and the worker's setting for it are put back as the app started, for what the
+ * request reads after its walks.
+ *
+ * A screen is read once where the device is the same: the walk that ends at a menu or a list reads it, and each
+ * walk that goes on from there opens the same screen and records only what it chooses (Menus.choose, Lists);
+ * the walk that ends its choices with a case reads the case's detail, and a walk that goes on from the case
+ * confirms it without reading it again.
  *
  * Android applies a completed form's case blocks to the device's own case database as it saves the form
  * (FormRecord.updateAndProcessRecord), so each walk that saved a form starts the next on a device made again:
@@ -62,6 +81,10 @@ final class Screens {
     static final String ROOT = "root";
     /** A walk's choice of a list's own action, by its place among the list's actions. */
     static final String ACTION = "@action:";
+    /** A walk's choice of a case at a list, by the value a tap on its row hands the session. */
+    static final String CASE = "@case:";
+    /** A walk's choice of a language on home's Change Language dialog, made before anything else. */
+    static final String LANGUAGE = "@language:";
 
     private Screens() {
     }
@@ -118,13 +141,46 @@ final class Screens {
                 walks.put(command, guarded(command, command, new ArrayList<>(), null, Forms::read));
             }
         } else {
-            Deque<List<String>> pending = new ArrayDeque<>();
-            pending.add(new ArrayList<>());
-            // Every path the app's own menus offer, however many: a menu offers finitely many items and a walk
-            // goes down one level a choice.
-            while (!pending.isEmpty()) {
-                List<String> choices = pending.removeFirst();
-                walks.put(name(choices), guarded(name(choices), null, choices, pending, Forms::read));
+            // The walks in the language the app starts in, then each other language's (the request's), each
+            // language's own: its menus and lists are read in it, so what it offers is what is walked.
+            List<List<String>> starts = new ArrayList<>();
+            starts.add(new ArrayList<>());
+            JSONArray languages = request.optJSONArray("languages");
+            for (int i = 0; languages != null && i < languages.length(); i++) {
+                List<String> start = new ArrayList<>();
+                start.add(LANGUAGE + languages.getString(i));
+                starts.add(start);
+            }
+            String startLocale = Localization.getCurrentLocale();
+            SharedPreferences settings = CommCareApplication.instance().getCurrentApp().getAppPreferences();
+            String startSetting = settings.getString(MainConfigurablePreferences.PREFS_LOCALE_KEY, null);
+            try {
+                for (List<String> start : starts) {
+                    Deque<List<String>> pending = new ArrayDeque<>();
+                    pending.add(start);
+                    // Every path the app's own menus offer, however many: a menu offers finitely many items, a
+                    // list finitely many cases, and a walk goes down one level a choice.
+                    while (!pending.isEmpty()) {
+                        List<String> choices = pending.removeFirst();
+                        walks.put(name(choices), guarded(name(choices), null, choices, pending, Forms::read));
+                    }
+                }
+            } finally {
+                if (starts.size() > 1) {
+                    // What the request reads after its walks is read as the app started: the language and the
+                    // worker's setting for it are put back as they stood. The picker cannot do it for every
+                    // app: one whose profile names no locale starts in "default" (finding 39), which the picker
+                    // does not offer (ChangeLocaleUtil.getLocaleCodes), so they are set as the picker's own
+                    // choice sets them (Localization.setLocale, MainConfigurablePreferences.setCurrentLocale).
+                    Localization.setLocale(startLocale);
+                    SharedPreferences.Editor setting = settings.edit();
+                    if (startSetting == null) {
+                        setting.remove(MainConfigurablePreferences.PREFS_LOCALE_KEY);
+                    } else {
+                        setting.putString(MainConfigurablePreferences.PREFS_LOCALE_KEY, startSetting);
+                    }
+                    setting.commit();
+                }
             }
         }
         found.put("walks", walks);
@@ -204,17 +260,31 @@ final class Screens {
         }
         ShadowActivity shadow = Shadows.shadowOf(home);
         drain(shadow);
+        JSONArray steps = new JSONArray();
+        JSONObject found = new JSONObject();
+        int depth = 0;
+        if (!choices.isEmpty() && choices.get(0).startsWith(LANGUAGE)) {
+            // The worker chooses the walk's language first, on home's own dialog.
+            JSONObject language = Languages.choose(home, choices.get(0).substring(LANGUAGE.length()));
+            found.put("language", language);
+            depth = 1;
+            if (language.optBoolean("unoffered")) {
+                found.put("steps", steps);
+                return found;
+            }
+            drain(shadow);
+        }
         if (command != null) {
             wrapper.getSession().setCommand(command);
         }
         home.getSessionNavigator().startNextSessionStep();
         ShadowLooper.idleMainLooper();
 
-        JSONArray steps = new JSONArray();
-        JSONObject found = new JSONObject();
         found.put("steps", steps);
-        int depth = 0;
         int forms = 0;
+        // The case the walk chose at its first list, which a list a form leads to is answered with where it
+        // lists it.
+        String own = null;
         java.util.Set<String> opened = new java.util.HashSet<>();
         Lists.action = null;
         for (int count = 0; ; count++) {
@@ -259,17 +329,40 @@ final class Screens {
                     break;
                 }
             } else if (target.equals(EntitySelectActivity.class.getName())) {
-                // The walk's next choice may be one of this list's own actions (a search behind the list).
+                // The walk's next choice may be one of this list's own actions (a search behind the list), or one
+                // of its cases.
                 boolean scripted = forms == 0 && depth < choices.size() && choices.get(depth).startsWith(ACTION);
+                boolean named = forms == 0 && depth < choices.size() && choices.get(depth).startsWith(CASE);
+                // A walk from the app's first menu with nothing left to choose reads the list and ends there:
+                // each case it lists and each action it offers is a walk of its own.
+                boolean ending = command == null && forms == 0 && depth >= choices.size();
                 Lists.action = scripted ? Integer.valueOf(choices.get(depth++).substring(ACTION.length())) : null;
+                Lists.choice = named ? choices.get(depth++).substring(CASE.length()) : null;
+                if (named) {
+                    own = Lists.choice;
+                }
+                // A list a form leads to is answered with the walk's own case where it lists it.
+                Lists.preferred = scripted || named || ending ? null : own;
+                Lists.branch = ending;
+                // A list the walk chooses at is one its own start read (the walk that ended there): only what is
+                // chosen there. The case's detail is read by the walk that ends its choices with the case, and
+                // only confirmed by the walks that go on from it.
+                Lists.passing = scripted || named;
+                Lists.confirming = named && depth < choices.size();
                 boolean on = Lists.read(started, step, shadow);
-                if (!scripted && forms == 0 && depth >= choices.size() && pending != null
-                        && !String.join("/", choices).contains(ACTION)) {
-                    // Each action the list offers is a walk of its own, where no action led here.
-                    for (int index = 0; index < Lists.offered; index++) {
+                if (ending && pending != null) {
+                    for (String listed : Lists.cases) {
                         List<String> next = new ArrayList<>(choices);
-                        next.add(ACTION + index);
+                        next.add(CASE + listed);
                         pending.add(next);
+                    }
+                    if (!String.join("/", choices).contains(ACTION)) {
+                        // Each action the list offers is a walk of its own, where no action led here.
+                        for (int index = 0; index < Lists.offered; index++) {
+                            List<String> next = new ArrayList<>(choices);
+                            next.add(ACTION + index);
+                            pending.add(next);
+                        }
                     }
                 }
                 if (!on) {

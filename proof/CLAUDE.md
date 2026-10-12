@@ -365,8 +365,17 @@ harness keeps, each with its reason.
   the app's own, ahead of the unit tests' (`reader.init.gradle`): a method
   the unit-test classpath lacks raises on the reader and on no worker's
   device. A walk follows the app's own navigation (a menu's own click, a
-  list's own tap, a form's own finish button); what the walk cannot do as a
-  worker does it names and stops at. A drawn picture is compared only where
+  list's own tap, a form's own finish button, a language chosen on home's
+  own Change Language dialog); what the walk cannot do as a worker does it
+  names and stops at. The walks take the shape every reader's walk takes
+  (`proof/observe/walks.py`): every case a list shows and every language the
+  app holds, each a walk named by what it chose, in the one device. A
+  screen is read once where the device is the same (the walk that ends at a
+  list reads it, the walk that ends with a case reads its detail, and a walk
+  that goes on records only what it chooses), and each walk's screens end
+  with it: every screen is built through `Opened.java`, never with
+  Robolectric's builder, which keeps a screen and its themes until its
+  controller is closed (`test_screens.py`). A drawn picture is compared only where
   nothing else of what it shows differs, and a tablet's difference only
   where the phone does not show it (`android-tablet@...`): one symptom is
   one difference. An `android@...` entry is held like every other, by the

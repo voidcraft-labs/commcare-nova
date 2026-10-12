@@ -166,8 +166,17 @@ def app(
     (``proof.android.hq``); ``fix`` where the device's GPS puts it (``[latitude, longitude, altitude,
     accuracy]``, or None for a GPS that finds no fix); ``clock`` the device's instant where it is not the lane's;
     ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
-    (``Reader.device``)."""
-    options = {"answers": _answers(), "queryAnswer": QUERY_ANSWER, "device": device}
+    (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
+    in, as every reader's walk is (``proof.observe.walks.chosen``), the same languages for every archive of the
+    state so the walks of two archives pair by name."""
+    from proof.observe import walks
+
+    options = {
+        "answers": _answers(),
+        "queryAnswer": QUERY_ANSWER,
+        "device": device,
+        "languages": walks.chosen(served.languages),
+    }
     if fix != LANE_FIX:
         options["position"] = fix
     if clock is not None:

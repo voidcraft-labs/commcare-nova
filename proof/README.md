@@ -1673,7 +1673,11 @@ as a worker installs it from a file: HQ's own
 download of the released build with the app's multimedia
 (`hqmedia/views.py::iter_app_files`), and Nova's local archive for the
 local state. The worker HQ made signs in, and the device walks every path
-the app's menus offer (`app`, `proof/android/README.md`). Beside them, on
+the app's menus offer, every case each list shows (a walk of its own named
+by the case) and all of it again in each other language the app holds,
+chosen on the app's own Change Language dialog (a walk named by the
+language), the shape every reader's walk takes (`proof/observe/walks.py`),
+all in the one device (`app`, `proof/android/README.md`). Beside them, on
 `b_aligned`, two exports of one app go on one device in turn and one is
 updated to the other, with every form left incomplete before it and a
 worker's own settings (`installs`, `update`): Nova's two local exports (the
@@ -1793,10 +1797,26 @@ compared only where nothing else of its row or header differs: a row whose
 text or layout differs is that difference, and its picture would say it
 again.
 
-**What it costs.** A device's `app` request takes three to ten seconds of
-the JVM, and a document has as many as it has served states, so a shard's
-time grows by what the twenty jobs of the old stage took, divided among the
-shards. The devices of one shard together run on half its processors (a
+**What it costs.** A device's `app` request is one JVM that walks every
+path, case and language of one served state: about ten seconds to start,
+install and sign in, then a second or two a walk beside HQ, so the requests
+of a document of 6 to 24 walks take 20 to 60 seconds each on a proof
+machine, where a request that opened the first case in the starting
+language took three to ten. A document has a request for each served state
+on each device (a phone and a tablet), about twenty in all, so a
+shard's time grows by that, divided among the shards. Two things keep a
+request to it. Each walk's screens end with it (`Opened.java`): Robolectric
+holds a screen it built, with every theme its views were made with, until
+its controller is closed, and a device that left them open filled its heap
+within a hundred walks and spent two thirds of its time collecting. And the
+JVM runs with both of its compilers and a young generation those themes
+die in (`proof/android/client.py`, `JVM_OPTIONS`, which gives the
+measurements): the 106 walks of the reader's own two-case request took 263
+seconds with every screen left open, 96 with each walk's screens ended, and
+take 75. Each request's seconds are in a run's
+timings (`android_request`, `workers/w<k>/hq-timings.json`), and a request
+past its deadline (fifteen minutes) says how far it had walked. The devices
+of one shard together run on half its processors (a
 JVM waits for one of `cpu_count // 2` places before it starts,
 `proof.android.client._slot`), so the browser's pages, HQ and Formplayer
 beside them keep the rest and meet their own deadlines; the wait is never
@@ -1806,7 +1826,10 @@ in the job before the shards.
 
 **Its tests.** `proof/android/test_peer.py` holds the proxy's transport in
 the lane: a request through it, plain or tunnelled, reaches the harness as
-the client wrote it, and its answer the client.
+the client wrote it, and its answer the client; and a device past its
+deadline is stopped and reported as a request left unanswered, with how far
+it had walked. `proof/android/test_screens.py` holds that every screen the
+reader builds is built where its end is kept.
 `proof/checks/test_android.py` holds the judges over planted differences
 and the records a shard keeps. `proof/android/selfcheck.py` and
 `proof/android/predicates.py` run commcare-android's own code where the
