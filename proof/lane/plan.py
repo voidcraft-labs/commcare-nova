@@ -1,10 +1,14 @@
-"""``python3 -m proof.lane.plan``: how many shards run a lane, and, for a pull request, what it leaves to the nightly.
+"""``python3 -m proof.lane.plan``: how many shards run a lane, and when it is expected to end.
 
     python3 -m proof.lane.plan size QUEUE... [--timings FILE] [--budget SECONDS]
-    python3 -m proof.lane.plan fit --early FILE [--main FILE] --seed TEXT [--timings FILE]
+    python3 -m proof.lane.plan fit --early FILE [--main FILE] [--shards fit|default|N] [--timings FILE]
 
 Standard library only: it runs on the runner's own Python before any shard
 (``proof-plan``, and ``proof-lane.yml``'s emit job), with no image.
+
+A plan decides how many shards run a lane and nothing else: every group the
+queues hold runs, whatever the lane then takes. Nothing here leaves a group
+out for time.
 
 Every shard bins the queues alike (``proof.lane.serve``: the early queue's
 blocks with ``proof.checks.sharding.static_bins``, then the main queue's
@@ -18,33 +22,33 @@ shards over which no shard is expected past ``SHARD_BUDGET_SECONDS``, each
 given a deadline of twice its expected work. A group that alone is expected
 past the budget fails the plan, naming it.
 
-``fit`` is the pull request lane, whose bound is a guarantee: the workflow
-ends within the profile's ``execution.bound`` of its start. It plans to the
-bound less ``execution.margin``, held against runner variance (its target).
-A lane of N shards is expected to end when its N-th runner frees
-(``execution.slots``, measured, sorted; every shard is charged that late
-start, since the account's job limit starts them in no fixed order), plus
-each shard's fixed cost (``execution.fixed``), its longest span, and the gate
-(``execution.gate``). It takes the fewest shards, up to
-``execution.shards``, with which the queues end within the target. Where no
-count holds them all, it defers groups to the nightly, documents and package
-groups alike (``deferral``): for each count it keeps groups in the order of
-the sha256 of the seed (the pull request's head commit) and each group's
-name while that count still ends within the target, and takes the count
-that keeps the most work, so each push defers another subset of the groups a
-shard can hold. It rewrites both queues in
-place: a deferred group leaves its block (whose id and estimate follow its
-remaining groups) for the queue's ``deferred``, which the server accounts
-for and the gate reads (``proof.lane.gate``). It prints the plan as JSON:
-the shard count, when the lane is expected to end, and what it deferred.
+``fit`` is the pull request lane. A lane of N shards is expected to end when
+its N-th runner frees (``execution.slots``, measured, sorted; every shard is
+charged that late start, since the account's job limit starts them in no
+fixed order), plus each shard's fixed cost (``execution.fixed``), its longest
+span, and the gate (``execution.gate``). More shards end the work sooner and
+start later, so some count ends soonest. The rule: of the counts up to
+``execution.shards``, take the fewest whose expected end is within
+``FIT_TOLERANCE_SECONDS`` of the soonest, so a small queue does not take
+runners it does not need and a large one takes what shortens it.
+``--shards`` names a count in place of the rule (``default``:
+``execution.shards``), for a controlled comparison. Each shard's deadline is
+twice what it is expected to take from its own start, at least
+``FIT_DEADLINE_MINUTES``'s floor: it ends a shard that is stuck, and a shard
+it ends fails the lane, so it never decides what is verified. It prints the
+plan as JSON (the shard count, when the lane is expected to end, each shard's
+deadline, the groups and box-seconds it runs) and, where
+``$GITHUB_STEP_SUMMARY`` is set, appends the same as a sentence, so a
+reviewer sees what the lane is expected to take. The times are modelled
+from ``proof/timings.json``'s measures, not promised.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
+import os
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -61,6 +65,10 @@ SHARD_BUDGET_SECONDS = 9000.0
 DEADLINE_MINUTES = (60, 345)
 # The most shards a lane with the readers is sized to.
 MOST_SHARDS = 256
+# How much later than the soonest count's a pull request lane may be expected to end to take fewer shards.
+FIT_TOLERANCE_SECONDS = 15.0
+# A pull request shard's deadline, twice what it is expected to take, within these bounds, in minutes.
+FIT_DEADLINE_MINUTES = (20, 345)
 
 
 class PlanError(ValueError):
@@ -76,13 +84,6 @@ class Lane:
 
     def groups(self) -> dict[str, float]:
         return {name: seconds for queue in (self.early, self.main) for block in queue for name, seconds in block}
-
-    def without(self, deferred: set[str]) -> Lane:
-        def kept(queue):
-            blocks = [[(name, seconds) for name, seconds in block if name not in deferred] for block in queue]
-            return [block for block in blocks if block]
-
-        return Lane(kept(self.early), kept(self.main))
 
 
 def _group_estimates(block: Mapping, estimate: Callable[[str], float]) -> list[tuple[str, float]]:
@@ -164,12 +165,9 @@ class Execution:
 
     shards: int
     workers: int
-    bound: float
     slots: tuple[float, ...]
     fixed: float
     gate: float
-    # Seconds of the bound the plan leaves unplanned, against runner variance.
-    margin: float = 0.0
 
     @classmethod
     def of(cls, value: Mapping) -> Execution:
@@ -177,16 +175,14 @@ class Execution:
             execution = cls(
                 int(value["shards"]),
                 int(value["workers"]),
-                float(value["bound"]),
                 tuple(sorted(float(slot) for slot in value["slots"])),
                 float(value["fixed"]),
                 float(value["gate"]),
-                float(value.get("margin", 0.0)),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise PlanError(
                 f"proof/timings.json's no-readers execution does not say how the pull request lane runs ({error}):"
-                " it names its shards, workers, bound, slots, fixed and gate."
+                " it names its shards, workers, slots, fixed and gate."
             ) from error
         if execution.shards < 1 or execution.workers < 1 or not execution.slots:
             raise PlanError("proof/timings.json's no-readers execution names no shard, worker or slot.")
@@ -196,135 +192,46 @@ class Execution:
         """When the last of ``count`` shards is expected to start: the ``count``-th slot, or the last measured."""
         return self.slots[min(count, len(self.slots)) - 1]
 
-    @property
-    def target(self) -> float:
-        """When the plan has the lane end: the bound less the margin."""
-        return self.bound - self.margin
 
-    def capacity(self, count: int) -> float:
-        """The seconds each of ``count`` shards may run within the target."""
-        return self.target - self.start(count) - self.fixed - self.gate
+def span(lane: Lane, count: int, execution: Execution) -> float:
+    """The longest any of ``count`` shards is expected to run its blocks."""
+    return max(spans(lane, count, execution.workers), default=0.0)
 
 
 def ends(lane: Lane, count: int, execution: Execution) -> float:
-    return execution.start(count) + execution.fixed + max(spans(lane, count, execution.workers)) + execution.gate
+    """When a lane of ``count`` shards is expected to end, in seconds after the workflow starts."""
+    return execution.start(count) + execution.fixed + span(lane, count, execution) + execution.gate
 
 
-def fitted(lane: Lane, execution: Execution) -> tuple[int, float]:
-    """The fewest shards with which the lane ends within the target, and when; else the count that ends soonest."""
-    best = None
-    for count in range(1, execution.shards + 1):
-        end = ends(lane, count, execution)
-        if end <= execution.target:
-            return count, end
-        if best is None or end < best[1]:
-            best = (count, end)
-    assert best is not None
-    return best
+def fitted(lane: Lane, execution: Execution, tolerance: float = FIT_TOLERANCE_SECONDS) -> tuple[int, float]:
+    """The fewest shards whose expected end is within ``tolerance`` of the soonest any count ends, and that end."""
+    expected = {count: ends(lane, count, execution) for count in range(1, execution.shards + 1)}
+    soonest = min(expected.values())
+    count = min(count for count, end in expected.items() if end <= soonest + tolerance)
+    return count, expected[count]
 
 
-class _Kept:
-    """The groups kept so far on ``count`` shards, with what decides quickly whether one more still fits."""
-
-    def __init__(self, lane: Lane, execution: Execution, count: int):
-        self.lane, self.execution, self.count = lane, execution, count
-        self.capacity = execution.capacity(count)
-        self.names: set[str] = set()
-        self.total = 0.0
-        self.longest = 0.0
-        self.blocks: dict[tuple[str, int], float] = {}
-        self.block_of = {
-            name: (queue, index)
-            for queue, blocks in (("early", lane.early), ("main", lane.main))
-            for index, block in enumerate(blocks)
-            for name, _ in block
-        }
-        self.seconds = lane.groups()
-
-    def fits_with(self, name: str) -> bool:
-        workers, capacity, count = self.execution.workers, self.capacity, self.count
-        seconds = self.seconds[name]
-        total = self.total + seconds
-        # Past what any binning holds: a group longer than a shard has, or more than every shard has.
-        if seconds * workers > capacity or total / count > capacity:
-            return False
-        # Within what any greedy binning holds (no bin passes the mean by more than one block).
-        block = self.blocks.get(self.block_of[name], 0.0) + seconds
-        if total / count + max([block, *self.blocks.values()]) <= capacity:
-            return True
-        # Between, the shards' own bins decide.
-        kept = self.lane.without(set(self.seconds) - self.names - {name})
-        return max(spans(kept, count, workers)) <= capacity
-
-    def keep(self, name: str) -> None:
-        seconds = self.seconds[name]
-        self.names.add(name)
-        self.total += seconds
-        where = self.block_of[name]
-        self.blocks[where] = self.blocks.get(where, 0.0) + seconds
+def deadline(lane: Lane, count: int, execution: Execution) -> int:
+    """A shard's deadline in minutes: twice what the longest of ``count`` is expected to take from its start."""
+    low, high = FIT_DEADLINE_MINUTES
+    expected = execution.fixed + span(lane, count, execution)
+    return min(high, max(low, math.ceil(2 * expected / 60)))
 
 
-def priority(seed: str, name: str) -> str:
-    """The order groups are kept in: the sha256 of the seed and the group's name."""
-    return hashlib.sha256(f"{seed}\n{name}".encode()).hexdigest()
+def _minutes(seconds: float) -> str:
+    whole = round(seconds)
+    return f"{whole // 60} min {whole % 60:02d} s"
 
 
-def deferral(lane: Lane, execution: Execution, seed: str) -> set[str]:
-    """The groups the lane leaves to the nightly to end within the target; none where it ends within it whole.
-
-    For each count of shards, the groups are kept in their order (``priority``) while that count still ends
-    within the target; the count that keeps the most work is taken, so how much is deferred follows from the
-    lane's measures and only which groups from the seed."""
-    if fitted(lane, execution)[1] <= execution.target:
-        return set()
-    order = sorted(lane.groups(), key=lambda group: priority(seed, group))
-    best: tuple[float, int, set[str]] | None = None
-    for count in range(1, execution.shards + 1):
-        if execution.capacity(count) <= 0:
-            continue
-        kept, deferred = _Kept(lane, execution, count), set()
-        for name in order:
-            if kept.fits_with(name):
-                kept.keep(name)
-            else:
-                deferred.add(name)
-        if best is None or kept.total > best[0] + 1e-9:
-            best = (kept.total, count, deferred)
-    if best is None:
-        raise PlanError(
-            "No count of shards leaves a shard any time within the target (proof/timings.json's no-readers"
-            " execution: its slots, fixed, gate and margin pass its bound), so nothing can run."
-        )
-    return best[2]
-
-
-def rewritten(value: Mapping, deferred: set[str], lane_blocks_of: list[list[tuple[str, float]]]) -> dict:
-    """A queue's JSON without its ``deferred`` groups: each leaves its block, whose id and estimate follow its
-    remaining groups, for the queue's ``deferred``, with its estimate."""
-    blocks, moved = [], []
-    for block, groups in zip(value.get("blocks", []), lane_blocks_of, strict=True):
-        seconds = dict(groups)
-        kept = [queued for queued in block["groups"] if queued["group"] not in deferred]
-        moved += [
-            {"group": queued["group"], "estimate": round(seconds[queued["group"]], 3)}
-            for queued in block["groups"]
-            if queued["group"] in deferred
-        ]
-        if not kept:
-            continue
-        if len(kept) < len(block["groups"]):
-            names = [queued["group"] for queued in kept]
-            block = {
-                **block,
-                "groups": kept,
-                "id": lane_blocks.block_id(names),
-                "estimate": round(sum(seconds[name] for name in names), 3),
-            }
-        blocks.append(block)
-    found = {**value, "blocks": sorted(blocks, key=lambda block: (-block["estimate"], block["id"]))}
-    if moved:
-        found["deferred"] = sorted([*value.get("deferred", []), *moved], key=lambda entry: entry["group"])
-    return found
+def described(plan: Mapping) -> str:
+    """The plan as the sentence the workflow's summary shows."""
+    return (
+        f"The proof lane runs {plan['groups']} groups ({plan['seconds']:g} box-seconds) on {plan['shards']}"
+        f" shard{'' if plan['shards'] == 1 else 's'} and is expected to end about {_minutes(plan['ends'])} after"
+        " the workflow starts, as modelled from proof/timings.json's measures; every group the queues hold runs,"
+        f" however long it takes. Each shard's deadline is {plan['deadline']} minutes, which only ends a stuck"
+        " shard, failing the lane."
+    )
 
 
 def _read(path: Path | None) -> dict | None:
@@ -348,10 +255,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     sized.add_argument("queues", nargs="+", type=Path, help="the early queue, then the main queue")
     sized.add_argument("--timings", type=Path, default=sharding.TIMINGS)
     sized.add_argument("--budget", type=float, default=SHARD_BUDGET_SECONDS)
-    fit = commands.add_parser("fit", help="the pull request lane's shards, deferring what does not fit")
-    fit.add_argument("--early", type=Path, required=True, help="the early queue, rewritten in place")
-    fit.add_argument("--main", type=Path, help="the main queue, rewritten in place (absent when emission failed)")
-    fit.add_argument("--seed", required=True, help="what chooses the deferred groups (the head commit)")
+    fit = commands.add_parser("fit", help="the pull request lane's shards and when it is expected to end")
+    fit.add_argument("--early", type=Path, required=True, help="the early queue")
+    fit.add_argument("--main", type=Path, help="the main queue (absent when emission failed)")
+    fit.add_argument("--shards", default="fit", help="fit (the rule), default (execution.shards) or a count")
     fit.add_argument("--timings", type=Path, default=sharding.TIMINGS)
     arguments = parser.parse_args(argv)
     try:
@@ -372,27 +279,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise PlanError(f"The early queue {arguments.early} does not exist, so there is no lane to plan.")
         lane = lane_of(early, main_value, estimate)
         execution = Execution.of(execution)
-        deferred = deferral(lane, execution, arguments.seed)
-        kept = lane.without(deferred)
-        count, end = fitted(kept, execution)
-        for path, value, groups in ((arguments.early, early, lane.early), (arguments.main, main_value, lane.main)):
-            if value is not None and deferred:
-                found = rewritten(value, deferred, groups)
-                lane_blocks.parse_queue(found, str(path))
-                lane_blocks.write_json(path, found)
-        seconds = lane.groups()
-        print(
-            json.dumps(
-                {
-                    "shards": count,
-                    "ends": round(end, 3),
-                    "target": execution.target,
-                    "fits": end <= execution.target,
-                    "deferred": sorted(deferred),
-                    "deferredSeconds": round(sum(seconds[name] for name in deferred), 3),
-                }
-            )
-        )
+        if arguments.shards == "fit":
+            count, end = fitted(lane, execution)
+        else:
+            named = execution.shards if arguments.shards == "default" else arguments.shards
+            if not str(named).isdecimal() or int(named) < 1:
+                raise PlanError(f"--shards takes fit, default or a whole number of at least one; got {named!r}.")
+            count = int(named)
+            end = ends(lane, count, execution)
+        plan = {
+            "shards": count,
+            "ends": round(end, 3),
+            "deadline": deadline(lane, count, execution),
+            "groups": len(lane.groups()),
+            "seconds": round(sum(lane.groups().values()), 3),
+        }
+        print(json.dumps(plan))
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as output:
+                output.write(f"## Proof lane plan\n\n{described(plan)}\n")
         return 0
     except (PlanError, lane_blocks.QueueError, lane_readers.ReadersError) as error:
         print(error, file=sys.stderr)

@@ -27,7 +27,17 @@ import pytest
 
 from proof.android import peer as network
 
-pytestmark = pytest.mark.skipif(shutil.which("openssl") is None, reason="the proxy's authority is made with openssl")
+
+@pytest.fixture(autouse=True, scope="module")
+def openssl():
+    """The proxy's authority is made with the ``openssl`` command, which the lane's image holds. Where it is
+    missing every test here fails by name: a skip would pass for a device network nothing held."""
+    assert shutil.which("openssl") is not None, (
+        "This image holds no openssl command, and the device network's proxy makes its authority and each host's"
+        " certificate with it (proof/android/peer.py), so no device request could be answered over https. The"
+        " lane's image installs it (proof/image/Dockerfile); build the image again."
+    )
+
 
 DEVICE = textwrap.dedent(
     """

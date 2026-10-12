@@ -12,8 +12,8 @@ for a run without one, by the server from its own collection
      "blocks": [{"id": <block_id of its groups>, "estimate": <box-seconds>,
                  "groups": [{"group": <group>, "fresh": <bool>}, ...]}, ...],
      "cached": [{"group": <group>, "judgments": {<check>: <judgment key>}}, ...],
-     "deferred": [{"group": <group>, "estimate": <box-seconds>}, ...],
      "unsampled": [<document id>, ...],
+     "sample": {"seed": <ISO year and week> | null, "documents": [<document id>, ...]},
      "readers": false | [<reader>, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
@@ -28,18 +28,16 @@ the surface block (``surface``), or the HQ self-checks (``hq-selfchecks``);
 ``proof.checks.sharding.item_group`` names the group of a collected item. A block's id is the sha256 of its
 groups' names, sorted and joined by newlines (``block_id``), so the id names
 what the block holds. A cached group is one whose every judgment the store
-holds: it runs nowhere, and the gate reads its judgments from the store.
-``deferred``, only in a pull request's queues (``proof.lane.plan``), names
-the groups its planner left to the nightly so the lane ends within its bound:
-none of them runs, and the gate holds the register's entries naming one of
-their documents on their controls alone, those naming one of their controls
-on their documents alone, and leaves to the nightly, by name, those whose
-document and control were both deferred. A block's groups may carry their
-own ``estimate``, the share of the block's the planner splits it by.
+holds: it runs nowhere, and the gate reads its judgments from the store. A
+block's groups may carry their own ``estimate`` (the queue builder writes
+it), which the planner reads for the longest group a shard holds
+(``proof.lane.plan``).
 ``unsampled``, only in the queue of a run over a sample of the corpus
 (``proof.store.queue.sampled``), names the corpus documents the sample
 leaves out (``unsampled_documents``): none of them runs, and the gate holds
-the register's entries naming one on their controls alone. ``readers``, only
+the register's entries naming one on their controls alone. ``sample``, in
+the same queue, names the documents the sample kept and the seed that chose
+them, so a verdict says which sample it judged and how to run it again. ``readers``, only
 in the queue of a run that observes not every reader (``PROOF_READERS``,
 ``proof.lane.readers``), is false for none or the list of those it observes:
 the server refuses a queue built for another set than its own, and the gate
@@ -191,9 +189,11 @@ class CachedGroup:
 
 
 @dataclass(frozen=True)
-class DeferredGroup:
-    group: str
-    estimate: float = 0.0
+class Sample:
+    """The documents a sampled run checks, and the seed that chose them (None for the ranking's first)."""
+
+    documents: tuple[str, ...]
+    seed: str | None = None
 
 
 @dataclass(frozen=True)
@@ -205,15 +205,11 @@ class Queue:
     unsampled: tuple[str, ...] = ()
     # The readers the run hands its served states to (proof.lane.readers).
     readers: frozenset = lane_readers.EVERY
-    # The groups the pull request's planner left to the nightly (proof.lane.plan).
-    deferred: tuple[DeferredGroup, ...] = ()
+    # The sample a sampled run checks; None for a run over the whole corpus.
+    sample: Sample | None = None
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
-
-    def accounted(self) -> set[str]:
-        """Every group the queue runs, reads from the store or leaves to the nightly."""
-        return self.groups() | {entry.group for entry in self.cached} | {entry.group for entry in self.deferred}
 
     def block(self, identifier: str) -> Block | None:
         return next((block for block in self.blocks if block.id == identifier), None)
@@ -293,44 +289,32 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
             continue
         seen_groups[name] = "cached"
         cached.append(CachedGroup(name, dict(judgments)))
-    deferred = []
-    raw_deferred = value.get("deferred", [])
-    if not isinstance(raw_deferred, list):
-        problems.append("its deferred groups are not a list")
-        raw_deferred = []
-    for raw in raw_deferred:
-        name = raw.get("group") if isinstance(raw, dict) else None
-        estimate = raw.get("estimate", 0.0) if isinstance(raw, dict) else None
-        problem = group_problem(name) if check_names else (None if isinstance(name, str) and name else "no name")
-        if problem is not None:
-            problems.append(f"a deferred group: {problem}")
-            continue
-        if name in seen_groups:
-            where = "cached" if seen_groups[name] == "cached" else f"in block {seen_groups[name]}"
-            problems.append(f"{name} is both deferred and {where}; a deferred group runs nowhere")
-            continue
-        if isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or estimate < 0:
-            problems.append(f"the deferred group {name}'s estimate is {estimate!r}, not a number of box-seconds")
-            continue
-        seen_groups[name] = "deferred"
-        deferred.append(DeferredGroup(name, float(estimate)))
     unsampled = value.get("unsampled", [])
     if not isinstance(unsampled, list) or not all(isinstance(name, str) and name for name in unsampled):
         problems.append("its unsampled documents are not a list of document ids")
         unsampled = []
     for name in sorted(seen_groups):
         if name.startswith("corpus:") and name[len("corpus:") :].partition("@")[0] in unsampled:
-            problems.append(
-                f"{name} is run, read or deferred, and the queue names its document as one its sample leaves out"
-            )
+            problems.append(f"{name} is run or read, and the queue names its document as one its sample leaves out")
     try:
         readers = lane_readers.from_record(value.get("readers"))
     except lane_readers.ReadersError as error:
         problems.append(str(error))
         readers = lane_readers.EVERY
+    sample = None
+    raw_sample = value.get("sample")
+    if raw_sample is not None:
+        documents = raw_sample.get("documents") if isinstance(raw_sample, dict) else None
+        seed = raw_sample.get("seed") if isinstance(raw_sample, dict) else None
+        if not isinstance(documents, list) or not all(isinstance(name, str) and name for name in documents):
+            problems.append("its sample names no list of document ids")
+        elif seed is not None and not isinstance(seed, str):
+            problems.append(f"its sample's seed is {seed!r}, not the text that chose it")
+        else:
+            sample = Sample(tuple(documents), seed)
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, tuple(deferred))
+    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample)
 
 
 def load_queue(path: Path, *, check_names: bool = True) -> Queue:
@@ -357,12 +341,12 @@ def queue_json(queue: Queue) -> dict:
             for block in queue.blocks
         ],
         "cached": [{"group": cached.group, "judgments": dict(cached.judgments)} for cached in queue.cached],
+        **({"unsampled": list(queue.unsampled)} if queue.unsampled else {}),
         **(
-            {"deferred": [{"group": entry.group, "estimate": entry.estimate} for entry in queue.deferred]}
-            if queue.deferred
+            {"sample": {"seed": queue.sample.seed, "documents": list(queue.sample.documents)}}
+            if queue.sample is not None
             else {}
         ),
-        **({"unsampled": list(queue.unsampled)} if queue.unsampled else {}),
         **({} if queue.readers == lane_readers.EVERY else {"readers": lane_readers.to_record(queue.readers)}),
     }
 

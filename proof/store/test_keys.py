@@ -9,7 +9,9 @@ Postgres image, the architecture, the observation's environment) changes
 exactly the keys of the results it can change: a document's key, its
 judgments', each record part's storage key, a browser transcript's, and a
 package group's (a package keyed on a sample of the corpus by that sample
-alone); and a file no partition holds changes none. The parts that drive the
+alone); a test module changes the package groups' keys alone, but the one
+whose items run in documents' groups (HQ's branch proof), which changes the
+judgments' too; and a file no partition holds changes none. The parts that drive the
 browser name its code in their own keys (proof 4's declared inputs), so the
 store keeps no browser fingerprint beside any part. And a document's key
 changes wherever any of its parts' keys does, since the queue builder
@@ -19,7 +21,7 @@ changes with any code that starts the browser or records what it did.
 The plausible failures: a partition that leaves out a file its results read
 (an edited judge reusing old judgments), a key that names a fingerprint it
 need not (every record part observed again for an edit of the editor
-driver), a document key that reads another document's files, a document
+driver, or of a test module), a document key that reads another document's files, a document
 key that stays while a part's key moves (a driver edit leaving every
 document cached, proof 4 never driven again), a transcript replayed over
 outputs shaped by code that has since changed, a part whose key does not
@@ -170,6 +172,16 @@ CASES = {
         lambda checkout, corpus: _edit(checkout / "proof/editors/driver/driver.mjs", "// edited\n"),
         {"document one", "document two", "judgment one", "b one", "b_aligned one", "b_edit one", "transcript"}
         | PACKAGES,
+    ),
+    "a test module of a package the observation runs": (
+        lambda checkout, corpus: _edit(checkout / "proof/core/test_core.py", "# edited\n"),
+        PACKAGES,
+    ),
+    "the branch proof, whose items run in documents' groups": (
+        lambda checkout, corpus: write_files(
+            checkout, {"proof/hq/test_branches.py": "def test_branches():\n    pass\n"}
+        ),
+        {"judgment one"} | PACKAGES,
     ),
     "the lane's container files": (
         lambda checkout, corpus: _edit(checkout / "proof/run.mjs", "// edited\n"),
