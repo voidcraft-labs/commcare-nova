@@ -289,12 +289,13 @@ class ReaderSelfCheck(unittest.TestCase):
         handle's intrinsic, so the app raises where it first needs one; no answer of such a JVM is kept, and the
         request raises naming the code cache. Failure it catches: a record holding as the app's crash what was
         the JVM out of room (the 48 MB a JVM without tiers gets filled thirty seconds into a lane's request). The
-        cache reserved at 8 MB, which installing an app fills; a request after it, on the reader's own cache, is
+        cache reserved at 3 MB, which installing an app fills (at 8 MB the JVM, with both its compilers, throws out
+        cold code and stays under it for a request this short); a request after it, on the reader's own cache, is
         answered."""
         from proof.android import client
 
         options = client.JVM_OPTIONS
-        client.JVM_OPTIONS = (*options, "-XX:ReservedCodeCacheSize=8m")
+        client.JVM_OPTIONS = (*options, "-XX:ReservedCodeCacheSize=3m")
         try:
             with self.assertRaisesRegex(AndroidReaderError, "filled its code cache"):
                 self.reader.request("profile", archive=str(SURVEY / "local.ccz"))
