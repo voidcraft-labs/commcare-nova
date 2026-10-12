@@ -7176,9 +7176,9 @@
 		"control": "case-operation-query"
 	},
 	{
-		"id": "d14-search-settings-trace-case-list-end-no-cases-script-ended",
-		"defect": 14,
-		"part": "search settings",
+		"id": "d21-list-first-turned-search-fir-trace-case-list-end-no-cases-script-ended",
+		"defect": 21,
+		"part": "list-first turned search-first",
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/end/no-cases/script-ended",
