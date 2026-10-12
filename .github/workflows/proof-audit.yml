@@ -30,7 +30,10 @@ name: Proof audit
 # without the readers; each is compared with main's newest snapshot (a record
 # that differs is a key that missed an input, and fails the run with both
 # records uploaded), and the two replace main's snapshot whole, so a key no
-# current run reads leaves the store once a week. Three more runs hold the
+# current run reads leaves the store once a week. The run without the readers
+# also holds the committed sensitivity effects to what its own flips showed,
+# both ways (python3 -m proof.checks.sensitivity held): an effect the gates
+# file names that no flip shows any longer fails it by name. Three more runs hold the
 # queue builder's 24-document sample, which turns each week so every document
 # is compared within fifteen weeks (a sampled run holds each register entry
 # naming a document the sample left out on its control alone, and its verdict
@@ -271,6 +274,10 @@ jobs:
       label: weekly-no-readers
       readers: false
       store: pack
+      # The whole fresh run that holds the committed sensitivity effects to its own flips: it observes every
+      # document, and the flips are built, never run, so the readers add nothing to them. The sampled lanes
+      # observe 24 documents and cannot.
+      effects: true
 
   # Both fresh lanes' records, replacing main's snapshot whole when every shard of both ran: a key no current run
   # reads leaves the store once a week, and the nights merge over this one.

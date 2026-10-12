@@ -99,6 +99,10 @@ on:
         description: Whether the gate's verdict fails the run (a prewarm on a pin branch keeps its records whatever it is)
         type: boolean
         default: true
+      effects:
+        description: Whether to hold the committed sensitivity effects to what this run's flips showed (a whole fresh lane only, which observes every document)
+        type: boolean
+        default: false
       claims:
         description: Proof allocation (static by default; create and steal are claim diagnostics)
         type: string
@@ -446,6 +450,17 @@ jobs:
             --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             "${store[@]}" --summary "$RUNNER_TEMP/verdict/verdict.json"
+      # What no check of one document can see: an effect the gates file names that no flip shows any longer.
+      # A whole fresh lane observed every document, so its evidence holds the file both ways (python3 -m
+      # proof.checks.sensitivity held): each effect the file names that no flip showed, and each a flip showed
+      # that the file lacks, fails here by name, and is written beside the verdict for the week's issue.
+      - name: The committed sensitivity effects are what this run's flips showed
+        if: ${{ !cancelled() && inputs.effects }}
+        run: |
+          shopt -s nullglob
+          python3 -m proof.checks.sensitivity held "$RUNNER_TEMP"/proof-shards/proof-out-*/blocks/* \
+            --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            --summary "$RUNNER_TEMP/verdict/effects.json"
       # The store is held to whatever ran, whatever the verdict: a failing
       # item on main still observes records, and a key that missed an input
       # shows only here.

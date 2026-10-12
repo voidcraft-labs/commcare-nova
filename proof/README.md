@@ -191,8 +191,16 @@ the check's message says to write the effects again; under one it accepts,
 the difference is first refused as one no register entry names, its artifact
 ending `@<the gate>` (`suite.xml@toggle/...`). A pin move, an emission change
 that reaches a part of the build a gate changes, and a new document are what
-bring one. Nothing fails for an effect no flip shows any longer: only writing
-the effects again drops it.
+bring one. No check of one document fails for an effect no flip shows any
+longer, since a check sees only that its own differences are named; the
+weekly's whole fresh run does. It holds the file to its own flips both ways
+(`python3 -m proof.checks.sensitivity held`, in `proof-audit.yml`'s lane
+without the readers, which observes every document): each effect the file
+names that no flip showed, each a flip showed that the file lacks, an
+effects list on a gate no flip measured and a file that is not the writer's
+bytes each fail it by name, and the week's issue lists them with the lines
+that write the effects again from that run. So a stale effect, which would
+let its class of difference pass if it came back, lasts a week at most.
 
 **From which run.** With no cap on the pull request lane, a pull request's
 own CI run is whole whenever none of its documents was read from the store:
@@ -2273,7 +2281,9 @@ reused is only what a key names whole, and the reuse is audited:
   ("Known defects", above). The
   whole lane with every reader also verifies every memo on every hit, reruns
   every editor view the slow way and holds every document's HQ branches to
-  fresh states. Each must hold, and a scheduled week that fails opens an
+  fresh states, and the whole lane without them holds the committed
+  sensitivity effects to what its own flips showed, both ways
+  ("Configuration sensitivity"). Each must hold, and a scheduled week that fails opens an
   issue. Each lane with the readers hands every served state to a device in
   its shards ("Android in the unit"), its queues keyed under the lane's own
   environment (`--lane-env`).
