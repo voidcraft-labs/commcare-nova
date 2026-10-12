@@ -68,14 +68,19 @@ KEY_BYTES = 32
 PART_KINDS = frozenset({"a", "b", "b_aligned", "local"})
 
 # The variables of the lane's environment that change what an observation records and that no file the
-# fingerprints cover sets: the HQ speed seams and determinism (proof/hq/speed.py, proof/hq/determinism.py), which
-# proof/run.mjs passes through from the machine running it, and HQ's string hashing and zone, which
-# proof/compose.yaml sets for the lane. The image sets where its checkouts and tools are (PROOF_HQ, PROOF_CORE, ...),
-# so its digest names them. The audit switches that only check (PROOF_VERIFY_MEMOS, PROOF_EDITOR_AUDIT,
-# PROOF_BRANCH_DOCUMENTS) record nothing different and are left out.
-ENVIRONMENT_VARIABLES = ("PYTHONHASHSEED", "TZ", "PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM")
+# fingerprints cover sets: the HQ speed seams and determinism (proof/hq/speed.py, proof/hq/determinism.py) and
+# whether the served states are handed to the readers (proof/lane/readers.py), which proof/run.mjs passes through
+# from the machine running it, and HQ's string hashing and zone, which proof/compose.yaml sets for the lane. The
+# image sets where its checkouts and tools are (PROOF_HQ, PROOF_CORE, ...), so its digest names them. The audit
+# switches that only check (PROOF_VERIFY_MEMOS, PROOF_EDITOR_AUDIT, PROOF_BRANCH_DOCUMENTS) record nothing different
+# and are left out. The readers' switch is here too because a run without them records no served state and runs
+# none of the tests that start a reader, so every key a record, a judgment, a transcript or a package group's
+# outcome is kept under names which of the two profiles made it, and neither profile reads the other's.
+ENVIRONMENT_VARIABLES = ("PYTHONHASHSEED", "TZ", "PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM", "PROOF_READERS")
 # Switches read as on unless set to "0".
 SWITCHES = frozenset({"PROOF_HQ_SPEED", "PROOF_HQ_DETERMINISM"})
+# The readers a run observes, written as the set it names (proof.lane.readers.canonical): all, 0, or a list.
+READERS = "PROOF_READERS"
 # The environment proof/compose.yaml gives the harness, which the queue builder's keys assume, with what a run sets
 # beyond it (proof-lane.yml's lane-env, the builder's --lane-env).
 LANE_ENVIRONMENT = {"PYTHONHASHSEED": "0", "TZ": "UTC"}
@@ -120,22 +125,29 @@ def part_key(kind: str, parent: bytes | None, inputs: dict) -> bytes:
 
 
 def environment(environ: Mapping[str, str]) -> dict:
-    """What of ``environ`` changes what an observation records (``ENVIRONMENT_VARIABLES``), switches as on or off."""
+    """What of ``environ`` changes what an observation records (``ENVIRONMENT_VARIABLES``), switches as on or off
+    and the readers as the set they name."""
+    from proof.lane import readers
+
     found = {}
     for name in ENVIRONMENT_VARIABLES:
         value = environ.get(name)
-        if name in SWITCHES:
+        if name == READERS:
+            found[name] = readers.canonical(readers.parse(value))
+        elif name in SWITCHES:
             found[name] = "off" if value == "0" else "on"
         else:
             found[name] = value
     return found
 
 
-def lane_environment(recorded: Mapping[str, str | None]) -> bool:
-    """Whether a run's recorded environment (``SELECTION_ENVIRONMENT``) is the one the queue builder keys package
-    groups under (``LANE_ENVIRONMENT``), with HQ's branch proof over its own documents or every one."""
+def lane_environment(recorded: Mapping[str, str | None], keyed: Mapping[str, str | None] | None = None) -> bool:
+    """Whether a run's recorded environment (``SELECTION_ENVIRONMENT``) is the one the queue builder keyed package
+    groups under (``keyed``, as ``environment`` gives it: the queue's ``environment``, or ``LANE_ENVIRONMENT``'s for
+    a queue that records none), with HQ's branch proof over its own documents or every one."""
     present = {name: value for name, value in recorded.items() if value is not None}
-    return environment(present) == environment(LANE_ENVIRONMENT) and lane_branches(recorded)
+    expected = environment(LANE_ENVIRONMENT) if keyed is None else dict(keyed)
+    return environment(present) == expected and lane_branches(recorded)
 
 
 def lane_branches(recorded: Mapping[str, str | None]) -> bool:

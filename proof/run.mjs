@@ -21,12 +21,14 @@
 // (proof/lane/blocks.py); `python3 -m proof.lane.gate .proof/out` holds a
 // finished run to the lane's verdict.
 //
-// PROOF_CORPUS_SAMPLE, PROOF_CORPUS_SEED and the audit switches
-// PROOF_HQ_SPEED, PROOF_HQ_DETERMINISM, PROOF_VERIFY_MEMOS,
-// PROOF_EDITOR_AUDIT and PROOF_BRANCH_DOCUMENTS (proof/hq/speed.py,
-// proof/hq/determinism.py, proof/hq/seams.py, proof/editors/pages.py,
-// proof/hq/test_branches.py) pass through to the harness, and
-// nothing else of this machine's environment does; PROOF_CORPUS names a corpus
+// PROOF_CORPUS_SAMPLE, PROOF_CORPUS_SEED, the lane switch PROOF_READERS
+// (proof/lane/readers.py: PROOF_READERS=0 is the pull request lane, which
+// hands no state to the readers and leaves every test that starts one to the
+// nightly) and the audit switches PROOF_HQ_SPEED, PROOF_HQ_DETERMINISM,
+// PROOF_VERIFY_MEMOS, PROOF_EDITOR_AUDIT and PROOF_BRANCH_DOCUMENTS
+// (proof/hq/speed.py, proof/hq/determinism.py, proof/hq/seams.py,
+// proof/editors/pages.py, proof/hq/test_branches.py) pass through to the
+// harness, and nothing else of this machine's environment does; PROOF_CORPUS names a corpus
 // directory on this machine, mounted read-only for the checks to read instead
 // of emitting one, and PROOF_SURFACE_EXTRACTION a directory holding a surface
 // extraction (surface.json, timings.json and its key, extraction.json, as
@@ -54,10 +56,13 @@
 // corpus: with `--queue`, PROOF_CORPUS must name the directory the corpus is
 // downloaded or brought into (mounted writable).
 //
-// `node proof/run.mjs --matrix [shards|default]` prints CI's proof matrix
-// (proof/timings.json's execution: shards on its runner, workers each), and
-// `node proof/run.mjs --timings <output directory>...` writes the box-seconds
-// per group those runs measured into proof/timings.json.
+// `node proof/run.mjs --matrix [shards|default] [--deadline minutes]` prints
+// CI's proof matrix (proof/timings.json's execution of the profile
+// PROOF_READERS names: shards on its runner, workers each; a count from
+// `python3 -m proof.lane.plan`, which sizes a lane from its queues), and
+// `node proof/run.mjs --timings <output
+// directory>... [--box-workers n]` writes the box-seconds per group those runs
+// measured into proof/timings.json, under the profile they ran in.
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -85,6 +90,7 @@ const OUTPUT_ROOT = join(worktree, ".proof");
 const PASSED_THROUGH = [
 	"PROOF_CORPUS_SAMPLE",
 	"PROOF_CORPUS_SEED",
+	"PROOF_READERS",
 	"PROOF_HQ_SPEED",
 	"PROOF_HQ_DETERMINISM",
 	"PROOF_VERIFY_MEMOS",
@@ -94,6 +100,32 @@ const PASSED_THROUGH = [
 
 /** Variables of the lane before its fork server, which no longer select anything. */
 const RETIRED = ["PROOF_SHARD", "PROOF_WORKER"];
+
+/**
+ * The lane's profile (proof/lane/readers.py): `readers` where the served
+ * states are handed to the readers, `no-readers` under PROOF_READERS=0.
+ *
+ * @param {boolean} readers
+ */
+export function profileName(readers) {
+	return readers ? "readers" : "no-readers";
+}
+
+/** Whether this machine's environment runs the lane with any reader (PROOF_READERS unset, `all`, or a list): a slice of some readers is planned by the readers profile. */
+function readersServed(env = process.env) {
+	return env.PROOF_READERS !== "0";
+}
+
+/**
+ * proof/timings.json's measures of one profile: its `execution` (CI's
+ * shards, runner and workers a shard) and its `groups`.
+ *
+ * @param {any} timings
+ * @param {boolean} readers
+ */
+export function timingsProfile(timings, readers) {
+	return timings?.profiles?.[profileName(readers)] ?? {};
+}
 
 /** Runs a command with the terminal attached and resolves its exit code. */
 function execute(command, args, options = {}) {
@@ -965,7 +997,10 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	const timings = JSON.parse(await readFile(TIMINGS_FILE, "utf8"));
 	const workers =
 		options.workers ??
-		count(timings.execution?.workers, "The timings' worker count");
+		count(
+			timingsProfile(timings, readersServed()).execution?.workers,
+			"The timings' worker count",
+		);
 	const image = await harnessImage();
 	const id = await imageId(image);
 	const output = await runOutput({ root: outputRoot });
@@ -1017,27 +1052,32 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 
 /**
  * CI's proof matrix: `shards` jobs (`default`: proof/timings.json's
- * execution) on the execution's runner, each a fork server of the
- * execution's workers.
+ * execution for the profile, `readers`; or a count, which `python3 -m
+ * proof.lane.plan` gives a lane it plans) on the execution's runner, each a
+ * fork server of the execution's workers, with `deadline` minutes where the
+ * plan gives one.
  */
-export function proofMatrix(shards, timings) {
-	const execution = timings.execution ?? {};
+export function proofMatrix(shards, timings, readers = true, deadline) {
+	const execution = timingsProfile(timings, readers).execution ?? {};
+	const workers = count(execution.workers, "The worker count");
 	const total = count(
 		shards === "default" ? execution.shards : shards,
 		"The shard count",
 	);
-	const workers = count(execution.workers, "The worker count");
 	if (typeof execution.runner !== "string" || !execution.runner) {
 		throw new Error(
-			"proof/timings.json's execution names no runner for the shards (execution.runner).",
+			`proof/timings.json's ${profileName(readers)} execution names no runner for the shards (profiles.${profileName(readers)}.execution.runner).`,
 		);
 	}
+	const minutes =
+		deadline === undefined ? undefined : count(deadline, "The deadline");
 	return {
 		include: Array.from({ length: total }, (_, index) => ({
 			shard: index + 1,
 			total,
 			workers,
 			runner: execution.runner,
+			...(minutes === undefined ? {} : { deadline: minutes }),
 		})),
 	};
 }
@@ -1051,20 +1091,56 @@ function mean(values) {
 }
 
 /**
- * proof/timings.json with each group's box-seconds measured by the runs whose
- * output directories are given: each worker's record (`timings/*.json`)
- * holds its groups' seconds and how many workers shared its box, and a
- * group's box-seconds are its seconds divided by that count (the mean where
- * several runs measured it). The mean of what a worker's session shares and
- * of the servers' fixed costs (serve.json) are kept beside them, with the
- * execution settings as they were.
+ * Whether the runs whose output directories are given served the readers (each
+ * serve.json's `readers`, true where it records none), or the refusal when
+ * they ran in both profiles.
  */
-export async function refreshTimings(directories, previous) {
+async function runsReaders(directories) {
+	const profiles = new Set();
+	for (const directory of directories) {
+		const serve = join(resolve(process.cwd(), directory), "serve.json");
+		const served = existsSync(serve)
+			? JSON.parse(await readFile(serve, "utf8"))
+			: {};
+		if (Array.isArray(served.readers) && served.readers.length < 4) {
+			throw new Error(
+				`${directory} ran with only some readers (PROOF_READERS=${served.readers.join(",")}), a slice whose groups cost what neither of the lane's profiles does. Name the outputs of runs with every reader or with none.`,
+			);
+		}
+		profiles.add(served.readers !== false);
+	}
+	if (profiles.size > 1) {
+		throw new Error(
+			"The runs named ran in both of the lane's profiles (their serve.json's readers), and each profile's groups cost what its own runs measure. Name the outputs of one profile's runs at a time.",
+		);
+	}
+	return profiles.size === 0 ? true : [...profiles][0];
+}
+
+/**
+ * proof/timings.json with each group's box-seconds measured by the runs whose
+ * output directories are given, under the profile they ran in (each run's
+ * serve.json says whether it served the readers; the runs must agree), the
+ * other profile kept as it was: each worker's record (`timings/*.json`) holds
+ * its groups' seconds and how many workers shared its box, and a group's
+ * box-seconds are its seconds divided by that count (the mean where several
+ * runs measured it), or by `boxWorkers` where given: the workers a CI box
+ * holds, for a run on another box that gives each worker a vCPU as CI's does
+ * (a proof VM), whose worker-seconds are a CI worker's. The mean of what a
+ * worker's session shares and of the servers' fixed costs (serve.json) are
+ * kept beside them, with the profile's execution settings as they were.
+ */
+export async function refreshTimings(
+	directories,
+	previous,
+	{ boxWorkers } = {},
+) {
 	if (directories.length === 0) {
 		throw new Error(
 			"Name the output directory of each finished lane run to measure: node proof/run.mjs --timings <output directory>...",
 		);
 	}
+	const readers = await runsReaders(directories);
 	const measured = new Map();
 	const shared = [];
 	const fixed = new Map();
@@ -1086,7 +1162,7 @@ export async function refreshTimings(directories, previous) {
 		}
 		for (const file of files) {
 			const record = JSON.parse(await readFile(join(folder, file), "utf8"));
-			const workers = count(record.workers, `${file}'s workers`);
+			const workers = boxWorkers ?? count(record.workers, `${file}'s workers`);
 			sessions += 1;
 			if (typeof record.shared === "number") shared.push(record.shared);
 			for (const [group, seconds] of Object.entries(record.groups ?? {})) {
@@ -1102,6 +1178,7 @@ export async function refreshTimings(directories, previous) {
 			}
 		}
 	}
+	const name = profileName(readers);
 	const groups = Object.fromEntries(
 		[...measured.keys()]
 			.sort()
@@ -1109,19 +1186,31 @@ export async function refreshTimings(directories, previous) {
 	);
 	return {
 		about:
-			"Box-seconds per group of the proof lane (proof/checks/sharding.py): a group's seconds on one worker, without what the worker's session shares, divided by the workers sharing its box. execution is CI's default shard count, runner and workers per shard. Refresh from hosted runs: node proof/run.mjs --timings <output directory>...",
-		execution: previous.execution,
-		measured: {
-			at: new Date().toISOString().slice(0, 10),
-			sessions,
-			// What a worker's session spends beside its groups (its services), on average.
-			sharedSeconds: mean(shared),
-			// What a server spends before its first fork, on average.
-			fixed: Object.fromEntries(
-				[...fixed.keys()].sort().map((name) => [name, mean(fixed.get(name))]),
-			),
+			"Box-seconds per group of the proof lane (proof/checks/sharding.py), for each profile (proof/lane/readers.py: readers, the nightly's, every state served to the readers; no-readers, the pull request lane's, PROOF_READERS=0): a group's seconds on one worker, without what the worker's session shares, divided by the workers sharing a CI box. Each profile's execution is CI's default shard count, runner and workers per shard for it. Refresh a profile from its runs: node proof/run.mjs --timings <output directory>... [--box-workers n].",
+		profiles: {
+			...(previous.profiles ?? {}),
+			[name]: {
+				execution: timingsProfile(previous, readers).execution,
+				measured: {
+					at: new Date().toISOString().slice(0, 10),
+					sessions,
+					...(boxWorkers === undefined
+						? {}
+						: {
+								basis: `Worker-seconds of runs on a box giving each worker a vCPU, as a CI shard does, each divided by ${boxWorkers}, the workers a CI shard's box holds.`,
+							}),
+					// What a worker's session spends beside its groups (its services), on average.
+					sharedSeconds: mean(shared),
+					// What a server spends before its first fork, on average.
+					fixed: Object.fromEntries(
+						[...fixed.keys()]
+							.sort()
+							.map((fixedName) => [fixedName, mean(fixed.get(fixedName))]),
+					),
+				},
+				groups,
+			},
 		},
-		groups,
 	};
 }
 
@@ -1139,8 +1228,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	} else if (command === "--matrix") {
 		readFile(TIMINGS_FILE, "utf8")
 			.then((text) => {
+				const at = rest.indexOf("--deadline");
+				const deadline = at === -1 ? undefined : rest[at + 1];
 				console.log(
-					JSON.stringify(proofMatrix(rest[0] ?? "default", JSON.parse(text))),
+					JSON.stringify(
+						proofMatrix(
+							rest[0] ?? "default",
+							JSON.parse(text),
+							readersServed(),
+							deadline,
+						),
+					),
 				);
 				return 0;
 			})
@@ -1149,13 +1247,22 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		readFile(TIMINGS_FILE, "utf8")
 			.catch(() => "{}")
 			.then(async (text) => {
-				const refreshed = await refreshTimings(rest, JSON.parse(text));
+				const at = rest.indexOf("--box-workers");
+				const boxWorkers =
+					at === -1 ? undefined : count(rest[at + 1], "--box-workers");
+				const directories =
+					at === -1 ? rest : [...rest.slice(0, at), ...rest.slice(at + 2)];
+				const refreshed = await refreshTimings(directories, JSON.parse(text), {
+					boxWorkers,
+				});
 				await writeFile(
 					TIMINGS_FILE,
 					`${JSON.stringify(refreshed, null, "\t")}\n`,
 				);
+				const name = profileName(await runsReaders(directories));
+				const written = refreshed.profiles[name];
 				console.error(
-					`Wrote ${relative(worktree, TIMINGS_FILE)}: ${Object.keys(refreshed.groups).length} groups from ${refreshed.measured.sessions} worker sessions.`,
+					`Wrote ${relative(worktree, TIMINGS_FILE)}: the ${name} profile's ${Object.keys(written.groups).length} groups from ${written.measured.sessions} worker sessions.`,
 				);
 				return 0;
 			})

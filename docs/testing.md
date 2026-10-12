@@ -423,15 +423,25 @@ count. These are hosted observations, including setup and aggregate checks;
 future workload changes need fresh measurements. Detailed timings and resource
 observations remain in the CI artifacts and shipping PR.
 
-The proof lane shares the five-minute target. Its shards run blocks of groups
-packed from measured costs (`proof/timings.json`), on four-vCPU arm64
-runners. It is the one place a result is read rather than recomputed: an
-observation is reused only under a key that names every input it read, a
-sample of documents is observed afresh and held to the store on every pull
-request, and the whole lane is recomputed nightly; every judgment, fresh or
-stored, is held to the register on every run (`proof/README.md`, "The
-evidence store and its audits"). Measure a harness change by the CPU-seconds
-it costs per document and per job, not by wall time on a larger machine.
+The proof lane's pull request half must end within ten minutes, counting
+setup, the image pull and the gate. It runs without the readers
+(`PROOF_READERS=0`: HQ, Core and HQ's editors over every document, nothing
+handed to Formplayer, the Web Apps client, CommCare Android or Connect), its
+shards running blocks of groups packed from each profile's measured costs
+(`proof/timings.json`) on four-vCPU amd64 runners. Each night runs the lane
+with every reader over what changed since main's last store snapshot, each
+week runs it whole and fresh (the run that proves the store's keys), each
+opening an issue when it fails, and a change a reader would show is proven on
+a proof machine before it is pushed
+(`proof/README.md`, "The lane in CI", "Timings and the ten-minute bound" and
+"Proving a reader change before you push"). It is the one place a result is
+read rather than recomputed: an observation is reused only under a key that
+names every input it read (and the profile it ran in), a sample of documents
+is observed afresh and held to the store on every pull request, and the whole
+lane is recomputed weekly in both profiles; every judgment, fresh or stored,
+is held to the register on every run (`proof/README.md`, "The evidence store
+and its audits"). Measure a harness change by the CPU-seconds it costs per
+document and per job, not by wall time on a larger machine.
 
 The checked-in `e2e/smoke-timings.json` only estimates placement: it cannot
 select tests. New or renamed tests get a five-second estimate. Refresh timings

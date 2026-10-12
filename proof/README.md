@@ -388,7 +388,9 @@ beside the image and removes when it ends (`proof/compose.yaml`).
 ### Selecting what runs
 
 ```bash
-npm run proof                                           # the whole harness
+npm run proof                                           # the whole harness, with every reader (the nightly's lane)
+PROOF_READERS=0 npm run proof                           # the pull request lane: no state served to a reader
+PROOF_READERS=android npm run proof -- proof/checks -k <document>  # prove an Android change: Formplayer and a device only
 npm run proof -- proof/checks/test_bar.py               # one check over every document
 npm run proof -- proof/checks -k targeted-time-ordering # every check of one document
 npm run proof -- proof/native                           # the native proofs
@@ -411,6 +413,122 @@ observed once for all its checks.
 With no corpus named, the run emits one into its output first
 (`proof/checks/corpus.py::emit_corpus`, inside the image), at the default seed
 and fuzz sample (`proof/corpus/defaults.ts`).
+
+### The lane's two profiles
+
+The lane runs in one of two profiles (`proof/lane/readers.py`), and
+`PROOF_READERS` picks it; a slice may also name some readers alone:
+
+- **With the readers** (the default; the nightly and the weekly run it
+  beside the other profile): every state a unit
+  serves is handed to Formplayer, the Web Apps client, a device and, for a
+  Connect app, Connect's own server ("Served states"), and every test runs.
+- **Some of them** (`PROOF_READERS=android`, or a comma list of
+  `formplayer`, `webapps`, `android` and `connect`), for proving one
+  reader's change on a slice: a document's group walks every reader in 15 to
+  40 minutes on one worker, and one reader in a fraction of that. Every
+  reader named brings Formplayer, whose walk the client replays, whose
+  submissions Connect receives, and along which B and proof 4's saves are
+  served to a device. The served hook observes those readers alone and names
+  them in its parts' keys, the tests that start another are left out, and the
+  gate leaves exactly the entries whose artifacts the others write and says
+  which. CI never sets anything but `0` and every reader.
+- **Without them** (`PROOF_READERS=0`, the pull request lane's): HQ, Core and
+  HQ's editors run as they always do, every check holds its differences to
+  the register as it always does, and nothing is handed to a reader. The unit
+  leaves its `served` hook out, so proof 4's saves are served to nothing; the
+  tests that start a served reader are deselected (each is marked `reader`:
+  by `proof/conftest.py` where its fixtures start one, `formplayer_runner` or
+  `connect_runtime`, and by hand where it starts one itself, as a spelling
+  rule's `served_readings` does); the session's services refuse to start a
+  reader, so a test that starts one unmarked fails instead of running half;
+  and the gate leaves the register's entries whose artifacts only the readers
+  write (`formplayer@`, `webapps@`, `android@`, `android-tablet@`,
+  `connect@`, `release@`, the names `proof/checks/differences.py` gives every
+  check that reports one) to the nightly, saying how many. A run with the
+  readers holds every test marked by hand to asking for one, so no test
+  leaves the pull request lane for a reader it never starts.
+
+Formplayer's form validation is HQ's own (its build asks for it,
+`proof/hq/seams.py::formplayer_validation`), so it runs in both. The two
+profiles keep their records apart: `PROOF_READERS` is one of the variables
+every key of the evidence store names (`proof/store/keys.py`), so neither
+reads what the other observed, and their queues say which they were built for
+(the server refuses a queue of the other profile).
+
+### Proving a reader change before you push
+
+The pull request lane runs no reader, so a change a reader would show is
+proven before it is pushed, on a proof machine: a Linux amd64 machine with
+Docker and the Android reader's runtime ("Android in the unit"), the only
+platform where every reader runs. This holds for a change to Nova's emission,
+which every reader reads, and to anything a reader observes or judges: the
+reader packages (`proof/formplayer`, `proof/webapps`, `proof/android`,
+`proof/connect`), `proof/observe/served.py` and `proof/observe/connect.py`,
+`proof/checks/served.py`, `proof/checks/android.py`, `proof/checks/connect.py`,
+a register entry naming a reader's artifact, and a pin. Run that reader's
+slice with that reader on (`PROOF_READERS=<reader>`, or every reader, the
+default), over the documents your change touches:
+
+```bash
+export PROOF_ANDROID_RUNTIME=<the runtime build-runtime.sh built> PROOF_ANDROID_JDK=<the JDK it was built with>
+PROOF_READERS=android npm run proof -- --workers 8 proof/checks -k "<document id>"  # each state, on a device
+npm run proof -- --workers 8 proof/checks -k "<document id> or <another id>"   # each served state, every reader
+npm run proof -- --workers 4 proof/formplayer proof/webapps                     # the readers' own tests
+npm run proof -- --workers 4 proof/connect proof/rules                          # Connect, and the rules' readers
+python3 -m proof.lane.gate .proof/out
+python3 -m unittest proof.android.selfcheck proof.android.predicates -v          # the Android reader's own checks
+```
+
+A document's checks are one group on one worker, so more workers than the
+documents you select buy nothing. Read only the gate's problems that name your
+documents and the entries on them: an entry on a document the slice did not
+run shows as not run, which is expected for a slice. Each night runs the
+lane with every reader over what changed and each week runs it whole, each
+opening an issue when it fails; they are the backstop for what a slice
+missed, never the first run of a reader change.
+
+### Running the lane on another machine
+
+A slice with every reader, or the whole lane, wants a machine larger than a
+laptop: Linux on amd64 (the Android reader's native runtime ships for no
+other Linux), about 3 GB of memory a worker, and a vCPU a worker, which
+saturates it (more workers than vCPUs only slow each). `run.mjs` sizes
+Postgres's client cap from the worker count (125 a worker, at least 500,
+`proof/compose.yaml`). `proof/remote/` runs the lane on such a machine from
+your working tree, over ssh:
+
+```bash
+proof/remote/run.sh <host> --provision --android-licenses <a directory holding an accepted SDK's licenses/>
+proof/remote/run.sh <host> -- --workers 8 proof/checks -k "<document id>"
+proof/remote/run.sh <host> --env PROOF_READERS=0 -- --workers 32                  # the pull request lane, whole
+```
+
+`--provision` copies the tree to the host and runs `proof/remote/provision.sh`
+there, which makes a fresh Ubuntu 24.04 amd64 machine a proof machine: Docker,
+the Node and npm versions `.nvmrc` and `package.json` name, the JDK
+`proof/android/toolchain.json` names (at `/opt/proof-jdk`), the limits many
+workers reach, one install of Nova's dependencies for the lock, the harness
+image and Postgres pulled, and the Android reader's runtime built and held to
+its own checks (`~/proof-android-reader`; its build installs Android SDK
+packages, which only an SDK whose license a person accepted may receive, so
+it is built only where `--android-licenses` names one). A run copies the
+tree (without `.git`, `node_modules` or `.proof`, so uncommitted edits run)
+to `~/proof-remote/<slot>` on the host (`--slot`, the tree's directory name
+by default, keeps two trees apart on one host), links its `node_modules`
+from that install, runs `npm run proof -- <arguments>` there with the
+runtime and the JDK and each `--env`, and copies the output back to
+`.proof/remote/<slot>-<stamp>/`, where `python3 -m proof.lane.gate` reads it.
+
+On Google Cloud, for example, a spot VM is the cheapest such machine: create
+one from the `ubuntu-2404-lts-amd64` image family with no external address
+(`gcloud compute instances create <name> --project <project> --zone <zone>
+--machine-type n2-standard-32 --provisioning-model SPOT --image-family
+ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 200GB
+--no-address`), reach it through Identity-Aware Proxy with an ssh config
+entry whose `ProxyCommand` is `gcloud compute start-iap-tunnel %h 22
+--listen-on-stdin --project <project> --zone <zone>`, and name that entry as
+the host. A preempted spot VM keeps its disk: start it again and rerun.
 
 ### Where a run writes
 
@@ -460,6 +578,7 @@ It passes these into the container unchanged, each only when set:
 | Variable | What it does |
 | --- | --- |
 | `PROOF_CORPUS_SAMPLE`, `PROOF_CORPUS_SEED` | The fuzz sample's size and the corpus seed, for a corpus the run emits. |
+| `PROOF_READERS` | The readers the run hands its states to: unset or `all` for every one, `0` for none (the pull request lane's profile), or a comma list for a slice ("The lane's two profiles", above). |
 | `PROOF_HQ_SPEED=0` | HQ without its speed seams (`proof/hq/speed.py`), to compare. |
 | `PROOF_HQ_DETERMINISM=0` | HQ's entropy and clock left real (`proof/hq/determinism.py`), to compare. The tests marked `under_determinism` are skipped, and the store holds two records of one key to each other with their drawn values masked. |
 | `PROOF_VERIFY_MEMOS=1` | Every memo, kept build and kept trace computed again on every hit and held to the kept answer. |
@@ -876,9 +995,12 @@ app, restore and trace) are blobs named by their sha256.
   read recorded), the plan's privileges, the project settings through HQ's own
   test utilities, the previous build, HQ's resource overrides, and the
   form validation HQ asks Formplayer for, answered by Formplayer's own
-  application (`formplayer_validation`: a Formplayer runner of the
-  session's own for validation, `proof/observe/services.py::validator`,
-  sent the headers and the digest HQ wrote). One privilege a
+  application (`formplayer_validation`, sent the headers and the digest HQ
+  wrote, `proof/observe/services.py::validator`): in the lane, one
+  Formplayer the server starts while HQ boots answers every worker's, as
+  Formplayer's validation keeps no state between requests
+  (`proof/formplayer/shared.py`); elsewhere a runner of the session's own).
+  One privilege a
   part of the lane states of the project space beyond what the document's
   content needs is granted for that part alone (`also_granted`: Data
   Forwarding, where a Connect app's forms are forwarded). Every other read
@@ -1318,7 +1440,8 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
 - **Cost.** A served state costs one to two seconds of Formplayer and three
   to four of the client, and a document has between four and twenty of
   them a configuration, so a document that took five to ten seconds takes
-  forty to a hundred ("Timings and the five-minute target").
+  forty to a hundred ("Timings and the ten-minute bound"), which is why the
+  pull request lane runs without the readers.
 
 ### Connect in the unit
 
@@ -1982,27 +2105,34 @@ reused is only what a key names whole, and the reuse is audited:
   observed whole and held to the store, a mismatch written under `audit/` and
   failing its group. A share of live editor runs (`PROOF_EDITOR_AUDIT`) is
   rerun on a fresh page;
-- **nightly, on main** (`proof-audit.yml`): the whole lane fresh, nothing
-  shared between documents and every editor view live, compared with main's
-  newest snapshot (`python3 -m proof.store.audit compare`), then saved as the
-  newest snapshot every pull request reads. A scheduled audit that fails opens
-  an issue. A merge to main writes nothing to main's store (only the
-  audit and the pin pull request's prewarm do, "Changing a pin", below), so
-  a pull request opened right after a large merge is cold: its queue
-  observes every group the merge changed until the nightly audit refreshes
-  main's store;
-- **weekly** (`proof-audit.yml`): four fresh runs. Three run a fixed
-  24-document sample: a baseline, one with Nova's emission and HQ unseeded,
+- **nightly, on main** (`proof-audit.yml`): the lane in both profiles ("The
+  lane's two profiles"), with every reader and without them, each queued as a
+  pull request's is, against main's newest snapshot: every group whose key
+  changed since it was saved is observed, the audit sample afresh, and the
+  rest read. The two are merged over main's snapshot into the newest one
+  every pull request reads. A scheduled night that fails in either profile
+  opens an issue. A merge to main writes nothing to main's store (only the
+  nightly, the weekly audit and the pin pull request's prewarm do, "Changing
+  a pin", below), so a pull request opened right after a large merge is
+  cold: its queue observes every group the merge changed, deferring what
+  does not fit in ten minutes, until the nightly refreshes main's store;
+- **weekly** (`proof-audit.yml`): the fresh audit, what proves the store's
+  keys. The whole lane runs fresh, nothing shared between documents, in both
+  profiles, each compared with main's newest snapshot (`python3 -m
+  proof.store.audit compare`); the two replace that snapshot whole, so a key
+  no current run reads leaves the store once a week. Three more fresh runs,
+  each with every reader, hold a fixed 24-document sample: a baseline, one with Nova's emission and HQ unseeded,
   compared with the baseline (equal once every drawn id and clock reading is
   read as one value, with defects 1 and 9 still showing), and one with HQ's
   speed seams off, compared with it (equal). A sampled run checks every control and package but only
   the sampled documents, so it holds each register entry naming a document
   the sample left out on its control alone ("Known defects", above). The
-  fourth runs the whole corpus with every memo verified, every editor view
-  rerun the slow way and every document's HQ branches held to fresh states,
-  and must pass on its own, as each of the four must. Each hands every served
-  state to a device in its shards, as every lane does ("Android in the
-  unit"), its queues keyed under the lane's own environment (`--lane-env`).
+  whole lane with every reader also verifies every memo on every hit, reruns
+  every editor view the slow way and holds every document's HQ branches to
+  fresh states. Each must hold, and a scheduled week that fails opens an
+  issue. Each lane with the readers hands every served state to a device in
+  its shards ("Android in the unit"), its queues keyed under the lane's own
+  environment (`--lane-env`).
   `proof-image.yml` compares the slim image with the full one, both on
   amd64, where the lane's shards run.
 
@@ -2260,8 +2390,10 @@ CommCare 2.53.0, the version these proofs have always built at (2.60.0 for the
 HQ-JSON oracle, whose probes carry no build of their own). Proofs that build
 remote requests also name Nova's server (`https://www.commcarehq.org`) as the
 app's base URL and as HQ's own address. Formplayer's form validation is
-Formplayer's own application (the session's validation Formplayer). The network is refused except for the lane's Postgres,
-and a step or test that reaches for anything else fails.
+Formplayer's own application (the lane server's validation Formplayer, or
+the session's own outside the lane). The network is refused except for the
+lane's Postgres and the loopback services the harness starts for HQ, and a
+step or test that reaches for anything else fails.
 
 ### What each run leaves
 
@@ -2608,50 +2740,78 @@ producer output and Core's JUnit report in the run's `native/` directory.
 
 ## The lane in CI
 
+The lane runs in three places, each holding every check it runs exactly as
+the others do:
+
+- **Every pull request** (`ci.yml`) runs it without the readers, ending
+  within ten minutes of the workflow's start, a guarantee: what the evidence
+  store holds is read, and of the rest, what does not fit is deferred to the
+  nightly ("Deferred to the nightly", below).
+- **Every night** (`proof-audit.yml`) runs it over main in both profiles
+  against main's store, so every group the store lacks is observed (each
+  group a merged pull request changed or deferred among them), and merges
+  what it observed into the snapshot every pull request reads.
+- **Every week** (`proof-audit.yml`) runs it whole and fresh in both
+  profiles, the run that proves the store's keys and replaces the snapshot,
+  beside the sampled comparisons ("The evidence store and its audits").
+
+A scheduled night or week that fails opens an issue. The nightly is the
+backstop, never the first run: a change a reader would show is proven on a
+proof machine before it is pushed ("Proving a reader change before you
+push"), and so are the groups a pull request defers.
+
 ### The pull request lane
 
-CI runs the lane in `ci.yml`, beside the existing jobs:
+A pull request's lane runs without the readers (`PROOF_READERS=0`, "The
+lane's two profiles"): HQ, Core and HQ's editors over every document the
+store does not hold, every check held to the register, and no state handed
+to Formplayer, the Web Apps client, a device or Connect. `ci.yml` sets
+`PROOF_READERS: '0'` for the whole workflow, and runs the lane beside the
+existing jobs:
 
 - **`quality`** ("Lint & type-check", x64) emits the corpus once
   (`proof/corpus/emit.ts`) and, beside it, the native proofs' products
   (`python3 -m proof.native.produce`, carried in the corpus as `native/`),
   builds the main queue from them and the evidence store
-  (`python3 -m proof.store.queue main`), and uploads both as artifacts. A
-  failed emission never fails this job: it uploads a failure marker, the
-  shards stop waiting, and the gate names the step that failed.
+  (`python3 -m proof.store.queue main --lane-env PROOF_READERS=0`), and
+  uploads both as artifacts. A failed emission never fails this job: it
+  uploads a failure marker, the shards stop waiting, and the gate names the
+  step that failed.
 - **`proof-plan`** builds the early queue (groups that need no corpus: the
   surface block and every package whose tests read none; the lane's server
   refuses an early queue holding a document's, a control's or a package in
-  `proof.lane.blocks.CORPUS_PACKAGES`) and the matrix
-  (`node proof/run.mjs --matrix`). It waits for `smoke-plan`, so its shards
-  queue behind every existing job.
-- **`proof`** ("Proof i/n", `ubuntu-24.04`, x64) installs nothing and runs
-  none of Nova's TypeScript: it pulls the image and Postgres while it fetches
-  the queues, restores the Android reader's runtime and its JDK, which it
-  mounts into the harness at the paths they were built at, and its fork
-  server (`node proof/run.mjs --lane`) runs the early queue's blocks and the
-  main queue's as it claims them, with four workers. It prints its
-  containers' memory every few minutes and whenever one passes its last
-  printed peak, and writes their peaks into its output (`memory.json`), so a
-  runner that dies says why.
-  `proof/ci/wait.mjs` brings the main queue and the corpus into a shard that
-  started before they existed, and `proof/ci/drained.mjs` ends a shard that
-  starts after every block is claimed. A shard fails only when it cannot run
-  its blocks; whether the proofs hold is the gate's.
-- **`proof-android-runtime`** ("Android reader runtime", x64) puts the
-  Android reader's runtime in the Actions cache: commcare-android's own
-  unit-test build at the pins, kept under the digest of everything a build
-  of it reads (`python3 proof/android/toolchain.py key`: the two pins, the
-  toolchain, the scripts that build it). A run that does not find it kept
-  builds it from exactly those, with every download named by commit,
-  checksum or revision (`proof/android/build-runtime.sh`), and saves it.
-  Every run then holds the reader to its own checks on it (`selfcheck.py`,
-  `predicates.py`, some four minutes), before any shard starts, since the
-  reader's code changes without the runtime changing.
+  `proof.lane.blocks.CORPUS_PACKAGES`) and plans the lane over both queues
+  (`python3 -m proof.lane.plan fit`, "Deferred to the nightly", below): the
+  fewest shards with which it is expected to end within ten minutes, so a
+  pull request whose groups main's store holds takes one shard and leaves
+  the runners to the tests and smoke, and, where no count holds every group
+  it runs, the groups it leaves to the nightly. It uploads the early queue
+  and the planned main queue (`proof-planned-queue-<attempt>.json`), which
+  the shards and the gate read. It waits for `quality`, which builds the
+  main queue, and for `smoke-plan`, so its shards queue behind every
+  existing job; without a main queue (a failed emission) it plans the early
+  queue alone, which is all that runs.
+- **`proof`** ("Proof i/n", `ubuntu-24.04`, x64, the nightly's architecture,
+  so the records main's audit saves are the ones it reads) installs nothing,
+  runs none of Nova's TypeScript and needs no Android runtime: it pulls the
+  image and Postgres while it fetches the queues, and its fork server (`node
+  proof/run.mjs --lane`) runs the early queue's blocks and the main queue's
+  as it claims them, with four workers. It prints its containers' memory
+  every few minutes and whenever one passes its last printed peak, and writes
+  their peaks into its output (`memory.json`), so a runner that dies says
+  why. `proof/ci/wait.mjs` brings the main queue and the corpus into a shard
+  that started before they existed, and `proof/ci/drained.mjs` ends a shard
+  that starts after every block is claimed. A shard fails only when it cannot
+  run its blocks; whether the proofs hold is the gate's. Its deadline stops
+  only a stuck shard ("Timings and the ten-minute bound").
 - **`proofs-gate`** ("Proofs") is the lane's one check, whatever its shard
   count.
 - **`proof-store`** saves this pull request's evidence store beside the gate:
   what it held and what this run observed that main's does not hold.
+
+The Android reader's runtime is built and held to the reader's own checks
+(`selfcheck.py`, `predicates.py`) where the readers run: the nightly's lane
+(`proof-lane.yml`'s "Android reader runtime" job) and a proof machine.
 
 CI makes the corpus and the native products on an x64 runner, with the
 runner's own Node, and the shards read them on x64 in the image. So
@@ -2669,17 +2829,24 @@ its problems:
 
 1. **Exactly once**: every queued block ran exactly once (a block two shards
    ran fails, whatever they wrote), every group ran every item its worker
-   collected, cached groups ran nowhere, and the shards collected alike.
+   collected, cached and deferred groups ran nowhere, and the shards
+   collected alike.
 2. **Tests**: every item that ran passed, or ended as pytest's marks on it
    allow.
 3. **Register**: the evidence of every block that ran, with the cached groups'
    evidence read from the store, held to `proof/known-defects.json`, and
-   every entry seen on its document and its control.
+   every entry seen on its document and its control; an entry whose document
+   was deferred is held on its control alone, one whose control was deferred
+   on its document alone, and one with both deferred is left to the nightly
+   and named.
 4. **Surface**: the surface block's extraction, or the store's for this image
    and extractor, is byte for byte the committed `surface.json`.
 
-It prints each section, writes the whole to `--summary` (uploaded as the run's
-verdict), and appends it to the job's summary.
+It prints each section and, under a heading of its own ("Deferred to the
+nightly"), every group the plan deferred with its estimate, so a reviewer
+sees what the nightly will cover; writes the whole to `--summary` (uploaded
+as the run's verdict), and appends it to the job's summary. A deferred
+surface block leaves the surface section to the nightly.
 
 ### Claims
 
@@ -2703,79 +2870,194 @@ The run steps reach the artifact service with the job's runtime token, which
 `.github/actions/proof-runtime` exports and the lane's server passes to its
 claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
 the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
-explicit diagnostic mode, and `proof_shards` selects another shard count.
+explicit diagnostic mode, and `proof_shards` selects another shard count,
+which runs every group the store does not hold and defers nothing.
 
 ### The other workflows
 
-- **`proof-lane.yml`** runs the lane whole and fresh for the workflows that
-  check the lane rather than a pull request, after the job that builds or
-  finds the Android reader's runtime. It records a candidate
-  image in the checkout's lock first (`proof/ci/candidate.mjs`), so every key
-  the run computes names the image it pulls. `ci.yml`'s `lane_sample` input
-  runs it from a branch over a sample of that many documents, storing
-  nothing, to hold a change to it before main's audit runs it.
-- **`proof-audit.yml`**: the nightly audit and the weekly comparisons ("The
-  evidence store and its audits", above).
+- **`proof-lane.yml`** runs the lane whole, fresh or against main's store
+  (`fresh`), for the workflows that check the lane rather than a pull
+  request, after the job that builds or
+  finds the Android reader's runtime. With `readers: false` it runs the pull
+  request lane's profile instead, with no Android runtime. It records a
+  candidate image in the checkout's lock first (`proof/ci/candidate.mjs`), so
+  every key the run computes names the image it pulls. As `store` asks, it
+  compares the fresh records with main's store, saves them as main's newest
+  snapshot, or packs them for its caller to merge (`store: pack`).
+  `ci.yml`'s `lane_sample` input runs it from a branch over a sample of that
+  many documents, storing nothing, to hold a change to it before main's
+  audit runs it.
+- **`proof-audit.yml`**: the nightly runs and the weekly fresh audit ("The
+  evidence store and its audits", above). Each night it runs `proof-lane.yml`
+  twice over main against main's store (`fresh: false`), with every reader
+  and without them, and **`proof-store-save.yml`** merges the two packed
+  stores over main's snapshot into the one the run saves (`python3 -m
+  proof.store.pack merge`: every key names its profile, so the two never
+  share one). A night observes every group main's store lacks, so each group
+  a merged pull request deferred runs there, and a pull request that changes
+  no proof input finds every group cached and its lane is setup and the
+  gate. Each week it runs both profiles
+  whole and fresh, which replace the snapshot, beside the sampled
+  comparisons. A scheduled night or week that fails, or cannot save the
+  store, opens an issue. The repository is on GitHub's free plan for
+  organizations (twenty jobs at once, six hours a job) and the lane with
+  every reader costs about 300 worker-hours whole, so no lane runs it fresh
+  every night: each lane with the readers sizes its shards from its queue
+  (`python3 -m proof.lane.plan size`: no shard expected past two and a half
+  hours as every shard bins the queues, its deadline twice its expected
+  work; a group alone expected past that fails the plan, naming it) and runs
+  at most fourteen at once, leaving six runners for pull requests; GitHub
+  queues the rest, and queued time is no job's.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
   weekly, and for the weekly pin pull request.
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
-  below).
+  below). Its prewarm runs the pull request lane's profile on the candidate
+  image and saves it for the pin pull request's CI; beside it the lane runs
+  with every reader on the candidate, so a reader that does not hold on the
+  new pins fails that run before a person merges them.
 
-### Timings and the five-minute target
+### Timings and the ten-minute bound
 
-The lane shares CI's five-minute target for the whole workflow
-(`docs/testing.md`, "Performance and verification"). `proof/timings.json`
-holds each group's measured cost in box-seconds and CI's default `execution`
-(shards, runner, workers per shard); the queue builder packs blocks from it,
-and a group it does not list counts the median document's or a default.
-`node proof/run.mjs --timings <output>...` refreshes it from runs' outputs.
-Choose the default shard count the way `docs/testing.md` chooses the smoke
-lane's: three hosted runs per candidate (`ci.yml`'s `proof_shards` input),
-counting setup, the image pull and the gate. The costs `proof/timings.json`
-holds were measured off GitHub's runners, so the default shard count stands
-until hosted runs confirm it; where they show the lane cannot finish in five
-minutes, the pull request records them and the person sets the lane's target
-(step 1's decision 11, below). Measure a change to the harness
-by the work it does: the CPU-seconds the harness's and Postgres's containers
-use (their cgroups' CPU usage before and after) beside the wall time and the
-worker count, per document, per check and per job, since a hosted runner has
-four vCPUs and more parallelism on a larger machine buys nothing there.
+CI ends within ten minutes of the workflow's start, counting setup, the
+image pull and the gate, and aims for five on average: the pull request lane
+is planned to that bound, and what does not fit is deferred to the nightly,
+which opens an issue when it fails ("Deferred to the nightly", below). `proof/timings.json` holds each
+profile's group costs in box-seconds and its CI `execution` (shards, runner,
+workers per shard): `readers` for the nightly's lane, `no-readers` for the
+pull request lane's. The queue builder packs each profile's blocks from its
+own costs (a group it does not list is counted at the 90th percentile of the
+measured groups of its kind, so a stale profile oversizes a lane), and `node
+proof/run.mjs --timings <output>...` refreshes the profile its outputs ran
+in, keeping the other and its execution; `--box-workers 4` measures a
+run on a machine that gives each worker a vCPU, as a CI shard does, by a CI
+box's four workers. Measure a change to the harness by the work it does: the
+CPU-seconds the harness's and Postgres's containers use (their cgroups' CPU
+usage before and after) beside the wall time and the worker count, per
+document, per check and per job, since a hosted runner has four vCPUs and more
+parallelism on a larger machine buys nothing there.
 
-Serving every state to Formplayer and the Web Apps client ("Served states")
-moved the floor: a document's group costs about ten times what it did
-(forty to a hundred seconds on one worker), nearly all of it Formplayer's
-walks and the client's page, neither of which more workers on a four-vCPU
-job make cheaper. The lane no longer fits five minutes at ten shards, and
-`ci.yml`'s shard timeout is raised to hold it. `proof/timings.json` holds
-the costs a hosted run of sixteen shards and twenty Android jobs measured
-with every state served and every reader running: about 16,800
-box-seconds over 448 groups for the shards (eighteen to twenty-five minutes
-a shard, counting setup and the image pull) and about 43,000 over 376
-groups for the Android stage. Connect in the unit is a small part of that:
-each of the sixteen Connect documents costs about ten box-seconds more than
-it did, and its three controls about forty-three each. The default is
-sixteen shards: the account runs about twenty jobs at once across CI, so
-more shards only wait for a runner beside the test and smoke jobs, and the
-Android stage, which starts when the last shard ends, is the longer half.
-What the lane's target is now is the person's to set (decision 11). Since
-then each served state is also handed to a device beside HQ's unit
-("Android in the unit"), so the Android stage's time is the shards' own,
-and the shards run on x64; the shard deadline is 330 minutes, which stops
-only a stuck shard, and the groups' measures are refreshed from the first
-hosted runs that hold the lane green with it.
+**The whole lane with every reader.** Serving each state to Formplayer and
+the Web Apps client, walking every run of it whole in the client, a fresh
+page a run, and handing it to a phone and a tablet beside HQ's unit made a
+document's group cost ten to thirty times what it did: 800 to 2,400 seconds
+on one worker once every reader observes in the unit (a small document's,
+32 seconds without the readers, took 898 with them), about 300 worker-hours
+for the whole lane, most of it the devices' JVMs and the client's walks. No
+shard count fits that into ten minutes, and on GitHub's free plan a fresh
+whole lane every night would hold every runner for about five hours, so the
+nightly runs it against main's store, observing what changed, and the weekly
+runs it whole (`proof-audit.yml`). Each sizes its shards from its queue's
+estimates, which come from the `readers` costs, to stay within two and a
+half hours a shard.
 
-Walking every run of every served state whole in the Web Apps client, each
-run on a fresh page in a fork of its own, and Elasticsearch beside each
-worker, moved it again: on the hosted run that held the lane green with
-both (run 37918849557, sixteen shards), each shard took 30 to 38 minutes,
-542 job-minutes in all, against 18 to 25 before; the shard deadline is 90
-minutes (120 on the fresh lane) so it stops only a stuck shard. Each worker
-also starts one Elasticsearch of its own, about 4 seconds and half a
-gigabyte. `proof/timings.json` holds the costs of a later hosted run with
-both and every reader observing a fresh store (run 37962682043: sixteen
-shards of 31 to 36 minutes, Android jobs of 25 to 44): the shards' 450
-groups and 360 of the Android stage's 378, with the other 18, whose job a
-slow runner left unfinished, as the run before measured them (828 groups).
+**The pull request lane.** The `no-readers` costs come from one run of the
+whole lane without the readers on a 32-vCPU proof machine at 32 workers, one
+vCPU a worker as on a CI shard, every group observed afresh with no store:
+452 groups, 16,076 worker-seconds, 4,019 box-seconds, the median document 24
+seconds on one worker. Main's lane before the readers, run the same way on
+the same machine, took 12,589 worker-seconds (its own `proof/timings.json`
+held 1,941 box-seconds, measured on hosted runs that read the store): of the
+22% more, most is two servers each worker started once, HQ's own
+Elasticsearch (about 32 seconds at that density, in its first unit) and the
+Formplayer that answered HQ's form validation (about 24, in its first build);
+the rest is proof 4's editor pages on more states and the documents and
+package tests added since. The validation Formplayer is now one a server,
+started while HQ boots (`proof/formplayer/shared.py`): on four vCPUs with
+four workers, as a CI shard runs, that took 45 worker-seconds off sixteen
+documents, about 11 seconds off each worker's first build. A group runs
+on one worker, so the packages whose tests took longer than a shard can
+hold whole run as several groups (`proof.checks.sharding.SPLIT`): no group
+now takes more than about 215 seconds at that density, within the 224 a
+shard of a three-shard pull request lane holds.
+
+A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
+the job's start to the pulled image and Postgres (the other setup overlaps
+it), about 20 to start the lane (Postgres, HQ's boot, its template, the Core
+runner's classes, the warm-up) and collect, each worker's own Elasticsearch
+and its first build's wait on the shard's validation Formplayer (about 45),
+and 6 to upload, beside 45 for the gate after the shards. GitHub's limit of
+about twenty jobs at once across CI, which the test, smoke and build jobs hold
+for their first three to four minutes, starts most shards one to four minutes
+late, in no fixed order (run 38081646423 started its ten shards from 44 to
+205 seconds, and later shards wait for the test and smoke jobs to end). The
+`no-readers` execution records those as its `slots` (when each runner frees
+for a shard, no earlier than the main queue at about 125 seconds), its
+`fixed` and `gate` costs, its `bound`, 600 seconds, and its `margin`, 60
+seconds of the bound the plan leaves unplanned against runner variance, which
+the planner plans from (`python3 -m proof.lane.plan`): a lane of N shards is
+expected to end when its N-th slot opens, every shard charged that late
+start, plus the fixed cost, the longest span and the gate, and the plan holds
+that to 540 seconds.
+
+Every shard bins the queues alike (`proof.checks.sharding.static_bins`:
+heaviest block first, each to the least loaded bin), the main queue's bins
+starting from the early queue's loads so no shard holds the heaviest block of
+both; each block runs on exactly one shard, which the gate holds. A shard's
+expected span is its bin's box-seconds, or the longest group in it on one
+worker (its box-seconds times four) when that is longer. For the lanes with
+the readers, `plan size` refuses a group that alone is expected past a
+shard's budget, naming it, so the planning step fails loudly instead of
+starting a shard that would run out its six hours.
+
+#### Deferred to the nightly
+
+Ten minutes is a guarantee, so the pull request lane never grows past it:
+`python3 -m proof.lane.plan fit` takes the fewest shards (up to
+`execution.shards`) with which the groups the store does not hold end within
+540 seconds (the bound less the margin), and where no count holds them all,
+it defers what does not fit to the nightly, documents and package groups
+alike. For each count it keeps groups in the order of the sha256 of the pull
+request's head commit and the group's name, each while that count still ends
+in time (no group longer than a shard of that count holds, no more than all
+of them hold), and takes the count that keeps the most work; the rest are
+deferred. How much is
+deferred follows from the lane's measures; which groups, from the commit, so
+each push defers another subset and no group that a pull request's shards
+can hold goes unchecked on every push. The planned queues name what they
+deferred (`deferred`, with each group's estimate); the server accounts for
+those groups and runs none of them, and the gate holds the register over
+what ran exactly as it does otherwise, treating a deferred document as an
+unsampled one (its entries held on their controls alone), an entry whose
+control was deferred on its document alone, and an entry with both deferred
+as the nightly's, named. Its summary lists every deferred group under
+"Deferred to the nightly". The nightly needs nothing more: it observes every
+group main's store lacks, which includes every group a merged pull request
+deferred. An agent whose change defers groups runs them on a proof machine
+before it pushes (`proof/CLAUDE.md`).
+
+What a pull request runs is what its changes leave out of main's store, which
+the nightly fills with both profiles. By the execution's measures (the plan
+of each case, deferring by two commits):
+
+| The change | Shards | Ends | Deferred |
+| --- | --- | --- | --- |
+| No proof input changed (most of Nova) | 1 | 316 s | nothing |
+| Nova's emission in 10 documents, with the 24 package groups that read the corpus | 3 | 525 s | nothing |
+| 40 documents | 3 | 540 s | about 160 box-seconds: 6 or 7 documents and controls and 4 to 6 package groups |
+| 100 documents | 7 | 537 s | about 366 box-seconds: 2 documents and controls and the 7 package groups longer than 143 seconds on one worker |
+| The harness (any file under `proof/`, or Nova's package manifest or lock): every package group | 3 | 529 s | nothing |
+| Every group afresh (most documents, the observation's code or the image) | 9 | 540 s | about 2,860 of 4,019 box-seconds: 259 to 270 documents and controls and 18 to 21 package groups |
+
+A shard holds what the target leaves after its start, so the more shards a
+lane takes, the less each holds: about 224 seconds on three, 143 on seven,
+129 on nine. A group longer than that on one worker is deferred wherever a
+plan takes that many shards: on a fresh push, the nine package groups of more
+than 129 seconds (`surface`, `proof/checks`, `proof/hq`, `proof/editors`,
+`proof/formplayer`, `proof/checks/test_proof4_editability.py` and the split
+modules and tests of `proof/lane/test_forkserver.py` and
+`proof/editors/test_view_equivalence.py`) and fourteen documents and controls
+(the `fuzz-suite-20260930` and `fuzz-xform-20260930` documents of 137 to 212
+seconds and the `case-extension` documents and controls). Each runs on a
+pull request that changes fewer groups, where three shards hold about 224
+seconds each, and every night; no group is longer than that
+(`proof.checks.sharding.SPLIT` splits the packages that would be). An
+emission change in Nova re-emits most documents, so the fresh case is real;
+it ends in ten minutes by leaving most of its work to the nightly.
+
+The pin pull request is prewarmed in the pull request lane's profile
+(`upstream-pins.yml`), so its CI reads its records like any other pull
+request's. The shard deadline is twenty minutes, which stops only a stuck
+shard.
 
 ## Changing a pin
 
@@ -2814,8 +3096,13 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
 2. **Image**: `proof-image.yml` builds the image at those pins.
 3. **Surface**: the surface is extracted in the new image.
 4. **Prewarm**: the whole lane runs fresh on the candidate image over the tree
-   the pull request will carry and saves what it observed as main's store for
-   that image, so the pull request's own CI reads its records.
+   the pull request will carry, in the pull request lane's profile (without
+   the readers), and saves what it observed as main's store for that image,
+   so the pull request's own CI reads its records. Beside it the lane runs
+   with every reader on the candidate, compared with main's store, and a
+   reader that does not hold on the new pins fails the run: the readers'
+   verdict on new pins is there before a person merges them, as the nightly's
+   is after.
 5. **Report** (`pins.mjs report`) adds the image lock and the regenerated
    surface to the one commit, opens the pull request or updates the open one,
    and requests review. GitHub holds CI on a pull request the workflow's own
@@ -2904,7 +3191,10 @@ each is stated here as it is built.
     the Core JUnit suite) is measured first. Where the floor cannot fit the
     target at the concurrency the repository's runners allow, the pull request
     that sets the lane's shape records those measurements and the person sets
-    the lane's target before it merges.
+    the lane's target before it merges. Once every reader joined, the person
+    set it: CI ends within ten minutes, the pull request lane runs without
+    the readers, and the nightly and weekly runs hold the lane with them ("The
+    lane in CI", "Timings and the ten-minute bound").
 12. **A known defect is a strict register entry, not a skipped test** ("The
     registers").
 13. **Accepted identity moves are a register too**,

@@ -172,7 +172,7 @@ from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.names import CASE_FIELDS, block_path
 from proof.checks.compare.trace import compare_traces as compare_trace_documents
 from proof.checks.compare.trace import generated_labels, relabel_generated
-from proof.checks.differences import Difference, pointer_token
+from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
 from proof.observe.runs import Run as Run
 from proof.observe.runs import script_of as script_of
 from proof.observe.runs import submission_of as submission_of
@@ -983,9 +983,11 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     a = _served_a(records, name)
     if a is None:
         return []
-    found = served.refusal_differences(a["formplayer"]["hq"], check=CHECK, document=document, artifact="formplayer@A")
+    found = served.refusal_differences(
+        a["formplayer"]["hq"], check=CHECK, document=document, artifact=f"{FORMPLAYER}@A"
+    )
     if a.get("releaseDiffers"):
-        found += _refused(document, "release@A", "/release-differs", a["releaseDiffers"])
+        found += _refused(document, f"{RELEASE}@A", "/release-differs", a["releaseDiffers"])
     aligned = (records.configurations[name].b_aligned or {}).get("served")
     if aligned is None:
         raise RecordIncomplete(
@@ -999,7 +1001,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     connect_a = blobs.get_json(a["connect"]) if a.get("connect") else None
     if opportunity is not None:
         found += connect.absolute_differences(
-            connect_a, opportunity["catalog"], check=CHECK, document=document, artifact="connect@A"
+            connect_a, opportunity["catalog"], check=CHECK, document=document, artifact=f"{CONNECT}@A"
         )
     if aligned.get("refused"):
         # HQ's make_build refused the state the unit held with b_aligned (B, or B aligned to A), which the bar
@@ -1020,7 +1022,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             blobs.get_json(local["formplayer"]["trace"]),
             check=CHECK,
             document=document,
-            artifact="formplayer@local.ccz",
+            artifact=f"{FORMPLAYER}@local.ccz",
             rules=RULES,
             xmlns=xmlns,
             text_ids=served.merged_text_ids(observed.a.build.files or {}, _archive_forms(local_ccz))
@@ -1035,14 +1037,14 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 blobs.get_json(local["connect"]),
                 check=CHECK,
                 document=document,
-                artifact="connect@local.ccz",
+                artifact=f"{CONNECT}@local.ccz",
                 readers={"formplayer": "formplayer", "android": "android"},
             )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
         if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
             if b.get("releaseDiffers"):
-                found += _refused(document, "release@B", "/release-differs", b["releaseDiffers"])
+                found += _refused(document, f"{RELEASE}@B", "/release-differs", b["releaseDiffers"])
             from proof.checks.proof4 import content_versions
 
             found += served.formplayer_differences(
@@ -1050,7 +1052,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 blobs.get_json(b["formplayer"]["trace"]),
                 check=CHECK,
                 document=document,
-                artifact="formplayer@B",
+                artifact=f"{FORMPLAYER}@B",
                 rules=RULES,
                 versions=content_versions(observed.a.build, observed.b_aligned),
             )
@@ -1060,11 +1062,11 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                     blobs.get_json(b["webapps"]),
                     check=CHECK,
                     document=document,
-                    artifact="webapps@B",
+                    artifact=f"{WEBAPPS}@B",
                 )
             if opportunity is not None and b.get("connect"):
                 found += connect.differences(
-                    connect_a, blobs.get_json(b["connect"]), check=CHECK, document=document, artifact="connect@B"
+                    connect_a, blobs.get_json(b["connect"]), check=CHECK, document=document, artifact=f"{CONNECT}@B"
                 )
     return found
 

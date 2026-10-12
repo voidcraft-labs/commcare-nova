@@ -1,16 +1,31 @@
 name: Proof lane
 
-# The proof lane run whole and fresh, for the workflows that check the lane
-# itself rather than a pull request: the nightly audit (proof-audit.yml), its
-# weekly variants, the image comparisons (proof-image.yml) and the pin pull
-# request's prewarm (upstream-pins.yml). Called only. It emits the corpus at
-# `ref`, queues every group fresh with nothing shared between documents
-# (python3 -m proof.store.queue --fresh --no-dedupe), builds or finds the
-# Android reader's runtime, runs `shards` shards of `image` on `runner`, each
-# handing every state it serves to a device beside HQ's live unit, holds the
-# outputs to the lane's gate, and, as `store`
+# The proof lane run whole, for the workflows that check the lane itself
+# rather than a pull request: the nightly (proof-audit.yml), the weekly fresh
+# audit and comparisons, the image comparisons (proof-image.yml) and the pin
+# pull request's prewarm (upstream-pins.yml). Called only. It emits the corpus
+# at `ref`, queues every group fresh with nothing shared between documents
+# (python3 -m proof.store.queue --fresh --no-dedupe), or, with `fresh` false,
+# as a pull request queues it, against main's newest store snapshot (a cached
+# group runs nowhere and the gate holds its stored evidence; the audit sample
+# is observed afresh), builds or finds the Android reader's runtime, runs the
+# shards (`shards`: a count, or `auto`, as many as keep each shard's expected
+# work within two and a half hours of GitHub's six-hour job limit, each with a
+# deadline from it, python3 -m proof.lane.plan size; at most fourteen at once, so
+# six of the account's twenty runners stay free for pull requests) of `image`
+# on `runner`, each handing every state it serves to a device beside HQ's live
+# unit, holds the outputs to the lane's gate, and, as `store`
 # asks, compares them with main's evidence store (a difference fails the run
-# with both records uploaded) and saves them as main's newest snapshot.
+# with both records uploaded) and saves them as main's newest snapshot, or
+# packs them for the caller to merge with another call's and save
+# (proof-store-save.yml).
+#
+# With `readers` false it runs the pull request lane's profile
+# (proof/lane/readers.py, PROOF_READERS=0): no state is served to a reader,
+# no test that starts one runs, and no Android runtime is built or mounted.
+# The nightly audit runs both profiles over main, so a pull request whose
+# lane runs without the readers finds the records of every group it did not
+# change.
 #
 # Each artifact it writes carries `label`, so one run can call it several
 # times (proof-image.yml compares three) without two calls' claims or outputs
@@ -45,9 +60,13 @@ on:
         type: string
         default: amd64
       shards:
-        description: How many shards run the lane
-        type: number
-        default: 18
+        description: How many shards run the lane, or auto (sized from the queues' estimates, python3 -m proof.lane.plan size)
+        type: string
+        default: auto
+      fresh:
+        description: Whether every group runs fresh with nothing shared (false queues the lane as a pull request does, against main's newest store snapshot)
+        type: boolean
+        default: true
       label:
         description: What the run's artifacts are named after
         type: string
@@ -65,9 +84,13 @@ on:
         type: string
         default: all
       store:
-        description: none, compare (with main's snapshot), or save (compare, then save as main's newest)
+        description: none, compare (with main's snapshot), save (compare, then save as main's newest), or pack (compare, then upload the packed snapshot as proof-store-<label>-<attempt> for proof-store-save.yml)
         type: string
         default: none
+      readers:
+        description: Whether the lane hands its served states to the readers (false is the pull request lane's profile, PROOF_READERS=0)
+        type: boolean
+        default: true
       verdict:
         description: Whether the gate's verdict fails the run (a prewarm on a pin branch keeps its records whatever it is)
         type: boolean
@@ -83,6 +106,9 @@ permissions:
 env:
   LABEL: ${{ inputs.label }}
   CANDIDATE: ${{ inputs.image }}
+  # The lane's profile (proof/lane/readers.py): the queue builders are given it as a lane variable, and run.mjs
+  # passes it into the harness.
+  PROOF_READERS: ${{ inputs.readers && 'all' || '0' }}
 
 jobs:
   emit:
@@ -141,19 +167,42 @@ jobs:
             exit 1
           fi
           mv -T "$RUNNER_TEMP/native" "$RUNNER_TEMP/corpus/native"
-      - name: Build the fresh queues
+      - name: Name the store's snapshots
+        if: ${{ !inputs.fresh }}
+        id: store
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: node proof/ci/store-keys.mjs --arch "$ARCH"
+      - name: Restore main's evidence store
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      - name: Build the queues
         env:
           DOCUMENTS: ${{ inputs.documents }}
           ARCH: ${{ inputs.arch }}
           LANE_ENV: ${{ inputs.lane-env }}
+          FRESH: ${{ inputs.fresh }}
         run: |
-          lane_env=()
+          lane_env=(--lane-env "PROOF_READERS=$PROOF_READERS")
           while IFS= read -r assignment; do
             [ -n "$assignment" ] && lane_env+=(--lane-env "$assignment")
           done <<< "$LANE_ENV"
-          python3 -m proof.store.queue early --fresh --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
-            --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
-          python3 -m proof.store.queue main --fresh --no-dedupe --documents "$DOCUMENTS" \
+          # Fresh: every group observed again, nothing shared. Otherwise as a pull request's: against main's
+          # store, documents sharing a part's inputs in one block, the audit sample chosen by the run's id.
+          if [ "$FRESH" = true ]; then
+            early=(--fresh)
+            main=(--fresh --no-dedupe)
+          else
+            early=(--store "$RUNNER_TEMP/store/main")
+            main=(--store "$RUNNER_TEMP/store/main" --audit-seed "$GITHUB_RUN_ID")
+          fi
+          python3 -m proof.store.queue early "${early[@]}" --timings proof/timings.json --arch "$ARCH" \
+            "${lane_env[@]}" --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
+          python3 -m proof.store.queue main "${main[@]}" --documents "$DOCUMENTS" \
             --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
             --out "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           tar -C "$RUNNER_TEMP/corpus" -cf - . |
@@ -184,19 +233,35 @@ jobs:
           SHARDS: ${{ inputs.shards }}
           RUNNER: ${{ inputs.runner }}
         run: |
-          matrix="$(node proof/run.mjs --matrix "$SHARDS" | jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
+          shards="$SHARDS"
+          deadline=()
+          if [ "$shards" = auto ]; then
+            plan="$(python3 -m proof.lane.plan size \
+              "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+              "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json")"
+            echo "$plan"
+            shards="$(jq -r .shards <<< "$plan")"
+            deadline=(--deadline "$(jq -r .deadline <<< "$plan")")
+          fi
+          matrix="$(node proof/run.mjs --matrix "$shards" "${deadline[@]}" |
+            jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   shard:
     name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
     needs: [emit, android-runtime]
+    # Without the readers the Android runtime job is skipped, and the shards run all the same.
+    if: ${{ !cancelled() && needs.emit.result == 'success' && (needs.android-runtime.result == 'success' || (!inputs.readers && needs.android-runtime.result == 'skipped')) }}
     runs-on: ${{ matrix.runner }}
-    # Every group runs fresh here, each state served to Formplayer, every run
-    # walked whole in the Web Apps client and each state handed to a device;
-    # the deadline catches a stuck shard only.
-    timeout-minutes: 330
+    # A sized matrix gives each shard twice the work it is expected to run
+    # (python3 -m proof.lane.plan size); a counted one, the hours a shard of the
+    # whole lane with every reader takes on sixteen shards.
+    timeout-minutes: ${{ matrix.deadline || 330 }}
     strategy:
       fail-fast: false
+      # Six of the account's twenty runners stay free for pull requests; the
+      # shards past fourteen queue, and queued time is no job's.
+      max-parallel: 14
       matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}
     env:
       ATTEMPT: ${{ github.run_attempt }}
@@ -233,22 +298,38 @@ jobs:
       - uses: ./.github/actions/proof-runtime
       # The Android reader's runtime and its JDK, mounted into the harness at the paths they have here.
       - id: android
+        if: ${{ inputs.readers }}
         uses: ./.github/actions/proof-android-runtime
       - name: Download the early queue
         uses: actions/download-artifact@v8
         with:
           name: proof-early-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
           path: ${{ runner.temp }}/lane
+      # A lane queued against main's store reads it, as a pull request's does (PROOF_STORE, read-only).
+      - name: Name the store's snapshots
+        if: ${{ !inputs.fresh }}
+        id: store
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: node proof/ci/store-keys.mjs --arch "$ARCH"
+      - name: Restore main's evidence store
+        if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
       - name: Proof lane
         env:
           PROOF_CORPUS: ${{ runner.temp }}/corpus
+          PROOF_STORE: ${{ !inputs.fresh && format('{0}/store/main', runner.temp) || '' }}
           PROOF_OUT_DIR: ${{ runner.temp }}/proof-out
           WORKERS: ${{ matrix.workers }}
           LANE_ENV: ${{ inputs.lane-env }}
           CLAIMS: ${{ inputs.claims }}
           PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
         run: |
-          export PROOF_ANDROID_JDK="$JAVA_HOME"
+          if [ -n "$PROOF_ANDROID_RUNTIME" ]; then export PROOF_ANDROID_JDK="$JAVA_HOME"; fi
           while IFS= read -r assignment; do
             [ -n "$assignment" ] && export "${assignment?}"
           done <<< "$LANE_ENV"
@@ -278,6 +359,7 @@ jobs:
   # holds it, and held to the reader's own checks, before any shard starts.
   android-runtime:
     name: Android reader runtime (${{ inputs.label }})
+    if: ${{ inputs.readers }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -322,32 +404,39 @@ jobs:
           pattern: proof-*queue-${{ inputs.label }}-${{ github.run_attempt }}.json
           path: ${{ runner.temp }}/queues
           merge-multiple: true
-      - name: The shards ran every block once and held every difference to the register
-        id: verdict
-        continue-on-error: ${{ !inputs.verdict }}
-        run: |
-          shopt -s nullglob
-          python3 -m proof.lane.gate \
-            "$RUNNER_TEMP"/proof-shards/proof-out-* \
-            --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
-            --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
-            --summary "$RUNNER_TEMP/verdict/verdict.json"
-      # The store is held to whatever ran, whatever the verdict: a failing
-      # item on main still observes records, and a key that missed an input
-      # shows only here.
+      # Main's store: what a lane queued against it reads its cached groups' evidence from, and what every
+      # record a lane observes is compared with.
       - name: Name the store's snapshots
-        if: ${{ !cancelled() && inputs.store != 'none' }}
+        if: ${{ inputs.store != 'none' || !inputs.fresh }}
         id: store
         env:
           ARCH: ${{ inputs.arch }}
         run: node proof/ci/store-keys.mjs --arch "$ARCH"
       - name: Restore main's evidence store
-        if: ${{ !cancelled() && inputs.store != 'none' }}
+        if: ${{ inputs.store != 'none' || !inputs.fresh }}
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/store/main
           key: ${{ steps.store.outputs.main }}none
           restore-keys: ${{ steps.store.outputs.main }}
+      - name: The shards ran every block once and held every difference to the register
+        id: verdict
+        continue-on-error: ${{ !inputs.verdict }}
+        env:
+          FRESH: ${{ inputs.fresh }}
+        run: |
+          shopt -s nullglob
+          # A lane queued against main's store reads its cached groups' evidence from it.
+          store=()
+          if [ "$FRESH" != true ]; then store=(--store "$RUNNER_TEMP/store/main"); fi
+          python3 -m proof.lane.gate \
+            "$RUNNER_TEMP"/proof-shards/proof-out-* \
+            --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            "${store[@]}" --summary "$RUNNER_TEMP/verdict/verdict.json"
+      # The store is held to whatever ran, whatever the verdict: a failing
+      # item on main still observes records, and a key that missed an input
+      # shows only here.
       # Every record the store holds for a part this run observed must be the
       # record this run made; a difference is a key that missed an input. An
       # absent store (none saved yet for this image) holds nothing to differ.
@@ -364,20 +453,38 @@ jobs:
       # leaves its blocks' records out, and main's previous snapshot is kept
       # rather than replaced by one that lacks them.
       - name: Pack the fresh store
-        if: ${{ !cancelled() && inputs.store == 'save' && needs.shard.result == 'success' && steps.store.outputs.key != '' }}
+        if: ${{ !cancelled() && (inputs.store == 'save' || inputs.store == 'pack') && needs.shard.result == 'success' && steps.store.outputs.key != '' }}
         id: pack
+        env:
+          FRESH: ${{ inputs.fresh }}
+          STORE: ${{ inputs.store }}
         run: |
           shopt -s nullglob
           python3 -m proof.store.pack pack --out "$RUNNER_TEMP/store/next" \
             --queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             "$RUNNER_TEMP"/proof-shards/proof-out-*
+          # A lane queued against main's store observed only what it lacked: a snapshot it saves itself holds
+          # main's beside it. A packed one is merged with main's by proof-store-save.yml.
+          if [ "$FRESH" != true ] && [ "$STORE" = save ]; then
+            python3 -m proof.store.pack merge --into "$RUNNER_TEMP/store/next" \
+              "$RUNNER_TEMP/store/main" "$RUNNER_TEMP/store/next"
+          fi
       - name: Save main's newest snapshot
-        if: ${{ !cancelled() && steps.pack.outcome == 'success' }}
+        if: ${{ !cancelled() && inputs.store == 'save' && steps.pack.outcome == 'success' }}
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/store/next
           key: ${{ steps.store.outputs.key }}
+      # The caller merges it with its other calls' (proof-store-save.yml), so the run saves one snapshot.
+      - name: Upload the packed store
+        if: ${{ !cancelled() && inputs.store == 'pack' && steps.pack.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: proof-store-${{ inputs.label }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/store/next/
+          if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:

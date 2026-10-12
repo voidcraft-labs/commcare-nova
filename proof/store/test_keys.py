@@ -221,6 +221,17 @@ def test_the_image_architecture_and_environment_change_what_runs_on_them(checkou
     # started in.
     unseamed = {**keys.LANE_ENVIRONMENT, "PROOF_HQ_SPEED": "0"}
     assert _changed(before, _all_keys(checkout, corpus, environ=unseamed)) == set(KEYS)
+    # A run without the readers (proof.lane.readers) records no served state and runs no test that starts one:
+    # every record, judgment, transcript and package outcome is keyed apart from a run with them, so neither
+    # profile reads the other's; and naming the readers' default changes nothing.
+    without = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "0"}
+    assert _changed(before, _all_keys(checkout, corpus, environ=without)) == set(KEYS)
+    with_readers = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "all"}
+    assert _changed(before, _all_keys(checkout, corpus, environ=with_readers)) == set()
+    # A slice of the readers is a set of its own, apart from every reader and from none.
+    android = _all_keys(checkout, corpus, environ={**keys.LANE_ENVIRONMENT, "PROOF_READERS": "android"})
+    assert _changed(before, android) == set(KEYS)
+    assert _changed(_all_keys(checkout, corpus, environ=without), android) == set(KEYS)
     # The audit switches only check: the lane's shards run with the editor audit on and still read the store. The
     # image sets where its checkouts are, which its digest names: the queue builder, outside it, keys alike.
     audited = {**keys.LANE_ENVIRONMENT, "PROOF_EDITOR_AUDIT": "0.03", "PROOF_VERIFY_MEMOS": "1"}
@@ -249,7 +260,7 @@ def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_
     # (the Web Apps client's screens) and proof 4's at B and B-edit (HQ's editors, and the client after a save).
     assert "editor_driver" in {field.name for field in dataclasses.fields(unit.HookContext)}
     assert "editor_driver" in {field.name for field in dataclasses.fields(unit.BContext)}
-    driving = {name: states for name, function, states in unit.HOOKS if name in ("served", "proof4")}
+    driving = {name: states for name, function, states in unit.EVERY_HOOK if name in ("served", "proof4")}
     assert driving == {"served": ("A",), "proof4": ("B", "B-edit")}
     browser = importlib.import_module("proof.observe.browser")
     # Each declares the driver's code among what it reads, which joins those parts' keys.

@@ -72,12 +72,23 @@ from pathlib import Path
 from proof import processes
 from proof.checks import cases, sharding
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 
 PROOF = sharding.PROOF_DIR
 WORKTREE = PROOF.parent
 INI = PROOF / "pytest.ini"
-# Lane positions no lane runs: the nested server's databases are proof_hq_w701_ and on.
+# Lane positions no lane runs, ten for each of the lane's own workers: the nested servers of the worker at position
+# i name their databases proof_hq_w<701 + 10 i>_ and on, so this module's tests, split into groups of their own
+# (proof.checks.sharding.SPLIT) and run by different workers at once, never meet in one database.
 NESTED_BASE = 700
+
+
+def _nested_base() -> int:
+    """The first lane position this worker's nested servers take: read as each runs, since the lane's server
+    imports this module before it forks the worker that runs it."""
+    return NESTED_BASE + 10 * sharding.parse_shard(os.environ.get("PROOF_WORKER", "1/1"), "PROOF_WORKER")[0]
+
+
 DEADLINE_SECONDS = 1200
 # How long an interrupted run has to stop what it started before its group is killed.
 GRACE_SECONDS = 120
@@ -153,7 +164,7 @@ def _run_to_end(command, log: Path, **extra) -> Finished:
 
 def _serve(out, pytest_args=(), *, workers=2, options=(), **extra) -> Finished:
     command = [sys.executable, "-m", "proof.lane.serve", "--out", out, "--workers", workers]
-    command += ["--worker-base", NESTED_BASE, *options]
+    command += ["--worker-base", _nested_base(), *options]
     if pytest_args:
         command += ["--", *pytest_args]
     return _run_to_end(command, Path(f"{out}.log"), **extra)
@@ -403,7 +414,7 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
         tmp_path / "plain.log",
         PROOF_OUT=str(plain_out),
         **_own_corpus(corpus),
-        PROOF_WORKER=f"{NESTED_BASE + 3}/{NESTED_BASE + 3}",
+        PROOF_WORKER=f"{_nested_base() + 3}/{_nested_base() + 3}",
     )
     assert plain.returncode in (0, 1), plain.tail()
 
@@ -465,12 +476,15 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
 # A CI shard: claims over two queues -------------------------------------------------------------------
 
 
-def _queue_file(path, *groups_per_block):
+def _queue_file(path, *groups_per_block, readers=None):
+    """A queue of ``groups_per_block``, built for the readers the nested run inherits (``proof.lane.readers``)
+    unless ``readers`` names another set."""
     blocks = tuple(
         lane_blocks.Block(lane_blocks.block_id(names), 1.0, tuple(lane_blocks.QueuedGroup(name) for name in names))
         for names in groups_per_block
     )
-    lane_blocks.write_json(path, lane_blocks.queue_json(lane_blocks.Queue(blocks)))
+    built = lane_readers.named() if readers is None else readers
+    lane_blocks.write_json(path, lane_blocks.queue_json(lane_blocks.Queue(blocks, readers=built)))
     return blocks
 
 
@@ -574,6 +588,16 @@ def test_an_early_queue_holding_a_group_that_reads_the_corpus_is_refused_before_
     ]
     # Refused before anything was booted, restored or compiled.
     assert record["fixed"] == {} and "Booted HQ" not in finished.output
+
+    # A queue built for another set of readers (proof.lane.readers): its groups and keys are that set's.
+    other = tmp_path / "other.json"
+    _queue_file(other, ["proof/core"], readers=lane_readers.NONE if lane_readers.served() else lane_readers.EVERY)
+    out = tmp_path / "other-out"
+    finished = _serve(out, options=["--early-queue", other, "--claim", "static"])
+    assert finished.returncode == 2, finished.tail()
+    [problem] = json.loads((out / lane_blocks.SERVE).read_text())["problems"]
+    assert problem.startswith(f"The queue {other} was built for") and "the other set's" in problem
+    assert "Booted HQ" not in finished.output
 
 
 def test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings(tmp_path):

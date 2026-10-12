@@ -2,15 +2,16 @@
 
 Contract (``proof.lane.blocks.parse_queue``): a queue of version 1 whose
 blocks each carry the id of their groups (``block_id``), whose groups are
-each in one block or cached, never both, with a boolean ``fresh`` and a name
-a queue may hold, and none of whose documents is one it names as left out of
-its sample (``unsampled``), is read whole; anything else is refused with
-every way it is not one, before a shard claims or runs anything. The
-plausible failures: a shard running a block under an id its groups do not
-give (the gate would then match it against the wrong block), a group run
-twice or both run and read from the store, a document both run and named as
-left out (the gate would then hold its entries on their controls alone), and
-a queue of another version read as this one.
+each in one block, cached or deferred to the nightly, never two of them,
+with a boolean ``fresh`` and a name a queue may hold, and none of whose
+documents is one it names as left out of its sample (``unsampled``), is read
+whole; anything else is refused with every way it is not one, before a shard
+claims or runs anything. The plausible failures: a shard running a block
+under an id its groups do not give (the gate would then match it against the
+wrong block), a group run twice, both run and read from the store, or both
+run and deferred (the gate would then hold its entries on their controls
+alone), a document both run and named as left out, and a queue of another
+version read as this one.
 
 Contract (``proof.lane.blocks.CORPUS_PACKAGES``): the packages listed are
 exactly those whose tests read the corpus, so the early phase refuses each
@@ -102,16 +103,41 @@ def test_a_group_in_two_blocks_or_both_queued_and_cached_is_refused():
     assert "surface is both in block 1 and cached" in _refusal(queued_and_cached)
 
 
+def test_deferred_groups_are_read_whole_and_a_group_both_deferred_and_run_or_read_is_refused():
+    deferred = lane_blocks.parse_queue({**_queue(), "deferred": [{"group": "corpus:c", "estimate": 6.5}]})
+    assert deferred.deferred == (lane_blocks.DeferredGroup("corpus:c", 6.5),)
+    assert deferred.accounted() == {"corpus:a", "proof/hq", "surface", "corpus:b@minimum", "corpus:c"}
+    assert lane_blocks.parse_queue(lane_blocks.queue_json(deferred)) == deferred
+    assert "deferred" not in lane_blocks.queue_json(lane_blocks.parse_queue(_queue()))
+
+    def run(value):
+        value["deferred"] = [{"group": "surface", "estimate": 1}]
+
+    assert "surface is both deferred and in block 1; a deferred group runs nowhere" in _refusal(run)
+
+    def read(value):
+        value["deferred"] = [{"group": "corpus:b@minimum", "estimate": 1}]
+
+    assert "corpus:b@minimum is both deferred and cached" in _refusal(read)
+
+    def unestimated(value):
+        value["deferred"] = [{"group": "corpus:c", "estimate": "long"}]
+
+    assert "the deferred group corpus:c's estimate is 'long'" in _refusal(unestimated)
+
+
 def test_a_document_both_run_and_left_out_of_the_sample_is_refused():
     def queued(value):
         value["unsampled"] = ["a"]
 
-    assert "corpus:a is run or read, and the queue names its document as one its sample leaves out" in _refusal(queued)
+    assert "corpus:a is run, read or deferred, and the queue names its document as one its sample leaves out" in (
+        _refusal(queued)
+    )
 
     def cached(value):
         value["unsampled"] = ["b"]
 
-    assert "corpus:b@minimum is run or read" in _refusal(cached)
+    assert "corpus:b@minimum is run, read or deferred" in _refusal(cached)
 
     def malformed(value):
         value["unsampled"] = "c"
@@ -128,7 +154,12 @@ def test_a_fresh_flag_that_is_not_a_boolean_and_a_name_no_queue_holds_are_refuse
     def nested(value):
         value["blocks"][1]["groups"][0]["group"] = "proof/hq/xpath"
 
-    assert "'proof/hq/xpath' names no package directly under proof/" in _refusal(nested)
+    assert "'proof/hq/xpath' names no test module of a package (proof/<package>/<module>.py)" in _refusal(nested)
+
+    def split(value):
+        value["blocks"][1]["groups"][0]["group"] = "proof/hq/test_boot.py::"
+
+    assert "'proof/hq/test_boot.py::' names no test module of a package" in _refusal(split)
 
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.
@@ -174,7 +205,7 @@ def test_the_packages_the_early_phase_refuses_are_those_whose_tests_read_the_cor
         return bool(seen & CORPUS_READERS)
 
     reading = {
-        sharding.item_group(SimpleNamespace(path=path))
+        lane_blocks.package_of(sharding.item_group(SimpleNamespace(path=path)))
         for name, path in modules.items()
         if (path.name.startswith("test_") or path.name == "conftest.py") and reaches_a_reader(name)
     }

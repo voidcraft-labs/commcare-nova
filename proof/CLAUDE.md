@@ -4,7 +4,12 @@ The proof lane holds every Nova export to CommCare's own code at pinned
 upstream commits: HQ's import, build, case processing, editors, receiver,
 restore and Connect repeater, CommCare Core's runtime, Formplayer's
 application, HQ's Web Apps client, CommCare Android's own app and CommCare
-Connect's own server, over a reproducible corpus, on every pull request.
+Connect's own server, over a reproducible corpus. Every pull request runs it
+without the readers (`PROOF_READERS=0`, `proof/lane/readers.py`: HQ and Core
+whole, no state served to Formplayer, the client, a device or Connect); each
+night runs it with every reader over what changed since main's last store
+snapshot, and each week runs it whole and fresh, which is what proves the
+store's keys; a scheduled failure of either opens an issue.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -23,8 +28,10 @@ harness keeps, each with its reason.
   (`proof/hq/elasticsearch.py`); HQ's client is refused outside a unit and on
   an index the lane keeps nothing in, never answered by the harness. The form validation HQ asks Formplayer for is
   answered by Formplayer's own application, sent the request HQ wrote
-  (`proof/hq/seams.py::formplayer_validation`). A speed seam computes exactly what HQ computes and can be switched
-  off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
+  (`proof/hq/seams.py::formplayer_validation`); a lane server starts one such Formplayer for all its workers
+  (`proof/formplayer/shared.py`), which holds only because Formplayer's validation keeps no state between
+  requests: a seam that made it keep any would need a Formplayer a worker again. A speed seam computes exactly
+  what HQ computes and can be switched off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
   it in what it does; HQ's soft assertions are noted as production notes
   them, never raised, and each one is evidence. A view or Couch query the
   harness does not answer raises rather than returning empty.
@@ -198,16 +205,55 @@ harness keeps, each with its reason.
   `xpathParse`, `xpathStrings`, `xpathSame`), HQ's (eulxml, js-xpath), or
   `proof/rules/_xpath.py`, the port of Core's lexer that its test holds to
   Core. The surface extractor matches no source text by pattern either.
-- **The lane shares CI's five-minute target, which serving every state no
-  longer fits.** A document served to Formplayer and the client costs about
-  ten times what it did, so the lane's target is the person's to set again
-  (`proof/README.md`, "Timings and the five-minute target"). Every hosted
-  job has four vCPUs, so optimize the work, never the parallelism: measure a change in
-  CPU-seconds (the harness's and Postgres's container cgroups) and wall time
-  with the worker count, per document, per check, per group and per job's
-  fixed cost. Never buy speed with more shards, workers or processes than a
-  four-vCPU job serves, and never with a seam that computes something HQ would
-  not.
+- **Three lanes, and ten minutes is a guarantee.** (`proof/README.md`,
+  "The lane in CI".)
+  - **Pull request** (`ci.yml`): the lane without the readers
+    (`PROOF_READERS=0`), planned by `python3 -m proof.lane.plan fit` to end
+    within ten minutes of the workflow's start (to 540 s, a 60 s margin held
+    against runner variance) from `proof/timings.json`'s measured slots and
+    costs. What does not fit is deferred to the nightly, documents and
+    package groups alike, chosen by the head commit; the planned queues name
+    the deferred groups, the gate holds the register over what ran (an entry
+    whose document or control was deferred is held on the other, one with
+    both deferred named for the nightly) and lists every deferred group under
+    "Deferred to the nightly". A deferral never loosens a check: it moves
+    where a group runs, never what it holds.
+  - **Nightly** (`proof-audit.yml`): both profiles over main against main's
+    store, so every group main's store lacks is observed, every group a
+    merged pull request deferred among them, and the two are merged into the
+    snapshot every pull request reads.
+  - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
+    that proves the store's keys and replaces the snapshot, beside the
+    sampled comparisons.
+  The lane with every reader costs about 300 worker-hours whole, against
+  GitHub's free plan of twenty jobs at once and six hours a job, so each
+  lane with the readers sizes its shards from its queue
+  (`python3 -m proof.lane.plan size`: within two and a half hours a shard,
+  fourteen at once); a scheduled night or week that fails opens an issue.
+  The two profiles are one lane: nothing loosens between them, every check
+  that runs holds exactly as it does nightly, the gate leaves only the
+  served readers' register entries to the nightly, and every key the store
+  keeps names its profile. The nightly is the backstop, never the first run:
+  a change to Nova's emission or to what a reader observes
+  (`proof/formplayer`, `proof/webapps`, `proof/android`, `proof/connect`,
+  `proof/observe/served.py`, a reader's judge or register entry, a pin) is
+  proven by running that reader's slice with the readers on a proof machine
+  before it is pushed (`proof/README.md`, "Proving a reader change before you
+  push"), and an agent whose change defers groups (the gate's list, or
+  `python3 -m proof.lane.plan fit` over the change's queues) runs those
+  groups on a proof machine before it pushes (`npm run proof` or
+  `proof/remote/run.sh`, with `PROOF_READERS=0` and a `-k` of the deferred
+  documents or the deferred package groups' paths) and says in the pull
+  request that they held. A test that starts a served reader is marked
+  `reader`, by its fixture or by hand, and the readers-off run refuses one
+  left unmarked. Every hosted job has four vCPUs, so optimize the work, never
+  the parallelism: measure a change in CPU-seconds (the harness's and
+  Postgres's container cgroups) and wall time with the worker count, per
+  document, per check, per group and per job's fixed cost, and refresh
+  `proof/timings.json` from such a run (`node proof/run.mjs --timings`), which
+  every plan reads; never buy speed with more workers or processes than a
+  four-vCPU job serves, and never with a seam that computes something HQ
+  would not.
 - **Android runs beside HQ's live unit, and HQ answers its network with its
   own views.** A claim about what a device does is observed on
   commcare-android's own classes (`proof/android`, Robolectric, one JVM and
@@ -215,8 +261,9 @@ harness keeps, each with its reason.
   graphics, a phone and a tablet held in landscape), handed each state a
   shard serves, as Formplayer and the Web Apps client are
   (`proof/android/observe.py`, called from `proof/observe/served.py` and
-  `proof4.py`), so the shards run on amd64,
-  the only Linux Robolectric's native runtime ships for, with the reader's
+  `proof4.py`), so the lane's shards run on amd64 (the pull request lane's
+  too, which serves no state, so the records the nightly saves are the ones
+  it reads), the only Linux Robolectric's native runtime ships for, with the reader's
   runtime and its JDK mounted at the paths it was built at
   (`proof/run.mjs::androidRuntime`). Every request the app's own HTTP client
   makes goes through the reader's loopback proxy (`proof/android/peer.py`:

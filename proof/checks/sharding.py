@@ -15,7 +15,12 @@ observations, a package's session services) is built once, by one worker:
 - every other item belongs to its package under ``proof/`` (``proof/native``,
   ``proof/editors``, ``proof/core``, ``proof/hq``, ``proof/checks``,
   ``proof/lane``, …), and an item of a test module at ``proof/`` itself to
-  ``proof``.
+  ``proof``; but a test module ``SPLIT`` names is a group of its own
+  (``proof/<package>/<module>.py``), and each test it names in that module
+  one more (``proof/<package>/<module>.py::<test>``): a group runs on one
+  worker, so a package whose tests take longer than a pull request's shard
+  can hold runs as several groups. A split group reads what its package
+  reads, so it is keyed by its package's data (``proof.store.queue``).
 
 The items of each group run back to back (``order_by_group``).
 ``collection_roots`` names what pytest collects for a set of groups: a
@@ -25,12 +30,15 @@ groups so; its main phase collects the rest of ``proof/``, which finds a
 document's branch items too.
 
 Timings. ``proof/timings.json`` holds each group's measured cost in
-box-seconds: the seconds of one worker's wall time the group took, without
-what the worker's session shares (its services), divided by the number of
-workers that shared the box (``proof.lane.timings``; ``node proof/run.mjs
---timings`` writes them). A document or control it does not list counts the
-median of those it lists, since a sample's documents change with its size and
-seed; any other group it does not list counts ``DEFAULT_SECONDS``
+box-seconds, for each of the lane's two profiles (``profiles``: ``readers``
+and ``no-readers``, ``proof.lane.readers``), since a group costs far more where
+its states are served to the readers: the seconds of one worker's wall time the
+group took, without what the worker's session shares (its services), divided
+by the number of workers that shared a CI box (``proof.lane.timings``; ``node
+proof/run.mjs --timings`` writes them). ``load_timings`` reads the run's own
+profile. A group it does not list is counted high, at the 90th percentile of
+those it lists of its kind (documents and controls, or the rest), so a stale or
+partial profile oversizes a lane rather than overrunning its shards
 (``estimate``).
 
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
@@ -41,8 +49,9 @@ the queues: every queued block ran exactly once (a block two shards ran
 fails, whatever they wrote: a run that reads its records from the evidence
 store writes what any other run of it writes, so two alike show only that a
 claim did not hold), every group of a block ran every item its worker
-collected for it, cached groups ran nowhere, no block ran that no queue
-holds, and every shard that collected a phase collected the same items.
+collected for it, cached and deferred groups ran nowhere, no block ran that
+no queue holds, and every shard that collected a phase collected the same
+items.
 """
 
 from __future__ import annotations
@@ -55,6 +64,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
 TIMINGS = PROOF_DIR / "timings.json"
@@ -87,6 +97,37 @@ def parse_shard(value: str, variable: str):
     return index, count
 
 
+# The package test modules that are groups of their own, by their path under proof/, each with the tests of it that
+# are groups of their own too (its other tests are the module's group): what one package's tests cost on one
+# worker, measured at a CI shard's density (proof/timings.json), would otherwise bound the pull request lane's
+# shard that runs it. Each package's group, module and test here stays within about 240 seconds at that density
+# (proof/README.md, "Timings and the ten-minute bound"): proof/editors took 701 seconds whole, proof/lane 470,
+# proof/checks 375 and proof/hq 260.
+SPLIT: dict[str, tuple[str, ...]] = {
+    "checks/test_alignment.py": (),
+    "checks/test_judge_purity.py": (),
+    "checks/test_proof4_editability.py": (),
+    "editors/test_pages.py": (),
+    "editors/test_reused_pages.py": (),
+    "editors/test_seeding.py": (),
+    "editors/test_vellum_warm_equivalence.py": (),
+    "editors/test_view_equivalence.py": (
+        "test_held_sections_of_corpus_documents_equal_fresh_page_saves",
+        "test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_deadline",
+    ),
+    "hq/test_branches.py": (),
+    "lane/test_forkserver.py": (
+        "test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings",
+        "test_two_forked_workers_write_the_evidence_one_unforked_session_writes",
+    ),
+}
+
+
+def split_groups(module: str) -> tuple[str, ...]:
+    """The groups a ``SPLIT`` module's items fall in, beside the module's own: one per test it names."""
+    return tuple(f"proof/{module}::{test}" for test in SPLIT.get(module, ()))
+
+
 def item_group(item, proof_dir: Path = PROOF_DIR) -> str:
     """The group one collected item belongs to."""
     callspec = getattr(item, "callspec", None)
@@ -104,6 +145,10 @@ def item_group(item, proof_dir: Path = PROOF_DIR) -> str:
         return "proof"
     if relative.parts[0] == SURFACE:
         return SURFACE
+    module = relative.as_posix()
+    if module in SPLIT:
+        test = getattr(item, "originalname", None) or getattr(item, "nodeid", "").rpartition("::")[2].partition("[")[0]
+        return f"proof/{module}::{test}" if test in SPLIT[module] else f"proof/{module}"
     return f"proof/{relative.parts[0]}"
 
 
@@ -138,31 +183,57 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
         elif group == "proof":
             roots.update(proof_dir.glob("test_*.py"))
         elif group.startswith("proof/"):
-            roots.add(proof_dir / group[len("proof/") :])
+            # A package's directory, or the test module a split group is (its tests collected with it).
+            roots.add(proof_dir / group[len("proof/") :].partition("::")[0])
     return sorted(roots)
 
 
-def load_timings(path: Path = TIMINGS):
-    """The box-seconds per group ``proof/timings.json`` holds (its ``groups``); empty when it does not exist."""
+def load_timings(path: Path = TIMINGS, *, readers: bool | None = None):
+    """The box-seconds per group ``proof/timings.json`` holds for a profile (its ``profiles.<profile>.groups``): the
+    run's own (``proof.lane.readers.served``) unless ``readers`` names one. Empty when the file does not exist or
+    holds no measure of that profile."""
     if not path.exists():
         return {}
     value = json.loads(path.read_text(encoding="utf-8"))
-    groups = value.get("groups") if isinstance(value, dict) else None
+    profiles = value.get("profiles") if isinstance(value, dict) else None
+    name = lane_readers.profile(lane_readers.served() if readers is None else readers)
+    profile = profiles.get(name, {}) if isinstance(profiles, dict) else None
+    groups = profile.get("groups", {}) if isinstance(profile, dict) else None
     if not isinstance(groups, dict) or not all(
         isinstance(seconds, (int, float)) and not isinstance(seconds, bool) for seconds in groups.values()
     ):
         raise ShardError(
-            f'{path} holds the lane\'s box-seconds per group under groups ({{"groups": {{<group>: <box-seconds>}}}});'
-            " write it with `node proof/run.mjs --timings <output directory>...`."
+            f"{path} holds the lane's box-seconds per group for each profile under profiles"
+            f' ({{"profiles": {{"{name}": {{"groups": {{<group>: <box-seconds>}}}}}}}}); write it with'
+            " `node proof/run.mjs --timings <output directory>...`."
         )
     return groups
 
 
+# The share of measured groups an unmeasured one is counted above: a stale or partial profile then oversizes a
+# lane rather than overrunning its shards' deadlines.
+UNMEASURED_PERCENTILE = 0.9
+
+
+def _percentile(values, share):
+    """The value ``share`` of the sorted ``values`` reach (the 90th percentile at 0.9), or None for none."""
+    values = sorted(values)
+    return values[min(len(values) - 1, int(share * len(values)))] if values else None
+
+
 def estimate(timings):
-    """Each group's box-seconds: measured where ``timings`` lists it, else the median measured document for a
-    document or control, else ``DEFAULT_SECONDS``."""
-    documents = sorted(seconds for group, seconds in timings.items() if group.startswith(DOCUMENT_KINDS))
-    document = documents[len(documents) // 2] if documents else DEFAULT_SECONDS
+    """Each group's box-seconds: measured where ``timings`` lists it, else counted high: a document or control at
+    the 90th percentile of the measured documents (``UNMEASURED_PERCENTILE``), any other group at that of the
+    measured groups that are not documents, each at least ``DEFAULT_SECONDS``."""
+    measured = [(group, float(seconds)) for group, seconds in timings.items()]
+    document = max(
+        DEFAULT_SECONDS,
+        _percentile([s for g, s in measured if g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE) or 0.0,
+    )
+    other = max(
+        DEFAULT_SECONDS,
+        _percentile([s for g, s in measured if not g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE) or 0.0,
+    )
 
     def seconds(group):
         if group in timings:
@@ -173,24 +244,26 @@ def estimate(timings):
             whole, _, configuration = group.partition("@")
             if configuration and whole in timings:
                 return float(timings[whole]) / 2
-            return float(document)
-        return DEFAULT_SECONDS
+            return document
+        return other
 
     return seconds
 
 
-def static_bins(blocks: Sequence, count: int) -> list[list]:
+def static_bins(blocks: Sequence, count: int, loads: Sequence[float] | None = None) -> list[list]:
     """The blocks split into ``count`` bins by greedy longest-processing-time balancing over their estimates.
 
     Heaviest first (ties by id), each to the least loaded bin (ties to the
-    lowest); each bin keeps the queue's order. The same blocks give the same
-    bins on every shard, whatever order they are listed in.
+    lowest), each bin starting from its share of ``loads`` (what each shard
+    already runs: the early queue's bins, for the main queue's); each bin
+    keeps the queue's order. The same blocks give the same bins on every
+    shard, whatever order they are listed in.
     """
     if count < 1:
         raise ShardError(f"Blocks are split into at least one bin; asked for {count}.")
     position = {block.id: index for index, block in enumerate(blocks)}
     bins: list[list] = [[] for _ in range(count)]
-    loads = [0.0] * count
+    loads = [float(load) for load in loads] if loads is not None else [0.0] * count
     for block in sorted(blocks, key=lambda block: (-block.estimate, block.id)):
         index = min(range(count), key=lambda bin_index: (loads[bin_index], bin_index))
         bins[index].append(block)
@@ -262,6 +335,7 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
     queued: dict[str, tuple[str, lane_blocks.Block]] = {}
     group_phase: dict[str, str] = {}
     cached: set[str] = set()
+    deferred: set[str] = set()
     for phase, queue in queues:
         for block in queue.blocks:
             if block.id in queued:
@@ -274,9 +348,14 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
                 group_phase[name] = phase
         for entry in queue.cached:
             cached.add(entry.group)
+        for entry in queue.deferred:
+            deferred.add(entry.group)
     both = sorted(cached & set(group_phase))
     if both:
         problems.append(f"The queues both run and read from the store {_shown(both)}.")
+    both = sorted(deferred & (cached | set(group_phase)))
+    if both:
+        problems.append(f"The queues both defer to the nightly and run or read {_shown(both)}.")
 
     runs: dict[str, list[tuple[Path, Path, dict]]] = {}
     phases: dict[str, dict[str, list[str]]] = {}
@@ -303,6 +382,9 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
             ran_cached = sorted(cached & {group["group"] for group in record["groups"]})
             if ran_cached:
                 problems.append(f"{directory} ran {_shown(ran_cached)}, which the queues read from the store.")
+            ran_deferred = sorted(deferred & {group["group"] for group in record["groups"]})
+            if ran_deferred:
+                problems.append(f"{directory} ran {_shown(ran_deferred)}, which the queues defer to the nightly.")
     for phase, digests in sorted(phases.items()):
         if len(digests) > 1:
             problems.append(

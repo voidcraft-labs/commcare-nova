@@ -77,6 +77,7 @@ from proof.hq.configuration import Configuration
 from proof.hq.conftest import hq_test_app, nova_shaped_upload
 from proof.hq.seams import build_seams, formplayer_validation
 from proof.hq.state import hq_state, hq_unit, open_unit
+from proof.lane import blocks as lane_blocks
 
 # One document per kind of state the branches must put back.
 DOCUMENTS = (
@@ -371,7 +372,11 @@ def test_each_documents_branches_run_in_its_own_group_unless_the_sample_leaves_i
         return found
 
     assert groups("all") == {"kept": "corpus:kept"}
-    assert groups("left-out, kept") == {"left-out": "proof/hq", "kept": "corpus:kept"}
+    # A document the sample leaves out has its branches run with this module's own items, in proof/hq's group or
+    # the module's where the package splits it off (proof.checks.sharding.SPLIT).
+    own = sharding.item_group(SimpleNamespace(path=__file__))
+    assert lane_blocks.package_of(own) == "proof/hq"
+    assert groups("left-out, kept") == {"left-out": own, "kept": "corpus:kept"}
     assert [param.id for param in _documents(corpus, "")] == list(DOCUMENTS)
     monkeypatch.delenv("PROOF_CORPUS")
     assert {param.values[0].group for param in _documents(named="kept")} == {None}

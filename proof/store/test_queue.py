@@ -45,6 +45,7 @@ import pytest
 
 from proof.checks.corpus import Document
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 from proof.observe import unit
 from proof.store import disk, fingerprints, pack, queue, runtime
 from proof.store.conftest import (
@@ -71,8 +72,14 @@ def _build(checkout, out, *arguments, corpus=None, phase="main", stores=()):
 
 
 @pytest.fixture
-def lane(checkout, corpus):
-    timings = {"groups": {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0, "proof/core": 2.0}}
+def lane(checkout, corpus, monkeypatch):
+    # The synthetic checkout's packages run whole: the lane's own splits name modules of the real one
+    # (proof.checks.sharding.SPLIT), and the test of splitting names its own.
+    from proof.checks import sharding
+
+    monkeypatch.setattr(sharding, "SPLIT", {})
+    groups = {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0, "proof/core": 2.0}
+    timings = {"profiles": {"readers": {"groups": groups}, "no-readers": {"groups": groups}}}
     write_files(checkout, {"proof/timings.json": json.dumps(timings)})
     return checkout, corpus
 
@@ -333,6 +340,11 @@ def test_documents_sharing_a_parts_inputs_share_a_block_unless_dedupe_is_off(tmp
             if any(g["group"] == name for g in block["groups"])
         )
 
+    # The copy measured as its sibling is, so only the shared inputs, never its estimate, put the two together.
+    timings = json.loads((checkout / "proof" / "timings.json").read_text())
+    for profile in timings["profiles"].values():
+        profile["groups"]["corpus:copy"] = profile["groups"]["corpus:two"]
+    write_files(checkout, {"proof/timings.json": json.dumps(timings)})
     deduped = _build(checkout, tmp_path / "deduped.json", corpus=corpus)
     assert holding(deduped, "corpus:copy") == ("corpus:copy", "corpus:one")
     apart = _build(checkout, tmp_path / "apart.json", "--no-dedupe", corpus=corpus)
@@ -367,6 +379,96 @@ def test_the_early_queue_reads_no_corpus_and_the_main_queue_holds_what_reads_it(
     left = sorted({"one", "two"} - set(kept))
     assert [entry["id"] for entry in index["unsampled"]] == left and sampled["unsampled"] == left
     assert queue.main(["early", "--documents", "sample:1", "--out", str(tmp_path / "x.json")]) == 2
+
+
+def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_the_rest_apart(tmp_path, lane):
+    """``--lane-env PROOF_READERS=0`` (proof.lane.readers): no package every test of which starts a reader, no
+    control only the served readers' entries name, every key that profile's, and the queue says so."""
+    checkout, corpus = lane
+    write_files(
+        checkout,
+        {
+            "proof/connect/test_receiver.py": "def test_receiver():\n    pass\n",
+            "proof/controls/plain/document.json": "{}",
+            "proof/controls/reader/document.json": "{}",
+        },
+    )
+    register = [
+        {"id": "d1", "control": "plain", "artifact": "upload"},
+        {"id": "d2", "control": "reader", "artifact": "formplayer@B"},
+        {"id": "d3", "control": "reader", "artifact": "android-tablet@vellum@*"},
+    ]
+    (checkout / "proof" / "known-defects.json").write_text(json.dumps(register))
+    every = _build(checkout, tmp_path / "every.json", corpus=corpus)
+    without = _build(checkout, tmp_path / "without.json", "--lane-env", "PROOF_READERS=0", corpus=corpus)
+    assert {"control:plain", "control:reader", "proof/connect"} <= set(every["classes"]["observed"])
+    assert set(every["classes"]["observed"]) - set(without["classes"]["observed"]) == {
+        "control:reader",
+        "proof/connect",
+    }
+    assert "readers" not in every and without["readers"] is False
+    assert lane_blocks.parse_queue(without).readers == lane_readers.NONE
+    assert lane_blocks.parse_queue(every).readers == lane_readers.EVERY
+    assert every["environment"]["PROOF_READERS"] == "all" and without["environment"]["PROOF_READERS"] == "0"
+    keyed = {queued["group"]: queued["key"] for value in (every,) for b in value["blocks"] for queued in b["groups"]}
+    apart = {queued["group"]: queued["key"] for b in without["blocks"] for queued in b["groups"]}
+    assert set(apart) <= set(keyed) and all(keyed[group] != apart[group] for group in apart)
+    early = _build(checkout, tmp_path / "early.json", "--lane-env", "PROOF_READERS=0", phase="early")
+    assert early["readers"] is False
+    # A slice of the readers queues what it observes: the package only Connect's tests fill where it names
+    # Connect, and each control an entry of a reader it names holds.
+    android = _build(checkout, tmp_path / "android.json", "--lane-env", "PROOF_READERS=android", corpus=corpus)
+    assert android["readers"] == ["formplayer", "android"]
+    assert android["environment"]["PROOF_READERS"] == "formplayer,android"
+    assert "proof/connect" not in android["classes"]["observed"]
+    assert {"control:plain", "control:reader"} <= set(android["classes"]["observed"])
+    connect = _build(checkout, tmp_path / "connect.json", "--lane-env", "PROOF_READERS=connect", corpus=corpus)
+    assert "proof/connect" in connect["classes"]["observed"]
+
+
+def test_a_split_module_and_its_tests_are_queued_as_groups_of_their_own_keyed_by_their_packages_data(
+    tmp_path, lane, monkeypatch
+):
+    """proof.checks.sharding.SPLIT: a module of a package's is a group of its own where it keeps a test it does not
+    split off, each test it splits off one more, and the package's own group stays only while another module is
+    left in it. Each is keyed apart, by its package's data (what its tests read)."""
+    from proof.checks import sharding
+
+    checkout, corpus = lane
+    write_files(
+        checkout,
+        {
+            "proof/editors/test_slow.py": (
+                "def test_one():\n    pass\n\n\nclass TestTwo:\n    def test_two(self):\n        pass\n"
+            ),
+            "proof/core/test_whole.py": "def test_a():\n    pass\n\n\ndef test_b():\n    pass\n",
+        },
+    )
+    monkeypatch.setattr(
+        sharding, "SPLIT", {"editors/test_slow.py": ("test_one", "test_two"), "core/test_whole.py": ("test_a",)}
+    )
+    assert queue.package_groups(checkout / "proof") == [
+        "proof/checks",
+        "proof/core",
+        "proof/core/test_whole.py",
+        "proof/core/test_whole.py::test_a",
+        "proof/editors",
+        "proof/editors/test_slow.py::test_one",
+        "proof/editors/test_slow.py::test_two",
+        "surface",
+    ]
+    main = _build(checkout, tmp_path / "main.json", corpus=corpus)
+    early = _build(checkout, tmp_path / "early.json", phase="early")
+
+    def names(value):
+        return {queued["group"]: queued.get("key") for block in value["blocks"] for queued in block["groups"]}
+
+    assert {"proof/editors", "proof/editors/test_slow.py::test_one", "proof/editors/test_slow.py::test_two"} <= set(
+        names(main)
+    )
+    assert {"proof/core", "proof/core/test_whole.py", "proof/core/test_whole.py::test_a"} <= set(names(early))
+    keys = [*names(main).values(), *names(early).values()]
+    assert len(set(keys)) == len(keys)
 
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.

@@ -62,6 +62,7 @@ configuration's privileges, which it reads from
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
@@ -625,7 +626,9 @@ def corpus_root() -> Path:
     With ``PROOF_CORPUS`` unset, the corpus is emitted once into
     ``$PROOF_OUT/corpus`` by Nova's corpus CLI (``proof/corpus/emit.ts``),
     with ``PROOF_CORPUS_SAMPLE`` and ``PROOF_CORPUS_SEED`` passed through, and
-    reused while its ``index.json`` exists.
+    reused while its ``index.json`` exists. Two workers running groups of one
+    block share its ``PROOF_OUT``, so the emission holds a lock beside the
+    root: the second waits for the first's corpus and reads it.
     """
     named = os.environ.get("PROOF_CORPUS")
     if named:
@@ -638,7 +641,11 @@ def corpus_root() -> Path:
         )
     root = Path(out) / "corpus"
     if not (root / "index.json").exists():
-        emit_corpus(root)
+        root.parent.mkdir(parents=True, exist_ok=True)
+        with open(root.with_name(f"{root.name}.lock"), "wb") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if not (root / "index.json").exists():
+                emit_corpus(root)
     return root
 
 

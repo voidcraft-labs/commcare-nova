@@ -68,10 +68,10 @@ import copy
 import json
 
 from proof.checks.compare.json_tree import compare_json
-from proof.checks.differences import Difference, pointer_token
+from proof.checks.differences import ANDROID, ANDROID_TABLET, Difference, pointer_token
 
-LOCAL = "android@local.ccz"
-REPUBLISH = "android@B"
+LOCAL = f"{ANDROID}@local.ccz"
+REPUBLISH = f"{ANDROID}@B"
 INSTALLED = "Installed"
 # The maps of an app answer whose keys are the app's own (a walk's path of commands, a search's terms).
 DATA_MAPS = frozenset(
@@ -425,7 +425,7 @@ def app_differences(before, after, *, check, document, artifact) -> list:
 # What Nova's suite sends in place of a search value that holds both quote marks, which no XPath string can
 # hold: a function HQ's query compiler knows none of, so HQ refuses the search (finding 48).
 UNQUOTABLE = "search-value-mixes-quote-marks()"
-A = "android@A"
+A = f"{ANDROID}@A"
 
 
 def _sends_unquotable(entry) -> bool:
@@ -508,18 +508,18 @@ def signed_in_differences(document: str, a: dict | None, local: dict | None) -> 
 
 
 # The artifacts of what a tablet alone shows: a tablet's difference the phone shows too is the phone's symptom.
-TABLET = "android-tablet"
+TABLET = ANDROID_TABLET
 
 
 def tablet_only(phone: list, tablet: list) -> list:
     """The differences a tablet shows (judged as ``device=TABLET``) that the phone does not show at the same
     place of the same artifact: a symptom both show is one symptom, the phone's, and what only a tablet shows
     (its side by side screens, its wider rows) is the tablet's own."""
-    shown = {(d.check, d.artifact.removeprefix("android@"), d.at) for d in phone}
+    shown = {(d.check, d.artifact.removeprefix(f"{ANDROID}@"), d.at) for d in phone}
     return [d for d in tablet if (d.check, d.artifact.removeprefix(f"{TABLET}@"), d.at) not in shown]
 
 
-def behavior(document: str, record: dict, *, device: str = "android") -> list:
+def behavior(document: str, record: dict, *, device: str = ANDROID) -> list:
     """Proof 3's differences in what one kind of device (``device``: ``android``, a phone, or ``TABLET``) did."""
     local_artifact, a_artifact, republish = (f"{device}@local.ccz", f"{device}@A", f"{device}@B")
     found = []
@@ -574,7 +574,7 @@ def settings_replaced(update: dict | None) -> list[tuple[str, object, object]]:
     ]
 
 
-def editability(document: str, record: dict, *, device: str = "android") -> list:
+def editability(document: str, record: dict, *, device: str = ANDROID) -> list:
     """Proof 4's differences in what one kind of device (``device``) did."""
     found = []
     for name in sorted(record.get("configurations") or {}):

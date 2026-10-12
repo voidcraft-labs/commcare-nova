@@ -57,10 +57,19 @@ CLIENT_KEYS = ("langs", "multimedia_map", "name", "profile", "upstream_app_id", 
 
 def inputs(document, state):
     """What the served observation reads beyond its part's own inputs: the browser's code, for the client's
-    screens (the image holds Formplayer and the rest)."""
+    screens (the image holds Formplayer and the rest), and the readers the run hands its states to
+    (``proof.lane.readers``), so a record of one set of readers is never read for another."""
+    from proof.lane import readers
     from proof.observe.browser import browser_fingerprint
 
-    return {"browser": browser_fingerprint()}
+    return {"browser": browser_fingerprint(), "readers": readers.canonical(readers.named())}
+
+
+def observes(reader) -> bool:
+    """Whether the run hands its served states to ``reader`` (``proof.lane.readers.named``)."""
+    from proof.lane import readers
+
+    return reader in readers.named()
 
 
 def client_reads(doc) -> str:
@@ -97,7 +106,7 @@ class Serving:
         """The client's screens on ``trace``'s walk, as a blob, shown in the client's own browser
         (``proof.observe.services.client_browser``); None where the observation was given no editor driver, which
         is how a caller says it wants no browser's work (as proof 4's saves need one)."""
-        if self.driver is None:
+        if self.driver is None or not observes("webapps"):
             return None
         from proof.observe import services
         from proof.webapps import observe
@@ -122,6 +131,8 @@ class Serving:
     def devices_on(self, label: str, archive: bytes | None = None, *, delivered: bool = False) -> dict:
         """What a phone and a tablet each make of the state (``android``), under the keys a state's record keeps
         them by: ``android`` and ``androidTablet``, with ``delivered``'s prefix."""
+        if not observes("android"):
+            return {}
         key = "androidDelivered" if delivered else "android"
         return {
             key: self.android(label, archive, delivered=delivered),
@@ -191,6 +202,8 @@ def _devices(held, document, a_record, b_record, blobs) -> dict:
     from proof.android import observe as android
 
     found = {}
+    if not observes("android"):
+        return found
     if document.local_ccz is not None:
         again = document.local_ccz.parent / "local-again.ccz"
         if again.is_file():
@@ -242,7 +255,7 @@ def observe(ctx):
     try:
         with serving(ctx.unit, ctx.document, ctx.app_id, driver=ctx.editor_driver, blobs=ctx.blobs, label="A") as held:
             # A Connect app's opportunity is made here, from A's release, and receives every later state.
-            holder = getattr(ctx, "connect", None)
+            holder = getattr(ctx, "connect", None) if observes("connect") else None
             if holder is not None and holder.opportunity is None and connect.is_connect(ctx.build.files):
                 holder.opportunity = connect.open_opportunity(held.served)
             opportunity = holder.opportunity if holder is not None else None
@@ -270,7 +283,7 @@ def reopen(unit, *, document, app_id, a_record, holder, blobs):
     from proof.observe import connect
 
     held_a = ((a_record or {}).get("hooks") or {}).get(HOOK) or {}
-    if not held_a.get("served") or "connect" not in held_a or holder.opportunity is not None:
+    if not held_a.get("served") or "connect" not in held_a or holder.opportunity is not None or not observes("connect"):
         return
     with serving(unit, document, app_id, driver=None, blobs=blobs, label="A") as held:
         holder.opportunity = connect.open_opportunity(held.served)
@@ -346,7 +359,11 @@ def aligned(
                     # finding 59), and one given the input the lane gives Core over that archive.
                     recorded["local"] = {
                         "formplayer": local_side,
-                        "android": held.android("local", document.local_ccz.read_bytes()),
+                        **(
+                            {"android": held.android("local", document.local_ccz.read_bytes())}
+                            if observes("android")
+                            else {}
+                        ),
                         **held.devices_on("local:delivered", document.local_ccz.read_bytes(), delivered=True),
                     }
                     if forwarder is not None:

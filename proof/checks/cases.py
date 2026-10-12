@@ -37,15 +37,21 @@ def load_corpus():
 
 @cache
 def load_register():
-    """The register, its entries held to every document the corpus emitted: an entry naming one the run's sample
-    leaves out is held on its control alone (``proof.checks.registers.verify_evidence``)."""
+    """The register this run holds its checks to, its entries held to every document the corpus emitted: an entry
+    naming one the run's sample leaves out is held on its control alone
+    (``proof.checks.registers.verify_evidence``). A run that observes only some readers, or none
+    (``PROOF_READERS``, ``proof.lane.readers``), holds every entry but those whose artifacts the readers it does not
+    observe write, which it cannot show and the nightly holds (``registers.held_entries``)."""
+    from proof.lane import readers
+
     documents = load_corpus().emitted
-    return registers.load_known_defects(
+    entries = registers.load_known_defects(
         documents={document.id for document in documents},
         targeted={document.id for document in documents if document.targeted},
         # A fuzz document's source is ``fuzz:<generator>:<seed>:<index>`` (proof/corpus/entryWriter.ts::sourceName).
         fuzz={document.id for document in documents if document.source.startswith("fuzz:")},
     )
+    return registers.held_entries(entries, readers=readers.named())
 
 
 def document_params():

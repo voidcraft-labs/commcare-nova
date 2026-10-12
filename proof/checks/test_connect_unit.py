@@ -30,6 +30,10 @@ from proof.checks import connect as judge
 from proof.checks.test_record_determinism import DictStore, _store_of
 from proof.observe import unit
 
+# Every test here holds what the unit's served hook made of Connect (proof.observe.connect), which only a run with
+# the readers observes (proof.lane.readers).
+pytestmark = pytest.mark.reader
+
 DOCUMENT = "targeted-connect-deliver-rename"
 PLAIN = "connect-absent"
 CONFIGURATION = "minimum"

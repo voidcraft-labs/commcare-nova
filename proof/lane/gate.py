@@ -22,7 +22,17 @@ output. Four sections, each with its problems:
    (``proof.lane.reader``), held to ``proof/known-defects.json``. A run over
    a sample of the corpus (its main queue names the documents the sample
    leaves out, ``unsampled``) holds each entry naming one of those on its
-   control alone, and the section says how many entries it held so.
+   control alone, and the section says how many entries it held so. A run
+   without the readers (its queues say ``readers: false``,
+   ``proof.lane.readers``) leaves the served readers' entries
+   (``proof.checks.registers.served_entry``) to the nightly and holds every
+   other, and the section says how many it left; every shard must have run
+   in the profile its queues were built for (``serve.json``'s ``readers``).
+   A pull request's queues may defer groups to the nightly (``deferred``,
+   ``proof.lane.plan``): a deferred document is held as an unsampled one is,
+   an entry whose control was deferred is held on its document alone, and
+   one whose document and control were both deferred is left to the nightly
+   and named.
 4. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
@@ -30,8 +40,11 @@ output. Four sections, each with its problems:
    so this is also what holds the extractor to the same bytes at the same
    pins (``proof/surface/test_extraction.py``).
 
-It prints each section, writes the whole as JSON to ``--summary`` when named,
-and appends it as Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. It
+It prints each section, and every deferred group under a heading of its own
+("Deferred to the nightly"), so a reviewer sees what the nightly will cover;
+writes the whole as JSON to ``--summary`` when named, and appends it as
+Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. A deferred surface
+block leaves the surface section to the nightly. It
 exits 0 when every section holds, 1 when one does not, and 2 when its
 arguments cannot be read.
 """
@@ -46,8 +59,10 @@ import tempfile
 from pathlib import Path
 
 from proof.checks import registers, sharding
+from proof.checks.differences import SERVED_ARTIFACTS
 from proof.lane import blocks as lane_blocks
 from proof.lane import reader
+from proof.lane import readers as lane_readers
 
 WORKTREE = sharding.PROOF_DIR.parent
 COMMITTED_SURFACE = WORKTREE / "lib" / "commcare" / "surface" / "surface.json"
@@ -130,28 +145,125 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
 
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
+    deferred = sorted((entry for _, queue in queues for entry in queue.deferred), key=lambda entry: entry.group)
+    deferred_documents = frozenset(
+        entry.group[len("corpus:") :].partition("@")[0] for entry in deferred if entry.group.startswith("corpus:")
+    )
+    deferred_controls = frozenset(
+        entry.group[len("control:") :] for entry in deferred if entry.group.startswith("control:")
+    )
+    readers, problems = _profile(queues, outputs)
     entries = registers.load_known_defects()
-    records, problems = reader.cached_evidence(cached, store)
+    records, read_problems = reader.cached_evidence(cached, store)
+    problems += read_problems
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        problems += registers.verify_evidence(directories, entries, unsampled=unsampled)
-    held = entries
-    on_control_alone = sum(entry.document in unsampled for entry in held)
-    notes = (
-        [
+        problems += registers.verify_evidence(
+            directories,
+            entries,
+            unsampled=unsampled | deferred_documents,
+            unrun_controls=deferred_controls,
+            readers=readers,
+        )
+    held = registers.held_entries(entries, readers=readers)
+    left = len(entries) - len(held)
+    on_control_alone = sum(entry.document in unsampled and entry.control not in deferred_controls for entry in held)
+    notes = []
+    unnamed = [name for name in lane_readers.READERS if name not in readers]
+    if not readers:
+        notes.append(
+            f"This run handed no state to the readers ({lane_readers.VARIABLE}=0, the pull request lane), so {left}"
+            f" of the register's {len(entries)} entries, whose artifacts only the served readers write"
+            f" ({', '.join(sorted(SERVED_ARTIFACTS))}), were left to the nightly run with every reader;"
+            f" the other {len(held)} were held."
+        )
+    elif unnamed:
+        notes.append(
+            f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
+            f"{lane_readers.canonical(readers)}), so {left} of the register's {len(entries)} entries, whose"
+            f" artifacts {', '.join(unnamed)} write, were left to the nightly run with every reader; the other"
+            f" {len(held)} were held."
+        )
+    if unsampled:
+        entries_held = f"the register's {len(held)} entries" if not left else f"the {len(held)} entries it held"
+        notes.append(
             f"This run checked a sample of the corpus, leaving {len(unsampled)} documents out, so {on_control_alone}"
-            f" of the register's {len(held)} entries name a document it did not run and were held on their"
-            f" controls alone; the other {len(held) - on_control_alone} were held on their documents and controls."
-        ]
-        if unsampled
-        else []
+            f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
+            f" {len(held) - on_control_alone} were held on their documents and controls."
+        )
+    # Entries a deferral moved off their documents or controls; an entry whose document did not run (deferred, or
+    # left out of a sample) and whose control was deferred is held on neither, and named for the nightly.
+    unrun = unsampled | deferred_documents
+    deferred_both = sorted(entry.id for entry in held if entry.document in unrun and entry.control in deferred_controls)
+    deferred_control_alone = sum(
+        entry.document in deferred_documents - unsampled and entry.control not in deferred_controls for entry in held
     )
+    deferred_document_alone = sum(entry.control in deferred_controls and entry.document not in unrun for entry in held)
+    if deferred:
+        notes.append(
+            f"The pull request's planner deferred {len(deferred)} groups to the nightly so the lane ends within its"
+            f" bound ({len(deferred_documents)} documents, {len(deferred_controls)} controls,"
+            f" {len(deferred) - len(deferred_documents) - len(deferred_controls)} package groups; listed under"
+            f' "Deferred to the nightly"): {deferred_control_alone} entries naming a deferred document were held'
+            f" on their controls alone, {deferred_document_alone} naming a deferred control on their documents"
+            f" alone, and {len(deferred_both)} whose document and control were both deferred are left to the"
+            f" nightly{': ' + ', '.join(deferred_both) if deferred_both else ''}."
+        )
     sections["register"] = _section(
-        problems, notes, cached=len(cached), unsampled=len(unsampled), heldOnControlAlone=on_control_alone
+        problems,
+        notes,
+        cached=len(cached),
+        unsampled=len(unsampled),
+        heldOnControlAlone=on_control_alone,
+        readers=lane_readers.to_record(readers),
+        leftToNightly=left,
+        deferredHeldOnControlAlone=deferred_control_alone,
+        deferredHeldOnDocumentAlone=deferred_document_alone,
+        deferredLeftToNightly=deferred_both,
     )
 
-    sections["surface"] = _surface(queues, verdict, store, committed)
-    return {"holds": all(section["holds"] for section in sections.values()), "sections": sections}
+    if any(entry.group == SURFACE for entry in deferred):
+        sections["surface"] = _section(
+            [],
+            ["The surface block was deferred to the nightly, which compares its extraction with the committed one."],
+            verdict="deferred",
+        )
+    else:
+        sections["surface"] = _surface(queues, verdict, store, committed)
+    return {
+        "holds": all(section["holds"] for section in sections.values()),
+        "sections": sections,
+        "deferred": [{"group": entry.group, "estimate": entry.estimate} for entry in deferred],
+    }
+
+
+def _profile(queues, outputs) -> tuple[frozenset, list[str]]:
+    """The readers the run handed its states to, as its queues say (``readers``), and why the queues or a shard do
+    not agree on them: a shard of another set ran other groups and kept other records."""
+    sets = {queue.readers for _, queue in queues}
+    problems = []
+    if len(sets) > 1:
+        built = ", ".join(f"the {phase} queue for {lane_readers.described(queue.readers)}" for phase, queue in queues)
+        problems.append(
+            f"The queues were built for different readers ({built}); build both with the same {lane_readers.VARIABLE}."
+        )
+    readers = next(iter(sets)) if len(sets) == 1 else lane_readers.EVERY
+    for output in outputs:
+        serve = Path(output) / lane_blocks.SERVE
+        if not serve.is_file():
+            continue
+        try:
+            ran = lane_readers.from_record(json.loads(serve.read_text(encoding="utf-8")).get("readers"))
+        except lane_readers.ReadersError as error:
+            problems.append(f"{output}: {error}")
+            continue
+        if ran != readers:
+            problems.append(
+                f"{output} ran with {lane_readers.described(ran)} ({lane_readers.VARIABLE}), and its queues were"
+                f" built for {lane_readers.described(readers)}, so it ran other groups than they name and kept other"
+                " records."
+            )
+    return readers, problems
 
 
 TITLES = {
@@ -162,12 +274,28 @@ TITLES = {
 }
 
 
+def _deferred_lines(result: dict) -> list[str]:
+    """Each group the planner deferred, with its estimate, for the heading a reviewer reads them under."""
+    return [f"{entry['group']} ({entry['estimate']:g} box-seconds)" for entry in result.get("deferred", [])]
+
+
 def _markdown(result: dict) -> str:
     lines = ["## Proof lane", ""]
     for key, section in result["sections"].items():
         lines.append(f"- {'Holds' if section['holds'] else 'Fails'}: {TITLES[key]}")
         lines += [f"  - Note: {line.strip()}" for line in section["notes"][:20]]
         lines += [f"  - {line.strip()}" for line in section["problems"][:20]]
+    deferred = _deferred_lines(result)
+    if deferred:
+        lines += [
+            "",
+            "### Deferred to the nightly",
+            "",
+            f"This pull request's lane left these {len(deferred)} groups to the nightly so it ends within ten"
+            " minutes; the nightly observes every group main's store lacks.",
+            "",
+        ]
+        lines += [f"- {line}" for line in deferred]
     return "\n".join(lines) + "\n"
 
 
@@ -214,6 +342,11 @@ def main(argv=None) -> int:
             print(f"  note: {note}")
         for problem in section["problems"]:
             print(f"  {problem}")
+    deferred = _deferred_lines(result)
+    if deferred:
+        print(f"Deferred to the nightly ({len(deferred)} groups):")
+        for line in deferred:
+            print(f"  {line}")
     if arguments.summary is not None:
         lane_blocks.write_json(arguments.summary, result)
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")

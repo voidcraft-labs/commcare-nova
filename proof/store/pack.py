@@ -22,8 +22,13 @@ selection holds the items that selection kept, and a queue that read it
 would cache the group without the rest; its records are kept all the same,
 since a part's record does not depend on which checks read it. A package
 group's outcome is kept only from a run in the environment the queue keys it
-under (``proof.store.keys.lane_environment``): a document's is keyed by the
-environment its run recorded, a package group's by the one the queue assumed.
+under (``proof.store.keys.lane_environment``, against the queue's own
+``environment``, or proof/compose.yaml's for a queue that records none): a
+document's is keyed by the environment its run recorded, a package group's by
+the one the queue assumed. So the lane's two profiles (with the readers and
+without them, ``proof.lane.readers``) are each packed from their own outputs
+and queues, and their snapshots merged (``merge``): every key names its
+profile, so neither holds a value the other's run made.
 No outcome is kept from a run that held HQ's branch proof over a list of
 documents of its own, or that records no environment
 (``proof.store.keys.lane_branches``): the proof's items are in their
@@ -158,6 +163,24 @@ def queue_keys(paths) -> dict[str, str]:
     return found
 
 
+def queue_environment(paths) -> dict | None:
+    """The environment the queues keyed their package groups under (their ``environment``; proof/compose.yaml's
+    for a queue that records none, ``proof.store.keys.LANE_ENVIRONMENT``), or None without a queue."""
+    found = []
+    for path in paths or ():
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        held = value.get("environment")
+        found.append(dict(held) if isinstance(held, dict) else keys.environment(keys.LANE_ENVIRONMENT))
+    if not found:
+        return None
+    if any(environment != found[0] for environment in found):
+        raise PackError(
+            "The queues name different environments for their keys (each queue's environment), so they are two"
+            " runs' queues: pack each run's outputs with its own queues, and merge the snapshots."
+        )
+    return found[0]
+
+
 def selection(output: Path) -> dict | None:
     """What the run in ``output`` collected with (its ``serve.json``'s ``selection``), or None when it records
     another than the lane's own: pytest arguments or ``PYTEST_ADDOPTS``."""
@@ -171,9 +194,9 @@ def selection(output: Path) -> dict | None:
     return found
 
 
-def _lane_environment(found: dict) -> bool:
+def _lane_environment(found: dict, keyed: dict | None) -> bool:
     recorded = found.get("environment")
-    return isinstance(recorded, dict) and keys.lane_environment(recorded)
+    return isinstance(recorded, dict) and keys.lane_environment(recorded, keyed)
 
 
 def _document(name: str):
@@ -185,6 +208,7 @@ def gather(outputs, queues=()) -> Gathered:
     """What lane runs' outputs hold for the store (see the module's docstring)."""
     gathered = Gathered()
     package_keys = queue_keys(queues)
+    keyed = queue_environment(queues)
     judges = set()
     runs = []
     for output in outputs:
@@ -214,11 +238,11 @@ def gather(outputs, queues=()) -> Gathered:
                 " their items."
             )
             continue
-        packages = _lane_environment(found)
+        packages = _lane_environment(found, keyed)
         if not packages:
             gathered.notes.append(
                 f"Kept no package group's outcome of {output}: its serve.json does not record the environment the"
-                " queue keys package groups under (proof.store.keys.lane_environment)."
+                " queue keys package groups under (the queue's environment, proof.store.keys.lane_environment)."
             )
         runs += [(directory, manifest, packages) for directory, manifest in lane_blocks.read_manifests(output)]
     if len(judges) > 1:

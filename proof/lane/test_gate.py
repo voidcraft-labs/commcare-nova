@@ -1,6 +1,7 @@
 """The gate decides the lane from the shards' outputs alone, on a Python with nothing but its standard library.
 
-Contracts (``proof.lane.gate``): the gate and ``python -m
+Contracts (``proof.lane.gate``): the gate, the lane's planner
+(``proof.lane.plan``) and ``python -m
 proof.checks.sharding verify`` import nothing beyond the standard library and
 the proof's own standard-library modules, since they run on the runner's
 Python with no image; and the gate holds when, and only when, every block ran
@@ -8,12 +9,23 @@ exactly once, every item passed, the evidence holds to the register, and the
 surface block's extraction is the committed surface byte for byte. A run
 whose queue names the documents its sample of the corpus left out holds each
 entry naming one on its control alone and says so; a run whose queue names
-none holds every entry on its document as well. The plausible failures: an
+none holds every entry on its document as well. A pull request whose queues
+defer groups to the nightly holds an entry whose document was deferred on its
+control alone, one whose control was deferred on its document alone, leaves
+one with both deferred to the nightly by name, fails a shard that ran a
+deferred group, and lists every deferred group under a heading of its own. A run without the readers
+(its queues built so, ``proof.lane.readers``) leaves the served readers'
+entries to the nightly and holds every other exactly as a run with them does,
+and says how many it left; a shard of the other profile fails it. The
+plausible failures: an
 import of pytest, pluggy, lxml or HQ creeping into the verify path (the gate
 would die on the runner), a verdict that passes a run with a missing block,
 a failed item, an unregistered difference, a stale surface or a cached group
 nothing can read, every sampled run failing on the entries it could never
-show, and a whole run passing without seeing an entry on its document.
+show, a whole run passing without seeing an entry on its document, a run
+without the readers failing on the readers' entries or passing over another
+entry it never saw, and a shard with the readers counted in a run without
+them.
 
 The standard-library test runs the gate in a child interpreter started with
 ``-S -I`` (no site-packages, no environment) and a ``sys.path`` of the
@@ -43,7 +55,7 @@ CHILD = """
 import json, sys, sysconfig
 sys.path[:] = [{worktree!r}] + [path for path in sys.path if path.startswith(sysconfig.get_paths()["stdlib"])]
 from proof.checks import sharding
-from proof.lane import gate
+from proof.lane import gate, plan
 codes = [
     gate.main({gate_args!r}),
     sharding.main({verify_args!r}),
@@ -251,6 +263,93 @@ def test_a_sampled_run_holds_the_entries_on_documents_it_left_out_on_their_contr
     assert "Note: This run checked a sample of the corpus" in gate._markdown(sampled)
 
 
+def test_a_pull_request_that_deferred_groups_holds_each_entry_on_what_ran_and_lists_what_it_deferred(
+    tmp_path, own_register
+):
+    """One entry's document deferred (held on its control), one's control deferred (held on its document), one with
+    both deferred (left to the nightly, named); every deferred group listed under its own heading."""
+    from proof.checks import registers
+
+    first, second, third = [path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir()][:3]
+    base = {"defect": 1, "part": "a part", "check": "bar", "artifact": "upload"}
+    own_register.write_text(
+        json.dumps(
+            [
+                {**base, "id": "document-deferred", "document": "b", "control": first, "path": "/x"},
+                {**base, "id": "control-deferred", "document": "a", "control": second, "path": "/y"},
+                {**base, "id": "both-deferred", "document": "c", "control": third, "path": "/z"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    shown = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
+    on_a = {**shown, "path": "/y", "at": "/y", "document": "a"}
+    output, queue, committed = _lane(tmp_path, differences=[on_a])
+    [document_dir] = [
+        directory for directory, record in lane_blocks.read_manifests(output) if record["phase"] == "main"
+    ]
+    lane_blocks.write_json(
+        document_dir / "checks" / "bar" / f"control-{first}.json",
+        {"check": "bar", "document": first, "kind": "control", "differences": [{**shown, "document": first}]},
+    )
+
+    # Nothing deferred: each entry misses its document or its control.
+    whole = _run(output, queue, committed)
+    assert not whole["holds"] and whole["deferred"] == []
+    assert "Deferred to the nightly" not in gate._markdown(whole)
+
+    value = json.loads(queue.read_text())
+    deferred = [
+        {"group": "control:" + second, "estimate": 5.0},
+        {"group": "control:" + third, "estimate": 5.0},
+        {"group": "corpus:b", "estimate": 6.0},
+        {"group": "corpus:c", "estimate": 7.0},
+        {"group": "proof/editors", "estimate": 60.0},
+    ]
+    queue.write_text(json.dumps({**value, "deferred": deferred}))
+    result = _run(output, queue, committed)
+    register = result["sections"]["register"]
+    assert result["holds"] and register["holds"], register
+    assert register["deferredHeldOnControlAlone"] == 1 and register["deferredHeldOnDocumentAlone"] == 1
+    assert register["deferredLeftToNightly"] == ["both-deferred"]
+    assert register["notes"] == [
+        "The pull request's planner deferred 5 groups to the nightly so the lane ends within its bound (2 documents,"
+        ' 2 controls, 1 package groups; listed under "Deferred to the nightly"): 1 entries naming a deferred'
+        " document were held on their controls alone, 1 naming a deferred control on their documents alone, and 1"
+        " whose document and control were both deferred are left to the nightly: both-deferred."
+    ]
+    assert result["deferred"] == deferred
+    markdown = gate._markdown(result)
+    assert "### Deferred to the nightly" in markdown and "- proof/editors (60 box-seconds)" in markdown
+    assert markdown.index("### Deferred to the nightly") > markdown.index("Every difference holds to the register")
+
+    # An entry held on what ran still fails there: its control deferred, its document must show it.
+    entries = json.loads(own_register.read_text())
+    own_register.write_text(json.dumps([*entries, {**entries[1], "id": "unseen", "document": "z", "path": "/w"}]))
+    unseen = _run(output, queue, committed)["sections"]["register"]
+    assert not unseen["holds"]
+    assert any("unseen names bar on z, its control" in problem for problem in unseen["problems"])
+
+
+def test_a_deferred_group_a_shard_ran_fails_and_a_deferred_surface_is_left_to_the_nightly(tmp_path):
+    output, queue, committed = _lane(tmp_path)
+    value = json.loads(queue.read_text())
+    surface = next(block for block in value["blocks"] if block["groups"][0]["group"] == "surface")
+    others = [block for block in value["blocks"] if block is not surface]
+    queue.write_text(json.dumps({**value, "blocks": others, "deferred": [{"group": "surface", "estimate": 60.0}]}))
+    result = _run(output, queue, committed)
+    assert not result["sections"]["exactlyOnce"]["holds"]
+    assert any("which the queues defer to the nightly" in p for p in result["sections"]["exactlyOnce"]["problems"])
+    assert result["sections"]["surface"]["holds"] and result["sections"]["surface"]["verdict"] == "deferred"
+
+    # Its shard ran only what the queue runs: the deferred surface leaves nothing to fail.
+    output, queue, committed = _lane(tmp_path / "kept", with_surface_block=False)
+    value = json.loads(queue.read_text())
+    queue.write_text(json.dumps({**value, "deferred": [{"group": "surface", "estimate": 60.0}]}))
+    kept = _run(output, queue, committed)
+    assert kept["holds"], kept
+
+
 def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):
     output, queue, committed = _lane(tmp_path)
     value = json.loads(queue.read_text())
@@ -260,3 +359,90 @@ def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):
     register = result["sections"]["register"]
     assert not register["holds"] and register["cached"] == 1
     assert "no store reader" in register["problems"][0] or "no store directory" in register["problems"][0]
+
+
+def _served_lane(tmp_path, own_register, *, readers):
+    """A run that shows a bar entry's difference on its document and control, and no reader's: a register of that
+    entry and a Formplayer entry on the same document, and the queue and serve.json of the profile."""
+    from proof.checks import registers
+
+    control = next(path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir())
+    base = {"defect": 1, "part": "a part", "document": "a", "control": control}
+    own_register.write_text(
+        json.dumps(
+            [
+                {**base, "id": "bar-upload", "check": "bar", "artifact": "upload", "path": "/x"},
+                {**base, "id": "reader", "check": "proof3", "artifact": "formplayer@B", "path": "/runs/*/screen"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    shown = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
+    output, queue, committed = _lane(tmp_path, differences=[{**shown, "document": "a"}])
+    [document_dir] = [
+        directory for directory, record in lane_blocks.read_manifests(output) if record["phase"] == "main"
+    ]
+    lane_blocks.write_json(
+        document_dir / "checks" / "bar" / f"control-{control}.json",
+        {"check": "bar", "document": control, "kind": "control", "differences": [{**shown, "document": control}]},
+    )
+    serve = json.loads((output / lane_blocks.SERVE).read_text())
+    lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": readers})
+    value = json.loads(queue.read_text())
+    queue.write_text(json.dumps({**value, **({} if readers is True else {"readers": readers})}))
+    return output, queue, committed
+
+
+def test_a_run_without_the_readers_leaves_the_readers_entries_to_the_nightly_and_holds_every_other(
+    tmp_path, own_register
+):
+    result = _run(*_served_lane(tmp_path / "without", own_register, readers=False))
+    register = result["sections"]["register"]
+    assert result["holds"] and register["holds"], register
+    assert register["readers"] is False and register["leftToNightly"] == 1
+    assert register["notes"][0].startswith(
+        "This run handed no state to the readers (PROOF_READERS=0, the pull request lane), so 1 of the register's 2"
+        " entries, whose artifacts only the served readers write"
+    )
+    assert register["notes"][0].endswith("were left to the nightly run with every reader; the other 1 were held.")
+
+    # With the readers the same evidence fails: the Formplayer entry was never seen, on its document or control.
+    with_readers = _run(*_served_lane(tmp_path / "with", own_register, readers=True))["sections"]["register"]
+    assert not with_readers["holds"] and with_readers["leftToNightly"] == 0
+    assert any("reader names proof3 on a, and no shard ran proof3 on a" in p for p in with_readers["problems"])
+
+    # The other entry is held exactly as before: without the readers, an unseen bar entry still fails.
+    output, queue, committed = _served_lane(tmp_path / "unseen", own_register, readers=False)
+    entries = json.loads(own_register.read_text())
+    own_register.write_text(json.dumps([*entries, {**entries[0], "id": "bar-other", "path": "/y"}]))
+    unseen = _run(output, queue, committed)["sections"]["register"]
+    assert not unseen["holds"] and unseen["leftToNightly"] == 1
+    assert any("bar-other" in problem for problem in unseen["problems"])
+
+
+def test_a_run_of_some_readers_leaves_exactly_the_others_entries_and_says_which(tmp_path, own_register):
+    """PROOF_READERS=android: the Formplayer entry is held (its run observed Formplayer), the webapps entry left."""
+    output, queue, committed = _served_lane(tmp_path, own_register, readers=["formplayer", "android"])
+    entries = json.loads(own_register.read_text())
+    reader = entries[1]
+    own_register.write_text(json.dumps([entries[0], {**reader, "id": "client", "artifact": "webapps@B"}]))
+    register = _run(output, queue, committed)["sections"]["register"]
+    assert register["holds"] and register["leftToNightly"] == 1, register
+    assert register["readers"] == ["formplayer", "android"]
+    assert "observed only formplayer, android (PROOF_READERS=formplayer,android)" in register["notes"][0]
+    assert "whose artifacts webapps, connect write" in register["notes"][0]
+    # The Formplayer entry is this run's to hold: never seen, it fails here.
+    own_register.write_text(json.dumps([entries[0], reader]))
+    held = _run(output, queue, committed)["sections"]["register"]
+    assert not held["holds"] and held["leftToNightly"] == 0
+
+
+def test_a_shard_of_the_other_profile_fails_the_run(tmp_path, own_register):
+    output, queue, committed = _served_lane(tmp_path, own_register, readers=False)
+    serve = json.loads((output / lane_blocks.SERVE).read_text())
+    lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": True})
+    register = _run(output, queue, committed)["sections"]["register"]
+    assert not register["holds"]
+    assert any(
+        "ran with every reader" in problem and "built for no reader" in problem for problem in register["problems"]
+    )
