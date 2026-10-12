@@ -81,6 +81,11 @@ def test_by_fixture(formplayer_runner):
     pass
 
 
+@pytest.mark.reader("webapps")
+def test_by_fixture_and_another_reader_by_hand(formplayer_runner):
+    pass
+
+
 @pytest.mark.reader
 def test_by_hand_asks(standing_formplayer):
     standing_formplayer()
@@ -136,16 +141,17 @@ def _child(tmp_path, readers_value):
 def test_a_run_without_the_readers_deselects_each_test_that_starts_one_and_refuses_one_left_unmarked(tmp_path):
     outcomes, deselected, output = _child(tmp_path, "0")
     # By its fixture and by hand: each left to the nightly.
-    assert deselected == 5, output[-3000:]
+    assert deselected == 6, output[-3000:]
     assert outcomes == {"test_plain": "PASSED", "test_unmarked_asks": "FAILED"}, output[-3000:]
     assert "ReadersOff" in output and "mark it reader" in output
 
 
 def test_a_run_of_some_readers_runs_the_tests_of_those_alone(tmp_path):
     """PROOF_READERS=formplayer: the test whose fixture starts Formplayer runs, every test marked for every reader
-    (a bare mark) is left out, and the services refuse the readers the run leaves out."""
+    (a bare mark) is left out, so is the one whose fixture starts Formplayer and that names the client by hand
+    (it reads the client's record too), and the services refuse the readers the run leaves out."""
     outcomes, deselected, output = _child(tmp_path, "formplayer")
-    assert deselected == 4, output[-3000:]
+    assert deselected == 5, output[-3000:]
     assert outcomes == {
         "test_plain": "PASSED",
         "test_by_fixture": "PASSED",
@@ -175,6 +181,7 @@ def test_a_run_with_the_readers_runs_every_test_and_holds_each_marked_by_hand_to
     assert outcomes == {
         "test_plain": "PASSED",
         "test_by_fixture": "PASSED",
+        "test_by_fixture_and_another_reader_by_hand": "PASSED",
         "test_by_hand_asks": "PASSED",
         "test_by_hand_asks_nothing": "FAILED",
         # The second reads the module's fixture the first set up, and asks through it.

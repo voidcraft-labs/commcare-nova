@@ -483,8 +483,12 @@ The lane runs in one of two profiles (`proof/lane/readers.py`), and
   tests that start a served reader are deselected (each is marked `reader`:
   by `proof/conftest.py` where its fixtures start one, `formplayer_runner` or
   `connect_runtime`, and by hand where it starts one itself, as a spelling
-  rule's `served_readings` does); the session's services refuse to start a
-  reader, so a test that starts one unmarked fails instead of running half;
+  rule's `served_readings` does; a test whose fixture starts one reader and
+  that reads another's record too names the other by hand beside it, so a
+  slice of Formplayer alone leaves out the test that reads a whole
+  observation, the client's part included); the session's services refuse to
+  start a reader, so a test that starts one unmarked fails instead of running
+  half;
   and the gate leaves the register's entries whose artifacts only the readers
   write (`formplayer@`, `webapps@`, `android@`, `android-tablet@`,
   `connect@`, `release@`, the names `proof/checks/differences.py` gives every

@@ -194,7 +194,10 @@ def pytest_collection_modifyitems(config, items):
         started = [readers.FIXTURES[name] for name in getattr(item, "fixturenames", ()) if name in readers.FIXTURES]
         mark = item.get_closest_marker(readers.MARK)
         if started:
-            needs[item.nodeid] = frozenset().union(*started)
+            # A test whose fixtures start one reader and that reads another's record too (a whole observation's,
+            # say) names the others by hand: it runs where the run names them all.
+            also = readers.with_brought(mark.args) if mark is not None and mark.args else frozenset()
+            needs[item.nodeid] = frozenset().union(*started) | also
             item.add_marker(getattr(pytest.mark, readers.MARK)(*sorted(needs[item.nodeid])))
         elif mark is not None:
             item.stash[_MARKED_BY_HAND] = True

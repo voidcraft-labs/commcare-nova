@@ -107,6 +107,7 @@ def _same_parts(first, again):
         raise AssertionError("Two observations of one document recorded different parts:\n" + "\n".join(found[:40]))
 
 
+@pytest.mark.reader("webapps")  # beside Formplayer, which its fixture starts: it reads the client's record too
 @pytest.mark.under_determinism
 def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_each_state_and_the_same_on_every_run(
     hq, core_runner, editor_driver, formplayer_runner, formplayer_documents
