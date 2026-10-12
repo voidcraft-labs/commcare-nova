@@ -319,8 +319,12 @@ Part 09 holds this in full.
   entry's disposition, by id and pull request, is in part 09; a script over the
   parts' register sections derives it and fails on an entry with none or two.
 - **Where the lane runs.** The pull request lane in CI runs without the served
-  readers and ends within ten minutes; the nightly runs every reader over main,
-  and the weekly the whole lane fresh. So each pull request of the stack runs,
+  readers and runs every group the change invalidates, with nothing dropped
+  for time: about five minutes when a pull request changes no export, and
+  about thirteen when it changes every document's, which most of this stack's
+  do (part 09 gives the model). The nightly runs every reader over main and
+  opens an issue on a failure, and the weekly runs the whole lane fresh. So
+  each pull request of the stack runs,
   on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
   the readers their entries name before it is marked ready, and the whole lane
   with every reader runs once at the stack's top before the merge (part 09,
