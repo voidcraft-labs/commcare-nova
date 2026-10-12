@@ -65,7 +65,11 @@ def _differences(a, b, path=""):
         keys = sorted(set(a) | set(b), key=str)
         return [found for key in keys for found in _differences(a.get(key), b.get(key), f"{path}/{key}")]
     if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
-        return [found for index, pair in enumerate(zip(a, b)) for found in _differences(*pair, f"{path}/{index}")]
+        return [
+            found
+            for index, pair in enumerate(zip(a, b, strict=True))
+            for found in _differences(*pair, f"{path}/{index}")
+        ]
     if a == b:
         return []
     return [f"{path}: {json.dumps(a, sort_keys=True)[:300]} != {json.dumps(b, sort_keys=True)[:300]}"]
@@ -78,6 +82,25 @@ def _same_served(first, again):
     if before != after:
         found = _differences(_opened(list(before), first.blobs), _opened(list(after), again.blobs))
         raise AssertionError("Two observations of one document served it differently:\n" + "\n".join(found[:40]))
+
+
+def _same_parts(first, again):
+    """Asserts two observations of one document recorded the same parts, naming each place inside a part that
+    differs (its blobs read in place)."""
+    before, after = first.digests(), again.digests()
+    found = []
+    for name in sorted(set(before) | set(after)):
+        if before.get(name) == after.get(name):
+            continue
+        if name == "local":
+            parts = first.local, again.local
+        else:
+            configuration, part = name.split("/")
+            parts = (getattr(found_.configurations[configuration], part) for found_ in (first, again))
+        a, b = parts
+        found += [f"{name}{line}" for line in _differences(_opened(a, first.blobs), _opened(b, again.blobs))]
+    if found:
+        raise AssertionError("Two observations of one document recorded different parts:\n" + "\n".join(found[:40]))
 
 
 @pytest.mark.under_determinism
@@ -110,7 +133,7 @@ def test_a_documents_observation_holds_what_formplayer_and_the_client_made_of_ea
 
     again = observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
     _same_served(first, again)
-    assert again.digests() == first.digests()
+    _same_parts(first, again)
 
 
 @pytest.mark.under_determinism
