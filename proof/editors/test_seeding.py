@@ -97,15 +97,24 @@ def test_a_seeded_page_reads_the_epoch_and_draws_from_its_seed():
     assert first["timerRan"] is True and unseeded["timerRan"] is True
 
 
+def _exchange(e):
+    return (e.phase, e.method, e.url, request_digest(e.method, e.url, e.headers, e.body).hex(), e.response_digest)
+
+
+def _answered(exchanges):
+    """A run's exchanges in an order every run gives, as the lane's records order them
+    (``proof.observe.proof4._answered_alike``): the page sends several reads at once as it loads, and they reach
+    HQ in either order, so each run of reads no write or phase separates is put in an order of its own. A seeded
+    and an unseeded run of a form's page recorded its build validation and the read beside it in either order,
+    about once in four hundred runs on a busy box, and this test failed a whole lane for it."""
+    from proof.observe.proof4 import _answered_alike
+
+    return _answered_alike(exchanges, key=_exchange)
+
+
 def _view_record(view):
     """What a view run records: what the browser showed (its outputs), and every request HQ answered and its answer."""
-    return {
-        "outputs": view.outputs,
-        "exchanges": [
-            (e.phase, e.method, e.url, request_digest(e.method, e.url, e.headers, e.body).hex(), e.response_digest)
-            for e in view.exchanges
-        ],
-    }
+    return {"outputs": view.outputs, "exchanges": [_exchange(e) for e in _answered(view.exchanges)]}
 
 
 def _vellum_record(run):
@@ -114,13 +123,40 @@ def _vellum_record(run):
     outputs = dict(run.outputs)
     outputs["after"] = {key: value for key, value in outputs["after"].items() if key != "events"}
     outputs["events"] = vellum._comparable_events(run.events)
-    return {
-        "outputs": outputs,
-        "exchanges": [
-            (e.phase, e.method, e.url, request_digest(e.method, e.url, e.headers, e.body).hex(), e.response_digest)
-            for e in run.exchanges
-        ],
-    }
+    return {"outputs": outputs, "exchanges": [_exchange(e) for e in _answered(run.exchanges)]}
+
+
+def _where_they_differ(seeded, unseeded):
+    """Where a seeded and an unseeded run's exchanges differ, for a failure to say: each exchange the two did
+    not make alike, with the request headers and the body that differ and where HQ's answers part."""
+    from proof.editors.hq import request_headers
+
+    found = []
+    ours, theirs = _answered(seeded.exchanges), _answered(unseeded.exchanges)
+    if len(ours) != len(theirs):
+        found.append(f"{len(ours)} exchanges seeded, {len(theirs)} unseeded")
+    for index, (a, b) in enumerate(zip(ours, theirs, strict=False)):
+        if (a.phase, a.method, a.url) != (b.phase, b.method, b.url):
+            found.append(f"exchange {index}: {a.phase} {a.method} {a.url} != {b.phase} {b.method} {b.url}")
+            continue
+        sent_a, sent_b = request_headers(a.headers), request_headers(b.headers)
+        for name in sorted(set(sent_a) | set(sent_b)):
+            if sent_a.get(name) != sent_b.get(name):
+                found.append(
+                    f"exchange {index} ({a.method} {a.url}) header {name}: {sent_a.get(name)!r} != {sent_b.get(name)!r}"
+                )
+        if a.body != b.body:
+            found.append(f"exchange {index} ({a.method} {a.url}) body: {a.body!r:.400} != {b.body!r:.400}")
+        if a.response_digest != b.response_digest:
+            one, other = a.response or b"", b.response or b""
+            at = next((i for i, pair in enumerate(zip(one, other, strict=False)) if pair[0] != pair[1]), None)
+            at = min(len(one), len(other)) if at is None else at
+            found.append(
+                f"exchange {index} ({a.method} {a.url}) answer: status {a.status} != {b.status}, headers"
+                f" {a.response_headers!r:.600} != {b.response_headers!r:.600}, bodies part at byte {at}:"
+                f" {one[max(0, at - 80) : at + 160]!r} != {other[max(0, at - 80) : at + 160]!r}"
+            )
+    return "\n".join(found[:20])
 
 
 def _seeded_and_unseeded(run):
@@ -141,7 +177,8 @@ def _views_seeded_and_unseeded(driver, unit, specs):
         assert runs[True].page_clock == seeding.epoch_ms() != runs[False].page_clock
         for seeded, unseeded in zip(runs[True].sections, runs[False].sections, strict=True):
             assert pages.section_differences(seeded, unseeded) == [], seeded.page.name
-        assert _view_record(runs[True]) == _view_record(runs[False]), spec
+        differing = _where_they_differ(runs[True], runs[False])
+        assert _view_record(runs[True]) == _view_record(runs[False]), f"{spec}\n{differing}"
         compared += len(spec.sections)
     return compared
 
@@ -167,7 +204,8 @@ def _forms_seeded_and_unseeded(driver, unit, forms):
     for _, form_id, _ in forms:
         seeded, unseeded = runs[True, form_id], runs[False, form_id]
         assert seeded.saved and vellum.vellum_differences(seeded, unseeded) == [], form_id
-        assert _vellum_record(seeded) == _vellum_record(unseeded), form_id
+        differing = _where_they_differ(seeded, unseeded)
+        assert _vellum_record(seeded) == _vellum_record(unseeded), f"{form_id}\n{differing}"
         # The seeded run's page read the epoch and its own seed's first draw as Vellum started; the seed is
         # its spec's. The unseeded run's read the browser's clock and randomness.
         assert seeded.seed == {"seed": transcripts.digest(seeded.spec)[:32], "epoch": seeding.epoch_ms()}

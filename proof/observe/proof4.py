@@ -836,16 +836,18 @@ def _exchange(exchange):
     }
 
 
-def _answered_alike(exchanges):
+def _answered_alike(exchanges, key=None):
     """The exchanges in an order every run gives: as HQ answered them, but each run of reads that no write or
-    phase separates in a fixed order of their own. The page sends several reads at once as it loads (a module's
-    validation beside its case types), and they reach HQ in either order; the writes-alone guard
-    (``pages._check_writes_alone``) holds every write apart from them, so no read's answer depends on that order.
-    A hosted run recorded one such pair in each order on two architectures."""
+    phase separates in a fixed order of their own (by ``key``; as a report keeps each, where none is given). The
+    page sends several reads at once as it loads (a module's validation beside its case types), and they reach HQ
+    in either order; the writes-alone guard (``pages._check_writes_alone``) holds every write apart from them, so
+    no read's answer depends on that order. A hosted run recorded one such pair in each order on two
+    architectures."""
     ordered, reads = [], []
+    key = key or (lambda exchange: json.dumps(_exchange(exchange), sort_keys=True))
 
     def flush():
-        ordered.extend(sorted(reads, key=lambda exchange: json.dumps(_exchange(exchange), sort_keys=True)))
+        ordered.extend(sorted(reads, key=key))
         reads.clear()
 
     phase = object()
