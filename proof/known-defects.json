@@ -2775,6 +2775,17 @@
 		"control": "case-operation-query"
 	},
 	{
+		"id": "d14-non-writing-followup-soft-assert-casedb-base-get-case-from-case-update",
+		"defect": 14,
+		"part": "non-writing follow-up (HQ makes the case a form link's literal id names, which no form created)",
+		"check": "proof4",
+		"artifact": "soft_assert:request:*",
+		"path": "/corehq~1form_processor~1casedb_base.py::get_case_from_case_update",
+		"kind": "error",
+		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
+		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
+	},
+	{
 		"id": "d14-search-settings-suite-csql-key-include-closed",
 		"defect": 14,
 		"part": "search settings",
@@ -8126,6 +8137,94 @@
 		"kind": "changed",
 		"document": "targeted-close-conditions",
 		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d14-android-proof4-case-management-list-order-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (HQ applies the touch, so the touched case moves after its ties in HQ's next search)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/list/order",
+		"kind": "changed",
+		"document": "case-list-inline",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d14-android-proof4-case-management-list-chose-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (HQ applies the touch, so the touched case moves after its ties in HQ's next search)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/list/chose",
+		"kind": "changed",
+		"document": "case-list-inline",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d14-android-proof4-case-management-formentryactivity-error-saving-your-form-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/screens/after-FormEntryActivity:FormEntryActivity:FormEntryActivity!Error Saving your Form",
+		"kind": "changed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-aftersend-removed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/afterSend",
+		"kind": "removed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-casesastheformopened-added",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
+		"kind": "added",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-finishing-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/finishing",
+		"kind": "changed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-records-status-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/records/*/status",
+		"kind": "changed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-resultcode-removed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/resultCode",
+		"kind": "removed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
 	},
 	{
 		"id": "d25-android-proof4-vellum-menuactivity-formentryactivity-formentryactivity-error-occurred-changed",
