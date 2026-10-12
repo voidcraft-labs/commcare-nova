@@ -256,6 +256,24 @@ class ReaderSelfCheck(unittest.TestCase):
             self.reader.request("profile", archive=str(SURVEY / "local.ccz"), deadline=0.05)
         self.assertEqual(self.reader.request("profile", archive=str(SURVEY / "local.ccz"))["install"], "Installed")
 
+    def test_a_request_whose_jvm_filled_its_code_cache_is_refused(self):
+        """Contract: a device's JVM that fills its code cache compiles nothing more and cannot make a method
+        handle's intrinsic, so the app raises where it first needs one; no answer of such a JVM is kept, and the
+        request raises naming the code cache. Failure it catches: a record holding as the app's crash what was
+        the JVM out of room (the 48 MB a JVM without tiers gets filled thirty seconds into a lane's request). The
+        cache reserved at 8 MB, which installing an app fills; a request after it, on the reader's own cache, is
+        answered."""
+        from proof.android import client
+
+        options = client.JVM_OPTIONS
+        client.JVM_OPTIONS = (*options, "-XX:ReservedCodeCacheSize=8m")
+        try:
+            with self.assertRaisesRegex(AndroidReaderError, "filled its code cache"):
+                self.reader.request("profile", archive=str(SURVEY / "local.ccz"))
+        finally:
+            client.JVM_OPTIONS = options
+        self.assertEqual(self.reader.request("profile", archive=str(SURVEY / "local.ccz"))["install"], "Installed")
+
 
 # A restore of one case of basic_tests.ccz's third menu and two cases its detail lists a row each of (a tab whose
 # nodeset is the case's open children, and one of them alone): the input the reader is handed, as a device is

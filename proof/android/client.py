@@ -78,19 +78,28 @@ CLOCK_READ = "new Date()"
 CLOCK_REPLACEMENT = "nova.proof.android.ProofClock.now()"
 # The project runs its unit tests with -noverify and a 2 GB heap (app/build.gradle, testOptions.unitTests.all).
 # The zone and locale are fixed so nothing Android formats depends on the machine, and Robolectric reads its
-# Android runtime from the runtime's own directory, never the network.
+# Android runtime from the runtime's own directory, never the network. Stopping at the client compiler leaves the
+# code cache at the 48 MB HotSpot gives a JVM without tiers, which a device fills about thirty seconds into a
+# request: the JVM then compiles nothing more, and cannot make a method handle's intrinsic either, so the app
+# raised an InternalError ("no such method: MethodHandle.linkToStatic") wherever it first needed one, which a
+# record kept as a crash of the app, or the JVM ended the request. The cache is reserved at the size HotSpot gives
+# a tiered JVM (as the runners' is, proof/core/client.py), and a request whose JVM filled it all the same is
+# refused (``CODE_CACHE_FULL``): what such a JVM read is not what Android does.
 JVM_OPTIONS = (
     "-noverify",
     "-Xmx2g",
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+UseSerialGC",
     "-XX:TieredStopAtLevel=1",
+    "-XX:ReservedCodeCacheSize=240m",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
     "-Duser.country=US",
     "-Dfile.encoding=UTF-8",
     "-Drobolectric.offline=true",
 )
+# What HotSpot writes when its code cache is full (one heap of it, or a segment by its name).
+CODE_CACHE_FULL = b"is full. Compiler has been disabled."
 # Where the reader's native libraries exist. Robolectric ships its native runtime for these alone
 # (org.robolectric:nativeruntime-dist-compat, native/<os>/<arch>), and commcare-android's tests open every
 # database through it; on linux/arm64 a device does not even start, for want of Conscrypt's library
@@ -331,6 +340,13 @@ class AndroidReader:
                 self._network_authority = network.Authority(self._work / "authority")
             return self._network_authority
 
+    @staticmethod
+    def _unanswered(op, deadline, log_path) -> AndroidReaderError:
+        return AndroidReaderError(
+            f"The Android reader did not answer the {op} request within {deadline} s and was stopped.",
+            log=_tail(log_path),
+        )
+
     def request(self, op: str, *, deadline: float = REQUEST_SECONDS, peer=None, drawn=None, **arguments) -> dict:
         """One request's answer: what Android read, on a device of its own, with ``peer`` its network where one
         is given (the module's docstring), and each picture it draws written into the directory ``drawn`` names,
@@ -354,15 +370,23 @@ class AndroidReader:
                         status = _run(command, timeout=deadline, cwd=workdir, log=log)
                     else:
                         status = proxy.serve(command, timeout=deadline, cwd=workdir, log=log)
-                except OSError as error:
-                    raise AndroidReaderError(f"The Android reader could not start java: {error}.") from error
                 except network.PeerFailed as error:
                     raise PeerFailed(str(error), log=_tail(log_path)) from error
-                except Exception as error:  # the deadline, as either runner raises it
-                    raise AndroidReaderError(
-                        f"The Android reader did not answer the {op} request within {deadline} s and was stopped.",
-                        log=_tail(log_path),
-                    ) from error
+                except (TimeoutError, subprocess.TimeoutExpired) as error:
+                    # Ahead of OSError, which the peer's TimeoutError also is: a JVM that ran past its deadline
+                    # started, and its log says how far it got.
+                    raise self._unanswered(op, deadline, log_path) from error
+                except OSError as error:
+                    raise AndroidReaderError(f"The Android reader could not start java: {error}.") from error
+                except Exception as error:  # the deadline, as the Linux runner raises it (proof.processes.TimedOut)
+                    raise self._unanswered(op, deadline, log_path) from error
+            if _wrote(log_path, CODE_CACHE_FULL):
+                raise AndroidReaderError(
+                    f"The Android reader's JVM filled its code cache answering the {op} request, after which it"
+                    " compiles nothing and may raise where it needs a method handle, so what it answered is not"
+                    " what Android does. Reserve it more (JVM_OPTIONS, -XX:ReservedCodeCacheSize).",
+                    log=_tail(log_path),
+                )
             with self._lock:
                 self.seconds.append(round(time.perf_counter() - started, 3))
                 # What the JVM wrote answering the last request (Android's own log among it), for a person
@@ -399,6 +423,15 @@ def _java(tool: str) -> str:
     runtime was built with, ``toolchain.json``), else the one on the path."""
     home = os.environ.get(JDK_ENVIRONMENT)
     return str(Path(home) / "bin" / tool) if home else tool
+
+
+def _wrote(path: Path, marker: bytes) -> bool:
+    """Whether the JVM's log holds ``marker`` anywhere."""
+    try:
+        with open(path, "rb") as log:
+            return any(marker in line for line in log)
+    except OSError:
+        return False
 
 
 def _tail(path: Path) -> str:
