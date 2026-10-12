@@ -28,8 +28,10 @@ harness keeps, each with its reason.
   (`proof/hq/elasticsearch.py`); HQ's client is refused outside a unit and on
   an index the lane keeps nothing in, never answered by the harness. The form validation HQ asks Formplayer for is
   answered by Formplayer's own application, sent the request HQ wrote
-  (`proof/hq/seams.py::formplayer_validation`). A speed seam computes exactly what HQ computes and can be switched
-  off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
+  (`proof/hq/seams.py::formplayer_validation`); a lane server starts one such Formplayer for all its workers
+  (`proof/formplayer/shared.py`), which holds only because Formplayer's validation keeps no state between
+  requests: a seam that made it keep any would need a Formplayer a worker again. A speed seam computes exactly
+  what HQ computes and can be switched off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
   it in what it does; HQ's soft assertions are noted as production notes
   them, never raised, and each one is evidence. A view or Couch query the
   harness does not answer raises rather than returning empty.

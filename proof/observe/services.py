@@ -12,9 +12,10 @@ there is none, and asking raises.
 - ``formplayer()``: the session's one Formplayer runner.
 - ``validator()``: the Formplayer that answers the form validation HQ asks
   for while it builds an app, saves a form or maps media
-  (``proof.hq.seams.form_validation``), a runner of its own: Formplayer
-  answers one request at a time, and HQ may build while it answers a
-  request of the session's Formplayer.
+  (``proof.hq.seams.form_validation``): in the lane, the one the server
+  started for every worker (``proof.formplayer.shared``); elsewhere a runner
+  of its own, since a runner answers one request at a time and HQ may build
+  while it answers a request of the session's Formplayer.
 - ``connect()``: the session's one Connect runtime (``proof.connect.runtime``:
   Connect at its pin, its Postgres and Redis, its migrated database), which
   a Connect document's observation serves an opportunity from
@@ -171,13 +172,21 @@ def formplayer():
 
 
 def validator():
-    """The Formplayer that answers HQ's form validation, started on first use: a runner of its own beside the
-    session's, since a Formplayer answers one request at a time and HQ may build while the session's is waiting
-    on one of HQ's own answers."""
+    """The Formplayer that answers HQ's form validation: in a worker of the lane's server, a client of the
+    server's one (``proof.formplayer.shared``); otherwise a runner of its own beside the session's, started on
+    first use, since a runner answers one request at a time and HQ may build while the session's is waiting on
+    one of HQ's own answers."""
+    import os
+
     _require_session("Formplayer's form validation")
     if _SESSION["validator"] is None:
+        from proof.formplayer import shared
         from proof.formplayer.client import FormplayerRunner
 
+        address = os.environ.get(shared.ENVIRONMENT)
+        if address:
+            _SESSION["validator"] = shared.Validator(address)
+            return _SESSION["validator"]
         runner = FormplayerRunner()
         try:
             runner.start()

@@ -7,7 +7,9 @@
 The server (this process) boots HQ (``proof.hq.boot``), restores HQ's
 template database (``proof.hq.database.restore_template``), compiles the
 Core runner's classes once (``proof.core.client.compile_runner``, named to
-every runner as ``PROOF_CORE_CLASSES``) and warms HQ (``boot.warm``). For
+every runner as ``PROOF_CORE_CLASSES``), warms HQ (``boot.warm``), and starts
+the one Formplayer that answers every worker's form validation
+(``proof.formplayer.shared``) while it does. For
 each phase it collects the phase's tests once, then makes itself safe to
 fork (``boot.prepare_for_fork``: one thread, no connection, a frozen heap)
 and forks up to K workers (``proof.lane.worker``), each with its own lane
@@ -251,6 +253,7 @@ class Server:
         # Phases whose workers cannot run (a collection that failed, or differs between processes): phase -> why.
         self.broken: dict[str, str] = {}
         self.classes: Path | None = None
+        self.validation = None
         self.restored = False
         self.failing: list[str] = []
         self.ran_items = 0
@@ -354,8 +357,14 @@ class Server:
         processes.become_subreaper()
 
         from proof.core.client import CLASSES_ENVIRONMENT, compile_runner
+        from proof.formplayer import shared
         from proof.hq import boot, database
 
+        # The workers' one validation Formplayer starts while HQ boots and the workers set up; a worker reads its
+        # address at its first validation (proof.formplayer.shared).
+        self.validation = shared.Host(self.out)
+        self.validation.start()
+        os.environ[shared.ENVIRONMENT] = str(self.validation.ready)
         started = time.perf_counter()
         report = boot.boot()
         fixed["boot"] = round(time.perf_counter() - started, 3)
@@ -621,6 +630,8 @@ class Server:
                 fds.append(held.output)
         for command in self.commands:
             fds.append(command.group.fileno())
+        if self.validation is not None:
+            fds += self.validation.fds()
         return fds
 
     def _fork(self, info: PhaseInfo):
@@ -984,7 +995,10 @@ class Server:
                 swept = time.perf_counter()
 
     def _known(self) -> set[int]:
-        return {held.pid for held in self.workers.values()} | {command.group.group for command in self.commands}
+        known = {held.pid for held in self.workers.values()} | {command.group.group for command in self.commands}
+        if self.validation is not None and self.validation.process is not None:
+            known.add(self.validation.process.pid)
+        return known
 
     # Ending -------------------------------------------------------------------------------------
 
@@ -998,6 +1012,15 @@ class Server:
         for command in list(self.commands):
             command.group.stop()
             self.commands.remove(command)
+        if self.validation is not None:
+            said = self.validation.close() or {}
+            # How long the workers' validation Formplayer took to start, beside the server's own fixed costs.
+            self.record["fixed"]["validationStart"] = said.get("seconds")
+            if "error" in said:
+                self.problems.append(
+                    f"The workers' validation Formplayer did not start: {said['error']} (its log:"
+                    f" {self.validation.log})."
+                )
         for _ in range(20):
             if not reap_strays(set()):
                 break

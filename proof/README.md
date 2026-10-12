@@ -994,9 +994,12 @@ app, restore and trace) are blobs named by their sha256.
   read recorded), the plan's privileges, the project settings through HQ's own
   test utilities, the previous build, HQ's resource overrides, and the
   form validation HQ asks Formplayer for, answered by Formplayer's own
-  application (`formplayer_validation`: a Formplayer runner of the
-  session's own for validation, `proof/observe/services.py::validator`,
-  sent the headers and the digest HQ wrote). One privilege a
+  application (`formplayer_validation`, sent the headers and the digest HQ
+  wrote, `proof/observe/services.py::validator`): in the lane, one
+  Formplayer the server starts while HQ boots answers every worker's, as
+  Formplayer's validation keeps no state between requests
+  (`proof/formplayer/shared.py`); elsewhere a runner of the session's own).
+  One privilege a
   part of the lane states of the project space beyond what the document's
   content needs is granted for that part alone (`also_granted`: Data
   Forwarding, where a Connect app's forms are forwarded). Every other read
@@ -2376,8 +2379,10 @@ CommCare 2.53.0, the version these proofs have always built at (2.60.0 for the
 HQ-JSON oracle, whose probes carry no build of their own). Proofs that build
 remote requests also name Nova's server (`https://www.commcarehq.org`) as the
 app's base URL and as HQ's own address. Formplayer's form validation is
-Formplayer's own application (the session's validation Formplayer). The network is refused except for the lane's Postgres,
-and a step or test that reaches for anything else fails.
+Formplayer's own application (the lane server's validation Formplayer, or
+the session's own outside the lane). The network is refused except for the
+lane's Postgres and the loopback services the harness starts for HQ, and a
+step or test that reaches for anything else fails.
 
 ### What each run leaves
 
@@ -2911,11 +2916,14 @@ vCPU a worker as on a CI shard, every group observed afresh with no store:
 seconds on one worker. Main's lane before the readers, run the same way on
 the same machine, took 12,589 worker-seconds (its own `proof/timings.json`
 held 1,941 box-seconds, measured on hosted runs that read the store): of the
-22% more, most is two servers each worker starts once, HQ's own
+22% more, most is two servers each worker started once, HQ's own
 Elasticsearch (about 32 seconds at that density, in its first unit) and the
-Formplayer that answers HQ's form validation (about 24, in its first build),
-which every worker of every shard pays; the rest is proof 4's editor pages
-on more states and the documents and package tests added since. A group runs
+Formplayer that answered HQ's form validation (about 24, in its first build);
+the rest is proof 4's editor pages on more states and the documents and
+package tests added since. The validation Formplayer is now one a server,
+started while HQ boots (`proof/formplayer/shared.py`): on four vCPUs with
+four workers, as a CI shard runs, that took 45 worker-seconds off sixteen
+documents, about 11 seconds off each worker's first build. A group runs
 on one worker, so the packages whose tests took longer than a shard can
 hold whole run as several groups (`proof.checks.sharding.SPLIT`): no group
 now takes more than about 240 seconds at that density.
@@ -2924,8 +2932,8 @@ A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
 the job's start to the pulled image and Postgres (the other setup overlaps
 it), about 20 to start the lane (Postgres, HQ's boot, its template, the Core
 runner's classes, the warm-up) and collect, each worker's own Elasticsearch
-and validation Formplayer (about 56), and 6 to upload, beside 45 for the gate
-after the shards. GitHub's limit of about twenty jobs at once across CI,
+and its first build's wait on the shard's validation Formplayer (about 45),
+and 6 to upload, beside 45 for the gate after the shards. GitHub's limit of about twenty jobs at once across CI,
 which the test, smoke and build jobs hold for their first three to four
 minutes, starts most shards one to four minutes late, in no fixed order (run
 38081646423 started its ten shards from 44 to 205 seconds, and later shards
@@ -2949,20 +2957,20 @@ What a pull request runs is what its changes leave out of main's store, which
 the nightly fills with both profiles. By the execution's measures:
 
 - **No proof input changed** (most of Nova): every group is cached; one
-  shard's setup, its empty bins and the gate end at about 330 seconds.
+  shard's setup, its empty bins and the gate end at about 320 seconds.
 - **Nova's emission changed in a few documents**: those documents are
   observed again (a median document 24 seconds on one worker), and with them
   the 23 package groups whose tests read the corpus (about 2,100
-  worker-seconds): ten documents take three shards and end at about 565
+  worker-seconds): ten documents take three shards and end at about 555
   seconds, the longest package group on one worker setting that floor; forty
-  end at about 605 and a hundred at about 645, just past the bound.
+  end at about 595, and a hundred at about 635, past the bound.
 - **The harness changed** (any file under `proof/`, or Nova's package
   manifest or lock): every package group runs again, about 2,350
   worker-seconds over the package groups, on three shards, ending at about
-  565 seconds.
+  555 seconds.
 - **Most documents, the observation's code or the image changed**: every
   group runs afresh, about 16,000 worker-seconds; the soonest end is about
-  770 seconds on fifteen shards, past the bound, since the late slots hold
+  755 seconds on fifteen shards, past the bound, since the late slots hold
   little work each. An emission change in Nova re-emits most documents, so
   this case is real; the planner takes the count that ends soonest.
 
