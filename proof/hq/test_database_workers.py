@@ -21,6 +21,8 @@ production gives.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from proof.checks import sharding
@@ -29,13 +31,25 @@ from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.hq.database import database_names, session_worker
 
-# Workers no lane runs, whose names share digits: 901's must not reach 9010's.
-MINE = 901
-OTHERS = (9010, 90, 902)
+
+def _beyond_the_lane() -> int:
+    """A worker number above every worker this lane runs (``PROOF_WORKER=w/k``: workers up to ``k``), a 9 and
+    zeros: 90 under a lane of up to nine workers, 900 under one of up to ninety-nine. The tests' workers are made
+    from it, so their databases are never a running worker's: a box of ninety-six workers runs worker 90, and a
+    test that made and dropped worker 90's names dropped that worker's database under it."""
+    value = os.environ.get("PROOF_WORKER", "")
+    last = sharding.parse_shard(value, "PROOF_WORKER")[1] if value else 1
+    return 9 * 10 ** len(str(last))
+
+
+# Workers no lane runs, whose names share digits: 901's must not reach 9010's, nor 90's 901's.
+BEYOND = _beyond_the_lane()
+MINE = BEYOND * 10 + 1
+OTHERS = (MINE * 10, BEYOND, BEYOND * 10 + 2)
 
 
 def _names(cursor):
-    cursor.execute("SELECT datname FROM pg_database WHERE starts_with(datname, 'proof_hq_w90')")
+    cursor.execute("SELECT datname FROM pg_database WHERE starts_with(datname, %s)", [f"proof_hq_w{BEYOND}"])
     return {name for (name,) in cursor.fetchall()}
 
 
