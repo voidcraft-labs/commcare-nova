@@ -7820,6 +7820,17 @@
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
+		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-home-end-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case goes no further)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-QueryRequestActivity:home:end",
+		"kind": "changed",
+		"document": "no-matches-multiple-home",
+		"control": "no-matches-multiple-home"
+	},
+	{
 		"id": "d32-android-proof3-local-ccz-walks-removed",
 		"defect": 32,
 		"part": "searches from a local .ccz (the walks past a search that finds a case)",
