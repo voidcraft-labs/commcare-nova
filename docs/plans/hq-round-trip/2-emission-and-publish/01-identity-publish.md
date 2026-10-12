@@ -20,7 +20,7 @@ to correct:
 | A2 | `localization.wireCodes` (defect 1, two register entries) |
 | A3 | The publish sequence: the shell create, `readHqAppSource`, `remote_missing_at` |
 | A4 | No `multimedia_map` (finding 49) |
-| A5 | A `.ccz` is made for one project space (findings 32 and 59: twenty-one of their twenty-four register entries move, and six entries the working submit shows are added live) |
+| A5 | A `.ccz` is made for one project space (findings 32 and 59: twenty-three register entries move, six entries the working submit shows are added live, and one spelling rule is added) |
 | A6 | The HQ import file as a ZIP with its guide |
 | A7 | The proof capture and the comments, in the same pull request |
 
@@ -1752,11 +1752,12 @@ nothing and still gets a line, because it withdraws a download. Its copy:
 
 Part 10, Work item F: the migration notice, registers the reason.
 
-**Register.** Findings 32 and 59 hold twenty-four entries, all check
-`proof3`: finding 32's twenty-one and finding 59's three. None pins values,
-so each holds its class on every document that shows it. Twenty-one move to
-`proof/fixed-defects.json` in this pull request (3) with A5's bytes; the
-other three are under "The three that A5's bytes leave", below.
+**Register.** Findings 32 and 59 hold twenty-three entries on the lane as it
+merges, all check `proof3`: finding 32's twenty and finding 59's three. None
+pins values, so each holds its class on every document that shows it. All
+twenty-three move to `proof/fixed-defects.json` in this pull request (3):
+twenty-one with A5's bytes, listed first, and two more with the spelling rule
+this pull request adds ("The two that A5's bytes alone leave", below).
 
 Finding 32, the local archive's search URL names `__APP_ID__`, and HQ's
 search view answers a search that finds a case with a 404, because it reads
@@ -1840,8 +1841,9 @@ device that updates, Connect's post and forward):
 archive's submit fails for want of a `PostURL`, so nothing past it is
 compared. Once it reaches HQ, Formplayer's record of the submit and of the
 screen after it shows six classes other fixes own, at paths their entries
-do not name, and one of identity (the next heading). This pull
-request registers each live, all check `proof3`, artifact
+do not name. (It also shows the submission's `path`, which differs by the
+app's id alone and which the spelling rule below reads as one.) This pull
+request registers the six live, all check `proof3`, artifact
 `formplayer@local.ccz`, and each moves or goes with its owner's fix:
 
 | Id | Path | What differs | Owner, and the pull request that moves it | Document | Control |
@@ -1875,46 +1877,120 @@ request registers each live, all check `proof3`, artifact
   data `@version` of each submission (part 04), so no control shows the class
   afterwards, and `targeted-hq-side-state-after-59` goes with it.
 
-**The three that A5's bytes leave.**
+**The two that A5's bytes alone leave.**
 
 | Id | Artifact | Path | Document | Control |
 |---|---|---|---|---|
-| `d32-searches-from-a-local-ccz-formplayer-local-ccz-asked` | `formplayer@local.ccz` | `/runs/*/steps/*/asked/*` | `targeted-sync-on-form-entry` | `targeted-sync-on-form-entry` |
 | `d32-android-proof3-local-ccz-query-url-changed` | `android@local.ccz` | `/walks/*/steps/*/query/url` (`changed`) | `case-list-browse` | `case-list-browse` |
 | `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed` | `android@local.ccz` | `/profile/readers/FormSubmissionHelper.getFormPostURL` (`changed`) | `case-capture-followup` | `case-capture-followup` |
 
-- `d32-android-proof3-local-ccz-query-url-changed` and
-  `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed`
-  still show in the planning run, as one difference of identity and no
-  longer a missing address: `.../phone/search/@build/` against
-  `.../phone/search/@app/`, and `.../receiver/@build/` against
+- **They are a difference of identity once the address is there, and move
+  with the spelling rule.** In the planning run they still show, as `.../phone/search/@build/`
+  against `.../phone/search/@app/` and `.../receiver/@build/` against
   `.../receiver/@app/`. The device on A installs HQ's release, a copy of the
   app with an id of its own, and the release's suite and profile name that
   copy's id. The archive names the working app's id, which is A5's design
   and what HQ's `create_all_files()` of the working app writes. Formplayer's
   record of the working submit shows the same difference at
   `/runs/*/steps/*/submissions/*/path` (`/a/<domain>/receiver/@build/`
-  against the receiver under A's raw id), on all four documents.
-- `d32-searches-from-a-local-ccz-formplayer-local-ccz-asked` still shows on
-  `targeted-sync-on-form-entry`, now with the search answered: after it
-  HQ's build claims the found case and syncs (`["claim_case","201"]`,
-  `["ota_restore","200"]`), and the archive's walk does neither.
+  against the receiver under A's id), on all four documents. The spelling
+  rule below reads the two ids as one in a runtime URL, so both entries move
+  to `proof/fixed-defects.json` in this pull request and Formplayer's
+  submission path shows no class. Their controls keep showing them: a
+  pre-fix archive's search URL names `__APP_ID__` and its device gives
+  Android's built-in form post address, neither of which the rule reads as
+  an app's id.
+- **One Formplayer class on `targeted-sync-on-form-entry` stays after A5,
+  and it is defect 20's.** The lane's branch registers it under defect 20 as
+  `d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked`
+  (`formplayer@local.ccz`, `/runs/*/steps/*/asked/*`, document and control
+  `targeted-sync-on-form-entry`), so it is none of finding 32's twenty and
+  this pull request neither moves nor re-files it. Executed during planning
+  on that document, with A5's bytes, six runs: the one step that
+  differs is the form's own entry, where Formplayer on HQ's release asks
+  `claim_case` (201) and then `ota_restore` (200) and on the local archive
+  asks neither. The search steps ask the same requests and get the same
+  answers from both archives. It is not the id: the walk over HQ's release
+  with the working app's id written in claims and syncs at that step as the
+  release does. It is not the search's claim: the two suites'
+  `<remote-request>` hold the same `<post>` with the same `relevant`. The
+  document's project space has "sync cases on form entry" on, and with it
+  HQ's build gives the entry of each form that loads a case in a menu that
+  offers search a `<post>` claim with no condition
+  (`suite_xml/sections/entries.py::add_post_to_entry`), which Nova's local
+  archive does not write: defect 20's row "sync on form entry (the
+  session)", this document's own. The control shows the same two requests
+  at the same step, so the entry was always this class; the search's own
+  symptoms were `asked-2` and `response-type`, which leave with A5. It
+  stands with defect 20's other entries past step 2.
 
-**Spelling rule.** None. The placeholder app id of the capture (A7) is an
-identity alignment the harness makes once, never a spelling rule.
+**Spelling rule.** One is added and proven in this pull request,
+`proof/rules/runtime_url_app_id.py` (id `runtime-url-app-id`): in a runtime
+URL (the suite's search and case fixture URLs, the profile's `PostURL` and
+`ota-restore-url`, and each request a reader sends to them) the release's id
+(`@build`) and the working app's id (`@app`) read as one.
+
+- **Its proof, executed during planning** on one served state of
+  `targeted-sync-on-form-entry` (A), with HQ's own views asked directly with
+  the worker's credentials, once under each id, each in a fork of the state:
+
+  | What was asked | Under the release's id | Under the working app's id |
+  |---|---|---|
+  | HQ's search view, three requests (one finding nothing, two finding the same three cases) | 200 | 200, each body byte for byte the same |
+  | HQ's restore view | 200 | 200, the same body but for the restore id HQ draws for each request |
+  | HQ's receiver, the walk's own instance | 201 | 201, the same body |
+  | The case records after it | | byte for byte the same |
+  | Formplayer's walk of HQ's own release with the working app's id written into its suite and profile, six runs | | the same screens and the same requests in every run |
+
+  On the device, the planning run of the Register is the same reading: the
+  device on the archive and the device on HQ's release differ at the search
+  URL and the form post URL by the id alone, each search is answered alike,
+  and each signs in at the same place.
+- **Its condition.** The two ids answer alike because a release is a copy
+  of the working app as it stood. HQ answers a search under a release's id
+  from that release's search configuration and under the working app's id
+  from the app as it is now (`case_search/utils.py::get_app_context`), so
+  they differ once the app is saved again without a release. The lane
+  releases every state before it serves it, so the rule holds for what the
+  lane compares, and the rule's module says so.
+- **It covers the URL alone.** A form received under the working app's id
+  carries no `build_id` (`receiverwrapper/util.py::get_app_and_build_ids`):
+  in the same run the form record's `build_id` is the release's id under
+  one and null under the other, every other field the same. HQ reads it in
+  two places, the worker's last-submission record
+  (`pillowtop/processors/form.py::mark_latest_submission`) and its answer to
+  Formplayer's submit, where with no build it names the saved form by its
+  data node's `name`. That answer is
+  `d14-data-node-name-formplayer-local-ccz-submit-submitresponsemessage`, an
+  entry of its own on another path, which the rule does not erase.
+- **Files.** `proof/rules/runtime_url_app_id.py`; its test
+  `proof/rules/test_runtime_url_app_id.py`, the planning run kept (HQ's
+  three views under each id, the case and form records, and Formplayer's
+  walk of the release with the working app's id written in);
+  `proof/rules/__init__.py` (`RULES`, and the device's record among the
+  artifacts a rule may read); `proof/rules/conftest.py::DOCUMENTS`
+  (`targeted-sync-on-form-entry`); `proof/checks/android.py` and
+  `proof/checks/served.py`, which read the device's and Formplayer's URLs
+  through the rule; `proof/android/predicates.py`, the rule's device test
+  (HQ's release installed as built and with the working app's id written in:
+  every reading alike but the id in the two URLs); `proof/README.md` (the
+  rule table).
+
+The placeholder app id of the capture (A7) is an identity alignment the
+harness makes once, never a spelling rule.
 
 **Identity.** None in HQ. On a device, a `.ccz` now holds its project
 space's form `xmlns` where it held random ones (A1's last bullet), and names
 that space's server where it named none.
 `proof/identity-moves.json` gains no entry.
 
-**Control.** Each control of the twenty-one keeps its pre-fix archive:
+**Control.** Each control of the twenty-three keeps its pre-fix archive:
 `case-list-inline` and `search-registration-link`, whose traces still show
 `__APP_ID__` in the request URL and the stack step;
-`targeted-sync-on-form-entry`, `no-matches-multiple-home` and
-`search-automatic`, whose searches from the local archive still reach HQ at
-`__APP_ID__`; `targeted-close-conditions` and `case-capture-followup`, whose
-local archive still names no server. The
+`targeted-sync-on-form-entry`, `no-matches-multiple-home`, `search-automatic`
+and `case-list-browse`, whose searches from the local archive still reach HQ
+at `__APP_ID__`; `targeted-close-conditions` and `case-capture-followup`,
+whose local archive still names no server. The
 two controls this pull request retains, `targeted-custom-tile-after-59` and
 `targeted-hq-side-state-after-59`, keep an archive that names its server and
 submits, and show the six classes of "What the working submit shows" until
@@ -1949,7 +2025,7 @@ served rows again with every reader, over the four documents under
 | `proof/formplayer/test_local_archive.py`, rewritten from the reader's "cannot submit" | Formplayer, then HQ | `targeted-form-link-hidden-target`, `targeted-search-hq-compile` | The local archive's submit answers `success`, HQ receives one form at `/a/<domain>/receiver/<A's id>/`, the path HQ's build posts to; its search reaches HQ at `/a/<domain>/phone/search/<A's id>/`. The paired refusal is the retained pre-fix archive of the control, whose submit answers an error and sends nothing. |
 | The device on the local archive in every served state (`proof/android`, beside HQ's live unit), proof 3 | Android, then HQ | every document; `targeted-survey-menu`, the planning run's | The device's profile readers (`ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL`, `HiddenPreferences.getUserDomain`) give the profile's four values; each form a walk saves complete is sent by Android's own `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, taken by HQ's receiver under A's id, and leaves the unsent list. The device's network and requester are the lane's: every request it makes is answered by HQ's own views (`proof/android/src/nova/proof/android/Peer.java`, `proof/android/hq.py`), through Android's own requester (`ProofApplication.java`), so the reader gains no request and nothing but HQ answers the send. The paired refusal is the control's pre-fix archive, whose device meets Android's built-in defaults. |
 | `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The control keeps the refusal. |
-| Proof 3 over the served states: finding 59's two served fixed entries and finding 32's sixteen, and the six this pull request adds | Formplayer with HQ's own views answering it, and commcare-android beside HQ's live unit, its sign-in, its searches and each form it sends answered by HQ's views | every document | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, and its searches are answered as `formplayer@A`'s (`asked/*/*`, `response/type`); `android@local.ccz` signs in where `android@A` does, and its searches are answered, with every walk past them taken, as `android@A`'s are. The eighteen fixed entries reproduce on their controls, and the six classes of "What the working submit shows" are held on every document that shows them and on the two new controls. |
+| Proof 3 over the served states: finding 59's three fixed entries and finding 32's seventeen served ones, and the six this pull request adds | Formplayer with HQ's own views answering it, and commcare-android beside HQ's live unit, its sign-in, its searches and each form it sends answered by HQ's views | every document | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, and its searches are answered as `formplayer@A`'s (`asked/*/*`, `response/type`); `android@local.ccz` signs in where `android@A` does, its searches are answered, with every walk past them taken, as `android@A`'s are, and its search URL, its form post address and Formplayer's submission path differ from A's by the app's id alone, which the spelling rule reads as one. The twenty fixed entries reproduce on their controls, and the six classes of "What the working submit shows" are held on every document that shows them and on the two new controls. |
 
 Locally the pull request runs `npm run proof -- proof/hq/test_publish.py`,
 which needs no served reader. On a proof machine: the lane selected to the
@@ -1959,8 +2035,10 @@ documents the Register names (`case-list-inline`, `search-hidden-link`,
 `targeted-custom-tile`, `targeted-hq-side-state`) and to
 `search-registration-link` and
 `targeted-survey-menu`, then `-k "control-targeted-custom-tile-after-59 or
-control-targeted-hq-side-state-after-59"`, `proof/formplayer/test_local_archive.py`
-and `proof/connect/test_receiver.py`.
+control-targeted-hq-side-state-after-59"`, `proof/formplayer/test_local_archive.py`,
+`proof/connect/test_receiver.py`, the spelling rule's own test
+(`proof/rules/test_runtime_url_app_id.py`) and its device test (`python3 -m
+unittest proof.android.predicates`).
 
 ## A6. The HQ import file as a ZIP with its guide
 
@@ -2188,7 +2266,7 @@ something production does not.
 | `proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`, `proof/android/predicates.py`, `proof/android/hq.py` | The reader tests A1, A2, A4, A5 and A6 name. The Android reader gains no request: its device already signs in, syncs and sends each saved form through Android's own requester and network, answered by HQ's views, so from this pull request a device on the local archive reaches HQ at the addresses the archive names. `proof/android/hq.py`'s docstring and `proof/CLAUDE.md` say that a device meets Android's own defaults (finding 59) on the controls' pre-fix archives alone. |
 | `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. |
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts`, `proof/targeted/documents/hqSideState.ts` | A2's `planLanguageWire` signature. |
-| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Twenty-nine entries move: A1's six, A2's two, A5's twenty-one. Six are added live, on the two controls this pull request retains, `targeted-custom-tile-after-59` and `targeted-hq-side-state-after-59` (A5, "What the working submit shows"). |
+| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Thirty-one entries move: A1's six, A2's two, A5's twenty-three. Six are added live, on the two controls this pull request retains, `targeted-custom-tile-after-59` and `targeted-hq-side-state-after-59` (A5, "What the working submit shows"). |
 | `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the README's "Formplayer is not run over Nova's local archives past their menus and forms" goes; the import file is imported through HQ's import page. |
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
 | Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |

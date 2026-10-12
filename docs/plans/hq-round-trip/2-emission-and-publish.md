@@ -320,9 +320,10 @@ Part 09 holds this in full.
   parts' register sections derives it and fails on an entry with none or two.
 - **Where the lane runs.** The pull request lane in CI runs without the served
   readers and runs every group the change invalidates, with nothing dropped
-  for time: about five minutes when a pull request changes no export, and
-  about thirteen when it changes every document's, which most of this stack's
-  do (part 09 gives the model). The nightly runs every reader over main and
+  for time: about six minutes when a pull request leaves every group as
+  stored, and ten to thirteen when it changes the register and an emitter, as
+  each of this stack's does (part 09 gives the model). The nightly runs every
+  reader over main and
   opens an issue on a failure, and the weekly runs the whole lane fresh. So
   each pull request of the stack runs,
   on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
