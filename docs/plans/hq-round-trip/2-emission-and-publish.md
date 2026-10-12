@@ -13,8 +13,10 @@ register entries, tests) is in eleven part files beside it,
 [`2-emission-and-publish/`](2-emission-and-publish/). A session implementing
 one pull request reads this file, that pull request's row in part 11's stack
 table, and every part "The stack" below names for it. Nothing here or there is left to decide during
-implementation: where a design rests on reading alone, the part names the lane
-run that confirms it and the fallback already chosen.
+implementation. Every claim about what a CommCare reader does with Nova's
+export was observed by that reader in the lane, at the pins, during planning;
+where a fix's outcome mattered to the plan, the fix's bytes were written and
+run, and the part states what the run showed.
 
 | Part | Holds |
 |---|---|
@@ -95,6 +97,32 @@ reading left doubt:
   56, part 08).
 - A case list column over `case_id` is blank on HQ's build (finding 57, part
   07).
+- Every outcome a part had left to a pull request's run, run now with the fix's
+  bytes written as the part specifies: finding 52's control with `vellum_alert`
+  retired (part 09); the documents of findings 56, 57 and 70 and their classes
+  (parts 07 and 08); defects 23, 24, 25 and 27 after pull requests 6, 7 and 9
+  (part 05); HQ's Case List save of explicit tile cells under
+  `CASE_LIST_TILE` (part 07); work item H (part 04); the eight witness
+  documents (parts 04 to 07); finding 65's texts, one local archive per
+  configuration (part 04); the hidden-from-menu table on Core, Formplayer, the
+  Web Apps client and Android, Android through a `nav` request (part 06); plan
+  privileges against HQ's own model over every corpus document (part 03); the
+  edit-kind rebalancing that `setAppSettings` causes (part 04); and every
+  accepted media file in Chromium, Chrome, Firefox and WebKit (part 08).
+- The expiring IAM condition the cutover's grant carries, on the development
+  project's key: accepted, decrypting within its window, refusing after it,
+  and removed (part 10).
+
+**Read from production**, as the operator's own identity, read only, and
+informing the design without any count entering this plan: HQ's default
+CommCare version for a new app is 2.64 on the production server read (October
+2026), above the 2.57 floor, and publish reads each app's own version, so
+nothing depends on any server's default (part 03); the HQ-keys KMS key's decrypt
+holders were read, and the migration identity holds no role on it (part 10).
+Two reads of an app source differ only where Nova's export holds the thing
+read: a shadow form's parent id, schedule phase form ids and report config
+uuids are not in any Nova export, so no control exercises them across two
+reads (part 02).
 
 ## What changed from the outline, and why
 
@@ -179,8 +207,10 @@ decision; the part named gives its evidence.
     of the condition (part 06).
 20. **Defect 6's runtime values are guarded by the emitter**, not refused and
     migrated: no Predicate spells that guard in a CSQL slot (part 08).
-21. **Work item H is settled by observing it**, with the closing decision
-    recorded if the lane shows no class of its own (part 04).
+21. **Work item H is settled by observing it.** The lane's branch registers
+    its clause as two proof 4 entries on `targeted-save-to-case-read`, a
+    Vellum warning of its own; no reader shows another class; pull request 6
+    removes it with findings 45 and 47 and moves both entries (part 04).
 22. **A fixed defect's control keeps running under a second register**,
     `proof/fixed-defects.json`, and `proof/identity-moves.json` stays empty
     (part 09, and "Proof", below).
@@ -206,9 +236,9 @@ a targeted document, register entries and a control.
 
 ## Findings the lane's readers showed
 
-The lane's branch (`proof/run-every-reader`) runs every reader the plan had cited: Formplayer and HQ's Web Apps client over every served state, Connect's receiver behind HQ's own repeater, and commcare-android in its own stage. What they showed, with its owner; each owner's block holds the run that observed it and the entries it moves.
+The proof lane's pull request, which merges before step 2, runs every reader the plan had cited over every served state, each beside HQ's live unit in the same shard: Formplayer, HQ's Web Apps client (on a desktop, a phone and App Preview), commcare-android (a phone and a tablet), and Connect's receiver behind HQ's own repeater, walking every language an app holds and every case that changes what a reader does. What they showed, with its owner; each owner's block holds the run that observed it and the entries it moves.
 
-- **Finding 58**, a link to a target its menu hides: Core opens it, Formplayer and the client stop. `hiddenFromMenu`'s design follows each runtime (part 06, 11 and 15).
+- **Finding 58**, a link to a target its menu hides: Core and Android open it, Formplayer and the client stop. `hiddenFromMenu`'s design follows each runtime (part 06, 11 and 15).
 - **Finding 59**, a local `.ccz` names no server: every `.ccz` is compiled for a reached project space and writes the four server properties (part 01, A5).
 - **Findings 60 and 61**, Connect block names and a deliver form that holds a task: the validator refuses both, with their migrations (part 08).
 - **Finding 62**, HQ's App Settings save takes the Incomplete Forms tile off Web Apps: Nova writes both form-list settings into the stored app on every publish (part 04, Defect 7 and finding 62).
@@ -256,7 +286,7 @@ in this step, against the outline: `Form.xmlns`, `uiStringOverrides` and
 | E. Lookup data, CSQL and media | Defects 5, 6, 11 (first half) | 02, 08 |
 | F. The migration notice | Its tables, surfaces and copy | 10 |
 | G. The harness's findings | 31 to 57, each in the part that owns its code | 01 to 08 |
-| H. Step 1's open clause | Observed in pull request 1; closed with findings 45 and 47 | 04, 09 |
+| H. Step 1's open clause | Registered on the lane's branch; closed with findings 45 and 47 in pull request 6 | 04, 09 |
 
 Every gate is checked at publish, never at commit; the commit gate still reads
 only the document.
@@ -295,7 +325,7 @@ files, entries, rules, transform steps and ordering constraints.
 
 | # | Pull request | Parts |
 |---|---|---|
-| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for work item H and findings 56 and 57; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 04 (work item H), 06 (finding 50), 07 (finding 57), 08 (finding 56) |
+| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for findings 56, 57 and 70; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 06 (finding 50), 07 (finding 57), 08 (findings 56 and 70) |
 | 2 | The cutover's skeleton, the notice, frozen pre-step fixtures, every ledger table | 10, 02 |
 | 3 | Identity and the publish sequence | 01, 09 (the capture) |
 | 4 | Drift and baselines | 02, 09 (the retained reads) |
@@ -389,26 +419,6 @@ Part 11 gives each sentence as it reads today and its replacement. In brief:
   feature, and a second publish stops when HQ's copy changed since the first.
 - Every existing app is valid under the new schema and validator, and carries
   its notice.
-
-## What could not be settled from this machine
-
-Each is stated where it bears, with what settles it.
-
-- **Whether production HQ's default CommCare version is at least 2.57.** It is
-  server data. The advisory scan prints every deployment's version; a new app
-  below the floor stops with the step to raise it in the app's settings in HQ
-  (part 03).
-- **Who holds decrypt on the HQ-keys KMS key in production.** One IAM policy
-  read during the runbook (part 10).
-- **Whether Web Apps follows an after-submit link to an item that is not on
-  the menu.** Reading formplayer
-  (`services/MenuSessionFactory.java::rebuildSessionFromFrame`) says its
-  end-of-form rebuild stops at the menu holding it, where the research's table
-  says it runs. The lane does not run Formplayer. Part 06 states it as read and
-  keeps the builder's, the tools' and the docs' wording platform-specific.
-- **Reading-only designs the lane confirms in their pull request**, each with
-  its fallback already chosen: Vellum's control-order rule on the new groups
-  (part 05), the close-condition answer clause (part 06), and the handful part
-  07 lists for case lists.
-- **Not exercised by any control**: a shadow form's parent id, schedule phase
-  form ids and report config uuids across two source reads. Nova emits none.
+- The whole lane, every reader, holds at the stack's top on a proof machine
+  before the merge (part 11, "House rules for the stack"), and the first
+  nightly over main after the deploy holds.

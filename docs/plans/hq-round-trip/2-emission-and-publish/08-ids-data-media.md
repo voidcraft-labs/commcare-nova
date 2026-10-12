@@ -353,7 +353,7 @@ export function sourceBlockCaseWrites(
 
 **Nova tests.** Pure: the three names refused in any case beside `cases`, `registrations` and `scripts`; the steps over a fixture holding each, one of them a root `case` in a registration form.
 
-**Lane.** Locally: the control. The document leaves the corpus in pull request 10. Executed during planning: a form holding `q_instance`, `q_bind`, `q_parsererror` and `q_Meta` passes every check. The whole lane shows the 6 entries moved.
+**Lane.** Locally: the control. The document leaves the corpus in pull request 10. Executed during planning, every reader: `targeted-reserved-question-names` with its three questions named `q_registration`, `q_script` and `q_case` (a root `q_case` saving a property in the registration form) passes every check. HQ builds it, and neither Vellum's two saves nor the Case Management and form settings pages report anything. No class but other parts' shows. The whole lane shows the 6 entries moved.
 
 ## Finding 44: duplicate option values
 
