@@ -10,10 +10,10 @@ What this part does not own, and where it is:
 
 | Item | Owner |
 |---|---|
-| Logos (`d14-logos-*`, 2 entries) and `location_fixture_restore` | Part 03, C6. Defect 14: logos, and part 03, C5. Defect 14: the flat location fixture |
-| Tile cell placement, font size and alignment (`d14-tiles-*`, 9 entries) and finding 42 (`d42-tile-alignment-*`, 5 entries) | Part 07, Tile cells and finding 42 |
+| Logos (`d14-logos-*`) and `location_fixture_restore` | Part 03, C6. Defect 14: logos, and part 03, C5. Defect 14: the flat location fixture |
+| Tile cell placement, font size and alignment (`d14-tiles-*`, and the tiles' Android entries) and finding 42 (`d42-tile-alignment-*`) | Part 07, Tile cells and finding 42 |
 | Sort type, sort blanks, `field` plus `sort_calculation` pairs, date patterns | Part 07, The sort spellings and the four rules they retire, and part 07, Date patterns: every pattern Core formats, but a straight apostrophe |
-| The data node's `name` (`d14-data-node-name-*`, 3 entries) | Part 05, Finding 46 and defect 14's data node name |
+| The data node's `name` (`d14-data-node-name-*`) | Part 05, Finding 46 and defect 14's data node name |
 
 Shared mechanics every block below uses, defined once in their own parts of this plan:
 
@@ -27,20 +27,22 @@ Shared mechanics every block below uses, defined once in their own parts of this
 
 Pull requests of the stack that carry this part: 1 (finding 50, whose allowance and entry removal are specified in part 09, Finding 50: the registration alert on a follow-up form), 9 (blocks 1, 2 and the `external_id` row of block 10), 11 (findings 41 and 54), 12 (blocks 3 to 7, the rest of block 10, block 11, block 15).
 
-Register entries this part moves or removes:
+Register entries this part moves, removes or leaves, each named by id in its block:
 
-| Part | Entries | Checks | Controls |
-|---|---|---|---|
-| Non-writing follow-up | 11, `d14-non-writing-followup-*` | manifest 3, proof4 8 | `case-operation-query` |
-| Close conditions | 23, `d14-close-conditions-*` | bar 1, manifest 7, proof3 5, proof4 10 | `targeted-close-conditions` (22), `targeted-close-condition-unparsable` (1) |
-| Multi-select destinations | 3, `d14-multi-select-*` | bar 1, manifest 1, proof4 1 | `targeted-multi-select-destinations` (1), `case-capture-multiple` (2) |
-| Search button label | 4, `d14-search-button-label-*` and `d14-search-settings-app-other-value` | proof4 3, manifest 1 | `case-operation-query` |
-| Lookup prompt sort | 3, `d14-search-lookup-prompt-*` | proof4 3 | `prompt-widgets` |
-| Reserved input names | 7, `d14-search-settings-*-csql-key-include-closed`, `-reserved-request-key`, `-promptkey-reserved-request-key`, `d14-default-filter-name-*` | manifest 6, proof4 1 | `targeted-search-hq-compile` (4), `targeted-search-default-filter-name` (3) |
-| Survey menus | 1, `d14-survey-menus-app-case-type` | intent 1 | `targeted-survey-menu` |
-| Finding 41 | 2, `d41-empty-list-text-*` | proof4 2 | `case-list-inline`, `search-browse` |
-| Finding 54 | 3, `d54-search-description-*` | proof4 3 | `case-operation-query` (2), `case-list-inline` (1) |
-| Finding 50 | 2, `d50-registration-alert-*`, removed, not moved, in pull request 1 (part 09, Finding 50: the registration alert on a follow-up form) | proof4 2 | `nested-menu-previous`, deleted in the same pull request |
+| Part | Entries | Checks | Controls | Pull request |
+|---|---|---|---|---|
+| Non-writing follow-up | 23 move: the 12 `d14-non-writing-followup-*`, 3 Formplayer and 8 Android entries | manifest 3, proof4 20 | `case-operation-query` (11), `targeted-form-links-hidden-and-fallback` (2), `search-registration-link` (1), `case-list-inline` (2), `expander-form-links-emission-emits-hq-form-links-with-3555b968-0` (6), `expander-form-links-emission-forwards-literal-condition-47c96355-0` (1) | 9 |
+| Close conditions | 29 move: the 26 `d14-close-conditions-*` and 3 Android entries | bar 1, manifest 7, proof3 7, proof4 14 | `targeted-close-conditions` (27), `targeted-close-condition-unparsable` (2) | 9 |
+| Multi-select destinations | 3 move, `d14-multi-select-*` | bar 1, manifest 1, proof4 1 | `targeted-multi-select-destinations` (1), `case-capture-multiple` (2) | 12 |
+| Search button label | 7 move: the 3 `d14-search-button-label-*`, `d14-search-settings-app-other-value` and 3 reader entries; 1 stays, `d14-search-settings-trace-case-list-end-no-cases-script-ended` (defect 21's symptom) | manifest 1, proof4 6; the staying one proof4 | `case-operation-query` (4), `case-list-match-none` (3, and the staying one) | 12 |
+| Lookup prompt sort | 3 move, `d14-search-lookup-prompt-*` | proof4 3 | `prompt-widgets` | 12 |
+| Reserved input names | 7 move: 4 `d14-search-settings-` reserved-name entries and the 3 `d14-default-filter-name-*` | manifest 6, proof4 1 | `targeted-search-hq-compile` (4), `targeted-search-default-filter-name` (3) | 12 |
+| Survey menus | 1 moves, `d14-survey-menus-app-case-type` | intent 1 | `targeted-survey-menu` | 12 |
+| Finding 41 | 5 move, `d41-empty-list-text-*` | proof4 5 | `case-list-inline` (1), `search-browse` (2), `expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0` (2) | 11 |
+| Finding 54 | none: the lane's branch holds it as the spelling rule `search_description_empty`, which retires | | | 11 |
+| Finding 50 | 2, `d50-registration-alert-*`, removed, not moved (part 09, Finding 50: the registration alert on a follow-up form) | proof4 2 | `nested-menu-previous`, deleted in the same pull request | 1 |
+
+In all, 78 entries move to `proof/fixed-defects.json` (52 in pull request 9, 5 in pull request 11, 21 in pull request 12), 2 are removed in pull request 1, and 1 stays in `proof/known-defects.json` through step 2. The tiles' entries, the logos', the location fixture's and the data node name's are other parts' (the table above).
 
 ## 1. `update_case` is `always` on every case form
 
@@ -66,7 +68,14 @@ Register entries this part moves or removes:
 
 **Stored shape and migration.** No schema change, no document change and no step. `behavior.ts` returns one record per follow-up form in a single-select menu with no write, no close, no preload, no child case and no worker-record write. Notice reason `follow-up-now-touches-case`, naming the form: its submissions now move its case's last-modified date.
 
-**Register.** 11 entries move to the fixed register: `d14-non-writing-followup-app-schema-form-actions-update-never-followup-alone`, `-app-update-never-followup-alone-6cae`, `-c173` (manifest) and `-app-condition-type`, `-blocks`, `-blocks-case`, `-form-case-case-id`, `-form-case-date-modified`, `-form-case-user-id`, `-form-instance-case`, `-trace-case` (proof4), all on control `case-operation-query`.
+**Register.** 23 entries move to the fixed register in pull request 9. From this pull request Nova's own export writes `always`, so the Case Management save leaves `update_case` as it found it and none of these classes shows in proof 4.
+- The save's own rewrite, control `case-operation-query`: `d14-non-writing-followup-app-schema-form-actions-update-never-followup-alone`, `d14-non-writing-followup-app-update-never-followup-alone-6cae` and `d14-non-writing-followup-app-update-never-followup-alone-c173` (manifest, document `targeted-search-hq-compile`); `d14-non-writing-followup-app-condition-type`, `d14-non-writing-followup-blocks`, `d14-non-writing-followup-blocks-case`, `d14-non-writing-followup-form-case-case-id`, `d14-non-writing-followup-form-case-date-modified`, `d14-non-writing-followup-form-case-user-id`, `d14-non-writing-followup-form-instance-case` and `d14-non-writing-followup-trace-case` (proof4, document `case-operation-query`).
+- What Formplayer makes of the saved touch, proof4, artifact `formplayer@case management@*`: `d14-non-writing-follow-up-formplayer-case-management-output-data-case` and `d14-non-writing-follow-up-formplayer-case-management-instance-data-case` (document and control `targeted-form-links-hidden-and-fallback`), and `d14-non-writing-follow-up-formplayer-case-management-output-data-case-2` (document and control `search-registration-link`).
+- What HQ and a device make of it, proof4, artifact `android@case management@*` unless named:
+  - HQ applies the touch, so the touched case moves after its ties in HQ's next search, and the device lists and opens another case: `d14-android-proof4-case-management-list-order-changed` and `d14-android-proof4-case-management-list-chose-changed` (document and control `case-list-inline`).
+  - The touch reads the session's case id, which the form link that opens the form does not give, so the device refuses to save it ("The case_id attribute of a <case> wasn't set"): `d14-android-proof4-case-management-formentryactivity-error-saving-your-form-changed`, `d14-android-proof4-case-management-form-saved-aftersend-removed`, `d14-android-proof4-case-management-form-saved-casesastheformopened-added`, `d14-android-proof4-case-management-form-saved-finishing-changed`, `d14-android-proof4-case-management-form-saved-records-status-changed` and `d14-android-proof4-case-management-form-saved-resultcode-removed` (document and control `expander-form-links-emission-emits-hq-form-links-with-3555b968-0`).
+  - The link forwards the literal case id `patient-id`, the touch names it, and HQ makes that case without a create block: `d14-non-writing-followup-soft-assert-casedb-base-get-case-from-case-update` (artifact `soft_assert:request:*`, document and control `expander-form-links-emission-forwards-literal-condition-47c96355-0`).
+- On the last two documents the touch is then Nova's own: from this pull request a device refuses to save the follow-up the first document's link opens, and HQ makes the case the second document's link names, on Nova's export as the lane shows them today on the saved app.
 
 **Spelling rule.** `proof/rules/update_never_beside_actions.py` retires with its test and its `RULES` line. Its three "build alike" cases are exactly the forms that now carry `always`. `proof/rules/conftest.py::DOCUMENTS` loses `case-capture-multiple` and `nested-menu-same-multiple`, which only that test reads. `proof/rules/preload_condition.py` stays (block 10).
 
@@ -147,7 +156,14 @@ Clause 5's witness in the corpus is a form this pull request adds to `targeted-c
 
 **Stored shape and migration.** No schema change, no document change and no step. `behavior.ts` returns one record per close form in a single-select menu whose placement is `save-to-case`. Notice reason `close-moves-to-save-to-case`, naming the form: its close is written another way, HQ's Case Management tab no longer shows it, and its next publish asks about one more plan feature. A multi-select close gets no record: it is already a Save to Case close and its plan feature is already needed.
 
-**Register.** 23 entries move to the fixed register, all `d14-close-conditions-*`: `-admission-unresolved-resource` (bar); `-app-own-case-condition-not-offered-or-quoted-3731`, `-2119`, `-2f42`, `-ba84`, `-bf5c`, `-app-answer-with-apostrophe-ab34`, `-4107` (manifest); `-blocks-case-close-937a`, `-blocks-closed-9db3`, `-trace-case-status-7b66`, `-trace-case-last-modified-b2a8`, `-trace-case-close-7842` (proof3); `-app-condition-answer`, `-app-condition-question`, `-blocks-case-close-3452`, `-blocks-closed-cf78`, `-form-close-relevant`, `-trace-case-status-4d82`, `-trace-case-last-modified-7f74`, `-trace-case-close-f132`, `-trace-validate-app-path-error`, `-validate-path-error` (proof4). Eleven pin `values`, which a fixed entry compares on its control alone.
+**Register.** 29 entries move to the fixed register in pull request 9, each with document and control `targeted-close-conditions` unless named.
+- The 26 `d14-close-conditions-*` entries:
+  - bar: `d14-close-conditions-admission-unresolved-resource` (document and control `targeted-close-condition-unparsable`);
+  - manifest: `d14-close-conditions-app-own-case-condition-not-offered-or-quoted-3731`, `d14-close-conditions-app-own-case-condition-not-offered-or-quoted-2119`, `d14-close-conditions-app-own-case-condition-not-offered-or-quoted-2f42`, `d14-close-conditions-app-own-case-condition-not-offered-or-quoted-ba84`, `d14-close-conditions-app-own-case-condition-not-offered-or-quoted-bf5c`, `d14-close-conditions-app-answer-with-apostrophe-ab34`, `d14-close-conditions-app-answer-with-apostrophe-4107`;
+  - proof3: `d14-close-conditions-blocks-case-close-937a`, `d14-close-conditions-blocks-closed-9db3`, `d14-close-conditions-trace-case-status-7b66`, `d14-close-conditions-trace-case-last-modified-b2a8`, `d14-close-conditions-trace-case-close-7842`;
+  - proof4: `d14-close-conditions-app-condition-answer`, `d14-close-conditions-app-condition-question`, `d14-close-conditions-blocks-case-close-3452`, `d14-close-conditions-blocks-closed-cf78`, `d14-close-conditions-form-close-relevant`, `d14-close-conditions-trace-case-status-4d82`, `d14-close-conditions-trace-case-last-modified-7f74`, `d14-close-conditions-trace-case-close-f132`, `d14-close-conditions-trace-validate-app-path-error`, `d14-close-conditions-validate-path-error`, and the readers' `d14-close-conditions-formplayer-case-management-data-case-close` and `d14-close-conditions-formplayer-case-management-submit-nextscreen-type` (Formplayer over the saved app) and `d14-close-conditions-webapps-case-management-screens-kind` (the Web Apps client over it).
+- Three of Android's: `d14-android-proof3-local-ccz-form-saved-cases-changed` (proof3, the cases the device holds after the form, on the local archive against HQ's build), `d14-android-proof4-case-management-form-saved-cases-changed` (proof4, the same after the Case Management save), and `d14-android-proof3-local-ccz-install-changed` (proof3, document and control `targeted-close-condition-unparsable`: HQ's build of the unparsable condition is an archive Android does not install).
+- From this pull request the close that HQ's tab cannot state is written as a Save to Case close on both paths with `close_case` `never`, so the save keeps it, HQ's build of `it's` parses, and the two paths close the same case. Eleven pin `values`, which a fixed entry compares on its control alone.
 
 **Spelling rule.** None.
 
@@ -312,7 +328,10 @@ Every write is explicit, so each notice record names a stored change and no abse
 
 **Stored shape and migration.** `caseSearchConfig` is a strict object, so the key must leave every stored document. Cutover step `search-button-label`: delete `searchButtonLabel` from every module's `caseSearchConfig`, and delete every language's stored translation of the unit `module/<uuid>/search-button`. Notice reason `search-button-text-changed`, one record per module that offers a search button, labelled or not (an unlabelled one reads "Search" today), with the former text in the default language as `from`: the button now reads "Search All Cases" in every language.
 
-**Register.** 4 entries move to the fixed register: `d14-search-settings-app-other-value` (manifest), `d14-search-button-label-app-search-config-search-button-label`, `-strings-case-search-m`, `-trace-actions` (proof4), all on control `case-operation-query`.
+**Register.** 7 entries move to the fixed register in pull request 12, and 1 stays.
+- Moving, control `case-operation-query`: `d14-search-settings-app-other-value` (manifest), `d14-search-button-label-app-search-config-search-button-label`, `d14-search-button-label-strings-case-search-m` and `d14-search-button-label-trace-actions` (proof4).
+- Moving, document and control `case-list-match-none`, the label as the readers show it after the Case List save, "Search" to "Search All Cases" (observed in the lane with every reader): `d14-search-settings-formplayer-case-list-response-title` (`formplayer@case list@*`), `d14-search-settings-webapps-case-list-screens-title` (`webapps@case list@*`) and `d14-android-proof4-case-list-list-actions-changed` (`android@case list@*`, the list's search action).
+- Staying: `d14-search-settings-trace-case-list-end-no-cases-script-ended` (`trace@case list@*`, document and control `case-list-match-none`). On that document the Case List save also turns the list-first menu search-first: the search screen auto-launches and Core's run ends at the script's end where it ended at an empty list. That is defect 21's symptom (list-first turned search-first, step 5's), which `d21-search-first-trace-autolaunched` and the other defect 21 entries hold, and this block does not touch it, so the entry stays in `proof/known-defects.json` through step 2.
 
 **Spelling rule.** None.
 
@@ -359,7 +378,7 @@ Every write is explicit, so each notice record names a stored change and no abse
 
 **Stored shape and migration.** One new optional slot; no document changes, since absent already means the label column. No step: `behavior.ts` returns one record per lookup-backed search input. Notice reason `lookup-choices-order-changes`, naming the input: its choices are now listed in the order of their labels, where they were listed in the table's row order.
 
-**Register.** 3 entries move to the fixed register: `d14-search-lookup-prompt-editor-alerts-case-search-property`, `-editor-400-case-search-property`, `-editor-state-savebtn-bar-retry` (proof4), on control `prompt-widgets`.
+**Register.** 3 entries move to the fixed register in pull request 12: `d14-search-lookup-prompt-editor-alerts-case-search-property`, `d14-search-lookup-prompt-editor-400-case-search-property` and `d14-search-lookup-prompt-editor-state-savebtn-bar-retry` (proof4), document and control `prompt-widgets`.
 
 **Spelling rule.** None.
 
@@ -430,7 +449,7 @@ Message, both codes: `Search input "<name>" in "<menu>" uses a name CommCare rea
 1. Each own-key input whose name is reserved is removed. This includes an own-key input named `_xpath_query`: it is removed, not renamed, because a rename would make it start searching a property of the new name. Every `when-input-present` over it takes its absent branch and every read of it becomes the empty string, the rewrite `lib/doc/searchInputMutations.ts` applies when a person removes an input; a test holds the step's output equal to the reducer's on the same fixture. Notice reason `search-input-removed`, naming the input and each expression that changed. HQ never searched it as the property it names, so no search result changes.
 2. Each remaining input named `_xpath_query`, which is one that does not reach HQ as its own key, so its name is only a handle, is renamed with the lowest free numeric suffix (`_xpath_query_2`). References are by uuid, so nothing else is rewritten. Notice reason `search-input-renamed`, with `from` and `to`.
 
-**Register.** 7 entries move to the fixed register: `d14-search-settings-suite-csql-key-include-closed`, `-suite-promptkey-reserved-request-key`, `-app-csql-key-include-closed`, `-app-reserved-request-key` (manifest, control `targeted-search-hq-compile`); `d14-default-filter-name-app-search-property`, `-app-default-property` (manifest) and `-editor-unsent` (proof4), control `targeted-search-default-filter-name`.
+**Register.** 7 entries move to the fixed register in pull request 12: `d14-search-settings-suite-csql-key-include-closed`, `d14-search-settings-suite-promptkey-reserved-request-key`, `d14-search-settings-app-csql-key-include-closed` and `d14-search-settings-app-reserved-request-key` (manifest, document and control `targeted-search-hq-compile`); `d14-default-filter-name-app-search-property`, `d14-default-filter-name-app-default-property` (manifest) and `d14-default-filter-name-editor-unsent` (proof4), document and control `targeted-search-default-filter-name`.
 
 **Spelling rule.** None.
 
@@ -466,7 +485,7 @@ Message, both codes: `Search input "<name>" in "<menu>" uses a name CommCare rea
 
 **Stored shape and migration.** No schema change and no document change. No step: `behavior.ts` returns one record per such menu. Notice reason `survey-menu-takes-case-type`, naming the menu and its case type: HQ shows that type for the menu, and its case list settings, from the next publish.
 
-**Register.** 1 entry moves to the fixed register: `d14-survey-menus-app-case-type` (intent), control `targeted-survey-menu`.
+**Register.** 1 entry moves to the fixed register in pull request 12: `d14-survey-menus-app-case-type` (intent), document and control `targeted-survey-menu`.
 
 **Spelling rule.** None.
 
@@ -480,7 +499,7 @@ Message, both codes: `Search input "<name>" in "<menu>" uses a name CommCare rea
 
 ## 8. The data node's name
 
-The data node's `name` becomes the form's name in the app's first language, the value `<h:title>` carries. It lands with finding 46 in pull request 6 (part 05, Finding 46 and defect 14's data node name), because proof 4 reports the title and the name together. The three entries `d14-data-node-name-form-instance-name`, `-source-instance-name` and `-trace-name` (proof4, control `case-operation-query`) move to the fixed register in that pull request. `lib/commcare/xform/dataRootAttributes.ts::xformDataRootRuntimeAttributes` and its callers in `lib/commcare/xform/builder.ts` and `lib/preview/engine/formEngine.ts` are files of that block of part 05.
+The data node's `name` becomes the form's name in the app's first language, the value `<h:title>` carries. It lands with finding 46 in pull request 6 (part 05, Finding 46 and defect 14's data node name), because proof 4 reports the title and the name together. Its entries, the `d14-data-node-name-*` ones, move to the fixed register in that pull request, each named in that block of part 05. `lib/commcare/xform/dataRootAttributes.ts::xformDataRootRuntimeAttributes` and its callers in `lib/commcare/xform/builder.ts` and `lib/preview/engine/formEngine.ts` are files of that block of part 05.
 
 ## 9. Tiles and sort spellings
 
@@ -684,7 +703,7 @@ On a proof machine: `proof/remote/run.sh <host> -- --workers <n> proof/checks -k
 
 **Stored shape and migration.** None. No notice.
 
-**Register.** 2 entries move to the fixed register: `d41-empty-list-text-app-no-items-text` (proof4, control `case-list-inline`), `d41-empty-list-text-strings-m-no-items-text` (proof4, control `search-browse`).
+**Register.** 5 entries move to the fixed register in pull request 11, all proof4 over the module settings save: `d41-empty-list-text-app-no-items-text` (document `localization-optional`, control `case-list-inline`) and `d41-empty-list-text-strings-m-no-items-text` (document `endpoint-case-list`, control `search-browse`); and the readers' `d41-empty-list-text-goes-blank-formplayer-module-settings-response-noitemstext` (Formplayer hands the client a blank text, document `targeted-empty-list-no-english`, control `search-browse`), `d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-html` and `d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-text` (the client's empty list, document and control `expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0`). From this pull request the save writes nothing new into `no_items_text`, so none of them shows.
 
 **Spelling rule.** None.
 
@@ -715,13 +734,13 @@ On a proof machine: `proof/remote/run.sh <host> -- --workers <n> proof/checks -k
   - Android's search screen shows the same texts for all four archives: its prompts and its button, and no description.
 - So no worker sees a change, and the fix removes a difference between what Formplayer is handed by the two builds.
 
-**Files.** Emitters: `lib/commcare/hqJson/caseList.ts`, `lib/commcare/hqShells.ts`, `lib/commcare/suite/case-search/remoteRequest.ts`, `suite/case-search/inlineSearch.ts`, `lib/commcare/validator/hqJsonOracle.ts` (a `description` or `title_label` missing an app language is refused). Preview: none; it shows no subtitle where none is authored. Proof: `proof/native/test_search_emission.py`, `proof/formplayer/test_search.py`, `proof/formplayer/test_local_archive.py`, `proof/webapps/test_search.py`; `proof/rules/search_title_empty.py` and `proof/rules/test_search_title_empty.py` (deleted), `proof/rules/__init__.py` (its import and `RULES` line), `proof/rules/conftest.py`. CLAUDE.md: `lib/commcare/CLAUDE.md`. Domain, doc and mutations, validator, builder, SA and MCP tools, docs: none.
+**Files.** Emitters: `lib/commcare/hqJson/caseList.ts`, `lib/commcare/hqShells.ts`, `lib/commcare/suite/case-search/remoteRequest.ts`, `suite/case-search/inlineSearch.ts`, `lib/commcare/validator/hqJsonOracle.ts` (a `description` or `title_label` missing an app language is refused). Preview: none; it shows no subtitle where none is authored. Proof: `proof/native/test_search_emission.py`, `proof/formplayer/test_search.py`, `proof/formplayer/test_local_archive.py`, `proof/webapps/test_search.py`; `proof/rules/search_title_empty.py`, `proof/rules/test_search_title_empty.py`, `proof/rules/search_description_empty.py` and `proof/rules/test_search_description_empty.py` (deleted), `proof/rules/__init__.py` (their imports and `RULES` lines), `proof/rules/conftest.py`, `proof/android/predicates.py` (the predicate the second rule names). CLAUDE.md: `lib/commcare/CLAUDE.md`. Domain, doc and mutations, validator, builder, SA and MCP tools, docs: none.
 
 **Stored shape and migration.** None. No notice.
 
-**Register.** 3 entries move to the fixed register, each keeping its `equivalence` mark: `d54-search-description-app-description` and `-suite-remote-request` (proof4, control `case-operation-query`), `-suite-entry` (proof4, control `case-list-inline`).
+**Register.** None. The lane's branch holds finding 54 as a spelling rule, `proof/rules/search_description_empty.py`, proven by its readers' runs (HQ's build, Core, Formplayer, the Web Apps client and Android read the two spellings alike), and no register entry.
 
-**Spelling rule.** `proof/rules/search_title_empty.py` retires with its test and its `RULES` line. `proof/rules/conftest.py::DOCUMENTS` loses `search-browse`, which only that test reads.
+**Spelling rule.** `proof/rules/search_title_empty.py` and `proof/rules/search_description_empty.py` retire, each with its test, its import and its `RULES` line: Nova writes what the save writes on both paths (executed, above), so neither has anything left to erase. The Android predicate the second names, `proof/android/predicates.py::test_a_search_description_changes_nothing_a_device_shows`, leaves with it. `proof/rules/conftest.py::DOCUMENTS` loses `search-browse`, which only the first's test reads.
 
 **Identity.** None. `proof/identity-moves.json` gains no entry.
 
@@ -730,7 +749,7 @@ On a proof machine: `proof/remote/run.sh <host> -- --workers <n> proof/checks -k
 **Nova tests.** Pure, emission: both maps hold every wire code of a two-language app, blank where nothing is authored and the authored text otherwise; the local suite writes `<description>` and a non-breaking-space locale value on a remote request and on an inline query. These prove Nova's own code.
 
 **Lane.** On a proof machine (`proof/remote/run.sh <host> -- --workers <n> proof/checks -k <document>`): `case-list-browse`, `case-list-inline`, `search-browse`; and `proof/remote/run.sh <host> -- proof/native/test_search_emission.py proof/formplayer/test_search.py proof/formplayer/test_local_archive.py proof/webapps/test_search.py`.
-- Proof 4 on every document holds the save: the Case List save changes neither map. The lane passes with the rule gone.
+- Proof 4 on every document holds the save: the Case List save changes neither map. The lane passes with both rules gone.
 - `proof/native/test_search_emission.py` holds the element on both paths, child for child, and reads the description Core presents for a search with and without a subtitle.
 - `proof/formplayer/test_search.py` now expects the non-breaking space from HQ's build of Nova's export as from the saved app, and `proof/formplayer/test_local_archive.py` gains the same reading of the local archive.
 - `proof/webapps/test_search.py` keeps holding what a worker sees: no description for either, on its three kinds of search.

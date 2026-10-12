@@ -113,19 +113,22 @@ Notice reasons, as part 10 registers them, each naming the form and the entity w
 | `connect-block-renamed`, from one of finding 60's five names | The kind's template, with this sentence first: "CommCare Connect could not receive this form while its block was called `<from>`." |
 | `entry-point-renamed` | "The deep link `<from>` is now `<to>`. Links shared with the old ID stop working after your next publish." |
 
-**Register.** 12 entries, all on document and control `targeted-invalid-question-ids`:
+**Register.** 13 entries move to `proof/fixed-defects.json` in pull request 10, all on document and control `targeted-invalid-question-ids`:
 
 | Check | Count | Ids |
 |---|---|---|
 | bar | 1 | `d15-question-ids-admission-unresolved-resource` |
 | manifest | 3 | `d15-question-ids-form-instance-invalid-question-id-9f9c`, `d15-ids-form-instance-authored-meta`, `d15-ids-app-not-a-slug-or-duplicated` |
-| proof4 | 8 | `d15-question-ids-vellum-mug-nodeid-error-not-valid-question-*` (2), `d15-question-ids-vellum-again-mug-nodeid-error-not-valid-question-*` (2), `d15-question-ids-editor-view-form-form-meta-block`, `d15-entry-point-ids-editor-*` (3) |
+| proof3 | 1 | `d15-android-proof3-local-ccz-install-changed` (Android installs the local archive and answers HQ's build `InvalidResource`, the build Core refuses under the bar) |
+| proof4 | 8 | `d15-question-ids-vellum-mug-nodeid-error-not-valid-question-2fda`, `d15-question-ids-vellum-mug-nodeid-error-not-valid-question-ab8a`, `d15-question-ids-vellum-again-mug-nodeid-error-not-valid-question-21af`, `d15-question-ids-vellum-again-mug-nodeid-error-not-valid-question-9b4c`, `d15-question-ids-editor-view-form-form-meta-block`, `d15-entry-point-ids-editor-alerts-not-valid-session`, `d15-entry-point-ids-editor-400-not-valid-session`, `d15-entry-point-ids-editor-state-savebtn-bar-retry` |
+
+Defect 15's five other entries are the Connect rename's, which leave in pull request 1 under the allowance below (Defect 15's Connect forwarding); the 13 here and those 5 are all 18 of the defect's.
 
 **Spelling rule.** None retires.
 
 **Identity.** Once per deployed app, at its next publish: the data path of each renamed question, of every question inside a renamed group or repeat, and of each renamed Connect block; each renamed session endpoint id; each Connect block id. A staged, unsubmitted capture on a renamed question is orphaned until its seven-day expiry. No entry in `proof/identity-moves.json`.
 
-**Control.** `targeted-invalid-question-ids` keeps the pre-fix bytes and keeps showing all 12 classes under the bar, manifest and proof 4.
+**Control.** `targeted-invalid-question-ids` keeps the pre-fix bytes and keeps showing all 13 classes under the bar, the manifest check, proof 3 and proof 4.
 
 **Nova tests.**
 - Pure (`lib/domain/__tests__/questionId.test.ts`): `questionIdProblem` and `editorSafeQuestionId`, each refusal beside an accepted neighbor (`xmlcode` accepted, `XMLcode` refused; `metadata` accepted, `Meta` refused; `cases` accepted, `Case` refused), and the Connect names refused only when passed.
@@ -137,8 +140,8 @@ Notice reasons, as part 10 registers them, each naming the form and the entity w
 **Lane.**
 - Locally: `targeted-invalid-question-ids` and `targeted-invalid-connect-ids`, both rewritten in place as the migrated shape (the second stays a Connect app), plus `control-targeted-invalid-question-ids`. On a proof machine, with Connect: `targeted-invalid-connect-ids`. Executed during planning, the migrated shape passes every check under the `minimum` and `maximum` configurations with nothing reported that a fix in this part removes: a document holding `notes`, `q1st`, `qXMLcode`, `q_Meta`, a root group `q_meta` whose question a calculate reads, `q_instance`, `q_bind`, `q_parsererror`, a calculate and a display condition holding `false()`, and the entry points `intake` and `intake-2_b` (Vellum's two saves and the form settings save report nothing on its ids, and Core installs HQ's build); and a learn app whose module id is 50 characters and whose assessment is `qXMLquiz`.
 - New lane test `proof/hq/test_endpoint_ids.py`, with `proof/hq/entryPointIdVerdicts.ts` beside it (as `publishCaptureDocuments.ts` sits beside its test): the script prints Nova's `entryPointIdProblem` for every id of one to seven characters over `a`, `9`, `_`, `-`, and the test holds each verdict to HQ's own `get_cleaned_session_endpoint_id`. This is the proof that Nova's pattern is HQ's rule; no Nova test transcribes `slugify`.
-- On a proof machine, `proof/connect` (`--env PROOF_READERS=connect`): the three rename tests above keep running over `targeted-connect-deliver-rename` and `targeted-connect-learn-rename`, whose ids the grammar admits before and after.
-- The whole lane shows 12 entries fewer in the live register and 12 more in the fixed one.
+- On a proof machine, `proof/connect` (`--env PROOF_READERS=connect`): the three rename tests above keep running over `targeted-connect-deliver-rename` and `targeted-connect-learn-rename`, whose ids the grammar admits before and after. With Android (`--env PROOF_READERS=android`): `proof/checks -k "targeted-invalid-question-ids or control-targeted-invalid-question-ids"`, for the install entry.
+- The whole lane shows 13 entries fewer in the live register and 13 more in the fixed one.
 
 ### Defect 15's Connect forwarding: deliveries refused between a rename and a new payment unit
 
@@ -164,7 +167,7 @@ So a delivery a worker submits between the publish that carries a renamed delive
 
 **Stored shape and migration.** None beyond the `connect-ids` step above. The notice reason is that step's `connect-block-renamed`.
 
-**Register.** The five live entries the reader branch added under defect 15 (`d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved`, `-ids-task-moved`, `-refused-400-payment-unit` on `targeted-connect-deliver-rename`; `-ids-module-moved`, `-catalog-learnmodules-added` on `targeted-connect-learn-rename`, all proof 4, artifact `connect@B-edit@*`) record what Connect does with any app whose block id changes under an opportunity that holds the old one, whoever changed it: the edit of these two documents renames the ids as a person would, or as the cutover will. They are what Connect does itself, not a Nova defect, and leave the live register in pull request 1 with a closed allowance, as finding 50's do: part 09, Connect's own reading of a renamed block, owns the allowance, its condition, its proof over an app HQ's own form builder made and renamed, and the deletion of the five entries. The condition must be no wider than this block's fact: a Connect block that A's opportunity holds is absent from B-edit's stored form, and B-edit's form holds a block of the same kind at the same path under another id.
+**Register.** The five live entries the reader branch added under defect 15 (`d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved`, `d15-connect-ids-renamed-connect-b-edit-ids-task-moved` and `d15-connect-ids-renamed-connect-b-edit-refused-400-payment-unit` on `targeted-connect-deliver-rename`; `d15-connect-ids-renamed-connect-b-edit-ids-module-moved` and `d15-connect-ids-renamed-connect-b-edit-catalog-learnmodules-added` on `targeted-connect-learn-rename`; all proof 4, artifact `connect@B-edit@*`, each document its own control) record what Connect does with any app whose block id changes under an opportunity that holds the old one, whoever changed it: the edit of these two documents renames the ids as a person would, or as the cutover will. They are what Connect does itself, not a Nova defect, and leave the live register in pull request 1 with a closed allowance, as finding 50's do: part 09, Connect's own reading of a renamed block, owns the allowance, its condition, its proof over an app HQ's own form builder made and renamed, and the deletion of the five entries. The condition must be no wider than this block's fact: a Connect block that A's opportunity holds is absent from B-edit's stored form, and B-edit's form holds a block of the same kind at the same path under another id.
 
 **Spelling rule.** None. **Identity.** None beyond the `connect-ids` step's. No entry in `proof/identity-moves.json`.
 
@@ -387,7 +390,7 @@ The step does not call that script's writer, which lands through `lib/db/apps.ts
 
 Notice reason `option-value-split`, with two templates. For a field: "`<form>`, `<question>`: the choices `<label 1>` and `<label 2>` both stored `<value>`. `<label 2>` now stores `<new value>`. Answers saved before this show as `<label 1>`." For a case property's catalog, which has no form or question (the entry's entity is the app, with the case type and the property in its detail): "`<case type>`, `<property>`: the choices `<label 1>` and `<label 2>` both stored `<value>`. `<label 2>` now stores `<new value>`. Values saved before this show as `<label 1>`."
 
-**Register.** 4 entries: manifest 2 (`d44-duplicate-options-form-item-refused-choice-value-9e0a` on control `expander-select-option-itext-ids-index-keyed-issue-10-608c801a-0`; `...-cb90` on `expander-select-option-itext-ids-index-keyed-issue-10-bf790763-0`); proof4 2 (`d44-duplicate-options-vellum-mug-nodeid-error-choice-value-been` and `d44-duplicate-options-vellum-again-...`, on the `bf790763-0` control).
+**Register.** 4 entries move to `proof/fixed-defects.json` in pull request 10, each on the document of the same name as its control: manifest 2 (`d44-duplicate-options-form-item-refused-choice-value-9e0a` on `expander-select-option-itext-ids-index-keyed-issue-10-608c801a-0`; `d44-duplicate-options-form-item-refused-choice-value-cb90` on `expander-select-option-itext-ids-index-keyed-issue-10-bf790763-0`); proof4 2 (`d44-duplicate-options-vellum-mug-nodeid-error-choice-value-been` and `d44-duplicate-options-vellum-again-mug-nodeid-error-choice-value-been`, both on `expander-select-option-itext-ids-index-keyed-issue-10-bf790763-0`).
 
 **Spelling rule.** None.
 
@@ -456,7 +459,7 @@ The read is never what an author can mean: no Nova menu supplies the datum, so t
 
 **Stored shape and migration.** No schema change. Step `unsupplied-session-reads` (`steps/unsuppliedSessionReads.ts`), after `empty-forms` and before `root-create-id`: in every XPath text run of a form, each exact read of a session datum the form's entry does not declare is replaced by the string literal `''`, as one edit of exactly that path's span in the concrete syntax tree, every other byte kept (the edit discipline of `lib/commcare/xpath/CLAUDE.md`, `lowerXPathForJavaRosa`). Reason for `''` over a refusal for a person: the read could never yield a value on any path, so the form never opened; after the edit it opens with the value blank, which is the nearest working app to what was stored, and the notice says what changed. A read of production during planning held no such expression, so the step changes no stored app today; the frozen pre-step fixtures carry one. Notice reason `session-read-removed`, naming the form and the field: "`<form>`, `<question>`: it read `<id>` from the session, which no menu of this app supplies, so the form could not open. It now reads nothing there, and the form opens. You can set what it should read." Part 10, The transform steps, in order, registers the step and the reason.
 
-**Register.** The 31 live entries the reader branch added on `targeted-supply-point-read` (`d20-supply-point-*` and `d20-android-proof4-vellum-...-unrecoverable-error-changed`: manifest 1, proof 4 30; artifacts `form:*`, `suite.xml@vellum@*`, `trace@vellum@*`, `webapps@vellum@*`, `android@vellum@*`) are filed under defect 20 by `proof/README.md`'s "20, CommTrack" row, and each shows only because Nova's gate admitted the read. From this pull request no corpus document can hold it, so by part 09's re-homing rule (its fourth case) all 31 move to `proof/fixed-defects.json` on their control `targeted-supply-point-read`, and the README's row says step 2 fixed that part. Defect 20's other entries (the `product_id` datum and sync on form entry) stand.
+**Register.** The 31 live entries the reader branch added on `targeted-supply-point-read` (the 30 `d20-supply-point-*`, a prefix that names exactly these, and `d20-android-proof4-vellum-screens-after-menuactivity-formentryactivity-error-occurred-home-unrecoverable-error-changed`: manifest 1, proof 4 30; artifacts `form:*`, `suite.xml@vellum@*`, `trace@vellum@*`, `webapps@vellum@*`, `android@vellum@*`) are filed under defect 20 by `proof/README.md`'s "20, CommTrack" row, and each shows only because Nova's gate admitted the read. From this pull request no corpus document can hold it, so by part 09's re-homing rule (its fourth case) all 31 move to `proof/fixed-defects.json` on their control `targeted-supply-point-read`, and the README's row says step 2 fixed that part. Defect 20's other entries (the `product_id` datum and sync on form entry) stand.
 
 **Spelling rule.** None. **Identity.** None. No entry in `proof/identity-moves.json`.
 
@@ -678,21 +681,22 @@ Executed during planning: a data node with a bare bind, and beside it a node who
 
 Notice reasons: `time-comparison-never-true` ("`<where>`: `<comparison>` compares a time of day with before or after, which is never true on a device. It now reads as never true everywhere, Preview included."); and `search-term-matches-nothing` ("`<search>`: `<term>` is a check CommCare's search can't run. It now matches nothing, where the search failed before.").
 
-**Register.** 11 entries.
+**Register.** 12 entries move to `proof/fixed-defects.json` in pull request 14, each on the document of the same name as its control.
 
 | Part | Check | Ids | Control |
 |---|---|---|---|
 | Core | intent 1 | `d6-core-evaluate` (values pinned) | `targeted-time-ordering` |
 | Core | manifest 2 | `d6-core-form-xpath-expr-xpathcmpexpr-time-operand`, `d6-core-form-xpath-token-lt-time-operand` | `targeted-time-ordering` |
 | Core | manifest 2 | `d6-core-suite-xpath-expr-xpathcmpexpr-time-operand`, `d6-core-suite-xpath-token-gt-time-operand` | `targeted-search-hq-compile` |
-| CSQL | manifest 4 | `d6-csql-suite-*` (2), `d6-csql-app-*` (2): `csql-metadata:date_opened/refused/non-date-value` and `csql-op:>/refused/untyped-right-side` | `targeted-search-hq-compile` |
+| CSQL | manifest 4 | `d6-csql-suite-csql-metadata-date-opened-non-date-value`, `d6-csql-suite-csql-op-untyped-right-side`, `d6-csql-app-csql-metadata-date-opened-non-date-value`, `d6-csql-app-csql-op-untyped-right-side`: `csql-metadata:date_opened/refused/non-date-value` and `csql-op:>/refused/untyped-right-side` | `targeted-search-hq-compile` |
 | CSQL | intent 2 | `d6-csql-compile-time-ordering`, `d6-csql-compile-date-opened-blank` | `targeted-search-hq-compile` |
+| CSQL | proof3 1 | `d6-csql-formplayer-a-app-aware-remote-search-400-is-not-a-correct`: Formplayer's search of A sends the document's default filter, and HQ's search view answers 400, "09:00:00 is not a correctly formatted date or datetime." (the time ordering, which HQ's range query tries as a date). The witness the document becomes holds neither the time ordering nor the blank test on `date_opened` | `targeted-search-hq-compile` |
 
 **Spelling rule.** None.
 
 **Identity.** None. No entry in `proof/identity-moves.json`.
 
-**Control.** `targeted-time-ordering` (manifest, intent) and `targeted-search-hq-compile` (manifest, intent) keep the pre-fix bytes and keep showing every class.
+**Control.** `targeted-time-ordering` (manifest, intent) and `targeted-search-hq-compile` (manifest, intent, proof 3) keep the pre-fix bytes and keep showing every class.
 
 **Nova tests.**
 - Pure (`lib/domain/predicate/__tests__/typeChecker.test.ts`): the `time` arm tests become refusals, each beside an accepted date comparison; `slotConstraints.test.ts` still matches its tables to `ORDERED_TYPES`.
@@ -703,7 +707,7 @@ Notice reasons: `time-comparison-never-true` ("`<where>`: `<comparison>` compare
 
 **Lane.**
 - Native proof (`npm run proof -- proof/native -k search`, the family in which Core's query manager builds each payload and HQ's compiler compiles it): one fixture whose guarded comparison takes a blank runtime value and then a date, asserting Core builds `match-none()` and then the dated query and HQ compiles both. This is the reader proof of part 4, and it is the run made by hand above with Core's query manager in place of a bare evaluation.
-- Locally: `targeted-search-hq-compile` (the document, now a witness whose `csql@A` intent check compiles every search) and the two controls. `targeted-time-ordering` leaves `index.json`. The whole lane shows the 11 entries moved.
+- Locally: `targeted-search-hq-compile` (the document, now a witness whose `csql@A` intent check compiles every search) and the two controls. On a proof machine, with Formplayer: `proof/remote/run.sh <host> --env PROOF_READERS=formplayer -- proof/checks -k "targeted-search-hq-compile or control-targeted-search-hq-compile"`. `targeted-time-ordering` leaves `index.json`. The whole lane shows the 12 entries moved.
 
 ## Finding 48: a search answer holding both quote marks
 
@@ -736,11 +740,11 @@ What a worker sees: on Android, "Query response had no results" on the search sc
 
 **Stored shape and migration.** None.
 
-**Register.** 2 manifest entries: `d48-mixed-quote-suite-csql-fn-search-value-mixes-quote-marks`, `d48-mixed-quote-app-csql-fn-search-value-mixes-quote-marks`, control `targeted-search-hq-compile`.
+**Register.** 3 entries move to `proof/fixed-defects.json` in pull request 14, on document and control `targeted-search-hq-compile`: the manifest's `d48-mixed-quote-suite-csql-fn-search-value-mixes-quote-marks` and `d48-mixed-quote-app-csql-fn-search-value-mixes-quote-marks`, and Android's `d48-android-proof3-a-query-withanswer-sent-unquotable-search-error` (proof 3, `android@A`: a search screen that sent, for an answer holding both quote marks, the query HQ refuses, `proof/checks/android.py::refused_searches`). That judge reads the function in what the device sent, which from this pull request is `match-none()`, so the class leaves the document and keeps showing on the control, whose bytes still hold the function.
 
 **Spelling rule.** None. **Identity.** None; no entry in `proof/identity-moves.json`.
 
-**Control.** `targeted-search-hq-compile` keeps showing `/csql-fn:search-value-mixes-quote-marks/refused` under the manifest check.
+**Control.** `targeted-search-hq-compile` keeps showing `/csql-fn:search-value-mixes-quote-marks/refused` under the manifest check and the sent function under proof 3's Android judge.
 
 **Nova tests.** Pure: the emitter's test for the cascade's three arms.
 
@@ -748,7 +752,7 @@ What a worker sees: on Android, "Query response had no results" on the search sc
 - Native proof (`npm run proof -- proof/native -k quote`): Core's query manager builds the payload from a both-quotes answer, and HQ compiles it to its match-none filter.
 - `proof/android/predicates.py`: the lane's `test_a_search_answer_holding_both_quote_marks_is_sent_and_the_servers_refusal_shown_as_androids_own` already reads the control's local archive (the function, a 400, Android's client-error text) and stays; a new case reads the document's (the same answer, `match-none()` sent, a 200 with no case, the empty-results toast and the prompt still holding the answer).
 - `proof/formplayer/test_search.py`: the existing test, unchanged, over the document.
-- Locally: `targeted-search-hq-compile` and its control. On a proof machine: `proof/remote/run.sh <host> --env PROOF_READERS=formplayer -- proof/formplayer/test_search.py`, and the Android reader's package (`python3 -m unittest proof.android.predicates`). The whole lane shows the 2 entries moved.
+- Locally: `targeted-search-hq-compile` and its control. On a proof machine: `proof/remote/run.sh <host> --env PROOF_READERS=formplayer -- proof/formplayer/test_search.py`, `proof/remote/run.sh <host> --env PROOF_READERS=android -- proof/checks -k "targeted-search-hq-compile or control-targeted-search-hq-compile"`, and the Android reader's package (`python3 -m unittest proof.android.predicates`). The whole lane shows the 3 entries moved.
 
 ---
 
