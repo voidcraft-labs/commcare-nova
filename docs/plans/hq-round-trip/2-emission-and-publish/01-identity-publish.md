@@ -355,9 +355,11 @@ planning (the facts table above).
 | `proof/android/predicates.py::test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps` | Android | `targeted-survey-menu` | A form saved incomplete reopens after an update whose archive keeps its `xmlns`. From this pull request the kept case updates from the document's `local.ccz` to its `local-again.ccz`, whose `xmlns` Nova's compiler now derives alike, with the second archive's versions raised as the predicate raises them today (part 04 makes Nova raise them); the renamed case stays the hand-written refusal. |
 
 Locally the pull request runs `npm run proof --
-proof/hq/test_publish.py proof/hq/test_publish_capture.py`, then the lane
-selected to `targeted-multi-select-destinations`, `case-operation-query` and
-`navigation-base`, and the Android predicate where the reader runs.
+proof/hq/test_publish.py proof/hq/test_publish_capture.py`, which need no
+served reader. On a proof machine: the lane selected to
+`targeted-multi-select-destinations`, `case-operation-query` and
+`navigation-base`, and the Android predicate (`python3 -m unittest
+proof.android.predicates`).
 
 ## A2. `localization.wireCodes`
 
@@ -619,9 +621,9 @@ relabels a language gains `wireCode`, which shows in the corpus diff. Every
 corpus document with a localization root gains `wireCodes`; `localization-mandarin`'s two Mandarin
 branches take the preferred spelling and one suffixed code where today both
 are suffixed, which shows in the corpus `index.json` diff and nowhere in a
-proof. Locally the pull request runs the lane selected to
-`targeted-hq-side-state` and `localization-mandarin`. CI's full lane must show
-no proof 1 difference at `/langs/*`, no `XFormException` under
+proof. On a proof machine: the lane selected to `targeted-hq-side-state` and
+`localization-mandarin`, and the Android predicate below. The whole lane
+shows no proof 1 difference at `/langs/*`, no `XFormException` under
 `create_all_files:*@B-edit`, and both fixed entries reproducing on their
 control.
 
@@ -1243,13 +1245,16 @@ What these tests need of the harness, each found by running them:
   reads of it.
 - HQ's rate counters call django-redis's `incr(key, delta,
   ignore_key_check=True)` and `expire`, which the harness's cache does not
-  hold, and the limiter counts a project space's mobile workers through a
-  Couch view the harness does not compute (`users/by_domain`). The 429 test
-  gives the five preset counters
+  hold. The 429 test gives the five preset counters
   (`corehq/project_limits/rate_counter/presets.py`) a counter store that
-  answers `incr`, `expire`, `get` and `set` as Redis does, and answers the
-  worker count as zero (`corehq/project_limits/rate_limiter.py::get_n_users_in_domain`).
-  The limits, the window arithmetic, the decorator and the answer are HQ's.
+  answers `incr`, `expire`, `get` and `set` as Redis does. The limiter
+  counts a project space's mobile workers
+  (`corehq/project_limits/rate_limiter.py::get_n_users_in_domain`) through
+  the Couch view `users/by_domain`, which the lane's base already computes
+  (`proof/hq/couch.py::VIEWS`). The test's project space holds no mobile
+  worker, so HQ's own count is zero and the space sits at the limiter's
+  floor, as in the planning run. The limits, the worker count, the window
+  arithmetic, the decorator and the answer are HQ's.
   It waits on `time.perf_counter`, outside any determinism operation, since
   the windows are wall-clock seconds.
 - The released builds of A1's tests are made with HQ's `make_build` under
@@ -1258,12 +1263,12 @@ What these tests need of the harness, each found by running them:
   prunes old automatic builds (`tasks.py::prune_auto_generated_builds`) was
   not started and `is_released` was set on the build.
 
-Locally the pull request runs `proof/hq/test_publish.py`,
-`proof/hq/test_publish_capture.py` and `proof/hq/test_retained_reads.py`,
-then the lane selected to `navigation-base`,
-`targeted-form-links-hidden-and-fallback` and `case-list-inline`. CI's full
-lane must show state A built at HQ version 2, or 3 for a document with
-media, with no new difference in proofs 1 to 5.
+Locally the pull request runs `npm run proof -- proof/hq/test_publish.py
+proof/hq/test_publish_capture.py proof/hq/test_retained_reads.py`, which need
+no served reader. On a proof machine: the lane selected to `navigation-base`,
+`targeted-form-links-hidden-and-fallback` and `case-list-inline`. The whole
+lane shows state A built at HQ version 2, or 3 for a document with media,
+with no new difference in proofs 1 to 5.
 
 ## A4. No `multimedia_map` (finding 49)
 
@@ -1390,9 +1395,10 @@ with it is under "Lane".
 | `proof/android/predicates.py::test_a_build_made_before_its_media_installs`, new | Android | `case-list-inline` | Android installs the archive of the build made before the upload (`Installed`), and refuses the same build made from an import carrying the map (`MissingResourcesWithMessage`). Both archives are written by the HQ test above into the run's output. |
 | The bar, proof 2 and proof 3 | HQ, Core | every document with media | Every file maps after the media upload (`proof/observe/publish.py::upload_media` reports none unmatched), and the media suite is unchanged. |
 
-Locally the pull request runs `npm run proof --
-proof/hq/test_publish.py`, the lane selected to `case-list-inline`, and the
-Android predicate where the reader runs.
+Locally the pull request runs `npm run proof -- proof/hq/test_publish.py`,
+which needs no served reader. On a proof machine: the lane selected to
+`case-list-inline`, and the Android predicate (`python3 -m unittest
+proof.android.predicates`).
 
 ## A5. A `.ccz` is made for one project space (findings 32 and 59)
 
@@ -1784,14 +1790,15 @@ during planning over an archive with the planned bytes written in.
 | Proof 3, the three fixed classes | Core | every document | No difference at `/runs/*/trace/*/requests/*/url`, `/runs/*/trace/*/url` or `/runs/*/trace/*/stackAfterSubmit/steps/*/value` between the local archive and HQ's build, and the three fixed entries reproducing on their controls. |
 | `proof/hq/test_publish.py::test_a_working_app_serves_what_a_ccz_names`, new | HQ | `case-list-inline` | For a working app with no build: HQ's URLconf resolves the profile's three URLs and the suite's search and case fixture URLs to their views; `get_app_cached` and `get_app_context_by_case_type` answer for the working app's id and raise `Http404` for `__APP_ID__`; `get_app_and_build_ids` gives the app with no build; after an update that adds a related-case column the context holds the new relationship at once; and the four profile strings Nova's archive holds are the strings HQ's own `create_all_files()` writes for that app. |
 | `proof/formplayer/test_local_archive.py`, rewritten from the reader's "cannot submit" | Formplayer, then HQ | `targeted-form-link-hidden-target`, `targeted-search-hq-compile` | The local archive's submit answers `success`, HQ receives one form at `/a/<domain>/receiver/<A's id>/`, the path HQ's build posts to; its search reaches HQ at `/a/<domain>/phone/search/<A's id>/`. The paired refusal is the retained pre-fix archive of the control, whose submit answers an error and sends nothing. |
-| `proof/android/predicates.py::test_a_local_archive_signs_in_and_sends_to_its_project_space`, new, with a reader request `submit` (`proof/android/src/nova/proof/android/Submit.java`) | Android | `targeted-survey-menu` | `ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL` and `HiddenPreferences.getUserDomain` give the profile's four values; a form saved complete is sent by `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, received by a loopback peer the test starts, and the task ends `FULL_SUCCESS`. The paired refusal is the control's pre-fix archive, whose readers give Android's built-in defaults; it is read and never sent. The request runs the reader's application with Android's own requester (`CommCareApplication.buildHttpRequester`) where the project's test application substitutes a mock, and the peer's address stands in for `<base>` in the archive under test. |
+| The device on the local archive in every served state (`proof/android`, beside HQ's live unit), proof 3 | Android, then HQ | every document; `targeted-survey-menu`, the planning run's | The device's profile readers (`ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL`, `HiddenPreferences.getUserDomain`) give the profile's four values; each form a walk saves complete is sent by Android's own `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, taken by HQ's receiver under A's id, and leaves the unsent list. The device's network and requester are the lane's: every request it makes is answered by HQ's own views (`proof/android/src/nova/proof/android/Peer.java`, `proof/android/hq.py`), through Android's own requester (`ProofApplication.java`), so the reader gains no request and nothing but HQ answers the send. The paired refusal is the control's pre-fix archive, whose device meets Android's built-in defaults. |
 | `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The control keeps the refusal. |
-| Proof 3, the served states and the Android stage, finding 59's three fixed classes | Formplayer with HQ's own views answering it, HQ's own receiver and Connect repeater with Connect's own server, and commcare-android's own readers and its send to a loopback receiver that hands each form to HQ's real receiver | every document, and every Connect document for Connect | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, `connect@local.ccz`'s posts answered as `connect@A`'s (the forward names the app, Connect writes its rows), and `android@local.ccz`'s `FormSubmissionHelper.getFormPostURL` the project space's receiver under the app, where today it is Android's built-in `https://staging.commcarehq.org/receiver/submit/pf`; the three fixed entries reproduce on their controls. |
+| Proof 3 over the served states, finding 59's three fixed classes | Formplayer with HQ's own views answering it, HQ's own receiver and Connect repeater with Connect's own server, and commcare-android beside HQ's live unit, its own readers, and each form it sends taken by HQ's receiver | every document, and every Connect document for Connect | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, `connect@local.ccz`'s posts answered as `connect@A`'s (the forward names the app, Connect writes its rows), and `android@local.ccz`'s `FormSubmissionHelper.getFormPostURL` the project space's receiver under the app, where today it is Android's built-in `https://staging.commcarehq.org/receiver/submit/pf`; the three fixed entries reproduce on their controls. |
 
-Locally the pull request runs the lane selected to `case-list-inline`,
-`search-hidden-link` and `search-registration-link`, `proof/hq/test_publish.py`,
-`proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`,
-and the Android predicate where the reader runs.
+Locally the pull request runs `npm run proof -- proof/hq/test_publish.py`,
+which needs no served reader. On a proof machine: the lane selected to
+`case-list-inline`, `search-hidden-link`, `search-registration-link` and
+`targeted-survey-menu`, `proof/formplayer/test_local_archive.py` and
+`proof/connect/test_receiver.py`.
 
 ## A6. The HQ import file as a ZIP with its guide
 
@@ -2016,13 +2023,13 @@ something production does not.
 | `proof/hq/test_publish.py`, `proof/hq/test_publish_capture.py` | The HQ tests A1, A3, A4 and A5 name under "Lane"; the capture test follows the two-import layout. |
 | `proof/hq/test_retained_reads.py`, `proof/hq-reads/publish/` (both new) | HQ's own answers that Nova's publish tests are served (A3, "Lane"), regenerated and held byte for byte on every run. `proof/checks/sharding.py` and `proof/store/queue.py::PACKAGE_DATA` key the test by the three controls it publishes. |
 | `proof/hq/test_import_file.py` (new) | A6's two tests of HQ's import page over the emitted import file. |
-| `proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`, `proof/android/predicates.py`, `proof/android/src/nova/proof/android/Submit.java` (new), `Reader.java` | The reader tests A1, A2, A4, A5 and A6 name. The Android reader gains the `submit` request and an application class that builds Android's own requester for it. |
+| `proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`, `proof/android/predicates.py`, `proof/android/hq.py` | The reader tests A1, A2, A4, A5 and A6 name. The Android reader gains no request: its device already signs in, syncs and sends each saved form through Android's own requester and network, answered by HQ's views, so from this pull request a device on the local archive reaches HQ at the addresses the archive names. `proof/android/hq.py`'s docstring and `proof/CLAUDE.md` say that a device meets Android's own defaults (finding 59) on the controls' pre-fix archives alone. |
 | `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. |
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts`, `proof/targeted/documents/hqSideState.ts` | A2's `planLanguageWire` signature. |
 | `proof/known-defects.json`, `proof/fixed-defects.json` | Ten entries move: A1's five, A2's two, A5's three. |
 | `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the README's "Formplayer is not run over Nova's local archives past their menus and forms" goes; the import file is imported through HQ's import page. |
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
-| Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). Register entries name a path and a class, not a value (defect 9's `d9-form-version-trace-version` names `/runs/*/trace/*/submission/data/@version`), so an entry is rewritten only where its recorded symptom text quotes the version, and then by the lane's own writer, never by hand. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and the full lane as a live entry that no longer reproduces or a difference no entry names, which fails CI. |
+| Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |
 
 No Nova TypeScript runs inside a proof shard: the capture runs at emission,
 and the shards apply its bytes.
@@ -2043,10 +2050,12 @@ and the shards apply its bytes.
   work item D (part 04). Part 04, The local profile from step 2, lists the
   whole profile; its table takes A5's four server properties as one row,
   written after `cc-app-version`.
-- The Android, Formplayer and Connect tests A1, A4, A5 and A6 name run on
-  the readers those packages hold (`proof/android`, `proof/formplayer`,
-  `proof/connect`). Part 09 says where each reader runs in CI; a test of
-  this part is one more test of that reader's package.
+- The Android, Formplayer and Connect tests A1, A2, A4, A5 and A6 name run
+  on the readers those packages hold (`proof/android`, `proof/formplayer`,
+  `proof/connect`). Part 09 says where the readers run: not in the pull
+  request lane, which runs without them, but in the nightly, the weekly and
+  on a proof machine, where the pull request proves them before it is marked
+  ready. A test of this part is one more test of that reader's package.
 - The cutover's reads, its pairing rule and its Job, and the registry of
   transform step ids and notice reasons this part uses verbatim: part 10,
   The cutover and work item F (the migration notice).
