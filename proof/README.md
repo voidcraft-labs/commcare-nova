@@ -2189,6 +2189,23 @@ are computed from its own directory (`proof.observe.unit.input_files`), and
 a run whose fingerprints and control files are unchanged judges or caches it
 rather than observing it again.
 
+The observation's code is the files `proof/observe/partition.py` names: the
+observation's directories, less every pytest test module (`test_*.py`; a
+`conftest.py` and every helper stay). A test calls the observation and is
+no part of it, so an edit to a test module moves the package groups' keys
+(the harness's fingerprint names every file under `proof/`) and observes no
+document again. That is exact while nothing the observation can import is a
+test module, which `proof/store/test_partition.py` reads from the sources
+(`ast`, over the observation's whole import closure, naming the module that
+imports one), and the read guard refuses a test module's file to an open
+observation as it refuses any file outside the partition. One test module
+outside the checks has items that run in documents' groups, HQ's branch
+proof (`proof/hq/test_branches.py`): it is the judge's
+(`proof.store.fingerprints.DOCUMENT_GROUP_TESTS`), so an edit to it judges
+every document again from its records, and the same test holds every
+collected item of a document's group to a module the judge's fingerprint
+names.
+
 The queue builder (`python3 -m proof.store.queue`, standard library and git)
 reads the restored store and makes each group cached (its every judgment held
 whole, its items passed: it runs nowhere, and the gate holds the stored
@@ -2233,12 +2250,21 @@ reused is only what a key names whole, and the reuse is audited:
   profiles, each compared with main's newest snapshot (`python3 -m
   proof.store.audit compare`); the two replace that snapshot whole, so a key
   no current run reads leaves the store once a week. Three more fresh runs,
-  each with every reader, hold a fixed 24-document sample: a baseline, one with Nova's emission and HQ unseeded,
-  compared with the baseline (equal once every drawn id and clock reading is
-  read as one value, with defects 1 and 9 still showing), and one with HQ's
-  speed seams off, compared with it (equal). A sampled run checks every control and package but only
-  the sampled documents, so it holds each register entry naming a document
-  the sample left out on its control alone ("Known defects", above). The
+  each with every reader, hold a 24-document sample: a baseline, one with
+  Nova's emission and HQ unseeded, compared with the baseline (equal once
+  every drawn id and clock reading is read as one value, with defects 1 and
+  9 still showing), and one with HQ's speed seams off, compared with it
+  (equal). The sample turns each week: the run's ISO year and week is its
+  seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
+  takes the next 24 of the corpus's documents ranked by the sha256 of their
+  ids, wrapping at the end, so every document is compared within fifteen
+  weeks (for 357), and the three runs of a week check the same sample. The
+  seed and the sample's documents are in each sampled lane's job summary,
+  its verdict and a failed week's issue, and a dispatch that names the seed
+  (`sample_seed`) runs the same sample again. A sampled run checks every
+  control and package but only the sampled documents, so it holds each
+  register entry naming a document the sample left out on its control alone
+  ("Known defects", above). The
   whole lane with every reader also verifies every memo on every hit, reruns
   every editor view the slow way and holds every document's HQ branches to
   fresh states. Each must hold, and a scheduled week that fails opens an
@@ -2959,7 +2985,12 @@ its problems:
    ran fails, whatever they wrote), every group ran every item its worker
    collected, cached groups ran nowhere, and the shards collected alike.
 2. **Tests**: every item that ran passed, or ended as pytest's marks on it
-   allow.
+   allow. A skipped item holds, so nothing in the lane skips for what the
+   image or the corpus should hold: a missing tool (`openssl`, for the device
+   network's proxy) or a missing targeted document fails its test by name.
+   The one skip is the `under_determinism` tests where a run leaves HQ's
+   determinism off or the corpus unseeded (the weekly's unseeded lane), which
+   is that lane's purpose.
 3. **Register**: the evidence of every block that ran, with the cached groups'
    evidence read from the store, held to `proof/known-defects.json`, and
    every entry seen on its document and its control.
@@ -3144,8 +3175,8 @@ the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are modelled, not measured on hosted runs: `plan fit`
 over the queues the queue builder's own code makes for each change, from
-this commit's corpus (355 documents, 69 controls, 29 package groups: 453
-groups, 4,019 box-seconds whole) and `proof/timings.json`, with a store taken
+this commit's corpus (357 documents, 69 controls, 29 package groups: 455
+groups, 4,045 box-seconds whole) and `proof/timings.json`, with a store taken
 to hold everything the change's keys do not move.
 
 | The change | Groups that run | Shards | Expected end |
@@ -3155,14 +3186,14 @@ to hold everything the change's keys do not move.
 | 40 documents | 56 or 57, 13 of them package groups | 3 | 8.8 min (520 to 530 s) |
 | 100 documents | 125 to 127, 23 of them package groups | 7 | 9.8 min (587 s) |
 | A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 33: every package group and the audit sample | 3 | 8.8 min (529 s) |
-| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface) | all 453, the documents and controls judged from their stored records | 5 | 10.4 min (625 s) |
-| The observation's code (most of `proof/`: `proof.observe.partition`), the image, or most documents | all 453, observed afresh | 13 | 12.8 min (769 s) |
+| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 33: every package group and the audit sample | 3 | 8.8 min (529 s) |
+| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 455, the documents and controls judged from their stored records | 5 or 6 | 10.2 to 10.4 min (610 to 625 s) |
+| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 455, observed afresh | 14 | 12.8 min (768 s) |
 
-A change to most of `proof/` is the last row: the observation partition
-holds every file under `proof/observe`, `proof/hq`, `proof/lane`,
-`proof/store`, `proof/editors` and the readers' packages, their test modules
-among them, and a change to any of them observes every document again. An
-emission change in Nova re-emits most documents, so the last row is a
+A test module is no part of the observation ("The evidence store and its
+audits"), so an edit to one runs the package groups and leaves every
+document cached; an edit to a module the observation runs is the last row.
+An emission change in Nova re-emits most documents, so the last row is a
 common case and not a rare one.
 
 The pin pull request is prewarmed in the pull request lane's profile

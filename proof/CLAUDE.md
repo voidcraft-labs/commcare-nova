@@ -181,7 +181,16 @@ harness keeps, each with its reason.
   observation that ran code or read a file outside its partition, would make
   that reuse wrong: put code a record depends on in the partition
   (`observes`), and `test_judge_purity.py` and the store's read guard hold the
-  rest. The surface extractor, the spelling rules' proofs and the native
+  rest. A pytest test module (`test_*.py`) is in no observation, so an edit
+  to a test observes no document again (on the nightly that would be the
+  whole lane with every reader); it stays exact only while nothing the
+  observation can import is a test module, which
+  `proof/store/test_partition.py` holds from the sources: a module the
+  observation can reach never imports a test module (what it needs of one
+  moves into a helper beside it). A test module whose items run in
+  documents' groups is the judge's (`fingerprints.DOCUMENT_GROUP_TESTS`,
+  HQ's branch proof); the same test fails while another collects one
+  unnamed. The surface extractor, the spelling rules' proofs and the native
   proofs also run HQ or Core, as package groups keyed by every file of the
   harness.
 - **Every HQ, Core and browser input is deterministic from a content key.**
@@ -200,7 +209,10 @@ harness keeps, each with its reason.
   other entry holds on its document and still show on its control (step 1's
   decision 12, `proof/README.md`). A fix removes its entry in the same pull
   request. Never skip, mark, loosen a comparator or widen a path to make the
-  lane pass. A spelling rule erases exactly one spelling, and tests run both
+  lane pass. A skipped item holds at the gate, so a test never skips for
+  what the image or the corpus should hold (a tool, a document every
+  emission writes): it fails by name. The one skip is `under_determinism`
+  where a lane leaves HQ's determinism off, which is that lane's purpose. A spelling rule erases exactly one spelling, and tests run both
   spellings on every reader of it to show none depends on it: HQ's build
   and Core's trace in the rule's own test, and, where its readers are
   others, each of those too, run for real and named by the rule
@@ -268,7 +280,10 @@ harness keeps, each with its reason.
     merged into the snapshot every pull request reads.
   - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
     that proves the store's keys and replaces the snapshot, beside the
-    sampled comparisons.
+    comparisons over a 24-document sample that turns each week (its seed
+    the run's ISO year and week, so every document is compared within
+    fifteen weeks, and a dispatch that names the seed runs the same sample
+    again).
   The lane with every reader costs about 300 worker-hours whole, against
   GitHub's free plan of twenty jobs at once and six hours a job, so each
   lane with the readers sizes its shards from its queue
