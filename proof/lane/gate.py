@@ -22,7 +22,8 @@ output. Four sections, each with its problems:
    (``proof.lane.reader``), held to ``proof/known-defects.json``. A run over
    a sample of the corpus (its main queue names the documents the sample
    leaves out, ``unsampled``) holds each entry naming one of those on its
-   control alone, and the section says how many entries it held so. A run
+   control alone, and the section says how many entries it held so, which
+   documents the sample kept and the seed that chose them (``sample``). A run
    without the readers (its queues say ``readers: false``,
    ``proof.lane.readers``) leaves the served readers' entries
    (``proof.checks.registers.served_entry``) to the nightly and holds every
@@ -195,6 +196,14 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
             f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
             f" {len(held) - on_control_alone} were held on their documents and controls."
         )
+    sample = next((queue.sample for _, queue in queues if queue.sample is not None), None)
+    if sample is not None:
+        chosen = (
+            f"the one the seed {sample.seed} chooses; name that seed to run the same sample again"
+            if sample.seed is not None
+            else "the first of the ranking, which no seed chose"
+        )
+        notes.append(f"The sample is {chosen}. Its {len(sample.documents)} documents: {', '.join(sample.documents)}.")
     sections["register"] = _section(
         problems,
         notes,
@@ -212,6 +221,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         "holds": all(section["holds"] for section in sections.values()),
         "sections": sections,
         "failing": [{**entry, "items": collected.get(group, [])} for group, entry in sorted(by_group.items())],
+        **({"sample": {"seed": sample.seed, "documents": list(sample.documents)}} if sample is not None else {}),
     }
 
 

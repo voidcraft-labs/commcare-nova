@@ -80,9 +80,13 @@ on:
         type: string
         default: ''
       documents:
-        description: Which corpus documents to queue (all, or sample:<n> for the queue builder's fixed sample of n)
+        description: Which corpus documents to queue (all, or sample:<n> for a sample of n the queue builder chooses)
         type: string
         default: all
+      sample-seed:
+        description: The ISO year and week that chooses a sample's window of the corpus (2026-W42; the ranking's first n without one)
+        type: string
+        default: ''
       store:
         description: none, compare (with main's snapshot), save (compare, then save as main's newest), or pack (compare, then upload the packed snapshot as proof-store-<label>-<attempt> for proof-store-save.yml)
         type: string
@@ -183,6 +187,7 @@ jobs:
       - name: Build the queues
         env:
           DOCUMENTS: ${{ inputs.documents }}
+          SAMPLE_SEED: ${{ inputs.sample-seed }}
           ARCH: ${{ inputs.arch }}
           LANE_ENV: ${{ inputs.lane-env }}
           FRESH: ${{ inputs.fresh }}
@@ -200,6 +205,9 @@ jobs:
             early=(--store "$RUNNER_TEMP/store/main")
             main=(--store "$RUNNER_TEMP/store/main" --audit-seed "$GITHUB_RUN_ID")
           fi
+          # A sample's window of the corpus, where the caller names its seed; the builder writes the seed and the
+          # sample into this job's summary, and the gate into its verdict.
+          if [ -n "$SAMPLE_SEED" ]; then main+=(--sample-seed "$SAMPLE_SEED"); fi
           python3 -m proof.store.queue early "${early[@]}" --timings proof/timings.json --arch "$ARCH" \
             "${lane_env[@]}" --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           python3 -m proof.store.queue main "${main[@]}" --documents "$DOCUMENTS" \

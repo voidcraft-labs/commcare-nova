@@ -3,7 +3,8 @@
     python3 -m proof.store.queue early [--store DIR]... [--timings FILE] [--arch A] [--image I] [--fresh]
         --out FILE
     python3 -m proof.store.queue main --corpus DIR [--store DIR]... [--timings FILE] [--arch A] [--image I]
-        [--audit-seed TEXT] [--audit-units N] [--fresh] [--no-dedupe] [--documents all|sample:N] --out FILE
+        [--audit-seed TEXT] [--audit-units N] [--fresh] [--no-dedupe] [--documents all|sample:N]
+        [--sample-seed YYYY-Www] --out FILE
 
 The early queue holds the groups whose tests read no corpus
 (``proof.lane.blocks.reads_corpus``): the surface block and every other
@@ -54,12 +55,20 @@ A package whose tests read the corpus is keyed by what they read of it
 (``PACKAGE_DATA``): the corpus's documents, or only those a test module
 names in a constant (read from its source, never imported), with the
 corpus's index; and the native products it carries.
-``--documents sample:N`` keeps N documents, chosen by sha256 of their ids,
-and rewrites the corpus's ``index.json`` to list them alone, so the lane
-collects only those, and the rest under ``unsampled``: their files stay, so
-a package test that names one still reads it, and the queue names them
-(``unsampled``), so the gate holds the register's entries naming one on
-their controls alone (``proof.checks.registers.verify_evidence``).
+``--documents sample:N`` keeps N documents, a window of the corpus's
+documents ranked by sha256 of their ids, and rewrites the corpus's
+``index.json`` to list them alone, so the lane collects only those, and the
+rest under ``unsampled``: their files stay, so a package test that names one
+still reads it, and the queue names them (``unsampled``), so the gate holds
+the register's entries naming one on their controls alone
+(``proof.checks.registers.verify_evidence``). ``--sample-seed`` (an ISO year
+and week, ``2026-W42``) chooses the window: each week takes the next N of
+the ranking, wrapping at its end, so every document is in some week's sample
+within as many weeks as the corpus holds samples (fifteen, for 24 of 357),
+and the same seed gives the same sample again; without a seed the sample is
+the ranking's first N. The queue names the sample and its seed (``sample``),
+and the builder writes both into the job's summary where
+``$GITHUB_STEP_SUMMARY`` is set.
 
 Each queued group names its key (``key``): a document's document key, a
 package's or the surface block's outcome key, which ``proof.store.pack``
@@ -84,8 +93,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import datetime
 import hashlib
 import json
+import math
+import os
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -206,13 +219,37 @@ def control_groups(known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROL
     return sorted(f"control:{name}" for name in named if isinstance(name, str) and (controls / name).is_dir())
 
 
-def sampled(corpus: Path, count: int) -> list[str]:
-    """Keep ``count`` documents, chosen by the sha256 of their ids, rewriting ``index.json`` to list them alone and
-    the others under ``unsampled``."""
+SAMPLE_SEED = re.compile(r"(\d{4})-W(\d{2})")
+
+
+def sample_week(seed: str) -> int:
+    """The ISO week ``seed`` names (``2026-W42``), counted so that each week is one more than the week before."""
+    match = SAMPLE_SEED.fullmatch(seed)
+    try:
+        if match is None:
+            raise ValueError("it is not written as a year and a week")
+        monday = datetime.date.fromisocalendar(int(match[1]), int(match[2]), 1)
+    except ValueError as error:
+        raise QueueBuildError(
+            f"--sample-seed names the ISO year and week a sample is chosen for, as 2026-W42; got {seed!r} ({error})."
+        ) from error
+    # Year 1's first day is a Monday, so the Mondays' ordinals are a week apart from 1.
+    return monday.toordinal() // 7
+
+
+def sampled(corpus: Path, count: int, seed: str | None = None) -> list[str]:
+    """Keep ``count`` documents, rewriting ``index.json`` to list them alone and the others under ``unsampled``.
+
+    The documents are ranked by the sha256 of their ids, and the sample is a window of that ranking: its first
+    ``count`` without a seed, and with one (``sample_week``) the window that week's turn gives, each week the
+    next ``count``, wrapping at the ranking's end so every sample holds ``count`` documents.
+    """
     path = corpus / "index.json"
     index = json.loads(path.read_text(encoding="utf-8"))
     ranked = sorted(index["documents"], key=lambda entry: hashlib.sha256(f"sample\n{entry['id']}".encode()).hexdigest())
-    kept = {entry["id"] for entry in ranked[:count]}
+    size = min(count, len(ranked))
+    start = (sample_week(seed) % math.ceil(len(ranked) / size)) * size if seed is not None and size else 0
+    kept = {ranked[(start + offset) % len(ranked)]["id"] for offset in range(size)}
     left = [entry for entry in index["documents"] if entry["id"] not in kept]
     index["documents"] = [entry for entry in index["documents"] if entry["id"] in kept]
     index["unsampled"] = [*index.get("unsampled", []), *left]
@@ -409,7 +446,14 @@ def _by_name(group: Group) -> str:
 
 
 def queue_value(
-    groups: list[Group], found: dict, *, dedupe: bool = True, unsampled=(), readers: bool = True, environment=None
+    groups: list[Group],
+    found: dict,
+    *,
+    dedupe: bool = True,
+    unsampled=(),
+    readers: bool = True,
+    environment=None,
+    sample: lane_blocks.Sample | None = None,
 ) -> dict:
     running = [group for group in groups if group.status != "cached"]
     by_name = {group.name: group for group in groups}
@@ -425,6 +469,7 @@ def queue_value(
             dict(sorted(found.items())),
             tuple(sorted(unsampled)),
             readers,
+            sample,
         )
     )
     for block in value["blocks"]:
@@ -494,6 +539,19 @@ def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR) -> 
     return groups
 
 
+def described_sample(sample: lane_blocks.Sample, corpus_documents: int) -> str:
+    """A sample as a run's summary names it: its seed, how to run it again, and its documents."""
+    chosen = (
+        f"the one the seed `{sample.seed}` chooses (`--sample-seed {sample.seed}` runs the same sample again)"
+        if sample.seed is not None
+        else "the first of the ranking (no seed was named)"
+    )
+    return (
+        f"This run checks a sample of {len(sample.documents)} of the corpus's {corpus_documents} documents, {chosen}:"
+        f" {', '.join(sample.documents)}."
+    )
+
+
 def write_queue(path: Path, value: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -514,6 +572,7 @@ def main(argv=None) -> int:
     parser.add_argument("--fresh", action="store_true", help="every group fresh, nothing read from the store")
     parser.add_argument("--no-dedupe", action="store_true", help="no two documents share a block for their inputs")
     parser.add_argument("--documents", default="all", help="all, or sample:N")
+    parser.add_argument("--sample-seed", help="the ISO year and week that chooses a sample's window (2026-W42)")
     parser.add_argument(
         "--lane-env",
         action="append",
@@ -530,13 +589,18 @@ def main(argv=None) -> int:
             raise QueueBuildError(
                 f"The {arguments.phase} queue holds the corpus's documents: name the corpus with --corpus."
             )
+        sample = None
         if arguments.documents != "all":
             kind, _, count = arguments.documents.partition(":")
             if kind != "sample" or not count.isdecimal() or int(count) < 1 or arguments.phase != "main":
                 raise QueueBuildError(
                     f"--documents is all or sample:N for the main queue; got {arguments.documents!r}."
                 )
-            sampled(arguments.corpus, int(count))
+            sample = lane_blocks.Sample(
+                tuple(sampled(arguments.corpus, int(count), arguments.sample_seed)), arguments.sample_seed
+            )
+        elif arguments.sample_seed is not None:
+            raise QueueBuildError("--sample-seed chooses a sample's window, and --documents names no sample.")
         environ = {}
         for assignment in arguments.lane_env:
             name, equals, value = assignment.partition("=")
@@ -564,7 +628,13 @@ def main(argv=None) -> int:
                 audit_sample(groups, arguments.audit_seed, arguments.audit_units)
         dedupe = not arguments.no_dedupe
         value = queue_value(
-            groups, found, dedupe=dedupe, unsampled=unsampled, readers=builder.readers, environment=builder.environ
+            groups,
+            found,
+            dedupe=dedupe,
+            unsampled=unsampled,
+            readers=builder.readers,
+            environment=builder.environ,
+            sample=sample,
         )
         write_queue(arguments.out, value)
     except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
@@ -577,6 +647,13 @@ def main(argv=None) -> int:
         f"The {arguments.phase} queue{profile} holds {len(value['blocks'])} blocks; {classes}; {len(value['fresh'])}"
         f" fresh{left_out}; built in {time.perf_counter() - started:.2f} s."
     )
+    if sample is not None:
+        said = described_sample(sample, len(sample.documents) + len(value.get("unsampled", ())))
+        print(said)
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as output:
+                output.write(f"## Corpus sample\n\n{said}\n")
     return 0
 
 

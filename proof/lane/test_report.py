@@ -8,7 +8,9 @@ every item of it, a package's its failing items, each by node id; a group that n
 says it may select more. A lane with no verdict is named as that, and a failing lane whose problems name no group
 quotes them. The plausible failures: an issue that says only that the night failed, a command that reruns more
 than the group (a ``-k`` another document's name contains) or one the reader cannot paste, a reader's failure
-sent to a machine with no reader, and a lane that died before its gate passing for one that held.
+sent to a machine with no reader, and a lane that died before its gate passing for one that held. The weekly's
+comparison lanes check a sample that turns each week, so its issue names the seed and each sampled lane's
+documents, and the dispatch that runs the same sample again; a failure on a sample no one can name again is one.
 """
 
 from __future__ import annotations
@@ -100,6 +102,7 @@ def test_a_slice_of_readers_a_group_that_never_ran_and_a_lane_without_a_verdict_
     assert body.count("Its items could not be named one by one, so this selects by path and may run more.") == 2
     assert "### Lane `weekly-no-readers`\n\nIt uploaded no verdict" in body
     assert "### Lane `weekly-baseline` (with every reader)\n\nIts verdict held." in body
+    assert "sample_seed" not in body
     unseeded = body.split("### Lane `weekly-unseeded`")[1]
     assert "- Fails: Every difference holds to the register (1 problem). The first:" in unseeded
     assert "  - The queues were built for different readers." in unseeded
@@ -115,6 +118,24 @@ def test_a_slice_of_readers_a_group_that_never_ran_and_a_lane_without_a_verdict_
     assert "### Lane `audit-no-readers` (with no reader)\n\nIts verdict held." in written
     assert "### Lane `audit`\n\nIt uploaded no verdict" in written
     assert report.main([*arguments, "--lane", "audit"]) == 2
+
+
+def test_a_weeks_issue_names_the_sample_and_the_seed_that_runs_it_again():
+    sampled = {
+        **_verdict(True, [], problems=()),
+        "holds": True,
+        "sample": {"seed": "2026-W42", "documents": ["a", "b"]},
+    }
+    failed = {**_verdict(True, [DOCUMENT]), "sample": {"seed": "2026-W42", "documents": ["a", "b"]}}
+    lanes = [("weekly-baseline", sampled), ("weekly-unseeded", failed), ("weekly-verified", _verdict(True, [DOCUMENT]))]
+    body = report.body("weekly", "u", "c", lanes, "2026-W42")
+    assert "the corpus sample the seed `2026-W42` chooses, which turns each week" in body
+    assert "gh workflow run proof-audit.yml -f nightly=false -f weekly=true -f sample_seed=2026-W42" in body
+    line = "It checked a sample of 2 documents (seed `2026-W42`): a, b."
+    assert f"### Lane `weekly-baseline` (with every reader)\n\n{line}\n\nIts verdict held." in body
+    assert f"### Lane `weekly-unseeded` (with every reader)\n\n{line}\n\n- Fails:" in body
+    # A lane over the whole corpus names no sample.
+    assert "It checked a sample" not in body.split("### Lane `weekly-verified`")[1]
 
 
 def test_a_package_with_more_failures_than_a_command_names_reruns_the_modules_that_hold_them():

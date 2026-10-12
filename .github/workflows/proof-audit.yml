@@ -31,9 +31,10 @@ name: Proof audit
 # that differs is a key that missed an input, and fails the run with both
 # records uploaded), and the two replace main's snapshot whole, so a key no
 # current run reads leaves the store once a week. Three more runs hold the
-# queue builder's fixed 24-document sample (a sampled run holds each register
-# entry naming a document the sample left out on its control alone, and its
-# verdict says so): a baseline; Nova's emission and HQ unseeded (their draws
+# queue builder's 24-document sample, which turns each week so every document
+# is compared within fifteen weeks (a sampled run holds each register entry
+# naming a document the sample left out on its control alone, and its verdict
+# says so, with the seed that chose the sample): a baseline; Nova's emission and HQ unseeded (their draws
 # and clocks left real), compared with the baseline, which must change
 # nothing but the masked values; and HQ's speed seams off (the XPath
 # validator server, the settings memo, the cached templates), compared with
@@ -59,6 +60,10 @@ on:
         description: Run the weekly fresh audit and comparisons as well
         type: boolean
         default: false
+      sample_seed:
+        description: The ISO year and week whose sample the weekly comparisons check (2026-W42); this week's when empty
+        type: string
+        default: ''
 
 permissions: {}
 
@@ -183,37 +188,60 @@ jobs:
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "The proof lane's nightly run failed" --body-file "$RUNNER_TEMP/issue.md"
 
+  # The comparisons' sample turns each week: the seed is the run's ISO year and week (or the one a dispatch
+  # names, to run a past week's sample again), and the queue builder takes that week's window of the corpus's
+  # documents (python3 -m proof.store.queue --sample-seed), so every document is compared within as many weeks
+  # as the corpus holds samples of 24 (fifteen, for 357). The three lanes below check the same sample.
+  weekly-sample:
+    name: This week's comparison sample
+    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+    steps:
+      - id: seed
+        env:
+          NAMED: ${{ inputs.sample_seed }}
+        run: |
+          seed="${NAMED:-$(date -u +%G-W%V)}"
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "The weekly comparisons check the corpus sample the seed \`$seed\` chooses; each sampled lane's summary lists its documents. Dispatch the audit with \`sample_seed=$seed\` to run the same sample again." >> "$GITHUB_STEP_SUMMARY"
+
   weekly-baseline:
     name: Weekly baseline
-    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    needs: weekly-sample
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
       label: weekly-baseline
       documents: sample:24
+      sample-seed: ${{ needs.weekly-sample.outputs.seed }}
 
   weekly-unseeded:
     name: Weekly, every clock and draw left real
-    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    needs: weekly-sample
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
       label: weekly-unseeded
       documents: sample:24
+      sample-seed: ${{ needs.weekly-sample.outputs.seed }}
       emission-env: PROOF_ENTROPY=real
       lane-env: PROOF_HQ_DETERMINISM=0
 
   weekly-unseamed:
     name: Weekly, HQ's speed seams off
-    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    needs: weekly-sample
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
       label: weekly-unseamed
       documents: sample:24
+      sample-seed: ${{ needs.weekly-sample.outputs.seed }}
       lane-env: PROOF_HQ_SPEED=0
 
   weekly-verified:
@@ -307,7 +335,7 @@ jobs:
   # does: each lane's failing groups and the command that reruns each alone.
   weekly-report:
     name: Report a failed week
-    needs: [weekly-compare, weekly-no-readers, weekly-save]
+    needs: [weekly-sample, weekly-compare, weekly-no-readers, weekly-save]
     if: ${{ always() && github.event.schedule == '41 4 * * 0' && (contains(needs.*.result, 'failure') || needs.weekly-compare.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -327,12 +355,15 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SAMPLE_SEED: ${{ needs.weekly-sample.outputs.seed }}
         run: |
           lanes=()
           for label in weekly-verified weekly-no-readers weekly-baseline weekly-unseeded weekly-unseamed; do
             lanes+=(--lane "$label=$RUNNER_TEMP/verdicts/proof-lane-verdict-$label-$GITHUB_RUN_ATTEMPT/verdict/verdict.json")
           done
+          seed=()
+          if [ -n "$SAMPLE_SEED" ]; then seed=(--sample-seed "$SAMPLE_SEED"); fi
           python3 -m proof.lane.report --kind weekly --run "$RUN_URL" --commit "$GITHUB_SHA" "${lanes[@]}" \
-            --out "$RUNNER_TEMP/issue.md"
+            "${seed[@]}" --out "$RUNNER_TEMP/issue.md"
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "The proof lane's weekly audit failed" --body-file "$RUNNER_TEMP/issue.md"

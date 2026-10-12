@@ -297,6 +297,17 @@ def test_a_sampled_run_holds_the_entries_on_documents_it_left_out_on_their_contr
         " and controls."
     ]
     assert "Note: This run checked a sample of the corpus" in gate._markdown(sampled)
+    assert "sample" not in sampled
+
+    # A queue that names its sample's seed: the verdict and the summary say which sample was judged.
+    queue.write_text(json.dumps({**value, "unsampled": ["b", "c"], "sample": {"seed": "2026-W42", "documents": ["a"]}}))
+    seeded = _run(output, queue, committed)
+    assert seeded["holds"] and seeded["sample"] == {"seed": "2026-W42", "documents": ["a"]}
+    assert seeded["sections"]["register"]["notes"][1] == (
+        "The sample is the one the seed 2026-W42 chooses; name that seed to run the same sample again. Its 1"
+        " documents: a."
+    )
+    assert "Note: The sample is the one the seed 2026-W42 chooses" in gate._markdown(seeded)
 
 
 def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):

@@ -54,6 +54,7 @@ from proof.store.conftest import (
     observe_into,
     records_of,
     write_block,
+    write_corpus,
     write_files,
     write_inputs,
 )
@@ -379,6 +380,52 @@ def test_the_early_queue_reads_no_corpus_and_the_main_queue_holds_what_reads_it(
     left = sorted({"one", "two"} - set(kept))
     assert [entry["id"] for entry in index["unsampled"]] == left and sampled["unsampled"] == left
     assert queue.main(["early", "--documents", "sample:1", "--out", str(tmp_path / "x.json")]) == 2
+
+
+def test_a_seeded_sample_is_its_weeks_window_so_every_document_has_its_week(tmp_path, lane, monkeypatch, capsys):
+    """``--sample-seed`` (an ISO year and week): each week checks the next window of the corpus's documents, the
+    same seed the same sample, and the queue and the job's summary name the seed and the sample."""
+    checkout, _ = lane
+    documents = {name: {"create": name} for name in ("a", "b", "c", "d", "e")}
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    def sample(seed, name):
+        corpus = write_corpus(tmp_path / name, documents)
+        arguments = ["--documents", "sample:2", *(["--sample-seed", seed] if seed else [])]
+        return _build(checkout, tmp_path / f"{name}.json", *arguments, corpus=corpus)
+
+    # Five documents in samples of two: three windows, so any three weeks in a row check every document, across
+    # a year's end as within it; the last window wraps, so each sample holds two.
+    weeks = ["2026-W52", "2026-W53", "2027-W01", "2027-W02"]
+    found = [sample(seed, f"week-{index}") for index, seed in enumerate(weeks)]
+    kept = [value["sample"]["documents"] for value in found]
+    assert all(len(names) == 2 for names in kept)
+    assert set(kept[0] + kept[1] + kept[2]) == set(documents) == set(kept[1] + kept[2] + kept[3])
+    assert kept[3] == kept[0] and kept[0] != kept[1]
+    assert [value["sample"]["seed"] for value in found] == weeks
+    assert sorted(kept[0] + found[0]["unsampled"]) == sorted(documents)
+    # The same seed gives the same sample again; no seed, the ranking's first window, whatever the week.
+    assert sample("2026-W53", "again")["sample"] == found[1]["sample"]
+    unseeded = sample(None, "unseeded")["sample"]
+    assert unseeded["seed"] is None and unseeded["documents"] == sample(None, "unseeded-again")["sample"]["documents"]
+    # The queue is one the lane reads, and the builder says the seed and the sample where the job's summary is.
+    assert lane_blocks.parse_queue(found[0]).sample == lane_blocks.Sample(tuple(kept[0]), "2026-W52")
+    said = summary.read_text()
+    listed = ", ".join(kept[0])
+    assert (
+        f"the one the seed `2026-W52` chooses (`--sample-seed 2026-W52` runs the same sample again): {listed}." in said
+    )
+    assert "This run checks a sample of 2 of the corpus's 5 documents" in said
+
+    # A seed that names no ISO week, or one with no sample to choose, is refused.
+    capsys.readouterr()
+    corpus = write_corpus(tmp_path / "refused", documents)
+    base = ["main", "--root", str(checkout), "--arch", "arm64", "--corpus", str(corpus), "--out", str(tmp_path / "x")]
+    assert queue.main([*base, "--documents", "sample:2", "--sample-seed", "2026-W54"]) == 2
+    assert "--sample-seed names the ISO year and week" in capsys.readouterr().err
+    assert queue.main([*base, "--sample-seed", "2026-W42"]) == 2
+    assert "--documents names no sample" in capsys.readouterr().err
 
 
 def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_the_rest_apart(tmp_path, lane):

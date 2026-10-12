@@ -13,6 +13,7 @@ for a run without one, by the server from its own collection
                  "groups": [{"group": <group>, "fresh": <bool>}, ...]}, ...],
      "cached": [{"group": <group>, "judgments": {<check>: <judgment key>}}, ...],
      "unsampled": [<document id>, ...],
+     "sample": {"seed": <ISO year and week> | null, "documents": [<document id>, ...]},
      "readers": false | [<reader>, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
@@ -34,7 +35,9 @@ it), which the planner reads for the longest group a shard holds
 ``unsampled``, only in the queue of a run over a sample of the corpus
 (``proof.store.queue.sampled``), names the corpus documents the sample
 leaves out (``unsampled_documents``): none of them runs, and the gate holds
-the register's entries naming one on their controls alone. ``readers``, only
+the register's entries naming one on their controls alone. ``sample``, in
+the same queue, names the documents the sample kept and the seed that chose
+them, so a verdict says which sample it judged and how to run it again. ``readers``, only
 in the queue of a run that observes not every reader (``PROOF_READERS``,
 ``proof.lane.readers``), is false for none or the list of those it observes:
 the server refuses a queue built for another set than its own, and the gate
@@ -186,6 +189,14 @@ class CachedGroup:
 
 
 @dataclass(frozen=True)
+class Sample:
+    """The documents a sampled run checks, and the seed that chose them (None for the ranking's first)."""
+
+    documents: tuple[str, ...]
+    seed: str | None = None
+
+
+@dataclass(frozen=True)
 class Queue:
     blocks: tuple[Block, ...]
     cached: tuple[CachedGroup, ...] = ()
@@ -194,6 +205,8 @@ class Queue:
     unsampled: tuple[str, ...] = ()
     # The readers the run hands its served states to (proof.lane.readers).
     readers: frozenset = lane_readers.EVERY
+    # The sample a sampled run checks; None for a run over the whole corpus.
+    sample: Sample | None = None
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
@@ -288,9 +301,20 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
     except lane_readers.ReadersError as error:
         problems.append(str(error))
         readers = lane_readers.EVERY
+    sample = None
+    raw_sample = value.get("sample")
+    if raw_sample is not None:
+        documents = raw_sample.get("documents") if isinstance(raw_sample, dict) else None
+        seed = raw_sample.get("seed") if isinstance(raw_sample, dict) else None
+        if not isinstance(documents, list) or not all(isinstance(name, str) and name for name in documents):
+            problems.append("its sample names no list of document ids")
+        elif seed is not None and not isinstance(seed, str):
+            problems.append(f"its sample's seed is {seed!r}, not the text that chose it")
+        else:
+            sample = Sample(tuple(documents), seed)
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers)
+    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample)
 
 
 def load_queue(path: Path, *, check_names: bool = True) -> Queue:
@@ -318,6 +342,11 @@ def queue_json(queue: Queue) -> dict:
         ],
         "cached": [{"group": cached.group, "judgments": dict(cached.judgments)} for cached in queue.cached],
         **({"unsampled": list(queue.unsampled)} if queue.unsampled else {}),
+        **(
+            {"sample": {"seed": queue.sample.seed, "documents": list(queue.sample.documents)}}
+            if queue.sample is not None
+            else {}
+        ),
         **({} if queue.readers == lane_readers.EVERY else {"readers": lane_readers.to_record(queue.readers)}),
     }
 

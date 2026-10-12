@@ -62,6 +62,12 @@ def test_a_lane_queue_is_read_whole():
     sampled = lane_blocks.parse_queue({**_queue(), "unsampled": ["c", "d"]})
     assert sampled.unsampled == ("c", "d")
     assert lane_blocks.parse_queue(lane_blocks.queue_json(sampled)) == sampled
+    # A sampled queue names the documents its sample kept and the seed that chose them.
+    assert queue.sample is None and "sample" not in lane_blocks.queue_json(queue)
+    seeded = lane_blocks.parse_queue({**_queue(), "sample": {"seed": "2026-W42", "documents": ["a"]}})
+    assert seeded.sample == lane_blocks.Sample(("a",), "2026-W42")
+    assert lane_blocks.parse_queue(lane_blocks.queue_json(seeded)) == seeded
+    assert lane_blocks.parse_queue({**_queue(), "sample": {"seed": None, "documents": ["a"]}}).sample.seed is None
 
 
 def _refusal(change):
@@ -117,6 +123,16 @@ def test_a_document_both_run_and_left_out_of_the_sample_is_refused():
         value["unsampled"] = "c"
 
     assert "unsampled documents are not a list of document ids" in _refusal(malformed)
+
+    def unnamed(value):
+        value["sample"] = {"seed": "2026-W42"}
+
+    assert "its sample names no list of document ids" in _refusal(unnamed)
+
+    def unseeded(value):
+        value["sample"] = {"seed": 42, "documents": ["a"]}
+
+    assert "its sample's seed is 42" in _refusal(unseeded)
 
 
 def test_a_fresh_flag_that_is_not_a_boolean_and_a_name_no_queue_holds_are_refused():

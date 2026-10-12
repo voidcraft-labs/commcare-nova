@@ -27,6 +27,11 @@ section opens with the gate's sections that failed and their first problems,
 so a problem that names no one group is still read. A lane that uploaded no
 verdict is named as that. Past ``MOST_GROUPS`` groups a lane's list stops and
 says how many more the verdict names, since an issue's body is bounded.
+
+The weekly's comparison lanes check a sample of the corpus that turns each
+week (``proof.store.queue.sampled``), so the issue names the seed that chose
+it (``--sample-seed``, and each sampled lane's verdict) and the sample's
+documents, and how to run the week again on the same sample.
 """
 
 from __future__ import annotations
@@ -125,9 +130,15 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str]) -> list[str]
         ]
     readers = lane_readers.from_record(verdict.get("sections", {}).get("register", {}).get("readers"))
     title = f"### Lane `{label}` (with {lane_readers.described(readers)})"
+    sample = verdict.get("sample")
+    sampled = []
+    if sample:
+        seed = f"seed `{sample['seed']}`" if sample.get("seed") else "no seed, the ranking's first"
+        documents = ", ".join(sample["documents"])
+        sampled = [f"It checked a sample of {len(sample['documents'])} documents ({seed}): {documents}.", ""]
     if verdict.get("holds"):
-        return [title, "", "Its verdict held.", ""]
-    lines = [title, ""]
+        return [title, "", *sampled, "Its verdict held.", ""]
+    lines = [title, "", *sampled]
     for key, section in verdict.get("sections", {}).items():
         problems = [problem for problem in section.get("problems", []) if not problem.startswith("  ")]
         if not problems:
@@ -167,7 +178,9 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str]) -> list[str]
     return lines
 
 
-def body(kind: str, run: str, commit: str, lanes: Sequence[tuple[str, Mapping | None]]) -> str:
+def body(
+    kind: str, run: str, commit: str, lanes: Sequence[tuple[str, Mapping | None]], sample_seed: str | None = None
+) -> str:
     """The issue's body in Markdown."""
     without = {
         entry["group"]
@@ -188,6 +201,16 @@ def body(kind: str, run: str, commit: str, lanes: Sequence[tuple[str, Mapping | 
         " register's entries on documents it did not run as not run, so read the problems that name your group.",
         "",
     ]
+    if sample_seed:
+        lines += [
+            f"The comparison lanes checked the corpus sample the seed `{sample_seed}` chooses, which turns each"
+            " week. To run the week again on the same sample, dispatch the audit with that seed:",
+            "",
+            "```bash",
+            f"gh workflow run proof-audit.yml -f nightly=false -f weekly=true -f sample_seed={sample_seed}",
+            "```",
+            "",
+        ]
     for label, verdict in lanes:
         lines += _lane(label, verdict, without)
     return "\n".join(lines).rstrip() + "\n"
@@ -207,6 +230,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run", required=True, help="the run's URL")
     parser.add_argument("--commit", required=True, help="the commit the run checked")
     parser.add_argument("--lane", action="append", default=[], metavar="LABEL=VERDICT", help="a lane's verdict")
+    parser.add_argument("--sample-seed", help="the seed that chose the comparison lanes' sample (the weekly's)")
     parser.add_argument("--out", type=Path, help="where to write the body (standard output by default)")
     arguments = parser.parse_args(argv)
     lanes = []
@@ -216,7 +240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"--lane takes LABEL=VERDICT.json; got {named!r}.", file=sys.stderr)
             return 2
         lanes.append((label, _load(Path(path))))
-    text = body(arguments.kind, arguments.run, arguments.commit, lanes)
+    text = body(arguments.kind, arguments.run, arguments.commit, lanes, arguments.sample_seed)
     if arguments.out is None:
         sys.stdout.write(text)
     else:
