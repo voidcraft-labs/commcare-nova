@@ -10,6 +10,11 @@ Contracts (``proof.core.client``, as the lane's server and workers use it):
   plausible failures: each worker compiling again (a second of javac per
   worker), a runner deleting the server's classes when it closes, and a
   runner starting from an empty directory and failing later, nameless.
+- What the JVM itself writes (a VM warning, its unified log's warnings) goes
+  to stderr, never to the protocol stream, and C1's code cache is sized for a
+  worker's session. The plausible failure: a full code cache's warning
+  written to standard output an hour into a worker's session, which the
+  Formplayer runner read as an answer and failed the request on.
 - The client waits for the JVM in C or by ``time.perf_counter``, so a
   request still ends at its deadline while HQ's operation has frozen
   ``time.monotonic`` (``proof.hq.determinism``). The plausible failure: a
@@ -29,6 +34,7 @@ from proof import processes
 from proof.core.artifacts import BASIC_APP
 from proof.core.client import (
     CLASSES_ENVIRONMENT,
+    JVM_OPTIONS,
     MAIN_CLASS_FILE,
     CoreRunner,
     CoreRunnerStartError,
@@ -83,6 +89,27 @@ with client.CoreRunner() as runner:
             outcome = "deadline"
         print(json.dumps({"outcome": outcome, "seconds": time.perf_counter() - started, "alive": runner.alive}))
 """
+
+
+def test_the_jvms_own_warnings_never_reach_a_runners_protocol_stream(tmp_path):
+    # A program the JVM compiles from source in its own process, given the runners' options with the code cache
+    # shrunk to the least the JVM takes, so it fills and the JVM warns as a worker's long session made it warn.
+    (tmp_path / "Answer.java").write_text(
+        'class Answer { public static void main(String[] a) { System.out.println("{}"); } }', encoding="utf-8"
+    )
+    assert "-XX:ReservedCodeCacheSize=240m" in JVM_OPTIONS
+    output, errors = tmp_path / "out.txt", tmp_path / "err.txt"
+    with output.open("wb") as stdout, errors.open("wb") as stderr:
+        status = processes.run(
+            ["java", *JVM_OPTIONS, "-XX:ReservedCodeCacheSize=2600k", "Answer.java"],
+            timeout=120,
+            cwd=tmp_path,
+            stdout=stdout,
+            stderr=stderr,
+        )
+    assert status == 0, errors.read_text()[-4000:]
+    assert "CodeCache is full" in errors.read_text(), "The JVM did not fill its code cache, so nothing was shown."
+    assert output.read_text() == "{}\n"
 
 
 def test_a_request_ends_at_its_deadline_while_hqs_clock_is_frozen(tmp_path):

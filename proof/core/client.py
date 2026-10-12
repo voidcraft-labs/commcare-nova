@@ -82,17 +82,25 @@ DEFAULT_MAX_HEAP = "1g"
 # The JVM's locale and zone are fixed so Core's case-insensitive search and its
 # date arithmetic do not depend on the machine (EntityStringFilterer lower-cases
 # with Locale.getDefault(); DateUtils reads the default zone). HotSpot writes its
-# own messages (an out-of-memory exit, VM warnings) to standard output unless
-# told otherwise, and standard output is the protocol, so they go to stderr.
-# The serial collector and the client compiler alone keep the runner's CPU at
-# what its requests need: a lane worker's runner serves a few documents, and
-# the optimizing compiler's work for them costs more CPU than it saves.
-# Neither changes what a request computes.
+# own messages (an out-of-memory exit, VM warnings, and its unified log's
+# warnings) to standard output unless told otherwise, and standard output is the
+# protocol, so they go to stderr: a full code cache's warning once reached a
+# lane's Formplayer runner as an answer. The serial collector and the client
+# compiler alone keep the runner's CPU at what its requests need: a lane
+# worker's runner serves a few documents, and the optimizing compiler's work for
+# them costs more CPU than it saves. The client compiler alone reserves 48 MB of
+# code cache, which a worker's hour of Formplayer's application fills, after
+# which the JVM compiles nothing more and runs the rest interpreted, so the
+# runner reserves what tiered compilation reserves. None of these changes what a
+# request computes.
 JVM_OPTIONS = (
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+DisplayVMOutputToStderr",
+    "-Xlog:disable",
+    "-Xlog:all=warning:stderr:uptime,level,tags",
     "-XX:+UseSerialGC",
     "-XX:TieredStopAtLevel=1",
+    "-XX:ReservedCodeCacheSize=240m",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
     "-Duser.country=US",
