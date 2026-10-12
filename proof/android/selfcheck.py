@@ -53,6 +53,19 @@ def with_property(archive: Path, target: Path, key: str, value: str) -> Path:
     return variant(archive, target, {"profile.ccpr": ElementTree.tostring(profile, encoding="utf-8")})
 
 
+def with_feature(archive: Path, target: Path, feature: str) -> Path:
+    """The archive with one more feature, active, in its profile's ``<features>``, as HQ's build writes its
+    ``checkoff``."""
+    ElementTree.register_namespace("", PROFILE_NAMESPACE)
+    with zipfile.ZipFile(archive) as zipped:
+        profile = ElementTree.fromstring(zipped.read("profile.ccpr"))
+    features = profile.find(f"{{{PROFILE_NAMESPACE}}}features")
+    if features is None:
+        features = ElementTree.SubElement(profile, f"{{{PROFILE_NAMESPACE}}}features")
+    ElementTree.SubElement(features, f"{{{PROFILE_NAMESPACE}}}{feature}", {"active": "true"})
+    return variant(archive, target, {"profile.ccpr": ElementTree.tostring(profile, encoding="utf-8")})
+
+
 def leaves(value, path=""):
     """Every leaf of a JSON value by its path."""
     if isinstance(value, dict):
@@ -110,6 +123,21 @@ class ReaderSelfCheck(unittest.TestCase):
                 self.assertEqual(differing(plain, changed), wanted)
                 for name, reading in expected.items():
                     self.assertEqual(changed["profile"]["readers"][name], reading)
+
+    def test_home_shows_saved_forms_only_for_a_profile_with_the_checkoff_feature(self):
+        """Contract: the home screen's buttons are what Android's own controller hides on the app the device
+        seated (StandardHomeActivityUIController.getHiddenButtons hides Saved for a profile whose checkoff
+        feature is not active). Failure it catches: a device whose current app holds no profile, as the test
+        application gives one (a new CommCareTestApp, its platform never initialized, on every call), which
+        reads Saved as shown whatever the profile says. Nova's local profile names no checkoff, so Saved is
+        hidden; the same archive with the feature HQ's build writes shows it."""
+        hidden = "StandardHomeActivityUIController.getHiddenButtons"
+        plain = self.reader.request("app", archive=str(SURVEY / "local.ccz"), commands=[])
+        self.assertIn("saved", plain["home"][hidden])
+        featured = with_feature(SURVEY / "local.ccz", self.work / "checkoff.ccz", "checkoff")
+        shown = self.reader.request("app", archive=str(featured), commands=[])
+        self.assertNotIn("saved", shown["home"][hidden])
+        self.assertEqual(shown["home"][hidden], [name for name in plain["home"][hidden] if name != "saved"])
 
     def test_android_refuses_an_archive_it_cannot_install_and_installs_one_it_can(self):
         """Contract: the install status is Android's own. Failure it catches: a reader that reports Installed
@@ -347,17 +375,19 @@ class JudgeSelfCheck(unittest.TestCase):
         archives, and nothing between two readings of one. Failure it catches: answers never compared, or
         compared with themselves, or a reading that differs from itself. With the same archive read twice the
         judge reports nothing; with one setting planted in the profile, it reports that setting's reader and
-        the home screen's button, nothing else."""
+        the home screen's button, nothing else. The archive holds the checkoff feature HQ's build writes, without
+        which Android hides the Saved button whatever the setting."""
         from proof.checks import android as judges
 
         answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="proof-android-judge-") as scratch, AndroidReader() as reader:
-            planted = with_property(SURVEY / "local.ccz", Path(scratch) / "planted.ccz", "cc-show-saved", "no")
+            featured = with_feature(SURVEY / "local.ccz", Path(scratch) / "checkoff.ccz", "checkoff")
+            planted = with_property(featured, Path(scratch) / "planted.ccz", "cc-show-saved", "no")
 
             def read(archive):
                 return reader.request("app", archive=str(archive), answers=answers)
 
-            first, again, other = read(SURVEY / "local.ccz"), read(SURVEY / "local.ccz"), read(planted)
+            first, again, other = read(featured), read(featured), read(planted)
 
             def found(before, after):
                 return [

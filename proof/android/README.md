@@ -73,7 +73,10 @@ The requests (`Reader.java`):
   (`FormSubmissionHelper.getFormPostURL`), the current locale and what the language picker
   offers, and which of the recorded settings Android's own settings screen
   lets a worker change); the home screen's hidden buttons
-  (`StandardHomeActivityUIController.getHiddenButtons`, `Home.java`); and
+  (`StandardHomeActivityUIController.getHiddenButtons`, `Home.java`, read
+  on the app the device seated, whose platform holds its profile and
+  suites: the test application's own `getCurrentApp` hands out a new app
+  whose platform holds neither, `ProofApplication.getCurrentApp`); and
   every walk (`Screens.java`).
 
   A walk is one session from the app's first menu, driven as the project's

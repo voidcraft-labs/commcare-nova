@@ -7662,17 +7662,6 @@
 		"control": "case-capture-followup"
 	},
 	{
-		"id": "d7-android-proof3-local-ccz-home-gethiddenbuttons-saved-removed",
-		"defect": 7,
-		"part": "saved and incomplete forms",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/home/StandardHomeActivityUIController.getHiddenButtons/saved",
-		"kind": "removed",
-		"document": "case-capture-followup",
-		"control": "case-capture-followup"
-	},
-	{
 		"id": "d14-android-proof3-local-ccz-install-changed",
 		"defect": 14,
 		"part": "close conditions (HQ's build does not install)",

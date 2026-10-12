@@ -741,8 +741,16 @@ device meets it, on the documents the register names:
   install side by side as two apps where HQ's second build is refused as a
   duplicate (`/installs/*`), and a device on the first export finds no
   update in the second (`UpToDate`, `/update`).
-- **Defect 7.** The Saved and Incomplete buttons are on the local install's
-  home screen and hidden on HQ's.
+- **Defect 7.** The Incomplete button is on the local install's home
+  screen and hidden on HQ's. The Saved button is hidden on both: HQ's
+  profile sets `cc-show-saved` to `no`, and Nova's local profile names no
+  `checkoff` feature, without which Android hides Saved whatever the
+  setting (`StandardHomeActivityUIController.getHiddenButtons`). The lane
+  once read Saved as shown on the local install: the project's test
+  application hands every caller of `getCurrentApp` a new app around the
+  seated one, whose platform holds no profile, so the feature was never
+  read; the reader now gives the device the app it seated
+  (`proof/android/src/nova/proof/android/ProofApplication.java`).
 - **Defects 14 and 15, where HQ's build does not parse.** Android refuses to
   install HQ's build of `targeted-close-condition-unparsable` ("Encountered a
   problem with display condition for node [/data/case/close]") and of
