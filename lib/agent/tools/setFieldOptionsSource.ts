@@ -19,7 +19,7 @@ import type { MutationSuccess } from "./shared/toolCallSummary";
 export const setFieldOptionsSourceInputSchema = fieldAddressSchema
 	.extend({
 		source: projectedOptionsSourceSchema.describe(
-			"The complete replacement choice source. Use kind inline with at least two options, or kind lookup with the table and its value/label columns. Replacing one kind discards the previous source.",
+			"The complete replacement choice source. Use kind inline with at least two options, kind lookup with the table and its value/label columns, or kind cases with caseType, labelProperty (default case_name), and an optional filter. Replacing one kind discards the previous source.",
 		),
 	})
 	.strict();
@@ -33,7 +33,7 @@ export type SetFieldOptionsSourceResult =
 
 export const setFieldOptionsSourceTool = {
 	description:
-		"Atomically replace a single- or multiple-choice field's complete choice source. The source is either inline choices or a Project data table; there is no retained inactive source.",
+		"Atomically replace a single- or multiple-choice field's complete choice source. The source is inline choices, a Project data table, or cases available to the worker. Case choices save record IDs and do not fetch additional cases.",
 	inputSchema: setFieldOptionsSourceInputSchema,
 	async execute(
 		input: SetFieldOptionsSourceInput,

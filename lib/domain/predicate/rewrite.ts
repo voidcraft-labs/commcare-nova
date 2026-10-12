@@ -96,8 +96,11 @@ export function mapCasePropertiesInPredicate(
 ): number {
 	let renamed = 0;
 	walkTerms(predicate, (term) => {
-		if (term.kind !== "prop") return;
-		const property = mappedProperty(term, resolve);
+		if (term.kind !== "prop" && term.kind !== "form-case") return;
+		const property =
+			term.kind === "form-case"
+				? resolve(term.caseType, term.property)
+				: mappedProperty(term, resolve);
 		if (property === undefined || property === term.property) return;
 		term.property = property;
 		renamed++;
@@ -112,8 +115,11 @@ export function mapCasePropertiesInExpression(
 ): number {
 	let renamed = 0;
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind !== "prop") return;
-		const property = mappedProperty(term, resolve);
+		if (term.kind !== "prop" && term.kind !== "form-case") return;
+		const property =
+			term.kind === "form-case"
+				? resolve(term.caseType, term.property)
+				: mappedProperty(term, resolve);
 		if (property === undefined || property === term.property) return;
 		term.property = property;
 		renamed++;

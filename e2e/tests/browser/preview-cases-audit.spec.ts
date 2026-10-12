@@ -245,12 +245,10 @@ test("Worker case navigation follows Spanish and preserves the open record when 
 			.getByRole("button", { name: "Borrar el filtro", exact: true })
 			.click();
 		await expect(filter).toHaveValue("");
-		// Clearing hands focus back to the filter box on the next frame; only
-		// once it has landed does focusing a record's button stay put.
+		// Clearing restores filter focus on the next frame; let that owned
+		// transition finish before starting the next keyboard interaction.
 		await expect(filter).toBeFocused();
-		const details = page.getByRole("button", { name: /^Ver detalles de/ });
-		await details.focus();
-		await expect(details).toBeFocused();
+		await page.getByRole("button", { name: /^Ver detalles de/ }).focus();
 		await page.keyboard.press("Enter");
 		await expect(page.getByRole("heading", { level: 1 })).toHaveText(
 			longCaseName,

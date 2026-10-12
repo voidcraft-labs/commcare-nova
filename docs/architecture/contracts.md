@@ -426,6 +426,16 @@ request or informed confirmation of its Project-wide effect. Similar names,
 columns, or values never authorize adoption or overwrite. Organization and media
 operations retain their own service boundaries.
 
+Paused conversation input has its own durable identity. A continuation consumes
+one pending input round atomically with holder renewal and transcript admission;
+a nonce or a transcript containing old answers is insufficient. Stale/duplicate
+answers reconcile without another model turn. Typed-message waits require new
+user input. Project library reads retain their selected evidence separately from
+user attachments and bind each paged requirements read to its content revision.
+Fresh turns reassemble current source material and may prepare it again; a changed
+source digest invalidates prior review. MCP reports missing preparation without
+starting a model call.
+
 Completed model responses and usage are durable before tool dispatch. Recovery
 replays unanswered calls by their original identity and returns exact semantic
 receipts, including no-ops. Receipt replay reauthorizes the current holder and

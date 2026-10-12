@@ -109,6 +109,7 @@ interface PredicateEditContextValue {
 	 * every surface that reads no form answers at all.
 	 */
 	readonly formFields: readonly EditorFormFieldDecl[];
+	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables: readonly EditorLookupTableDecl[];
 	readonly tableScope: EditorLookupTableScope | undefined;
 	/**
@@ -171,6 +172,7 @@ interface PredicateEditProviderProps {
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
 	readonly operationScope?: OperationValueScope;
@@ -205,6 +207,7 @@ export function PredicateEditProvider({
 	knownInputs,
 	userProperties = EMPTY_USER_PROPERTIES,
 	formFields = EMPTY_FORM_FIELDS,
+	formCaseTypes,
 	lookupTables = [],
 	tableScope,
 	operationScope,
@@ -233,6 +236,7 @@ export function PredicateEditProvider({
 			knownInputs,
 			userProperties,
 			formFields,
+			formCaseTypes,
 			lookupTables,
 			tableScope,
 			operationScope,
@@ -251,6 +255,7 @@ export function PredicateEditProvider({
 			knownInputs,
 			userProperties,
 			formFields,
+			formCaseTypes,
 			lookupTables,
 			tableScope,
 			operationScope,
@@ -405,6 +410,7 @@ export function predicateEditContextFrom(
 		knownInputs: ctx.knownInputs,
 		userProperties: ctx.userProperties,
 		formFields: ctx.formFields,
+		formCaseTypes: ctx.formCaseTypes,
 		lookupTables: ctx.lookupTables,
 		tableScope: ctx.tableScope,
 		operationScope: ctx.operationScope,
@@ -465,6 +471,7 @@ export function useEditorTypeContext(): TypeContext {
 		knownInputs,
 		userProperties,
 		formFields,
+		formCaseTypes,
 		lookupTables,
 		tableScope,
 		operationScope,
@@ -479,6 +486,7 @@ export function useEditorTypeContext(): TypeContext {
 				knownInputs,
 				userProperties,
 				formFields,
+				formCaseTypes,
 				lookupTables,
 				tableScope,
 				operationScope,
@@ -491,6 +499,7 @@ export function useEditorTypeContext(): TypeContext {
 			knownInputs,
 			userProperties,
 			formFields,
+			formCaseTypes,
 			lookupTables,
 			tableScope,
 			operationScope,

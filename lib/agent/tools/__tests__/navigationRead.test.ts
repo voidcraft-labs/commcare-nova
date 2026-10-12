@@ -198,10 +198,9 @@ describe("navigation through authoring reads", () => {
 			formUuid: RETURN,
 		});
 		if ("error" in read.data) throw new Error(read.data.error);
-		expect(read.data.navigation?.afterSubmit.fallback).toEqual({
+		expect(read.data.navigation?.afterSubmit.fallback).toMatchObject({
 			screen: "unavailable",
-			reason:
-				"A form in this task's menu path still needs a record name before its next task can be resolved.",
+			findings: [{ code: "CASE_CREATE_NAME_MISSING", moduleUuid: MODULE }],
 		});
 	});
 	it("updates the resolved destination when registration makes a case-first module a menu", async () => {

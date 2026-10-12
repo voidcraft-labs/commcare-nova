@@ -1,3 +1,4 @@
+import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -507,12 +508,15 @@ async function auditRuntimeMediaReferenceProjection(
 		}
 		const threads = await tx
 			.selectFrom("threads")
-			.select(["thread_id", "messages"])
+			.select(["thread_id", "messages", "selected_sources"])
 			.where("app_id", "=", args.appId)
 			.orderBy("thread_id")
 			.execute();
 		for (const thread of threads) {
-			const attachments = collectThreadAttachments(thread.messages);
+			const attachments = [
+				...collectThreadAttachments(thread.messages),
+				...selectedSourceDocumentsSchema.parse(thread.selected_sources),
+			];
 			for (const attachment of attachments) {
 				requirements.push({
 					assetId: attachment.assetId,

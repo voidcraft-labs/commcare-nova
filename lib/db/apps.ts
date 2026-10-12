@@ -35,6 +35,10 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { retenantAppCasesOn } from "@/lib/case-store/retenant";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import {
+	type SelectedSourceDocument,
+	selectedSourceDocumentsSchema,
+} from "@/lib/chat/selectedSources";
+import {
 	collectThreadAttachmentAssetIds,
 	collectThreadAttachments,
 	remapThreadAttachmentAssetIds,
@@ -709,6 +713,7 @@ async function commitPreparedSyntheticBatch(
 interface ProjectMoveThreadSnapshot {
 	readonly threadId: string;
 	readonly messages: readonly unknown[];
+	readonly selectedSources: readonly SelectedSourceDocument[];
 }
 
 export type PrepareProjectMoveResult =
@@ -847,13 +852,14 @@ async function readProjectMoveThreads(
 ): Promise<ProjectMoveThreadSnapshot[]> {
 	const rows = await tx
 		.selectFrom("threads")
-		.select(["thread_id", "messages"])
+		.select(["thread_id", "messages", "selected_sources"])
 		.where(projectMoveThreadFilter(appId))
 		.orderBy("thread_id")
 		.execute();
 	return rows.map((row) => ({
 		threadId: row.thread_id,
 		messages: row.messages,
+		selectedSources: selectedSourceDocumentsSchema.parse(row.selected_sources),
 	}));
 }
 
@@ -863,7 +869,7 @@ async function lockProjectMoveThreads(
 ): Promise<ProjectMoveThreadSnapshot[]> {
 	const rows = await tx
 		.selectFrom("threads")
-		.select(["thread_id", "messages"])
+		.select(["thread_id", "messages", "selected_sources"])
 		.where(projectMoveThreadFilter(appId))
 		.orderBy("thread_id")
 		.forUpdate()
@@ -871,6 +877,7 @@ async function lockProjectMoveThreads(
 	return rows.map((row) => ({
 		threadId: row.thread_id,
 		messages: row.messages,
+		selectedSources: selectedSourceDocumentsSchema.parse(row.selected_sources),
 	}));
 }
 
@@ -880,7 +887,10 @@ function threadAssetIds(
 	return [
 		...new Set(
 			threads
-				.flatMap((thread) => collectThreadAttachmentAssetIds(thread.messages))
+				.flatMap((thread) => [
+					...collectThreadAttachmentAssetIds(thread.messages),
+					...thread.selectedSources.map((source) => source.assetId),
+				])
 				.filter((assetId) => !isBuiltinIconRef(assetId))
 				.map(asMediaAssetId),
 		),
@@ -1170,6 +1180,10 @@ export async function commitAppProjectMoveInTransaction(
 	const remappedThreads = threads.map((thread) => ({
 		...thread,
 		messages: remapThreadAttachmentAssetIds(thread.messages, args.assetIdMap),
+		selectedSources: thread.selectedSources.map((source) => ({
+			...source,
+			assetId: args.assetIdMap.get(source.assetId) ?? source.assetId,
+		})),
 	}));
 	/* The Blueprint half of the split projection: the destination edges are
 	 * exactly the committed (already remapped) doc's authored references.
@@ -1181,7 +1195,10 @@ export async function commitAppProjectMoveInTransaction(
 	);
 	const destinationRequirements = [...blueprintDestinationRequirements];
 	for (const thread of remappedThreads) {
-		for (const attachment of collectThreadAttachments(thread.messages)) {
+		for (const attachment of [
+			...collectThreadAttachments(thread.messages),
+			...thread.selectedSources,
+		]) {
 			destinationRequirements.push({
 				assetId: attachment.assetId,
 				expectedKind: attachment.kind as AssetKind,
@@ -1215,13 +1232,16 @@ export async function commitAppProjectMoveInTransaction(
 	for (const thread of remappedThreads) {
 		if (
 			!deepEqual(
-				thread.messages,
-				threads.find((source) => source.threadId === thread.threadId)?.messages,
+				thread,
+				threads.find((source) => source.threadId === thread.threadId),
 			)
 		) {
 			await tx
 				.updateTable("threads")
-				.set({ messages: JSON.stringify(thread.messages) })
+				.set({
+					messages: JSON.stringify(thread.messages),
+					selected_sources: JSON.stringify(thread.selectedSources),
+				})
 				.where(projectMoveThreadFilter(args.appId))
 				.where("thread_id", "=", thread.threadId)
 				.execute();
@@ -1236,7 +1256,10 @@ export async function commitAppProjectMoveInTransaction(
 			.execute();
 		const threadAssetRows = [
 			...new Set(
-				collectThreadAttachments(thread.messages).map((ref) => ref.assetId),
+				[
+					...collectThreadAttachments(thread.messages),
+					...thread.selectedSources,
+				].map((ref) => ref.assetId),
 			),
 		].sort();
 		if (threadAssetRows.length > 0) {
@@ -1431,6 +1454,11 @@ export async function claimAndReserveRun(
 		 *  Left off, the claim keeps its historical trust-the-caller shape
 		 *  (the lifecycle suites exercise deliberate mode/status splits). */
 		requireModeMatchesStatus?: boolean;
+		/** A continuation's admission and accepted transcript commit with its charge. */
+		continuation?: {
+			check(tx: Transaction<AppDatabase>): Promise<void>;
+			commit(tx: Transaction<AppDatabase>, holderNonce: string): Promise<void>;
+		};
 	},
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
@@ -1459,6 +1487,7 @@ export async function claimAndReserveRun(
 				"edit",
 				"You no longer have edit access to this app's Project.",
 			);
+			await opts?.continuation?.check(tx);
 			const lease = runLeaseState(leaseView(fresh));
 			/* Busy — with one carve-out: the claimant's OWN paused run does not
 			 * block. A paused run is process-less and its ask card may be gone
@@ -1540,6 +1569,7 @@ export async function claimAndReserveRun(
 					.where("id", "=", appId)
 					.execute();
 			}
+			await opts?.continuation?.commit(tx, holderNonce);
 			return { mode, reservation: { period, reserved: cost }, holderNonce };
 		});
 		await reapScannedTargets(reapable);
@@ -1934,6 +1964,10 @@ export async function reacquireLease(
 	mode: "build" | "edit",
 	actorUserId: string,
 	expectedProjectId: string,
+	continuation?: {
+		check(tx: Transaction<AppDatabase>): Promise<void>;
+		commit(tx: Transaction<AppDatabase>): Promise<void>;
+	},
 ): Promise<ReacquireLeaseResult> {
 	return await withAppTx(async (tx) => {
 		/* Lifecycle lock order: the resuming actor's gate first (a resume can
@@ -1949,6 +1983,7 @@ export async function reacquireLease(
 			"edit",
 			"You no longer have edit access to this app's Project.",
 		);
+		await continuation?.check(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		/* Prove the mode/run/actor pause identity BEFORE the nonce. That proof is
 		 * what separates "refresh your stale tab" from a run another holder
@@ -1994,6 +2029,7 @@ export async function reacquireLease(
 				.where(expectedPausedRunResumePredicate(expectedHolder, actorUserId))
 				.executeTakeFirst();
 		}
+		if (updatedExactlyOne(result)) await continuation?.commit(tx);
 		return updatedExactlyOne(result)
 			? { outcome: "owned", holderNonce: effectiveHolderNonce }
 			: { outcome: "superseded" };
@@ -2152,6 +2188,7 @@ export async function setAwaitingInput(
 	awaiting: boolean,
 	actorUserId: string,
 	expectedProjectId: string,
+	commitPause?: (tx: Transaction<AppDatabase>) => Promise<boolean>,
 ): Promise<ReacquireOutcome> {
 	return await withAppTx(async (tx) => {
 		/* Lifecycle lock order: the pausing actor's gate first (pause/unpause
@@ -2172,6 +2209,7 @@ export async function setAwaitingInput(
 		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return lease.present ? "superseded" : "released";
 		}
+		if ((await commitPause?.(tx)) === false) return "owned";
 		const result = await tx
 			.updateTable("apps")
 			.set(

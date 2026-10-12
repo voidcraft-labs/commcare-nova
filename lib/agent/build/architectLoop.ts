@@ -119,7 +119,16 @@ export interface ArchitectLoopArgs {
 	readonly signal: AbortSignal;
 	readonly modelStep: AgentModelStepFn;
 	/** On a process restart, answer outstanding calls before adding user input. */
-	readonly additions: readonly { key: string; message: ModelMessage }[];
+	readonly additions: readonly {
+		key: string;
+		legacyKeys?: readonly string[];
+		legacyKeyPrefix?: string;
+		message: ModelMessage;
+	}[];
+	/** UI framing belongs to the outer architect, never nested peer requests. */
+	onStepStart?(): void;
+	onStepEnd?(): void;
+	onStepAbort?(error?: unknown): void;
 	/** Refresh recovery context once per run, after replaying outstanding effects. */
 	currentState?(): Promise<ModelMessage>;
 	tools(): ToolSet;
@@ -243,9 +252,44 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 		}
 		return true;
 	};
-	if (!(await dispatchOutstanding()))
-		return { contextId: opened.id, kind: "awaiting-input", text: "" };
+	if (unansweredToolCalls(messages).length > 0) {
+		args.onStepStart?.();
+		try {
+			const completed = await dispatchOutstanding();
+			args.onStepEnd?.();
+			if (!completed)
+				return { contextId: opened.id, kind: "awaiting-input", text: "" };
+		} catch (error) {
+			args.onStepAbort?.(error);
+			throw error;
+		}
+	}
 	for (const addition of args.additions) {
+		// Historical cards used a mutable part index. Accept that spelling only
+		// when its retained content proves this exact answer, never by key alone.
+		const legacyMatches = new Set(
+			[...opened.items, ...opened.predecessorItems]
+				.filter((item) => {
+					const suffix =
+						addition.legacyKeyPrefix &&
+						item.appendKey.startsWith(addition.legacyKeyPrefix)
+							? item.appendKey.slice(addition.legacyKeyPrefix.length)
+							: null;
+					const positional =
+						suffix !== null &&
+						suffix !== "" &&
+						String(Number(suffix)) === suffix &&
+						Number.isSafeInteger(Number(suffix)) &&
+						Number(suffix) >= 0;
+					return (
+						(addition.legacyKeys?.includes(item.appendKey) || positional) &&
+						durableModelValueDigest(item.message) ===
+							durableModelValueDigest(addition.message)
+					);
+				})
+				.map((item) => item.appendKey),
+		);
+		if (legacyMatches.size === 1) continue;
 		if (
 			!(args.spec.kind !== "translator" ? opened.lineageAppendKeys : keys).has(
 				addition.key,
@@ -336,65 +380,81 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 				"This model step has already started. Its response is not yet available.",
 			);
 		startedCount++;
-		let step: AgentModelStep;
+		args.onStepStart?.();
+		let stepComplete = false;
+		let stepError: unknown;
 		try {
-			step = await args.modelStep({
-				system: args.system,
-				messages,
-				tools,
-				toolChoice,
-				responseSchema: args.responseSchema,
-				maxOutputTokens: args.maxOutputTokens,
-				signal: args.signal,
-				onReasoning: (part) =>
-					args.onReasoning?.(part, { contextId: opened.id, stepKey }),
-			});
-		} catch (error) {
-			if (error instanceof AgentModelStepError && error.usage !== undefined) {
-				await completeDesignModelStep({
-					...base,
-					appendKey: `response:${stepKey}`,
-					stepKey,
-					messages: [],
-					responseDigest: durableModelValueDigest([]),
-					usage: error.usage as unknown as Record<string, unknown>,
-					accountingOnly: true,
+			let step: AgentModelStep;
+			try {
+				step = await args.modelStep({
+					system: args.system,
+					messages,
+					tools,
+					toolChoice,
+					responseSchema: args.responseSchema,
+					maxOutputTokens: args.maxOutputTokens,
+					signal: args.signal,
+					onReasoning: (part) =>
+						args.onReasoning?.(part, { contextId: opened.id, stepKey }),
 				});
+			} catch (error) {
+				if (error instanceof AgentModelStepError && error.usage !== undefined) {
+					await completeDesignModelStep({
+						...base,
+						appendKey: `response:${stepKey}`,
+						stepKey,
+						messages: [],
+						responseDigest: durableModelValueDigest([]),
+						usage: error.usage as unknown as Record<string, unknown>,
+						accountingOnly: true,
+					});
+				}
+				if (
+					toolChoice === "none" &&
+					error instanceof AgentModelStepError &&
+					!args.signal.aborted
+				) {
+					if (error.usage)
+						args.onRecoveredUsage(error.usage, {
+							contextId: opened.id,
+							stepKey,
+						});
+					await append(`review-closing-unavailable:${stepKey}`, [
+						{
+							role: "system",
+							content:
+								"The previous closing request produced no usable response. If a request remains, summarize the unfinished investigation from retained evidence without tools.",
+						},
+					]);
+					continue;
+				}
+				throw error;
 			}
-			if (
-				toolChoice === "none" &&
-				error instanceof AgentModelStepError &&
-				!args.signal.aborted
-			) {
-				if (error.usage)
-					args.onRecoveredUsage(error.usage, { contextId: opened.id, stepKey });
-				await append(`review-closing-unavailable:${stepKey}`, [
-					{
-						role: "system",
-						content:
-							"The previous closing request produced no usable response. If a request remains, summarize the unfinished investigation from retained evidence without tools.",
-					},
-				]);
-				continue;
-			}
+			const completedRevision = await completeDesignModelStep({
+				...base,
+				appendKey: `response:${stepKey}`,
+				stepKey,
+				messages: step.responseMessages,
+				responseDigest: durableModelValueDigest(step.responseMessages),
+				usage: step.usage as unknown as Record<string, unknown>,
+			});
+			if (completedRevision === null)
+				throw new Error(
+					"The response was accounted for after this run lost its authority.",
+				);
+			revision = completedRevision;
+			messages.push(...step.responseMessages);
+			await args.onStep(step, { contextId: opened.id, stepKey });
+			const completed = await dispatchOutstanding();
+			stepComplete = true;
+			if (!completed)
+				return { contextId: opened.id, kind: "awaiting-input", text: "" };
+		} catch (error) {
+			stepError = error;
 			throw error;
+		} finally {
+			if (stepComplete) args.onStepEnd?.();
+			else args.onStepAbort?.(stepError);
 		}
-		const completedRevision = await completeDesignModelStep({
-			...base,
-			appendKey: `response:${stepKey}`,
-			stepKey,
-			messages: step.responseMessages,
-			responseDigest: durableModelValueDigest(step.responseMessages),
-			usage: step.usage as unknown as Record<string, unknown>,
-		});
-		if (completedRevision === null)
-			throw new Error(
-				"The response was accounted for after this run lost its authority.",
-			);
-		revision = completedRevision;
-		messages.push(...step.responseMessages);
-		await args.onStep(step, { contextId: opened.id, stepKey });
-		if (!(await dispatchOutstanding()))
-			return { contextId: opened.id, kind: "awaiting-input", text: "" };
 	}
 }

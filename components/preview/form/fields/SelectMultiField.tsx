@@ -37,7 +37,7 @@ export function SelectMultiField({
 	// `<item>` order; a
 	// lookup-backed select reads the ENGINE's live filtered choices, see
 	// the single-select twin for the loading contract.
-	const lookupBacked = field.optionsSource.kind === "lookup";
+	const dynamicChoices = field.optionsSource.kind !== "inline";
 	// Document-aware option-label projection: see the single-select twin.
 	const projectProse = useProseProjection();
 	// `key` is display identity: see the single-select twin.
@@ -46,7 +46,7 @@ export function SelectMultiField({
 		value: string;
 		label: string;
 		media?: SelectOption["media"];
-	}> = lookupBacked
+	}> = dynamicChoices
 		? (state.choices ?? [])
 		: field.optionsSource.kind === "inline"
 			? field.optionsSource.options.map((opt) => ({
@@ -67,7 +67,7 @@ export function SelectMultiField({
 		onChange([...next].join(" "));
 	};
 
-	if (lookupBacked && state.choices === undefined) {
+	if (dynamicChoices && state.choices === undefined) {
 		return <LookupChoicesLoading />;
 	}
 	return (
@@ -77,7 +77,7 @@ export function SelectMultiField({
 			onBlur={onBlur}
 		>
 			<div className="space-y-1.5">
-				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
+				{dynamicChoices && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
 					/* Blank values can never be "checked": "" splits to no tokens.
 					 * The DOM id derives from the stable key, never the value:

@@ -84,6 +84,7 @@ import {
 import { attachFieldMediaTool } from "@/lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "@/lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
+import { readSourceTool } from "@/lib/agent/tools/media/readSource";
 import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
@@ -812,6 +813,17 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "listMediaAssets",
 		mcpName: "list_media_assets",
 		tool: listMediaAssetsTool,
+		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			capabilities: ["media-read"],
+		},
+	},
+	{
+		saName: "readSource",
+		mcpName: "read_source",
+		tool: readSourceTool,
 		requires: "view",
 		policy: {
 			effect: "read-blueprint",

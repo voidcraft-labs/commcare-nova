@@ -10,8 +10,10 @@ import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitec
 import { toolViews } from "../compositions/shared";
 
 // This availability contract is independent of the definition factory: these
-// journey controls must survive compaction without another hosted discovery.
-const EAGER_JOURNEY_TOOLS = new Set([
+// source reads and journey controls survive compaction without hosted discovery.
+const EAGER_SHARED_TOOLS = new Set([
+	"listMediaAssets",
+	"readSource",
 	"startAppTest",
 	"continueAppTest",
 	"readAppTest",
@@ -60,7 +62,7 @@ describe("Solutions Architect tool definitions", () => {
 				entry.tool.description,
 			);
 			expect(definition?.providerOptions, entry.saName).toEqual(
-				EAGER_JOURNEY_TOOLS.has(entry.saName)
+				EAGER_SHARED_TOOLS.has(entry.saName)
 					? undefined
 					: { openai: { deferLoading: true } },
 			);
@@ -76,7 +78,7 @@ describe("Solutions Architect tool definitions", () => {
 				description: entry.tool.description,
 				inputSchema: expected,
 				strict: false,
-				deferred: !EAGER_JOURNEY_TOOLS.has(entry.saName),
+				deferred: !EAGER_SHARED_TOOLS.has(entry.saName),
 			});
 		}
 		expect(
@@ -85,7 +87,7 @@ describe("Solutions Architect tool definitions", () => {
 			)
 				.map((entry) => entry.saName)
 				.sort(),
-		).toEqual([...EAGER_JOURNEY_TOOLS].sort());
+		).toEqual([...EAGER_SHARED_TOOLS].sort());
 	});
 
 	it("reach OpenAI exactly as authored, with nothing removed by the provider", async () => {
@@ -143,7 +145,7 @@ describe("Solutions Architect tool definitions", () => {
 				authoringToolSchema(entry.saName, entry.tool.inputSchema).json,
 			);
 			expect(tool?.defer_loading, entry.saName).toBe(
-				EAGER_JOURNEY_TOOLS.has(entry.saName) ? undefined : true,
+				EAGER_SHARED_TOOLS.has(entry.saName) ? undefined : true,
 			);
 		}
 	});

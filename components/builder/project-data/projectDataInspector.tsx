@@ -10,7 +10,7 @@
 
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
-import { useCanEdit } from "@/lib/session/hooks";
+import { useProjectCanEdit } from "@/lib/session/hooks";
 import type { ActiveInspectorDescriptor } from "./inspectorTypes";
 import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
 
@@ -56,7 +56,7 @@ export function useProjectDataInspector(): {
 	readonly onClose: () => void;
 } | null {
 	const workspace = useProjectDataWorkspace();
-	const canEdit = useCanEdit();
+	const canEdit = useProjectCanEdit();
 	const selection = workspace?.selection ?? null;
 	const table =
 		workspace?.table.kind === "data" ? workspace.table.value : undefined;

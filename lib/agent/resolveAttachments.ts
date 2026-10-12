@@ -50,10 +50,13 @@ import { log } from "@/lib/logger";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { type AttachmentCondenser, wrapAttachment } from "./documentExtraction";
 import { ensureStoredExtract } from "./documentExtractionStore";
+import type { SourceDocumentRuntime } from "./sourceDocuments";
 
 type Part = NovaUIMessage["parts"][number];
 
 const textPart = (text: string): Part => ({ type: "text", text });
+
+class DocumentExtractUnavailableError extends Error {}
 
 /** Read this message's attachment refs (empty when none / not a user message). */
 function refsOf(message: NovaUIMessage): AttachmentRef[] {
@@ -91,21 +94,25 @@ async function ensureExtract(
 	documentKind: DocumentKind,
 	condenser: AttachmentCondenser,
 	onProgress?: (deltaChars: number) => void,
+	runtime?: SourceDocumentRuntime,
 ): Promise<{ text: string; truncated: boolean }> {
-	const result = await ensureStoredExtract({
-		asset,
-		documentKind,
-		condenser,
-		onInflight: "wait",
-		// Live read-progress (signal grid) — fires only when the backstop actually
-		// runs the model here; the common reuse/wait-on-eager-job path emits nothing.
-		onProgress,
-	});
+	const result = runtime?.prepare
+		? await runtime.prepare(asset, documentKind, runtime.signal, onProgress)
+		: await ensureStoredExtract({
+				asset,
+				documentKind,
+				condenser,
+				onInflight: "wait",
+				// Live read-progress (signal grid) — fires only when the backstop actually
+				// runs the model here; the common reuse/wait-on-eager-job path emits nothing.
+				onProgress,
+				signal: runtime?.signal,
+			});
 	if (result.status === "ready") {
 		return { text: result.text, truncated: result.truncated };
 	}
 	// "wait" never returns "extracting"; "failed" is a genuine condense failure.
-	throw new Error(
+	throw new DocumentExtractUnavailableError(
 		result.status === "failed"
 			? result.reason
 			: "extraction did not resolve to a ready extract",
@@ -123,7 +130,9 @@ async function resolveRef(
 	asset: MediaAssetRecord | undefined,
 	condenser: AttachmentCondenser,
 	onProgress?: (deltaChars: number) => void,
+	runtime?: SourceDocumentRuntime,
 ): Promise<Part> {
+	runtime?.signal?.throwIfAborted();
 	if (!asset) {
 		return textPart(
 			`<<Attachment ${ref.filename} couldn't be loaded — it may have been deleted. Re-attach it if you still need it.>>`,
@@ -147,6 +156,7 @@ async function resolveRef(
 			const bytes = await downloadAssetBytes(
 				asset.gcsObjectKey,
 				ASSET_SIZE_CAPS_BYTES.image,
+				runtime?.signal,
 			);
 			return {
 				type: "file",
@@ -155,6 +165,7 @@ async function resolveRef(
 				filename: ref.filename,
 			};
 		} catch {
+			runtime?.signal?.throwIfAborted();
 			return textPart(
 				`<<Attachment ${ref.filename} (image) couldn't be loaded. Re-attach it if you still need it.>>`,
 			);
@@ -168,11 +179,18 @@ async function resolveRef(
 				asset.kind,
 				condenser,
 				onProgress,
+				runtime,
 			);
 			return textPart(wrapAttachment(ref.filename, text, truncated));
-		} catch {
+		} catch (error) {
+			runtime?.signal?.throwIfAborted();
+			if (
+				runtime?.prepare &&
+				!(error instanceof DocumentExtractUnavailableError)
+			)
+				throw error;
 			return textPart(
-				`<<Attachment ${ref.filename} couldn't be read. Re-attach it, or paste the key details into the chat.>>`,
+				`<<Attachment ${ref.filename} couldn't be read. Retry preparation in the Library, or choose another source. The uploaded file is still saved.>>`,
 			);
 		}
 	}
@@ -200,6 +218,7 @@ export async function resolveAttachments(
 	 *  backstop reads a not-yet-extracted document. Fires only when the backstop
 	 *  runs the model — a reused/awaited eager extraction emits nothing here. */
 	onProgress?: (deltaChars: number) => void,
+	runtime?: SourceDocumentRuntime,
 ): Promise<NovaUIMessage[]> {
 	// Unique asset ids across the whole history.
 	const ids = new Set<MediaAssetId>();
@@ -239,6 +258,7 @@ export async function resolveAttachments(
 				assetById.get(asMediaAssetId(ref.assetId)),
 				condenser,
 				onProgress,
+				runtime,
 			);
 			resolvedById.set(ref.assetId, p);
 		}

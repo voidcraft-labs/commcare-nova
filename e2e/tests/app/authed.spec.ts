@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Page, Request, Route } from "@playwright/test";
+import { EXTRACTOR_VERSION } from "../../../lib/domain/multimedia";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../../lib/projects/moveTargets";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import {
@@ -129,11 +130,13 @@ type ScriptedChunk = { type: string; [key: string]: unknown };
 async function stubDesignBuildJourney(
 	page: Page,
 	activation: SmokeProfileData["design"]["designBuildActivation"],
-): Promise<void> {
+): Promise<{ requests: unknown[] }> {
 	let sends = 0;
+	const requests: unknown[] = [];
 	const sessionId = activation.designSessionId;
 	const ask = (
 		toolCallId: string,
+		assistantMessageId: string,
 		header: string,
 		question: string,
 		options: { label: string }[],
@@ -144,6 +147,20 @@ async function stubDesignBuildJourney(
 			toolCallId,
 			toolName: "askQuestions",
 			input: { header, questions: [{ question, options }] },
+		},
+		{
+			type: "data-input-round",
+			transient: true,
+			data: {
+				round: {
+					id: `round-${toolCallId}`,
+					kind: "questions",
+					assistantMessageId,
+					toolCallIds: [toolCallId],
+					state: "pending",
+					acceptedStreamId: null,
+				},
+			},
 		},
 	];
 	const textChunks = (id: string, text: string): ScriptedChunk[] => [
@@ -157,6 +174,7 @@ async function stubDesignBuildJourney(
 			await route.fallback();
 			return;
 		}
+		requests.push(route.request().postDataJSON());
 		sends += 1;
 		let chunks: ScriptedChunk[];
 		if (sends === 1) {
@@ -189,6 +207,7 @@ async function stubDesignBuildJourney(
 				},
 				...ask(
 					"scripted-design-question",
+					"scripted-design-1",
 					"A follow-up detail",
 					"How quickly should follow-up begin?",
 					[],
@@ -215,6 +234,7 @@ async function stubDesignBuildJourney(
 				{ type: "data-app-materialized", data: activation },
 				...ask(
 					"scripted-build-question",
+					"scripted-design-2",
 					"One final choice",
 					"Who should see the follow-up queue?",
 					[{ label: "Follow-up coordinators" }],
@@ -260,6 +280,7 @@ async function stubDesignBuildJourney(
 				.join("")}data: [DONE]\n\n`,
 		});
 	});
+	return { requests };
 }
 
 /**
@@ -2559,8 +2580,8 @@ test.describe("authenticated builder", () => {
 	 * a refused gesture states its reason and leaves the cell where it was,
 	 * and that focus survives the commit.
 	 *
-	 * It deliberately restores the arrangement it found, because the seed's
-	 * tile module is shared with the parity test above.
+	 * The final gesture verifies movement in both directions; this scenario
+	 * owns its own seeded app.
 	 */
 	test("the tile grid moves a field by keyboard and states a refused move", {
 		tag: "@seed:workspace",
@@ -2592,6 +2613,9 @@ test.describe("authenticated builder", () => {
 		});
 
 		await test.step("an arrow key moves the field and renames its place", async () => {
+			await expect(
+				page.locator('[data-builder-resource="lookup-catalog"]'),
+			).toHaveAttribute("data-state", "ready");
 			await phone.focus();
 			await phone.press("ArrowDown");
 			const moved = page.getByRole("button", {
@@ -4323,7 +4347,7 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "design");
 
 		const activation = seed.designBuildActivation;
-		await stubDesignBuildJourney(page, activation);
+		const journey = await stubDesignBuildJourney(page, activation);
 		await page.goto("/build/new");
 
 		await page
@@ -4392,9 +4416,177 @@ test.describe("authenticated builder", () => {
 			page.getByText("or type your answer below", { exact: true }),
 		).toBeVisible();
 
-		await page
-			.getByRole("button", { name: "Follow-up coordinators", exact: true })
-			.click();
+		const document = {
+			id: "019a0000-0000-7000-8000-000000000071",
+			contentHash: "b".repeat(64),
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			sizeBytes: 18,
+			originalFilename: "Referral protocol.pdf",
+			status: "ready",
+			createdAt: "2026-10-09T00:00:00Z",
+		};
+		const extract = {
+			status: "ready",
+			version: EXTRACTOR_VERSION,
+			truncated: false,
+			charCount: 42,
+			title: "Referral protocol",
+		};
+		let uploaded = false;
+		let extracted = false;
+		const extraction = Promise.withResolvers<void>();
+		const uploadBytes = Buffer.from("%PDF-1.4\nprotocol\n");
+		await page.route("**/api/media/library?*", (route) =>
+			route.fulfill({
+				json: {
+					assets: uploaded
+						? [{ ...document, ...(extracted ? { extract } : {}) }]
+						: [],
+					nextCursor: null,
+				},
+			}),
+		);
+		await page.route("**/api/media/upload", (route) => {
+			expect(route.request().postDataJSON()).toMatchObject({
+				filename: document.originalFilename,
+				appId: activation.appId,
+			});
+			return route.fulfill({
+				json: {
+					assetId: document.id,
+					deduplicated: false,
+					uploadUrl: `${new URL(route.request().url()).origin}/test-referral-upload`,
+					uploadContentType: document.mimeType,
+				},
+			});
+		});
+		await page.route("**/test-referral-upload", (route) => {
+			expect(route.request().postDataBuffer()).toEqual(uploadBytes);
+			return route.fulfill({ status: 200 });
+		});
+		await page.route(`**/api/media/upload/${document.id}/confirm`, (route) => {
+			uploaded = true;
+			return route.fulfill({ json: { ok: true, asset: document } });
+		});
+		await page.route(`**/api/media/${document.id}/extract`, async (route) => {
+			await extraction.promise;
+			extracted = true;
+			await route.fulfill({
+				contentType: "application/x-ndjson",
+				body: `${JSON.stringify({ type: "done", extract })}\n`,
+			});
+		});
+		try {
+			await page
+				.getByRole("button", { name: "Attach a file", exact: true })
+				.click();
+			const picker = page.getByRole("dialog", { name: "Attach media" });
+			await expect(
+				picker.getByRole("tab", { name: "Upload", exact: true }),
+			).toBeVisible();
+			const chooser = page.waitForEvent("filechooser");
+			await picker
+				.getByRole("button", { name: "Choose file", exact: true })
+				.click();
+			await (await chooser).setFiles({
+				name: document.originalFilename,
+				mimeType: document.mimeType,
+				buffer: uploadBytes,
+			});
+			await expect(picker).not.toBeVisible();
+			// During a design pause its status row owns the activity line;
+			// the staged chip's live gates expose extraction progress.
+			const preview = page.getByRole("button", {
+				name: document.originalFilename,
+				exact: true,
+			});
+			await expect(preview).toHaveAttribute("aria-disabled", "true");
+			await expect(
+				page.getByRole("button", {
+					name: `${document.originalFilename} can't be removed while it's being read`,
+					exact: true,
+				}),
+			).toHaveAttribute("aria-disabled", "true");
+			extraction.resolve();
+			await expect(preview).toBeEnabled();
+			await expect(
+				page.getByRole("button", {
+					name: `Remove ${document.originalFilename}`,
+					exact: true,
+				}),
+			).toBeEnabled();
+			// A completed attachment alone still requires the user's message.
+			await expect(
+				page.getByRole("button", { name: "Send", exact: true }),
+			).toBeDisabled();
+			expect(journey.requests).toHaveLength(2);
+			await page.getByRole("button", { name: "Account menu" }).click();
+			await page.getByRole("button", { name: "Files", exact: true }).click();
+			const files = page.getByRole("dialog", { name: "Your files" });
+			await expect(
+				files.getByRole("tab", { name: "Upload", exact: true }),
+			).toBeVisible();
+			await expect(
+				files.getByRole("button", {
+					name: `Delete ${document.originalFilename}`,
+					exact: true,
+				}),
+			).toBeVisible();
+			await page.keyboard.press("Escape");
+			await expect(files).not.toBeVisible();
+			await page
+				.getByRole("button", {
+					name: `Remove ${document.originalFilename}`,
+					exact: true,
+				})
+				.click();
+			await page
+				.getByRole("button", { name: "Attach a file", exact: true })
+				.click();
+			await picker.getByRole("tab", { name: "Library", exact: true }).click();
+			await picker
+				.getByRole("button", {
+					name: `Choose ${extract.title}, file ${document.originalFilename}`,
+					exact: true,
+				})
+				.click();
+			await expect(picker).not.toBeVisible();
+			await expect(
+				page.getByRole("textbox", { name: "Find in app" }),
+			).toBeDisabled();
+			await firstComposer.fill(
+				"Here it is! Follow-up coordinators should use this protocol.",
+			);
+			await page.getByRole("button", { name: "Send", exact: true }).click();
+			await expect.poll(() => journey.requests.length).toBe(3);
+			expect(journey.requests[2]).toMatchObject({
+				appId: activation.appId,
+				designSessionId: activation.designSessionId,
+				inputRoundId: "round-scripted-build-question",
+				messages: expect.arrayContaining([
+					expect.objectContaining({
+						role: "user",
+						metadata: expect.objectContaining({
+							attachments: [
+								expect.objectContaining({
+									assetId: document.id,
+									filename: document.originalFilename,
+									kind: "pdf",
+								}),
+							],
+						}),
+					}),
+				]),
+			});
+			expect(JSON.stringify(journey.requests[2])).toContain(
+				"Here it is! Follow-up coordinators should use this protocol.",
+			);
+		} finally {
+			extraction.resolve();
+			await page.unrouteAll({ behavior: "wait" });
+		}
 
 		/* Completion releases the same store latch: progress leaves the canvas
 		 * and the ordinary authoring controls become available without a reload. */
@@ -4412,6 +4604,25 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("button", { name: "Add module" }),
 		).toBeVisible();
+		// The scripted completion is deliberately not persisted. A reload reads
+		// the seed's real generating status, proving the server-seeded lock too.
+		await page.reload();
+		await expect(
+			page.getByRole("textbox", { name: "Find in app" }),
+		).toBeDisabled();
+		// This seed reloads as actively generating with no waiting question,
+		// so its composer remains busy while Project Files stays available.
+		await expect(
+			page.getByRole("button", { name: "Attach a file", exact: true }),
+		).toBeDisabled();
+		await page.getByRole("button", { name: "Account menu" }).click();
+		await page.getByRole("button", { name: "Files", exact: true }).click();
+		await expect(
+			page
+				.getByRole("dialog", { name: "Your files" })
+				.getByRole("tab", { name: "Upload", exact: true }),
+		).toBeVisible();
+		await page.keyboard.press("Escape");
 	});
 
 	test("conversations open at the bottom and switch without exposing the prior transcript", {
@@ -4652,6 +4863,150 @@ test.describe("authenticated builder", () => {
 		await expect(page.getByText(stub.reply(1))).toBeVisible();
 		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
 	});
+
+	for (const withAttachment of [false, true])
+		test(`a hydrated question round sends its identity once even when the reply has no step frames (${withAttachment ? "with attachment" : "answers only"})`, {
+			tag: "@seed:scroll",
+		}, async ({ scenario, page }) => {
+			const seed = seedFor(scenario, "scroll");
+			const requests: Record<string, unknown>[] = [];
+			const attachedId = "a8731341-137a-42a0-901e-adbb0a66b202";
+			if (withAttachment)
+				await page.route("**/api/media/library?**", async (route) =>
+					route.fulfill({
+						json: {
+							assets: [
+								{
+									id: attachedId,
+									contentHash: "a".repeat(64),
+									mimeType: "text/plain",
+									kind: "text",
+									extension: ".txt",
+									sizeBytes: 20,
+									originalFilename: "Follow-up notes.txt",
+									status: "ready",
+									createdAt: "2026-01-01T00:00:00.000Z",
+									extract: {
+										status: "ready",
+										version: EXTRACTOR_VERSION,
+										truncated: false,
+										charCount: 20,
+										title: "Follow-up notes",
+										summary: "The team's follow-up timing.",
+									},
+								},
+							],
+							nextCursor: null,
+						},
+					}),
+				);
+			const reply =
+				"Your answers are saved. The next step needs your decision.";
+			await page.route("**/api/chat", async (route) => {
+				if (route.request().method() !== "POST") return route.fallback();
+				requests.push(
+					route.request().postDataJSON() as Record<string, unknown>,
+				);
+				// Simulate the historic final-text response, including a missing
+				// consumption receipt. A client may attempt this invitation once;
+				// transcript shape must never mint another attempt.
+				const chunks = [
+					{ type: "start" },
+					{ type: "text-start", id: "unframed-final" },
+					{ type: "text-delta", id: "unframed-final", delta: reply },
+					{ type: "text-end", id: "unframed-final" },
+					{ type: "finish" },
+				];
+				await route.fulfill({
+					status: 200,
+					headers: {
+						"content-type": "text/event-stream",
+						"x-workflow-run-id": "00000000-0000-4000-8000-000000000099",
+					},
+					body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+				});
+			});
+			await page.goto(`/build/${seed.scrollAppId}`);
+			await expect(
+				page.getByText(seed.scrollThreadAssistantText),
+			).toBeVisible();
+			await page.getByRole("button", { name: "History" }).click();
+			await page
+				.getByRole("button", {
+					name: new RegExp(seed.scrollQuestionThreadUserText),
+				})
+				.click();
+			await expect(page.getByText(seed.scrollQuestionOneText)).toBeVisible();
+			const composer = page.getByPlaceholder("What would you like to change?");
+			await composer.fill("The community team handles it");
+			await page.getByRole("button", { name: "Send" }).click();
+			await expect(page.getByText(seed.scrollQuestionTwoText)).toBeVisible();
+			expect(requests).toHaveLength(0);
+			if (withAttachment) {
+				await page.getByRole("button", { name: "Attach a file" }).click();
+				await page.getByRole("tab", { name: "Library", exact: true }).click();
+				await page
+					.getByRole("button", {
+						name: "Choose Follow-up notes, file Follow-up notes.txt",
+						exact: true,
+					})
+					.click();
+				await composer.fill("After seven days, as described in my notes");
+				await page.getByRole("button", { name: "Send", exact: true }).click();
+			} else
+				await page
+					.getByRole("button", { name: seed.scrollQuestionFinalOption })
+					.click();
+			await expect(page.getByText(reply, { exact: true })).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Stop generating" }),
+			).toHaveCount(0);
+			await composer.fill("A deliberate next message");
+			await expect(
+				page.getByRole("button", { name: "Send", exact: true }),
+			).toBeEnabled();
+			await test.info().attach("continuation-posts.json", {
+				body: JSON.stringify(requests, null, 2),
+				contentType: "application/json",
+			});
+			expect(requests).toHaveLength(1);
+			expect(requests[0].inputRoundId).toBe(seed.scrollQuestionRoundId);
+			if (withAttachment) {
+				expect(requests[0].messages).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							role: "assistant",
+							parts: expect.arrayContaining([
+								expect.objectContaining({
+									type: "tool-askQuestions",
+									state: "output-available",
+									output: {
+										"0": "User Responded: The community team handles it",
+										"1": "User Responded: After seven days, as described in my notes (attached: Follow-up notes.txt)",
+									},
+								}),
+							]),
+						}),
+						expect.objectContaining({
+							role: "user",
+							metadata: expect.objectContaining({
+								attachments: [expect.objectContaining({ assetId: attachedId })],
+							}),
+						}),
+					]),
+				);
+			}
+			// Switching conversations is another committed React turn after the
+			// SDK has finished, without introducing a timer-based quiet window.
+			await page.getByRole("button", { name: "History" }).click();
+			await page
+				.getByRole("button", { name: new RegExp(seed.scrollThreadUserText) })
+				.click();
+			await expect(
+				page.getByText(seed.scrollThreadAssistantText),
+			).toBeVisible();
+			expect(requests).toHaveLength(1);
+		});
 
 	test("GET /api/auth/get-session returns the seeded user", {
 		tag: "@seed:auth",

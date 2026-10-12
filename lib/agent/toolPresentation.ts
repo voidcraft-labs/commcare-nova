@@ -232,7 +232,8 @@ export const SHARED_TOOL_PRESENTATION = {
 	attachOptionMedia: change("Setting option media", "Set option media"),
 	setMenuMedia: change("Setting menu media", "Set menu media"),
 	setAppLogo: change("Updating app logo", "Updated app logo"),
-	listMediaAssets: read("Reading media", "Read media"),
+	listMediaAssets: read("Searching the library", "Searched the library"),
+	readSource: read("Reading source material", "Read source material"),
 	removeMediaAsset: change("Removing media", "Removed media", (output) =>
 		output.removed === true ? { effect: "changed" } : undefined,
 	),
@@ -304,7 +305,6 @@ export const AUTHORING_TOOL_PRESENTATION = {
 		doing: "Updating the plan",
 		done: "Updated the plan",
 	},
-	readSource: read("Reading source material", "Read source material"),
 	getApp: read("Reading the app", "Read the app"),
 	reviewPlan: {
 		kind: "activity",

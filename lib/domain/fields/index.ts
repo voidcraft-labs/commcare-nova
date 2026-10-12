@@ -714,6 +714,8 @@ export {
 	selectOptionSchema,
 } from "./base";
 export {
+	type CaseOptionsSource,
+	caseOptionsSourceSchema,
 	type InlineOptionsSource,
 	inlineOptionsSourceSchema,
 	type SelectOptionsSource,

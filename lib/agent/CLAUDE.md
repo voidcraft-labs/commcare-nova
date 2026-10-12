@@ -41,6 +41,31 @@ compiler briefs, and slice executors are retired. Historical database artifacts
 are retained for inspection; serving code does not translate or execute them.
 The one-time transition is in `docs/architecture/design-format-cutover.md`.
 
+## Library discovery and source selection
+
+The shared `listMediaAssets` operation searches the current Project's whole
+library before pagination, across filenames, display names and extracted titles.
+All seven file kinds are discoverable. `readSource` reads a document by asset id
+or unambiguous exact filename, even when no user message attached it. Discovery
+loads no document bytes and selects no evidence.
+
+`sourceDocuments.ts` owns the shared reader. It returns bounded pages of the
+working requirements extract, with a revision derived from the original content,
+extractor version and extract digest. Further pages require that revision; a
+changed source refuses rather than mixing extracts. Embedded authoring binds
+preparation to its metered run and cancellation signal. MCP has no preparation
+callback: an unprepared document returns `preparation_required` without starting
+a model call; preparation or retry remains available in the Library.
+
+Successful embedded reads record server-owned `threads.selected_sources` under
+the live holder and Project authority, separately from user attachments. Source
+assembly retains those document identities across turns and reads their current
+prepared extracts, preparing them again when needed. A fresh turn records the
+current source snapshot; a changed source digest invalidates prior review.
+Reads during a build also update that snapshot. The page revision protects one
+read sequence from mixed extracts; it does not freeze a document across turns.
+User message metadata cannot forge a library selection.
+
 ## Document source fidelity and privacy
 
 The extractor produces the architect's working requirements extract, not a
@@ -113,9 +138,11 @@ complete call scope; unresolved or ambiguous references refuse before mutation.
 `lib/preview/engine/navigationProjection.ts`. Its `previous` read comes from
 the same owner projection as Preview and App Tests: it names the exact record
 selector or module menu and retained record selections. It never promises a
-visited screen or Details. A private empty registration neighbor has no
-compilable entry until its record name exists; the read explicitly qualifies
-that destination as unavailable while runtime and export remain strict.
+visited screen or Details. Private forms and their menu-path neighbors may carry case-write findings.
+Their reads and staged create/update feedback retain the form and qualify
+navigation as unavailable, with canonical finding codes and owning form/field
+identities. Runtime, save and export remain strict; unexpected projection errors
+are not classified as unfinished authoring.
 
 One list-taking operation handles both one and several additions. Do not add a
 singular twin. Preserve nested identities and attached media during read/edit
@@ -219,3 +246,11 @@ with a retained checkpoint even if its prose is optimistic. An ordinary new
 user turn can create one deterministic successor bound to current revisions;
 reconnect/holder replacement cannot. See `docs/architecture/agent-authoring.md`
 for lineage, immutable original-call receipts and the diagnostic evaluator policy.
+
+Case-backed question choices use the shared select-source schema in add/edit/set
+operations and shared reads. Tool preparation defaults labelProperty to case_name;
+values are always exact record IDs. In this source's filter, #row reads the
+candidate, #case reads the form's scalar selected record, and typed selected
+ancestor references retain that distinct meaning through read/edit round trips.
+The shared-data authoring guide describes restore scope and stable-roster checklist
+updates. Filters do not expand worker access.

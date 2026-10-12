@@ -22,6 +22,7 @@ export function formNavigation(doc: BlueprintDoc, formUuid: Uuid) {
 			return configuredFormNavigation(doc, formUuid, {
 				screen: "unavailable",
 				reason: read.reason,
+				findings: read.findings,
 			});
 		const plan = read.projection;
 		const target = plan.destination;

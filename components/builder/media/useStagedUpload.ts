@@ -11,6 +11,10 @@
 // normal gated attach via `onReady`. A failure flips the staged record
 // to its error state with nothing ever committed; a cancel aborts the
 // transfer and removes the record.
+// Upload authority belongs to the Project. If blueprint editing becomes
+// unavailable, the upload still finishes into the library, the staged record
+// clears, and a notice explains how to choose the file later. No attachment
+// waits for editing to return.
 //
 // The staged record lives in the session store (not component state) so
 // a slot that unmounts mid-upload: the user closes the settings panel,
@@ -29,9 +33,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { type MediaAssetView, uploadMediaAsset } from "./mediaClient";
+import type { MediaAssetView } from "./mediaClient";
+import { uploadToStagedSlot } from "./stagedSlotUpload";
 import { useAttachBudgetGuard } from "./useAttachBudget";
 
 /**
@@ -48,82 +54,29 @@ export function useStagedSlotUpload(
 ): (slotKey: string, kind: MediaKind, file: File) => void {
 	const session = useBuilderSessionApi();
 	const checkAttachBudget = useAttachBudgetGuard();
+	const projectToast = useProjectToast();
 	const onReadyRef = useRef(onReady);
 	useEffect(() => {
 		onReadyRef.current = onReady;
 	});
 
 	return useCallback(
-		(slotKey: string, kind: MediaKind, file: File) => {
-			const start = session.getState();
-			if (start.accessPhase !== "authorized" || !start.canEdit) return;
-			const uploadScopeEpoch = start.scopeEpoch;
-			const controller = new AbortController();
-			const actions = session.getState();
-			actions.stageUpload(slotKey, {
-				filename: file.name,
+		(slotKey: string, kind: MediaKind, file: File) =>
+			uploadToStagedSlot({
+				session,
+				slotKey,
 				kind,
-				abort: () => controller.abort(),
-			});
-			uploadMediaAsset(file, {
-				signal: controller.signal,
-				// The staged slot upload always runs inside the builder, so it lands
-				// in the current app's Project (the server resolves it from `appId`).
-				appId: session.getState().appId,
-				onProgress: (fraction) =>
-					session.getState().setStagedUploadProgress(slotKey, fraction),
-			}).then(
-				async (asset) => {
-					/* Confirm flipped the row to ready. Budget BEFORE dispatch:
-					 * the upload itself succeeded (the file is in the library),
-					 * but an attach that would breach the export ceiling refuses
-					 * here: the shared prose lands on the staged chip and
-					 * nothing was ever committed. A cancel that raced the check
-					 * wins (the record is gone; stay silent). */
-					if (
-						controller.signal.aborted ||
-						session.getState().scopeEpoch !== uploadScopeEpoch ||
-						session.getState().accessPhase !== "authorized" ||
-						!session.getState().canEdit
-					)
-						return;
-					const verdict = await checkAttachBudget(asset);
-					if (
-						controller.signal.aborted ||
-						session.getState().scopeEpoch !== uploadScopeEpoch ||
-						session.getState().accessPhase !== "authorized" ||
-						!session.getState().canEdit
-					)
-						return;
-					if (!verdict.ok) {
-						session.getState().failStagedUpload(slotKey, verdict.error);
-						return;
-					}
-					session.getState().clearStagedUpload(slotKey);
-					onReadyRef.current(asset, kind);
+				file,
+				checkAttachBudget,
+				onReady: (asset) => onReadyRef.current(asset, kind),
+				onRetained: () => {
+					projectToast(
+						"info",
+						"File uploaded to your library",
+						"It couldn't be attached while app editing was unavailable. You can choose it from the library when editing is available.",
+					);
 				},
-				(err: unknown) => {
-					/* Cancel already removed the record (cancelStagedUpload aborts
-					 * then clears): stay silent so the cleared slot doesn't
-					 * resurrect as an error chip. */
-					if (
-						controller.signal.aborted ||
-						session.getState().scopeEpoch !== uploadScopeEpoch ||
-						session.getState().accessPhase !== "authorized" ||
-						!session.getState().canEdit
-					)
-						return;
-					session
-						.getState()
-						.failStagedUpload(
-							slotKey,
-							err instanceof Error
-								? err.message
-								: "The upload failed for an unknown reason. Try again.",
-						);
-				},
-			);
-		},
-		[session, checkAttachBudget],
+			}),
+		[session, checkAttachBudget, projectToast],
 	);
 }

@@ -1,0 +1,15 @@
+{
+	"expectedModels": {
+		"architect": { "modelId": "gpt-6.1-sol", "reasoningEffort": "medium" },
+		"peer": { "modelId": "gpt-6.1-sol", "reasoningEffort": "medium" },
+		"followUpEditor": { "modelId": "gpt-6.1-sol", "reasoningEffort": "medium" },
+		"documentExtractor": {
+			"modelId": "gpt-6.1-sol",
+			"reasoningEffort": "medium"
+		},
+		"translator": { "modelId": "gpt-6.1-sol", "reasoningEffort": "medium" }
+	},
+	"timeoutMinutes": 60,
+	"maxRequests": 400,
+	"reviewPolicy": { "kind": "production" }
+}

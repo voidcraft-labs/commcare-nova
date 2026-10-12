@@ -243,7 +243,12 @@ it("preserves an unfinished review and admits exactly one successor on a new use
 	await finishPlanReview(auth, successor.reviewId, {
 		contextId: nextContext.id,
 		summary: "Exercised the return journey.",
+		sourceDigest: "source-b-plus-discovered-document",
 	});
+	expect(await latestPlanReview(auth, "source-b", null)).toBeUndefined();
+	expect(
+		await latestPlanReview(auth, "source-b-plus-discovered-document", null),
+	).toMatchObject({ id: successor.reviewId });
 	const receipt = await beginPlanReview(auth, "original-call");
 	expect(receipt).toMatchObject({
 		complete: true,
@@ -258,6 +263,9 @@ it("preserves an unfinished review and admits exactly one successor on a new use
 		change: { markdown: "Add a lost-tool workflow." },
 	});
 	expect(await beginPlanReview(auth, "original-call")).toEqual(receipt);
+	expect(
+		await latestPlanReview(auth, "source-b-plus-discovered-document", null),
+	).toBeUndefined();
 	expect(
 		await h.db().selectFrom("authoring_reviews").selectAll().execute(),
 	).toHaveLength(2);

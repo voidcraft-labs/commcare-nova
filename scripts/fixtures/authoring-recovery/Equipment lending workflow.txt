@@ -1,0 +1,7 @@
+Equipment lending workflow
+
+To lend a tool, a desk worker selects an available tool and records the borrower's name, their phone number, the loan date, and the due date. All four answers are required. The due date cannot be before the loan date. Submitting the loan moves the tool out of the available list and into the loan list. The tool's workshop tag, name, and category stay unchanged.
+
+To return a tool, a desk worker selects it from the loan list. The screen shows the borrower and due date so the worker can check they chose the right tool. They record the return date and its condition: good or needs repair. A return in good condition makes the tool available to lend again. A tool that needs repair must not appear in the lending list.
+
+There is also a repair list that shows tools needing repair. A worker records a repair note and marks a selected tool ready. This returns it to the available list. Keep the lending and return history as submitted forms. We only need the current borrower and due date in the current loan list; a new loan must replace the previous borrower's details.

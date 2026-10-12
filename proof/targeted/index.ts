@@ -37,6 +37,7 @@ import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
+import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
@@ -98,6 +99,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	supplyPointRead,
 	mediaSlots,
 	captureWidgets,
+	noMatchesReturnIdentity,
 ];
 
 /** Every targeted document, in a fixed order. */

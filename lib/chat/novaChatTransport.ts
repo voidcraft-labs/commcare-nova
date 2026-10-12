@@ -24,6 +24,19 @@ import type { WorkflowChatTransportOptions } from "@ai-sdk/workflow";
 import { WorkflowChatTransport } from "@ai-sdk/workflow";
 import type { UIMessage, UIMessageChunk } from "ai";
 import { createHydratedStepSkipFilter } from "./hydratedStepFilter";
+import {
+	type InputRoundReconciliation,
+	inputRoundReconciliationSchema,
+} from "./inputRound";
+
+export class InputRoundReconciliationError extends Error {
+	constructor(readonly reconciliation: InputRoundReconciliation) {
+		super(
+			"This conversation has already moved on. Refreshing its latest state.",
+		);
+		this.name = "InputRoundReconciliationError";
+	}
+}
 
 /** The override keeps the base class's exact signature. `package.json`
  *  overrides the workflow package's pinned `ai` with Nova's own, so its chunk
@@ -42,7 +55,26 @@ export class NovaChatTransport<
 		 *  the filter must window on what the client holds at that moment. */
 		hydratedMessages: () => readonly unknown[],
 	) {
-		super(options);
+		const request = options.fetch ?? globalThis.fetch.bind(globalThis);
+		super({
+			...options,
+			fetch: async (input, init) => {
+				const response = await request(input, init);
+				if (response.status === 409) {
+					const parsed = inputRoundReconciliationSchema.safeParse(
+						await response
+							.clone()
+							.json()
+							.catch(() => null),
+					);
+					if (parsed.success) {
+						await response.body?.cancel();
+						throw new InputRoundReconciliationError(parsed.data);
+					}
+				}
+				return response;
+			},
+		});
 		this.hydratedMessages = hydratedMessages;
 	}
 

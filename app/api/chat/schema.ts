@@ -45,6 +45,7 @@ export const chatRequestSchema = z.object({
 	 * continuation must echo it so a stale same-thread tab cannot resume a
 	 * successor claim. */
 	holderNonce: chatHolderNonceSchema.optional(),
+	inputRoundId: z.string().min(1).max(200).optional(),
 	/** App ID: present after first save so subsequent saves update the same doc.
 	 * `min(1)` is load-bearing: PRESENCE of this field is what classifies the
 	 * request as an existing-app turn (the credit pre-flight's floor and the

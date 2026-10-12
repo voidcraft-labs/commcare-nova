@@ -1,3 +1,4 @@
+import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
 /**
  * The design-session build turn against a real Postgres testcontainer: the
  * wire and lifecycle pins for the chat POST that starts (or continues) a
@@ -24,10 +25,7 @@ import { readMaterializedGenesisReceipt } from "@/lib/agent/change-set/materiali
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { loadApp } from "@/lib/db/apps";
 import { CREDITS_PER_BUILD } from "@/lib/db/creditPolicy";
-import {
-	createAndClaimDesignSessionRun,
-	setDesignSessionAwaitingInput,
-} from "@/lib/db/designSessions";
+import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
 import { getCurrentPeriod } from "@/lib/db/period";
 import type { AppDatabase } from "@/lib/db/pg";
 import { materializeDesignFixture } from "./materializeDesignFixture";
@@ -197,15 +195,18 @@ describe("design-session build turns", () => {
 			args.writer.write({ type: "text-end", id: "owner-private" });
 			args.writer.write({ type: "finish-step" });
 			args.writer.write({ type: "finish" });
-			const paused = await setDesignSessionAwaitingInput(
-				args.designSessionId,
-				args.runId,
-				args.holderNonce,
-				true,
-				USER,
-				PROJECT,
-			);
-			return { kind: "awaiting-input", pauseOwned: paused === "owned" };
+			return {
+				kind: "awaiting-input",
+				pause: {
+					kind: "message",
+					origin: args.responseMessageId,
+					orchestration: {
+						expectedHead: await readOrchestrationHead(args.designSessionId),
+						state: { kind: "awaiting-input" },
+					},
+					toolCallIds: [],
+				},
+			};
 		});
 		const first = await POST(buildRequest());
 		expect(first.status).toBe(200);
@@ -253,15 +254,18 @@ describe("design-session build turns", () => {
 			args.writer.write({ type: "text-end", id: "n1" });
 			args.writer.write({ type: "finish-step" });
 			args.writer.write({ type: "finish" });
-			const paused = await setDesignSessionAwaitingInput(
-				args.designSessionId,
-				args.runId,
-				args.holderNonce,
-				true,
-				USER,
-				PROJECT,
-			);
-			return { kind: "awaiting-input", pauseOwned: paused === "owned" };
+			return {
+				kind: "awaiting-input",
+				pause: {
+					kind: "message",
+					origin: args.responseMessageId,
+					orchestration: {
+						expectedHead: await readOrchestrationHead(args.designSessionId),
+						state: { kind: "awaiting-input" },
+					},
+					toolCallIds: [],
+				},
+			};
 		});
 
 		const response = await POST(buildRequest());

@@ -72,10 +72,12 @@ export const SOLUTIONS_ARCHITECT_MAX_RETRIES = 4;
 
 /** Journey continuation must not depend on rediscovery after compaction. This
  * small eager subset stays identical across build, review and ordinary edits. */
-const EAGER_JOURNEY_TOOLS = new Set([
+const EAGER_CONTEXT_TOOLS = new Set([
 	"startAppTest",
 	"continueAppTest",
 	"readAppTest",
+	"listMediaAssets",
+	"readSource",
 ]);
 
 /** The inspection catalog and runtime use these same definitions. Other shared
@@ -109,7 +111,7 @@ export function solutionsArchitectToolDefinitions(): ToolSet {
 					inputSchema: authoringToolSchema(entry.saName, entry.tool.inputSchema)
 						.inputSchema,
 					strict: false,
-					...(!EAGER_JOURNEY_TOOLS.has(entry.saName) && {
+					...(!EAGER_CONTEXT_TOOLS.has(entry.saName) && {
 						providerOptions: { openai: { deferLoading: true } },
 					}),
 					...(entry.policy.effect !== "read-blueprint" && {

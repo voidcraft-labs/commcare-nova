@@ -26,6 +26,7 @@
  */
 
 import { z } from "zod";
+import { inputRoundSchema } from "@/lib/chat/inputRound";
 import type { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import type { Mutation } from "@/lib/doc/types";
 import { type Location, locationSchema } from "@/lib/routing/types";
@@ -364,6 +365,7 @@ export const threadDocSchema = threadMetaSchema
 	.omit({ message_count: true })
 	.extend({
 		messages: z.array(threadMessageSchema),
+		input_round: inputRoundSchema.nullable().default(null),
 		/** Transient actor-bound continuation projection. Its dedicated authority
 		 * column is not part of the public thread shape or message history. */
 		holder_nonce: z.uuid().optional(),

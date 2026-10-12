@@ -168,6 +168,7 @@ export interface LocalizedTranslationUnit extends TranslationUnit {
 
 export const translationCoverageDiagnosticCodes = [
 	"lookup-labels-need-localized-data",
+	"case-labels-need-localized-data",
 	"connect-text-has-no-locale-carrier",
 	"media-is-shared-across-locales",
 	"automation-language-is-recipient-owned",
@@ -212,6 +213,17 @@ export function collectTranslationCoverageDiagnostics(
 			affectedCount: lookupCarriers,
 		});
 	}
+	const caseChoices = Object.values(doc.fields).filter(
+		(field) => "optionsSource" in field && field.optionsSource.kind === "cases",
+	).length;
+	if (caseChoices > 0)
+		diagnostics.push({
+			code: "case-labels-need-localized-data",
+			title: "Case choices use saved record labels",
+			explanation:
+				"These labels are record data. App translations don't change their saved wording.",
+			affectedCount: caseChoices,
+		});
 	const connectForms = Object.values(doc.forms).filter(
 		(form) => form.connect !== undefined,
 	).length;

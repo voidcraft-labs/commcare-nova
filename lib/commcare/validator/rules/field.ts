@@ -112,7 +112,7 @@ function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
 	if (
-		field.optionsSource.kind === "lookup" ||
+		field.optionsSource.kind !== "inline" ||
 		field.optionsSource.options.length > 0
 	) {
 		return [];
@@ -150,7 +150,7 @@ function selectTooFewOptions(
 ): ValidationError[] {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
-	if (field.optionsSource.kind === "lookup") return [];
+	if (field.optionsSource.kind !== "inline") return [];
 	const count = field.optionsSource.options.length;
 	if (count === 0 || count >= 2) return [];
 	const typeName =
@@ -188,7 +188,7 @@ function selectOptionValueInvalid(
 ): ValidationError[] {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
-	if (field.optionsSource.kind === "lookup") return [];
+	if (field.optionsSource.kind !== "inline") return [];
 	const errors: ValidationError[] = [];
 	const options = field.optionsSource.options;
 	options.forEach((option, index) => {

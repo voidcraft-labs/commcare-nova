@@ -234,7 +234,7 @@ function describeUserPropertyReference(
 			required: "required condition",
 			repeat_count: "repeat count",
 			ids_query: "lookup row query",
-			lookup_options_source: "lookup choice filter",
+			lookup_options_source: "choice filter",
 		};
 		return `${setting[slot] ?? `saved ${slot.replaceAll("_", " ")}`} on “${field.id}”`;
 	}

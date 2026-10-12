@@ -46,6 +46,7 @@ FAMILIES = {
     for family in [
         _script("arithmetic", "emit-arithmetic-evidence.ts"),
         _script("case", "emit-case-evidence.ts"),
+        _script("case-choice", "emit-case-choice-evidence.ts"),
         _script("case-list", "emit-case-list-evidence.ts"),
         _script("connect", "emit-connect-evidence.ts"),
         _script("container", "emit-container-evidence.ts"),
@@ -83,6 +84,7 @@ FAMILIES = {
 CORE_CLASSES = {
     "ArithmeticRuntimeTest": "arithmetic",
     "CaseCaptureRuntimeTest": "case",
+    "CaseChoiceRuntimeTest": "case-choice",
     "CaseListRuntimeTest": "case-list",
     "CaseOperationRuntimeTest": "case",
     "ConnectRuntimeTest": "connect",

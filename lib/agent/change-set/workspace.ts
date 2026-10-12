@@ -92,6 +92,7 @@ export interface ChangeSetWorkspaceHost {
 	readonly allowIdleAuthoringRead?: boolean;
 	readonly lookupDefinitions?: ToolInvocationContext["lookupDefinitions"];
 	readonly lookupCatalog?: ToolInvocationContext["lookupCatalog"];
+	readonly sourceDocuments?: ToolInvocationContext["sourceDocuments"];
 	readonly conversionImpact: ConversionImpactFn;
 }
 
@@ -582,6 +583,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(hostLookupCatalog !== undefined && {
 				lookupCatalog: hostLookupCatalog,
 			}),
+			sourceDocuments: this.host.sourceDocuments,
 			conversionImpact: (impactArgs) => this.host.conversionImpact(impactArgs),
 			applyBatch: async ({ mutations, stage: stageTag }) => {
 				consumeWriteBudget("applyBatch");

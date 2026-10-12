@@ -3,15 +3,11 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { AssetKind } from "@/lib/domain/multimedia";
-import {
-	useAccessPhase,
-	useCanEdit,
-	useProjectScopeEpoch,
-} from "@/lib/session/hooks";
-import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import type { MediaAssetView } from "./mediaClient";
 import { createMediaLibrary } from "./mediaLibrary";
 import { createMediaUpload, type MediaUploadStatus } from "./mediaUpload";
+import { useMediaAuthority } from "./useMediaAuthority";
 
 export type { MediaUploadStatus } from "./mediaUpload";
 export interface UseMediaUpload {
@@ -19,26 +15,23 @@ export interface UseMediaUpload {
 	status: MediaUploadStatus;
 }
 
-export function useMediaUpload(appId?: string): UseMediaUpload {
-	const scopeEpoch = useProjectScopeEpoch();
-	const accessPhase = useAccessPhase();
-	const canEdit = useCanEdit();
-	const session = useOptionalBuilderSessionApi();
+export function useMediaUpload(
+	appId?: string,
+	standaloneCanManageFiles?: boolean,
+): UseMediaUpload {
+	const { canManageFiles, mayManageFiles } = useMediaAuthority(
+		standaloneCanManageFiles,
+	);
 	const reconciler = useReconcilerContext();
+	// A permission change retires the transfer, but a blueprint-only lock does
+	// not replace the model or abort an otherwise authorized Project upload.
 	const model = useMemo(
 		() =>
 			createMediaUpload({
 				appId,
-				canWrite: () => {
-					const live = session?.getState();
-					return live
-						? live.accessPhase === "authorized" &&
-								live.canEdit &&
-								live.scopeEpoch === scopeEpoch
-						: accessPhase === "authorized" && canEdit;
-				},
+				canWrite: () => canManageFiles && mayManageFiles(),
 			}),
-		[appId, session, scopeEpoch, accessPhase, canEdit],
+		[appId, canManageFiles, mayManageFiles],
 	);
 	const status = useSyncExternalStore(
 		model.subscribe,

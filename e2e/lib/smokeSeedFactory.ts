@@ -3,12 +3,18 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 
+import {
+	caseChoiceDoc,
+	caseChoiceSnapshot,
+	choiceUuid,
+} from "@/lib/__tests__/caseChoiceFixture";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { withProjectContext } from "@/lib/case-store";
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
+import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import {
 	appendSyntheticBatch,
@@ -872,6 +878,67 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
+		"case-choices": async () => {
+			const { appId, baseSeq } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: "Clinic attendance", status: "complete" },
+			);
+			const doc = caseChoiceDoc();
+			doc.appId = appId;
+			const blueprint = toPersistableDoc(doc);
+			await appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: baseSeq,
+				targetDoc: blueprint,
+				authority: { kind: "user", actorUserId: SEED.userId },
+			});
+			await materializeCaseStoreSchemas({
+				appId,
+				blueprint,
+				syncedSeq: baseSeq + 1,
+			});
+			const rows = caseChoiceSnapshot().rows;
+			const ids = new Map(rows.map((row) => [row.case_id, randomUUID()]));
+			for (const row of rows)
+				await caseStore.insert({
+					appId,
+					row: {
+						case_id: ids.get(row.case_id),
+						case_type: row.case_type,
+						case_name: row.case_name,
+						status: row.status,
+						parent_case_id: row.parent_case_id
+							? ids.get(row.parent_case_id)
+							: null,
+						properties: row.properties,
+					},
+				});
+			const route = (module: string, form?: string, field?: string) =>
+				buildUrl(
+					`/build/${appId}`,
+					form
+						? {
+								kind: "form",
+								moduleUuid: choiceUuid(module),
+								formUuid: choiceUuid(form),
+								...(field ? { selectedUuid: choiceUuid(field) } : {}),
+							}
+						: { kind: "module", moduleUuid: choiceUuid(module) },
+				);
+			return {
+				caseChoices: {
+					appId,
+					routes: {
+						directory: route("directory-module", "directory"),
+						clinic: route("directory-module", "directory", "clinic"),
+						attendance: route("attendance-module"),
+					},
+				},
+			};
+		},
+
 		"previous-task": async () => {
 			const { appId, baseSeq } = await createExplicitBlankApp(
 				SEED.userId,
@@ -1134,7 +1201,18 @@ export async function createSmokeBuilders(
 					}),
 				),
 			});
+			const scrollThreadId = randomUUID();
+			await seedSettledThread({
+				appId: scrollAppId,
+				threadId: scrollThreadId,
+				prefix: "smoke-scroll",
+				firstUserText: SEED.scrollThreadUserText,
+				finalAssistantText: SEED.scrollThreadAssistantText,
+				threadType: "edit",
+				projectId: seedProjectId,
+			});
 			const scrollQuestionThreadId = randomUUID();
+			let scrollQuestionRoundId: string;
 			{
 				const { streamId, runId, claimed } = await seedTallThreadTurn({
 					appId: scrollAppId,
@@ -1144,22 +1222,21 @@ export async function createSmokeBuilders(
 					threadType: "edit",
 					projectId: seedProjectId,
 				});
-				const releaseOutcome = await clearRunLockAndSettle(
-					scrollAppId,
-					runId,
-					claimed.holderNonce,
-				);
-				if (releaseOutcome !== "owned") {
-					throw new Error(
-						`e2e/seed.ts: scroll question thread lost holder (${releaseOutcome})`,
-					);
-				}
-				await persistResponseSnapshot({
+				const round = await commitThreadInputPause({
 					target: { kind: "app", appId: scrollAppId },
+					holderTarget: { kind: "app", appId: scrollAppId },
+					runId,
+					holderNonce: claimed.holderNonce,
+					mode: "edit",
+					actorUserId: SEED.userId,
 					threadId: scrollQuestionThreadId,
 					streamId,
 					expectedProjectId: seedProjectId,
-					clearMarker: true,
+					pause: {
+						kind: "questions",
+						origin: "smoke-scroll-question-round",
+						toolCallIds: ["smoke-scroll-q-ask-1"],
+					},
 					responseMessage: {
 						id: "smoke-scroll-q-assistant-final",
 						role: "assistant",
@@ -1196,18 +1273,22 @@ export async function createSmokeBuilders(
 						],
 					} as UIMessage,
 				});
+				scrollQuestionRoundId = round.id;
+				const paused = await loadThread(
+					{ kind: "app", appId: scrollAppId },
+					scrollQuestionThreadId,
+					SEED.userId,
+				);
+				if (
+					!paused?.run_paused ||
+					paused.holder_nonce !== claimed.holderNonce ||
+					paused.input_round?.id !== round.id
+				)
+					throw new Error(
+						"e2e/seed.ts: question round did not retain its paused holder",
+					);
 				await assertTallThreadStored(scrollAppId, scrollQuestionThreadId);
 			}
-			const scrollThreadId = randomUUID();
-			await seedSettledThread({
-				appId: scrollAppId,
-				threadId: scrollThreadId,
-				prefix: "smoke-scroll",
-				firstUserText: SEED.scrollThreadUserText,
-				finalAssistantText: SEED.scrollThreadAssistantText,
-				threadType: "edit",
-				projectId: seedProjectId,
-			});
 			/* Stable ordering even when both writes land in the same millisecond. */
 			await pool.query(
 				`UPDATE threads SET updated_at = CASE
@@ -1225,7 +1306,7 @@ export async function createSmokeBuilders(
 				],
 			);
 
-			return { scrollAppId, scrollQuestionThreadId };
+			return { scrollAppId, scrollQuestionThreadId, scrollQuestionRoundId };
 		},
 		design: async () => {
 			const designBuildRunId = randomUUID();
