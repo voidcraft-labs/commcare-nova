@@ -138,36 +138,39 @@ def open_opportunity(served, *, runtime=None) -> Opportunity:
     The caller closes it."""
     from proof.connect import hq as connect_hq
     from proof.observe import services
+    from proof.observe.served import reading
 
     runtime = runtime or services.connect()
     holder = {}
     session = runtime.session(lambda *asked: holder["opportunity"].answer(*asked))
     opportunity = holder["opportunity"] = Opportunity(session)
-    try:
-        opportunity.views = _views(served)
-        opportunity.views.begin(b"connect|opportunity", None)
-        session.step(
-            "opportunity",
-            hqUrl=HQ_URL,
-            domain=served.domain,
-            learnApp=served.app_id,
-            deliverApp=served.app_id,
-            commcareUsername=served.username,
-            passingScore=PASSING_SCORE,
-            oauthClient=connect_hq.OAUTH_CLIENT,
-        )
-        session.step("sync")
-        session.step("pay", name="Visits", deliverUnits="all")
-        session.step("claim")
-        session.step("flags", gps=True)
-        session.step("assign_task", slug="all")
-        state = session.step("collect")["state"]
-        opportunity.catalog = {name: state[name] for name in CATALOG}
-        opportunity.ready = session.checkpoint()
-        opportunity.views = None
-    except BaseException:
-        opportunity.close()
-        raise
+    # What Connect asks HQ making the opportunity is Connect's (``proof.observe.served.reading``).
+    with reading("connect"):
+        try:
+            opportunity.views = _views(served)
+            opportunity.views.begin(b"connect|opportunity", None)
+            session.step(
+                "opportunity",
+                hqUrl=HQ_URL,
+                domain=served.domain,
+                learnApp=served.app_id,
+                deliverApp=served.app_id,
+                commcareUsername=served.username,
+                passingScore=PASSING_SCORE,
+                oauthClient=connect_hq.OAUTH_CLIENT,
+            )
+            session.step("sync")
+            session.step("pay", name="Visits", deliverUnits="all")
+            session.step("claim")
+            session.step("flags", gps=True)
+            session.step("assign_task", slug="all")
+            state = session.step("collect")["state"]
+            opportunity.catalog = {name: state[name] for name in CATALOG}
+            opportunity.ready = session.checkpoint()
+            opportunity.views = None
+        except BaseException:
+            opportunity.close()
+            raise
     return opportunity
 
 

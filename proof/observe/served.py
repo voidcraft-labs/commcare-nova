@@ -43,13 +43,38 @@ recorded with the part and held by the check that judges it.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
+from contextlib import contextmanager
 
 from proof.observe.record import canonical
 from proof.observe.runs import unbuildable
 
 # The hook's name, which the unit logs its operations and requests under.
 HOOK = "served"
+# The served reader whose work runs now (``reading``): every request the hook's unit answers inside it is that
+# reader's (``proof.observe.unit.HookUnit.request``), and what HQ notes answering it is reported under the reader's
+# name (``proof.checks.observations.soft_assertion_differences``), so a run without that reader expects none of it.
+# A state is served along Formplayer's walk, which every reader brings, so serving it is Formplayer's.
+_READING: contextvars.ContextVar[str | None] = contextvars.ContextVar("proof_served_reader", default=None)
+
+
+@contextmanager
+def reading(reader: str):
+    """Inside the block, every request the unit answers is ``reader``'s (``formplayer``, ``webapps``,
+    ``android`` or ``connect``, ``proof.lane.readers.READERS``)."""
+    token = _READING.set(reader)
+    try:
+        yield
+    finally:
+        _READING.reset(token)
+
+
+def reader_now() -> str | None:
+    """The served reader whose request the unit answers now, or None outside every reader's work."""
+    return _READING.get()
+
+
 # What HQ's Web Apps page hands the client of an app (``cloudcare/utils.py::format_app_doc``), but the two ids:
 # each build has its own, and the client shows neither.
 CLIENT_KEYS = ("langs", "multimedia_map", "name", "profile", "upstream_app_id", "imageUri")
@@ -103,7 +128,8 @@ class Serving:
             from proof.observe import services
             from proof.webapps import observe as webapps
 
-            places = webapps.derived_places(self.served, services.client_browser(), runner=self.runner)
+            with reading("webapps"):
+                places = webapps.derived_places(self.served, services.client_browser(), runner=self.runner)
         return observe.walked(self.served, self.runner, self.blobs, script=script, places=places)
 
     def local(self, document, script):
@@ -120,7 +146,8 @@ class Serving:
         from proof.observe import services
         from proof.webapps import observe
 
-        return self.blobs.put_json(observe.shown(self.served, services.client_browser(), trace))
+        with reading("webapps"):
+            return self.blobs.put_json(observe.shown(self.served, services.client_browser(), trace))
 
     def reads(self) -> str:
         return client_reads(self.served.doc)
@@ -133,9 +160,10 @@ class Serving:
         from proof.android import observe as android
 
         archive = android.release_archive(self.served) if archive is None else archive
-        return android.app(
-            self.served, self.blobs, label=f"{label}:{device}", archive=archive, delivered=delivered, device=device
-        )
+        with reading("android"):
+            return android.app(
+                self.served, self.blobs, label=f"{label}:{device}", archive=archive, delivered=delivered, device=device
+            )
 
     def devices_on(self, label: str, archive: bytes | None = None, *, delivered: bool = False) -> dict:
         """What a phone and a tablet each make of the state (``android``), under the keys a state's record keeps
@@ -156,20 +184,21 @@ class Serving:
         server."""
         from proof.android import observe as android
 
-        return {
-            "installs": android.installs(
-                self.served, self.blobs, label=f"{label}:installs", first=first, second=second
-            ),
-            "update": android.update(
-                self.served,
-                self.blobs,
-                label=f"{label}:update",
-                before=first,
-                after=second,
-                incomplete=incomplete,
-                delivered=delivered,
-            ),
-        }
+        with reading("android"):
+            return {
+                "installs": android.installs(
+                    self.served, self.blobs, label=f"{label}:installs", first=first, second=second
+                ),
+                "update": android.update(
+                    self.served,
+                    self.blobs,
+                    label=f"{label}:update",
+                    before=first,
+                    after=second,
+                    incomplete=incomplete,
+                    delivered=delivered,
+                ),
+            }
 
     def release_differs(self, files):
         from proof.formplayer import observe
@@ -178,25 +207,27 @@ class Serving:
 
 
 def serving(unit, document, app_id, *, driver, blobs, label, previous=None, change=None, edit=False):
-    """``proof.formplayer.hq.serve`` for the unit's state, as a ``Serving`` (a context manager's value)."""
-    from contextlib import contextmanager
-
+    """``proof.formplayer.hq.serve`` for the unit's state, as a ``Serving`` (a context manager's value). Serving it is
+    Formplayer's work (``reading``), and each other reader's inside it is that reader's."""
     from proof.formplayer import hq
 
     @contextmanager
     def opened():
         runner = _runner()
-        with hq.serve(
-            unit,
-            document,
-            app_id,
-            runner=runner,
-            operation=unit.operation,
-            label=label,
-            previous=previous,
-            change=change,
-            edit=edit,
-        ) as served:
+        with (
+            reading("formplayer"),
+            hq.serve(
+                unit,
+                document,
+                app_id,
+                runner=runner,
+                operation=unit.operation,
+                label=label,
+                previous=previous,
+                change=change,
+                edit=edit,
+            ) as served,
+        ):
             yield Serving(served, runner, driver, blobs)
 
     return opened()

@@ -231,7 +231,12 @@ def soft_assertion_differences(records, check):
     The artifact names the operation and the state it ran over
     (``soft_assert:<operation>@<state>``, and ``@<gate>`` after a flip's; a
     hook's request is ``request:<digest>``), and the path HQ's frame
-    (``/<file>::<function>``); the note is the value.
+    (``/<file>::<function>``); the note is the value. A request a served
+    reader made (``proof.observe.served.reading``) is named under that
+    reader first, as every served artifact is
+    (``android@soft_assert:request:<digest>@<state>``,
+    ``proof.checks.differences.served_artifact``): only a run with that
+    reader can show it.
     """
     found = []
     for name in sorted(records.configurations):
@@ -246,6 +251,8 @@ def soft_assertion_differences(records, check):
                 artifact = f"soft_assert:{label}@{state}"
                 if "gate" in entry:
                     artifact = f"{artifact}@{entry['gate']}"
+                if "reader" in entry:
+                    artifact = f"{entry['reader']}@{artifact}"
                 for note in entry.get("softAssertions", []):
                     path = f"/{pointer_token(note['where'])}"
                     found.append(Difference(check, records.document, artifact, path, path, "error", None, note))

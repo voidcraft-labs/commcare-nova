@@ -807,8 +807,11 @@ def test_each_note_hq_makes_processing_a_submission_is_recorded_with_its_operati
 def test_each_note_a_hooks_operation_or_request_makes_is_recorded_under_the_hook(hq, core_runner):
     """What an observation hook runs through its unit (``proof.observe.unit.HookUnit``) is logged in its part's
     record under the hook's name: each operation, and each request in which HQ noted something; and the hook's
-    check holds the notes, no other."""
+    check holds the notes, no other. A request a served reader made is named under that reader, so a run without
+    the reader, which cannot show it, leaves an entry on it to a run with the reader (``served_artifact``)."""
+    from proof.checks.differences import artifact_reader, served_artifact
     from proof.hq import operations
+    from proof.observe import served
     from proof.observe.record import ConfigurationRecords, DocumentRecords
     from proof.observe.unit import HookUnit, OperationLog
 
@@ -827,15 +830,26 @@ def test_each_note_a_hooks_operation_or_request_makes_is_recorded_under_the_hook
             operations.process_case_blocks(state, undated)
         with hook.request(b"\x02" * 32):
             operations.process_case_blocks(state, dated)
+        with served.reading("android"), hook.request(b"\x03" * 32):
+            operations.process_case_blocks(state, undated)
     (operation,) = log.log
     assert operation["hook"] == "proof4" and operation["softAssertions"]
-    (request,) = log.requests
+    request, devices = log.requests
     assert request["hook"] == "proof4" and request["request"] == "01" * 32 and request["softAssertions"]
+    assert "reader" not in request
+    assert devices["request"] == "03" * 32 and devices["reader"] == "android" and devices["softAssertions"]
     records = DocumentRecords("d", "corpus")
     records.configurations["minimum"] = ConfigurationRecords("minimum", {}, b=log.recorded({}))
     found = {(d.artifact, d.kind) for d in observations.soft_assertion_differences(records, "proof4")}
-    assert found == {("soft_assert:probe@B", "error"), (f"soft_assert:request:{'01' * 8}@B", "error")}
+    device_artifact = f"android@soft_assert:request:{'03' * 8}@B"
+    assert found == {
+        ("soft_assert:probe@B", "error"),
+        (f"soft_assert:request:{'01' * 8}@B", "error"),
+        (device_artifact, "error"),
+    }
     assert observations.soft_assertion_differences(records, "bar") == []
+    assert served_artifact(device_artifact) and artifact_reader(device_artifact) == "android"
+    assert not served_artifact(f"soft_assert:request:{'01' * 8}@B")
 
 
 # A republish HQ refuses -------------------------------------------------------

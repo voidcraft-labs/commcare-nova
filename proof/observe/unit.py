@@ -358,7 +358,8 @@ def local_key(inputs, hooks=None):
 
 class HookUnit:
     """The unit as a hook sees it: the unit itself, with each operation the hook runs logged in its part's record
-    under the hook's name (``OperationLog``), and each of its requests in which HQ noted a soft assertion."""
+    under the hook's name (``OperationLog``), and each of its requests in which HQ noted a soft assertion, with the
+    served reader that made it where one did (``proof.observe.served.reading``)."""
 
     def __init__(self, unit, log, hook):
         self._unit, self._log, self._hook = unit, log, hook
@@ -368,12 +369,16 @@ class HookUnit:
 
     @contextmanager
     def request(self, digest):
+        from proof.observe.served import reader_now
+
+        reader = reader_now()
         with self._unit.request(digest) as scope:
             yield scope
         if scope.soft_assertions:
-            self._log.requests.append(
-                {"hook": self._hook, "request": digest.hex(), "softAssertions": _notes(scope.soft_assertions)}
-            )
+            entry = {"hook": self._hook, "request": digest.hex(), "softAssertions": _notes(scope.soft_assertions)}
+            if reader is not None:
+                entry["reader"] = reader
+            self._log.requests.append(entry)
 
     def __getattr__(self, name):
         return getattr(self._unit, name)

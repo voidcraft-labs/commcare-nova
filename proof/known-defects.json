@@ -2879,7 +2879,7 @@
 		"defect": 14,
 		"part": "non-writing follow-up (HQ makes the case a form link's literal id names, which no form created)",
 		"check": "proof4",
-		"artifact": "soft_assert:request:*",
+		"artifact": "android@soft_assert:request:*",
 		"path": "/corehq~1form_processor~1casedb_base.py::get_case_from_case_update",
 		"kind": "error",
 		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",

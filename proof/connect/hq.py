@@ -214,6 +214,7 @@ def forwarding(unit, connect_url: str, operation, label: str):
 
     from proof.hq.boot import GUARD
     from proof.hq.seams import also_granted
+    from proof.observe.served import reading
 
     address = urlsplit(connect_url)
     GUARD.admit(address.hostname, address.port or 80)
@@ -221,61 +222,65 @@ def forwarding(unit, connect_url: str, operation, label: str):
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     try:
         with also_granted(privileges.DATA_FORWARDING):
-            signed_in = _admin_signed_in(unit, operation, label)
-            settings_path = reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain})
-            # What the admin types and chooses; every other control is left as the page draws it. A token address
-            # is kept only under the "(Custom)" preset: with any other, the page's save drops it
-            # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a token.
-            _drive_page(
-                unit,
-                settings_path,
-                [
-                    _typed("#id_name", CONNECTION_NAME),
-                    _typed("#id_notify_addresses_str", unit.web_user.username),
-                    _typed("#id_url", f"{connect_url}/api/receiver/"),
-                    _chosen("#id_auth_type", OAUTH2_CLIENT),
-                    {"settle": True},
-                    _typed("#id_client_id", OAUTH_CLIENT["id"]),
-                    _typed("#id_plaintext_client_secret", OAUTH_CLIENT["secret"]),
-                    _chosen("#id_auth_preset", "CUSTOM"),
-                    {"settle": True},
-                    _typed("#id_token_url", f"{connect_url}/o/token/"),
-                    *_saved(settings_path, "Save"),
-                ],
-                signed_in,
-                f"connection-settings@{label}",
-            )
-            settings = ConnectionSettings.objects.filter(domain=unit.domain, name=CONNECTION_NAME).first()
-            if settings is None:
-                raise ForwarderPageRefused(
-                    f"HQ's Connection Settings page ({settings_path}) saved no connection named {CONNECTION_NAME!r}"
-                    " when the admin saved it."
+            # The admin's pages set Connect's forwarder up: their requests are Connect's
+            # (``proof.observe.served.reading``).
+            with reading("connect"):
+                signed_in = _admin_signed_in(unit, operation, label)
+                settings_path = reverse(ConnectionSettingsDetailView.urlname, kwargs={"domain": unit.domain})
+                # What the admin types and chooses; every other control is left as the page draws it. A token address
+                # is kept only under the "(Custom)" preset: with any other, the page's save drops it
+                # (``motech/forms.py::ConnectionSettingsForm.save``), and HQ then asks no address for a token.
+                _drive_page(
+                    unit,
+                    settings_path,
+                    [
+                        _typed("#id_name", CONNECTION_NAME),
+                        _typed("#id_notify_addresses_str", unit.web_user.username),
+                        _typed("#id_url", f"{connect_url}/api/receiver/"),
+                        _chosen("#id_auth_type", OAUTH2_CLIENT),
+                        {"settle": True},
+                        _typed("#id_client_id", OAUTH_CLIENT["id"]),
+                        _typed("#id_plaintext_client_secret", OAUTH_CLIENT["secret"]),
+                        _chosen("#id_auth_preset", "CUSTOM"),
+                        {"settle": True},
+                        _typed("#id_token_url", f"{connect_url}/o/token/"),
+                        *_saved(settings_path, "Save"),
+                    ],
+                    signed_in,
+                    f"connection-settings@{label}",
                 )
-            forwarder_path = (
-                f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/"
-            )
-            _drive_page(
-                unit,
-                forwarder_path,
-                [
-                    _chosen("#id_connection_settings_id", str(settings.id)),
-                    *_saved(forwarder_path, "Start Forwarding"),
-                ],
-                signed_in,
-                f"connect-forwarder@{label}",
-            )
-            if not ConnectFormRepeater.objects.filter(domain=unit.domain).exists():
-                raise ForwarderPageRefused(
-                    f"HQ's Add Forwarder page ({forwarder_path}) saved no Connect forwarder when the admin saved it."
+                settings = ConnectionSettings.objects.filter(domain=unit.domain, name=CONNECTION_NAME).first()
+                if settings is None:
+                    raise ForwarderPageRefused(
+                        f"HQ's Connection Settings page ({settings_path}) saved no connection named {CONNECTION_NAME!r}"
+                        " when the admin saved it."
+                    )
+                forwarder_path = (
+                    f"{reverse(DomainForwardingOptionsView.urlname, args=[unit.domain])}new/ConnectFormRepeater/"
                 )
-            with operation(f"connect:retry-404@{label}", b"connect-retry-404"):
-                # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more status
-                # to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a proxy in
-                # front of Connect answers while it is overloaded). The lane's Connect is at another address, so
-                # the forwarder the page saved is given it here, as production's has it.
-                (repeater,) = ConnectFormRepeater.objects.filter(domain=unit.domain)
-                repeater.add_backoff_code(404)
-                repeater.save()
+                _drive_page(
+                    unit,
+                    forwarder_path,
+                    [
+                        _chosen("#id_connection_settings_id", str(settings.id)),
+                        *_saved(forwarder_path, "Start Forwarding"),
+                    ],
+                    signed_in,
+                    f"connect-forwarder@{label}",
+                )
+                if not ConnectFormRepeater.objects.filter(domain=unit.domain).exists():
+                    raise ForwarderPageRefused(
+                        f"HQ's Add Forwarder page ({forwarder_path}) saved no Connect forwarder when the admin"
+                        " saved it."
+                    )
+                with operation(f"connect:retry-404@{label}", b"connect-retry-404"):
+                    # HQ's Add Forwarder page gives a forwarder whose address is production's Connect one more status
+                    # to retry on (``views/repeaters.py::AddFormRepeaterView.make_repeater``, for the 404 a proxy in
+                    # front of Connect answers while it is overloaded). The lane's Connect is at another address, so
+                    # the forwarder the page saved is given it here, as production's has it.
+                    (repeater,) = ConnectFormRepeater.objects.filter(domain=unit.domain)
+                    repeater.add_backoff_code(404)
+                    repeater.save()
             yield
     finally:
         if insecure is None:
