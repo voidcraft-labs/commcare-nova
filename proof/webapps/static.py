@@ -27,9 +27,10 @@ app's ``static`` directory, and the compiled files), which is how HQ's
 development server finds what it serves. A path no finder holds is not
 answered here, and the caller's HQ answers give it HQ's 404.
 
-Nothing is fetched: a stylesheet that names another host (HQ's page links
-one web font) is refused by the browser's resolver, as every request to
-another origin is.
+Nothing is fetched: the one stylesheet HQ's page names on another host, its
+web font's on Google Fonts, is answered by the driver from the image's own
+copy of the font (``proof/editors/driver/driver.mjs``, ``webFont``), and
+every other request to another origin is refused by the browser's resolver.
 """
 
 from __future__ import annotations

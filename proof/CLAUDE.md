@@ -92,10 +92,12 @@ harness keeps, each with its reason.
     They measure the host's whole volume, and past the flood stage the
     server makes every index read-only, so a lane on a fuller runner would
     read differently: no result may depend on how full a runner's disk is.
-  - *Postgres takes 500 clients* (`proof/compose.yaml`). Each worker holds
-    HQ's connections and a pool for every Formplayer it runs, and the
-    default of 100 ran out; how many connections a machine allows is no
-    claim about an export.
+  - *Postgres takes 125 clients a worker, and never fewer than 500*
+    (`proof/compose.yaml`, set by `proof/run.mjs` from the worker count).
+    Each worker holds HQ's connections and a pool for every Formplayer it
+    runs, and the default of 100 ran out, as a fixed 500 did for a box of
+    forty-eight workers; how many connections a machine allows is no claim
+    about an export.
   - *HQ names a map layer with a placeholder token*
     (`proof/hq/localsettings.py::MAPBOX_ACCESS_TOKEN`). The client draws no
     map, and takes no answer to a location question, without one
