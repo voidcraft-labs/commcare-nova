@@ -8238,6 +8238,50 @@
 		"control": "container-nested-query"
 	},
 	{
+		"id": "d25-android-proof4-vellum-form-ended-changed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/ended",
+		"kind": "changed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-path-changed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/path",
+		"kind": "changed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-finishshown-removed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/finishShown",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-saved-records-removed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/records/*",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
 		"id": "d13-android-proof4-vellum-ivity-formentryactivity-formentryactivity-error-saving-your-form-changed",
 		"defect": 13,
 		"part": "guard blocks (the device does not save the form)",
@@ -8291,6 +8335,17 @@
 		"kind": "changed",
 		"document": "case-operation-relation",
 		"control": "case-operation-relation"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-cases-removed",
+		"defect": 13,
+		"part": "guard blocks (the device does not save the form, so the case it makes is not made)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/cases/*",
+		"kind": "removed",
+		"document": "case-operation-key",
+		"control": "case-operation-key"
 	},
 	{
 		"id": "d13-android-proof4-vellum-form-saved-aftersend-removed",
