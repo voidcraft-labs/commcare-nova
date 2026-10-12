@@ -91,19 +91,28 @@ CLOCK_REPLACEMENT = "nova.proof.android.ProofClock.now()"
 # ended the request. A request whose JVM filled it all the same is refused (``CODE_CACHE_FULL``): what such a JVM
 # read is not what Android does.
 #
-# A device walks every path, case and language of an app in one JVM: hundreds of screens, minutes of the same
-# code. Two settings are for that, each measured on one request of 106 walks (basic_tests.ccz with two cases,
-# selfcheck.py's own), alone on one machine:
+# A document has some fifty device requests. Most are short (an install, an update, an app of a few walks: twelve
+# to fifteen seconds, most of it the JVM and Robolectric starting), and a few walk every path, case and language
+# of an app with lists and languages: dozens of walks, a minute and more of the same code. Two settings are for
+# both, each measured on a short request (the survey control's app, 4 walks) and a long one (basic_tests.ccz
+# with two cases, 106 walks, selfcheck.py's own):
 #
-# - Both of the JVM's compilers (no -XX:TieredStopAtLevel=1, which a JVM that lives seconds would want): 96 s
-#   against 168 s with the client compiler alone, and 191 CPU-seconds against 304.
+# - The second compiler only for what a long request keeps hot, on one thread. With the client compiler alone
+#   (-XX:TieredStopAtLevel=1, which a JVM that lives seconds wants) the long request took twice the time (273 s
+#   and 477 CPU-seconds against 124 and 263). With both compilers as the JVM sets them, a short request took
+#   the same 15 s and 48 CPU-seconds against 21: the second compiler's threads compile for the whole of a
+#   request too short to gain from it. With its thresholds ten times the defaults and one thread for each
+#   compiler (-XX:Tier4*, -XX:CICompilerCount=2), a short request takes 22 CPU-seconds and the long one 131 s
+#   and 197. Measured side by side on a proof machine running other lanes (60 to 90 of its 128 processors
+#   busy), so the seconds are slower than a quiet machine's and the CPU-seconds are the comparison.
 # - A young generation of 1200 MB with survivor spaces of 300 MB each. Every theme a screen's views are made
 #   with is a table Robolectric keeps outside the Java object that owns it and frees once the collector has
 #   found the owner dead (its resources are a port of Android's native ones), some 200 KB each and several a
 #   screen. With the default young generation (a third of the heap, survivors a tenth of that) those tables
 #   overflow the survivor space and are promoted, and the serial collector empties the old generation only by
-#   stopping the device: a full collection of a second or more every five, 35 s of the request's 96. With
-#   this one they die young: 75 s, 13 of them collecting, and no full collection for want of room.
+#   stopping the device: a full collection of a second or more every five, 35 s of the long request's 96 on a
+#   quiet machine. With this one they die young: 75 s, 13 of them collecting, and no full collection for want
+#   of room.
 JVM_OPTIONS = (
     "-noverify",
     "-Xmx2g",
@@ -112,6 +121,11 @@ JVM_OPTIONS = (
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+UseSerialGC",
     "-XX:ReservedCodeCacheSize=240m",
+    "-XX:CICompilerCount=2",
+    "-XX:Tier4InvocationThreshold=50000",
+    "-XX:Tier4MinInvocationThreshold=6000",
+    "-XX:Tier4CompileThreshold=150000",
+    "-XX:Tier4BackEdgeThreshold=400000",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
     "-Duser.country=US",
