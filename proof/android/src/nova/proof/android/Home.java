@@ -4,7 +4,6 @@ import org.commcare.CommCareApplication;
 import org.commcare.activities.StandardHomeActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.shadows.ShadowLooper;
 
 import java.lang.reflect.Method;
@@ -21,17 +20,21 @@ final class Home {
 
     static JSONObject read() throws Exception {
         CommCareApplication.instance().getCurrentSessionWrapper().reset();
-        StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
-        ShadowLooper.idleMainLooper();
-        Object controller = Screens.field(home, "uiController");
-        Method hidden = controller.getClass().getDeclaredMethod("getHiddenButtons");
-        hidden.setAccessible(true);
-        JSONObject found = new JSONObject();
-        found.put("StandardHomeActivityUIController.getHiddenButtons",
-                new JSONArray(new java.util.TreeSet<>((List<?>)hidden.invoke(controller))));
-        found.put("title", Screens.orNull(home.getSupportActionBar() == null
-                || home.getSupportActionBar().getTitle() == null ? null
-                : String.valueOf(home.getSupportActionBar().getTitle())));
-        return found;
+        StandardHomeActivity home = Opened.build(StandardHomeActivity.class, null).create().get();
+        try {
+            ShadowLooper.idleMainLooper();
+            Object controller = Screens.field(home, "uiController");
+            Method hidden = controller.getClass().getDeclaredMethod("getHiddenButtons");
+            hidden.setAccessible(true);
+            JSONObject found = new JSONObject();
+            found.put("StandardHomeActivityUIController.getHiddenButtons",
+                    new JSONArray(new java.util.TreeSet<>((List<?>)hidden.invoke(controller))));
+            found.put("title", Screens.orNull(home.getSupportActionBar() == null
+                    || home.getSupportActionBar().getTitle() == null ? null
+                    : String.valueOf(home.getSupportActionBar().getTitle())));
+            return found;
+        } finally {
+            Opened.end();
+        }
     }
 }

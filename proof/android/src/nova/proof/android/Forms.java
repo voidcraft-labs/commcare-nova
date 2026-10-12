@@ -18,7 +18,6 @@ import org.javarosa.form.api.FormEntryController;
 import org.javarosa.form.api.FormEntryPrompt;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
@@ -73,7 +72,7 @@ final class Forms {
         // Shown in its window as a device shows it: a widget that keeps its answer outside the form (a media
         // question's file) reads it back from the form only once its view is shown (MediaWidget
         // .onVisibilityChanged), so a screen drawn again in a window never shown would save the question empty.
-        FormEntryActivity activity = Robolectric.buildActivity(FormEntryActivity.class, started)
+        FormEntryActivity activity = Opened.build(FormEntryActivity.class, started)
                 .create().start().resume().visible().get();
         // The activity loads its form on a task (FormLoaderTask) it may start from a message the main looper runs
         // only as it idles, after the first wait for the current task has passed: one wait read the form as never

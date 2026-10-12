@@ -116,6 +116,17 @@ The requests (`Reader.java`):
   difference of a list or a detail is reported at the walk that read it,
   not again at every walk that passed it.
 
+  Each walk's screens end with it, as Android ends a screen the worker has
+  left (`Opened.java`: every screen the reader builds is built there, and
+  the walk's end closes each, the newest first, through pause, stop and
+  destroy). Robolectric holds an activity it built, its window and every
+  theme its views were made with until its controller is closed, and lists
+  every dialog a test showed, so a device that left them open would hold
+  hundreds of screens no worker has open. A form the walk left unfinished
+  is paused and stopped as one a worker leaves is, which saves it
+  incomplete where the app's setting says so
+  (`cc-auto-form-save-on-pause`), so the next walk starts on a device made
+  again.
   On the way:
 
   - a **menu** (`MenuActivity`, `Menus.java`): each item its adapter holds,
@@ -387,11 +398,12 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
   breaking its constraint, and shown as its text), while a question label's
   image is laid out (defect 16's media slots).
 
-`test_peer.py` and `proof/checks/test_android.py` run in the lane: the
-proxy's transport (a request through it, plain or tunnelled, reaches the
-harness as the client wrote it, its answer the client, and a request the
-harness cannot answer ends the request), and the judges over planted
-differences and the records a shard keeps.
+`test_peer.py`, `test_screens.py` and `proof/checks/test_android.py` run in
+the lane: the proxy's transport (a request through it, plain or tunnelled,
+reaches the harness as the client wrote it, its answer the client, and a
+request the harness cannot answer ends the request), that every screen the
+reader builds is built where its end is kept (`Opened.java`), and the judges
+over planted differences and the records a shard keeps.
 
 `proof/checks/test_device_archive.py` runs in the lane too: the archive a
 state keeps is HQ's own download with the media its suite names, and a

@@ -21,7 +21,6 @@ import org.commcare.views.widgets.QuestionWidget;
 import org.commcare.views.widgets.StringWidget;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
@@ -223,7 +222,7 @@ final class Updates {
             }
         }
         CommCareApplication.instance().getCurrentSessionWrapper().reset();
-        StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
+        StandardHomeActivity home = Opened.build(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
         home.setFormAndDataSyncer(new FormAndDataSyncerFake());
         ShadowActivity shadow = Shadows.shadowOf(home);

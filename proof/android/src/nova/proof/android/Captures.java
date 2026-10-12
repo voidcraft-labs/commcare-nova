@@ -255,7 +255,7 @@ final class Captures {
             entry.put("offered", "the button opened no drawing screen");
             return false;
         }
-        DrawActivity draw = Robolectric.buildActivity(DrawActivity.class, opened.intent).setup().get();
+        DrawActivity draw = Opened.build(DrawActivity.class, opened.intent).setup().get();
         ShadowLooper.idleMainLooper();
         View canvas = (View)Screens.field(draw, "drawView");
         long at = android.os.SystemClock.uptimeMillis();

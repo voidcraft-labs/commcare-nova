@@ -14,7 +14,6 @@ import org.commcare.suite.model.MenuDisplayable;
 import org.javarosa.core.reference.ReferenceManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
@@ -34,7 +33,7 @@ final class Menus {
     }
 
     private static MenuActivity open(Intent started) {
-        MenuActivity activity = Robolectric.buildActivity(MenuActivity.class, started).setup().get();
+        MenuActivity activity = Opened.build(MenuActivity.class, started).setup().get();
         ShadowLooper.idleMainLooper();
         return activity;
     }

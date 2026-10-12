@@ -22,7 +22,6 @@ import org.commcare.views.dialogs.DialogChoiceItem;
 import org.commcare.views.dialogs.PaneledChoiceDialog;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowListView;
@@ -97,7 +96,7 @@ final class Lists {
         offered = 0;
         cases = new ArrayList<>();
         EntitySelectActivity activity =
-                Robolectric.buildActivity(EntitySelectActivity.class, started).setup().get();
+                Opened.build(EntitySelectActivity.class, started).setup().get();
         loaded(activity);
         ShadowActivity shadow = Shadows.shadowOf((Activity)activity);
         if (activity.isFinishing()) {
@@ -363,7 +362,7 @@ final class Lists {
      */
     private static ShadowActivity detail(Intent started, JSONObject shown, boolean reading) throws Exception {
         EntityDetailActivity activity =
-                Robolectric.buildActivity(EntityDetailActivity.class, started).setup().get();
+                Opened.build(EntityDetailActivity.class, started).setup().get();
         ShadowLooper.idleMainLooper();
         ShadowActivity shadow = Shadows.shadowOf((Activity)activity);
         if (!activity.isFinishing()) {
@@ -397,7 +396,7 @@ final class Lists {
     /** A list opened as home's was, with its adapter; null where it shows none. */
     private static Object[] probe(Intent started) throws Exception {
         EntitySelectActivity activity =
-                Robolectric.buildActivity(EntitySelectActivity.class, new Intent(started)).setup().get();
+                Opened.build(EntitySelectActivity.class, new Intent(started)).setup().get();
         loaded(activity);
         ListView listView = (ListView)((Activity)activity).findViewById(R.id.screen_entity_select_list);
         if (listView == null || !(listView.getAdapter() instanceof EntityListAdapter)) {

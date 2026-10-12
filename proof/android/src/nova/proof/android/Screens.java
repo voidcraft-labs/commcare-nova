@@ -21,7 +21,6 @@ import org.commcare.session.SessionFrame;
 import org.javarosa.core.services.locale.Localization;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
@@ -59,7 +58,8 @@ import java.util.List;
  * A screen is read once where the device is the same: the walk that ends at a menu or a list reads it, and each
  * walk that goes on from there opens the same screen and records only what it chooses (Menus.choose, Lists);
  * the walk that ends its choices with a case reads the case's detail, and a walk that goes on from the case
- * confirms it without reading it again.
+ * confirms it without reading it again. Each walk's screens end with it, as Android ends the screens a worker
+ * has left (Opened).
  *
  * Android applies a completed form's case blocks to the device's own case database as it saves the form
  * (FormRecord.updateAndProcessRecord), so each walk that saved a form starts the next on a device made again:
@@ -249,9 +249,19 @@ final class Screens {
      */
     static JSONObject walk(String command, List<String> choices, Deque<List<String>> pending, FormStep form)
             throws Exception {
+        try {
+            return walked(command, choices, pending, form);
+        } finally {
+            // The walk's screens end with it, as Android ends the screens a worker has left.
+            Opened.end();
+        }
+    }
+
+    private static JSONObject walked(String command, List<String> choices, Deque<List<String>> pending,
+                                     FormStep form) throws Exception {
         AndroidSessionWrapper wrapper = CommCareApplication.instance().getCurrentSessionWrapper();
         wrapper.reset();
-        StandardHomeActivity home = Robolectric.buildActivity(StandardHomeActivity.class, null).create().get();
+        StandardHomeActivity home = Opened.build(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
         if (!Device.served()) {
             // With no server, nothing is sent and no sync is run, as the project's own tests leave home
