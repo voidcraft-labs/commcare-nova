@@ -180,10 +180,12 @@ def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:
     return _read(served, blobs, label, "installs", {"first": first, "second": second}, {})
 
 
-def update(served, blobs, *, label: str, before: bytes, after: bytes, incomplete: bool) -> dict:
+def update(
+    served, blobs, *, label: str, before: bytes, after: bytes, incomplete: bool, delivered: bool = False
+) -> dict:
     """A device on ``before`` updated to ``after``, over a worker's own settings, with every form left incomplete
-    before it where ``incomplete``."""
+    before it where ``incomplete``; with ``delivered``, its requests made as ``app``'s are with it."""
     options = {"preferences": dict(WORKER_SETTINGS)}
     if incomplete:
         options["incompleteForms"] = True
-    return _read(served, blobs, label, "update", {"archive": before, "update": after}, options)
+    return _read(served, blobs, label, "update", {"archive": before, "update": after}, options, delivered=delivered)

@@ -1424,8 +1424,10 @@ local state. The worker HQ made signs in, and the device walks every path
 the app's menus offer (`app`, `proof/android/README.md`). Beside them, on
 `b_aligned`, two exports of one app go on one device in turn and one is
 updated to the other, with every form left incomplete before it and a
-worker's own settings (`installs`, `update`): Nova's two local exports, and
-HQ's builds of A then B; and in proof 4, a device on the state a save was
+worker's own settings (`installs`, `update`): Nova's two local exports (the
+updated device given the input the lane gives Core over them, below, so
+its worker signs in and leaves forms to reopen), and HQ's builds of A then
+B; and in proof 4, a device on the state a save was
 made over is updated to the saved app where the save changed the profile.
 
 **The network** (`proof/android/peer.py`, `proof/android/hq.py`). The
@@ -1468,7 +1470,8 @@ released build's profile addresses it (`DevicePeer.delivered`). Every
 other request goes where the archive addressed it, so its searches meet
 finding 32 at HQ's own search view. Only the transport differs; the
 request the app wrote is kept as written, and its walks are the ones
-compared with A's.
+compared with A's. The device updated from one local export to the other is
+given the same input.
 
 **What is judged** (`proof/checks/android.py`, pure functions of the
 records, called from proofs 1, 3 and 4, each difference under an

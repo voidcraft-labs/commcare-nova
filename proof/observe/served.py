@@ -128,10 +128,12 @@ class Serving:
             f"{key}Tablet": self.android(label, archive, delivered=delivered, device="tablet"),
         }
 
-    def devices(self, label: str, first: bytes, second: bytes, *, incomplete: bool = True):
+    def devices(self, label: str, first: bytes, second: bytes, *, incomplete: bool = True, delivered: bool = False):
         """Two archives of one app on a device, over HQ's views of the state: installed in turn, and one device
         updated from the first to the second with every form left incomplete before it (``proof.android
-        .observe``)."""
+        .observe``); with ``delivered``, the updated device's requests made as the worker HQ made and its restore
+        delivered to HQ's own address for the worker (``proof.android.hq``), as for archives that name no
+        server."""
         from proof.android import observe as android
 
         return {
@@ -139,7 +141,13 @@ class Serving:
                 self.served, self.blobs, label=f"{label}:installs", first=first, second=second
             ),
             "update": android.update(
-                self.served, self.blobs, label=f"{label}:update", before=first, after=second, incomplete=incomplete
+                self.served,
+                self.blobs,
+                label=f"{label}:update",
+                before=first,
+                after=second,
+                incomplete=incomplete,
+                delivered=delivered,
             ),
         }
 
@@ -176,14 +184,17 @@ def serving(unit, document, app_id, *, driver, blobs, label, previous=None, chan
 
 def _devices(held, document, a_record, b_record, blobs) -> dict:
     """Two exports of one app on a device (``Serving.devices``): Nova's two local exports, where the document has
-    both, and HQ's builds of A then B, where HQ released both."""
+    both, and HQ's builds of A then B, where HQ released both. Nova's local exports name no server (finding 59),
+    so the device updated from one to the other is given the input the lane gives Core over them (``delivered``):
+    a worker who signs in, as on the device whose walks proof 3 compares, so the forms they leave incomplete
+    before the update are theirs to reopen after it, as on HQ's builds."""
     from proof.android import observe as android
 
     found = {}
     if document.local_ccz is not None:
         again = document.local_ccz.parent / "local-again.ccz"
         if again.is_file():
-            found["local"] = held.devices("local", document.local_ccz.read_bytes(), again.read_bytes())
+            found["local"] = held.devices("local", document.local_ccz.read_bytes(), again.read_bytes(), delivered=True)
     a_state = (a_record or {}).get("state") or {}
     b_state = (b_record or {}).get("state") or {}
     if android.released(a_state.get("build")) and android.released(b_state.get("build")):

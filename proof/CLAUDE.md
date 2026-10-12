@@ -232,13 +232,13 @@ harness keeps, each with its reason.
   Formplayer run is; Core's random source is seeded at each walk
   (`Peer.seed`), so what the device sends HQ is the same on every run. Nova's
   local archive names no server (finding 59), so its device meets Android's
-  own defaults, and a second device on it is given the input the lane gives
-  Core over that archive (the worker's credentials on every request, HQ's
-  restore view's answer for the worker, each form taken by HQ's receiver
-  under the app's id, every other request where the archive addressed
-  it): only the transport
-  differs, never a reader (`DevicePeer.delivered`; Core's own input path is
-  the local restore and the receiver under the app's id). Never cite an
+  own defaults, and a second device on it, and the device updated from one
+  local export to the other, are given the input the lane gives Core over
+  that archive (the worker's credentials on every request, HQ's restore
+  view's answer for the worker, each form taken by HQ's receiver under the
+  app's id, every other request where the archive addressed it): only the
+  transport differs, never a reader (`DevicePeer.delivered`; Core's own
+  input path is the local restore and the receiver under the app's id). Never cite an
   Android symbol in place of a run (the register's loader refuses an
   `android` field), never copy or rewrite an Android class to observe it
   (call the app's own, by reflection where it is private; where the test
