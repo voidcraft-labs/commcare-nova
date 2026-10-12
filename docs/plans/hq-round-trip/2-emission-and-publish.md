@@ -306,11 +306,26 @@ Part 09 holds this in full.
   change moves both sides alike and no move can show there. The identities
   that move once for existing deployments are listed in part 09 and held by
   the cutover's tests over frozen pre-step fixtures (part 10).
-- **Nine spelling rules retire** with the fixes that make the emitter write the
-  editor's spelling; 24 stay. Part 09 gives each rule's verdict.
-- **Step 2 empties 454 of the register's 613 entries.** The 159 that remain are
-  later steps' (defects 20, 21, 23 to 28 and 30); some are re-pathed onto new
-  controls where a step 2 fix moves what they name.
+- **Twelve spelling rules retire** with the fixes that make the emitter write
+  the editor's spelling; 24 stay, and one widens. Part 09 gives each rule's
+  verdict and the pull request that retires it.
+- **The register step 2 starts from is the proof lane's as it merges: 886
+  entries.** Step 2 moves 709 entries to the fixed register (671 of the base's
+  and 38 the stack itself registers first), deletes 14 with a judge change or
+  an allowance, and adds 109. At the exit the fixed register holds 711 and 270
+  stay live: the 201 later-step entries of the base (defects 20, 21, 23 to 28
+  and 30) and 69 the stack adds for later steps' symptoms its own fixes newly
+  show (defect 25's 61 and defect 24's 6) or for step 3 (finding 56's 2). Every
+  entry's disposition, by id and pull request, is in part 09; a script over the
+  parts' register sections derives it and fails on an entry with none or two.
+- **Where the lane runs.** The pull request lane in CI runs without the served
+  readers and ends within ten minutes; the nightly runs every reader over main,
+  and the weekly the whole lane fresh. So each pull request of the stack runs,
+  on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
+  the readers their entries name before it is marked ready, and the whole lane
+  with every reader runs once at the stack's top before the merge (part 09,
+  part 11's house rules). The implementer asks the person once, at the start,
+  for the proof machine's use and budget.
 - **The harness keeps publishing as Nova publishes**: the capture and the
   publish sequence change in the same pull request, and retained controls are
   replayed in the layout they were captured in.
