@@ -283,8 +283,10 @@ def pytest_terminal_summary(terminalreporter):
     from proof.observe import services
 
     if services.ANDROID_SECONDS:
-        # What each device request took (a JVM of its own, every walk of one served state on one device).
+        # What each device request took (a JVM of its own, every walk of one served state on one device), and
+        # the processor seconds its JVM used, which hold whatever else the machine was running.
         _HQ_TIMINGS["android_request"] = list(services.ANDROID_SECONDS)
+        _HQ_TIMINGS["android_request_cpu"] = list(services.ANDROID_CPU_SECONDS)
     if not _HQ_TIMINGS:
         return
     terminalreporter.section("HQ harness timings (seconds)")

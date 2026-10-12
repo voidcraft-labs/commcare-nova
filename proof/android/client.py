@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import resource
 import shutil
 import signal
 import subprocess
@@ -255,6 +256,10 @@ class AndroidReader:
         self._lock = threading.Lock()
         # What each request took, in seconds, for the lane's budget.
         self.seconds: list[float] = []
+        # And the processor seconds of the children this process reaped while each ran: the request's JVM, and
+        # whatever else of the process ended in that time, so a sum over a session is what its devices cost
+        # whatever else the machine was running.
+        self.cpu_seconds: list[float] = []
         # The authority the devices given a network trust (proof.android.peer), made once a reader.
         self._network_authority = None
 
@@ -392,6 +397,7 @@ class AndroidReader:
         try:
             with _slot(), open(log_path, "wb") as log:
                 started = time.perf_counter()
+                reaped = _reaped_cpu_seconds()
                 try:
                     if proxy is None:
                         status = _run(command, timeout=deadline, cwd=workdir, log=log)
@@ -415,6 +421,7 @@ class AndroidReader:
                 )
             with self._lock:
                 self.seconds.append(round(time.perf_counter() - started, 3))
+                self.cpu_seconds.append(round(_reaped_cpu_seconds() - reaped, 3))
                 # What the JVM wrote answering the last request (Android's own log among it), for a person
                 # reading why Android gave the answer it did.
                 self.last_log = _tail(log_path)
@@ -458,6 +465,12 @@ def _wrote(path: Path, marker: bytes) -> bool:
             return any(marker in line for line in log)
     except OSError:
         return False
+
+
+def _reaped_cpu_seconds() -> float:
+    """The processor seconds, user and system, of every child this process has waited for."""
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
 
 
 # The line the JVM writes as it ends each walk (Screens.java, guarded): the walk and how long it took.
