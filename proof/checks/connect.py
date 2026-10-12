@@ -15,7 +15,11 @@ alike and makes the same rows of are two spellings to it, which is what the
 comparison then shows. One symptom is one difference: where Connect answers
 the two sides' payloads differently (one taken, one refused), that is the
 difference (``/runs/*/posts/*/answer``), and the rows that follow from
-it are not reported again. A run only one side holds, or one HQ's receiver
+it are not reported again; where Connect flagged one side's visit and not the
+other's, the flags are the difference (``/runs/*/state/visits/*/flags/<code>``,
+a visit Connect gave no flags holding none), and what Connect sets from
+flagging it alone (``flagged``, and the approval its auto-approval gives only
+an unflagged visit) is not reported again. A run only one side holds, or one HQ's receiver
 answered the two sides differently, is not compared: Formplayer's refusal of
 a submit and HQ's of a submission are the walks' and the case processing's
 to report (``proof.checks.served``, ``proof.checks.proof3``).
@@ -137,13 +141,38 @@ def blocks(payload) -> list:
 
 
 def _rows(state):
-    """The rows as compared: a visit's flags by the code Connect gives each, and nothing that names a submission."""
+    """The rows as compared: a visit's flags by the code Connect gives each, none where Connect gave the visit no
+    ``flag_reason`` (it writes one only for a visit it flags, ``process_deliver_unit``), and nothing that names a
+    submission."""
     rows = _without(copy.deepcopy(state or {}), ROW_LEFT_OUT)
     for visit in rows.get("visits") or []:
-        flags = visit.get("flags")
-        if isinstance(flags, list):
-            visit["flags"] = {str(code): message for code, message in flags}
+        if "flags" in visit and (visit["flags"] is None or isinstance(visit["flags"], list)):
+            visit["flags"] = {str(code): message for code, message in visit["flags"] or []}
     return rows
+
+
+# What Connect's auto-approval makes of a pending visit it did not flag (``process_deliver_unit``): approved, and
+# agreed to.
+AUTO_APPROVED = ("approved", "agree")
+
+
+def _flag_consequences(before: dict, after: dict) -> None:
+    """Leaves out of each pair of visits one of which Connect flagged and the other not what Connect's receiver
+    sets from that alone (``form_receiver/processor.py::process_deliver_unit``): ``flagged``, which it sets
+    exactly where it has flags, and, where the unflagged visit is the one auto-approval approved and agreed to and
+    the flagged one waits for review, the status and review status. The flags are the symptom, and say which."""
+    visits_before = (before.get("state") or {}).get("visits") or []
+    visits_after = (after.get("state") or {}).get("visits") or []
+    for a, b in zip(visits_before, visits_after, strict=False):
+        if bool(a.get("flags")) == bool(b.get("flags")):
+            continue
+        flagged, unflagged = (a, b) if a.get("flags") else (b, a)
+        approved = (unflagged.get("status"), unflagged.get("reviewStatus")) == AUTO_APPROVED
+        waiting = flagged.get("status") in ("pending", "rejected") and flagged.get("reviewStatus") == "pending"
+        left_out = ("flagged", "status", "reviewStatus") if approved and waiting else ("flagged",)
+        for visit in (a, b):
+            for name in left_out:
+                visit.pop(name, None)
 
 
 def comparable(run) -> dict:
@@ -181,6 +210,8 @@ def differences(before, after, *, check, document, artifact, readers=None) -> li
             a, b = comparable(run_before), comparable(run_after)
             if [post["answer"] for post in a["posts"]] != [post["answer"] for post in b["posts"]]:
                 a, b = {"posts": a["posts"]}, {"posts": b["posts"]}
+            else:
+                _flag_consequences(a, b)
             shown_before[f"{other}:{name}"] = a
             shown_after[f"{other}:{name}"] = b
     return compare_json(

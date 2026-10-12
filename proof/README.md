@@ -1373,7 +1373,10 @@ pins, and nothing is called on a system's behalf:
   compared: two payloads Connect answers alike and makes the same rows of
   are two spellings to it. One symptom is one difference (a payload one
   side had taken and the other refused is its answer, and the rows that
-  follow are not reported again), and a run only one side made, or one HQ's
+  follow are not reported again; a visit Connect flagged on one side and not
+  the other is its flags, and what Connect sets from flagging it alone, its
+  `flagged` and the approval its auto-approval gives only an unflagged
+  visit, is not reported again), and a run only one side made, or one HQ's
   receiver answered otherwise, is left to the walks and the case processing
   that report it. A difference is `connect@local.ccz` or `connect@B` in
   proof 3 and `connect@<editor>@<B>@<configuration>` in proof 4.

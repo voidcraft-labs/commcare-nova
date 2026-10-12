@@ -102,12 +102,33 @@ def test_a_planted_row_difference_is_reported_and_only_it():
         formplayer=[_run("walk-0")],
     )
     assert _differences(before, planted) == [
-        ("/runs/*/state/visits/*/flags", "changed", None, {"gps": "GPS data is missing"}),
+        ("/runs/*/state/visits/*/flags/gps", "added", None, "GPS data is missing"),
         ("/runs/*/state/visits/*/location", "changed", "12.9 77.5 920.0 5.0", None),
     ]
     flagged = _record(core=[_run(visit={"flags": [["pending_task", "t"]]})])
     more = _record(core=[_run(visit={"flags": [["gps", "GPS data is missing"], ["pending_task", "t"]]})])
     assert _differences(flagged, more) == [("/runs/*/state/visits/*/flags/gps", "added", None, "GPS data is missing")]
+
+
+def test_a_visit_flagged_on_one_side_is_its_flags_and_not_what_connect_sets_from_flagging_it():
+    """Connect sets ``flagged`` exactly where it flags a visit, and its auto-approval approves and agrees to only
+    a pending visit it did not flag (``process_deliver_unit``): one flag is one difference, at the flag. Failure it
+    catches: a missing location reported four times over (flags, flagged, status, review status), or a status
+    that differs for another cause lost with them."""
+    approved = {"status": "approved", "reviewStatus": "agree", "flagged": False, "flags": None}
+    waiting = {"status": "pending", "reviewStatus": "pending", "flagged": True, "location": None}
+    waiting["flags"] = [["gps", "GPS data is missing"]]
+    assert _differences(_record(core=[_run(visit=approved)]), _record(core=[_run(visit=waiting)])) == [
+        ("/runs/*/state/visits/*/flags/gps", "added", None, "GPS data is missing"),
+        ("/runs/*/state/visits/*/location", "changed", "12.9 77.5 920.0 5.0", None),
+    ]
+    over_limit = {**waiting, "status": "over_limit"}
+    assert _differences(_record(core=[_run(visit=approved)]), _record(core=[_run(visit=over_limit)])) == [
+        ("/runs/*/state/visits/*/flags/gps", "added", None, "GPS data is missing"),
+        ("/runs/*/state/visits/*/location", "changed", "12.9 77.5 920.0 5.0", None),
+        ("/runs/*/state/visits/*/reviewStatus", "changed", "agree", "pending"),
+        ("/runs/*/state/visits/*/status", "changed", "approved", "over_limit"),
+    ]
 
 
 def test_a_payload_connect_reads_alike_is_no_difference():
