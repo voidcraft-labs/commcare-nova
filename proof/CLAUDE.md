@@ -238,7 +238,9 @@ harness keeps, each with its reason.
   view's answer for the worker, each form taken by HQ's receiver under the
   app's id, every other request where the archive addressed it): only the
   transport differs, never a reader (`DevicePeer.delivered`; Core's own
-  input path is the local restore and the receiver under the app's id). Never cite an
+  input path is the local restore and the receiver under the app's id). A
+  device's network is its configuration's HQ, so a device on the one local
+  archive is judged against the same configuration's A. Never cite an
   Android symbol in place of a run (the register's loader refuses an
   `android` field), never copy or rewrite an Android class to observe it
   (call the app's own, by reflection where it is private; where the test

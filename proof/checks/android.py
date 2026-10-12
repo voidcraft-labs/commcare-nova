@@ -5,15 +5,17 @@ Wherever the unit serves a state to Formplayer and the Web Apps client, it hands
 in on it, and every walk down the app's menus runs, its network answered by HQ's own views over the state. The
 part records keep each answer as a blob, and ``document_record`` gathers one document's::
 
-    {"local": {"app", "installs", "update"},
-     "configurations": {<name>: {"A": {"app"}, "B": {"app"}, "installs", "update",
+    {"configurations": {<name>: {"A": {"app"}, "B": {"app"}, "installs", "update",
+                                 "local": {"app", "asIs", "installs", "update"},
                                  "proof4": {"B": {"app"}, "B-edit": {"app"}},
                                  "saves": {"B": [{"label", "editor", "over", "app", "update"}], "B-edit": [...]}}}}
 
 each of ``app``, ``installs`` and ``update`` the reader's answer to that request (``proof/android/README.md``),
 absent where the document has no such state. ``B`` is B aligned to A, served where its raw build differs from
-A's (proof 3's B); proof 4's states are B and B-edit as the unit served them. Nothing here runs the reader:
-every function reads the records.
+A's (proof 3's B); proof 4's states are B and B-edit as the unit served them. ``local`` is Nova's local archive
+on a device each configuration's unit served: one archive, but its device's network is that configuration's
+HQ (its searches compiled by that HQ under that configuration's flags, its restore that state's), so it is
+compared with the same configuration's A. Nothing here runs the reader: every function reads the records.
 
 **Proof 3** (``behavior``): what a worker's device shows of Nova's local archive against HQ's release of A
 (``android@local.ccz``), and of HQ's release of B against A's (``android@B``), per configuration: the install,
@@ -521,10 +523,10 @@ def behavior(document: str, record: dict, *, device: str = "android") -> list:
     """Proof 3's differences in what one kind of device (``device``: ``android``, a phone, or ``TABLET``) did."""
     local_artifact, a_artifact, republish = (f"{device}@local.ccz", f"{device}@A", f"{device}@B")
     found = []
-    local = (record.get("local") or {}).get("app")
-    found += _applied("proof3", document, local_artifact, local)
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
+        local = (held.get("local") or {}).get("app")
+        found += _applied("proof3", document, local_artifact, local)
         a = (held.get("A") or {}).get("app")
         if a is None:
             continue
@@ -548,7 +550,7 @@ def behavior(document: str, record: dict, *, device: str = "android") -> list:
         found += _applied("proof3", document, a_artifact, a)
         if local is not None:
             found += app_differences(a, local, check="proof3", document=document, artifact=local_artifact)
-        found += signed_in_differences(document, a, (record.get("local") or {}).get("asIs"))
+        found += signed_in_differences(document, a, (held.get("local") or {}).get("asIs"))
         b = (held.get("B") or {}).get("app")
         if b is not None:
             found += _applied("proof3", document, republish, b)
@@ -692,15 +694,15 @@ def not_reopened(update: dict | None) -> list[tuple[str, str, object, object]]:
 
 def identity(document: str, record: dict) -> list:
     found = []
-    local = record.get("local") or {}
 
     def reopened(update, artifact):
         for path, at, before, after in not_reopened(update):
             found.append(Difference("proof1", document, artifact, path, at, "changed", before, after))
 
-    reopened(local.get("update"), LOCAL)
     for name in sorted(record.get("configurations") or {}):
         held = record["configurations"][name]
+        local = held.get("local") or {}
+        reopened(local.get("update"), LOCAL)
         if held.get("installs") is None and held.get("update") is None:
             continue
         reopened(held.get("update"), REPUBLISH)
@@ -811,7 +813,7 @@ def document_record(records, *, tablet: bool = False) -> dict:
     the installs, the update and the local archive's own sign-in are the phones' alone)."""
     blobs = records.blobs
     key, delivered = ("androidTablet", "androidDeliveredTablet") if tablet else ("android", "androidDelivered")
-    found = {"local": {}, "configurations": {}}
+    found = {"configurations": {}}
     for name in sorted(records.configurations):
         parts = records.configurations[name]
         held = {}
@@ -830,19 +832,22 @@ def document_record(records, *, tablet: bool = False) -> dict:
         # The local archive's device given the input the lane gives Core over it is the one its walks are
         # compared from; the one that meets Android's own defaults is judged for where it signs in.
         served_local = aligned.get("local") or {}
-        local = _answer(served_local.get(delivered), blobs)
-        if local is not None and "app" not in found["local"]:
-            found["local"]["app"] = local
+        local = {}
+        walked = _answer(served_local.get(delivered), blobs)
+        if walked is not None:
+            local["app"] = walked
         own = None if tablet else _answer(served_local.get("android"), blobs)
-        if own is not None and "asIs" not in found["local"]:
-            found["local"]["asIs"] = own
+        if own is not None:
+            local["asIs"] = own
         devices = {} if tablet else aligned.get("devices") or {}
-        for role, target in (("local", found["local"]), ("republish", held)):
+        for role, target in (("local", local), ("republish", held)):
             pair = devices.get(role) or {}
             for kind in ("installs", "update"):
                 answer = _answer(pair.get(kind), blobs)
-                if answer is not None and kind not in target:
+                if answer is not None:
                     target[kind] = answer
+        if local:
+            held["local"] = local
         for part, state in (("b", "B"), ("b_edit", "B-edit")):
             record = parts.part(part) or {}
             proof4 = record.get("proof4") or {}

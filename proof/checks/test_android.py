@@ -110,7 +110,7 @@ def _paths(differences):
 
 
 def _proof3(local, a=None, b=None):
-    record = {"local": {"app": local}, "configurations": {"minimum": {"A": {"app": a or _app()}}}}
+    record = {"configurations": {"minimum": {"A": {"app": a or _app()}, "local": {"app": local}}}}
     if b is not None:
         record["configurations"]["minimum"]["B"] = {"app": b}
     return android.behavior("document", record)
@@ -441,9 +441,12 @@ def _reopening(*, opens=True):
 
 def _proof1(local_installs, local_update, hq_update=None):
     record = {
-        "local": {"installs": local_installs, "update": local_update},
         "configurations": {
-            "minimum": {"installs": _installs("Installed", "DuplicateApp"), "update": hq_update or _update()}
+            "minimum": {
+                "installs": _installs("Installed", "DuplicateApp"),
+                "update": hq_update or _update(),
+                "local": {"installs": local_installs, "update": local_update},
+            }
         },
     }
     return android.identity("document", record)
@@ -596,7 +599,7 @@ def test_the_judges_read_each_device_a_shard_kept_where_the_unit_served_its_stat
     held = record["configurations"]["minimum"]
     assert held["A"]["app"] is a and held["A"]["hq"] == [refused]
     assert held["B"]["app"] is b and held["installs"] is installs and held["update"] is update
-    assert record["local"] == {"app": local, "asIs": own}
+    assert held["local"] == {"app": local, "asIs": own}
     assert held["proof4"] == {"B": {"app": base}}
     assert [(entry["label"], entry["app"]) for entry in held["saves"]["B"]] == [("app settings", save)]
     found = {(d.artifact, d.path) for d in android.behavior("document", record)}
@@ -724,6 +727,34 @@ def test_a_devices_refusal_is_its_own_only_where_formplayers_walk_never_met_it()
     assert [entry["said"] for entry in found] == ["Unknown function x"]
 
 
+def test_the_local_archives_device_is_compared_with_the_same_configurations_a():
+    """Contract: Nova's local archive is one archive, but each configuration's unit serves its device, whose
+    network is that configuration's HQ (a search HQ refuses without a flag the other configuration grants), so
+    ``document_record`` keeps its device per configuration and proof 3 compares it with that configuration's A.
+    Failure it catches: one configuration's local device judged against another's A, so HQ's refusal under one
+    configuration reads as a difference of the local archive."""
+    blobs = _Blobs()
+
+    def searched(refused):
+        app = _app()
+        query = {"opened": True, "errorText": "Client-side error (code 400)"} if refused else {"opened": True}
+        app["walks"]["m0/m0-f0"]["steps"].insert(1, {"screen": "QueryRequestActivity", "query": query})
+        return app
+
+    configurations = {}
+    for name, refused in (("maximum", False), ("minimum", True)):
+        configurations[name] = _Parts(
+            a={"hooks": {"served": {"A": {"android": _device(blobs, searched(refused))}}}},
+            b_aligned={"served": {"local": {"androidDelivered": _device(blobs, searched(refused))}}},
+        )
+    record = android.document_record(_Records(blobs, configurations))
+    assert record["configurations"]["minimum"]["local"]["app"] == searched(True)
+    assert android.behavior("document", record) == []
+    configurations["maximum"].b_aligned = {"served": {"local": {"androidDelivered": _device(blobs, searched(True))}}}
+    found = android.behavior("document", android.document_record(_Records(blobs, configurations)))
+    assert _paths(found) == [("android@local.ccz", "/walks/*/steps/*/query/errorText", "added")]
+
+
 def test_the_judges_read_a_tablet_from_the_keys_a_tablet_is_kept_under():
     """Contract: ``document_record(records, tablet=True)`` reads every state's tablet (``androidTablet``, the
     local archive's ``androidDeliveredTablet``), and never a phone's, and leaves the installs, the update and
@@ -742,4 +773,4 @@ def test_the_judges_read_a_tablet_from_the_keys_a_tablet_is_kept_under():
     )
     record = android.document_record(_Records(blobs, {"minimum": parts}), tablet=True)
     assert record["configurations"]["minimum"]["A"]["app"] is tablet
-    assert record["local"] == {"app": local_tablet}
+    assert record["configurations"]["minimum"]["local"] == {"app": local_tablet}

@@ -1470,8 +1470,10 @@ released build's profile addresses it (`DevicePeer.delivered`). Every
 other request goes where the archive addressed it, so its searches meet
 finding 32 at HQ's own search view. Only the transport differs; the
 request the app wrote is kept as written, and its walks are the ones
-compared with A's. The device updated from one local export to the other is
-given the same input.
+compared with A's, each configuration's with that configuration's A: one
+archive, but its device's network is that configuration's HQ, which
+compiles its searches under that configuration's flags. The device updated
+from one local export to the other is given the same input.
 
 **What is judged** (`proof/checks/android.py`, pure functions of the
 records, called from proofs 1, 3 and 4, each difference under an
