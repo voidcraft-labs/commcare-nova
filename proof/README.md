@@ -1781,7 +1781,12 @@ records which case each row is and which case the walk opened: two lists
 that show their cases in another order are that once (`/list/order`), with
 each row compared against the same case's row, and where the two walks
 opened another case (`/list/chose`) nothing past the choice is compared,
-since every screen there is of another case. What a reader keys by a name
+since every screen there is of another case. A walk is named by what it
+chose, so each case's and each language's walk is compared with the same
+case's and the same language's: the walk of a case the other device's list
+does not show is that list's difference (its order) and no walk one device
+lacks, and a language one device's app does not offer is that walk's one
+difference (`/walks/*/language/offered`). What a reader keys by a name
 is compared by that name (a menu's items, a Sort choice, a search's term, a
 hidden button, and a case a form left, each case one value). Left out,
 because it names an install and not what a worker reads, or says again what
@@ -1797,24 +1802,38 @@ compared only where nothing else of its row or header differs: a row whose
 text or layout differs is that difference, and its picture would say it
 again.
 
-**What it costs.** A device's `app` request is one JVM that walks every
-path, case and language of one served state: about ten seconds to start,
-install and sign in, then a second or two a walk beside HQ, so the requests
-of a document of 6 to 24 walks take 20 to 60 seconds each on a proof
-machine, where a request that opened the first case in the starting
-language took three to ten. A document has a request for each served state
-on each device (a phone and a tablet), about twenty in all, so a
-shard's time grows by that, divided among the shards. Two things keep a
-request to it. Each walk's screens end with it (`Opened.java`): Robolectric
-holds a screen it built, with every theme its views were made with, until
-its controller is closed, and a device that left them open filled its heap
-within a hundred walks and spent two thirds of its time collecting. And the
-JVM runs with both of its compilers and a young generation those themes
-die in (`proof/android/client.py`, `JVM_OPTIONS`, which gives the
-measurements): the 106 walks of the reader's own two-case request took 263
-seconds with every screen left open, 96 with each walk's screens ended, and
-take 75. Each request's seconds are in a run's
-timings (`android_request`, `workers/w<k>/hq-timings.json`), and a request
+**What it costs.** A document makes some fifty device requests (34 to 68
+over a sample of twelve documents): an `app` request for each served state
+on a phone and on a tablet (A, B, each of HQ's editors' saves and the local
+archive as delivered, in each configuration), and the installs and updates
+beside them. Each is a JVM of its own, so each pays the JVM's and
+Robolectric's start, the install and the sign-in before it walks, twelve
+seconds and some twenty processor seconds of it; a walk beside HQ is a
+second or two more. Measured in processor seconds, which hold whatever else
+the machine runs (`android_request_cpu` beside `android_request` in
+`workers/w<k>/hq-timings.json`): over twelve documents drawn from the
+whole corpus a request cost 25 and a document's devices 1,270 (680 to
+2,040); over fifteen drawn from the documents with a case list, and over
+the documents that hold more than one language, 35 and 1,870 (1,150 to
+4,220, the most where every list's every case is walked in two languages
+or a form leads back to its list). The starts are most of it: fifty of
+them are about a thousand processor seconds a document whatever it walks.
+With every reader the devices were 45 and 60 percent of a group's time over
+the two documents run that way (case-list-inline and localization-bilingual,
+each with its control).
+
+Three things keep a request to that. Each walk's screens end with it
+(`Opened.java`): Robolectric holds a screen it built, with every theme its
+views were made with, until its controller is closed, and a device that left
+them open filled its heap within a hundred walks and spent two thirds of its
+time collecting. A screen is read once where the device is the same, so the
+walks that pass a list or a detail do not read it again. And the JVM is set
+for both kinds of request, the short ones that are most of the fifty and the
+long ones lists and languages make (`proof/android/client.py`,
+`JVM_OPTIONS`, which gives the measurements): the second compiler only for
+code a long request keeps hot, and a young generation the themes die in. The
+106 walks of the reader's own two-case request took 263 seconds with every
+screen left open, 96 with each walk's screens ended, and take 75. A request
 past its deadline (fifteen minutes) says how far it had walked. The devices
 of one shard together run on half its processors (a
 JVM waits for one of `cpu_count // 2` places before it starts,

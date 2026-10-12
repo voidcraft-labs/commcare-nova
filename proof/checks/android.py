@@ -48,8 +48,10 @@ session, as Android itself stored it, home cannot read (``/update/reopened/*/ses
 
 One symptom is one difference. Two walks that opened another case at a list are compared as far as that list
 (``/list/chose``), since every screen past it is of another case; a list that shows its cases in another
-order is that (``/list/order``), and its rows are then compared case by case. A walk whose screens are not the
-same screens in the same order is that difference, named by where the two part
+order is that (``/list/order``), and its rows are then compared case by case; the walk of a case the other
+device's list does not show is that list's difference and no walk one device lacks; and a language one
+device's app does not offer is that walk's one difference (``/walks/*/language/offered``). A walk whose
+screens are not the same screens in the same order is that difference, named by where the two part
 (``/walks/*/screens/after-<the last screen both showed>:<the baseline's next>:<the other's next>``, each side's
 whole walk its value; the screen a walk stopped at is named with the alert it holds for the worker,
 ``FormEntryActivity!Error Saving your Form``), and its steps are compared one against another only as far as
