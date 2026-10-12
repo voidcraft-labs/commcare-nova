@@ -4,7 +4,10 @@ The proof lane holds every Nova export to CommCare's own code at pinned
 upstream commits: HQ's import, build, case processing, editors, receiver,
 restore and Connect repeater, CommCare Core's runtime, Formplayer's
 application, HQ's Web Apps client, CommCare Android's own app and CommCare
-Connect's own server, over a reproducible corpus, on every pull request.
+Connect's own server, over a reproducible corpus. Every pull request runs it
+without the readers (`PROOF_READERS=0`, `proof/lane/readers.py`: HQ and Core
+whole, no state served to Formplayer, the client, a device or Connect); the
+nightly runs it whole with every reader and opens an issue when it fails.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
 its control, and how a pin changes. These are the rules every change to the
@@ -198,16 +201,27 @@ harness keeps, each with its reason.
   `xpathParse`, `xpathStrings`, `xpathSame`), HQ's (eulxml, js-xpath), or
   `proof/rules/_xpath.py`, the port of Core's lexer that its test holds to
   Core. The surface extractor matches no source text by pattern either.
-- **The lane shares CI's five-minute target, which serving every state no
-  longer fits.** A document served to Formplayer and the client costs about
-  ten times what it did, so the lane's target is the person's to set again
-  (`proof/README.md`, "Timings and the five-minute target"). Every hosted
-  job has four vCPUs, so optimize the work, never the parallelism: measure a change in
-  CPU-seconds (the harness's and Postgres's container cgroups) and wall time
-  with the worker count, per document, per check, per group and per job's
-  fixed cost. Never buy speed with more shards, workers or processes than a
-  four-vCPU job serves, and never with a seam that computes something HQ would
-  not.
+- **CI ends within ten minutes; what cannot fit runs nightly.** The pull
+  request lane runs without the readers (`proof/README.md`, "The lane in CI"
+  and "Timings and the ten-minute bound"), and the nightly audit runs the
+  whole lane fresh with every reader and opens an issue when it fails. The two
+  profiles are one lane: nothing loosens between them, every check that runs
+  holds exactly as it does nightly, the gate leaves only the served readers'
+  register entries to the nightly, and every key the store keeps names its
+  profile. So a change to Nova's emission or to what a reader observes
+  (`proof/formplayer`, `proof/webapps`, `proof/android`, `proof/connect`,
+  `proof/observe/served.py`, a reader's judge or register entry, a pin) is
+  proven by running that reader's slice with the readers on a proof machine
+  before it is pushed (`proof/README.md`, "Proving a reader change before you
+  push"), the nightly the backstop, never the first run. A test that starts a
+  served reader is marked `reader`, by its fixture or by hand, and the
+  readers-off run refuses one left unmarked. Every hosted job has four vCPUs,
+  so optimize the work, never the parallelism: measure a change in CPU-seconds
+  (the harness's and Postgres's container cgroups) and wall time with the
+  worker count, per document, per check, per group and per job's fixed cost.
+  The pull request lane's shard count is set from such measures to end inside
+  the bound; never buy speed with more workers or processes than a four-vCPU
+  job serves, and never with a seam that computes something HQ would not.
 - **Android runs beside HQ's live unit, and HQ answers its network with its
   own views.** A claim about what a device does is observed on
   commcare-android's own classes (`proof/android`, Robolectric, one JVM and
@@ -215,8 +229,9 @@ harness keeps, each with its reason.
   graphics, a phone and a tablet held in landscape), handed each state a
   shard serves, as Formplayer and the Web Apps client are
   (`proof/android/observe.py`, called from `proof/observe/served.py` and
-  `proof4.py`), so the shards run on amd64,
-  the only Linux Robolectric's native runtime ships for, with the reader's
+  `proof4.py`), so the lane's shards run on amd64 (the pull request lane's
+  too, which serves no state, so the records the nightly saves are the ones
+  it reads), the only Linux Robolectric's native runtime ships for, with the reader's
   runtime and its JDK mounted at the paths it was built at
   (`proof/run.mjs::androidRuntime`). Every request the app's own HTTP client
   makes goes through the reader's loopback proxy (`proof/android/peer.py`:
