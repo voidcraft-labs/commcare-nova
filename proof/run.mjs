@@ -793,7 +793,14 @@ export async function surface({
 async function runServer({ image, mounts, environment, serve, output }) {
 	const project = `nova-proof-${randomBytes(4).toString("hex")}`;
 	const compose = ["compose", "-f", COMPOSE_FILE, "-p", project];
-	const env = { ...process.env, PROOF_IMAGE: image };
+	// Postgres's client cap (proof/compose.yaml): each worker holds HQ's
+	// connections and its Formplayers' pools, so the cap grows with them.
+	const workers = Number(serve[serve.indexOf("--workers") + 1]) || 1;
+	const env = {
+		...process.env,
+		PROOF_IMAGE: image,
+		PROOF_POSTGRES_MAX_CONNECTIONS: String(Math.max(500, 125 * workers)),
+	};
 	const down = () =>
 		execute("docker", [...compose, "down", "--volumes", "--remove-orphans"], {
 			env,
