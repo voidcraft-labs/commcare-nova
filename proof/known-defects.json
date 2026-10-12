@@ -6346,9 +6346,9 @@
 		"control": "targeted-hq-side-state"
 	},
 	{
-		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-asked",
-		"defect": 32,
-		"part": "searches from a local .ccz",
+		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
 		"check": "proof3",
 		"artifact": "formplayer@local.ccz",
 		"path": "/runs/*/steps/*/asked/*",
