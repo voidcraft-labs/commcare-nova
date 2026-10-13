@@ -277,8 +277,32 @@ ids), `ids-change-once-unreadable` (no credential read the source),
 this pull request, `hq-app-not-nova-made` (the source read answered
 `unsupported`), is A3's. All five are spelled as part 10, Work item F: the
 migration notice, registers them, which is the one registry of the step's
-notice reasons and transform step ids; their copy for the first four is this
-part's and is rendered there.
+notice reasons and transform step ids. The copy of the first four is this
+part's, in "The notice lines" below, and this pull request adds their
+renderers to `lib/notices/migrationNoticeCopy.ts`.
+
+**The notice lines.** Each line names the deployment's project space by its
+`domain` (`field-ops` below) and each entity by its name (`nameAtMigration`
+where the entity no longer exists), joined as the renderer joins every list
+("Register, Visit and Follow-up"). The first two reasons carry their
+entities; the last two carry none, because they are about the whole app.
+
+| Reason | Entities | Line |
+|---|---|---|
+| `menu-id-changes-once` | each menu and form the cutover could not pair, and each whose HQ id is another entity's derived id | "At the next publish to field-ops, CommCare HQ gets new IDs for Register and Visit, once, because Nova couldn't match them to what that project space holds." When a form is among them, two sentences follow: "Forms submitted before then stay under each form's earlier ID, so CommCare HQ's reports and exports list them apart from the ones that come after. If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish." |
+| `form-ids-change-once` | each form whose stored form id no credential read | "At the next publish to field-ops, the CommCare HQ IDs of Register and Visit change once, because Nova couldn't read the ones that project space holds. Their submissions stay together. If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish." |
+| `ids-change-once-unreadable` | none | "Nova couldn't read the app on field-ops during this update, so the next publish there asks before it writes over that copy. Once you confirm, every menu and form of the app there gets a new ID in CommCare HQ, once. Forms submitted before then stay under each form's earlier ID, so CommCare HQ's reports and exports list them apart from the ones that come after. If an SMS keyword or a scheduled message opens one of its forms, you can point it at the form again in CommCare HQ once you release a build made after that publish." |
+| `ended-app-deleted` | none | "The app Nova made on field-ops was deleted in CommCare HQ, so the next publish there makes a new app in its place. Forms submitted to the deleted app stay in CommCare HQ with it. If it was deleted by mistake, you can restore it in CommCare HQ and then choose Check status for field-ops, and the next publish updates it again." |
+
+What each line states is what "Identity" below states, and each rests on a
+run: the keyword and the scheduled message on the facts table's release
+rows, the submissions on Android's and HQ's reading of a form by its
+`xmlns`, the deleted app's submissions on
+`models/applications.py::ApplicationBase.delete_app`, which changes only
+the app's `doc_type` and writes a delete record, and the restore on A3's
+"The two forms of "HQ reports the app gone"", where HQ's own undo heals a
+deployment at Check status (`refreshDeployment` clears `remote_missing_at`
+on the succeeded observation).
 
 **Register.** Six entries move to `proof/fixed-defects.json` in this pull
 request (3), all check `proof1`:
@@ -399,9 +423,9 @@ do with the ids is under "Lane".
 
 | Contract | Boundary |
 |---|---|
-| `expandDoc` twice over one document, and again after an edit elsewhere, gives the same ids and `xmlns`; the hidden menu's id follows its form's UUID; `targetWireIdentity` prefers a row and falls back per entity and per field | pure, production emitter (`lib/commcare/__tests__/wireIdentity.test.ts`) |
-| The cutover's identity writer records no row for an HQ id that equals another entity's derived id, and names that entity under `menu-id-changes-once` | pure over the cutover's frozen fixtures (`scripts/lib/hqRoundTripCutover/__tests__/`) |
-| A republish to a deployment with override rows sends HQ's recorded ids and `xmlns` in its import body; the runtime role cannot insert into `app_deployment_identities` | real Postgres, the request Nova sends read from a loopback peer (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
+| `expandDoc` twice over one document, and again after an edit elsewhere, gives the same ids and `xmlns`; the hidden menu's id follows its form's UUID; `targetWireIdentity` prefers a row and falls back per entity and per field | pure, production emitter (`lib/commcare/__tests__/wireIdentity.test.ts`, new) |
+| The cutover's identity writer records no row for an HQ id that equals another entity's derived id, and names that entity under `menu-id-changes-once` | pure over built inputs, part 10's row for path two's rules (The proofs that carry the cutover): `scripts/lib/hqRoundTripCutover/__tests__/matching.test.ts` |
+| A republish to a deployment with override rows sends HQ's recorded ids and `xmlns` in its import body; the runtime role cannot insert into `app_deployment_identities` | real Postgres, the request Nova sends read from a loopback peer (`lib/deployment/__tests__/publishSequence.postgres.test.ts`, new in this pull request; A3's rows below add to it) |
 | Every form id reference in one export (`form_links`, `case_list_form`) names an id the same export gives a form | pure, the existing `lib/commcare/validator/hqJsonOracle.ts::checkFormLinks` oracle |
 
 **Lane.** Each of these runs the reader, and each was run by hand during
@@ -415,7 +439,7 @@ planning (the facts table above).
 | `proof/hq/test_publish.py::test_a_form_id_a_republish_keeps_still_resolves_after_a_release`, new | HQ | `navigation-base`, with builds made by HQ's own `make_build` and released | The keyword's `get_app_module_form` resolves the form in the build released after an update that kept its id. With the id changed (the paired refusal, written by hand into the update), it and a scheduled message's `get_memoized_app_module_form` resolve the old id until the new build is released and nothing after. |
 | `proof/hq/test_publish.py::test_an_update_keeps_a_forms_validation_verdict_for_seven_days`, new | HQ, Core | `navigation-base` | The six rows of the verdict table above, with HQ's clock moved for the last two. |
 | `proof/hq/test_publish.py::test_hq_mints_the_id_shapes_nova_derives`, new | HQ | `navigation-base` | A menu and a form made through `views/modules.py::new_module` and `views/forms.py::new_form` hold ids that match the shapes `derivedUniqueId` and `derivedFormXmlns` write (32 lower case hex; the prefix and an upper case hyphenated UUID). |
-| `proof/android/predicates.py::test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps` | Android | `targeted-survey-menu` | A form saved incomplete reopens after an update whose archive keeps its `xmlns`. From this pull request the kept case updates from the document's `local.ccz` to its `local-again.ccz`, whose `xmlns` Nova's compiler now derives alike, with the second archive's versions raised as the predicate raises them today (part 04 makes Nova raise them); the renamed case stays the hand-written refusal. |
+| `proof/android/predicates.py::test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps`, unchanged | Android | the control `targeted-survey-menu` | A form saved incomplete reopens after an update whose archive keeps its `xmlns`, and not after one that renames it. The predicate writes both updates into the control's own archive (`proof/controls/targeted-survey-menu/local.ccz`, the versions raised by hand), so it holds Android's reading of an `xmlns` and nothing of Nova's derivation, and this pull request does not touch it: the control's `local-again.ccz` keeps another drawn `xmlns`, and a predicate runs before any shard, where no corpus exists. That two exports of one document carry one `xmlns` is held by `wireIdentity.test.ts`, by proof 1 at `local.ccz` `/entries/*/xmlns` on every document, and on a device by the row above. |
 
 Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
 run proof -- proof/hq/test_publish.py proof/hq/test_publish_capture.py` and
@@ -425,9 +449,8 @@ navigation-base"`: the document and the control of the five entries HQ and
 the local path hold, and the document the HQ tests publish. Reader slice, on
 a proof machine: `case-capture-followup` and `control-case-capture-followup`,
 the document and control of the device's entry, which are in the one run
-this pull request makes with the readers (A5, "Lane"), and, over the Android
-reader's runtime there, the Android predicate (`python3 -m unittest
-proof.android.predicates`).
+this pull request makes with the readers (A5, "Lane"). A1 changes no Android
+predicate.
 
 ## A2. `localization.wireCodes`
 
@@ -605,18 +628,64 @@ plugin pull request that merges after the deploy.
   `lib/doc/__tests__/mutations-app.test.ts`,
   `lib/doc/__tests__/diffDocsToMutations.localization.test.ts`,
   `lib/agent/tools/__tests__/localization.test.ts`,
-  `lib/agent/authoring/__tests__/readContract.test.ts` and
-  `session.postgres.test.ts`,
-  `lib/agent/change-set/__tests__/changeSetRuntime.postgres.test.ts`,
   `lib/case-store/migrations/__tests__/authoringCutover.postgres.test.ts`,
-  `lib/preview/app-tests/__tests__/journey.postgres.test.ts`,
   `lib/preview/engine/__tests__/engineController.test.ts`,
-  `engineControllerAsync.test.ts`, `engineControllerPublication.test.ts`,
-  `evaluateForm.test.ts` and `evaluateFormConstraintMessages.test.ts`,
+  `engineControllerAsync.test.ts` and `engineControllerPublication.test.ts`,
   `proof/corpus/__tests__/footprint.test.ts`, and
   `scripts/lib/__tests__/languageIdentityRepair.test.ts` and
   `languageIdentityRepair.postgres.test.ts`. A missed one is a type error or
-  a schema refusal, never a silent default.
+  a schema refusal, never a silent default. The tests that call the
+  `addLanguage` tool by name with tool input change nothing, because the
+  tool's input does not change and the tool mints:
+  `lib/agent/authoring/__tests__/readContract.test.ts`,
+  `session.postgres.test.ts` and `input.test.ts`,
+  `lib/agent/change-set/__tests__/changeSetRuntime.postgres.test.ts`,
+  `lib/preview/app-tests/__tests__/journey.postgres.test.ts`, and
+  `lib/preview/engine/__tests__/evaluateForm.test.ts` and
+  `evaluateFormConstraintMessages.test.ts`.
+- Roots written by hand. Every file that writes a localization root as a
+  literal gains `wireCodes`, holding for each language the code
+  `mintLanguageWireCode` gives it when the languages are added in
+  `languageOrder` order: `e2e/lib/preview-cases-client.tsx`,
+  `preview-geopoint-client.tsx`, `preview-language-screen-doc.ts`,
+  `preview-repeats-client.tsx`, `preview-search-client.tsx` and
+  `preview-section-paging-client.tsx`;
+  `lib/commcare/__tests__/constraintMessageEmission.test.ts`,
+  `localizationWireFixture.ts`, `proseWhitespaceFixture.ts` and
+  `xmlBoundary.test.ts`; `lib/commcare/validator/__tests__/localization.test.ts`;
+  `lib/db/__tests__/blueprintRows.test.ts`;
+  `lib/doc/__tests__/casePropertyRenames.test.ts`,
+  `localizationWorkspace.test.ts`, `mutations-app.test.ts`,
+  `projectBuilderLanguageMutations.test.ts` and `searchFilterFixture.ts`;
+  `lib/domain/__tests__/localization.test.ts`;
+  `proof/targeted/documents/emptyListNoEnglish.ts` and `hqSideState.ts`;
+  `scripts/__tests__/selectOptionValueRepair.test.ts`; and
+  `scripts/lib/__tests__/languageIdentityRepair.test.ts` and
+  `languageIdentityRepair.postgres.test.ts` for the new-shape documents they
+  expect (the retired free-code rows they repair are the repair's input and
+  gain nothing). That is each language's preferred spelling in every root
+  but three: `localizationWireFixture.ts::mandarinBranchesDoc` holds
+  `{ eng: "en", "cmn-Hans": "zho", "cmn-Hant": "cmn-hant" }`;
+  `hqSideState.ts` holds `{ eng: "en", "cmn-Hans": "zho" }` in D and
+  `{ eng: "en", "cmn-Hans": "zho", "cmn-Hant": "cmn-hant" }` in D′, and its
+  module comment says the edit adds Traditional Mandarin as `cmn-hant` while
+  Simplified keeps `zho`, so the profile still names a code the app holds,
+  where before step 2 Nova recoded both; and `preview-search-client.tsx`
+  holds `{ eng: "en", spa: "es", "eng-GB": "eng-gb" }`. Two production
+  files also write a root as a literal and are named above:
+  `lib/domain/localization.ts` (`ENGLISH_ONLY_LOCALIZATION`) and
+  `lib/doc/mutations/app.ts`.
+- Tests that hold today's Mandarin codes and change with them, because
+  `localization-mandarin`'s root is `mandarinBranchesDoc`:
+  `lib/commcare/__tests__/localizationEmission.test.ts` (line 44
+  `["en", "cmn-hans", "cmn-hant"]` becomes `["en", "zho", "cmn-hant"]`, and
+  the `"cmn-hans"` keys of lines 126 and 129 become `"zho"`),
+  `proof/native/core/LocalizationRuntimeTest.java` (line 27 the same list,
+  and `"cmn-hans"` on lines 29, 50 and 79 becomes `"zho"`; its producer,
+  `proof/native/producers/emit-localization-evidence.ts`, reads the fixture
+  and is not edited, and its evidence is produced on every run, not
+  committed), and `lib/commcare/__tests__/languageWire.test.ts` (rewritten,
+  "Nova tests" below).
 - Validator: none (the schema's two clauses are the rule).
 - Emitters: `lib/commcare/languageWire.ts`, `lib/commcare/localization.ts`
   (`commCareLocalization`, the one production reader).
@@ -673,16 +742,17 @@ do with a code is under "Lane".
 |---|---|
 | `mutationSchema` refuses an `addLanguage` and a `relabelSourceLanguage` with no `wireCode`; the reducer stores exactly the carried code, including one `mintLanguageWireCode` would not give for that state; a carried code another language holds is refused and leaves the document unchanged | pure, through `mutationSchema`, admission and the reducer (`lib/doc/__tests__/mutations-app.test.ts`) |
 | Through the planner: adding a language that prefers a held spelling leaves the first code alone and gives the second the suffixed code; removing either leaves the other; two adds built for one batch take distinct codes; an undo of a removal restores the exact code | pure, through `lib/doc/languageMutations.ts`, admission and the reducer (`lib/doc/__tests__/languageMutations.test.ts`, new; `lib/doc/__tests__/diffDocsToMutations.localization.test.ts`; `lib/domain/__tests__/localization.test.ts`) |
-| `isEnglishOnlyLocalization` is false for a root whose `eng` holds a suffixed code; an absent root emits `en` | pure |
+| `isEnglishOnlyLocalization` is false for a root whose `eng` holds a suffixed code; an absent root emits `en` | pure (`lib/domain/__tests__/localization.test.ts`) |
 | `planLanguageWire` over a root returns its stored codes in `languageOrder` order | pure (`lib/commcare/__tests__/languageWire.test.ts`, rewritten) |
 | `getLanguagesTool` returns each language's stored code, a suffixed one included, and `en` for an app with no stored root | pure (`lib/agent/tools/__tests__/localization.test.ts`) |
 | `relabelSourceLanguageMutation` carries the identity's preferred spelling, and the reducer leaves a one-entry map holding it | pure, through the planner and the reducer (`lib/doc/__tests__/languageMutations.test.ts`) |
-| The transform step gives every frozen pre-step rooted document the codes today's export gives it | pure over the cutover's frozen fixtures |
+| The transform step gives every frozen pre-step rooted document the codes today's export gives it | pure over the cutover's frozen fixtures, part 10's row for every step over its fixtures (The proofs that carry the cutover): `scripts/lib/hqRoundTripCutover/__tests__/steps.test.ts` |
 
-**Lane.** Three proof files read codes and move to the new
+**Lane.** Two proof files read codes and move to the new
 `planLanguageWire` signature in this pull request:
-`proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts` and
-`proof/targeted/documents/hqSideState.ts`. `proof/corpus/editKinds.ts` and
+`proof/checks/wireLanguages.ts` and `proof/corpus/footprint.ts`.
+`proof/targeted/documents/hqSideState.ts` calls no planner: it writes its two
+roots by hand and gains their `wireCodes` ("Files"). `proof/corpus/editKinds.ts` and
 `proof/corpus/workforce.ts` build their language mutations through
 `lib/doc/languageMutations.ts`, so every `edit/batch.json` that adds or
 relabels a language gains `wireCode`, which shows in the corpus diff. This
@@ -696,17 +766,47 @@ run. Of the entries it moves or registers, one is read after an edit,
 `d1-language-codes-build-profile-raised`, on `targeted-hq-side-state`, whose
 edit is written and not drawn; every other is read on A, B, the local
 archive or the device's update from A to B. Every
-corpus document with a localization root gains `wireCodes`; `localization-mandarin`'s two Mandarin
-branches take the preferred spelling and one suffixed code where today both
-are suffixed, which shows in the corpus `index.json` diff and nowhere in a
-proof. Locally, with the readers off: `PROOF_READERS=0 npm run proof --
-proof/checks -k "targeted-hq-side-state or localization-mandarin"`, the
-document and control of the two entries, which are HQ's, and the document
-whose codes change. Reader slice, on a proof machine: the Android predicate
-below, over the Android reader's runtime there (`python3 -m unittest
+corpus document with a localization root gains `wireCodes`.
+`localization-mandarin`'s two Mandarin branches take `zho` and `cmn-hant`,
+where today both are suffixed (`cmn-hans` and `cmn-hant`): its
+`document.json`, every import body's `langs` and language-keyed maps, and
+its local archives' locale members and `<locale language>` show it, and the
+corpus `index.json`, which holds no language code, does not. Locally, with
+the readers off: `PROOF_READERS=0 npm run proof -- proof/checks -k
+"targeted-hq-side-state or localization-mandarin"` (the first term also
+selects the control `targeted-hq-side-state`), the document and control of
+the two entries, which are HQ's, and the document whose codes change; and
+`PROOF_READERS=0 npm run proof -- proof/native/test_localization_emission.py
+"proof/native/test_core_runtime.py::test_core_runs_the_proof_class[LocalizationRuntimeTest]"
+proof/checks/test_hq_side.py`, the package tests that read the Mandarin
+codes. Reader slice, on a proof machine: the Android predicate below, over
+the Android reader's runtime there (`python3 -m unittest
 proof.android.predicates`). The block moves no served reader's entry and has
-no targeted witness, so its share of the slice holds no document. The whole
-lane shows no proof 1 difference at `/langs/*`, no `XFormException` under
+no targeted witness, so its share of the slice holds no document.
+
+Executed during planning, without the readers, on the lane's head
+(`c3eff982`) with A2's bytes written (the scratch branch `proof/fix01-a2` at
+`a5e8733c`: the two documents' roots as "Files" gives them,
+`planLanguageWire` returning each stored code, `addLanguage` and
+`relabelSourceLanguage` carrying the code and `diffLocalization` the target
+document's): `targeted-hq-side-state`'s create and republish carry `langs`
+`["en", "zho"]` and its edit's update `["en", "zho", "cmn-hant"]`, where
+today the edit's is `["en", "cmn-hans", "cmn-hant"]`; and
+`localization-mandarin`'s every body carries `["en", "zho", "cmn-hant"]` and
+its local archive holds `zho/app_strings.txt` and `cmn-hant/app_strings.txt`.
+Of 25 items in three groups, the document `targeted-hq-side-state` passed 8
+of 10, the two failing only because the strict register reported
+`d1-language-codes-app-langs` (proof 1) and
+`d1-language-codes-build-profile-raised` (the bar) no longer showing there;
+its control passed 5 of 5 and showed both; `localization-mandarin` passed 10
+of 10; and the gate found no difference on either document or the control
+that no entry holds. Moving the two entries to `proof/fixed-defects.json` is
+what answers those two failures: a fixed entry names no document and must
+show on its control, which both did. The second command passed 4 of 4: HQ's
+`validate_lang` takes every emitted code, Core's localization test passes
+with A2's codes, and `test_hq_side.py`'s two tests pass (they publish A and
+B, where the code is `zho` before and after). So the whole lane shows no
+proof 1 difference at `/langs/*`, no `XFormException` under
 `create_all_files:*@B-edit`, and both fixed entries reproducing on their
 control.
 
@@ -718,8 +818,17 @@ and the local archive of `localization-mandarin`, which holds `cmn-hans` and
 its language picker offers `en`, `cmn-hans` and `cmn-hant`, each by its own
 name. The Android half is held from this pull request by
 `proof/android/predicates.py::test_every_language_code_an_archive_holds_is_offered`,
-new, over the local archive of `localization-mandarin` as this pull request
-emits it (one preferred spelling and one suffixed code).
+new. A predicate runs before any shard, where no corpus exists, so it reads
+the control's committed archive and writes the other spelling into it, as
+every predicate does: `proof/controls/targeted-hq-side-state/edit/local.ccz`,
+the edit's pre-fix archive, holds `en`, `cmn-hans` and `cmn-hant` (today's
+two suffixed codes), and the same archive with `cmn-hans` written as `zho`
+(the member `cmn-hans/app_strings.txt`, its `<locale language>` and resource
+location in `suite.xml`, and the form's `lang` attribute) holds `en`, `zho`
+and `cmn-hant`, one preferred spelling and one suffixed code, as A2 emits
+the edit. Both install, and `ChangeLocaleUtil.getLocaleCodes` and
+`getLocaleNames` offer each code with its own name.
+<<EXIT-STATE-RUN: Android, `test_every_language_code_an_archive_holds_is_offered` over the two archives above; the first was read during planning as `localization-mandarin`'s, the `zho` one is not yet run>>
 
 ## A3. The publish sequence
 
@@ -885,8 +994,9 @@ export type HqAppSourceRead =
   step. `lib/commcare/hq/readJson.ts::readHqJson` gains a
   `maxBytes` option and reads the body as a stream; today it calls
   `response.json()` with no limit. A longer body is a 502 with a logged size.
-  An app source of a few dozen forms runs to single-digit megabytes, most of
-  it attachments, so the bound is an order of magnitude above a large app.
+  The bound guards the server's memory against a body of any length; it is
+  not fitted to any app's size, and a body above it refuses the publish and
+  is never cut short and parsed.
 
 ### The two forms of "HQ reports the app gone"
 
@@ -1147,7 +1257,7 @@ What the sequence settles:
 | An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or `practice_mobile_worker_id`. Nova sends none of the last three, and from A4 not the first. A later step that wants one of them cannot use this path. | Executed: an update carrying all four left each as HQ held it. |
 | `profile`, `logo_refs` and every other key arrive through the update exactly as through a create. `date_created` is the shell's and `created_from_template` is `import_app_api` either way. | Executed. |
 | A person looking at HQ during a first publish's resource pushes, or after a first publish that stopped at the floor, at a resource push or at the update, sees an empty app named for the Nova app until the next publish fills it. | Follows from the sequence. |
-| `lib/commcare/targetProfile.ts::projectNewAppProfileForTarget` loses its one caller and is deleted with its four cases in `lib/commcare/__tests__/targetProfile.test.ts`: the first content rides `projectUpdatedAppProfileForTarget` over the shell's profile as HQ serves it. For a first publish whose Search advisory is `unverified` the update omits `profile`, so the shell's HQ default stands, where today's create strips only Nova's own key. In this pull request Nova generates no other profile content, so nothing is lost. From pull request 5 the profile keys of defect 7 and finding 40 ride the same update and its overlay (part 04, Finding 40: an HQ settings save writes its defaults into the profile): on HQ the fifteen constants are seeded only where the target's profile holds no value, Nova owns only `cc-show-saved` and `cc-show-incomplete` there, and the local `.ccz` writes all of them. The shell still carries no `profile`. | `lib/deployment/importApplication.ts::hqImportApplication` |
+| `lib/commcare/targetProfile.ts::projectNewAppProfileForTarget` loses its one caller and is deleted with its three cases in `lib/commcare/__tests__/targetProfile.test.ts` (from line 59, 67 and 73 today) and the create half of the `it.each` at line 35, which keeps its `projectUpdatedAppProfileForTarget` half: the first content rides `projectUpdatedAppProfileForTarget` over the shell's profile as HQ serves it. For a first publish whose Search advisory is `unverified` the update omits `profile`, so the shell's HQ default stands, where today's create strips only Nova's own key. In this pull request Nova generates no other profile content, so nothing is lost. From pull request 5 the profile keys of defect 7 and finding 40 ride the same update and its overlay (part 04, Finding 40: an HQ settings save writes its defaults into the profile): on HQ the fifteen constants are seeded only where the target's profile holds no value, Nova owns only `cc-show-saved` and `cc-show-incomplete` there, and the local `.ccz` writes all of them. The shell still carries no `profile`. | `lib/deployment/importApplication.ts::hqImportApplication` |
 
 ### `hqAppAction` and the dialog's sentence
 
@@ -1176,19 +1286,31 @@ and the outcome after it agree. A boolean cannot carry three states, so:
 
 | Record at open | Sentence | Outcome title |
 |---|---|---|
-| No live mapping, or `remoteMissingAt` set | today's create sentence ("Uploading creates a new app in the selected project space...") | "Your app is on CommCare HQ" |
+| No live mapping, or `remoteMissingAt` set | today's create sentence ("Uploading creates a new app in the selected project space. Nova checks that the project space can run it before anything is sent.") | "Your app is on CommCare HQ" |
 | Live mapping, `remoteAppHoldsContent` false | "Nova made an empty app here on an earlier try. Uploading fills it in." | "Your app is on CommCare HQ" |
 | Live mapping with content | today's update sentence | "Your app is updated on CommCare HQ" |
 
 `components/builder/DeploymentStatus.tsx` keeps "Publishing again creates a
 new app on CommCare HQ, because the one Nova made is gone.", and switches the
-line's condition from the `remote_app_missing` failure code to
-`activeRemoteApp(view.deployment)?.remoteMissingAt !== null`, so it still
-shows after a later failed create overwrote the code.
+line's condition from the `remote_app_missing` failure code to a fourth
+pure selector beside the three above, so it still shows after a later failed
+create overwrote the code:
+
+```ts
+/** HQ reported the active mapped app gone; false when there is no active mapping. */
+export function remoteAppReportedGone(d: DeploymentWithResources): boolean {
+  return (activeRemoteApp(d)?.remoteMissingAt ?? null) !== null;
+}
+```
+
+Written as `activeRemoteApp(d)?.remoteMissingAt !== null` it would be true
+for a deployment with no active mapping (a first publish whose shell create
+HQ refused), since `undefined !== null`, and TypeScript accepts that.
+`describeDeployment`'s `hq_app_gone` below reads the same selector.
 `lib/mcp/tools/deploymentProjection.ts::describeDeployment` keeps `hq_app_id`
 from `activeRemoteApp` and gains two flags beside it, so `get_deployment` and
-`refresh_deployment` carry them: `hq_app_gone: boolean` (`remoteMissingAt` is
-set) and `hq_app_empty: boolean` (a live mapping that is not gone and whose
+`refresh_deployment` carry them: `hq_app_gone: boolean`
+(`remoteAppReportedGone`) and `hq_app_empty: boolean` (a live mapping that is not gone and whose
 `remoteAppHoldsContent` is false). Both are false when there is no mapping.
 
 **Files.**
@@ -1209,7 +1331,7 @@ set) and `hq_app_empty: boolean` (a live mapping that is not gone and whose
   `publishedRemoteApp`), `lib/deployment/preflight.ts`
   (`PREFLIGHT_CHECK_IDS` gains `target-app`), `lib/deployment/resources.ts`
   (`plannedInPlaceUpdate`, `remoteAppHoldsContent`, `publishedRemoteApp`,
-  `nextPublishAction`), `lib/deployment/store.ts` (see below),
+  `nextPublishAction`, `remoteAppReportedGone`), `lib/deployment/store.ts` (see below),
   `lib/deployment/workers.ts` and `lib/deployment/entryPointLinks.ts` (they
   read `publishedRemoteApp`).
   `lib/deployment/types.ts::DeploymentResource.remoteMissingAt`,
@@ -1268,7 +1390,9 @@ registers it. For a deployment whose HQ app
 the cutover's read finds gone, the cutover sets `remote_missing_at` and the
 folded `remote_app_missing` failure, and writes notice reason
 `ended-app-deleted`, naming the deployment and saying the next publish makes
-a new app there with the same form ids. For a deployment whose HQ app the
+a new app there (its line is A1's, "The notice lines"). A deleted deployment
+gets no identity row, so the new app holds derived ids and derived `xmlns`.
+For a deployment whose HQ app the
 cutover's read finds `unsupported`, it writes `hq-app-not-nova-made` and no
 identity row (part 10, Reading HQ).
 
@@ -1286,10 +1410,17 @@ layout (a full create, then updates), so they keep showing the re-minted ids.
 
 **Nova tests.** Each holds what Nova's own code does with HQ's answers: the
 order of its requests, what it records, what it refuses. The answers
-themselves are HQ's: every status, header and body the loopback peer serves
-in these tests is read from `proof/hq-reads/publish/`, which the lane writes
+themselves are HQ's: every answer of HQ's views the loopback peer serves in
+these tests is read from `proof/hq-reads/publish/`, which the lane writes
 from HQ's own views and holds byte for byte ("Lane"). A test names the
-retained answer it serves; none writes an HQ answer by hand.
+retained answer it serves; none writes an HQ answer by hand. What is no
+answer of HQ's views is made at the peer, and the test says which: a timeout
+is the peer never answering inside the request's deadline; a 500 is a bare
+status with an empty body, since Nova reads nothing of a 5xx but its status
+and an empty body is no edge refusal (`lib/commcare/hq/http.ts::isEdgeRefusal`
+needs an HTML title); and the `Retry-After` parse is pure over header values:
+the retained decimal, an absent header, and an HTTP date, the header's other
+form, which HQ does not send.
 
 | Contract | Boundary |
 |---|---|
@@ -1301,7 +1432,7 @@ retained answer it serves; none writes an HQ answer by hand.
 | The update is answered with the retained 429 whose `Retry-After` is under a second, then 200: `importApp` waits that long (the test's clock) and resends once, and the publish lands. Answered 429 three times, or with the retained 429 whose `Retry-After` is about 15 seconds, it sends no further request, the publish refuses with `hq_rejected_upload`, and the mapping is kept | same, and pure for the header's parse (`lib/commcare/__tests__/client.test.ts`: the retained decimal header, an absent header, a date) |
 | The retained source read of a soft-deleted app, and the retained 404, each set `remote_missing_at`, fold `remote_app_missing`, refuse this publish, and make the next publish create and supersede the mapping; the retained source read of a linked app refuses with `hq_app_state_unknown` at `preflight`, with the linked app sentence, and writes nothing | same |
 | `remote_missing_at` is cleared by a succeeded `upload` observation and by `recordRemoteResource`; writing it rotates no push token | real Postgres (`lib/deployment/__tests__/store.postgres.test.ts`) |
-| `plannedInPlaceUpdate`, `remoteAppHoldsContent`, `publishedRemoteApp` and `nextPublishAction` over every record shape (no mapping; live with content; live shell; gone with content; gone shell; superseded only) | pure (`lib/deployment/__tests__/resources.test.ts`, new) |
+| `plannedInPlaceUpdate`, `remoteAppHoldsContent`, `publishedRemoteApp`, `nextPublishAction` and `remoteAppReportedGone` over every record shape (no mapping; live with content; live shell; gone with content; gone shell; superseded only); `remoteAppReportedGone` is false with no mapping and true for a gone mapping whose record's last failure is a later `hq_rejected_upload` | pure (`lib/deployment/__tests__/resources.test.ts`, new) |
 | `compactTargetRows` gives `nextPublish` its three values; `describeDeployment` gives `hq_app_gone` and `hq_app_empty` for each record shape | pure (`components/builder/app-setup/__tests__/publishingSectionModel.test.ts`; `lib/mcp/__tests__/deploymentTools.postgres.test.ts` for the projection through `get_deployment`) |
 | `provision_workers` on a shell-only deployment, and on one whose app is marked gone, refuses with `app_not_published` and sends HQ nothing | real Postgres, a peer that fails the test on any request (`lib/mcp/__tests__/provisionWorkers.postgres.test.ts`) |
 | `getEntryPointLink` refuses for a shell-only and for a gone deployment; `setupArtifactFor` gives `hqAppId: null` for both | real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
@@ -1316,17 +1447,19 @@ retained answer it serves; none writes an HQ answer by hand.
 | Proof | Document | It must show |
 |---|---|---|
 | `proof/hq/test_publish.py::test_a_shell_create_then_an_update_leaves_what_the_update_describes`, new, the first commit of the pull request | `navigation-base`, `targeted-form-links-hidden-and-fallback`, `case-list-inline` | For the shell Nova's `expandAppShell` emits (the capture's `create.body`): 201; `validate_app()` answers `no modules` and `make_build()` raises; the update answers 200; the stored app holds the body's ids and `xmlns` and no attachment outside the body's; the same update applied twice moves no identity. Pull requests 5 and 13 change the shell's keys, and this test then runs their shell. |
-| `proof/hq/test_publish.py::test_what_hq_answers_for_an_app_that_is_gone_linked_or_missing`, new | `navigation-base` | Through `views/apps.py::delete_app`, `::undo_delete_app`, `::app_source`, `views/app_import_api.py::_handle_import_app` and `views/releases.py::current_app_version`: every row of "The two forms" and both neighbours, the update with no `doc_type` that HQ accepts for a deleted app, and the heal after the undo. It writes each answer (status, headers, body) to the run's `hq-reads/publish/`. |
-| `proof/hq/test_publish.py::test_hq_answers_429_before_an_import_runs`, new | `navigation-base` | Through `import_app_api` with its decorators and HQ's limiter, its counters answered by the harness as Redis answers them: the second import of one second is refused at the limiter's floor with a decimal `Retry-After` and the app's version does not move; the same import after that wait is accepted; the source read is not counted. It writes the two 429 answers (the second's and the minute's) to `hq-reads/publish/`. |
+| `proof/hq/test_publish.py::test_what_hq_answers_for_an_app_that_is_gone_linked_or_missing`, new | `navigation-base` | Through `views/apps.py::delete_app`, `::undo_delete_app`, `::app_source`, `views/app_import_api.py::_handle_import_app` and `views/releases.py::current_app_version`: every row of "The two forms" and both neighbours, the update with no `doc_type` that HQ accepts for a deleted app, and the heal after the undo. It makes each state through the helpers `test_retained_reads.py` shares (below), and writes no file. |
+| `proof/hq/test_publish.py::test_hq_answers_429_before_an_import_runs`, new | `navigation-base` | Through `import_app_api` with its decorators and HQ's limiter, its counters answered by the harness as Redis answers them: the second import of one second is refused at the limiter's floor with a decimal `Retry-After` and the app's version does not move; the same import after that wait is accepted; the source read is not counted. It writes no file. |
 | `proof/hq/test_publish.py::test_an_update_writes_no_excluded_field`, new | `navigation-base` | An update carrying `build_profiles`, `custom_base_url`, `practice_mobile_worker_id`, `multimedia_map`, `name` and `build_spec` leaves each as HQ held it. |
-| `proof/hq/test_retained_reads.py`, new here with its `publish` group (part 02 adds the drift groups to the same file in pull request 4) | the three above | Regenerates `hq-reads/publish/` and holds the committed `proof/hq-reads/publish/` to it byte for byte, so a pin that changes one of HQ's answers fails there and Nova's tests are never fed a stale one. The files: `source-live.json`, `source-shell.json`, `source-deleted.json`, `source-linked.json`, `source-after-create-then-update.json`, `update-deleted.json`, `update-missing.json`, `update-linked.json`, `import-429-second.json`, `import-429-minute.json`, each `{ status, headers, body }`. |
+| `proof/hq/test_retained_reads.py`, new here with its `publish` group (part 10 adds its `cutover` group to the same file in this pull request, and part 02 the drift groups in pull request 4) | `navigation-base` | Makes every state and every read itself, each read in its own named determinism operation, through helpers in `proof/hq/operations.py` that `test_publish.py`'s cases call too, so neither module depends on the other having run. It writes each answer to the run's `<output>/hq-reads/publish/` and holds the committed `proof/hq-reads/publish/` to it byte for byte, so a pin that changes one of HQ's answers fails there and Nova's tests are never fed a stale one. The files: `source-live.json`, `source-shell.json`, `source-deleted.json`, `source-linked.json`, `source-missing.json` (the source read of an id HQ does not hold, whose view raises `Http404`: `{ "status": 404 }`), `source-after-create-then-update.json`, `update-deleted.json`, `update-missing.json`, `update-linked.json`, `import-429-second.json`, `import-429-minute.json`, each `{ status, headers, body }`. |
 
 What these tests need of the harness, each found by running them:
 
 - Where HQ's view raises `Http404` in place of returning a response (the
-  source read and `current_app_version` of a missing app), the retained
-  answer is `{ "status": 404 }` with no headers or body, which is all Nova
-  reads of it.
+  source read and `current_app_version` of a missing app), the answer is
+  `{ "status": 404 }` with no headers or body, which is all Nova reads of
+  it. The source read's is retained, as `source-missing.json`;
+  `current_app_version`'s is asserted by the test and not retained, since no
+  Nova test of this part serves it.
 - HQ's rate counters call django-redis's `incr(key, delta,
   ignore_key_check=True)` and `expire`, which the harness's cache does not
   hold. The 429 test gives the five preset counters
@@ -1340,7 +1473,14 @@ What these tests need of the harness, each found by running them:
   floor, as in the planning run. The limits, the worker count, the window
   arithmetic, the decorator and the answer are HQ's.
   It waits on `time.perf_counter`, outside any determinism operation, since
-  the windows are wall-clock seconds.
+  the windows are wall-clock seconds. `test_retained_reads.py` makes its two
+  429 answers with the same counter store, each request inside a determinism
+  operation, whose clock is the instant `EPOCH` plus the operation's `depth`
+  in seconds (`proof/hq/determinism.py::operation(key, depth)`): the
+  second's answer from two imports at one depth, the minute's from counted
+  requests at depths 0 to 9, one a second. The limiter reads only that clock
+  and that store, so each `Retry-After` HQ computes is the same bytes on
+  every run, and the module waits for nothing.
 - The released builds of A1's tests are made with HQ's `make_build` under
   the build's seams and released, as the Web Apps reader's
   `proof/webapps/hq.py` makes and releases one. By hand the task that
@@ -1478,18 +1618,16 @@ with it is under "Lane".
 |---|---|---|---|
 | `proof/hq/test_publish.py::test_cautious_multimedia_warns_only_for_a_map_hq_cannot_resolve`, new | HQ | `case-list-inline` | Under `CAUTIOUS_MULTIMEDIA`: an import with no map draws no warning and the media upload that follows maps every file; an import carrying a content-hash map draws the warning. |
 | `proof/hq/test_publish.py::test_a_build_before_the_media_upload_names_no_media`, new | HQ, Core | `case-list-inline` | The table above but its last row: the media suite before the upload holds no resource, `validate_app()` is clean, Core admits the arranged build, and after the upload the suite names the medium HQ stored. The hand-written map is the paired case that names a medium HQ does not hold. |
-| `proof/android/predicates.py::test_a_build_made_before_its_media_installs`, new | Android | `case-list-inline` | Android installs the archive of the build made before the upload (`Installed`), and refuses the same build made from an import carrying the map (`MissingResourcesWithMessage`). Both archives are written by the HQ test above into the run's output. |
+| `proof/hq/test_publish.py::test_a_build_made_before_its_media_installs_on_android`, new, marked `reader("android")` | Android, beside HQ in the same shard | `case-list-inline` | Android installs the archive of the build made before the upload (`Installed`), and refuses the same build made from an import carrying the map (`MissingResourcesWithMessage`). The two builds are the HQ test's above: both tests take them from one module-scoped fixture that makes and arranges them, and this one hands each archive to the session's Android reader (`proof/observe/services.py::android`), so the archives never leave the shard. It is a pytest case and not a predicate because a predicate runs before any shard, where no HQ build exists. A run that leaves Android out deselects it (`proof/lane/readers.py`). |
 | The bar, proof 2 and proof 3 | HQ, Core | every document with media | Every file maps after the media upload (`proof/observe/publish.py::upload_media` reports none unmatched), and the media suite is unchanged. |
 
 Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
 run proof -- proof/hq/test_publish.py` and `PROOF_READERS=0 npm run proof --
 proof/checks -k case-list-inline`, a document with media. Reader slice, on a
-proof machine: `proof/remote/run.sh <host> -- proof/hq/test_publish.py`,
-then, over the Android reader's runtime there, the Android predicate
-(`python3 -m unittest proof.android.predicates`), whose new case reads the
-two archives that run's HQ test wrote into its output. The block moves no
-entry and has no targeted witness, so its share of the slice holds no
-document.
+proof machine: `proof/remote/run.sh <host> --env PROOF_READERS=android --
+proof/hq/test_publish.py`, which runs the Android case beside the HQ tests
+it shares its builds with. The block moves no entry and has no targeted
+witness, so its share of the slice holds no document.
 
 ## A5. A `.ccz` is made for one project space (findings 32 and 59)
 
@@ -1568,9 +1706,12 @@ from it.
   app writes exactly these four strings for its own id
   (`templates/app_manager/profile.xml`, `models/applications.py::ApplicationBase.post_url`,
   `::ota_restore_url`, `::key_server_url`,
-  `corehq/apps/domain/utils.py::cc_user_domain`), each `force="true"`, and
-  HQ's URLconf resolves the three URLs to `receiverwrapper/views.py::post`,
-  `ota/views.py::restore` and `mobile_auth/views.py::fetch_key_records`. The
+  `corehq/apps/users/util.py::cc_user_domain`, which joins the domain to
+  `settings.py::HQ_ACCOUNT_ROOT`, `commcarehq.org` at the pin), each
+  `force="true"`, and HQ's URLconf resolves the three URLs to
+  `corehq/apps/receiverwrapper/views.py::post`,
+  `corehq/apps/ota/views.py::restore` and
+  `corehq/apps/mobile_auth/views.py::fetch_key_records`. The
   receiver URL is the plain one, as in HQ's own profile for the app:
   `secure_submissions` is false on every app Nova imports (the shell's
   source read serves it so).
@@ -1580,7 +1721,7 @@ from it.
   | Reader | Run | Observed |
   |---|---|---|
   | Android | The four properties written into the retained local archive of `targeted-survey-menu`, installed, a form saved complete, then Android's own `ProcessAndSendTask` with its own requester | The three URL readers and `getUserDomain` give the four values. The send is one `POST` to `/a/<domain>/receiver/<appId>/` carrying the form as `xml_submission_file`, with the credential `<worker>@<domain>.commcarehq.org`, and it ends `FULL_SUCCESS` with the record gone from the unsent list. With `cc_user_domain` left out the same send carries the bare worker name. |
-  | HQ | HQ's `receiverwrapper/views.py::secure_post` over that request's bytes, for a worker of the project space; then HQ's form parsing and `SubmissionPost._post_process_form` over the same form | The full name authenticates, and HQ hands the form to its processing under the URL's app id and the worker's id. HQ's `authenticate` finds no user for the bare name. `receiverwrapper/util.py::get_app_and_build_ids` reads the working app's id as the app, with no build, and the form HQ records carries that app id; the same form received with no app named is recorded with none. |
+  | HQ | HQ's `corehq/apps/receiverwrapper/views.py::secure_post` over that request's bytes, for a worker of the project space; then HQ's form parsing and `corehq/form_processor/submission_post.py::SubmissionPost._post_process_form` over the same form | The full name authenticates, and HQ hands the form to its processing under the URL's app id and the worker's id. HQ's `authenticate` finds no user for the bare name. `corehq/apps/receiverwrapper/util.py::get_app_and_build_ids` reads the working app's id as the app, with no build, and the form HQ records carries that app id; the same form received with no app named is recorded with none. |
   | Formplayer | The four properties and the working app's id written into the local archives of `targeted-form-link-hidden-target` and `targeted-search-hq-compile` | The submit answers `success` and HQ receives the form at `/a/<domain>/receiver/<working app id>/`, the same path HQ's own build of that app posts to. The search is sent to `/a/<domain>/phone/search/<working app id>/`, and HQ's `get_app_context` answers for that id. |
   | Connect | The Connect reader's `test_receiver.py`, which receives a local archive's learn and deliver submissions under the working app's id | The rows Connect writes are the rows it writes for HQ's build (`test_a_learn_submission_completes_its_module_and_scores_its_assessment_from_either_archive`, `test_a_delivery_is_approved_and_paid_from_either_archive`). |
 
@@ -1589,7 +1730,7 @@ from it.
   | HQ's property | Nova | Why |
   |---|---|---|
   | `BackupMode`, `backup-url`, `restore-url`, `ota-restore-url-testing`, `PostTestURL`, `jr_openrosa_api` | not written | Executed during planning. On Android, an archive holding all six beside the four and one holding the four alone give the same answer from every profile reader of the Android reader, the same home walk and form screens, and the same server URLs. On Formplayer, HQ's build, which holds all six, and the planned archive, which holds none, submit to the same path and search alike. |
-  | `heartbeat-url` | not written | The heartbeat asks HQ about its released builds of an HQ app, named by the installed profile's `uniqueid`. A `.ccz` is not one of HQ's builds, and its `uniqueid` is the Nova app's id (part 04, Defect 9: the local profile identifies nothing stable). Executed during planning: HQ's `ota/views.py::heartbeat`, asked with a `uniqueid` that is not an HQ app id, notes "Received an invalid heartbeat request" as an error on every call, where the same call with HQ's app id notes nothing. With the property absent, Android's installed app holds no heartbeat URL. The cost, accepted: a phone on a `.ccz` is not told of HQ's builds of the app. |
+  | `heartbeat-url` | not written | The heartbeat asks HQ about its released builds of an HQ app, named by the installed profile's `uniqueid`. A `.ccz` is not one of HQ's builds, and its `uniqueid` is the Nova app's id (part 04, Defect 9: the local profile identifies nothing stable). Executed during planning: HQ's `corehq/apps/ota/views.py::heartbeat`, asked with a `uniqueid` that is not an HQ app id, notes "Received an invalid heartbeat request" as an error on every call, where the same call with HQ's app id notes nothing. With the property absent, Android's installed app holds no heartbeat URL. The cost, accepted: a phone on a `.ccz` is not told of HQ's builds of the app. |
   | `cur_locale`, the seventeen settings, `cc-persistent-menu`, `cc-breadcrumbs-enabled` | part 04's | Part 04, The local profile from step 2. |
   | The `update` attribute, the suite resources' remote `location` | as today | A `.ccz` is installed from the file and updated by installing a newer file (part 04, Defect 9). |
 
@@ -1599,7 +1740,7 @@ from it.
   search URL
   (`suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_queries`);
   HQ's URLconf resolves the search and the case fixture URL for that id to
-  `ota/views.py::app_aware_search` and `::case_fixture`;
+  `corehq/apps/ota/views.py::app_aware_search` and `::case_fixture`;
   `dbaccessors.py::get_app_cached(domain, <working app id>)` returns the
   working app; `corehq/apps/case_search/utils.py::get_app_context_by_case_type`
   answers for it; and Formplayer's search from the planned archive reaches
@@ -2527,7 +2668,7 @@ derivation or the target's recorded override.
 |---|---|---|
 | `lib/commcare/expander.ts`, the comment above `formUniqueIdOf` and the doc block above `expandDoc` | "HQ re-ids forms on import" is why ids need only be consistent inside the document | Ids come from `WireIdentity`; they are stable across exports and are what HQ stores |
 | `lib/commcare/types.ts`, the `HqFormLink` block | the expander pre-generates every form id because HQ re-ids them | a link names its target by the target's `WireIdentity` id |
-| `lib/commcare/CLAUDE.md`, "After-submit links" | "HQ re-ids forms on import ... and not modules" | HQ re-ids forms only on a create that carries them; a publish's create carries none; a manual import of the HQ import file does, so its form ids are HQ's and its menu ids and `xmlns` are Nova's |
+| `lib/commcare/CLAUDE.md`, "After-submit links" | "HQ re-ids forms on import (`update_form_unique_ids` rewrites `form_id`) and not modules, so the expander pre-generates every form unique id before the module map." | HQ re-ids forms only on a create that carries them; a publish's create carries none; a manual import of the HQ import file does, so its form ids are HQ's and its menu ids and `xmlns` are Nova's |
 | `lib/commcare/CLAUDE.md`, the `importApp` paragraph | "404 `Application not found` for an unknown id" | adds: 400 for an app deleted in HQ, whose source read still answers 200 |
 | `lib/commcare/CLAUDE.md`, "Runtime request destinations" | portable placeholders | A5's rewrite |
 | `lib/deployment/CLAUDE.md`, "Ownership" | a persisted upload failure says the mapped app is gone | `remote_missing_at` says it |

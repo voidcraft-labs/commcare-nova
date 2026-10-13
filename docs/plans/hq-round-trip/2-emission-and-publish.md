@@ -237,6 +237,12 @@ decision; the part named gives its evidence.
     form's `app_home` migrating to `firstMenu`, and document migrations for
     findings 31, 43 and 44. `case_preload` is not touched: its editable
     spelling is defect 28's, in step 5.
+25. **A create at the form's root keeps its keyed case id.** The research
+    withdrew that feature, reading that no spelling inside HQ's editable
+    envelope keeps a live create id at the root. One does: the create sits in
+    a one-row repeat inside the `nova_operations` group, which both Vellum
+    saves keep and every reader runs, so nothing is taken from an author or
+    a deployed app. It lands in pull request 7, with the groups (part 05).
 
 **Two findings from planning.** Both were found by reading while this plan was
 written, then executed. Pull request 1 adds each to `harness-findings.md` with
@@ -344,7 +350,7 @@ Part 09 holds this in full.
   entry's disposition, by id and pull request, is in part 09; a script over
   the parts' register sections derives it and fails on an entry with none or
   two. The lane's list of held walk stops is accounted the same way: 33 as
-  the lane merges, 30 at the exit.
+  the lane merges, 29 at the exit.
 - **Where the lane runs.** The pull request lane in CI runs without the served
   readers and runs every group the change invalidates, with nothing dropped
   for time: about six minutes when a pull request leaves every group as
@@ -376,8 +382,8 @@ files, entries, rules, transform steps and ordering constraints.
 | 3 | Identity and the publish sequence | 01, 09 (the capture) |
 | 4 | Drift and baselines | 02, 09 (the retained reads) |
 | 5 | App-level emission | 04, 02 (the ownership descriptor) |
-| 6 | XForms, first part: shadows, leaf constraints, datetime leaves, the root create id, defaults, translations, the form's name | 05 |
-| 7 | XForms, second part: groups, the rename, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
+| 6 | XForms, first part: shadows, leaf constraints, datetime leaves, defaults, translations, the form's name | 05 |
+| 7 | XForms, second part: groups, the rename, the root create id, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
 | 8 | Defect 3 and work item H's closure | 04 |
 | 9 | Case writes through basic actions: findings 33 and 37, `update_case`, close conditions | 05 (findings 33, 37), 06 (`update_case`, close conditions) |
 | 10 | Identifiers and form content: defect 15 with its Connect forwarding; findings 31, 43, 44, 60, 61, 68, 70, 71 | 08 |
@@ -461,8 +467,8 @@ Part 11 gives each sentence as it reads today and its replacement. In brief:
   reading of a renamed block leave as what HQ does itself, by their allowances.
 - Every control directory is named by a register, and every fixed entry shows
   on its control.
-- Every walk reaches its end or one of the 30 stops the list holds by name:
-  22 on a document, each what a reader does itself, what the app says, or a
+- Every walk reaches its end or one of the 29 stops the list holds by name:
+  21 on a document, each what a reader does itself, what the app says, or a
   later step's (findings 72 and 73 for step 3, finding 74 for step 4), and 8
   on the control of a fix that removed the stop from its document.
 - Publish refuses a target below the floor or without a confirmed plan
