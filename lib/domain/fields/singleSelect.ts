@@ -40,7 +40,8 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	label: "Single Select",
 	isStructural: false,
 	isContainer: false,
-	saDocs: "Single-choice from a fixed option list.",
+	saDocs:
+		"Single-choice from inline choices, a Project data table, or cases available to the worker. Case choices save exact record IDs.",
 	// `text` is the demotion path — a select's stored value is a plain
 	// string, so freeing it to text drops the options and keeps every
 	// row's value valid. The select ↔ select edges (this `multi_select`

@@ -21,12 +21,14 @@
 // (proof/lane/blocks.py); `python3 -m proof.lane.gate .proof/out` holds a
 // finished run to the lane's verdict.
 //
-// PROOF_CORPUS_SAMPLE, PROOF_CORPUS_SEED and the audit switches
-// PROOF_HQ_SPEED, PROOF_HQ_DETERMINISM, PROOF_VERIFY_MEMOS,
-// PROOF_EDITOR_AUDIT and PROOF_BRANCH_DOCUMENTS (proof/hq/speed.py,
-// proof/hq/determinism.py, proof/hq/seams.py, proof/editors/pages.py,
-// proof/hq/test_branches.py) pass through to the harness, and
-// nothing else of this machine's environment does; PROOF_CORPUS names a corpus
+// PROOF_CORPUS_SAMPLE, PROOF_CORPUS_SEED, the lane switch PROOF_READERS
+// (proof/lane/readers.py: PROOF_READERS=0 is the pull request lane, which
+// hands no state to the readers and leaves every test that starts one to the
+// nightly) and the audit switches PROOF_HQ_SPEED, PROOF_HQ_DETERMINISM,
+// PROOF_VERIFY_MEMOS, PROOF_EDITOR_AUDIT and PROOF_BRANCH_DOCUMENTS
+// (proof/hq/speed.py, proof/hq/determinism.py, proof/hq/seams.py,
+// proof/editors/pages.py, proof/hq/test_branches.py) pass through to the
+// harness, and nothing else of this machine's environment does; PROOF_CORPUS names a corpus
 // directory on this machine, mounted read-only for the checks to read instead
 // of emitting one, and PROOF_SURFACE_EXTRACTION a directory holding a surface
 // extraction (surface.json, timings.json and its key, extraction.json, as
@@ -54,10 +56,13 @@
 // corpus: with `--queue`, PROOF_CORPUS must name the directory the corpus is
 // downloaded or brought into (mounted writable).
 //
-// `node proof/run.mjs --matrix [shards|default]` prints CI's proof matrix
-// (proof/timings.json's execution: shards on its runner, workers each), and
-// `node proof/run.mjs --timings <output directory>...` writes the box-seconds
-// per group those runs measured into proof/timings.json.
+// `node proof/run.mjs --matrix [shards|default] [--deadline minutes]` prints
+// CI's proof matrix (proof/timings.json's execution of the profile
+// PROOF_READERS names: shards on its runner, workers each; a count from
+// `python3 -m proof.lane.plan`, which sizes a lane from its queues), and
+// `node proof/run.mjs --timings <output
+// directory>... [--box-workers n]` writes the box-seconds per group those runs
+// measured into proof/timings.json, under the profile they ran in.
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -85,6 +90,7 @@ const OUTPUT_ROOT = join(worktree, ".proof");
 const PASSED_THROUGH = [
 	"PROOF_CORPUS_SAMPLE",
 	"PROOF_CORPUS_SEED",
+	"PROOF_READERS",
 	"PROOF_HQ_SPEED",
 	"PROOF_HQ_DETERMINISM",
 	"PROOF_VERIFY_MEMOS",
@@ -94,6 +100,32 @@ const PASSED_THROUGH = [
 
 /** Variables of the lane before its fork server, which no longer select anything. */
 const RETIRED = ["PROOF_SHARD", "PROOF_WORKER"];
+
+/**
+ * The lane's profile (proof/lane/readers.py): `readers` where the served
+ * states are handed to the readers, `no-readers` under PROOF_READERS=0.
+ *
+ * @param {boolean} readers
+ */
+export function profileName(readers) {
+	return readers ? "readers" : "no-readers";
+}
+
+/** Whether this machine's environment runs the lane with any reader (PROOF_READERS unset, `all`, or a list): a slice of some readers is planned by the readers profile. */
+function readersServed(env = process.env) {
+	return env.PROOF_READERS !== "0";
+}
+
+/**
+ * proof/timings.json's measures of one profile: its `execution` (CI's
+ * shards, runner and workers a shard) and its `groups`.
+ *
+ * @param {any} timings
+ * @param {boolean} readers
+ */
+export function timingsProfile(timings, readers) {
+	return timings?.profiles?.[profileName(readers)] ?? {};
+}
 
 /** Runs a command with the terminal attached and resolves its exit code. */
 function execute(command, args, options = {}) {
@@ -544,6 +576,200 @@ async function laneFingerprints(image, id) {
 	return ["-e", `PROOF_FINGERPRINTS=${found.stdout.trim()}`];
 }
 
+/**
+ * The mounts and variables that hand the harness the Android reader's
+ * runtime (PROOF_ANDROID_RUNTIME, proof/android/README.md) and the JDK it was
+ * built with (PROOF_ANDROID_JDK), each read-only at the path it has on this
+ * machine: a runtime names its classpath by absolute paths, so it is read
+ * where it was built. None where neither is set; the harness then says where
+ * the reader cannot run when an observation asks for it.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function androidRuntime(env = process.env) {
+	const mounts = [];
+	const environment = [];
+	for (const name of ["PROOF_ANDROID_RUNTIME", "PROOF_ANDROID_JDK"]) {
+		const named = env[name];
+		if (!named) continue;
+		const directory = resolve(process.cwd(), named);
+		if (!existsSync(directory)) {
+			throw new Error(
+				`${name} names ${directory}, which does not exist. Name the directory proof/android/build-runtime.sh built (PROOF_ANDROID_RUNTIME) and the JDK it was built with (PROOF_ANDROID_JDK), or unset it.`,
+			);
+		}
+		mounts.push("-v", `${directory}:${directory}:ro`);
+		environment.push("-e", `${name}=${directory}`);
+	}
+	return { mounts, environment };
+}
+
+/** Bytes, from what `docker stats` prints of a container's memory (`1.25GiB / 15.6GiB`). */
+export function statsBytes(usage) {
+	const match = /^\s*([0-9.]+)\s*([kKMGT]?i?B)/.exec(usage ?? "");
+	if (!match) return null;
+	const scale = {
+		B: 1,
+		KiB: 1024,
+		MiB: 1024 ** 2,
+		GiB: 1024 ** 3,
+		TiB: 1024 ** 4,
+		kB: 1e3,
+		KB: 1e3,
+		MB: 1e6,
+		GB: 1e9,
+		TB: 1e12,
+	}[match[2]];
+	return scale === undefined ? null : Math.round(Number(match[1]) * scale);
+}
+
+function gib(bytes) {
+	return bytes == null ? "?" : `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+/**
+ * Watches the memory the lane's containers and this machine use while a run
+ * lasts, so a runner that dies says why: every thirty seconds each container
+ * of the compose project's memory (docker stats) and this machine's free
+ * memory (/proc/meminfo, where there is one) are sampled, a line is printed
+ * whenever a container's use passes its last printed peak by a tenth or five
+ * minutes have gone by, and the run's output gets memory.json with every
+ * container's peak (its cgroup's own memory.peak where this machine shows it,
+ * read at every sample, since the harness's container is gone once the run
+ * ends; else the highest sample) and every sample. Returns the function that
+ * stops it and writes the file.
+ */
+function watchMemory(output, project) {
+	const peaks = new Map();
+	const cgroupPeaks = new Map();
+	const printed = new Map();
+	const samples = [];
+	let lastLine = 0;
+	let hostLowest = null;
+	const started = Date.now();
+	const hostAvailable = async () => {
+		try {
+			const text = await readFile("/proc/meminfo", "utf8");
+			const field = (name) => {
+				const found = new RegExp(`^${name}:\\s+(\\d+) kB`, "m").exec(text);
+				return found ? Number(found[1]) * 1024 : null;
+			};
+			return { total: field("MemTotal"), available: field("MemAvailable") };
+		} catch {
+			return null;
+		}
+	};
+	const cgroupPeak = async (name) => {
+		const inspected = await capture("docker", [
+			"inspect",
+			"--format",
+			"{{.Id}}",
+			name,
+		]).catch(() => null);
+		const id = inspected?.stdout.trim();
+		if (!id) return null;
+		for (const path of [
+			`/sys/fs/cgroup/system.slice/docker-${id}.scope/memory.peak`,
+			`/sys/fs/cgroup/docker/${id}/memory.peak`,
+		]) {
+			try {
+				return Number((await readFile(path, "utf8")).trim());
+			} catch {
+				// Not this machine's layout.
+			}
+		}
+		return null;
+	};
+	const tick = async () => {
+		const stats = await capture("docker", [
+			"stats",
+			"--no-stream",
+			"--format",
+			"{{json .}}",
+		]).catch(() => null);
+		const containers = {};
+		for (const line of (stats?.stdout ?? "").split("\n")) {
+			if (!line.trim()) continue;
+			let row;
+			try {
+				row = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (!String(row.Name).startsWith(`${project}-`)) continue;
+			const bytes = statsBytes(String(row.MemUsage).split("/")[0]);
+			if (bytes == null) continue;
+			const name = String(row.Name).slice(project.length + 1);
+			containers[name] = bytes;
+			peaks.set(name, Math.max(peaks.get(name) ?? 0, bytes));
+		}
+		await Promise.all(
+			Object.keys(containers).map(async (name) => {
+				const peak = await cgroupPeak(`${project}-${name}`);
+				if (peak != null)
+					cgroupPeaks.set(name, Math.max(cgroupPeaks.get(name) ?? 0, peak));
+			}),
+		);
+		const host = await hostAvailable();
+		if (host?.available != null)
+			hostLowest = Math.min(hostLowest ?? host.available, host.available);
+		samples.push({
+			seconds: Math.round((Date.now() - started) / 1000),
+			containers,
+			host,
+		});
+		const rising = Object.entries(containers).some(
+			([name, bytes]) => bytes > (printed.get(name) ?? 0) * 1.1,
+		);
+		if (rising || Date.now() - lastLine >= 300_000) {
+			lastLine = Date.now();
+			for (const [name, bytes] of Object.entries(containers))
+				printed.set(name, Math.max(printed.get(name) ?? 0, bytes));
+			const parts = Object.entries(containers).map(([name, bytes]) =>
+				cgroupPeaks.has(name)
+					? `${name} ${gib(bytes)} (peak ${gib(cgroupPeaks.get(name))})`
+					: `${name} ${gib(bytes)}`,
+			);
+			if (host?.available != null)
+				parts.push(`machine free ${gib(host.available)} of ${gib(host.total)}`);
+			console.error(
+				`Lane memory at ${samples.at(-1).seconds} s: ${parts.join(", ")}.`,
+			);
+		}
+	};
+	let running = tick();
+	const timer = setInterval(() => {
+		running = running.then(tick, tick);
+	}, 30_000);
+	return async () => {
+		clearInterval(timer);
+		await running.catch(() => {});
+		const found = {};
+		for (const [name, bytes] of peaks) {
+			found[name] = { sampled: bytes };
+		}
+		await Promise.all(
+			[...peaks.keys()].map(async (name) => {
+				const peak = Math.max(
+					(await cgroupPeak(`${project}-${name}`)) ?? 0,
+					cgroupPeaks.get(name) ?? 0,
+				);
+				if (peak > 0) found[name].cgroup = peak;
+			}),
+		);
+		await writeFile(
+			join(output, "memory.json"),
+			`${JSON.stringify({ peaks: found, machineLowestFree: hostLowest, samples }, null, "\t")}\n`,
+		).catch(() => {});
+		const summary = Object.entries(found).map(
+			([name, peak]) => `${name} ${gib(peak.cgroup ?? peak.sampled)}`,
+		);
+		console.error(
+			`Lane memory peaks: ${summary.join(", ") || "none sampled"}${hostLowest != null ? `; the machine's free memory went as low as ${gib(hostLowest)}` : ""} (memory.json in the run's output).`,
+		);
+	};
+}
+
 /** `-e` flags for the variables the harness reads from this machine's environment. */
 function passedThrough(names = PASSED_THROUGH) {
 	return names.flatMap((name) =>
@@ -596,10 +822,17 @@ export async function surface({
  * and `environment` its own, and removes the lane (Postgres and its volume)
  * however the run ends.
  */
-async function runServer({ image, mounts, environment, serve }) {
+async function runServer({ image, mounts, environment, serve, output }) {
 	const project = `nova-proof-${randomBytes(4).toString("hex")}`;
 	const compose = ["compose", "-f", COMPOSE_FILE, "-p", project];
-	const env = { ...process.env, PROOF_IMAGE: image };
+	// Postgres's client cap (proof/compose.yaml): each worker holds HQ's
+	// connections and its Formplayers' pools, so the cap grows with them.
+	const workers = Number(serve[serve.indexOf("--workers") + 1]) || 1;
+	const env = {
+		...process.env,
+		PROOF_IMAGE: image,
+		PROOF_POSTGRES_MAX_CONNECTIONS: String(Math.max(500, 125 * workers)),
+	};
 	const down = () =>
 		execute("docker", [...compose, "down", "--volumes", "--remove-orphans"], {
 			env,
@@ -610,6 +843,7 @@ async function runServer({ image, mounts, environment, serve }) {
 	};
 	process.once("SIGINT", interrupted);
 	process.once("SIGTERM", interrupted);
+	const stopWatching = output ? watchMemory(output, project) : async () => {};
 	try {
 		return await execute(
 			"docker",
@@ -632,6 +866,7 @@ async function runServer({ image, mounts, environment, serve }) {
 	} finally {
 		process.off("SIGINT", interrupted);
 		process.off("SIGTERM", interrupted);
+		await stopWatching();
 		await down();
 	}
 }
@@ -646,6 +881,7 @@ export async function main(
 	const corpus = namedCorpus();
 	const extraction = namedExtraction();
 	const store = namedStore();
+	const android = androidRuntime();
 	const image = await harnessImage();
 	const id = await imageId(image);
 	const modules = await nodeModules(image, platform);
@@ -663,6 +899,7 @@ export async function main(
 			...(corpus ? ["-v", `${corpus}:/corpus:ro`] : []),
 			...extraction.mounts,
 			...store.mounts,
+			...android.mounts,
 		],
 		environment: [
 			...passedThrough(),
@@ -672,7 +909,9 @@ export async function main(
 			...(corpus ? ["-e", "PROOF_CORPUS=/corpus"] : []),
 			...extraction.environment,
 			...store.environment,
+			...android.environment,
 		],
+		output,
 		serve: [
 			"--workers",
 			String(lane.workers),
@@ -754,10 +993,14 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	}
 	const extraction = namedExtraction();
 	const store = namedStore();
+	const android = androidRuntime();
 	const timings = JSON.parse(await readFile(TIMINGS_FILE, "utf8"));
 	const workers =
 		options.workers ??
-		count(timings.execution?.workers, "The timings' worker count");
+		count(
+			timingsProfile(timings, readersServed()).execution?.workers,
+			"The timings' worker count",
+		);
 	const image = await harnessImage();
 	const id = await imageId(image);
 	const output = await runOutput({ root: outputRoot });
@@ -768,6 +1011,7 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 		`${output}:/out`,
 		...extraction.mounts,
 		...store.mounts,
+		...android.mounts,
 	];
 	const environment = [
 		...passedThrough(),
@@ -777,6 +1021,7 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 		...(await laneFingerprints(image, id)),
 		...extraction.environment,
 		...store.environment,
+		...android.environment,
 	];
 	const serve = ["--workers", String(workers)];
 	if (options.label) serve.push("--label", options.label);
@@ -802,32 +1047,37 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	if (options.commandEnv.length > 0)
 		serve.push("--command-env", options.commandEnv.join(","));
 	console.error(`The proof shard writes its output into ${output}.`);
-	return runServer({ image, mounts, environment, serve });
+	return runServer({ image, mounts, environment, serve, output });
 }
 
 /**
  * CI's proof matrix: `shards` jobs (`default`: proof/timings.json's
- * execution) on the execution's runner, each a fork server of the
- * execution's workers.
+ * execution for the profile, `readers`; or a count, which `python3 -m
+ * proof.lane.plan` gives a lane it plans) on the execution's runner, each a
+ * fork server of the execution's workers, with `deadline` minutes where the
+ * plan gives one.
  */
-export function proofMatrix(shards, timings) {
-	const execution = timings.execution ?? {};
+export function proofMatrix(shards, timings, readers = true, deadline) {
+	const execution = timingsProfile(timings, readers).execution ?? {};
+	const workers = count(execution.workers, "The worker count");
 	const total = count(
 		shards === "default" ? execution.shards : shards,
 		"The shard count",
 	);
-	const workers = count(execution.workers, "The worker count");
 	if (typeof execution.runner !== "string" || !execution.runner) {
 		throw new Error(
-			"proof/timings.json's execution names no runner for the shards (execution.runner).",
+			`proof/timings.json's ${profileName(readers)} execution names no runner for the shards (profiles.${profileName(readers)}.execution.runner).`,
 		);
 	}
+	const minutes =
+		deadline === undefined ? undefined : count(deadline, "The deadline");
 	return {
 		include: Array.from({ length: total }, (_, index) => ({
 			shard: index + 1,
 			total,
 			workers,
 			runner: execution.runner,
+			...(minutes === undefined ? {} : { deadline: minutes }),
 		})),
 	};
 }
@@ -841,26 +1091,66 @@ function mean(values) {
 }
 
 /**
- * proof/timings.json with each group's box-seconds measured by the runs whose
- * output directories are given: each worker's record (`timings/*.json`)
- * holds its groups' seconds and how many workers shared its box, and a
- * group's box-seconds are its seconds divided by that count (the mean where
- * several runs measured it). The mean of what a worker's session shares and
- * of the servers' fixed costs (serve.json) are kept beside them, with the
- * execution settings as they were.
+ * Whether the runs whose output directories are given served the readers (each
+ * serve.json's `readers`, true where it records none), or the refusal when
+ * they ran in both profiles.
  */
-export async function refreshTimings(directories, previous) {
+async function runsReaders(directories) {
+	const profiles = new Set();
+	for (const directory of directories) {
+		const serve = join(resolve(process.cwd(), directory), "serve.json");
+		const served = existsSync(serve)
+			? JSON.parse(await readFile(serve, "utf8"))
+			: {};
+		if (Array.isArray(served.readers) && served.readers.length < 4) {
+			throw new Error(
+				`${directory} ran with only some readers (PROOF_READERS=${served.readers.join(",")}), a slice whose groups cost what neither of the lane's profiles does. Name the outputs of runs with every reader or with none.`,
+			);
+		}
+		profiles.add(served.readers !== false);
+	}
+	if (profiles.size > 1) {
+		throw new Error(
+			"The runs named ran in both of the lane's profiles (their serve.json's readers), and each profile's groups cost what its own runs measure. Name the outputs of one profile's runs at a time.",
+		);
+	}
+	return profiles.size === 0 ? true : [...profiles][0];
+}
+
+/**
+ * proof/timings.json with each group's box-seconds measured by the runs whose
+ * output directories are given, under the profile they ran in (each run's
+ * serve.json says whether it served the readers; the runs must agree), the
+ * other profile kept as it was: each worker's record (`timings/*.json`) holds
+ * its groups' seconds and how many workers shared its box, and a group's
+ * box-seconds are its seconds divided by that count (the mean where several
+ * runs measured it), or by `boxWorkers` where given: the workers a CI box
+ * holds, for a run on another box that gives each worker a vCPU as CI's does
+ * (a proof VM), whose worker-seconds are a CI worker's. The mean of what a
+ * worker's session shares and of the servers' fixed costs (serve.json) are
+ * kept beside them, with the profile's execution settings as they were.
+ */
+export async function refreshTimings(
+	directories,
+	previous,
+	{ boxWorkers } = {},
+) {
 	if (directories.length === 0) {
 		throw new Error(
 			"Name the output directory of each finished lane run to measure: node proof/run.mjs --timings <output directory>...",
 		);
 	}
+	const readers = await runsReaders(directories);
 	const measured = new Map();
 	const shared = [];
 	const fixed = new Map();
 	let sessions = 0;
 	for (const directory of directories) {
 		const root = resolve(process.cwd(), directory);
+		const serve = join(root, "serve.json");
+		const served = existsSync(serve)
+			? JSON.parse(await readFile(serve, "utf8"))
+			: {};
 		const folder = join(root, "timings");
 		const files = existsSync(folder)
 			? (await readdir(folder)).filter((name) => name.endsWith(".json"))
@@ -872,7 +1162,7 @@ export async function refreshTimings(directories, previous) {
 		}
 		for (const file of files) {
 			const record = JSON.parse(await readFile(join(folder, file), "utf8"));
-			const workers = count(record.workers, `${file}'s workers`);
+			const workers = boxWorkers ?? count(record.workers, `${file}'s workers`);
 			sessions += 1;
 			if (typeof record.shared === "number") shared.push(record.shared);
 			for (const [group, seconds] of Object.entries(record.groups ?? {})) {
@@ -882,16 +1172,13 @@ export async function refreshTimings(directories, previous) {
 				]);
 			}
 		}
-		const serve = join(root, "serve.json");
-		if (existsSync(serve)) {
-			const record = JSON.parse(await readFile(serve, "utf8"));
-			for (const [name, seconds] of Object.entries(record.fixed ?? {})) {
-				if (typeof seconds === "number") {
-					fixed.set(name, [...(fixed.get(name) ?? []), seconds]);
-				}
+		for (const [name, seconds] of Object.entries(served.fixed ?? {})) {
+			if (typeof seconds === "number") {
+				fixed.set(name, [...(fixed.get(name) ?? []), seconds]);
 			}
 		}
 	}
+	const name = profileName(readers);
 	const groups = Object.fromEntries(
 		[...measured.keys()]
 			.sort()
@@ -899,19 +1186,31 @@ export async function refreshTimings(directories, previous) {
 	);
 	return {
 		about:
-			"Box-seconds per group of the proof lane (proof/checks/sharding.py): a group's seconds on one worker, without what the worker's session shares, divided by the workers sharing its box. execution is CI's default shard count, runner and workers per shard. Refresh from hosted runs: node proof/run.mjs --timings <output directory>...",
-		execution: previous.execution,
-		measured: {
-			at: new Date().toISOString().slice(0, 10),
-			sessions,
-			// What a worker's session spends beside its groups (its services), on average.
-			sharedSeconds: mean(shared),
-			// What a server spends before its first fork, on average.
-			fixed: Object.fromEntries(
-				[...fixed.keys()].sort().map((name) => [name, mean(fixed.get(name))]),
-			),
+			"Box-seconds per group of the proof lane (proof/checks/sharding.py), for each profile (proof/lane/readers.py: readers, the nightly's, every state served to the readers; no-readers, the pull request lane's, PROOF_READERS=0): a group's seconds on one worker, without what the worker's session shares, divided by the workers sharing a CI box. Each profile's execution is CI's default shard count, runner and workers per shard for it. Refresh a profile from its runs: node proof/run.mjs --timings <output directory>... [--box-workers n].",
+		profiles: {
+			...(previous.profiles ?? {}),
+			[name]: {
+				execution: timingsProfile(previous, readers).execution,
+				measured: {
+					at: new Date().toISOString().slice(0, 10),
+					sessions,
+					...(boxWorkers === undefined
+						? {}
+						: {
+								basis: `Worker-seconds of runs on a box giving each worker a vCPU, as a CI shard does, each divided by ${boxWorkers}, the workers a CI shard's box holds.`,
+							}),
+					// What a worker's session spends beside its groups (its services), on average.
+					sharedSeconds: mean(shared),
+					// What a server spends before its first fork, on average.
+					fixed: Object.fromEntries(
+						[...fixed.keys()]
+							.sort()
+							.map((fixedName) => [fixedName, mean(fixed.get(fixedName))]),
+					),
+				},
+				groups,
+			},
 		},
-		groups,
 	};
 }
 
@@ -929,8 +1228,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	} else if (command === "--matrix") {
 		readFile(TIMINGS_FILE, "utf8")
 			.then((text) => {
+				const at = rest.indexOf("--deadline");
+				const deadline = at === -1 ? undefined : rest[at + 1];
 				console.log(
-					JSON.stringify(proofMatrix(rest[0] ?? "default", JSON.parse(text))),
+					JSON.stringify(
+						proofMatrix(
+							rest[0] ?? "default",
+							JSON.parse(text),
+							readersServed(),
+							deadline,
+						),
+					),
 				);
 				return 0;
 			})
@@ -939,13 +1247,22 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		readFile(TIMINGS_FILE, "utf8")
 			.catch(() => "{}")
 			.then(async (text) => {
-				const refreshed = await refreshTimings(rest, JSON.parse(text));
+				const at = rest.indexOf("--box-workers");
+				const boxWorkers =
+					at === -1 ? undefined : count(rest[at + 1], "--box-workers");
+				const directories =
+					at === -1 ? rest : [...rest.slice(0, at), ...rest.slice(at + 2)];
+				const refreshed = await refreshTimings(directories, JSON.parse(text), {
+					boxWorkers,
+				});
 				await writeFile(
 					TIMINGS_FILE,
 					`${JSON.stringify(refreshed, null, "\t")}\n`,
 				);
+				const name = profileName(await runsReaders(directories));
+				const written = refreshed.profiles[name];
 				console.error(
-					`Wrote ${relative(worktree, TIMINGS_FILE)}: ${Object.keys(refreshed.groups).length} groups from ${refreshed.measured.sessions} worker sessions.`,
+					`Wrote ${relative(worktree, TIMINGS_FILE)}: the ${name} profile's ${Object.keys(written.groups).length} groups from ${written.measured.sessions} worker sessions.`,
 				);
 				return 0;
 			})

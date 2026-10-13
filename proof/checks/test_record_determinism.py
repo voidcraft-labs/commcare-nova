@@ -473,7 +473,7 @@ def _lane_unit(document, name, core_runner):
     inputs, databases = unit.document_inputs(document), unit.case_databases(document)
     keys = unit.part_keys(inputs, name, databases, unit.hook_inputs(document))
     configuration = export.configuration.hq()
-    with hq_unit(configuration, root_key=keys["a"], validate=core_runner.validate_form) as held:
+    with hq_unit(configuration, root_key=keys["a"]) as held:
         yield unit._Unit(document, export, configuration, held, core_runner, None, NULL_STORE, Blobs(), {})
 
 

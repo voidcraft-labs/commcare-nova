@@ -1,3 +1,10 @@
+import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
+
+const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
+	labelProperty:
+		storedCaseOptionsSourceSchema.shape.labelProperty.default("case_name"),
+});
+
 // Generates the SA's field-mutation tool inputs directly from the domain's
 // `fieldRegistry` + per-kind Zod schemas.
 //
@@ -107,7 +114,7 @@ const FIELD_DOCS = {
 	default_value:
 		"Starting value evaluated when the form opens. Use calculate for a value that should keep updating.",
 	optionsSource:
-		"Inline choices or a Project data table with an optional row filter.",
+		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs; labelProperty defaults to case_name. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
 	caseWrite:
 		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. Capture fields save URLs with mode url; other fields omit mode. Use recordName for the primary record's name.",
 	repeat_mode:
@@ -212,6 +219,7 @@ export const projectedOptionsSourceSchema = z
 			options: z.array(projectedSelectOptionSchema).min(2),
 		}),
 		lookupOptionsSourceSchema,
+		caseOptionsSourceSchema,
 	])
 	.describe(FIELD_DOCS.optionsSource);
 

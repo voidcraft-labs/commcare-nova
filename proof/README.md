@@ -1,12 +1,20 @@
 # The proof harness
 
 The proof lane holds Nova's exports to the code that reads them. CommCare HQ's
-own import, build, case processing and app editors, and CommCare Core's own
-form engine, session engine and archive installer, run at the upstream commits
-`proof/pins.json` names, inside one pinned image, over a corpus of admitted
-Nova documents that Nova's real publish client and compilers export. Every
-pull request runs the lane in CI (`.github/workflows/ci.yml`), and
-`npm run proof` runs it on your machine.
+own import, build, case processing, app editors, receiver, restore, search
+views and Connect repeater, CommCare Core's own form engine, session engine
+and archive installer, Formplayer's own application, HQ's own Web Apps
+client, CommCare Android's own application, installers, activities and
+views, and CommCare Connect's own server run at the upstream commits
+`proof/pins.json` names, over a corpus of admitted Nova documents that
+Nova's real publish client and compilers export: everything but Android
+inside one pinned image, and Android beside it in the same container, its
+network answered by HQ's own views ("Android in the unit"). Every pull
+request runs the lane in CI without the served readers
+(`.github/workflows/ci.yml`: HQ, Core and HQ's editors), each scheduled
+night runs it with every reader over what changed and each week whole
+(`.github/workflows/proof-audit.yml`; "The lane in CI"), and `npm run proof`
+runs it on your machine.
 
 Each check reports the complete set of differences it finds, never only the
 first. The lane passes when every difference is erased by a proven spelling
@@ -173,11 +181,69 @@ writes every gate entry's effects (into
 evidence of one whole run over a whole corpus, for review in the pull request
 that changes them. It reads only each named block directory's
 `checks/sensitivity/`, and a group the queue cached runs nowhere and writes
-none, so the run must be one that reused no stored judgment: a local
-`npm run proof` with no `PROOF_STORE`, or `proof-lane.yml`'s fresh run. Name
-every block of it (of every shard, for `proof-lane.yml`), and the corpus it
-read: `<output>/corpus` where the run emitted it, or the directory
-`PROOF_CORPUS` named.
+none, so the run must be one in which every corpus document's group ran. The
+writer holds the evidence to that itself: where a document of the corpus is
+missing, or two runs both wrote one, it writes nothing and names them, so
+handing it a run that is not whole costs nothing. Name every block of the run
+(of every shard), and the corpus it read.
+
+**When a pull request writes them again.** When its sensitivity check fails
+on a difference a flipped gate made that the gate's effects do not name, and
+when it adds or removes a gate entry. Under a flip Nova's publish refuses,
+the check's message says to write the effects again; under one it accepts,
+the difference is first refused as one no register entry names, its artifact
+ending `@<the gate>` (`suite.xml@toggle/...`). A pin move, an emission change
+that reaches a part of the build a gate changes, and a new document are what
+bring one. No check of one document fails for an effect no flip shows any
+longer, since a check sees only that its own differences are named; the
+weekly's whole fresh run does. It holds the file to its own flips both ways
+(`python3 -m proof.checks.sensitivity held`, in `proof-audit.yml`'s lane
+without the readers, which observes every document): each effect the file
+names that no flip showed, each a flip showed that the file lacks, an
+effects list on a gate no flip measured and a file that is not the writer's
+bytes each fail it by name, and the week's issue lists them with the lines
+that write the effects again from that run. So a stale effect, which would
+let its class of difference pass if it came back, lasts a week at most.
+
+**From which run.** With no cap on the pull request lane, a pull request's
+own CI run is whole whenever none of its documents was read from the store:
+
+- **The change moved every document's key**: the observation's code (most of
+  `proof/`, and `gates.json` itself, which the observation partition holds),
+  the image, a judge's file (every document judged again from its records),
+  or an emission change that reached every document. Write the effects from
+  that run's artifacts: each shard's output (`proof-out-<attempt>-<shard>`,
+  kept fourteen days) and the corpus it read (`proof-corpus-<attempt>.tar.zst`,
+  kept three days; or the corpus emitted again at the same commit, which
+  lists the same documents):
+
+  ```bash
+  gh run download <run id> --pattern 'proof-out-*' --dir <outputs>
+  node --conditions=react-server --import ./proof/corpus/entropy.mts --import tsx proof/corpus/emit.ts --out <corpus>
+  python3 -m proof.checks.sensitivity effects <outputs>/proof-out-*/blocks/* --corpus <corpus>
+  ```
+
+- **The change moved only some documents' keys**: the run read the others
+  from the store, their evidence is not in its blocks, and the writer refuses
+  it. Run the lane whole on the branch: dispatch CI with `proof_fresh` (`gh
+  workflow run ci.yml --ref <branch> -f proof_fresh=true`), which queues
+  every group fresh, reads nothing from the store and keeps nothing (about
+  thirteen minutes, "Timings and what the lane is expected to take"), then
+  write the effects from that run's artifacts as above. Where CI is not to
+  be used, the same on a machine with Docker and no `PROOF_STORE`, about four
+  worker-hours, since a document is observed whole whichever check asks:
+
+  ```bash
+  PROOF_READERS=0 npm run proof -- --workers <n> proof/checks/test_sensitivity.py
+  python3 -m proof.checks.sensitivity effects .proof/out/blocks/*
+  ```
+
+The readers change nothing here: the flips are built, never run, so a run
+without them writes the same evidence. A run whose sensitivity check failed
+is a run to write from, since the check writes its evidence before it fails.
+The push that carries the new effects changes `gates.json`, which the
+observation's fingerprint names, so its CI run observes every document again
+and holds each to the effects as written.
 
 ### Proofs 1 to 5
 
@@ -214,7 +280,17 @@ read: `<output>/corpus` where the run emitted it, or the directory
    processing of every submission, read as HQ applies it (case by case, each
    case's blocks where the form holds them, a block with an empty case id by
    the action HQ applies it at), and each language's app strings as Core
-   reads them (over the default file's).
+   reads them (over the default file's). Formplayer's sessions are compared
+   the same way, each state served to it by HQ's own views ("Served
+   states"): Nova's local archive against A always, and B's aligned build
+   against A wherever proof 2 still finds a difference, with the Web Apps
+   client's screens on it; and every request HQ's views refuse while
+   Formplayer walks A is a difference of its own. For a Connect app, HQ
+   forwards each state's submissions to one opportunity in CommCare Connect
+   ("Connect in the unit"), and what Connect made of them is compared the
+   same way: the local archive's and B's against A's, and what stands on
+   its own at A (a payload Connect did not take, a visit rejected for the
+   task its own form completes).
 4. **HQ editability** (`proof/checks/proof4.py`). Over B and over B-edit,
    under each configuration: every app-manager section HQ offers is saved the
    way a person saves it without changing a value (app settings, add-ons, UI
@@ -225,8 +301,16 @@ read: `<output>/corpus` where the run emitted it, or the directory
    judged against B (the second Vellum save against the first's result): the
    editor's own report, the stored app, then, where the stored app changed,
    its build against B's as proof 2 compares builds, and, where that still
-   differs, its sessions against B's as proof 3 compares them. So a change
-   shows as a build failure, a build difference or a behavior difference.
+   differs, its sessions against B's as proof 3 compares them. Where the
+   build differs, or what HQ's Web Apps page hands the client of the app
+   does, the saved app is served too, and Formplayer's sessions and the
+   client's screens on it are compared with B's, and for a Connect app so
+   is what Connect made of its submissions. So a change shows as a build
+   failure, a build difference or a behavior difference, in Core, in
+   Formplayer, in the client or in Connect. For a Connect app, what Connect
+   makes of B's and of B-edit's own submissions is also held to the
+   opportunity it made from A: a payload it no longer takes, and a Connect
+   id that moved under it.
 5. **Locality** (`proof/checks/proof5.py`). After an edit batch, every entity
    outside its footprint keeps the canonical digest of its emitted wire: its
    module or form JSON and XForm source in the upload, and its form, suite
@@ -242,77 +326,91 @@ read: `<output>/corpus` where the run emitted it, or the directory
 
 ### Spelling rules and the registers
 
-A spelling rule erases one difference in how an artifact is spelled that
-neither HQ's build nor Core's run depends on, and its own test proves that by
-building or running both spellings ("Spelling rules", below). Every other
+A spelling rule erases one difference in how an artifact is spelled that no
+reader of it depends on, and tests prove that by running both spellings on
+every one of those readers: HQ's build, Core, Formplayer, the Web Apps
+client, Connect and CommCare Android ("Spelling rules", below). Every other
 difference is a symptom: it is held by an entry of the known-defect register
 or it fails the lane ("The registers", below).
 
+### Every walk reaches its end
+
+Proofs 3 and 4 compare two states' walks, so a run that ends early on both
+sides alike passes with the rest of it unseen. The `stops` check reads each
+walk on its own (`proof/checks/stops.py`, one item per document): on every
+state a document's unit serves as a baseline (A, and proof 4's B and
+B-edit), each run of Formplayer's walk ends where the app ends it, and the
+Web Apps client's replay follows it there in a desktop's window, a phone's
+and App Preview. A run that ends anywhere else is a stop, and
+`proof/walk-stops.json` holds every stop by name with the reason the reader
+ends there, strict both ways ("Walk stops", below).
+
 ### What the lane does not observe
 
-- **Android is cited, not run.** The Android classes a defect's harm rests on
-  run only inside a running CommCare app (`HiddenPreferences`, `AppUtils`,
-  `ProfileAndroidInstaller`, `HomeScreenBaseActivity`), so a register entry
-  whose harm is on Android observes the artifact through Core's parse and
-  names the Android predicate in its `android` field.
-- **Formplayer and the Web Apps client are not run.** Core runs the sessions
-  Formplayer would, and the Core runner answers the form validation HQ's build
-  asks Formplayer for (`XFormParser` with `JSONReporter`, the body of
-  Formplayer's `UtilController.validateForm`).
-- **Connect** runs only as its metadata extractors, in the native proofs.
-- **A configuration Nova's publish refuses is not checked.** Each document's
-  configurations hold the flags and case search Nova's publish requires for
-  it, so a symptom that shows only where Nova refuses to publish cannot reach
-  anyone and is not a defect. Configuration sensitivity alone still builds a
-  flip into such a configuration, since a gate's effects are what HQ's build
-  changes wherever that is, and holds its differences to the gate's effects,
-  never to the register.
-- **Harm in no system the lane runs:** defect 4's `add_ons` (only HQ's pages
-  read them); defect 5's "Upgrade Required" report and 32-character refusal
-  (Nova's own); defect 12's inline search, multi-select case lists and
-  `exclude` (HQ's saves keep them without `CASE_SEARCH_ADVANCED`) and its
-  `VIEW_FORM_ATTACHMENT` over-requirement (a Nova publish check); defect 14's
-  `both_fixtures` (saves keep it) and its logos' loss on a linked-app pull;
-  defect 16's comments, dead code, copy and media slots; defect 20's
-  `product_id` datum (Nova emits no advanced module); defect 23 without
-  `MM_CASE_PROPERTIES` (a target Nova's publish refuses); defect 24's and
-  defect 30's export columns; defect 15's harm in Connect.
-- **Inputs Nova cannot produce:** a basic child case of its own menu's case
-  type under `DONT_INDEX_SAME_CASETYPE` (defect 12, same-type child) and a
-  form whose source holds the session's `supply_point_id` path under
-  CommTrack (defect 20, CommTrack).
-- **HQ's case search request reading over a document's searches.**
-  `proof/hq/operations.py` runs HQ's compiler (`compile_case_search`:
-  `build_filter_from_xpath` in a case search context) and its request reading
-  (`search_request_config`: `extract_search_request_config`); the HQ
-  package's tests run both and the native proofs run the compiler. The
-  manifest check reads
-  each search's CSQL with HQ's own CSQL parser, and each of its keys as HQ's
-  search reads it, so defect 6's CSQL part shows as uses of the REFUSED
-  classes of the comparisons HQ's compiler refuses, and defect 14's reserved
-  input names as uses of the search keys HQ's search reads as its own. The
-  intent check compiles every CSQL string a run sends: each literal
-  `_xpath_query` of build(A)'s suite and each one proof 3's sessions send
-  (`proof/observe/sessions.py::search_compiles`), so defect 6's CSQL part and
-  defect 12's related lookups show as HQ's compiler refusing them. Not
-  observed: a string a search builds from a prompt's answer, which the
-  sessions' scripts leave unanswered, and HQ's request reading over a
-  session's parameters.
-- **Vellum's unknown-question warning for a property only Nova's Save to Case
-  blocks write** (defect 3's last clause). HQ's case schema learns Save to
-  Case properties only from `case_references_data.save`, which Nova leaves
-  empty (`models/forms.py::get_save_references`), so a form reading
-  `#case/<property>` for such a property draws Vellum's "Unknown question".
-  No corpus document reads one: the entries of finding 47 hold reads of
-  properties no form writes.
+What the lane observes is bounded by what Nova emits: a behavior that
+depends on nothing in Nova's app is outside it, because no export can change
+it and no symptom of an export can show in it. A worker's sign-in form, a
+web user signing in as a worker, and the notifications Connect sends a worker
+through ConnectID are such behaviors. The lane passes through the first two
+where a walk needs them (every person signs in through HQ's own sign-in
+form, and App Preview's admin logs in as the worker through the client's own
+Log in as), and holds no claim about them; ConnectID is not in the lane, and
+each notification task Connect queues runs up to that request, which is
+recorded and fails as a connection that could not be made. Everything that
+depends on Nova's export is observed; which paths, cases and languages each
+reader's walk takes of an app, and where a walk ends, is told where the
+reader is ("How the lane observes", below).
+
+### Claims held outside a document's checks
+
+A configuration Nova's publish refuses is not checked (decision 19): each
+document's configurations hold the flags and case search Nova's publish
+requires for it, so a symptom that shows only where Nova refuses to publish
+reaches no one and is not a defect. Defect 23 without `MM_CASE_PROPERTIES` is
+one, and Nova's publish check refusing that target is held by
+`proof/targeted/__tests__/unproducedInputs.test.ts`. Configuration
+sensitivity alone still builds a flip into such a configuration, since a
+gate's effects are what HQ's build changes wherever that is, and holds its
+differences to the gate's effects, never to the register.
+
+The lane's accepted seams each stand for a state production can be in, and
+`proof/CLAUDE.md` gives each its reason. A restore hands a worker's cases in
+the order of their ids (`proof/formplayer/hq.py::cases_in_id_order`; HQ asks
+its database for no order, so every fixed order is one production gives); a
+page's repeating timers of 10 s or more and Elasticsearch's own refresh timer
+are held; the Connect opportunity's own rows (its worker, payment unit, claim
+and assigned tasks) are made with Connect's own factories; and Connect's
+source is fetched at its pin when a run starts.
+
+These claims are held by a test of their own, or by a document and check
+named here, rather than by every document's checks:
+
+| What | Held by | What it shows |
+| --- | --- | --- |
+| Defect 3's unknown-question clause | `targeted-save-to-case-read`, proof 4 | Vellum warns "Unknown question" on a read of a property only a Save to Case block writes, and not on the same read of a property an ordinary field writes |
+| Defect 4's add-ons | `proof/views/test_add_ons.py` | an add-on a person turned on in HQ is offered by HQ's module page, and gone from it after Nova's next publish |
+| Defect 5's "Upgrade Required" answer | `proof/views/test_lookup_upload.py`, and `proof/views/__tests__/lookupUploadAnswer.test.ts` for Nova's side | without the Lookup Tables privilege, HQ's upload API answers Nova's own push with its HTML upgrade page and HTTP status 200, and writes no table; handed an answer of that status and type, Nova's own client reports an upload that may have landed |
+| Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
+| Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, and its Case List page holds the control for each only under the flag |
+| Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | a device, which restores at the address that names the app, gets the flat fixture whatever the project space says; Web Apps, whose restore names no app, gets it only where the project space syncs it (finding 69) |
+| "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
+| "20, CommTrack" | `targeted-supply-point-read`, the manifest check and proof 4; the same vitest file | Nova's gate admits a read of the session's supply point (finding 68) |
+| Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
+| Defect 23 without `MM_CASE_PROPERTIES` | the same vitest file | Nova's publish check, given HQ's own domain list for the flag, refuses a target without it, naming the capability, and passes the same target with it |
+| Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
+| Defect 14's logos on a linked app | `proof/views/test_linked_logos.py` | HQ's own Copy Application view fails making a linked app over Nova's path-only logo (`LinkedApplication.reapply_overrides` reads its media object), and links the same app once the logo is uploaded through HQ's own logo uploader |
+| Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
+| Defect 24's export columns | `proof/views/test_exports.py` | the inert subcase's `form.subcase_<i>.case.*` columns hold HQ's missing-value mark in every row while the basic child case beside them holds its id, and after HQ's Case Management save its index columns move and lose `@relationship` |
+| A CSQL string a device builds from a typed answer | every served state's device (`proof/android/src/.../Queries.java`, `query/typed`), proof 3 (`proof/checks/android.py::hq_refusals`) | the search screen sends what it built from the answer table's search answers typed into its own views to HQ's own search view, which compiles it against HQ's real Elasticsearch; each request HQ's views refuse while A is served, with a view, status and cause HQ did not refuse Formplayer's walk of A with, is `android@A`, `/hq/<view>/<status>/<what HQ said>` |
+| Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. Its comments, dead code and copy are plan and code text, held by step 2's review |
+| The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
+| What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
 
 Step 1's exit asks the register for an entry for every row of its defect table
-("The defect rows", below). The harm in no system the lane runs was never a
-row, and step 1's decisions drop the two inputs Nova cannot produce; every
-other row has entries that reproduce on their controls, and only defect 3's
-unknown-question clause (above) shows nowhere, which stays open until the lane
-observes it or a recorded decision leaves it to defect 3's fix's own tests
-(`docs/plans/hq-round-trip/2-emission-and-publish.md`, work item H).
+("The defect rows", below). Every row now has entries that reproduce on their
+controls or a test of `proof/views` that runs HQ's own page or view; the one
+row that has neither, "12, same-type child", is an input no Nova document
+holds, which a test of Nova's planner and gate shows.
 
 ## Running the lane
 
@@ -329,10 +427,14 @@ beside the image and removes when it ends (`proof/compose.yaml`).
 ### Selecting what runs
 
 ```bash
-npm run proof                                           # the whole harness
+npm run proof                                           # the whole harness, with every reader (the nightly's lane)
+PROOF_READERS=0 npm run proof                           # the pull request lane: no state served to a reader
+PROOF_READERS=android npm run proof -- proof/checks -k <document>  # prove an Android change: Formplayer and a device only
 npm run proof -- proof/checks/test_bar.py               # one check over every document
 npm run proof -- proof/checks -k targeted-time-ordering # every check of one document
 npm run proof -- proof/native                           # the native proofs
+npm run proof -- proof/connect                          # the Connect proof
+npm run proof -- proof/views                            # HQ's own pages and views over Nova's exports
 npm run proof -- --workers 4 proof/checks               # four forked workers
 npm run proof -- --bin 2/4                              # bin 2 of 4 of the collected groups
 ```
@@ -350,6 +452,188 @@ observed once for all its checks.
 With no corpus named, the run emits one into its output first
 (`proof/checks/corpus.py::emit_corpus`, inside the image), at the default seed
 and fuzz sample (`proof/corpus/defaults.ts`).
+
+### The lane's two profiles
+
+The lane runs in one of two profiles (`proof/lane/readers.py`), and
+`PROOF_READERS` picks it; a slice may also name some readers alone:
+
+- **With the readers** (the default; the nightly and the weekly run it
+  beside the other profile): every state a unit
+  serves is handed to Formplayer, the Web Apps client, a device and, for a
+  Connect app, Connect's own server ("Served states"), and every test runs.
+- **Some of them** (`PROOF_READERS=android`, or a comma list of
+  `formplayer`, `webapps`, `android` and `connect`), for proving one
+  reader's change on a slice: a document's group walks every reader in about
+  an hour on one worker (twenty minutes to more than two and a half hours for
+  eight documents in ten), and one reader in a fraction of that. Every
+  reader named brings Formplayer, whose walk the client replays, whose
+  submissions Connect receives, and along which B and proof 4's saves are
+  served to a device. The served hook observes those readers alone and names
+  them in its parts' keys, the tests that start another are left out, and the
+  gate leaves exactly the entries whose artifacts the others write and says
+  which. CI never sets anything but `0` and every reader.
+- **Without them** (`PROOF_READERS=0`, the pull request lane's): HQ, Core and
+  HQ's editors run as they always do, every check holds its differences to
+  the register as it always does, and nothing is handed to a reader. The unit
+  leaves its `served` hook out, so proof 4's saves are served to nothing; the
+  tests that start a served reader are deselected (each is marked `reader`:
+  by `proof/conftest.py` where its fixtures start one, `formplayer_runner` or
+  `connect_runtime`, and by hand where it starts one itself, as a spelling
+  rule's `served_readings` does; a test whose fixture starts one reader and
+  that reads another's record too names the other by hand beside it, so a
+  slice of Formplayer alone leaves out the test that reads a whole
+  observation, the client's part included); the session's services refuse to
+  start a reader, so a test that starts one unmarked fails instead of running
+  half;
+  and the gate leaves the register's entries whose artifacts only the readers
+  write (`formplayer@`, `webapps@`, `android@`, `android-tablet@`,
+  `connect@`, `release@`, the names `proof/checks/differences.py` gives every
+  check that reports one, and a soft assertion HQ noted answering a reader's
+  request, named under that reader, `android@soft_assert:request:...`) to
+  the nightly, saying how many. A run with the
+  readers holds every test marked by hand to asking for one, so no test
+  leaves the pull request lane for a reader it never starts.
+
+Formplayer's form validation is HQ's own (its build asks for it,
+`proof/hq/seams.py::formplayer_validation`), so it runs in both. The two
+profiles keep their records apart: `PROOF_READERS` is one of the variables
+every key of the evidence store names (`proof/store/keys.py`), so neither
+reads what the other observed, and their queues say which they were built for
+(the server refuses a queue of the other profile).
+
+### Proving a reader change before you push
+
+The pull request lane runs no reader, so a change a reader would show is
+proven before it is pushed, on a proof machine: a Linux amd64 machine with
+Docker and the Android reader's runtime ("Android in the unit"), the only
+platform where every reader runs. This holds for a change to Nova's emission,
+which every reader reads, and to anything a reader observes or judges: the
+reader packages (`proof/formplayer`, `proof/webapps`, `proof/android`,
+`proof/connect`), `proof/observe/served.py` and `proof/observe/connect.py`,
+`proof/checks/served.py`, `proof/checks/android.py`, `proof/checks/connect.py`,
+a register entry naming a reader's artifact, and a pin. Run that reader's
+slice with that reader on (`PROOF_READERS=<reader>`, or every reader, the
+default), over the documents your change touches:
+
+```bash
+export PROOF_ANDROID_RUNTIME=<the runtime build-runtime.sh built> PROOF_ANDROID_JDK=<the JDK it was built with>
+npm run proof -- --workers 4 proof/checks -k "<document id> or <another id>"   # each served state, every reader
+python3 -m proof.lane.gate .proof/out --documents <document id>,<another id>   # the slice, held to its documents
+PROOF_READERS=android npm run proof -- --workers 4 proof/checks -k "<document id>"  # one reader: each state, on a device
+python3 -m proof.lane.gate .proof/out --documents <document id>
+npm run proof -- --workers 4 proof/formplayer proof/webapps                     # the readers' own tests
+npm run proof -- --workers 4 proof/connect proof/rules                          # Connect, and the rules' readers
+python3 -m unittest proof.android.selfcheck proof.android.predicates -v          # the Android reader's own checks
+```
+
+A document's checks are one group on one worker, and its control's another,
+so more workers than the documents and controls you select buy nothing.
+`-k` matches a test's id by substring: a document's id selects its checks,
+the checks of the control of the same id (`control-<id>`) and those of any
+document whose id holds it. Where a register entry naming your document
+retains a control of another id (its `control`), name that too (`or
+control-<that id>`).
+
+**The gate over a slice.** A run by path and `-k` writes a queue of its own
+(`queue.json` in its output) that names no documents. Held to that queue as
+it stands, the gate reports every entry of the register that names a
+document the slice did not run, and the surface the slice did not extract,
+so its verdict fails whatever the slice showed. Tell it the slice's
+documents, by their ids: `--documents <id>,<id>`. It then holds the run as
+it holds a run over documents named by hand ("The gate"):
+
+- every block of the run ran once and every item passed;
+- every difference the run's documents and controls showed is held to the
+  whole register, and every stop their walks showed to the whole
+  `proof/walk-stops.json`;
+- every entry naming one of those documents was seen on the document and on
+  its control, with the readers the run observed (`PROOF_READERS`); the
+  entries only another reader shows, and every entry naming another
+  document, are left to the nightly and the weekly, and the gate says how
+  many;
+- it fails by name where an entry of the slice's was not seen, where the
+  control an entry retains did not run, and where a document it was told
+  did not run;
+- the surface is left to the lane that extracts it, every pull request's.
+
+A run of package tests (`proof/formplayer`, `proof/connect` and the like)
+names no document: its own exit is its verdict, every item passed.
+
+Executed on a proof machine, 2026-10-13, over `targeted-shared-property-sort`
+and `targeted-sync-on-form-entry` with their controls (23 items): without
+the readers through `npm run proof` (`PROOF_READERS=0`), and with Formplayer
+through `proof/remote/run.sh <host> --env PROOF_READERS=formplayer`. Told the
+two documents, each gate holds: 11 of their 23 entries held without the
+readers, 16 with Formplayer, the rest left to the readers that show them.
+The same slice run without one document's control fails by name, once for
+each of that document's ten held entries ("retains its control
+targeted-sync-on-form-entry, and no shard ran proof3 on it"), and so does
+the clean run told a third document it never ran. Held to its own queue as
+it stands, the clean run without the readers shows 1,250 register problems
+and the absent surface, and the run with Formplayer 1,428, 24 walk-stops
+problems and the absent surface, none of them the slice's.
+
+Each scheduled night runs the lane with every reader over what changed and
+each week runs it whole, each opening an issue when it fails; they are the
+backstop
+for what a slice missed, never the first run of a reader change.
+
+### Running the lane on another machine
+
+A slice with every reader, or the whole lane, wants a machine larger than a
+laptop: Linux on amd64 (the Android reader's native runtime ships for no
+other Linux), about 5 GB of memory a worker with every reader (a run of
+twelve workers peaked at 58 GB and its Postgres at 1.6; a device's JVM alone
+may hold 2.3) and 3 without, and a vCPU a worker, which saturates it (more
+workers than vCPUs only slow each: under twice the load, a document took
+about one and a half times as long). `run.mjs` sizes
+Postgres's client cap from the worker count (125 a worker, at least 500,
+`proof/compose.yaml`). `proof/remote/` runs the lane on such a machine from
+your working tree, over ssh:
+
+```bash
+proof/remote/run.sh <host> --provision --android-licenses <a directory holding an accepted SDK's licenses/>
+proof/remote/run.sh <host> -- --workers 4 proof/checks -k "<document id> or <another id>"       # a slice, every reader
+python3 -m proof.lane.gate .proof/remote/<slot>-<stamp> --documents <document id>,<another id>  # held to its documents
+proof/remote/run.sh <host> --env PROOF_READERS=formplayer -- --workers 4 proof/checks -k "<document id>"  # one reader
+proof/remote/run.sh <host> --env PROOF_READERS=0 -- --workers 32                  # the pull request lane, whole
+python3 -m proof.lane.gate .proof/remote/<slot>-<stamp>                           # a whole lane, held whole
+```
+
+`--provision` copies the tree to the host and runs `proof/remote/provision.sh`
+there, which makes a fresh Ubuntu 24.04 amd64 machine a proof machine: Docker,
+with an address pool of 1,024 networks in private space (172.20.0.0/14 in
+/24s: each lane in flight holds one network, its compose project's, and
+Docker's own pools give about thirty, so a machine running more lanes than
+that at once would refuse the next), the Node and npm versions `.nvmrc` and
+`package.json` name, the JDK `proof/android/toolchain.json` names (at
+`/opt/proof-jdk`), the limits many workers reach, one install of Nova's
+dependencies for the lock, the harness
+image and Postgres pulled, and the Android reader's runtime built and held to
+its own checks (`~/proof-android-reader`; its build installs Android SDK
+packages, which only an SDK whose license a person accepted may receive, so
+it is built only where `--android-licenses` names one). A run copies the
+tree (without `.git`, `node_modules` or `.proof`, so uncommitted edits run)
+to `~/proof-remote/<slot>` on the host (`--slot`, the tree's directory name
+by default, keeps two trees apart on one host), links its `node_modules`
+from that install, runs `npm run proof -- <arguments>` there with the
+runtime and the JDK and each `--env`, and copies the output back to
+`.proof/remote/<slot>-<stamp>/` (it prints the directory), where
+`python3 -m proof.lane.gate` reads it: told a slice's documents
+(`--documents`, "Proving a reader change before you push"), or with nothing
+more for a whole lane. The output comes back without the emitted corpus and
+the store's blobs, neither of which the gate reads.
+
+On Google Cloud, for example, a spot VM is the cheapest such machine: create
+one from the `ubuntu-2404-lts-amd64` image family with no external address
+(`gcloud compute instances create <name> --project <project> --zone <zone>
+--machine-type n2-standard-32 --provisioning-model SPOT --image-family
+ubuntu-2404-lts-amd64 --image-project ubuntu-os-cloud --boot-disk-size 200GB
+--no-address`), reach it through Identity-Aware Proxy with an ssh config
+entry whose `ProxyCommand` is `gcloud compute start-iap-tunnel %h 22
+--listen-on-stdin --project <project> --zone <zone>`, and name that entry as
+the host. A preempted spot VM keeps its disk: start it again and rerun.
 
 ### Where a run writes
 
@@ -372,12 +656,19 @@ In it:
 - `workers/w<n>.log` and `workers/w<n>/`: each worker's output;
 - `timings/`: each group's seconds per worker, which
   `node proof/run.mjs --timings <output>...` turns into `proof/timings.json`;
+- `blocks/<id>/connect-unit/w<n>/`: the logs of the Connect runtime worker
+  n started for the first Connect document it observed, in that document's
+  block (its fetch, its services, its migrations and each served session of
+  the run; each worker's are its own, since two workers may start theirs in
+  one block, as the two pieces of a Connect document do);
 - `store/`: what the run observed for the evidence store, and `audit/`, any
   record the audit sample observed differently from the store;
 - `corpus/`: the corpus the run emitted, and `corpus.log`.
 
 `python3 -m proof.lane.gate .proof/out` holds a finished run to the lane's
-verdict, as CI's gate does ("The gate", below).
+verdict, as CI's gate does ("The gate", below); a slice of documents is held
+to them with `--documents <id>,<id>` ("Proving a reader change before you
+push").
 
 ### The switches run.mjs passes
 
@@ -396,6 +687,7 @@ It passes these into the container unchanged, each only when set:
 | Variable | What it does |
 | --- | --- |
 | `PROOF_CORPUS_SAMPLE`, `PROOF_CORPUS_SEED` | The fuzz sample's size and the corpus seed, for a corpus the run emits. |
+| `PROOF_READERS` | The readers the run hands its states to: unset or `all` for every one, `0` for none (the pull request lane's profile), or a comma list for a slice ("The lane's two profiles", above). |
 | `PROOF_HQ_SPEED=0` | HQ without its speed seams (`proof/hq/speed.py`), to compare. |
 | `PROOF_HQ_DETERMINISM=0` | HQ's entropy and clock left real (`proof/hq/determinism.py`), to compare. The tests marked `under_determinism` are skipped, and the store holds two records of one key to each other with their drawn values masked. |
 | `PROOF_VERIFY_MEMOS=1` | Every memo, kept build and kept trace computed again on every hit and held to the kept answer. |
@@ -440,15 +732,41 @@ every run pulls; `--target full` builds everything the stages install, which
 the image workflow compares with it. The image holds HQ at its pin with its
 submodules and a virtualenv from HQ's own `uv.lock`, HQ's database schema as
 HQ's migrations leave it (`/opt/hq-schema/hq.sql`), JDK 17 and Gradle with
-Core compiled at its pin and its test classpath recorded, the Android sources
+Core compiled at its pin and its test classpath recorded, Formplayer at its
+pin with the Core it vendors, its boot jar built by its own Gradle build and
+unpacked with its classpath recorded (`/opt/formplayer`,
+`/opt/formplayer-app`), a `redis-server` for it, the Android sources
 at their pin, the HQ pin's commit time (`/opt/hq-pin-time`, HQ's clock), node,
 Playwright's Chromium (the slim image keeps only the headless shell every
-launch runs), and the editor bundles built from HQ's node packages
-(`/opt/editors`); HQ's `node_modules` keeps only what HQ's XPath validator
-runs. It holds only public, licensed upstream sources and the harness's own
-code; Nova's checkout is mounted at run time. Connect's checkout carries no
-license file, so Connect is never in the image: the native Connect proof
-fetches it at its pin when it runs.
+launch runs), the page bundles built from HQ's node packages
+(`/opt/editors`: the editor pages' and the Web Apps page's), HQ's node
+packages themselves where HQ finds them (`/opt/hq/node_modules`: HQ's XPath
+validator reads two, and HQ's static finders and stylesheet precompiler the
+rest for the Web Apps page), and the `sass` that precompiler runs, among the
+image's own Node tools. It holds only public, licensed upstream sources and
+the harness's own code; Nova's checkout is mounted at run time. The Android
+reader's runtime is not in it (`proof/android/README.md`): it holds
+SDK-derived and Google libraries, so it is built from the pins on
+linux/amd64 (`proof/android/build-runtime.sh`), kept in the repository's
+Actions cache, and mounted into the harness's container with its JDK where
+a shard runs ("Android in the unit"). Robolectric's native runtime has no
+linux/arm64 build, so on an arm64 machine every reader but Android runs,
+and a device's observation says why it cannot. Connect's checkout carries no
+license file, so none of Connect's source is in the image: the Connect proofs
+fetch it at its pin when they run (`proof/connect/checkout.py`). The image
+holds what Connect runs on (the `full` stage): Python 3.11, a virtualenv from
+Connect's own lock at its pin (`/opt/connect-venv`, the environment
+Connect's own tests run in), the libraries Connect's Dockerfile installs for
+GeoDjango, and the two services its `docker-compose.yml` starts, Postgres 15
+with PostGIS and Redis, which a Connect proof starts as its own processes.
+
+The Connect runtime is its own stage over everything else, so it can be built
+over an image this recipe already made, in about a minute:
+
+```bash
+docker build $(node proof/image/build-args.mjs) --build-arg FULL_BASE=<image> \
+  --target full -f proof/image/Dockerfile -t nova-proof:dev .
+```
 
 Vellum is not pinned on its own: the harness runs the build HQ vendors at its
 pin, and the image's self-test (`proof/hq/test_boot.py`) holds HQ's
@@ -486,8 +804,8 @@ What a failure calls for:
 
 - **A defect in Nova**: fix it; or, where the fix is a later step's, register
   its class ("Adding a register entry and its control", below).
-- **A spelling neither HQ's build nor Core's run depends on**: a spelling
-  rule, with the test that proves it ("Spelling rules", below).
+- **A spelling no reader of it depends on**: a spelling rule, with the tests
+  that run each reader on both spellings ("Spelling rules", below).
 - **The harness's own fault** (a comparison that reads a position its reader
   does not, a name kept that is the app's, a refusal that names no cause): fix
   the comparator or the observation, never the register.
@@ -531,7 +849,7 @@ node --conditions=react-server --import ./proof/corpus/entropy.mts \
   --import tsx proof/corpus/emit.ts --out <dir> [--sample <n>] [--seed <n>] [--jobs <n>]
 ```
 
-CI emits it once, in the `quality` job; a local run emits it inside the image
+CI emits it once, in the `proof-corpus` job; a local run emits it inside the image
 unless `PROOF_CORPUS` names one. Every file but `timings.json` is the same,
 byte for byte, on every run at one seed, on every machine: the entropy preload
 answers every identity Nova's exports mint (`lib/commcare/ids.ts`, the `.ccz`
@@ -565,8 +883,8 @@ reads it. Per document, under its id:
 - `inputs.json`: the digest of every file a check reads, by the part of the
   document's HQ tree that reads it.
 
-`<corpus>/native/` holds the native proofs' products, which CI's `quality` job
-writes beside the corpus (`python3 -m proof.native.produce`).
+`<corpus>/native/` holds the native proofs' products, which CI's `proof-corpus`
+job writes beside the corpus (`python3 -m proof.native.produce`).
 
 ### Configurations
 
@@ -581,12 +899,17 @@ the highest minimum version HQ's feature support names:
 - a single-flag configuration, the minimum and one flag, for each flag a
   reproduction names.
 
-Sync cases on form entry is off in each, but where a reproduction turns it on
-for the document (`CorpusDocument.projectSettings`), and CommTrack is off.
+Sync cases on form entry and CommTrack are each off, but where a reproduction
+turns one on for the document (`CorpusDocument.projectSettings`:
+`targeted-sync-on-form-entry`, `targeted-supply-point-read`).
 
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
 gate (`proof/checks/configurations.py`), so the emission never starts HQ.
+One of them every document needs: Web Apps (`CLOUDCARE`). Every app Nova
+sends is one a worker opens there, and Web Apps lists an app only in a
+project space that has it (finding 64), so every configuration grants it
+and every app the lane builds is one Web Apps runs.
 
 ### Edit batches
 
@@ -636,10 +959,33 @@ and update have identical bytes with a real case-writing form. The intent
 self-check independently observes B and B-edit with matching complete keys,
 requires a parsed form and its authored data-dictionary property, and retains
 both records under the block's `witnesses/wire-equal-intent/` directory.
+`targeted-save-to-case-read` is defect 3's last clause: one form writes a
+property through a case operation alone and another validates an answer
+against it and against a property an ordinary field writes, so HQ's form
+builder warns about the first read and not the second.
+`targeted-supply-point-read` reads the session's supply point in a project
+space with CommTrack on (finding 68). `targeted-media-slots` holds every
+media slot Nova offers on a question and a group's label, which
+`proof/formplayer/test_media_slots.py` and `proof/webapps/test_media_slots.py`
+read on Formplayer and in the Web Apps client (defect 16); it is the one
+targeted document that carries uploaded media (`TargetedSpec.media`).
+`targeted-capture-widgets` holds one question of each kind a worker answers
+with a gesture (an image, a sound, a video, a document, a signature and a
+location), which `proof/webapps/test_widgets.py` holds Formplayer's walk and
+the Web Apps client to answering as a worker does.
 `targeted-search-button-label` owns the three unchanged search-label defect
 classes; their retained `case-operation-query` control stays byte-identical.
 These documents join the emitted corpus without joining balanced edit
-assignment. The focused `stableWitnesses.test.ts` holds every emitted byte
+assignment. `targeted-form-link-hidden-target` is the Formplayer runner's:
+three forms each link to one target, a shown form, a form and a menu whose
+display condition is false for the lane's worker (Nova refuses a condition
+no worker could meet), which `proof/formplayer/test_end_of_form.py` runs on
+Formplayer and on Core (finding 58). `targeted-empty-list-no-english` is the
+Web Apps driver's: an app written in Spanish alone, whose empty-list message
+`proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
+module settings save (finding 41), and whose second menu lists no case, so
+the lane's own walk of each state shows the client that message too and
+proof 4's records hold it (`webapps@module settings@*`). The focused `stableWitnesses.test.ts` holds every emitted byte
 to an emission after an unrelated document advances the fixture counter and
 changes that balance.
 
@@ -674,13 +1020,16 @@ its side's fingerprint:
 
 - **observation** (`proof/store/fingerprints.py::in_observation`): the
   observation partition (`proof/observe/partition.py::observes`), which is
-  every file under `proof/observe`, `proof/hq`, `proof/core`, `proof/editors`
+  every file under `proof/observe`, `proof/hq`, `proof/core`,
+  `proof/formplayer`, `proof/webapps`, `proof/connect`, `proof/editors`
   (but its driver), `proof/lane`, `proof/store` and the comparators
   (`proof/checks/compare`), the files of the checks the observation runs but
   does not own (`proof/checks/corpus.py`, `differences.py`,
   `configurations.py`, `sharding.py`), the session's fixtures and process
-  handling (`proof/conftest.py`, `proof/processes.py`, `proof/pytest.ini`)
-  and `lib/commcare/surface/entries/gates.json`; and, beside it, the lane's
+  handling (`proof/conftest.py`, `proof/processes.py`, `proof/pytest.ini`),
+  the pins (`proof/pins.json`, which a Connect document's observation
+  fetches Connect at) and `lib/commcare/surface/entries/gates.json`; and,
+  beside it, the lane's
   container configuration (`LANE_FILES`: `proof/compose.yaml` and
   `proof/run.mjs`), which decides what that code runs under;
 - **browser**: the editor driver, `proof/editors/driver/`, which node runs;
@@ -704,10 +1053,11 @@ digest of its input:
 
 ```
 seed → lookup upload → create(D) → media → HQ-side saves → build(A) → admit → identities, flag reads
-  mark@A → A's restore for proof 3 → intent hook at A → sensitivity: each gate read, flipped, in a fork
+  mark@A → A's restore for proof 3 → intent hook at A → A served (a Connect app's opportunity made) → sensitivity: each gate read, flipped, in a fork
   b:         restore@A → republish(D) → media → build(B) → admit → identities
-               mark@B → intent hook at B → proof 4 over B → restore@B
+               mark@B → intent hook at B → proof 4 over B (B served, and each save that can differ) → restore@B
   b_aligned: B aligned to A → build → proof 3's sessions (local archive and A; B where the raw builds differ)
+               → the local archive served over HQ's state, and B aligned where the raw builds differ
   b_edit:    restore@A → update(D′) → media → build(B-edit) → admit → identities
                mark@B-edit → intent hook at B-edit → proof 4 over B-edit → restore@B-edit
 local: Core's admission of local.ccz, local-again.ccz and edit/local.ccz → the intent and manifest local hooks
@@ -751,21 +1101,72 @@ app, restore and trace) are blobs named by their sha256.
   refused in a rollback unit, whose transaction never commits. The existing
   fresh-database mode (`open_unit(transactional=False)`) commits HQ's actual
   transactions and runs their real callbacks; its database is dropped at exit.
-- **Seams** (`seams.py`, `elasticsearch.py`) answer what HQ reads from outside
+- **Seams** (`seams.py`) answer what HQ reads from outside
   its state, from the configuration: every feature flag off unless named (each
   read recorded), the plan's privileges, the project settings through HQ's own
-  test utilities, the previous build, HQ's resource overrides, and
-  Formplayer's form validation answered by the Core runner. Elasticsearch
-  answers the three reads the paths make as an empty index and refuses any
-  other. Every other read is HQ's, against HQ's state.
+  test utilities, the previous build, HQ's resource overrides, and the
+  form validation HQ asks Formplayer for, answered by Formplayer's own
+  application (`formplayer_validation`, sent the headers and the digest HQ
+  wrote, `proof/observe/services.py::validator`): in the lane, one
+  Formplayer the server starts while HQ boots answers every worker's, as
+  Formplayer's validation keeps no state between requests
+  (`proof/formplayer/shared.py`); elsewhere a runner of the session's own).
+  One privilege a
+  part of the lane states of the project space beyond what the document's
+  content needs is granted for that part alone (`also_granted`: Data
+  Forwarding, where a Connect app's forms are forwarded). Every other read
+  is HQ's, against HQ's state.
+- **Elasticsearch** (`elasticsearch.py`) is HQ's own: the version and the
+  plugin HQ's image of it holds (`docker/files/Dockerfile.es.6`, 6.8.23 with
+  `analysis-phonetic`, held to the image by `test_elasticsearch.py`), one
+  server a worker on a loopback address of its own, and the four indexes the
+  lane's paths read (cases, case search, forms and users), each created as
+  HQ's own test suite creates one (`es_test`'s `CreateIndex`). HQ writes
+  them with its own code: a user's save writes the user, and every change
+  HQ publishes for its pillows (which the unit records in place of Kafka) is
+  read as HQ's change feed reads a Kafka message and handed to the
+  Elasticsearch processors of the pillows that read its topic, as HQ
+  constructs them (the case pillow's cases and case search processors, the
+  form pillow's forms processor), as each operation or request ends, under
+  its own key and clock: a pillow runs behind production's requests, and
+  here it has caught up before the next one. HQ's client answers only inside
+  a unit opened with its seams, and is refused on any other index. What a
+  unit holds is held to its marks as Postgres is: each unit starts with
+  every index empty, a mark keeps what each index holds (its documents in
+  the order it holds them), and a restore puts back each index a write
+  touched since. Elasticsearch's own refresh timer is held, as the pages'
+  repeating timers are, and each index a scope wrote is refreshed and merged
+  to one segment as the scope ends, so what a search scores against and the
+  order it gives documents that score alike (HQ's case search sorts by score,
+  then by `_doc`) never depend on when Elasticsearch's own merges ran. Its
+  disk watermarks are off: they measure the host's whole volume, and past
+  the flood stage the server makes every index read-only, which would make
+  a lane on a fuller machine read differently. Each related-case lookup HQ's search compiler runs while it compiles, each case
+  search Formplayer sends, Vellum's question of whether a form has
+  submissions, the practice workers the app manager's pages list and the
+  case types the data dictionary refresh clears are HQ's own queries of
+  these indexes.
+- **What HQ's receiver needs** (`redis.py`, `localcache.py`,
+  `branch.py::Unit.committing`): HQ takes a lock in Redis around each form,
+  case and user it writes, and admits a mobile endpoint's request by finding
+  in Redis the token Formplayer wrote for it, so while a state is served HQ
+  shares the Formplayer runner's Redis, as production does (the network
+  guard admits that one loopback address; outside a served state HQ's raw
+  Redis client is refused as before). HQ's receiver saves a form and its
+  cases in one atomic block and runs what follows from it when that block
+  commits; a unit's transaction never commits, so inside `committing()` the
+  unit runs each such function where production's commit runs it. HQ's rate
+  counters make two django-redis calls of the Redis-alias caches, which the
+  local caches answer as Redis does.
 - **Determinism** (`determinism.py`): inside an operation every entropy source
   HQ draws from is a DRBG seeded by the operation's key, and HQ's clock is
   frozen at the HQ pin's commit time plus one second per depth, so the same
   operation over the same state gives the same bytes in any process.
 - **Speed** (`speed.py`, `buildcache.py`): only `DEBUG`'s speed effects (the
   cached template loader, no query log, the memoized webpack manifest), the
-  settings YAML parsed once, HQ's XPath validator in one long-lived node
-  child, and the build's pure computations kept once computed. Each computes
+  settings YAML parsed once, each SCSS source a page names compiled once,
+  HQ's XPath validator in one long-lived node child, and the build's pure
+  computations kept once computed. Each computes
   exactly what HQ computes; `PROOF_HQ_SPEED=0` leaves them all out to compare.
 - **Operations** (`operations.py`): publish, the media upload, app source,
   build, HQ's case processing of a submission, standalone form retention,
@@ -777,17 +1178,18 @@ HQ's SQL processor and attachment writer in a fresh database, then reads new
 domain-scoped form models. It checks their stored XML and answers, distinct
 rows from HQ's `TableConfiguration`, a workbook from its export writer, and
 zero cases. The paired rollback-unit test refuses the real attachment commit
-callback. This proves storage and row generation from known saved forms;
-indexed export discovery and actor permissions remain outside it, with the
-Elasticsearch seam unchanged. Run it with
+callback. This proves storage and row generation from known saved forms; HQ's whole
+export over the forms index, from a schema HQ makes of the app's builds, is
+`proof/views/test_exports.py`. Run it with
 `npm run proof -- proof/hq/test_report_retention.py`.
 
 ### The Core runner
 
 `proof/core` is one long-lived JVM per worker (`client.py`), compiled from
 `proof/core/src` against Core's recorded test classpath, speaking one JSON
-line per request with a deadline on each: `validateForm` (Formplayer's check),
-`admit` (Core's archive installer over a `.ccz` or HQ's build), `session` (a
+line per request with a deadline on each: `validateForm` (Core's parse of a
+form as a report, the runner's own lifecycle tests' probe; HQ's validation is
+Formplayer's own), `admit` (Core's archive installer over a `.ccz` or HQ's build), `session` (a
 scripted session's trace: every screen, command, row, question with its
 prompt, answer, the submission, the case database after it and the stack;
 answers come from a fixed table per question type, `proof/core/answers.json`,
@@ -799,7 +1201,140 @@ traces name each generated id by the first place both hold it. Each document's
 sessions run over its case database (`proof/observe/casedata.py`): cases of
 each of its case types with values whose text and numeric orders differ ("10"
 and "2"), written as a restore by HQ's own code; a remote search is answered
-with every case of the requested type.
+with every case of the requested type. A session's bounds (400 screens and 64
+choices of a run, 5,000 derived runs) are safety nets no app the lane walks
+comes near: a run that reaches one fails the request by the bound's name,
+and is never handed back as a run that ended there.
+
+### The Formplayer runner
+
+`proof/formplayer` runs Formplayer's whole application, one per worker
+(`client.py`), started by Formplayer's own `main` on the classes and
+libraries of its boot jar in its launcher's order, which the image builds at
+the Formplayer pin with Formplayer's own Gradle build
+(`proof/image/formplayer/build.sh`). Its web server, security chain,
+aspects, controllers, services and JSON serialization are its own, and so are
+its services: a database of its own on the lane's Postgres, migrated by
+Formplayer's own Flyway migrations as it starts, and a real `redis-server`
+the runner starts on a loopback address of its own (Formplayer keeps each
+worker's last sync, each archive it installs and each form's volatility
+there). It runs the Core it vendors (`libs/commcare`, the commit
+Formplayer's tree records, which the runner announces), with that Core's
+three clock readers reading the request's clock, as the Core runner's do.
+
+The one address Formplayer is given in place of production's is HQ's
+(`commcarehq.host`). It is the runner's own loopback peer, which answers
+nothing itself: every request Formplayer makes of HQ is written to the
+client as a protocol line and answered there, by HQ's own views over the
+unit's state wherever the lane serves a state (`hq.py`, below), and every
+one is recorded. Formplayer
+runs in its own `replace-host` mode, so the URLs an app names (its
+submission URL, a search's, a claim's) reach the peer too. That mode covers
+only Formplayer's RestTemplate; Core's `JavaHttpReference`, which an install
+reads a form from at the remote location HQ's profile names under the
+build's own address when the archive's copy cannot be installed, opens a URL
+connection of its own, and it left for the address HQ's settings name over
+the network (a hosted run waited on one past the request's deadline). The
+runner sends every http and https URL connection the way replace-host sends
+the rest (`src/.../PeerUrls.java`, through Tomcat's own handler factory), so
+HQ's download view answers it (`test_observe.py`). The runner speaks
+one JSON line per request, shaped as the Core runner's, with a deadline on
+each: `http` (one HTTP request to Formplayer's own server, with Core's
+random source seeded from the request's ordinal), `clock`, `syncTimes`
+and `ageSync` (a worker's last sync as Formplayer keeps it, read and moved
+back through the same Redis template bean Formplayer writes it with, for
+what a worker's absence does, which no run can wait for), and
+`forgetCaches`, which empties every cache of Formplayer's own
+`CacheManager`. Formplayer keeps what a query fetched, each form
+definition and each session in memory for five minutes of the machine's
+time (`application.properties`, `caching.specs.*`), and a worker's
+`clear_user_data` leaves them, so a run started within five minutes of an
+earlier one read that one's answers without asking HQ, and one started
+later asked: on a loaded hosted runner one key held both for
+`search-hidden-link`, whose end-of-form link fetches the chosen case again
+(HQ's `case_fixture`). Every run of a walk and of the Web Apps client now
+starts with them empty, as on a fresh Formplayer
+(`test_observe.py` observes that document twice and holds both alike; with
+the caches left, the second omits the fetch).
+
+- **HQ's own views** (`hq.py`): where the lane serves a state, each request
+  Formplayer makes of HQ is built from the bytes Formplayer sent, handed to
+  Django's handler loaded with HQ's own middleware, resolved by HQ's URLconf
+  and answered by the view that URL names, over the unit's state: the
+  session's user (`SessionDetailsView`, which reads the Django session the
+  worker's browser holds), the app's archive (`direct_ccz`, HQ's own
+  download of the released build), the restore (`ota/views.py::restore`,
+  HQ's restore of the cases HQ holds, with the tables Nova's push uploaded
+  and the user case HQ made), a submission (HQ's receiver whole:
+  `SubmissionPost.run`, its locks, its case processing and what it does on
+  commit), a case search (`app_aware_search`, its query applied by HQ's own
+  Elasticsearch to the cases HQ's pillows indexed as its receiver saved them) and a claim (`claim`, which makes the claim case HQ makes).
+  `serve` makes what HQ needs for that with HQ's own code: the project
+  space's default roles, the worker (`CommCareUser.create`), the document's
+  cases submitted through HQ's receiver as the worker, and a build released
+  as HQ's Releases page releases one. A view that raises answers Formplayer
+  a 500, as production's does, and is recorded with what it raised.
+- **The package's own tests** (`apps.py`): a document published as Nova
+  publishes it and served by `hq.py` as the lane serves it, and a state a
+  person's save leaves saved by HQ's own App Settings page in Chromium
+  (`saved_page`) or by HQ's own settings view (`saved_profile`), never
+  written by hand.
+- **The Web Apps client's requests** (`webapps.py`): each body holds the
+  fields HQ's client writes (`cloudcare/js/formplayer/menus/api.js`,
+  `cloudcare/js/form_entry/web_form_session.js`), with HQ's session cookie
+  and Formplayer's CSRF cookie as a browser holds them.
+- **The walk** (`walk.py`): scripted sessions as the Core runner's, derived
+  (every menu command, every case of each list, each list action once, each
+  search each way a worker can send it, each in every language the app
+  holds: `proof/observe/walks.py`, below) or replayed, each run starting as a
+  worker starts after
+  clearing their data, with Formplayer's caches empty and no row of an earlier run's uploads (the lane seeds
+  the ids Formplayer draws for uploads by a request's place in its run, so two runs draw the same ones, where
+  production's never meet: `FormplayerRunner.forget_media`), each form answered from the Core runner's answer
+  table (a file question, signature included, given the table's file for its kind from `proof/core/captures`,
+  uploaded as the client uploads one to Formplayer's `answer_media`) and submitted as the client submits it,
+  the files with it: a question the client draws no widget for (a date and time, `walk.py::answerable`) is
+  left as a worker in Web Apps leaves it, one that refuses every value the table holds for it is cleared, as
+  the client sends a cleared widget (`CLEARED`), a repeat a worker adds to is added to by the request the
+  client's Add sends (`new-repeat`, as many repetitions as the table's `repeats.add`), and the submission
+  holds every question the client holds valid with
+  `prevalidated` only where it holds each one so (`walk.py::submission`), which the client's own submission of
+  the same run is held to wherever the client replays it (`proof/webapps/observe.py::submitted_alike`: a
+  difference ends the observation as the harness's own). A search screen gives each search a worker can send
+  a run of its own (`search_ways`): the prompts as the screen shows them, sent as the client's Search sends an
+  untouched screen, defaults and all (`shown_inputs`; an empty `inputs` would clear them in Formplayer, which
+  no click of the client does); cleared, as its Clear leaves them, where a default fills one and none is
+  required; and typed with the table's search answers, each prompt validated by the request the client sends
+  when a field changes (`execute` false) and one Formplayer refuses typed again with the table's next answer
+  (`searchPrompts.retyped`). Where the client would keep the search back (a prompt in error, a required one
+  left blank: `unsendable`), the walk sends none, records what held it (`unsent`) and ends the run
+  `search-refused`; the client's own refusal of the same search is its outcome in the replay, and every search
+  the client does send is held to the walk's (`proof/webapps/observe.py::searched_alike`). The trace is
+  Formplayer's own JSON for every request, with what it asked HQ during each, the submission HQ received and
+  the screen Formplayer's end of form navigation names next. A run's `end` names where it ended; every end but
+  the app's own is a stop the walk-stops list holds ("Walk stops"), and the walk's bounds raise by name.
+- **Canonical JSON** (`canonical.py`): each id Formplayer or its Core drew
+  is marked by its first appearance, as the Core runner marks its traces, so
+  the same inputs give the same bytes.
+- **A served state's record** (`observe.py`): the marked trace of
+  Formplayer's walk, every request an HQ view did not answer 2xx, how often
+  Formplayer asked each view, and each search's parameters ("Served
+  states", below).
+
+The runner costs each worker about four seconds once (its compile, its
+database, its Redis, and Formplayer's start, which is most of it), and a
+document's walk of one build between half a second and three seconds.
+
+What its own tests observe on HQ's releases of real Nova exports, served by HQ's own views:
+
+| Claim | Observed | Test |
+| --- | --- | --- |
+| A form link whose target is hidden (finding 58) | Core's session opens the hidden form, or asks for a command of the hidden menu; Formplayer stops at the menu that holds the hidden form, or at the app's first screen | `test_end_of_form.py` |
+| A search answer holding both quote marks (finding 48) | Formplayer answers the search screen again with the validation's message and sends HQ nothing; an answer with one mark is sent inside the CSQL, HQ's own search view reads it (and refuses the query for the document's own date comparison, defect 6), and HQ's compiler takes the string that holds the answer | `test_search.py` |
+| The saved app's empty search description (finding 54) | Formplayer hands Web Apps `""` for Nova's export and a non-breaking space for the saved app | the rule `search-description-empty` (`proof/rules/test_search_description_empty.py`) |
+| `cc-autosync-freq` absent or the `freq-never` HQ's App Settings save writes (finding 40) | Formplayer asks HQ for no restore after eight days in either; with `freq-daily`, which HQ's settings view saves for a person's change, it asks for one | `test_settings.py` |
+| `cc-fuzzy-search-enabled` absent or the `yes` the same save writes (finding 40) | a search one letter off a case's name finds nothing when absent and the case after the save | `test_settings.py` |
+| A custom tile's vertical alignment (finding 42) | Formplayer hands the client no alignment for Nova's export and `start` for the saved app, and nothing else of the list differs | the rule `tile-vertical-align-start` (`proof/rules/test_tile_vertical_align_start.py`) |
 
 ### The editor driver
 
@@ -832,6 +1367,15 @@ from HQ's webpack configuration.
   `Date` reads HQ's epoch, `Math.random` and `crypto.getRandomValues` draw
   from a generator seeded from the run's spec, and the origin's storage and
   cookies are cleared before each load.
+- **Polls** (`driver/steps/page/polls.js`, `test_polls.py`): every document
+  of every page the driver opens, seeded or not, holds each repeating timer
+  of ten seconds or more. HQ's app manager asks `current_app_version` every
+  20 seconds of real time (`app_manager/js/menu.js`), so a slow run's
+  records gained a second check, and on a loaded runner one landed while an
+  App Settings section's save was in flight and the writes-alone guard
+  refused the view (`ConcurrentWrite`). The check the page makes as it
+  loads still runs, and so do shorter repeating timers and every one-off
+  timer.
 - **Transcripts** (`transcripts.py`): a view or Vellum run keeps what it asked
   HQ and what it showed. A replay has HQ answer every recorded request again
   and stands for a live run only when every answer is byte for byte the one
@@ -844,6 +1388,629 @@ and `PROOF_EDITOR_AUDIT` reruns a share of live runs the fresh way in every
 run. `test_control.py` is the driver's control: a Case List save of a
 single-date search input keeps it under `CASE_SEARCH_ADVANCED` and drops it
 without, as HQ's template gates decide.
+
+### The Web Apps driver
+
+`proof/webapps` runs HQ's Web Apps client, the JavaScript a worker's browser
+runs, in the editor driver's Chromium, against the lane's Formplayer, over a
+build HQ released of a Nova export. Nothing of the client is copied or called:
+a step clicks what a worker clicks, or reads what the page shows.
+
+- **The project space and the release** (`hq.py`). Web Apps lists an app only
+  where the project space has Web Apps (the `CLOUDCARE` privilege, from which
+  HQ sets a new app's `cloudcare_enabled` when Nova's upload lands) and the
+  app has a released build. Every configuration of the lane grants the
+  privilege (finding 64), so every app it builds is one Web Apps lists. The
+  build is made as HQ's Releases page makes one
+  (`Application.make_build` and the build's save, then HQ's own
+  `release_build` view), optionally after HQ's own editor pages saved the app
+  in the same Chromium (`released(saves=...)`, `proof.editors.pages`), so a
+  test reads Web Apps over Nova's export and over the app a person's save
+  leaves. Each release's operation is keyed by the stored app's content, so
+  each build has an id of its own, as HQ's builds do and Formplayer's kept
+  installs need. The release is served as the lane serves a state
+  (`proof/formplayer/hq.py::serve`): the page is answered for a mobile
+  worker HQ made, their cases saved through HQ's receiver, and every
+  request Formplayer makes of HQ answered by HQ's own views.
+- **The page** (`session.py`). HQ's `FormplayerMain` view answers the
+  navigation through HQ's URLconf, decorators and templates; the script is
+  the bundle the image builds from HQ's `cloudcare/js/formplayer/main` entry
+  under HQ's webpack configuration (`proof/image/editors/build.mjs`). The
+  page is told Formplayer lives at `/formplayer` on HQ's own origin, where a
+  deployment's proxy serves it, and each request the client sends there
+  goes, headers and body as the browser wrote them, to Formplayer's own web
+  server, whose answer and cookies go back to the page. The lane has two
+  names for HQ where a deployment has one (the browser's origin, and the
+  address Formplayer reaches HQ at), so the `Origin` and `Referer` the
+  browser wrote are sent under Formplayer's name for HQ, and Formplayer's own
+  CORS rule and CSRF token then judge the request as they judge
+  production's. Every run starts as a worker who cleared their data, on
+  Formplayer's own install of the build.
+- **App Preview** (`session.py`, `preview`). The same client under the page
+  HQ's app builder shows the app in (`cloudcare/views.py::PreviewAppView`,
+  the bundle the image builds from `cloudcare/js/preview_app/main`), opened
+  at the size of the builder's frame (250 by 444 pixels,
+  `app_manager/partials/preview_app.html`) for the project space's admin,
+  signed in through HQ's own sign-in form. The client hands Formplayer the
+  app's own id, and HQ's download makes the archive from the stored app as
+  it stands (`views/cli.py::direct_ccz`, `latest=save`), where Web Apps runs
+  the release. Once App Preview has finished starting (it drops Formplayer's
+  install of the app and draws its first screen again when Formplayer
+  answers, `formplayer/app.js::refreshApplication`, which the replay waits
+  for: `steps.py::preview_started`), the admin logs in as the worker from
+  the app's first screen,
+  as a person in the builder does (its Log in as, the worker's row of the
+  list HQ's `LoginAsUsers` view answers over HQ's Elasticsearch, and the
+  confirmation), so the preview runs over the worker's cases; HQ draws Log in
+  as only where the plan has it, so for App Preview's runs the project space
+  states the plan has Log In As (`proof/hq/seams.py::also_granted`), without
+  which the admin previews the app as themselves, with none of the worker's
+  cases. App Preview opens an app in the person's own language, or English
+  where they have none (`cloudcare/preview_app.html`), and offers a
+  language in its Settings alone (`layout/views/settings.js::
+  LangSettingView`), so the admin sets the app's first language there
+  before each run, as a worker meets it in Web Apps, and a run that chooses
+  another chooses it there too. The client shows a person who is not Dimagi's a form one question a
+  screen (`preview_app/main.js`), so each question is brought on screen by
+  the form's own Next before it is answered and the form submitted by its
+  Complete at its last screen (`driver/steps/webapps/advance.js`, the
+  driver's `advance`); a Next the client keeps from being pressed is
+  recorded `held`. Where the one-question form does not go on (the client
+  keeps its Next, or Formplayer answers it with an error: at a repeat a
+  worker adds to, "Cannot get question prompts from a non-field-list group",
+  and at a form that shows no question, "Index -1 out of bounds"), that way
+  of showing the form has ended, and the person switches "Use one question
+  per screen" off in App Preview's Settings (`settings_view.html`,
+  `DisplaySettingView`, offered to every person there): the run is replayed
+  from its start with that switched off after the language is set
+  (`steps.py::show_forms_whole`), its form answered and submitted as on Web
+  Apps' own page, and that replay is the run's record, with where the
+  one-question form ended kept beside it (`oneQuestion`). Its submission is
+  held to the walk's, as a desktop's and a phone's are, but where the run
+  gave a location question its place: the frame lays the map out at another
+  size, so the same drags bring it to a place of its own, and the walk holds
+  a desktop's places and a phone's.
+- **Stylesheets** (`static.py`). What a worker sees is the client's markup
+  under HQ's stylesheets, so the page has them: HQ's own precompiler compiles
+  the SCSS the page names (HQ's test settings switch it off, and HQ's own
+  note there says how a test turns it on), and HQ's static finders serve the
+  compiled files and every other static file the page asks for. The web
+  font HQ's pages load from Google Fonts, Nunito Sans (OFL-1.1), is served
+  from the image's own copy of it (`proof/image/tools`), so text is laid out
+  in HQ's own face.
+- **Steps** (`steps.py`, `driver/steps/webapps`): a click on the one element
+  a selector and a text name, an answer given through a question's own
+  widget (`answer.js`: a text box typed into, an option or check box
+  clicked, a drop-down's option chosen, a date or a time typed in the format
+  the client's picker reads; with no answer, the widget cleared as a worker
+  clears it, a select by its own Clear), a repetition added by the repeat's
+  own Add (`repeat.js`), a search prompt filled through its field
+  (`prompt.js`) and the search screen's own Clear, a form's Submit
+  (`submit.js`, which reports a Submit the client keeps disabled), and
+  `screen.js`, which reads the screen
+  the client rendered: the home screen's tiles, a menu's rows, a case list
+  (headers, rows, the empty-list message, and each tile cell's grid area,
+  alignment and font size as the browser computed them), a case's detail
+  dialog, a search screen and its description, a form's title and
+  questions with the answer each widget shows, the error the client shows
+  for it and the images, sounds and videos the browser lays out with it,
+  each group's label with the media its header holds, and the client's
+  alerts.
+- **Arriving, never a time.** Every step that leads somewhere waits until
+  the client itself says it is there (`arrived.js`): its route (the address
+  it keeps a worker's session in, which it sets before it asks Formplayer
+  and then sets to the selections Formplayer's answer hands back) holds
+  what the walk's request and Formplayer's answer say it holds, its own
+  flag of a request in flight (`formplayerQueryInProgress`, cleared at
+  jQuery's `ajaxStop`, once the answer is drawn) is down, no dialog is open
+  or moving, and no notification is fading. A case's detail dialog is
+  waited for until it is done opening (`detail.js`: Bootstrap focuses it in
+  the callback that ends its opening, the same one that lets it close), and
+  only then is its Continue clicked: a Continue clicked while the dialog
+  was still opening was a close Bootstrap ignored, which left the dialog
+  over every later screen, and was what made the client's records differ
+  between states on loaded runners. An answer waits for the request the
+  client sends for it (after its knockout bindings and a throttle), and
+  Submit for Formplayer's answer to the submission and the client's
+  arrival wherever that takes it. After every step the page is quiet only
+  once none of the client's own short one-off timers (under a second, which
+  `steps/page/timers.js` counts from the moment the page sets one) is still
+  set and none of its requests is in flight: Formplayer hands back a stored
+  text answer trimmed once it reads the form again, the client then sends
+  Formplayer's value as that question's answer, from its answer throttle's
+  trailing timer where the question was answered under 200 ms before, and a
+  step that waited only for requests went on while that timer was set, so
+  which value the client submitted depended on the runner's speed (a hosted
+  run's list showed a case more). A notification's fade is a longer timer,
+  a lifetime a worker watches, and is not waited for. Nor are the timers of
+  the progress bar the client shows while it waits on Formplayer
+  (`cloudcare/js/utils.js::showLoading`, nprogress's `NProgress.start` and
+  `done`): it re-arms a timer every 800 ms to creep forward while it shows,
+  which runs once more after the bar is done and does nothing, and fades
+  out over two of 200 ms. Counted, they held every step that asked
+  Formplayer for up to 800 ms after the client had drawn the answer, most
+  of a run's time. A step that waited out its deadline says what the
+  client was still doing.
+- **A document's record** (`observe.py`): Formplayer's own walk of the
+  release (every case of each list, every language the app holds:
+  `proof/observe/walks.py`), every run replayed whole in the browser, each on
+  a fresh page in a fork of its own, in a desktop's window, again in a
+  phone's (390 by 844 pixels, where the client lays its screens out for a
+  small screen and pages a list five cases at a time, so a case on a later
+  page is reached by that page's button), and again in App Preview: the app's
+  first screen, a language chosen from the menu over the app's screens where
+  the run chose one, each choice clicked as a worker clicks it (a case's detail
+  read where the client opens one), and where the run reached a form, each
+  of the walk's answers given through its widget in the walk's order (a file
+  question's file chosen through the widget's own file input, a signature
+  drawn on its pad with the pointer, and a location question's map dragged
+  with the pointer until its centre is the walk's place, to the nearest
+  pixel: `steps/webapps/widget.js`, the driver's `files` and `draw` steps),
+  and Formplayer's walk gives what the client gives: where the build holds a
+  location question, the walk is derived once, each run that answers one is
+  replayed in a desktop's window and a phone's, and the walk is derived
+  again with the place the client's map gave each (`observe.py::derived_places`),
+  kept as the run's script's last choice with the table's places the map was
+  dragged toward (`proof/observe/walks.py`), so every state's walk gives the
+  client's own place and every replay of it makes the same drags; the
+  client's submission is held to the walk's (`observe.py::submitted_alike`),
+  the form read as the worker leaves it, Submit, and the screen the client lands
+  on, with what became of each answer (`answered`; `unanswerable` where the
+  client draws no widget a worker could answer with it; `absent` where it
+  draws no such question; `unchanged` where the widget already shows it, a
+  default, for which the client sends nothing; `refused` where the widget's
+  own check refuses it and sends nothing; `held` where App Preview's Next was
+  kept from being pressed before it) and of Submit (`submitted`, `disabled`,
+  `absent`, `held`),
+  each decided once the client is idle, never by a time. A search is made
+  the way the walk made it (Search alone, the screen's Clear first, or each
+  prompt the walk typed filled in its order), and what became of it is
+  recorded (`searches`: `sent`, or `refused` where the client keeps it back,
+  as the walk holds it does). Where the client shows nothing to click
+  for a choice, its record of that run ends there, with `stopped`: the
+  screen it stood on and what the run was doing (`at`: the position of the
+  choice it was making, or `form`), which is a stop the walk-stops list
+  holds ("Walk stops"). It holds no id Formplayer drew, no time and no path,
+  so the same inputs give the same bytes; `test_observe.py` holds two
+  observations alike, and they hold alike with Chromium's processor slowed
+  eightfold.
+
+The page's randomness is seeded, as an editor page's is, and its clock starts
+at HQ's epoch and runs on (`steps/page/seed.js`, `advancing`), so the
+client's own animations end and its debounced handlers run as in a worker's
+browser; nothing the client shows reads its clock. On one worker of a
+laptop a run costs about two seconds on a desktop or a phone and four to
+five in App Preview, against one for Formplayer's own walk of it; HQ
+compiles each stylesheet source a page names once a worker
+(`proof/hq/speed.py`, about 1.3 s of every page load before), and the
+progress bar's timers are not waited for (about 0.8 s of every step that
+asks Formplayer before).
+
+What its own tests observe on released builds of real Nova exports, each on
+the client itself:
+
+| Claim | Observed | Test |
+| --- | --- | --- |
+| A tile cell's vertical alignment, absent or the `start` the Case List save writes (finding 42) | `align-self: start` for both | `test_tiles.py` |
+| Its horizontal alignment, absent or `left` (finding 42) | `start` for Nova's export, `left` for the saved app, alike left to right and apart right to left | `test_tiles.py` |
+| Its font size, absent or the `medium` the save writes (defect 14) | 12px under HQ's stylesheet for Nova's export, 16px for the saved app | `test_tiles.py` |
+| The empty search description the Case List save writes (finding 54) | no description element for `""` or for a non-breaking space, on a search opened from a list, one the menu opens and an inline one; a description with text is shown | `test_search.py` |
+| List-first turned search-first by the Case List save (defect 21) | the menu opens the list for Nova's export and the search for the saved app | `test_search.py` |
+| A column hidden from a list (defect 16) | a list search for its value finds no case; a shown value finds the case | `test_search.py` |
+| A sort-only column | no header and no cell for the column Formplayer hands with a width hint of 0 | `test_search.py` |
+| The empty-list text in an app without English (finding 41) | "List is empty." for Nova's export; after the module settings save a message box holding only a non-breaking space | `test_empty_list.py` |
+| The logo Nova sends (`logo_refs.hq_logo_web_apps`) | the app's tile shows HQ's own URL for the mapped file, and HQ serves Nova's bytes there; without one, the client's own image | `test_app_list.py` |
+| `cc-show-incomplete` after the App Settings save (finding 62) | the Incomplete Forms tile shows for Nova's export and is gone after the save | `test_app_list.py` |
+| Every question a worker answers with a gesture (`targeted-capture-widgets`) | an image, a sound, a video and a document question each answered with the file Formplayer's walk uploaded, chosen through the widget's file input, a signature drawn on its pad and a location dragged on its map to within a pixel of the answer table's place, which the walk then gives as the client gave it; the form as left shows each file's name, the drawn pad and the place; HQ's receiver is handed the five files with the walk's submission and with the client's | `test_widgets.py` |
+| An after-submit link to a hidden target, end to end (finding 58) | the link to a shown form opens it; to a hidden form, the menu that holds it, listing its shown form alone; to a hidden menu, the app's first screen; HQ's receiver processes one submission each time, and the client shows the message it answered | `test_links.py` |
+
+### Served states
+
+A document's unit serves each state of its app as HQ serves an app to Web
+Apps and keeps what its two readers make of it (`proof/observe/served.py`):
+
+- **Which states.** A (the unit's `served` hook, the baseline of proof 3's
+  comparisons); with `b_aligned`, B aligned to A wherever its raw build
+  differs from A's, and Nova's local archive, which Formplayer walks over
+  HQ's state with the archive itself handed to it as bytes; and in proof 4,
+  B and each editor save whose build differs from the state it was saved
+  over or whose app differs in what HQ's Web Apps page hands the client
+  (`cloudcare/utils.py::format_app_doc`: its name, languages, profile, logo
+  and multimedia). The saved states are the ones HQ's editor pages saved in
+  proof 4's own forks, never an app written by hand.
+- **Formplayer** walks each: the walk is derived on the baseline (A, or B in
+  proof 4) and replayed on every other, as Core's script is. Each run is a
+  fork of the unit with the worker signed in afresh, so a submission HQ's
+  receiver processed is in HQ while its run lasts and gone for the next.
+- **The Web Apps client** is shown the same walk in a browser of its own
+  (`proof/observe/services.py::client_browser`), every run whole, on a
+  desktop, on a phone and in App Preview, its forms
+  answered through their widgets and submitted, and its screens are read
+  after every step that leads somewhere. Its submission of each run is held
+  to the walk's (`proof/webapps/observe.py::submitted_alike`), since the walk
+  submits what the client submits; App Preview's, which holds only its last
+  screen's answers, is not. It is shown a state only where Formplayer's trace or
+  what HQ's page hands it of the app is not the baseline's: the client
+  reads nothing else, so the same answers and the same page show the same
+  screens (`PROOF_VERIFY_MEMOS=1` serves every kept state again).
+- **The release is the build.** HQ makes the release with `make_build`, the
+  other checks build with `validate_app` and `create_all_files`; each served
+  state's archive is held to the build's files entry for entry, but for the
+  profile, which names the build itself (`release@<state>`,
+  `/release-differs`).
+- **What is compared** (`proof/checks/served.py`). Formplayer's
+  traces as the client reads them: a list's rows by the case each selects
+  with their order beside them, a form's instance and each submission as
+  parsed XML, a form's version under proof 2's version clause, and one
+  difference a symptom (a response of another kind is its kind; a refused
+  submission is its status and what Formplayer said, and what follows from
+  it is not reported again). On the local archive, a message of Core's that
+  names a question by its label's text id is read with HQ's id for the same
+  texts, where HQ's build of that form merged them
+  (`XForm.normalize_itext`; `merged_text_ids` reads the pairing from the two
+  forms, and a message naming another question stays a difference). The
+  client's screens the same way, its own home tiles by their kind. A difference is `formplayer@<state>` or
+  `webapps@<state>` in proof 3 (`local.ccz`, `B`) and
+  `formplayer@<editor>@<B>@<configuration>` or `webapps@...` in proof 4,
+  held by the register as any other. Each request HQ's views refused while
+  Formplayer walked A is `formplayer@A`, `/hq/<view>/<status>/<what HQ said>`.
+- **Cost.** A served state costs one to two seconds of Formplayer and three
+  to four of the client, and a document has between four and twenty of
+  them a configuration, so a document that took five to ten seconds takes
+  forty to a hundred ("Timings and what the lane is expected to take"), which is why
+  the pull request lane runs without the readers.
+
+### Connect in the unit
+
+Where a document's app holds a Connect block (an element of Connect's
+namespace in one of its forms, `proof/observe/connect.py::is_connect`), its
+unit also observes Connect, the last reader of a Connect app, on every state
+it serves (`proof/observe/connect.py`). Each link is its owner's code at the
+pins, and nothing is called on a system's behalf:
+
+- **The opportunity** is made once, while A is served, as a manager makes
+  one. Connect is a served process of its own for the life of the unit
+  (`proof/connect/runtime.py::ConnectSession`: Connect's own WSGI
+  application on a loopback address, its own Postgres and Redis). It asks
+  HQ for the app's released build, which HQ's own archive view answers
+  (`views/cli.py::direct_ccz`, `latest=release`), and reads its learn
+  modules, deliver units and tasks
+  (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
+  `app_xml.py::get_task_units_for_app`). Every deliver unit is paid for, the
+  worker's claim is made, GPS verification is on and one task of each type
+  is assigned. Connect's database as the opportunity then stood is kept, and
+  every later state of the document is received by that opportunity, as an
+  app republished, edited or saved in HQ goes on being received by the
+  opportunity made before. An app that only an edit makes a Connect app gets
+  its opportunity from B-edit's release.
+- **Each served state forwards.** The project space holds a Connect
+  repeater (`proof/connect/hq.py::forwarding`). HQ's receiver view takes
+  each form whole (`SubmissionPost.run`), HQ's own signal registers the
+  repeat record, HQ's own task fires it, and HQ's own HTTP client asks
+  Connect for a token (OAuth's client credentials grant, at Connect's own
+  token endpoint) and posts the payload to Connect over a real connection.
+  Connect answers through its own URLconf, middleware, authentication and
+  request transaction, and HQ keeps the answer on its repeat record.
+- **Whose submissions.** Formplayer's are the ones its walk of the state
+  makes, and a device's are the ones CommCare Android's own send made as
+  its walks of the state saved each form ("Android in the unit"): to the
+  address the archive's profile names, with the worker's own credentials,
+  and with the location the form's own sensor poll wrote from the device's
+  GPS where the form holds the node. Nova's local archive names no address,
+  so its device given the lane's input sends each form to HQ's receiver
+  under the app's id.
+- **Each run is one worker's.** It meets HQ as the unit's fork leaves it
+  and Connect as the opportunity stood, so no run reads what another's
+  submission left in either. After it, Connect's queued tasks are run by
+  Celery's own task machinery, and the run is kept: what HQ's receiver
+  answered, what HQ kept of each forward, each payload as it reached
+  Connect with Connect's answer, each task, and the rows Connect holds
+  (its modules, units and task types, the worker's progress and pay, the
+  visits, completed work and assigned tasks).
+- **What is compared** (`proof/checks/connect.py`). Connect is the reader,
+  so what is compared is what Connect did: its answer to each payload, the
+  tasks it ran and the rows it holds, run by run. A payload is never
+  compared: two payloads Connect answers alike and makes the same rows of
+  are two spellings to it. One symptom is one difference (a payload one
+  side had taken and the other refused is its answer, and the rows that
+  follow are not reported again; a visit Connect flagged on one side and not
+  the other is its flags, and what Connect sets from flagging it alone, its
+  `flagged` and the approval its auto-approval gives only an unflagged
+  visit, is not reported again), and a run only one side made, or one HQ's
+  receiver answered otherwise, is left to the walks and the case processing
+  that report it. A difference is `connect@local.ccz` or `connect@B` in
+  proof 3 and `connect@<editor>@<B>@<configuration>` in proof 4.
+- **What stands on its own** of one state: a payload Connect did not take
+  (`/runs/*/refused/<status>/<cause>`), a visit rejected for the task its
+  own form completes, a unit Connect made of its own on receiving a form, a
+  task that completed nothing, and, after an edit, a Connect id that moved
+  under the opportunity (`/ids/<kind>/moved`). Proof 3 reports A's
+  (`connect@A`); proof 4 reports B's and B-edit's that A did not show
+  (`connect@<B>@<configuration>`). An edit changes what a form submits, so
+  B-edit's rows are not held to A's; what the edit breaks in Connect is.
+- **Cost.** Connect starts once per worker that meets a Connect document
+  (its fetch and its migrations, about thirteen seconds); an opportunity
+  costs about two seconds, and a run that reaches Connect about a third of
+  one.
+
+The project space's admin saves HQ's Connection Settings page and its Add
+Forwarder page for Connect as a person does (signed in through HQ's own
+sign-in form, each page opened in Chromium with its own JavaScript, typed
+into, chosen from and saved by its own button,
+`proof/connect/hq.py::forwarding`), and the forwarder is then given the 404
+retry that page gives a forwarder to production's Connect address. Each run
+meets the opportunity as it stood once A was served, so what a manager does
+later (asking for its units again after an edit, paying for a renamed unit)
+and the distance check between two visits run in the Connect proof's own
+tests (`proof/connect/test_receiver.py`, "The Connect proof"). HQ's Connect
+payload carries no attachments, so Connect's download of a visit's
+attachments runs and asks HQ for nothing.
+
+What the unit states of the world for that, each named where it is done: the
+project space's plan has Data Forwarding (`proof/hq/seams.py::also_granted`);
+Connect is reached over plain HTTP at a loopback address
+(`proof/connect/hq.py`); HQ's count of the devices a worker submits from
+lives in the Redis HQ shares with Formplayer (`proof/hq/redis.py`); and the
+address Connect knows HQ by is answered by HQ's own views over the unit's
+state, as Formplayer's requests are.
+
+### Android in the unit
+
+CommCare Android's own code reads each state the unit serves, as Formplayer
+and the Web Apps client do, in the same container as HQ's unit, so the
+device's network is HQ's own views over that state. Robolectric's native
+runtime, which commcare-android's own tests run on, ships for Linux on
+x86-64 alone, so the lane's shards run on amd64; the reader's runtime
+(`proof/android/README.md`, "The runtime") is built once a pin outside the
+image and mounted, with the JDK it was built with, at the paths it was built
+at (`proof/run.mjs::androidRuntime`, `PROOF_ANDROID_RUNTIME` and
+`PROOF_ANDROID_JDK`).
+
+**What a device is handed** (`proof/android/observe.py`, called from
+`proof/observe/served.py` and `proof/observe/proof4.py`). Every served state
+is handed to two devices, a phone and a tablet held in landscape (where the
+app shows a case list beside the chosen case's detail), each Android 10
+drawing with Robolectric's native graphics, so a list's header and rows are
+drawn as a worker sees them (each text's lines, whether its layout cut it
+short, and the picture, whose PNG the record keeps). Each installs the state
+as a worker installs it from a file: HQ's own
+download of the released build with the app's multimedia
+(`hqmedia/views.py::iter_app_files`), and Nova's local archive for the
+local state; a state HQ releases no build of (its validation refuses A, say)
+is handed to no device, as it is served to no Formplayer. The worker HQ made
+signs in, and the device walks every path
+the app's menus offer, every case each list shows (a walk of its own named
+by the case) and all of it again in each other language the app holds,
+chosen on the app's own Change Language dialog (a walk named by the
+language), the shape every reader's walk takes (`proof/observe/walks.py`),
+all in the one device (`app`, `proof/android/README.md`). Beside them, on
+`b_aligned`, two exports of one app go on one device in turn and one is
+updated to the other, with every form left incomplete before it and a
+worker's own settings (`installs`, `update`): Nova's two local exports (the
+updated device given the input the lane gives Core over them, below, so
+its worker signs in and leaves forms to reopen), and HQ's builds of A then
+B; and in proof 4, a device on the state a save was
+made over is updated to the saved app where the save changed the profile.
+
+**The network** (`proof/android/peer.py`, `proof/android/hq.py`). The
+app's own HTTP client goes through a loopback proxy the reader answers: an
+`https` request through a tunnel whose TLS speaks for the host the app
+named, with a certificate of the harness's own authority, the one trust the
+device's client is given (`Peer.java`). Each request is answered by the
+view HQ's URLconf names for its path, behind HQ's own middleware, over the
+state's fork (`proof.formplayer.hq.HqViews`, which Formplayer's requests
+reach too). So:
+
+- the worker signs in through the app's own pipeline
+  (`LoginViewModel`, `LoginController`): HQ's key record view, then HQ's
+  restore view, with the worker's own credentials;
+- each form a walk saves is the app's own send (home's
+  `FormAndDataSyncer`) to the receiver the archive's profile names, taken
+  whole by HQ's receiver, and forwarded to Connect by HQ's real repeater
+  where the app is a Connect app, carrying the location the form's own
+  sensor poll wrote from the device's GPS;
+- a search goes to HQ's search view, which compiles it and queries HQ's
+  real Elasticsearch; a claim goes to HQ's claim view, and the sync after
+  it to HQ's restore view.
+
+Each device is a fork of the served state, its sign-in at the fork's base,
+and each walk a fork of that base, as each run of Formplayer's walk is, so
+nothing a walk sent HQ is there for the next. Core's random source is
+seeded at each walk (`Peer.seed`), so the ids a device sends HQ (a form's
+instance id, a case it makes) are the same on every run.
+
+**Nova's local archive** names no server (finding 59), so its device meets
+Android's own defaults (`R.string.ota_restore_url`, `R.string.PostURL`,
+the username as typed): HQ's views answer those requests as they answer
+any, and the sign-in fails where HQ's build's succeeds
+(`android@local.ccz`, `/network/signIn`). A second device on the same
+archive is given the input the lane gives Core over that archive: every
+request it makes carries the worker's credentials by the full username HQ
+made, its restore is what HQ's own restore view answers the worker, and
+each form it sends is taken by HQ's receiver under the app's id, as the
+released build's profile addresses it (`DevicePeer.delivered`). Every
+other request goes where the archive addressed it, so its searches meet
+finding 32 at HQ's own search view. Only the transport differs; the
+request the app wrote is kept as written, and its walks are the ones
+compared with A's, each configuration's with that configuration's A: one
+archive, but its device's network is that configuration's HQ, which
+compiles its searches under that configuration's flags. The device updated
+from one local export to the other is given the same input.
+
+**What is judged** (`proof/checks/android.py`, pure functions of the
+records, called from proofs 1, 3 and 4, each difference under an
+`android@...` artifact):
+
+- **Proof 3**: what a device shows of Nova's local archive against HQ's
+  release of A (`android@local.ccz`), and of HQ's release of B aligned to A
+  against A's (`android@B`), per configuration; where the local archive's
+  own device signs in (`/network/signIn`). A tablet's differences are held
+  apart (`android-tablet@...`), and only where the phone does not show the
+  same one at the same place: a symptom both show is the phone's.
+- **Proof 4**: what a device shows of the app each editor save left against
+  the state it was saved over (`android@<editor>@<state>@<configuration>`),
+  and each of the worker's own settings an update to that app replaced
+  (`/update/workerSettings/<setting>`).
+- **Proof 1**: the two installs and the update of the local path against
+  HQ's (`android@local.ccz`: each install's status, where the update
+  stopped, and, where both installed one, whether it is the same app at no
+  lower a version); and, of each path alone, each form a worker left
+  incomplete before the update that the device no longer opens after it
+  (`/update/reopened/*`, under `android@local.ccz` and `android@B`), or
+  whose session, as Android itself stored it, home cannot read
+  (`/update/reopened/*/session`).
+- **Of each state alone**, under proofs 3 and 4: a search that sent, for
+  an answer holding both quote marks, the query HQ refuses, whatever errors
+  Core holds for its prompts, which the screen never reads (`android@A`,
+  `…/query/withAnswer/sent-unquotable-search`, with HQ's answer to that
+  request, which is the same symptom and no difference of its own); each
+  other request of A's device HQ's own views refused with a view, status
+  and cause it did not refuse Formplayer's walk of A with (`android@A`,
+  `/hq/<view>/<status>/<what HQ said>`, a search built from a typed answer
+  among them; one Formplayer's walk met too is `formplayer@A`'s); and a
+  form the
+  device did not save and yet left a mark of
+  (`…/form/saved/applied-though-refused`: the cases it holds are not the
+  ones it held as the form opened), which Android's one transaction a form
+  should never give.
+
+One symptom is one difference: a walk whose screens part from the
+baseline's is named by where they part
+(`/walks/*/screens/after-<screen>:<the baseline's next>:<the other's next>`,
+the screen a walk stopped at named with the alert it holds for the worker,
+`FormEntryActivity!Error Saving your Form`), and its steps are compared
+only as far as both walks showed the same screens (so a search refused on
+one device still shows what the worker read on the search screen);
+a form that takes another path of screens, a list whose rows are another
+kind of view, an archive Android does not install, each is that. A list
+records which case each row is and which case the walk opened: two lists
+that show their cases in another order are that once (`/list/order`), with
+each row compared against the same case's row, and where the two walks
+opened another case (`/list/chose`) nothing past the choice is compared,
+since every screen there is of another case. A walk is named by what it
+chose, so each case's and each language's walk is compared with the same
+case's and the same language's: the walk of a case the other device's list
+does not show is that list's difference (its order) and no walk one device
+lacks, and a language one device's app does not offer is that walk's one
+difference (`/walks/*/language/offered`). What a reader keys by a name
+is compared by that name (a menu's items, a Sort choice, a search's term, a
+hidden button, and a case a form left, each case one value). Left out,
+because it names an install and not what a worker reads, or says again what
+a reader beside it says: the app's id and version (proof 1's), the
+profile's stored values (each reader's answer is compared, so a stored
+value no reader reads differently is no difference on a device that
+installs either), the media check's flags beside its reader, what a
+successful sign-in names (the app's id and the worker), and the ids HQ drew
+for the app and for a state's release (the address a release's profile
+hands a device, and every request the device addresses by it), which a
+device's record writes `@app` and `@build`. A drawn picture is
+compared only where nothing else of its row or header differs: a row whose
+text or layout differs is that difference, and its picture would say it
+again.
+
+**What it costs.** A document makes some fifty device requests (34 to 68
+over a sample of twelve documents): an `app` request for each served state
+on a phone and on a tablet (A, B, each of HQ's editors' saves and the local
+archive as delivered, in each configuration), and the installs and updates
+beside them. Each is a JVM of its own, so each pays the JVM's and
+Robolectric's start, the install and the sign-in before it walks, twelve
+seconds and some twenty processor seconds of it; a walk beside HQ is a
+second or two more. Measured in processor seconds, which hold whatever else
+the machine runs (`android_request_cpu` beside `android_request` in
+`workers/w<k>/hq-timings.json`): over twelve documents drawn from the
+whole corpus a request cost 25 and a document's devices 1,270 (680 to
+2,040); over fifteen drawn from the documents with a case list, and over
+the documents that hold more than one language, 35 and 1,870 (1,150 to
+4,220, the most where every list's every case is walked in two languages
+or a form leads back to its list). The starts are most of it: fifty of
+them are about a thousand processor seconds a document whatever it walks.
+With every reader the devices were 45 and 60 percent of a group's time over
+the two documents run that way (case-list-inline and localization-bilingual,
+each with its control). The whole lane of 2026-10-13 made 24,662 device
+requests over its 441 documents and controls, 56 a group, each 41 seconds
+and 40 processor seconds on machines other runs loaded: 280 hours of the
+workers' 570, and 272 processor-hours.
+
+Three things keep a request to that. Each walk's screens end with it
+(`Opened.java`): Robolectric holds a screen it built, with every theme its
+views were made with, until its controller is closed, and a device that left
+them open filled its heap within a hundred walks and spent two thirds of its
+time collecting. A screen is read once where the device is the same, so the
+walks that pass a list or a detail do not read it again. And the JVM is set
+for both kinds of request, the short ones that are most of the fifty and the
+long ones lists and languages make (`proof/android/client.py`,
+`JVM_OPTIONS`, which gives the measurements): the second compiler only for
+code a long request keeps hot, and a young generation the themes die in. The
+106 walks of the reader's own two-case request took 263 seconds with every
+screen left open, 96 with each walk's screens ended, and take 75. A request
+past its deadline (fifteen minutes) says how far it had walked. The devices
+of one shard together run on half its processors (a
+JVM waits for one of `cpu_count // 2` places before it starts,
+`proof.android.client._slot`), so the browser's pages, HQ and Formplayer
+beside them keep the rest and meet their own deadlines; the wait is never
+counted against a request's. The runtime's build, when a pin or the
+toolchain moves, takes about eleven minutes with the reader's own checks,
+in the job before the shards.
+
+**Its tests.** `proof/android/test_peer.py` holds the proxy's transport in
+the lane: a request through it, plain or tunnelled, reaches the harness as
+the client wrote it, and its answer the client; and a device past its
+deadline is stopped and reported as a request left unanswered, with how far
+it had walked. `proof/android/test_screens.py` holds that every screen the
+reader builds is built where its end is kept.
+`proof/checks/test_android.py` holds the judges over planted differences
+and the records a shard keeps. `proof/android/selfcheck.py` and
+`proof/android/predicates.py` run commcare-android's own code where the
+runtime is built or restored, before any shard starts: the reader held to
+itself, a planted difference the judges must report on what Android read,
+and each Android predicate the register rests on over both spellings of its
+difference.
+
+### HQ's own pages and views
+
+`proof/views` holds what reaches a person only through one of HQ's pages or
+views that no per-document check runs, each test over a real Nova export
+published into a check's own project space
+(`proof/views/conftest.py`):
+
+- **A request as a client sends it** (`ask`): resolved by HQ's URLconf and
+  answered by the view that URL names, behind HQ's own middleware and that
+  view's own decorators, by the handler that answers Formplayer's requests.
+  Nova's lookup push is the bytes Nova's own client sent (the corpus's
+  capture), with an API key HQ's own model made; a device's restore is asked
+  at the address the released build's profile names, with the worker's own
+  credentials.
+- **A page read for what it offers** (`offered`): HQ's module page loaded in
+  the editor driver's Chromium by HQ's own page view, its JavaScript run,
+  and each control counted in the document
+  (`proof/editors/driver/steps/pages/offered.js`). A control HQ's template
+  leaves out under a flag or an add-on is not in the document; each test
+  also reads a control no gate holds back, so a page that offered nothing
+  would not pass.
+- **A person signed in** (`test_form_attachment.py`, `test_linked_logos.py`):
+  a person HQ's own models made (a mobile worker, an administrator, a web
+  user of a role HQ made) signs in through HQ's own sign-in form, their
+  username and password posted as their browser posts it
+  (`proof/formplayer/hq.py::sign_in`), and the session HQ set is sent as the
+  browser's cookie, with the CSRF token HQ set and its own origin where a
+  page's form posts. A second project space a test states (a linked app's
+  downstream) is seeded as the unit's own is, and its plan named to the
+  privileges seam (`proof/hq/seams.py::another_project_space`).
+- **A worker's submissions kept for HQ's export** (`test_exports.py`): the
+  release walked by Formplayer in one run of the served state, so every
+  submission HQ's receiver took stays for HQ's own export, which reads them
+  from the forms index HQ's form pillow filled.
+
+Each test pairs what it shows with its counterpart: the flag on, the
+privilege granted, the project space's setting on. One thing stands in, named
+where it is done: the "Upgrade Required" page's own script is named by HQ's
+webpack manifest, which the image's build writes only for the pages its
+browsers run, so that test names the base page's entry in the manifest for
+the block (`test_lookup_upload.py::base_page_script`); the answer's status,
+type and text are HQ's. That answer's status and type are retained
+(`proof/views/retained/`), held to HQ by the lane, and handed to Nova's own
+client over real HTTP by the package's Vitest test in ordinary CI, so what
+Nova reports of it is observed on Nova's code too.
 
 ## The registers
 
@@ -873,16 +2040,20 @@ without, as HQ's template gates decide.
   document: the fuzz sample's size is the budget's, so such an entry would
   fail whenever the sample shrank past it or the corpus seed changed.
 - `values` (`{"before", "after"}`) pins the exact values, only on an entry
-  whose document is targeted.
-- `android` names the Android predicate the harm rests on ("What the lane does
-  not observe", above).
-- `equivalence` marks a class that is no harm: two spellings every reader
-  reads alike, whose readers are runtimes the lane does not run (Android, Web
-  Apps' client, Connect), so no spelling rule's test can prove them alike. It
-  names those readers and why each reads the two alike. Such an entry is held
-  and verified as any other, and the fix of the defect or finding it is filed
-  under removes it (`harness-findings.md`, "Equivalences only another runtime
-  reads").
+  whose document is targeted. A pinned entry owns the differences it
+  matches, so one class holds two defects where one of them is pinned on
+  its targeted document and the other names the class everywhere else
+  (defect 10's and finding 51's Sort orders on Android).
+- An entry whose artifact is `android@...` is a difference in what CommCare
+  Android's own code made of two states the unit handed a device ("Android
+  in the unit", above), reported and held by the entry's check like every
+  other entry. What a defect does on a device is such an entry, never a
+  citation of Android's source.
+- An entry is a symptom, never an equivalence. Two spellings every reader
+  of which reads alike are a spelling rule, proven by tests that run each
+  of those readers on both ("Spelling rules"), and the register holds no
+  entry for them; the loader refuses an `equivalence` field, and an
+  `android` field that cites a class in place of a run.
 - `control` names the entry's control under `proof/controls/`.
 - A manifest entry never names an undecided use: that is a gap in the check.
 
@@ -953,10 +2124,9 @@ class; the table names it where it shows what the row's other checks do not.
 "Correction n" is the research claim `harness-findings.md` corrects under that
 number.
 
-The rows the lane does not reproduce are in "What the lane does not observe"
-(above): "12, same-type child" and "20, CommTrack", which step 1's decisions
-drop. Every other row has entries, and of their parts only defect 3's
-unknown-question clause is not observed (also there).
+One row is not reproduced: "12, same-type child", whose input no Nova document
+holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
+left out the same way, is a row again: Nova's gate admits the read it needs.
 
 | Defect, part | Symptom | Shown by | Documents |
 |---|---|---|---|
@@ -968,6 +2138,12 @@ unknown-question clause is not observed (also there).
 | 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-state` |
 | 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`) | the bar | a form display condition on the loaded case's status, id, type or owner |
 | 3 | the case properties HQ learns each form writes (`FormBase.get_all_case_updates`) and the data dictionary rows its save writes (`refresh_data_dictionary_from_app`) lack the properties Nova's Save to Case blocks write, and a Vellum save rewrites `case_references_data.save` | intent (HQ); proof 4 | a form with case operations, under a configuration with `save_to_case`, which HQ's refresh requires |
+| 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it | proof 4 (Vellum's report) | `targeted-save-to-case-read` |
+| 4, add-ons | an add-on a person turned on in HQ (`views/apps.py::edit_add_ons`) is gone after Nova's next publish, whose upload writes its own ten, and HQ's module page no longer offers the section | `proof/views/test_add_ons.py` (HQ's page in Chromium) | `search-multiple` |
+| 5, the upload's answers | without the Lookup Tables privilege HQ's upload API answers Nova's push with its "Upgrade Required" page, status 200, and writes nothing; it takes a 32-character tag and fails with a 500 on a 33-character one | `proof/views/test_lookup_upload.py` (HQ's view, to Nova's captured request) | `lookup-app` |
+| 12, what no editor offers | HQ's Case List page holds the control for an inline search, a multi-select list and an excluded search input only under `CASE_SEARCH_ADVANCED`, which Nova's publish does not ask for | `proof/views/test_case_list_offers.py` (HQ's page in Chromium) | `case-list-inline`, `search-multiple`, an expander search document |
+| 14, `both_fixtures` | a device restores the flat location fixture by the app's own choice, and Web Apps by the project space's setting, so with that setting off the same app has its places on Android and none in Web Apps, where its form moves no case (finding 69) | `proof/views/test_location_fixture.py` (HQ's restore view, as a device and as Formplayer ask it) | `location-direct` |
+| 20, CommTrack | Nova's gate admits a read of the session's `supply_point_id`; no session of a Nova app holds it, so the form does not open; under CommTrack HQ's build gives the form the datum only once a save in HQ's form builder has respelled the source, and then a worker without a supply point is refused the form (finding 68) | manifest; proof 4, then 2 and 3 | `targeted-supply-point-read` |
 | 5, reserved substrings | a select over a table whose tag contains `casedb` reads the case database, and one containing `ledgerdb` the ledger database, not the table (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, before `fixture`) | intent (Core); manifest (the instance source Core gives the table) | `targeted-lookup-reserved-tags` |
 | 6, CSQL | HQ's compiler raises `CaseFilterError` for an ordering against a time of day, and for `''` or a number compared with `date_opened`, `closed_on` or `last_modified` | intent (HQ): each CSQL string a run sends, compiled by HQ (`build_filter_from_xpath`); manifest: each search's CSQL, read by HQ's CSQL parser, falls in those comparisons' REFUSED classes | `targeted-search-hq-compile` |
 | 6, Core | `'14:30' < '15:00'` is false on the device while the document orders it | intent (Core); manifest | `targeted-time-ordering` |
@@ -986,18 +2162,18 @@ unknown-question clause is not observed (also there).
 | 13, datetime leaves | the save drops the leaf's type and HQ stores only the date | proof 4, then 3 | a datetime written to a case |
 | 13, root create id | the save turns a live create id into a load-time value, and a later update fails ("Unable to update or close case", `CaseXmlParser`) | proof 4, then 3 | a create keyed by a form answer at the form root |
 | 13, `#form/` defaults and block ids | Vellum marks a default that reads `#form/…` and a read of another block's `case/@case_id` as errors | proof 4 | a default reading another answer; two blocks sharing a case id |
-| 13, blank translations | the save fills an explicitly empty translation from the default language | proof 4, then 2 | a multilingual form with an empty translation |
-| 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update | proof 4, then 3 | a follow-up form that writes nothing |
+| 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language) | proof 4, then 2 | a multilingual form with an empty translation |
+| 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; a case id a form link forwards that no form created becomes a case HQ makes without a create block; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set") | proof 4, then 3 | a follow-up form that writes nothing; `case-list-inline`; the form-link expander documents |
 | 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | `targeted-close-conditions`, `targeted-close-condition-unparsable` |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
 | 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name | proof 4, then 3 | any form |
-| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`) | proof 4; the bar | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids` |
+| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). Renaming a Connect id under an opportunity that holds it breaks the opportunity: Connect refuses every delivery of a renamed deliver unit ("Payment unit is not configured for the deliver unit"), makes a second learn module of a renamed one, and completes no assigned task for a renamed task | proof 4; the bar; proof 4 over B-edit, on what Connect made of the edit's submissions | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids`, `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
-| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | `targeted-list-first-web-apps` |
+| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
 | 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child | proof 4; proof 3 across the two paths | an extension child case |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7) | proof 4, then 3; manifest | query repeats in those places, `targeted-query-repeat-places` |
@@ -1015,10 +2191,12 @@ it corrects, if any.
 1. Settle at source that the class is a defect and which: a numbered one, or a
    new finding in `harness-findings.md` with what goes wrong, its source
    evidence, where its harm shows and what research claim it corrects. A
-   class every reader reads alike is a spelling rule where Core's run or HQ's
-   build can prove it, and otherwise (its readers Android, Web Apps' client or
-   Connect) an entry marked `equivalence`, filed under the defect or finding
-   whose fix removes it.
+   class every reader reads alike is a spelling rule, never an entry: its
+   proof runs every one of those readers on both spellings ("Spelling
+   rules"), and where one of them reads the two apart in any state a device
+   or a project space can be in, it is a defect and an entry. A difference
+   in what Android reads is an entry whose artifact is `android@...`, held by
+   the check that reports it like any other.
 2. Name a non-fuzz document that shows it, or write a targeted document that
    does. Pin `values` only on a targeted document.
 3. Retain that document from an emitted corpus, unless a control already
@@ -1035,22 +2213,100 @@ it corrects, if any.
 `{"defect", "entity", "path"}`; proof 1 accepts exactly those. It is empty
 until a step decides one.
 
+### Walk stops
+
+`proof/walk-stops.json` lists each place a reader's walk of a document ends
+short of the app's own end (`proof/checks/stops.py` loads and enforces it;
+`proof/checks/test_stops.py` is the check):
+
+```json
+{"document": "tile-grouped-one", "reader": "webapps", "cause": "case-not-listed",
+ "reason": "<one line a reviewer can check at the reader's source or in the record>"}
+```
+
+- **A run's end.** Formplayer's walk ends a run where the app ends it: a form
+  submitted (`submitted`), a menu that offers nothing (`empty-menu`), a list
+  that holds no case (`empty-list`). Every other end is a stop: Formplayer
+  answered with no screen (`notification`), did not take the form
+  (`submit-refused`), was sent no search because the client keeps it back
+  (`search-refused`), answered a search with the search screen again
+  (`search-not-run`), refused a request (`refused`), or the run could not
+  make a choice it was scripted (`unreplayable`, `language-unoffered`). The
+  client's replay reaches its end where it follows the walk to the walk's;
+  where it shows nothing to click for a choice, or holds a form from going
+  on, its record says where it `stopped`, and that is a stop.
+- **`reader`** is `formplayer`, `webapps` (the client on Web Apps' own page,
+  in a desktop's window and a phone's) or `preview` (the client in App
+  Preview).
+- **`cause`** is a class written from the reader's own words, never from a
+  name the app authored (`stops.py::said`): what Formplayer said
+  (`notification:unable-to-find-lookup-table`), the alert the client shows
+  where it stopped (`alert:...`), or, with no alert, what the client did not
+  show for the choice the run was making (`case-not-listed`,
+  `command-not-listed`, `action-not-offered`, `search-not-offered`) or that
+  it held its form (`form-held`).
+- **`reason`** is one line saying why the reader ends there.
+
+The list is strict both ways, as the known-defect register is: a stop no
+entry holds fails its document's check and the gate by name, and so does an
+entry whose stop no run of its document showed. One entry holds one
+document, reader and cause; a control's walks are held by its document's
+entries, and an entry must show on the corpus document. A run that hands its
+states to some readers holds the entries of those readers and leaves the
+rest to the run with every reader. An entry may name a fuzz document, since a
+reader's own limit shows wherever a form meets it; when the fuzz sample
+changes, the gate names each entry to remove and each stop to add.
+
+**An entry is the reader's own end, never an answer the lane failed to
+give.** Before adding one, read the run (the check's evidence,
+`checks/stops/<kind>-<document>.json`, names one of each class with its
+script). Where a worker at that screen would go on, the walk or the replay
+is to give what a worker gives, on Formplayer and the client alike, and the
+lane does:
+
+- a question that refuses every value the answer table holds is cleared, as
+  a worker leaves a question they cannot satisfy, so a validation message is
+  no end of a form (`walk.py::CLEARED`);
+- a repeat a worker adds to is added to, as many times as the table says
+  (`repeats.add`), so its repetition and the case it creates are submitted
+  (`walk.py::addable`);
+- a search is sent each way a worker can send it, each a run of its own: as
+  the screen shows it, which carries the prompts' defaults; cleared by the
+  screen's Clear, where a default fills a prompt; and typed, a refused
+  answer typed again with the table's next (`walk.py::search_ways`,
+  `retyped`). A search the client keeps back is never sent, and its run ends
+  `search-refused`;
+- App Preview shows a form one question a screen, and Formplayer answers
+  that form's Next with an error at a repeat a worker adds to, and at a form
+  that shows no question. A person there switches "Use one question per
+  screen" off in App Preview's Settings, so the replay does, and the run
+  goes on with its form shown whole (`proof/webapps/observe.py::shown`). The
+  run's record keeps where the one-question form ended (`oneQuestion`), and
+  the check's evidence lists those runs beside the stops (`replayedWhole`):
+  they are no stop, since nothing of the run is left unseen.
+
+A walk's bounds are safety nets, never an end, and none is a time (a loaded
+machine would reach one an idle machine does not): Formplayer's walk raises
+`WalkBound` past 500 derived runs, 400 screens of a run or 2,000 answers of
+a form, the Core runner fails its `session` request past 400 screens or 64
+choices of a run, and each failure names the bound.
+
 ## Spelling rules
 
-A spelling rule erases one difference in how an artifact is spelled that
-neither HQ's build nor Core's run depends on. The rules are a closed set in
-`proof/rules/`: each is a module, `proof/rules/<rule>.py`, exporting
-`RULE = SpellingRule(id, artifact_glob, description, normalize)`, and `RULES`
-in `proof/rules/__init__.py` lists them in the order the comparators apply
-them. The comparators apply those and no others; the observation compares raw
-builds without them, so registering a rule changes judgments only. A rule that
-holds only under a condition (an empty update only beside other actions, a
-tile cell only outside a custom tile) states the condition in its docstring
-and leaves the artifact as it is elsewhere. A rule reads an XPath expression's
-shape (a path of plain steps, a value that reads no node, the functions it
-calls) only through `proof/rules/_xpath.py`, a port of Core's XPath lexer that
-`proof/rules/test_xpath_reading.py` holds to Core's own parser, and leaves an
-expression the port does not read as it stands.
+A spelling rule erases one difference in how an artifact is spelled that no
+reader of it depends on. The rules are a closed set in `proof/rules/`: each is
+a module, `proof/rules/<rule>.py`, exporting
+`RULE = SpellingRule(id, artifact_glob, description, normalize, readers)`, and
+`RULES` in `proof/rules/__init__.py` lists them in the order the comparators
+apply them. The comparators apply those and no others; the observation
+compares raw builds without them, so registering a rule changes judgments
+only. A rule that holds only under a condition (an empty update only beside
+other actions, a tile cell only outside a custom tile) states the condition in
+its docstring and leaves the artifact as it is elsewhere. A rule reads an
+XPath expression's shape (a path of plain steps, a value that reads no node,
+the functions it calls) only through `proof/rules/_xpath.py`, a port of Core's
+XPath lexer that `proof/rules/test_xpath_reading.py` holds to Core's own
+parser, and leaves an expression the port does not read as it stands.
 
 The `setvalue-order` rule also reads the exact
 `format-date(now() or today(), string literal)` shape as reading no node.
@@ -1059,28 +2315,75 @@ rule's proof runs both clock spellings before and after the other actions;
 field reads, nested calls, wrappers and random or uuid date arguments stay
 outside that shape and retain their order.
 
-Each rule has its own proof test, `proof/rules/test_<rule>.py`, run in the
-lane as the `proof/rules` package. It publishes a corpus document into HQ as
-Nova's publish leaves it, writes the app document or a form's source both ways
-in forks of that state (`proof/rules/conftest.py`), and shows that HQ builds
-both alike or, where HQ's build carries the spelling, that Core's sessions
-over both builds and HQ's processing of their submissions compare equal, and
-that the rule erases exactly the spelled difference. Where the rule's
-condition does not hold, the test builds or runs the two spellings there and
-shows that they differ and that the rule leaves them. Where a rule leaves a
-spelling only to stay narrow (a neighbour HQ reads alike, such as a preload's
-`if` condition, or a case the source settles and no corpus document holds,
-such as a `send` between two setvalues), the test shows on the parsed artifact
-that the rule leaves it. `conftest.py`'s `DOCUMENTS` names every corpus
-document the tests read, and its `rule_documents` hands a test those alone.
+**A rule is proven by running every reader of its spelling on both
+spellings.** Each rule has its own proof test, `proof/rules/test_<rule>.py`,
+run in the lane as the `proof/rules` package. It publishes a corpus document
+into HQ as Nova's publish leaves it, writes the app document or a form's
+source both ways in forks of that state (`proof/rules/conftest.py`), and shows
+that HQ builds both alike or, where HQ's build carries the spelling, that
+Core's sessions over both builds and HQ's processing of their submissions
+compare equal, and that the rule erases exactly the spelled difference. Where
+the rule's condition does not hold, the test builds or runs the two spellings
+there and shows that they differ and that the rule leaves them. Where a rule
+leaves a spelling only to stay narrow (a neighbour HQ reads alike, such as a
+preload's `if` condition, or a case the source settles and no corpus document
+holds, such as a `send` between two setvalues), the test shows on the parsed
+artifact that the rule leaves it. `conftest.py`'s `DOCUMENTS` names every
+corpus document the tests read, and its `rule_documents` hands a test those
+alone.
+
+Where the spelling's readers reach past HQ's build and Core, the rule names
+each in `readers`, with the test that runs that reader on both spellings
+(`proof.rules.READERS`):
+
+| Reader | How a rule's test runs it | Where the test is |
+| --- | --- | --- |
+| `formplayer` | each spelling released as HQ's Releases page releases a build and served by HQ's own views; Formplayer's own walk of each, compared by the lane's judge (`conftest.py::served_readings`, `formplayer_differences`) | the rule's own test module |
+| `webapps` | HQ's Web Apps client shown the same walks in Chromium, under HQ's own stylesheets; its screens compared by the lane's judge (`client_differences`) | the rule's own test module |
+| `connect` | HQ's own receiver and Connect repeater forwarding each spelling's submissions to one opportunity in CommCare Connect, whose answers, tasks and rows are compared (`proof.observe.connect`) | the rule's own test module |
+| `android` | both spellings installed on a device and read by commcare-android's own code: the install, every profile reader, the home screen and every walk | a method of `proof/android/predicates.py`, which runs where the reader's runtime is (the `proof-android-runtime` job, on every run) |
+
+`test_closed_set.py` fails while a module is unlisted or untested, while a
+rule names a reader whose test does not exist, and while a rule that reads
+what Formplayer hands on (the `formplayer` artifact, a Formplayer trace as it
+is compared) names no test of the client that reads it. Android's method is
+found by reading `predicates.py`, never by importing it: nothing in the image
+runs it.
+
+The rules whose readers reach past HQ's build and Core:
+
+- **`connect-work-area-empty`** (finding 55): a Vellum save writes an empty
+  `work_area_id` into a Connect deliver unit. Its test writes the form both
+  ways, builds both in HQ, runs Core's sessions and Formplayer's walk over
+  both, and has HQ's own receiver and Connect repeater forward each
+  submission to one opportunity in Connect, which answers and holds the same
+  for both; an id that names a work area is refused by Connect, and the
+  rule leaves it. A device opens, walks and saves the form with the node as
+  without it. Formplayer's traces take the rules for an `instance` (each XML
+  document a trace holds).
+- **`search-description-empty`** (finding 54): the Case List save writes a
+  search description of no text. HQ's build gives the search a
+  `<description>` for it, Formplayer hands the client a non-breaking space
+  where it handed nothing, the client shows no description for either and
+  the same screens throughout, and a device's search screen is the same; a
+  description that holds text is shown, and the rule leaves it.
+- **`tile-vertical-align-start`** (finding 42): the Case List save writes a
+  vertical alignment of `start` into every tile cell. HQ's build writes the
+  attribute, Formplayer hands the client `start` where it handed none, the
+  client computes `align-self: start` for both, and Android's tile lays a
+  text cell and an image cell out the same; `center` moves the cell, and
+  the rule leaves it.
 
 To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
-`RULES` where its artifact's rules apply, and add any document its test reads
-to `DOCUMENTS`. `test_closed_set.py` fails while a module is unlisted or
-untested. A difference no proof can show equivalent (one whose reader is
-Android, Web Apps or Connect, which the lane does not run) is not a rule: it
-is a register entry. When an emitter starts writing the editor's spelling, the
-rule that erased Nova's former spelling goes in the same change.
+`RULES` where its artifact's rules apply, name each reader beyond HQ's build
+and Core with its test, and add any document its test reads to `DOCUMENTS`.
+Two spellings are a rule only where every reader reads them alike in every
+state it can be in: the ten profile settings HQ's settings save writes at
+their readers' defaults read alike on a device that never held another
+value, and apart on one an earlier profile gave another, so they are
+entries and a defect (finding 40), not a rule. When an emitter starts
+writing the editor's spelling, the rule that erased Nova's former spelling
+goes in the same change.
 
 ## The surface extractor
 
@@ -1129,6 +2432,23 @@ are computed from its own directory (`proof.observe.unit.input_files`), and
 a run whose fingerprints and control files are unchanged judges or caches it
 rather than observing it again.
 
+The observation's code is the files `proof/observe/partition.py` names: the
+observation's directories, less every pytest test module (`test_*.py`; a
+`conftest.py` and every helper stay). A test calls the observation and is
+no part of it, so an edit to a test module moves the package groups' keys
+(the harness's fingerprint names every file under `proof/`) and observes no
+document again. That is exact while nothing the observation can import is a
+test module, which `proof/store/test_partition.py` reads from the sources
+(`ast`, over the observation's whole import closure, naming the module that
+imports one), and the read guard refuses a test module's file to an open
+observation as it refuses any file outside the partition. One test module
+outside the checks has items that run in documents' groups, HQ's branch
+proof (`proof/hq/test_branches.py`): it is the judge's
+(`proof.store.fingerprints.DOCUMENT_GROUP_TESTS`), so an edit to it judges
+every document again from its records, and the same test holds every
+collected item of a document's group to a module the judge's fingerprint
+names.
+
 The queue builder (`python3 -m proof.store.queue`, standard library and git)
 reads the restored store and makes each group cached (its every judgment held
 whole, its items passed: it runs nowhere, and the gate holds the stored
@@ -1157,26 +2477,52 @@ reused is only what a key names whole, and the reuse is audited:
   observed whole and held to the store, a mismatch written under `audit/` and
   failing its group. A share of live editor runs (`PROOF_EDITOR_AUDIT`) is
   rerun on a fresh page;
-- **nightly, on main** (`proof-audit.yml`): the whole lane fresh, nothing
-  shared between documents and every editor view live, compared with main's
-  newest snapshot (`python3 -m proof.store.audit compare`), then saved as the
-  newest snapshot every pull request reads. A scheduled audit that fails opens
-  an issue. A merge to main writes nothing to main's store (only the
-  audit and the pin pull request's prewarm do, "Changing a pin", below), so
-  a pull request opened right after a large merge is cold: its queue
-  observes every group the merge changed until the nightly audit refreshes
-  main's store;
-- **weekly** (`proof-audit.yml`): four fresh runs. Three run a fixed
-  24-document sample: a baseline, one with Nova's emission and HQ unseeded,
-  compared with the baseline (equal once every drawn id and clock reading is
-  read as one value, with defects 1 and 9 still showing), and one with HQ's
-  speed seams off, compared with it (equal). A sampled run checks every control and package but only
-  the sampled documents, so it holds each register entry naming a document
-  the sample left out on its control alone ("Known defects", above). The
-  fourth runs the whole corpus with every memo verified, every editor view
-  rerun the slow way and every document's HQ branches held to fresh states,
-  and must pass on its own, as each of the four must. `proof-image.yml`
-  compares the slim image with the full one and arm64 with amd64.
+- **nightly, on main** (`proof-audit.yml`, Tuesday to Saturday; "The other
+  workflows" gives the week): the lane in both profiles ("The lane's two
+  profiles"), without the readers and then with every reader, each queued as
+  a pull request's is, against main's newest snapshot: every group whose key
+  changed since it was saved is observed, the audit sample afresh, and the
+  rest read. Each is merged over main's snapshot as soon as its lane ends,
+  into the newest one every pull request reads, so the records without the
+  readers are saved before the lane with them starts; a profile one of whose
+  shards could not run packs nothing and saves nothing, where main's records
+  for it stay, so a failed shard with the readers never keeps back the
+  records without them. A scheduled night that fails in either profile
+  opens an issue. A merge to main writes nothing to main's store (only the
+  nightly, the weekly audit and the pin pull request's prewarm do, "Changing
+  a pin", below), so a pull request opened right after a large merge is
+  cold: its queue observes every group the merge changed until the nightly
+  refreshes main's store;
+- **weekly** (`proof-audit.yml`): the fresh audit, what proves the store's
+  keys. The whole lane runs fresh, nothing shared between documents, in both
+  profiles, each compared with main's newest snapshot (`python3 -m
+  proof.store.audit compare`); the two replace that snapshot whole, so a key
+  no current run reads leaves the store once a week. Three more fresh runs,
+  each with every reader, hold a 24-document sample: a baseline, one with
+  Nova's emission and HQ unseeded, compared with the baseline (equal once
+  every drawn id and clock reading is read as one value, with defects 1 and
+  9 still showing), and one with HQ's speed seams off, compared with it
+  (equal). The sample turns each week: the run's ISO year and week is its
+  seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
+  takes the next 24 of the corpus's documents ranked by the sha256 of their
+  ids, wrapping at the end, so every document is compared within fifteen
+  weeks (for 357), and the three runs of a week check the same sample. The
+  seed and the sample's documents are in each sampled lane's job summary,
+  its verdict and a failed week's issue, and a dispatch that names the seed
+  (`sample_seed`) runs the same sample again. A sampled run checks every
+  control and package but only the sampled documents, so it holds each
+  register entry naming a document the sample left out on its control alone
+  ("Known defects", above). The
+  whole lane with every reader also verifies every memo on every hit, reruns
+  every editor view the slow way and holds every document's HQ branches to
+  fresh states, and the whole lane without them holds the committed
+  sensitivity effects to what its own flips showed, both ways
+  ("Configuration sensitivity"). Each must hold, and a scheduled week that fails opens an
+  issue. Each lane with the readers hands every served state to a device in
+  its shards ("Android in the unit"), its queues keyed under the lane's own
+  environment (`--lane-env`).
+  `proof-image.yml` compares the slim image with the full one, both on
+  amd64, where the lane's shards run.
 
 ## How the harness proves itself
 
@@ -1187,20 +2533,169 @@ reused is only what a key names whole, and the reuse is audited:
 | A unit's branches are fresh states | a restore that leaves a row, a sequence, a document or a blob behind | `proof/hq/test_branches.py`, against fresh databases |
 | A seam changes only what it names | a flag read leaking from one check into another | `proof/hq/test_seams.py` |
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
+| What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends; `proof/hq/test_publish_capture.py`: an update applies only over the profile it was built from |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
+| What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
+| HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |
+| Formplayer's walk gives the same bytes and is faithful | an id or an install left unmarked; a trace that loses a difference | `proof/formplayer/test_walk.py`, `test_canonical.py`, `test_observe.py` |
+| What answers Formplayer in the lane is HQ | a request answered from outside HQ, a submission acknowledged and not processed, a walk that passes with no worker signed in | `proof/checks/test_served.py` |
+| A served state gives the same bytes, and each reader shows a planted difference and only it | an id HQ, Formplayer or the browser drew in a record; a walk or a screen reading that loses a difference | `proof/checks/test_served.py`, `proof/formplayer/test_observe.py` |
+| A run of a walk leaves HQ as it found it | a run reading the cases an earlier run's submission made | `proof/checks/test_served.py` |
+| The release Formplayer installs is the build the other checks read | a release built from another state | `proof/checks/test_served.py`, and `release@<state>` on every document |
+| HQ's commit callbacks run where a commit would, and its locks are a real Redis's | a callback run before the rows it reads exist, or after a rollback; a lock answered by a stand-in | `proof/hq/test_commits.py` |
+| The Formplayer runner is always joined | a JVM, a Redis or a database left behind | `proof/formplayer/test_lifecycle.py` |
+| What a Web Apps session runs is HQ's own page, bundle and stylesheets on Formplayer's own answers, each build under its own id | a stubbed answer, a page with no stylesheet, a request around Formplayer's security chain, an earlier build's install | `proof/webapps/test_session.py` |
+| A document's Web Apps record reads every screen and gives the same bytes | a screen read before its click's answer rendered; an id or a time reaching a screen | `proof/webapps/test_observe.py` |
 | Proof 2 compares everything HQ builds | a file left out | `proof/checks/test_build_files.py`: a file no comparator reads refuses the comparison |
 | Each spelling rule is sound | a rule that hides a real difference | `proof/rules/test_<rule>.py`, and `test_closed_set.py` for an unlisted or untested rule |
+| A rule's readers beyond HQ's build and Core are each run on both spellings | a rule proven for HQ and Core alone that Formplayer, the client, Connect or a device reads apart; a rule naming a test that is not there | `test_closed_set.py` (each named test exists; a rule reading Formplayer's answers names a client test), the named tests of `proof/rules`, and the named methods of `proof/android/predicates.py` |
+| What reads a device's archives is commcare-android's own code at its pin | a reader that answers from something other than the app's classes; a runtime built from another commit; a classpath the app does not ship | `proof/android/selfcheck.py` (the reader held to itself, and a planted difference Android must show), on every run of the `proof-android-runtime` job |
+| Each Android predicate a register entry or a rule rests on holds on both spellings | an entry claiming a harm a device does not show; a rule erasing what a device reads apart | `proof/android/predicates.py`, on every run of the same job |
+| A device's network is HQ's own views, and the device's requests reach them as the app wrote them | a request answered by something other than HQ's view, a tunnel's inner request read as the tunnel's, an answer the device never reads | `proof/android/test_peer.py` (the proxy, in the lane), every served state's device (a request no view answers is HQ's 404, a harness refusal ends the observation) |
+| The judges read every device a shard kept | a device read and never judged, or one state's answer judged as another's | `proof/checks/test_android.py` (planted differences, and the records a shard keeps) |
+| HQ's own pages and views answer a real Nova export | a page read before its bindings ran; a view answered around its decorators; a request other than the one Nova's client sent | `proof/views/test_*.py`: each pairs what it shows with its counterpart (the flag on, the privilege granted, the project setting on) |
+| An aligned source keeps its own spelling | HQ's build of B aligned to A reading a source another way than it reads B's own (its CommTrack test is a substring test on the stored text) | `proof/checks/test_alignment.py` |
 | The register is strict | a fixed defect left listed, or a new failure absorbed | `proof/checks/test_registers.py`: removing any one entry fails |
 | The editor driver saves as HQ does | a page rendered without HQ's template gates | `proof/editors/test_control.py` |
 | A reused page and a warm Vellum host save as fresh ones | state one view or form leaves for the next | `proof/editors/test_view_equivalence.py`, `test_vellum_warm_equivalence.py`, and the in-band audit |
 | Judges are pure | a judge that runs HQ, so a stored record no longer stands for its observation | `proof/checks/test_judge_purity.py` |
 | A stored record stands for a fresh one | a key that misses an input | `proof/store/test_keys.py`, `test_guard.py`, the per-pull-request audit sample and the nightly audit |
 | Forked workers observe what one session does | state a fork shares | `proof/lane/test_forkserver.py` |
+| Connect runs at the pin, each scenario alone | a virtualenv from another commit's lock; a row or queued task one scenario leaves the next | `proof/connect/test_runtime.py` |
+| What reaches Connect is what HQ's own receiver and repeater sent | a payload built beside HQ's repeater; a forward acknowledged without reaching Connect; an opportunity made from an archive HQ did not serve; a project space forwarding without Data Forwarding | `proof/connect/test_forwarding.py` |
+| A Connect document's records hold every state, give the same bytes, and are the same under a stored part | a state that forwards nowhere; a run reading another's rows; Connect's address or a drawn id in a record; an opportunity made again from another release | `proof/checks/test_connect_unit.py` |
+| The Connect judge shows a planted difference and only it | a row difference lost or reported with what follows a refusal; two spellings Connect read alike reported; an added unit read as a moved one | `proof/checks/test_connect.py` |
 | The manifest names only what exists | a dangling key or gate | `lib/commcare/surface/__tests__/manifest.test.ts`, in ordinary CI |
 | Nothing Nova emits is unclassified | an export using an item no entry names, or HQ reading a flag no gate entry names | the manifest check |
 | The surface matches the pins | a hand edit or a stale regeneration | the gate's surface section |
 | The weekly pin pull request reports every outcome once | no change, a second pull request, how CI starts left unsaid, pins without their image, a failure that reports nothing | `proof/upstream/__tests__/pins.test.ts`, with controlled `git` and `gh` |
+
+## The Connect proof
+
+`proof/connect` holds what runs CommCare Connect at its pin (its runtime, its
+driver and HQ's forwarding, which a Connect document's unit uses: "Connect in
+the unit", above) and the package's own tests, which run scenarios the unit
+does not: a manager who asks for an app's units again, pays for a renamed
+unit or turns a verification on, a second visit, and each name Connect's
+receiver looks for. They run in the lane as the package group
+`proof/connect`:
+
+```bash
+npm run proof -- proof/connect
+```
+
+### The chain
+
+Every link is its owner's code:
+
+1. **Nova** exports the app (the corpus document's captured publish and its
+   local `.ccz`), and for a document that carries the edit renaming its
+   Connect ids, the publish and the local archive of the edit.
+2. **HQ** imports and builds it (`proof/rules/conftest.py::published`, the
+   path every spelling rule's test takes), applies Nova's publish of the edit
+   over it and builds that, and builds the form as its own form designer
+   saves it (`proof.editors.vellum`).
+3. **Core** fills and submits the form on each build and on each local
+   archive (`proof.core`, the script derived on HQ's build and replayed on the
+   rest), on the lane's day and on the day after.
+4. **HQ** receives each submission and forwards it
+   (`proof/connect/conftest.py::_forwarded_by_hq`): the submission is posted
+   to HQ's own receiver view as a device posts it, HQ's receiver takes it
+   whole, and HQ's own Connect repeater sends the payload, with a token it
+   asked Connect for, to a served Connect over a real connection
+   (`proof/connect/hq.py::forwarding`). The payload is read where it
+   arrived, so its bytes are the ones HQ sent.
+5. **Connect** reads the app's learn module, deliver unit and task from the
+   archive HQ's own view serves it of HQ's release
+   (`proof/connect/conftest.py::served_download`: the app released as HQ's
+   Releases page releases one, and the very request Connect's sync makes,
+   `download_ccz` with `latest=release`, answered by `views/cli.py::
+   direct_ccz` behind HQ's middleware), and of the release of the edit
+   (`opportunity/tasks.py::sync_learn_modules_and_deliver_units`,
+   `app_xml.py::get_task_units_for_app`) and receives each payload through
+   its own URLconf, OAuth authentication, serializer and request transaction
+   (`/api/receiver/`, `form_receiver/views.py::FormReceiver`,
+   `processor.py::process_xform`).
+
+What stands in for a person or a machine the lane does not have is written
+down where it is done: the opportunity, its worker, a payment unit, the claim
+and an assigned task are made through Connect's models with the factories
+Connect's own tests use (`proof/connect/driver.py`); a scenario runs in
+Connect's process with no HQ beside it, so its download of an app's archive
+is answered with HQ's own answer to that same request, kept when HQ's view
+answered it, and a request HQ's view was not asked is refused; and a
+device's location is the fix its GPS gives the app (`Sensors.java`), which
+the form's own sensor poll writes into the form a device's walk saves and
+sends HQ (`proof/connect/conftest.py::_devices`).
+
+### The runtime
+
+`proof/connect/runtime.py::ConnectRuntime` fetches Connect at its pin, starts
+a Postgres 15 with PostGIS and a Redis from the image as processes of its own
+(`proof.processes`), and runs Connect's own `manage.py migrate` once into a
+template database. One runtime serves a session
+(`proof/observe/services.py::connect`), started the first time a test or a
+Connect document's observation asks. It runs Connect two ways, each on
+Connect's interpreter and virtualenv with Connect's own test settings, in a
+clone of the template over an emptied Redis:
+
+- **a scenario** (`ConnectRuntime.run`): one run of `proof/connect/driver.py`
+  over a list of steps (make the opportunity, sync, pay for deliver units,
+  claim, set verification flags, assign a task, post a payload), whose
+  result holds, after each step, every row the receiver reads or writes, by
+  the names the app and HQ gave them, and the tasks Connect queued;
+- **a session** (`ConnectRuntime.session`): Connect served for as long as an
+  opportunity is observed. Connect's WSGI application answers on a loopback
+  address of the worker's own, where HQ's repeater reaches it, and the same
+  steps are taken one at a time. A request Connect makes of its HQ server is
+  handed back to the harness, which answers it with HQ's own view; one to
+  ConnectID is recorded and fails. A session keeps named copies of its
+  database and goes back to one, which is how each run meets the
+  opportunity as it stood.
+
+Starting the runtime costs about thirteen seconds (the fetch two, the
+migrations ten), a scenario under one, and a session about one.
+
+### What the package's tests hold
+
+`proof/connect/test_forwarding.py` holds the chain itself (above, "How the
+harness proves itself"). `proof/connect/test_receiver.py` states each of
+these as a test, over `targeted-connect-deliver-rename` and
+`targeted-connect-learn-rename` (a deliver app and a learn app that each
+carry the edit renaming their Connect ids), and, for finding 60,
+`connect-deliver-default`, `targeted-connect-deliver-key-names` and
+`targeted-connect-learn-key-names`:
+
+- Connect reads exactly the authored learn module, deliver unit and task from
+  HQ's releases.
+- A learn submission and a delivery, from HQ's build and from Nova's local
+  archive, each received under the app's id, leave Connect the same rows: the
+  module completed and the assessment scored; the visit approved and paid.
+- Nova's local archive names no submission URL. Its submission, received with
+  no app named, is forwarded with a null app id and Connect refuses it.
+- Finding 34: with GPS verification on, a delivery with no location is
+  flagged and left pending, the local archive's always; the distance check
+  passes over it on both sides.
+- Finding 55: the empty `work_area_id` a Vellum save writes leaves the same
+  rows.
+- Defect 15: after a rename, deliveries are refused ("Payment unit is not
+  configured for the deliver unit") until a manager pays for the new unit; a
+  renamed learn module leaves a later learner at half, never finished; a
+  renamed task never completes the task a worker was assigned, which then
+  rejects each of the worker's deliveries.
+- Finding 60: a block whose id is one of the names the receiver looks for
+  (`task`, `deliver`, `work_area_update`, `module`, `assessment`) fails the
+  receiver on every submission of its form.
+- Finding 61: a deliver form that also holds a task loses its own visit while
+  the task is assigned.
+
+Each run leaves, under its block's `connect/`: each document's archive as
+HQ's view served it, each
+path's submission and HQ's payload for it (`<document>/`), every scenario's
+steps with the rows after each (`scenario.<name>.json`) and its timings. A
+document's observation in the lane leaves its runtime's logs, with each
+session's, under `connect-unit/w<n>/` ("Where a run writes").
 
 ## Native proofs
 
@@ -1250,7 +2745,7 @@ A family is one corpus, and each runs as one chain:
    with `NOVA_EXPANDER_EVIDENCE_DIR`) and `hq-oracle` (`hqJsonOracle.test.ts`
    with `NOVA_HQ_ORACLE_EVIDENCE_DIR`). `npm run proof` runs each inside the
    image from the checkout, with the Linux `node_modules` it mounts. CI's
-   shards mount none: there `quality` runs every producer once
+   shards mount none: there `proof-corpus` runs every producer once
    (`python3 -m proof.native.produce`, `proof/native/produce.py`) and the
    corpus carries what they wrote as `native/`, which the session copies in
    place of producing (`NativeSession.family`), a producer's failure with its
@@ -1290,9 +2785,11 @@ privileges its plan grants (every other is refused), and HQ's default build at
 CommCare 2.53.0, the version these proofs have always built at (2.60.0 for the
 HQ-JSON oracle, whose probes carry no build of their own). Proofs that build
 remote requests also name Nova's server (`https://www.commcarehq.org`) as the
-app's base URL and as HQ's own address. Formplayer's form validation is the
-session's Core runner. The network is refused except for the lane's Postgres,
-and a step or test that reaches for anything else fails.
+app's base URL and as HQ's own address. Formplayer's form validation is
+Formplayer's own application (the lane server's validation Formplayer, or
+the session's own outside the lane). The network is refused except for the
+lane's Postgres and the loopback services the harness starts for HQ, and a
+step or test that reaches for anything else fails.
 
 ### What each run leaves
 
@@ -1572,8 +3069,12 @@ On Android, a form's case processing runs in one user-database transaction
 marked successful only after `FormRecordProcessor.process` returns
 (`FormRecord.updateAndProcessRecord`,
 `FormSubmissionHelper.checkFormRecordStatus`, at the Android pin), so the
-invalid-case guard keeps a refused form from committing. That is a source
-reading, not an Android run.
+invalid-case guard keeps a refused form from committing. Every served
+state's device runs it: wherever a device does not save a form, it records
+whether the device still holds the cases it held as the form opened, and
+reports a refused form that changed one
+(`/walks/*/steps/*/form/saved/applied-though-refused`, "Android in the
+unit").
 
 #### Media (`media`)
 
@@ -1590,18 +3091,20 @@ it completes with no error, unmatched or skipped file, classifies three
 images, one audio and one video, maps each zip entry to the form path HQ
 derives, stores exactly the uploaded bytes and records the project space as
 each file's owner. Every form HQ sends to Formplayer on the way must be one
-Core certified, and the Core runner validates it. `MediaRuntimeTest` then
+Core certified, and Formplayer's own controller validates it. `MediaRuntimeTest` then
 installs both paths' media resources and resolves prompts and image maps; no
 remote download or rendering is claimed.
 
 #### Connect (`connect`)
 
 Connect's metadata extractors (`commcare_connect/opportunity/app_xml.py`) run
-at the pin `proof/pins.json` names. Connect is never in the harness image, so
-the session fetches exactly that commit, shallowly, with
+at the pin `proof/pins.json` names. Connect's source is never in the harness
+image, so the session fetches exactly that commit, shallowly, with
 `proof/image/fetch-commit.sh` run as a child process (the lane's one network
-reach; HQ's network guard refuses only the harness's own Python sockets), and
-removes it when the session ends. The module's unused database model, HQ API
+reach, which the Connect proof makes too; HQ's network guard refuses only the
+harness's own Python sockets), and removes it when the session ends.
+Connect's receiver over these apps' submissions is the Connect proof's ("The
+Connect proof", above). The module's unused database model, HQ API
 exception and HTTP client imports are stood in for, and the extractors read
 the same learn and deliver metadata from HQ's source, the CCZ form and HQ's
 regenerated form. `ConnectRuntimeTest` computes the metadata in Core on both
@@ -1633,38 +3136,110 @@ producer output and Core's JUnit report in the run's `native/` directory.
 
 ## The lane in CI
 
+The lane runs in three places, each holding every check it runs exactly as
+the others do:
+
+- **Every pull request** (`ci.yml`) runs it without the readers: what the
+  evidence store holds is read, and every other group runs, however long
+  that takes. Nothing is left out for time. As modelled from
+  `proof/timings.json`'s measures, never promised: about six minutes when
+  nothing the lane reads changed, nine or less up to about forty changed
+  documents, ten for a hundred, and about thirteen when every group is
+  observed afresh ("Timings and what the lane is expected to take", below).
+- **Every night** (`proof-audit.yml`) runs it over main in both profiles
+  against main's store, so every group the store lacks is observed (each
+  group a merged pull request changed among them), and merges what it
+  observed into the snapshot every pull request reads.
+- **Every week** (`proof-audit.yml`) runs it whole and fresh in both
+  profiles, the run that proves the store's keys and replaces the snapshot,
+  beside the sampled comparisons ("The evidence store and its audits").
+
+With every reader the heaviest documents are hours of one worker, so a lane
+with the readers observes each of those in pieces, one configuration a
+worker, and judges it whole ("Documents observed in pieces", below); the
+profile without the readers names no threshold, and observes every document
+whole.
+
+A scheduled night or week that fails opens an issue that names each failing
+group, why, and the command that reruns that group alone at the commit the
+run checked (`python3 -m proof.lane.report`): `PROOF_READERS=0 npm run proof
+-- <the group's items>` on any machine with Docker where it failed without
+the readers, `proof/remote/run.sh <host> -- <the group's items>` on a proof
+machine where it failed only with them, each followed by the gate over that
+slice. The nightly is the backstop, never the first run: a change a reader
+would show is proven on a proof machine before it is pushed ("Proving a
+reader change before you push").
+
 ### The pull request lane
 
-CI runs the lane in `ci.yml`, beside the existing jobs:
+A pull request's lane runs without the readers (`PROOF_READERS=0`, "The
+lane's two profiles"): HQ, Core and HQ's editors over every document the
+store does not hold, every check held to the register, and no state handed
+to Formplayer, the Web Apps client, a device or Connect. `ci.yml` sets
+`PROOF_READERS: '0'` for the whole workflow, and runs the lane beside the
+existing jobs:
 
-- **`quality`** ("Lint & type-check", x64) emits the corpus once
+- **`proof-corpus`** ("Proof corpus", x64) emits the corpus once
   (`proof/corpus/emit.ts`) and, beside it, the native proofs' products
   (`python3 -m proof.native.produce`, carried in the corpus as `native/`),
   builds the main queue from them and the evidence store
-  (`python3 -m proof.store.queue main`), and uploads both as artifacts. A
-  failed emission never fails this job: it uploads a failure marker, the
-  shards stop waiting, and the gate names the step that failed.
+  (`python3 -m proof.store.queue main --lane-env PROOF_READERS=0`), uploads
+  both as artifacts, and ends there. It is a job of its own, with its own
+  install of Nova's dependencies, so that the plan waits for the queue and
+  for nothing else: lint and type-check ("Lint & type-check") are no part of
+  the proofs' path, and a failure there skips no shard. A failed emission
+  fails this job and the lane still runs: it uploads a failure marker, the
+  shards stop waiting, and the gate names this job.
 - **`proof-plan`** builds the early queue (groups that need no corpus: the
   surface block and every package whose tests read none; the lane's server
   refuses an early queue holding a document's, a control's or a package in
-  `proof.lane.blocks.CORPUS_PACKAGES`) and the matrix
-  (`node proof/run.mjs --matrix`). It waits for `smoke-plan`, so its shards
-  queue behind every existing job.
-- **`proof`** ("Proof i/n", `ubuntu-24.04-arm`) installs nothing and runs none
-  of Nova's TypeScript: it pulls the image and Postgres while it fetches the
-  queues, and its fork server (`node proof/run.mjs --lane`) runs the early
-  queue's blocks and the main queue's as it claims them, with four workers.
-  `proof/ci/wait.mjs` brings the main queue and the corpus into a shard that
-  started before they existed, and `proof/ci/drained.mjs` ends a shard that
-  starts after every block is claimed. A shard fails only when it cannot run
-  its blocks; whether the proofs hold is the gate's.
+  `proof.lane.blocks.CORPUS_PACKAGES`) and chooses the shard count for both
+  queues (`python3 -m proof.lane.plan fit`): the fewest shards whose
+  expected end is within fifteen seconds of the soonest any count ends, so a
+  pull request whose groups main's store holds takes one shard and leaves
+  the runners to the tests and smoke, and one that changes everything takes
+  what shortens it. The plan chooses a count and nothing else: every group
+  the queues hold runs. It writes when the lane is expected to end into the
+  job's summary and gives each shard its deadline. It waits for
+  `proof-corpus`, which ends when the main queue is uploaded, and for
+  `smoke-plan`, so its shards queue behind every existing job, and it runs
+  whatever `proof-corpus`'s result: without a main queue (a failed emission)
+  it plans the early queue alone, which is all that runs. The shards run
+  whenever the plan gave them a matrix, by a condition of their own, since
+  a job without one is skipped when any job behind its needs failed.
+- **`proof`** ("Proof i/n", `ubuntu-24.04`, x64, the nightly's architecture,
+  so the records main's audit saves are the ones it reads) installs nothing,
+  runs none of Nova's TypeScript and needs no Android runtime. Its checkout
+  holds `proof/`, `lib/commcare/surface/` and its two actions, and nothing
+  else of the repository, and the lane's tests run from that: one that reads
+  any other part of the tree (a workflow, say) passes on a machine that
+  copied the whole tree and fails on every shard, so what must hold between
+  the lane's code and a workflow is tested where the whole checkout is
+  (`proof/ci/__tests__/laneWorkflow.test.ts`, in the test shards). It pulls the
+  image and Postgres while it fetches the queues, and its fork server (`node
+  proof/run.mjs --lane`) runs the early queue's blocks and the main queue's
+  as it claims them, with four workers. It prints its containers' memory
+  every few minutes and whenever one passes its last printed peak, and writes
+  their peaks into its output (`memory.json`), so a runner that dies says
+  why. `proof/ci/wait.mjs` brings the main queue and the corpus into a shard:
+  they are there when it starts, since the plan waited for them, and where
+  the emission failed it finds the failure marker in their place and the
+  shard runs the early queue alone. `proof/ci/drained.mjs` ends a shard
+  that starts after every block is claimed. A shard fails only when it cannot
+  run its blocks; whether the proofs hold is the gate's. Its deadline, twice
+  what the plan expects the longest shard to take and never under twenty
+  minutes, ends only a stuck shard, which fails the lane ("Timings and what the lane is expected to take").
 - **`proofs-gate`** ("Proofs") is the lane's one check, whatever its shard
   count.
 - **`proof-store`** saves this pull request's evidence store beside the gate:
   what it held and what this run observed that main's does not hold.
 
+The Android reader's runtime is built and held to the reader's own checks
+(`selfcheck.py`, `predicates.py`) where the readers run: the nightly's lane
+(`proof-lane.yml`'s "Android reader runtime" job) and a proof machine.
+
 CI makes the corpus and the native products on an x64 runner, with the
-runner's own Node, and the shards read them on arm64 in the image. So
+runner's own Node, and the shards read them on x64 in the image. So
 `proof-image.yml` also emits the corpus and produces the products weekly on
 each architecture, on the runner and inside the image, and holds the four
 alike: the corpus byte for byte, the products (`proof/ci/products.mjs`) up to
@@ -1674,21 +3249,44 @@ outside the corpus's seeded operations.
 ### The gate
 
 `python3 -m proof.lane.gate` runs on the runner's own Python with no image and
-reads every shard's output, the queues and the store. Four sections, each with
+reads every shard's output, the queues and the store. Five sections, each with
 its problems:
 
 1. **Exactly once**: every queued block ran exactly once (a block two shards
    ran fails, whatever they wrote), every group ran every item its worker
    collected, cached groups ran nowhere, and the shards collected alike.
 2. **Tests**: every item that ran passed, or ended as pytest's marks on it
-   allow.
+   allow. A skipped item holds, so nothing in the lane skips for what the
+   image or the corpus should hold: a missing tool (`openssl`, for the device
+   network's proxy) or a missing targeted document fails its test by name.
+   The one skip is the `under_determinism` tests where a run leaves HQ's
+   determinism off or the corpus unseeded (the weekly's unseeded lane), which
+   is that lane's purpose.
 3. **Register**: the evidence of every block that ran, with the cached groups'
-   evidence read from the store, held to `proof/known-defects.json`.
-4. **Surface**: the surface block's extraction, or the store's for this image
-   and extractor, is byte for byte the committed `surface.json`.
+   evidence read from the store, held to `proof/known-defects.json`, and
+   every entry seen on its document and its control. A run over documents
+   named by hand (a queue built with `--documents only:`, or a slice run by
+   `-k` whose documents the gate is told with `--documents`) holds every
+   difference to the whole register and asks to see only the entries naming
+   those documents; a document it was to be held to and did not run fails by
+   name.
+4. **Walk stops**: the stops every document's and control's walks showed,
+   read as the register's evidence is, held to `proof/walk-stops.json`: a
+   stop no entry holds fails by name, and so does an entry whose document's
+   run showed no such stop. A run holds the entries of the readers it handed
+   its states to and says how many it left to the run with every reader; a
+   run over documents named by hand ran no other document, so it leaves the
+   entries naming one to the run that runs it, and says how many.
+5. **Surface**: the surface block's extraction, or the store's for this image
+   and extractor, is byte for byte the committed `surface.json`. A run over
+   documents named by hand whose queues hold no surface block leaves it to
+   the lane that extracts it and says so; any other run without one fails.
 
-It prints each section, writes the whole to `--summary` (uploaded as the run's
-verdict), and appends it to the job's summary.
+It prints each section, writes the whole to `--summary` (uploaded as the
+run's verdict), and appends it to the job's summary. The verdict names each
+group a problem is about (`failing`: the group, why, the items of it that
+failed and every item it holds), which a failed night's issue turns into the
+command that reruns that group alone (`python3 -m proof.lane.report`).
 
 ### Claims
 
@@ -1712,49 +3310,451 @@ The run steps reach the artifact service with the job's runtime token, which
 `.github/actions/proof-runtime` exports and the lane's server passes to its
 claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
 the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
-explicit diagnostic mode, and `proof_shards` selects another shard count.
+explicit diagnostic mode, `proof_shards` selects another shard count, and
+`proof_fresh` queues every group fresh, reading nothing from the store and
+keeping nothing: one whole run on a branch, which the sensitivity effects are
+written from where a pull request's own run read documents from the store
+("Configuration sensitivity").
 
 ### The other workflows
 
-- **`proof-lane.yml`** runs the lane whole and fresh for the workflows that
-  check the lane rather than a pull request. It records a candidate image in
-  the checkout's lock first (`proof/ci/candidate.mjs`), so every key the run
-  computes names the image it pulls.
-- **`proof-audit.yml`**: the nightly audit and the weekly comparisons ("The
-  evidence store and its audits", above).
+- **`proof-lane.yml`** runs the lane whole, fresh or against main's store
+  (`fresh`), for the workflows that check the lane rather than a pull
+  request, after the job that builds or
+  finds the Android reader's runtime. With `readers: false` it runs the pull
+  request lane's profile instead, with no Android runtime. It records a
+  candidate image in the checkout's lock first (`proof/ci/candidate.mjs`), so
+  every key the run computes names the image it pulls. As `store` asks, it
+  compares the fresh records with main's store, saves them as main's newest
+  snapshot, or packs them for its caller to merge (`store: pack`).
+  `ci.yml`'s `lane_sample` input runs it from a branch over a sample of that
+  many documents, storing nothing, to hold a change to it before main's
+  audit runs it. `documents` names what it queues (`all`, `sample:<n>`, or
+  `only:<id>,<id>` for those documents and their controls alone), and
+  `split-above` the pieces' threshold in the profile's place ("Documents
+  observed in pieces", below).
+- **`proof-audit.yml`**: the nightly runs and the weekly fresh audit ("The
+  evidence store and its audits", above). A night runs `proof-lane.yml`
+  twice over main against main's store (`fresh: false`), without the readers
+  and then with every reader, and **`proof-store-save.yml`** merges each
+  one's packed store over main's snapshot as its lane ends (`python3 -m
+  proof.store.pack merge`: every key names its profile, so the two never
+  share one; each save is kept under a key of its own, since a cache entry
+  is never written over), so a pull request that changes no proof input
+  finds every group cached, and its lane is setup, the audit sample and the
+  gate. Each week it runs both profiles whole and fresh, which replace the
+  snapshot, and then the sampled comparisons. A scheduled night or week that fails, or cannot save the
+  store, opens an issue written from the lanes' verdicts (`python3 -m
+  proof.lane.report`): each lane's failing groups, why, and the command that
+  reruns each one alone at the commit the run checked, on any machine with
+  Docker where it failed without the readers and through
+  `proof/remote/run.sh` where it needs one; a lane that left no verdict is
+  named as that. The repository is on GitHub's free plan for
+  organizations (twenty jobs at once, six hours a job) and the lane with
+  every reader costs about 550 worker-hours whole, so no lane runs it
+  fresh every night: each lane with the readers sizes its shards from its
+  queue (`python3 -m proof.lane.plan size`: no shard expected past the
+  profile's budget as every shard bins the queues, its deadline twice its
+  expected work; a group alone expected past that fails the plan, naming
+  it; "Documents observed in pieces", below) and runs at most fourteen at
+  once; the rest of its shards wait, and waiting is no job's time. That
+  bound is one lane's, so the lanes are kept from running at once ("When
+  the scheduled lanes run", below), which is what leaves six runners for
+  pull requests. A dispatch that names documents (`mechanics`,
+  with `nightly` unticked) runs the lane with every reader (or with none,
+  `mechanics_readers` unticked) over those documents and the controls of
+  the register's entries naming them, and nothing else of the corpus
+  (`python3 -m proof.store.queue --documents only:<ids>`), in pieces as
+  `mechanics_split` says, on `mechanics_shards` shards, and writes what a
+  failed night's issue would say into the run's summary: it shows the queue,
+  the matrix, the shards and their artifacts, the gate and the report on
+  GitHub's runners in minutes (`gh workflow run proof-audit.yml --ref
+  <branch> -f nightly=false -f mechanics=<id>,<id>`). One of the documents
+  named must be an edited one, because proof 5's check is collected over
+  those and the lane refuses to collect a check with nothing to run over;
+  the queue builder refuses a selection without one. It saves no store and
+  is no verdict on the corpus: its gate holds every difference on its
+  documents to the whole register, asks to see only the entries naming
+  them, on the document and on the control, and says what it left.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
-  weekly, and for the weekly pin pull request.
+  weekly, and for the weekly pin pull request. Weekly and by hand it also
+  holds the image's variants to each other, each lane fresh on the images
+  that run built (`python3 -m proof.store.audit compare`, which pairs two
+  runs' records by what they are, since their keys name different images
+  and architectures). Without the readers the whole lane runs on the slim
+  image and on the full one on amd64, and on the slim image on arm64: full
+  against slim, and arm64 against amd64, which is the run that holds the
+  lane on the arm64 image the workflow publishes for a person's arm64
+  machine. The Android reader runs on amd64 alone, so the architectures are
+  compared in the profile both run whole. With every reader, on amd64, the
+  slim image is held to the full one over the week's sample of 24 documents,
+  the one the weekly audit's comparisons turn through, so every document is
+  compared within fifteen weeks: the whole lane with every reader already
+  runs on the slim image each night and week, and what this adds beside it
+  is the full image. A scheduled comparison that fails opens an issue from
+  the lanes' verdicts (`python3 -m proof.lane.report --kind image`), which
+  says how a rerun names the image a lane ran (`PROOF_IMAGE`).
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
-  below).
+  below). Its prewarm runs the pull request lane's profile on the candidate
+  image and saves it for the pin pull request's CI; after it the lane runs
+  with every reader on the candidate, so a reader that does not hold on the
+  new pins fails that run before a person merges them.
 
-### Timings and the five-minute target
+**When the scheduled lanes run.** The account runs twenty jobs at once, and
+a lane's shards are at most fourteen at once (`proof-lane.yml`'s
+`max-parallel`). That bound is one lane's, so six runners stay free for pull
+requests only while no two lanes' shards run at once. Within a workflow each
+lane waits for the one before it (`needs`) and runs whatever that one found;
+across workflows the schedules are set apart by what each takes. The times
+below are the planner's, from the lane's measured seconds
+(`proof/timings.json`) on fourteen four-vCPU runners, with each lane's
+emission, its Android runtime's restore and its gate; the second figure is
+what the same plan gives once a run has measured the pieces, which are
+counted high until then. A hosted run of one document took up to 1.65 times
+a proof machine's, and a schedule's start may be late by some minutes, which
+the gaps between the schedules are for.
 
-The lane shares CI's five-minute target for the whole workflow
-(`docs/testing.md`, "Performance and verification"). `proof/timings.json`
-holds each group's measured cost in box-seconds and CI's default `execution`
-(shards, runner, workers per shard); the queue builder packs blocks from it,
-and a group it does not list counts the median document's or a default.
-`node proof/run.mjs --timings <output>...` refreshes it from runs' outputs.
-Choose the default shard count the way `docs/testing.md` chooses the smoke
-lane's: three hosted runs per candidate (`ci.yml`'s `proof_shards` input),
-counting setup, the image pull and the gate. The costs `proof/timings.json`
-holds were measured off GitHub's runners, so the default shard count stands
-until hosted runs confirm it; where they show the lane cannot finish in five
-minutes, the pull request records them and the person sets the lane's target
-(step 1's decision 11, below). Measure a change to the harness
-by the work it does: the CPU-seconds the harness's and Postgres's containers
-use (their cgroups' CPU usage before and after) beside the wall time and the
-worker count, per document, per check and per job, since a hosted runner has
-four vCPUs and more parallelism on a larger machine buys nothing there.
+| Schedule (UTC) | Lanes, in order | Takes |
+| --- | --- | --- |
+| Nights, 03:23 Tuesday to Saturday (`proof-audit.yml`) | without the readers against main's store (one shard: minutes, 1.2 h where every key moved), its save, with every reader against main's store, its save | what changed: minutes on most nights, 13.5 h (11.5) where every key moved, as after an emission change or new pins |
+| The week, 19:07 Saturday (`proof-audit.yml`) | whole and fresh without the readers (eight shards, 0.3 h), whole and fresh with every reader (56 shards in four rounds, 12 h; 10), their save, then the three sampled lanes (14 shards each, 3 h each) | 22 h (20), to Sunday evening |
+| The pin pull request, 00:37 Monday (`upstream-pins.yml`) | the image's build and the surface (ten minutes in run 37330885047), the prewarm without the readers (eight shards, 0.3 h), whole and fresh with every reader on the candidate (12 h; 10) | 13 h (11), where an upstream moved |
+| The image comparison, 17:17 Monday (`proof-image.yml`) | the build (six minutes in run 38253793793), the three whole lanes without the readers together (four shards each, 0.4 h), then the two sampled lanes with every reader (3 h each) | 7 h |
+
+No night runs on Sunday or Monday. The week's whole fresh lanes observe main
+on Saturday evening, which is more than that night would, and Monday is the
+pin pull request's and the image comparison's; Tuesday's night observes
+every group whose key changed since Saturday's snapshot, so nothing is left
+unobserved, and a pull request opened on Sunday or Monday reads Saturday's
+store and observes for itself what merged since. A dispatch is a person's
+to time: one that runs lanes while a schedule's are running takes runners
+beside them.
+
+### Documents observed in pieces
+
+A document's checks share one observation, and a group runs on one worker.
+With every reader that is hours for the heaviest documents: every state
+served to Formplayer, walked whole in the Web Apps client in every language
+and for every case, and handed to a phone and a tablet. In the whole lane
+run at head `dd12db6b` on the proof machines (471 groups, 2,053,913
+worker-seconds as run) 56 of the 441 documents and controls took more than
+two and a half hours on one worker, and the longest 15,711 seconds. GitHub
+ends a job at six hours, and one document's seconds differ between two runs
+by up to about 1.65 times (hosted run 38152876104 against proof machine runs
+of the same documents: HQ's own operations took 0.8 to 1.2 times as long on
+a hosted runner, a whole document's parts up to 1.65), so no budget alone
+holds the heaviest document on one worker with room to spare.
+
+The observation's own unit is one configuration of one document ("One HQ
+unit per document and configuration"): each configuration is observed in a
+unit of its own, every part under its own key, and shares no state with the
+other. So a document or control that is observed (not judged from the
+store), is exported under more than one configuration, and whose whole
+measure on one worker is past the profile's split threshold is queued in
+pieces (`python3 -m proof.store.queue`, `proof/timings.json`'s
+`execution.split`, or `--split-above`):
+
+- each configuration is a group of its own, a piece
+  (`corpus:<id>@<configuration>`, `control:<id>@<configuration>`): one item
+  (`proof/checks/pieces.py`) that observes that configuration whole into the
+  run's evidence store. It calls the observation the unsplit group calls,
+  for that configuration alone (`observe_document(configurations=...)`), so
+  it runs the same unit and keeps the same parts under the same keys;
+- the document's own group (`corpus:<id>`) follows its pieces (`after` in
+  the queue): a shard hands it out once each piece has passed
+  (`proof/lane/broker.py`), and it reads every part from the run's store and
+  observes nothing (`held_only`). Its checks then judge the document whole,
+  exactly as on a document observed whole: every judge, every comparison of
+  one reader's record with another's, the register and the evidence (one
+  record a check and document) are untouched.
+
+The pieces and the group after them share one block, so one shard runs them,
+on different workers (its workers write one store, and a part one kept is a
+hit for the next that asks). No one worker carries the document: the longest
+run of its work a shard cannot divide is its heavier configuration and the
+judging after it. The heavier configuration took 0.50 to 0.64 of its document
+in three runs with every reader. A worker asks for its next group before its
+group's last item (so pytest knows what runs next), and a piece is one item
+as long as its whole observation, so a worker that holds a piece is handed
+nothing ahead: handed the document's other piece at its start, it would
+carry the whole document while the others stood idle. It asks again when the
+piece ends (`proof/lane/broker.py`).
+
+The profile's budget is three hours a shard and its threshold half of that
+(`proof/timings.json`, `execution.budget` and `execution.split`, set from
+that whole run): the longest document's heavier configuration, counted at
+0.65 of it until a run measures it (10,212 s), fits the budget with its
+judging, and at 1.7 times it is inside the 345-minute deadline. 153 of the
+441 documents and controls ran past the threshold, 146 as the profile counts
+them (`measured.basis`: each bin at one density, where the longest is
+13,321 s).
+
+What holds it exact, each by a test or a run:
+
+- **No new key and no recreated state.** A piece is the unit an unsplit
+  observation runs for that configuration. `proof/lane/test_forkserver.py`
+  runs two real documents whole and in pieces through two nested lanes, in
+  the lane's own profile, and holds every check's evidence, every record
+  part the store keeps and each document's entry to the same bytes, and
+  the document's own group to having observed nothing.
+- **The same records write the same evidence.** A record read back from the
+  store is canonical JSON, so a judge reads each object's keys in sorted
+  order, where a record just observed lists them as HQ built them. What a
+  difference quotes and what a check adds beside its differences are
+  written with their keys sorted (`proof.checks.cases.evidence`), so a
+  document judged from the store writes the bytes its own observation
+  writes.
+- **The document's group never observes in its pieces' place.** A piece that
+  fails, runs no item or is lost with its worker fails the group that
+  follows it at once, by the piece's name, and that group is never handed
+  out (`proof/lane/test_broker.py`). Where it runs, a part no piece kept
+  raises `PartsNotHeld` naming it (`proof/checks/test_pieces.py`); a
+  configuration whose create HQ refused keeps only its `a`, and reads whole.
+  A lane that keeps no store (`PROOF_STORE=off`) fails each piece before it
+  observes, so nothing is observed twice or for no one.
+- **Exactly once.** A piece is a queued group of one item: the gate holds it
+  as any group (its block ran once, its item ran and passed), and names a
+  failed piece and the group it kept from running, each with why
+  (`proof/lane/test_gate.py`). A queue is refused unless each piece is in its
+  document's block with the group that follows it, a piece follows nothing,
+  and a group that follows pieces is not fresh: the pieces carry a fresh
+  lane's freshness, each part they observe held to the store as an unsplit
+  fresh group's is (`proof/lane/test_blocks.py`).
+- **Collected only where queued.** `proof/checks/pieces.py` is no
+  `test_*.py`. A shard whose main queue names pieces collects it as a test
+  module for that run (`PROOF_LANE_PIECES` names the queue, and the module
+  gives one item for each piece it names), so no shard collects an item no
+  queue runs, and a lane with no pieces collects none.
+
+Executed on a proof machine with every reader, at head `a3ecaf51`
+(2026-10-13): `case-list-inline` and `connect-deliver-default` ran as two
+lanes over one emitted corpus, each with a store of its own, whole on two
+workers and in pieces on four. Each document's two pieces ran on different
+workers, and its own group after them observed nothing. The two runs wrote
+the same 18 evidence records, byte for byte as written, and their stores
+hold the same 16 record parts, 2 document entries and 30 transcripts under
+the same keys with the same bytes. Whole, the documents took 3,846 and
+1,435 seconds on one worker; in pieces their configurations took 1,866 and
+1,860 seconds, and 826 and 819, and the judging after them 6.2 and 1.4, so
+the lane in pieces ended in half the time. A Connect session answers at an
+address its process's id names, and the admin types that address into HQ's
+Connection Settings page, so a Connect document's two pieces are observed at
+two addresses, neither of them the one a single worker would have used for
+both: a third run observed that document's pieces at two other addresses
+than the whole run's, and its nine records have the whole run's digests and
+its evidence the same bytes (`proof/connect/hq.py::keyed_body` keys that
+page's form without the address).
+
+A run that observed a document in pieces measures it as it ran: each piece
+under its own name, and the document's own group its judging alone
+(`proof/timings.json`). The document's whole measure is their sum
+(`proof.checks.sharding.documents`), which is what the threshold is held to,
+so a document does not pass for light by its judging's measure. A piece no
+run has measured counts at 0.65 of its document's whole where the document
+is observed in two (`PIECE_SHARE`), and at that share scaled to the number
+of its pieces where it is observed in more (`piece_share`: 0.43 of it in
+three), by the queue builder, the planner and the shard's broker alike, so a
+lane sized before its pieces are measured is oversized, never overrun.
+
+`plan size` counts a document in pieces as its longest piece and the judging
+after it, and refuses a lane in which that run alone is past the budget, by
+the piece's name: a configuration is the smallest piece a document is
+observed in. The smaller seams are not exact without more: a part
+(`b`, `b_edit`) observed by another worker than `a` would be observed over a
+recreated A, which draws other ids where HQ's determinism is off and gives a
+Connect app an opportunity that never received the earlier states'
+deliveries; a reader's share of one state cannot be divided from the others',
+since Connect receives what Formplayer and the devices each submit, a
+device's judge reads what HQ refused Formplayer in the same state, and the
+client replays Formplayer's walk; and proof 4's saves inside `b` share one
+record and one memo of served states.
+
+A failed night's issue names a failed piece as one, with the line that
+observes that configuration again alone
+(`proof/remote/run.sh <host> -- 'proof/checks/pieces.py::<the piece's item>'`:
+named by its path with no queue, the module gives an item for every
+configuration of every document, and the one named runs), and the document's
+group it kept from running with the line that reruns the document's checks,
+which observe it whole on one worker.
+
+### Timings and what the lane is expected to take
+
+The pull request lane has no cap on its time: it runs every group its change
+leaves out of the store, and the planner only chooses how many shards run
+them. What it is expected to take is modelled here from measures, so a
+reviewer knows what to expect and a change that makes it longer is seen.
+`proof/timings.json` holds each
+profile's group costs in box-seconds and its CI `execution` (shards, runner,
+workers per shard): `readers` for the nightly's lane, `no-readers` for the
+pull request lane's. The queue builder packs each profile's blocks from its
+own costs (a group it does not list is counted at the 90th percentile of the
+measured groups of its kind, so a stale profile oversizes a lane), and `node
+proof/run.mjs --timings <output>...` refreshes the profile its outputs ran
+in, keeping the other and its execution; `--box-workers 4` measures a
+run on a machine that gives each worker a vCPU, as a CI shard does, by a CI
+box's four workers. Measure a change to the harness by the work it does: the
+CPU-seconds the harness's and Postgres's containers use (their cgroups' CPU
+usage before and after) beside the wall time and the worker count, per
+document, per check and per job, since a hosted runner has four vCPUs and more
+parallelism on a larger machine buys nothing there.
+
+**The whole lane with every reader.** Serving each state to Formplayer and
+the Web Apps client, walking every run of it whole in the client, a fresh
+page a run, for every case and in every language, and handing it to a phone
+and a tablet that walk the same beside HQ's unit, makes a document's group
+cost over a hundred times what it costs without them. One run of the whole
+lane measured it on 2026-10-13, every group observed afresh with no store
+(357 documents, 84 controls and 30 package groups, on two proof machines;
+the `readers` profile's `measured.basis` says how): 552 worker-hours at
+about a vCPU a worker, 496,353 box-seconds, where the lane without the
+readers is 4.5 worker-hours. The median document takes 3,361 seconds on one
+worker (25 without the readers), one in ten more than 9,564, and the longest,
+`fuzz-xform-20260930-9`, 13,321. Half of it is the devices: 49% of the
+workers' time is inside a device's request ("Android in the unit": 24,662
+requests, a JVM each). Twenty-four groups drawn across the lane's range and
+run again with Formplayer alone took 8% of what they took with every reader,
+HQ's, Core's and the editors' own work included, which leaves the Web Apps
+client's walks about 43%.
+
+On GitHub's free plan that is 138 hours of four-vCPU runners, about ten
+hours with fourteen at once, which no pull request can wait for and no night
+can spend whole, so the nightly runs it against main's store, observing what
+changed, and the weekly runs it whole (`proof-audit.yml`). Each sizes its
+shards from its queue's estimates, which come from the `readers` costs, to
+stay within the profile's budget a shard (`execution.budget`), with its
+heaviest documents observed in pieces ("Documents observed in pieces",
+above). From this measure `plan size` gives a whole fresh lane 56 shards,
+four rounds of fourteen, none expected past 10,640 seconds: 146 documents
+and controls are queued in 294 pieces, each counted at 0.65 of its document
+until a run measures the pieces. Past fourteen shards the count is rounded
+up to a multiple of fourteen: fourteen run at once, so the lane takes as
+many rounds either way, and the same work over a full last round ends
+sooner. The measuring run itself was on proof machines
+("Running the lane on another machine": sixteen static bins of one queue,
+every document whole, 184 workers on 224 vCPUs, each bin two and three
+quarter to four and three quarter hours, gated together).
+
+**The pull request lane.** The `no-readers` costs come from one run of the
+whole lane without the readers on a 32-vCPU proof machine at 32 workers, one
+vCPU a worker as on a CI shard, every group observed afresh with no store:
+452 groups, 16,076 worker-seconds, 4,019 box-seconds, the median document 24
+seconds on one worker. Main's lane before the readers, run the same way on
+the same machine, took 12,589 worker-seconds (its own `proof/timings.json`
+held 1,941 box-seconds, measured on hosted runs that read the store): of the
+22% more, most is two servers each worker started once, HQ's own
+Elasticsearch (about 32 seconds at that density, in its first unit) and the
+Formplayer that answered HQ's form validation (about 24, in its first build);
+the rest is proof 4's editor pages on more states and the documents and
+package tests added since. The validation Formplayer is now one a server,
+started while HQ boots (`proof/formplayer/shared.py`): on four vCPUs with
+four workers, as a CI shard runs, that took 45 worker-seconds off sixteen
+documents, about 11 seconds off each worker's first build. A group runs
+on one worker, so the packages whose tests took longer than a shard can
+hold whole run as several groups (`proof.checks.sharding.SPLIT`): no group
+now takes more than about 215 seconds at that density, and the longest group
+a lane runs is the least its shard can take.
+
+A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
+the job's start to the pulled image and Postgres (the other setup overlaps
+it), about 20 to start the lane (Postgres, HQ's boot, its template, the Core
+runner's classes, the warm-up) and collect, each worker's own Elasticsearch
+and its first build's wait on the shard's validation Formplayer (about 45),
+and 6 to upload, beside 45 for the gate after the shards. GitHub's limit of
+about twenty jobs at once across CI, which the test, smoke and build jobs hold
+for their first three to four minutes, starts most shards one to four minutes
+late, in no fixed order (run 38081646423 started its ten shards from 44 to
+205 seconds, and later shards wait for the test and smoke jobs to end). The
+`no-readers` execution records those as its `slots` (when each runner frees
+for a shard, none earlier than 110 seconds: the plan waits for the corpus
+job, which ends when the main queue is uploaded, 88 and 96 seconds into the
+two runs measured, and the plan's ten seconds and each job's few seconds of
+start follow) and its
+`fixed` and `gate` costs, which the planner models a lane's end from
+(`python3 -m proof.lane.plan`): a lane of N shards is expected to end when
+its N-th slot opens, every shard charged that late start, plus the fixed
+cost, the longest span and the gate.
+
+Every shard bins the queues alike (`proof.checks.sharding.static_bins`:
+heaviest block first, each to the least loaded bin), the main queue's bins
+starting from the early queue's loads so no shard holds the heaviest block of
+both; each block runs on exactly one shard, which the gate holds. A shard's
+expected span is its bin's box-seconds, or the longest group in it on one
+worker (its box-seconds times four) when that is longer; a group that
+follows pieces counts with its longest piece. For the lanes with the
+readers, `plan size` refuses a group that alone is expected past a shard's
+budget, naming it (a piece, by its name), so the planning step fails loudly
+instead of starting a shard that would run out its six hours.
+
+More shards end the work sooner and start later, so some count ends soonest.
+`plan fit` takes the fewest shards (up to `execution.shards`) whose expected
+end is within fifteen seconds of that soonest end
+(`FIT_TOLERANCE_SECONDS`): a small queue does not take runners it does not
+need, and a large one takes what shortens it. It chooses nothing else. Every
+group the queues hold runs, the gate holds every one of them, and a lane that
+takes longer than modelled takes longer; nothing is dropped, sampled or put
+off to make a time. Each shard's deadline is twice what the plan expects the
+longest to take from its own start, never under twenty minutes: it ends a
+shard that is stuck, and a shard it ends fails the lane.
+
+What a pull request runs is what its changes leave out of main's store, which
+the nightly fills with both profiles, and the audit sample (four documents or
+so, observed afresh on every run to hold the store to its keys). The
+expected ends below are the model's: `plan fit` over the queues the queue
+builder's own code makes for each change, from this commit's corpus (357
+documents, 69 controls, 30 package groups: 456 groups, 4,091 box-seconds
+whole) and `proof/timings.json`, with a store taken to hold everything the
+change's keys do not move. One row has been measured on hosted runners,
+once: the last. Pull request run 38425969767 observed every group afresh on
+fourteen shards, each of which ran its blocks to the end, and its gate's job,
+which judged all 5,226 items (one of them, a test of the lane's own, failed),
+ended 755 seconds after the workflow started, 12 minutes 40 seconds after
+the pull request was opened, where the model expects 771. The other rows are
+the model's alone.
+
+| The change | Groups that run | Shards | Expected end |
+| --- | --- | --- | --- |
+| Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | about 6 min (341 to 350 s) |
+| Nova's emission in 10 documents | 25: those, the audit sample and the 11 package groups whose keys name them | 2 | 8.3 min (494 to 496 s) |
+| 40 documents | 57 or 58, 14 of them package groups | 3 | 8.7 min (524 to 525 s) |
+| 100 documents | 126 to 128, 24 of them package groups | 7 | 9.8 to 9.9 min (588 to 593 s) |
+| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 8.7 min (523 to 524 s) |
+| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 8.7 min (523 to 524 s) |
+| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 456, the documents and controls judged from their stored records | 6 | 10.2 min (610 s) |
+| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 456, observed afresh | 14 | 12.9 min (771 s) |
+
+A test module is no part of the observation ("The evidence store and its
+audits"), so an edit to one runs the package groups and leaves every
+document cached; an edit to a module the observation runs is the last row.
+An emission change in Nova re-emits most documents, so the last row is a
+common case and not a rare one.
+
+The pin pull request is prewarmed in the pull request lane's profile
+(`upstream-pins.yml`), so its CI reads its records like any other pull
+request's.
 
 ## Changing a pin
 
 `proof/pins.json` names the commit of each upstream the harness uses
-(commcare-hq, commcare-core, commcare-android, commcare-connect), and
-`proof/image.lock` the image built from them, with the pins it was built from.
-CI's `quality` job fails while the two disagree
-(`scripts/ci/check-proof-image-lock.mjs`). Formplayer is not pinned: nothing
-the lane runs is Formplayer's.
+(commcare-hq, commcare-core, commcare-android, commcare-connect, formplayer),
+and `proof/image.lock` the image built from them, with the pins it was built
+from. CI's `quality` job fails while the two disagree
+(`scripts/ci/check-proof-image-lock.mjs`). Formplayer runs the Core it
+vendors, the commit its own tree records for `libs/commcare`, whatever the
+Core pin is: the runner announces both, and where they differ the Core
+runner and Formplayer run two Cores, so a difference between their sessions
+may be Core's own. Connect's source is fetched at its pin when a proof runs,
+and the image's Connect virtualenv is built from that pin's lock, so moving
+Connect's pin rebuilds the image like any other
+(`proof/connect/test_runtime.py` holds the two to one commit).
+
+The Android reader's runtime is no part of the image. It is built from the
+commcare-android and commcare-core pins and `proof/android/toolchain.json` by
+the first CI run that finds none kept under their digest, so moving either
+pin (or the toolchain) builds a new runtime, and the reader's fingerprint
+names all three, so every archive is read again with it. Where a new
+commcare-android asks for another Gradle, another compile SDK or another
+Robolectric Android runtime, the build stops and names what to move in the
+toolchain.
 
 ### The weekly pin pull request
 
@@ -1769,8 +3769,14 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
 2. **Image**: `proof-image.yml` builds the image at those pins.
 3. **Surface**: the surface is extracted in the new image.
 4. **Prewarm**: the whole lane runs fresh on the candidate image over the tree
-   the pull request will carry and saves what it observed as main's store for
-   that image, so the pull request's own CI reads its records.
+   the pull request will carry, in the pull request lane's profile (without
+   the readers), and saves what it observed as main's store for that image,
+   so the pull request's own CI reads its records. After it the lane runs
+   with every reader on the candidate, compared with main's store, and a
+   reader that does not hold on the new pins fails the run: the readers'
+   verdict on new pins is there before a person merges them, as the nightly's
+   is after. It takes about twelve hours of fourteen runners ("When the
+   scheduled lanes run"), and the pull request waits only for the prewarm.
 5. **Report** (`pins.mjs report`) adds the image lock and the regenerated
    surface to the one commit, opens the pull request or updates the open one,
    and requests review. GitHub holds CI on a pull request the workflow's own
@@ -1805,6 +3811,15 @@ workflow on the branch and record its digest in `proof/image.lock`. The image
 the lock records changes only when its inputs do; the workflow's weekly build
 proves the recipe still builds and that its variants observe alike.
 
+The lock names the built image and the pins it was built from, and nothing
+holds it to the recipe's own files (CI holds its pins to `proof/pins.json`,
+`scripts/ci/check-proof-image-lock.mjs`, and the store's `image` fingerprint
+is its digest), so a change under `proof/image/` that leaves what the image
+holds byte for byte the same needs no new image, which is shown by running
+the changed step in the pinned image as the Dockerfile runs it, comparing
+every file it writes with the one the image already holds, and saying in the
+commit what was run and compared.
+
 ## Step 1's decisions
 
 The harness is step 1 of the HQ round trip
@@ -1819,15 +3834,18 @@ each is stated here as it is built.
    commcare-hq, commcare-core, commcare-android (its parsers, widgets and
    installers feed the surface) and commcare-connect (the Connect proof reads
    its extractors). Vellum is HQ's vendored build, held to the research's
-   Vellum pin by the image's self-test; Formplayer is not pinned, since the
-   Core runner answers the form validation HQ's build asks it for. Changing a
+   Vellum pin by the image's self-test. Formplayer was not pinned while the
+   lane ran none of it; it is the fifth pin now that its application runs
+   ("The Formplayer runner"), and it answers the form validation HQ's
+   build asks Formplayer for. Changing a
    pin is a pull request that rebuilds the image and regenerates the surface.
 3. **One harness image**, public at
    `ghcr.io/voidcraft-labs/commcare-nova-proof`, built for linux/amd64 and
    linux/arm64, holding only public, licensed upstream sources and the
    harness's own code ("Building the image"). Nova's checkout is mounted at
    run time, with its Linux `node_modules` in a volume keyed by
-   `package-lock.json`. Connect is never in the image.
+   `package-lock.json`. Connect's source is never in the image; the
+   interpreter, virtualenv and services it runs on are.
 4. **The image is rebuilt only when its inputs change**, by `proof-image.yml`,
    and `proof/image.lock` records its digest with the pins it was built from;
    CI's `quality` job fails while they differ from `proof/pins.json`.
@@ -1856,7 +3874,12 @@ each is stated here as it is built.
     the Core JUnit suite) is measured first. Where the floor cannot fit the
     target at the concurrency the repository's runners allow, the pull request
     that sets the lane's shape records those measurements and the person sets
-    the lane's target before it merges.
+    the lane's target before it merges. Once every reader joined, the person
+    set it: the pull request lane runs without the readers and runs every
+    group its change invalidates, with no cap on its time (about six minutes
+    with nothing changed to about thirteen with every group fresh, as
+    modelled), and the nightly and weekly runs hold the lane with the readers
+    ("The lane in CI", "Timings and what the lane is expected to take").
 12. **A known defect is a strict register entry, not a skipped test** ("The
     registers").
 13. **Accepted identity moves are a register too**,
@@ -1872,13 +3895,20 @@ each is stated here as it is built.
     value-level checks only on targeted documents.
 17. **HQ's feature-matrix apps belong to step 6**, whose reader is their first
     consumer.
-18. **Android is cited, not run.**
+18. **Android is run, and judged.** The decision was that Android be cited
+    and not run; it no longer stands. CommCare Android's own code is handed
+    every state the lane serves, beside HQ's live unit in each shard, its
+    network answered by HQ's own views, and proofs 1, 3 and 4 judge what it
+    did and hold it to the register ("Android in the unit"). What a defect
+    does on a device is an entry, with a document and a control, never a
+    citation of Android's source.
 19. **A check runs only against a target Nova's publish accepts.**
 
 These were settled while the lane was built, and stand where the plan's first
 text said otherwise: HQ's database is a clone of the schema HQ's own
-migrations create, not a list of models; Elasticsearch is one seam answering
-the reads the paths make as an empty index; app-manager pages render through
+migrations create, not a list of models; Elasticsearch is HQ's own server at
+HQ's version, its indexes written by HQ's own code and held to each unit's
+marks; app-manager pages render through
 HQ's own page views (`view_generic`), their JavaScript bundled at image build
 time with an esbuild configuration derived from HQ's webpack configuration;
 `DEBUG` stays on, with only its speed effects as seams; HQ's soft assertions
@@ -1894,10 +3924,12 @@ for a unit its option owns; every module and form and the app's own record for
 a language-catalog or Connect-type edit; the modules holding an edited form;
 the module a no-matches registration form is lowered into, and its host
 module) and every entity whose wire Nova derives from what the batch edits;
-the lane runs on arm64; the inputs of two defect rows ("12, same-type child",
-"20, CommTrack") cannot come from a Nova document, so they are not reproduced
-(no other row is dropped: the one clause step 1 is done but for is open, "What
-the lane does not observe"); the `hq-api` family records each view's decorators
+the lane's shards run on amd64, where Android runs beside HQ; the input of one defect row ("12, same-type child")
+cannot come from a Nova document, which a test of Nova's planner and gate
+shows, so it is not reproduced (the same was said of "20, CommTrack", whose
+read Nova's gate admits: it is a row again, "The defect rows", and "Claims
+held outside a document's checks" names what holds it); the `hq-api` family
+records each view's decorators
 with their arguments and the module constants a view returns; and the weekly
 pin pull request is opened with the workflow's own token, and the workflow
 never merges.

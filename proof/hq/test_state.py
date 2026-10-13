@@ -33,7 +33,7 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 
 
 def test_an_unanswered_couch_view_raises(hq, core_runner):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.dbaccessors import get_brief_apps_in_domain
         from corehq.apps.domain.models import Domain
 
@@ -43,11 +43,11 @@ def test_an_unanswered_couch_view_raises(hq, core_runner):
         assert Domain.get_by_name(state.domain).name == state.domain
         assert [app.get_id for app in get_brief_apps_in_domain(state.domain)] == [app_id]
 
-        # Unanswered: by_domain_doc_type_date/view is not a view any path reads.
-        from corehq.apps.groups.models import Group
+        # Unanswered: reportconfig/configs_by_domain (a person's saved reports) is not a view any path reads.
+        from corehq.apps.saved_reports.models import ReportConfig
 
-        with pytest.raises(UnansweredView, match="by_domain_doc_type_date/view"):
-            Group.by_domain(state.domain)
+        with pytest.raises(UnansweredView, match="reportconfig/configs_by_domain"):
+            ReportConfig.by_domain_and_owner(state.domain, "proof-owner", stale=False)
 
 
 def test_a_view_row_is_a_copy_of_what_is_stored(hq, core_runner):
@@ -55,7 +55,7 @@ def test_a_view_row_is_a_copy_of_what_is_stored(hq, core_runner):
     ``applications_brief``, whose values the map takes from the stored app).
     Changing one without saving leaves the stored app as it was, as CouchDB's
     wire copy does; a saved change is what the next read sees."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.dbaccessors import get_app, get_brief_apps_in_domain
 
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite")])
@@ -80,7 +80,7 @@ def test_a_view_rows_document_is_a_copy_of_what_is_stored(hq, core_runner):
     wraps each row's document: the wrapper holds the dictionary it wrapped
     and writes through to it. Changing the wrapped app without saving leaves
     the stored app as it was; saving it is what the next read sees."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.dbaccessors import get_apps_in_domain
 
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite")])
@@ -117,6 +117,23 @@ def _chain(error):
     return found
 
 
+def test_a_new_unit_finds_its_web_user_by_username(hq, core_runner):
+    """The seed saves the web user's Django account before their Couch document, and HQ's signal on that save asks
+    for the Couch user by username, which HQ caches. The unit then answers HQ's own lookups by username with the
+    seeded user: a cached "none" made every request of their session an ``InvalidUser`` until something emptied
+    the caches (Connect's forwarder pages, refused with a 500, where nothing had)."""
+    with hq_check(CONFIGURATION) as (state, _):
+        from corehq.apps.users.models import CouchUser
+        from corehq.apps.users.util import username_to_user_id
+
+        username = state.web_user.username
+        # Inside an operation, under the unit's clock, as a request reads HQ's caches (outside one, the machine's
+        # clock has long passed the cached answer's timeout, and HQ asks again).
+        with state.operation("web-user-lookup", b"web-user"):
+            assert username_to_user_id(username) == state.web_user.get_id
+            assert CouchUser.get_by_username(username).get_id == state.web_user.get_id
+
+
 def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_runner):
     """A path that reaches a table the harness's database lacks fails the
     check, even where the query runs inside a Celery task HQ's save starts:
@@ -130,7 +147,7 @@ def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_r
     refuses to end as if nothing happened (``AbortedTransaction``)."""
     upload = nova_shaped_upload(hq_test_app(), "Suite")
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.data_dictionary.models import CaseProperty
 
         operations.publish(state, [upload])
@@ -139,7 +156,7 @@ def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_r
     from django.db.utils import ProgrammingError
 
     with pytest.raises(AbortedTransaction, match="connection (marked for rollback|in an aborted transaction)"):
-        with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+        with hq_check(CONFIGURATION) as (state, _):
             from django.db import connection
 
             with connection.cursor() as cursor:
@@ -161,7 +178,7 @@ def test_a_missing_table_fails_loudly_inside_the_data_dictionary_task(hq, core_r
     assert "_refresh_data_dictionary_from_app" in frames
 
     # The table is back for the next unit: the drop was rolled back with it.
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         operations.publish(state, [upload])
         assert CaseProperty.objects.filter(case_type__domain=state.domain).exists()
 

@@ -4,13 +4,14 @@ Contract: a corpus document's minimum configuration grants a privilege
 exactly when the app Nova sends holds content HQ gates on it. The plausible
 failures: a rule that reads the wrong field (the content is present and the
 privilege is left out, so a check reports the plan as a defect), a rule
-that fires on every app (the minimum grants more than the content needs,
-hiding a refusal the plan would cause), and, where the reader runs on an
+other than Web Apps' that fires on every app (the minimum grants more than
+the content needs, hiding a refusal the plan would cause), and, where the reader runs on an
 app alone, a rule that names a reader which does not in fact read that
 content.
 
 Each case starts from one app HQ's own ``AppFactory`` builds, which needs
-no privilege, and adds exactly one piece of content. The rules whose cited
+only what every app does (Web Apps, ``CLOUDCARE``: a worker opens every app
+there), and adds exactly one piece of content. The rules whose cited
 reader runs on an app alone are also run through it, with and without the
 privilege, which is what makes the privilege part of the minimum:
 ``ApplicationValidator`` for the user case, lookup tables and both intent
@@ -37,7 +38,7 @@ ODK = "http://opendatakit.org/xforms"
 VELLUM = "http://commcarehq.org/xforms/vellum"
 
 
-def source(*, instances=(), intents=(), role=None, lock=None, appearance=None):
+def source(*, instances=(), intents=(), role=None, lock=None, appearance=None, itemset=False):
     """A one-question form source holding the content under test."""
     from lxml import etree
 
@@ -61,10 +62,14 @@ def source(*, instances=(), intents=(), role=None, lock=None, appearance=None):
     for intent in intents:
         etree.SubElement(head, f"{{{ODK}}}intent", id=f"intent-{len(intent)}", **{"class": intent})
     body = etree.SubElement(html, f"{{{XHTML}}}body")
-    control = etree.SubElement(body, f"{{{XFORMS}}}input", ref="/data/name")
+    control = etree.SubElement(body, f"{{{XFORMS}}}{'select1' if itemset else 'input'}", ref="/data/name")
     if appearance is not None:
         control.set("appearance", appearance)
     etree.SubElement(control, f"{{{XFORMS}}}label").text = "Name"
+    if itemset:
+        choices = etree.SubElement(control, f"{{{XFORMS}}}itemset", nodeset="instance('casedb')/casedb/case")
+        etree.SubElement(choices, f"{{{XFORMS}}}label", ref="case_name")
+        etree.SubElement(choices, f"{{{XFORMS}}}value", ref="@case_id")
     return etree.tostring(html, encoding="unicode")
 
 
@@ -87,6 +92,14 @@ def _usercase(factory, module, form):
 
 def _lookup_source(factory, module, form):
     form.source = source(instances=[("regions", "jr://fixture/item-list:regions")])
+
+
+def _case_instance(factory, module, form):
+    form.source = source(instances=[("casedb", "jr://instance/casedb")])
+
+
+def _case_itemset(factory, module, form):
+    form.source = source(instances=[("casedb", "jr://instance/casedb")], itemset=True)
 
 
 def _custom_intent(factory, module, form):
@@ -160,6 +173,8 @@ CASES = [
     ("user_case", _usercase, ["USERCASE"], False),
     ("lookup_tables_form", _lookup_source, ["LOOKUP_TABLES"], False),
     ("lookup_tables_push", None, ["LOOKUP_TABLES"], True),
+    ("case_itemset", _case_itemset, ["LOOKUP_TABLES"], False),
+    ("case_instance_without_itemset", _case_instance, [], False),
     ("custom_intents", _custom_intent, ["CUSTOM_INTENTS"], False),
     ("templated_intents", _templated_intent, ["TEMPLATED_INTENTS"], False),
     ("child_cases", _child_case, ["CHILD_CASES"], False),
@@ -181,9 +196,13 @@ def export(factory):
     return factory.app.export_json(dump_json=False)
 
 
-def test_the_base_app_needs_no_privilege(hq):
+# Every app needs Web Apps: a worker opens it there (``_needs_cloudcare``).
+EVERY_APP = ["CLOUDCARE"]
+
+
+def test_the_base_app_needs_web_apps_alone(hq):
     factory, _, _ = base_app()
-    assert required_privileges([export(factory)]) == []
+    assert required_privileges([export(factory)]) == EVERY_APP
 
 
 @pytest.mark.parametrize(("name", "add", "expected", "push"), CASES, ids=[case[0] for case in CASES])
@@ -191,7 +210,7 @@ def test_each_rule_grants_its_privilege_for_its_content_alone(hq, name, add, exp
     factory, module, form = base_app()
     if add is not None:
         add(factory, module, form)
-    assert required_privileges([export(factory)], lookup_push=push) == expected
+    assert required_privileges([export(factory)], lookup_push=push) == sorted({*expected, *EVERY_APP})
 
 
 def test_the_rules_cover_every_privilege_row_a_configuration_names():
@@ -215,11 +234,13 @@ def test_the_rules_cover_every_privilege_row_a_configuration_names():
     assert rows == covered
 
 
-def test_an_app_that_declares_web_apps_needs_cloudcare(hq):
-    """HQ's create sets ``cloudcare_enabled`` from the plan, so only the source's request counts."""
+def test_every_app_needs_web_apps_whatever_its_source_asks(hq):
+    """HQ's create sets ``cloudcare_enabled`` from the plan and never from the source, and Web Apps lists an app
+    only with it, so an app needs the privilege whether or not its source asks for Web Apps."""
     factory, _, _ = base_app()
     sent = export(factory)
-    assert required_privileges([sent]) == []
+    assert not sent.get("cloudcare_enabled")
+    assert required_privileges([sent]) == ["CLOUDCARE"]
     sent["cloudcare_enabled"] = True
     assert required_privileges([sent]) == ["CLOUDCARE"]
 
@@ -248,7 +269,7 @@ def test_the_cited_build_reader_refuses_the_content_without_the_privilege(hq, ad
     factory, module, form = base_app()
     assert _validator_errors(factory.app, method, set()) == []
     add(factory, module, form)
-    assert required_privileges([export(factory)]) == [privilege]
+    assert required_privileges([export(factory)]) == sorted({privilege, *EVERY_APP})
     assert _validator_errors(factory.app, method, {privilege}) == []
     assert _validator_errors(factory.app, method, set()) != []
 
@@ -257,7 +278,7 @@ def test_the_templated_privilege_alone_refuses_a_custom_intent(hq):
     """The intents rule names ``CUSTOM_INTENTS`` for an intent HQ has no callout template for."""
     factory, module, form = base_app()
     _custom_intent(factory, module, form)
-    assert required_privileges([export(factory)]) == ["CUSTOM_INTENTS"]
+    assert required_privileges([export(factory)]) == sorted({"CUSTOM_INTENTS", *EVERY_APP})
     assert _validator_errors(factory.app, "_validate_intents", {"TEMPLATED_INTENTS"}) != []
 
 
@@ -302,6 +323,6 @@ def test_the_profile_carries_the_content_only_with_the_privilege(hq, add, privil
     factory, module, form = base_app()
     assert not read(_profile(factory.app, {privilege}))
     add(factory, module, form)
-    assert required_privileges([export(factory)]) == [privilege]
+    assert required_privileges([export(factory)]) == sorted({privilege, *EVERY_APP})
     assert read(_profile(factory.app, {privilege})) == expected
     assert not read(_profile(factory.app, set()))

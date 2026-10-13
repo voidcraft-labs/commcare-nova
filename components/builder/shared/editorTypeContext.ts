@@ -47,6 +47,7 @@ export interface EditorTypeVocabulary {
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly operationScope?: OperationValueScope | undefined;
 	readonly ownerValues?: boolean;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
@@ -76,6 +77,7 @@ export function buildEditorTypeContext(
 		caseTypes: [...args.caseTypes],
 		knownInputs: [...args.knownInputs],
 		currentCaseType: args.currentCaseType,
+		formCaseTypes: args.formCaseTypes,
 		userPropertySlugs: new Map(
 			userProperties.map((property) => [property.uuid, property.slug]),
 		),

@@ -2,8 +2,11 @@
 
 pytest owns the lifetime of each service the checks share, whichever package
 they are in: one Core runner JVM for the whole session (``core_runner``), one
-editor driver (node and Chromium) for the whole session (``editor_driver``),
-and HQ booted once per process (``hq``). A service that fails to start fails
+Formplayer for the whole session (``formplayer_runner``: its JVM, its
+database on the lane's Postgres and its Redis, started the first time a test
+or a document's observation asks for it, ``lane_services``), one editor driver (node and
+Chromium) for the whole session (``editor_driver``), and HQ booted once per
+process (``hq``). A service that fails to start fails
 every check that needs it; nothing is skipped.
 
 Under the lane's fork server (``proof.lane.serve``) each worker is one
@@ -35,6 +38,16 @@ seeded emission. The weekly unseeded run leaves both real
 (``PROOF_HQ_DETERMINISM=0``, ``PROOF_ENTROPY=real``) to compare what it
 observes with a seeded run's, and there no request is answered alike twice
 and no update sends its republish's bytes, so those tests are skipped.
+
+A test marked ``reader`` starts a served reader (``proof.lane.readers``), the
+readers it starts the mark's arguments (none for every one): every test whose
+fixtures reach one that starts one (``readers.FIXTURES``) is marked here, and
+a test that starts one itself is marked by hand. A run that leaves out a
+reader a test starts (``PROOF_READERS``) deselects the test, and there the
+session's services refuse to start that reader, so a test left unmarked that
+starts one fails. A run with the readers holds each test marked by hand to
+asking for one (``proof.observe.services.asked``), so no test leaves the pull
+request lane for a reader it never starts.
 """
 
 from __future__ import annotations
@@ -50,6 +63,7 @@ import pytest
 
 from proof.core.client import CoreRunner
 from proof.editors.client import EditorDriver
+from proof.formplayer.client import FormplayerRunner
 from proof.hq.boot import GUARD, BootReport, boot
 
 # The name the lane's worker plugin registers under (proof.lane.plugin.LanePlugin).
@@ -79,6 +93,33 @@ def core_runner() -> Iterator[CoreRunner]:
             record_timing("core_runner_compile", runner.timings.compile)
         record_timing("core_runner_start", runner.timings.starts[0])
         yield runner
+
+
+def _formplayer_started(runner: FormplayerRunner) -> None:
+    if runner.timings.compile is not None:
+        record_timing("formplayer_runner_compile", runner.timings.compile)
+    record_timing("formplayer_database", runner.timings.database[0])
+    record_timing("formplayer_redis_start", runner.timings.redis[0])
+    record_timing("formplayer_start", runner.timings.starts[0])
+
+
+@pytest.fixture(scope="session", autouse=True)
+def lane_services() -> Iterator[None]:
+    """The session's Formplayer, which a document's observation is served to from inside its unit: started the
+    first time an observation or a test asks (``proof.observe.services.formplayer``), joined when the session
+    ends. A session that never asks starts none."""
+    from proof.observe import services
+
+    with services.session(on_start=_formplayer_started):
+        yield
+
+
+@pytest.fixture(scope="session")
+def formplayer_runner(lane_services) -> FormplayerRunner:
+    """The session's one Formplayer (its JVM, its database and its Redis), the one observations are served to."""
+    from proof.observe import services
+
+    return services.formplayer()
 
 
 @pytest.fixture(scope="session")
@@ -132,10 +173,12 @@ def network():
 
 
 def pytest_collection_modifyitems(config, items):
-    """Each group's items together, groups in the order they first appear (``proof.checks.sharding``), and the
-    ``under_determinism`` tests skipped where HQ's determinism is off or the corpus was emitted unseeded."""
+    """Each group's items together, groups in the order they first appear (``proof.checks.sharding``), the
+    ``under_determinism`` tests skipped where HQ's determinism is off or the corpus was emitted unseeded, and the
+    tests that start a served reader marked ``reader`` and, in a run without the readers, deselected."""
     from proof.checks.sharding import order_by_group
     from proof.hq import determinism
+    from proof.lane import readers
 
     if not determinism.ENABLED or _emitted_unseeded():
         unseeded = pytest.mark.skip(
@@ -145,7 +188,71 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if item.get_closest_marker("under_determinism") is not None:
                 item.add_marker(unseeded)
+    named = readers.named()
+    needs = {}
+    for item in items:
+        started = [readers.FIXTURES[name] for name in getattr(item, "fixturenames", ()) if name in readers.FIXTURES]
+        mark = item.get_closest_marker(readers.MARK)
+        if started:
+            # A test whose fixtures start one reader and that reads another's record too (a whole observation's,
+            # say) names the others by hand: it runs where the run names them all.
+            also = readers.with_brought(mark.args) if mark is not None and mark.args else frozenset()
+            needs[item.nodeid] = frozenset().union(*started) | also
+            item.add_marker(getattr(pytest.mark, readers.MARK)(*sorted(needs[item.nodeid])))
+        elif mark is not None:
+            item.stash[_MARKED_BY_HAND] = True
+            needs[item.nodeid] = readers.with_brought(mark.args) if mark.args else readers.EVERY
+    deselected = [item for item in items if not needs.get(item.nodeid, frozenset()) <= named]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if needs.get(item.nodeid, frozenset()) <= named]
     items[:] = order_by_group(items)
+
+
+# An item marked ``reader`` by hand rather than by its fixtures: a run with the readers holds it to asking for one.
+_MARKED_BY_HAND = pytest.StashKey[bool]()
+# What ``proof.observe.services.asked`` counted when a hand-marked item's setup began.
+_ASKED_AT_SETUP = pytest.StashKey[int]()
+# Each fixture whose own setup asked for a served reader, by where it is defined and its name: a test that reads a
+# wider fixture set up before it (a module's observation, say) asks through it.
+_ASKING_FIXTURES: set[tuple[str, str]] = set()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_fixture_setup(fixturedef, request):
+    from proof.observe import services
+
+    before = services.asked()
+    try:
+        return (yield)
+    finally:
+        if services.asked() > before:
+            _ASKING_FIXTURES.add((fixturedef.baseid, fixturedef.argname))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    if item.stash.get(_MARKED_BY_HAND, False):
+        from proof.observe import services
+
+        item.stash[_ASKED_AT_SETUP] = services.asked()
+    return (yield)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    result = yield
+    if _ASKED_AT_SETUP in item.stash:
+        from proof.observe import services
+
+        fixtures = [definitions[-1] for definitions in item._fixtureinfo.name2fixturedefs.values() if definitions]
+        through = any((fixture.baseid, fixture.argname) in _ASKING_FIXTURES for fixture in fixtures)
+        assert through or services.asked() > item.stash[_ASKED_AT_SETUP], (
+            f"{item.nodeid} is marked reader by hand, and neither it nor a fixture it reads asked for a served reader"
+            " (Formplayer, the Web Apps client's browser, a device, Connect: proof.observe.services): a run without"
+            " the readers leaves it out for nothing. Take the mark off, so the pull request lane runs it."
+        )
+    return result
 
 
 def _emitted_unseeded() -> bool:
@@ -173,6 +280,13 @@ def pytest_terminal_summary(terminalreporter):
     ):
         if values:
             _HQ_TIMINGS[name] = list(values)
+    from proof.observe import services
+
+    if services.ANDROID_SECONDS:
+        # What each device request took (a JVM of its own, every walk of one served state on one device), and
+        # the processor seconds its JVM used, which hold whatever else the machine was running.
+        _HQ_TIMINGS["android_request"] = list(services.ANDROID_SECONDS)
+        _HQ_TIMINGS["android_request_cpu"] = list(services.ANDROID_CPU_SECONDS)
     if not _HQ_TIMINGS:
         return
     terminalreporter.section("HQ harness timings (seconds)")

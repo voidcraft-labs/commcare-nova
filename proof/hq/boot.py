@@ -11,7 +11,11 @@ boot takes (``corehq/tests/pytest_hooks.py::pytest_load_initial_conftests``:
    except to the lane's Postgres. libpq opens its own sockets below Python, so
    Postgres is reached whatever this guard does; every other service HQ names
    (Couch, Redis, Elasticsearch, S3, Formplayer, Kafka, any external host) is
-   reached through Python sockets and refused, and each attempt is recorded.
+   reached through Python sockets and refused, and each attempt is recorded,
+   but the harness's own services, each admitted at its own loopback address
+   as it starts (``_NetworkGuard.admit``). HQ's Elasticsearch client is
+   watched from the boot on, and answers only inside a unit
+   (``proof.hq.elasticsearch.install``).
 3. HQ's root is ``sys.path[0]`` and the working directory (HQ opens
    ``submodules/langcodes/langs.json`` relative to it, and
    ``submodules/langcodes/urls.py`` would shadow HQ's ``urls.py`` if anything
@@ -26,7 +30,9 @@ boot takes (``corehq/tests/pytest_hooks.py::pytest_load_initial_conftests``:
    (a settings override alone reaches none of them). No backend from before
    the boot stays reachable. HQ's helper for a raw Redis client
    (``dimagi/utils/couch/cache/cache_core::get_redis_client``, for locks and
-   Redis commands no local cache serves) is refused like a Redis connection.
+   Redis commands no local cache serves) is refused like a Redis connection,
+   except while this process runs the Redis the harness starts for HQ's
+   locks (``proof.hq.redis``), whose backend it then returns.
 
 6. HQ runs at production speed with ``DEBUG`` left on (``proof.hq.speed``):
    the template engine is set before Django builds it, the other seams
@@ -146,6 +152,8 @@ class _NetworkGuard:
         self._installed = False
         self._allowed_hosts: set[str] = set()
         self._allowed_port: int | None = None
+        # Loopback services the harness itself started for HQ (``admit``).
+        self._admitted: set[tuple[str, int]] = set()
 
     def install(self, postgres_host, postgres_port):
         if self._installed:
@@ -191,13 +199,24 @@ class _NetworkGuard:
         self._installed = True
 
     def _where(self):
-        frames = traceback.extract_stack()[:-3]
+        # The frames' files and functions alone: reading each frame's source line would open files of the
+        # checkout, which an observation's read guard holds to its partition (proof.store.guard).
+        frames = traceback.StackSummary.extract(traceback.walk_stack(None), lookup_lines=False)
+        frames.reverse()
+        frames = frames[:-3]
         return tuple(
             f"{frame.filename}::{frame.name}" for frame in frames[-8:] if "/proof/hq/boot.py" not in frame.filename
         )
 
     def _allows(self, host, port):
-        return host in self._allowed_hosts and port == self._allowed_port
+        return (host in self._allowed_hosts and port == self._allowed_port) or (host, port) in self._admitted
+
+    def admit(self, host, port):
+        """Admit one more address: a service the harness itself started for HQ on a loopback address of this
+        process's own (``proof.hq.redis``, HQ's lock service). Never a host name, and never beyond loopback."""
+        if ipaddress.ip_address(host) not in ipaddress.ip_network("127.0.0.0/8"):
+            raise ValueError(f"The network guard admits only loopback addresses the harness serves; {host} is not one.")
+        self._admitted.add((host, int(port)))
 
     def _check(self, kind, address):
         if isinstance(address, tuple) and len(address) >= 2:
@@ -315,6 +334,11 @@ def boot() -> BootReport:
     rebound, total, references = _move_caches_to_local_memory()
     _refuse_redis_clients()
     t = step("caches", t)
+
+    # HQ's Elasticsearch client answers only inside a unit that holds the indexes (proof.hq.elasticsearch).
+    from proof.hq import elasticsearch
+
+    elasticsearch.install()
 
     speed.install()
     _install_production_soft_asserts()
@@ -560,6 +584,7 @@ def _move_caches_to_local_memory():
     from django.core.cache.backends.dummy import DummyCache
     from django.core.cache.backends.locmem import LocMemCache
     from django.test import override_settings
+    from django_redis.cache import RedisCache
     from quickcache.cache_helpers import CacheWithPresets, TieredCache
 
     discarded_connections = caches._connections
@@ -571,7 +596,13 @@ def _move_caches_to_local_memory():
                 settings.CACHES[alias]
                 if isinstance(backend, DummyCache)
                 else {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    # A Redis alias also answers the two django-redis calls HQ's rate counters make
+                    # (proof.hq.localcache).
+                    "BACKEND": (
+                        "proof.hq.localcache.RedisShaped"
+                        if isinstance(backend, RedisCache)
+                        else "django.core.cache.backends.locmem.LocMemCache"
+                    ),
                     "LOCATION": LOCAL_CACHE_LOCATION.format(alias=alias),
                 }
             )
@@ -704,12 +735,19 @@ def _refuse_redis_clients():
     With the caches in local memory, HQ's own helper would raise its
     ``RedisClientError``, an ``Exception`` a broad handler can swallow; the
     refusal is a ``NetworkRefused`` and is recorded with the guard's attempts.
+    While the harness's own Redis for HQ runs in this process
+    (``proof.hq.redis.start``), the helper returns that server's backend.
     """
     from dimagi.utils.couch.cache import cache_core
 
     original = cache_core.get_redis_client
 
     def get_redis_client():
+        from proof.hq import redis as hq_redis
+
+        held = hq_redis.client()
+        if held is not None:
+            return held
         GUARD.refuse_service(REDIS_CLIENT_SERVICE)
 
     for module in list(sys.modules.values()):
@@ -748,9 +786,23 @@ def cache_census():
 
 
 def clear_caches():
-    """Empty every cache alias, so no check reads what another cached."""
+    """Empty every cache alias, so no check reads what another cached, and every in-process cache HQ keeps of
+    rows a restore takes back: each ``ForeignValue``'s LRU caches of the related rows it fetched or made
+    (``corehq/util/models.py::ForeignValue.get_value``, ``get_related``: the user agent of a sign-in HQ logs,
+    for one), which hold a row's id after the transaction that made it is rolled back, as HQ's own tests clear
+    them when their transaction rolls back (``corehq/util/test_utils.py::patch_foreign_value_caches``)."""
+    from django.apps import apps
     from django.conf import settings
     from django.core.cache import caches
 
     for alias in settings.CACHES:
         caches[alias].clear()
+    from corehq.util.models import ForeignValue
+
+    for model in apps.get_models():
+        for value in vars(model).values():
+            if isinstance(value, ForeignValue):
+                for name in ("get_value", "get_related"):
+                    held = value.__dict__.get(name)
+                    if held is not None and hasattr(held, "cache_clear"):
+                        held.cache_clear()

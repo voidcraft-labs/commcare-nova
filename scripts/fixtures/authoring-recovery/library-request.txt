@@ -1,0 +1,1 @@
+Please build our equipment lending app from the Equipment lending overview and Equipment lending workflow documents already in this Project's library. They are two parts of the same requirements. I haven't attached them to this message. Please read both and make the app ready for our lending desk staff to try.

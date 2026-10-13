@@ -231,6 +231,7 @@ export function MediaSlot({
 				/>
 			)}
 			<MediaPickerDialog
+				selectionAuthority="blueprint"
 				open={picker.open}
 				onOpenChange={(open) => setPicker((prev) => ({ ...prev, open }))}
 				kinds={picker.kinds}
@@ -406,6 +407,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 				<AttachButton label="Attach" onClick={() => setPickerOpen(true)} />
 			)}
 			<MediaPickerDialog
+				selectionAuthority="blueprint"
 				open={pickerOpen}
 				onOpenChange={setPickerOpen}
 				kinds={[kind]}

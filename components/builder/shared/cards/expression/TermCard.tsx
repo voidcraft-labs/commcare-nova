@@ -32,6 +32,7 @@
 // slot accepts. A `nonEmpty` slot refuses to commit an empty literal.
 
 "use client";
+
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
@@ -120,6 +121,7 @@ import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import { lookupColumnDisplayLabel } from "../../lookupTablePresentation";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
+import { FormCasePropertyPicker } from "../../primitives/FormCasePropertyPicker";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
 import { searchInputDisplayLabel } from "../../searchInputPresentation";
 import {
@@ -667,6 +669,13 @@ function ModeMenu({
 				icon: tablerDatabase,
 			},
 		];
+		if (mode === "form-case" || (ctx.formCaseTypes?.size ?? 0) > 0) {
+			base.push({
+				mode: "form-case",
+				label: termModeLabel("form-case", sourceContext),
+				icon: tablerDatabase,
+			});
+		}
 		if (mode === "field" || ctx.formFields.length > 0) {
 			base.push({
 				mode: "field",
@@ -706,6 +715,7 @@ function ModeMenu({
 		return base;
 	}, [
 		ctx.formFields.length,
+		ctx.formCaseTypes,
 		ctx.knownInputs,
 		ctx.tableScope,
 		mode,
@@ -848,6 +858,18 @@ function TermBodyInput({
 		[constraint],
 	);
 	switch (term.kind) {
+		case "form-case":
+			return (
+				<FormCasePropertyPicker
+					value={term}
+					onChange={onChange}
+					constraint={constraint}
+					invalid={invalid}
+					admit={(next) =>
+						admitExpressionChange?.(path, wrapTerm(next)) ?? { admitted: true }
+					}
+				/>
+			);
 		case "literal":
 			// The constraint already carries the subject's resolved type, so the
 			// ordinary path is just the matching input. Literal type choices remain

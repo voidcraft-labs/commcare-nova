@@ -151,7 +151,7 @@ export function planKindConversion(args: {
 
 	const sourceFor = (target: Field): SelectOptionsSource | undefined => {
 		if (optionsSource === undefined) return undefined;
-		if (target.uuid === field.uuid || optionsSource.kind === "lookup") {
+		if (target.uuid === field.uuid || optionsSource.kind !== "inline") {
 			return structuredClone(optionsSource);
 		}
 		// A property-wide cascade may convert several peer fields. Inline

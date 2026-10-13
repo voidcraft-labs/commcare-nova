@@ -44,6 +44,11 @@ class _Item:
     path: Path
     callspec: _Callspec | None = None
 
+    @property
+    def originalname(self):
+        """The test's own name, as pytest gives a parametrized item's."""
+        return self.nodeid.rpartition("::")[2].partition("[")[0]
+
 
 def _items():
     items = [
@@ -90,6 +95,29 @@ def test_items_are_grouped_by_document_by_package_and_the_surface_block():
         assert lane_blocks.group_problem(group) is None, group
 
 
+def test_a_split_module_and_each_test_it_names_are_groups_of_their_own_and_read_what_their_package_reads(
+    monkeypatch,
+):
+    """A group runs on one worker, so a package whose tests a shard cannot hold whole runs as several (SPLIT); each
+    is still its package's, in the phase and with the data its package's tests read."""
+    monkeypatch.setattr(sharding, "SPLIT", {"hq/test_boot.py": ("test_slow",)})
+    items = [
+        _Item("hq/test_boot.py::test_slow[one]", PROOF / "hq/test_boot.py"),
+        _Item("hq/test_boot.py::test_slow[two]", PROOF / "hq/test_boot.py"),
+        _Item("hq/test_boot.py::test_fast", PROOF / "hq/test_boot.py"),
+        _Item("hq/test_build.py::test", PROOF / "hq/test_build.py"),
+    ]
+    groups = [sharding.item_group(item) for item in items]
+    assert groups == ["proof/hq/test_boot.py::test_slow"] * 2 + ["proof/hq/test_boot.py", "proof/hq"]
+    for group in groups:
+        assert lane_blocks.group_problem(group) is None, group
+        assert lane_blocks.package_of(group) == "proof/hq"
+        assert lane_blocks.reads_corpus(group) == lane_blocks.reads_corpus("proof/hq")
+    assert sharding.collection_roots(groups) == [PROOF / "hq", PROOF / "hq/test_boot.py"]
+    for refused in ("proof/hq/boot.py", "proof/hq/test_boot.py::", "proof/hq/test_boot.py::a b", "proof/h-q"):
+        assert lane_blocks.group_problem(refused) is not None, refused
+
+
 def test_each_groups_items_run_together_in_first_appearance_order():
     items = _items()
     shuffled = [items[0], items[8], items[4], items[1], items[9], items[5], *items[2:4], *items[6:8], *items[10:]]
@@ -109,33 +137,108 @@ def test_each_group_is_collected_from_where_its_tests_are():
     assert sharding.collection_roots(["corpus:a@minimum"]) == [PROOF / "checks"]
 
 
-def test_a_document_the_timings_do_not_list_counts_as_their_median_document():
-    """A sample's documents change with its size and seed, so most are unmeasured; counting each at the
-    default would let a shard of heavy documents pass for a light one."""
-    timings = {"corpus:a": 20.0, "corpus:b": 30.0, "corpus:c": 40.0, "proof/native": 100.0}
+def test_a_group_the_timings_do_not_list_counts_high_among_those_of_its_kind():
+    """A sample's documents change with its size and seed, and a profile may be stale or partial, so many groups
+    are unmeasured; counting each at a typical cost would let a shard of heavy ones pass for a light one and run
+    past its deadline, so each counts at the 90th percentile of its kind."""
+    timings = {f"corpus:{n}": float(n) for n in range(1, 11)} | {"proof/native": 100.0, "proof/core": 4.0}
     seconds = sharding.estimate(timings)
-    assert seconds("corpus:b") == 30.0
-    assert seconds("corpus:new") == seconds("control:new") == 30.0
-    # A document split by configuration counts half its whole measure.
-    assert seconds("corpus:c@minimum") == 20.0
-    assert seconds("corpus:new@maximum") == 30.0
-    assert seconds("proof/new") == sharding.DEFAULT_SECONDS
-    assert sharding.estimate({})("corpus:new") == sharding.DEFAULT_SECONDS
+    assert seconds("corpus:3") == 3.0
+    assert seconds("corpus:new") == seconds("control:new") == 10.0
+    # A piece no run measured counts high too: at the share the heavier of two configurations takes of its
+    # document's whole measure, never an even half.
+    assert sharding.PIECE_SHARE > 0.5
+    assert seconds("corpus:6@minimum") == pytest.approx(6.0 * sharding.PIECE_SHARE)
+    assert seconds("corpus:new@maximum") == pytest.approx(10.0 * sharding.PIECE_SHARE)
+    # A document under more configurations is observed in as many pieces, each a smaller share of it, as the
+    # queue builder counts one (``piece_share``): four pieces at the two-piece share would be 2.6 documents.
+    assert seconds("corpus:6@minimum", pieces=4) == pytest.approx(6.0 * sharding.piece_share(4))
+    assert 4 * seconds("corpus:6@minimum", pieces=4) == pytest.approx(6.0 * 2 * sharding.PIECE_SHARE)
+    assert seconds("corpus:6", pieces=4) == 6.0 and seconds("proof/new", pieces=4) == 100.0
+    assert seconds("proof/new") == 100.0
+    assert sharding.estimate({})("corpus:new") == sharding.estimate({})("proof/new") == sharding.DEFAULT_SECONDS
+    assert sharding.piece_share(2) == sharding.PIECE_SHARE and sharding.piece_share(1) == 1.0
+    assert sharding.piece_share(4) == sharding.PIECE_SHARE / 2
 
 
-def test_the_timings_file_must_hold_groups(tmp_path):
+def test_a_document_measured_in_pieces_is_measured_whole_by_their_sum():
+    """A run that observed a document in pieces measured each piece and, under the document's own name, its
+    judging alone. Read as the document's whole cost, that name would say a heavy document is light: it would be
+    queued whole on one worker, and would pull the measure unmeasured documents are counted at down with it."""
+    timings = {f"corpus:{n}": 100.0 for n in range(1, 10)}
+    timings |= {"corpus:heavy": 2.0, "corpus:heavy@maximum": 600.0, "corpus:heavy@minimum": 400.0}
+    assert sharding.documents(timings)["corpus:heavy"] == 1002.0
+    assert sharding.documents(timings)["corpus:1"] == 100.0
+    seconds = sharding.estimate(timings)
+    # Each group as it ran: the pieces their own, the document's own group its judging.
+    assert (seconds("corpus:heavy@maximum"), seconds("corpus:heavy")) == (600.0, 2.0)
+    # An unmeasured document counts at the 90th percentile of the documents' whole measures, the heavy one's
+    # among them, and no piece's or judging's alone.
+    assert seconds("corpus:new") == 1002.0
+    assert sharding.documents({"control:c@only": 5.0, "proof/hq": 9.0}) == {"control:c": 5.0}
+
+
+def test_a_piece_is_one_item_named_by_its_group_alone():
+    module = sharding.PIECES_MODULE.relative_to(sharding.PROOF_DIR).as_posix()
+    assert sharding.piece_item("corpus:a@maximum") == f"{module}::{sharding.PIECE_TEST}[a@maximum]"
+    assert sharding.piece_item("control:a@minimum") == f"{module}::{sharding.PIECE_TEST}[control-a@minimum]"
+    assert sharding.piece_item("corpus:a") is None and sharding.piece_item("proof/hq") is None
+    # The module is no test module by its name, so only a run that names it collects it, and it holds that test.
+    assert not sharding.PIECES_MODULE.name.startswith("test_")
+    assert f"def {sharding.PIECE_TEST}(" in sharding.PIECES_MODULE.read_text(encoding="utf-8")
+    # A lane whose queue names pieces collects it beside what pytest.ini names a test module, and nothing more.
+    configured = [
+        line.partition("=")[2].strip()
+        for line in (sharding.PROOF_DIR / "pytest.ini").read_text(encoding="utf-8").splitlines()
+        if line.startswith("python_files")
+    ]
+    assert configured == [sharding.PYTHON_FILES]
+    assert sharding.PIECES_FILES == ("-o", f"python_files={sharding.PYTHON_FILES} pieces.py")
+    named = [path.name for path in sharding.PROOF_DIR.rglob("pieces.py") if "node_modules" not in path.parts]
+    assert named == ["pieces.py"], "Another pieces.py under proof/ would be collected with the pieces' module."
+
+
+def test_the_timings_file_holds_each_profiles_groups_and_a_run_reads_its_own(tmp_path, monkeypatch):
+    """A group costs far more where its states are served to the readers, so each profile packs by its own
+    measures (proof.lane.readers): a run without the readers reads the no-readers groups, and a profile the file
+    does not measure yet is read as unmeasured, never as the other's."""
     path = tmp_path / "timings.json"
     assert sharding.load_timings(path) == {}
-    path.write_text(json.dumps({"execution": {"shards": 14, "workers": 4}, "groups": {"corpus:a": 2.5}}))
+    execution = {"shards": 14, "workers": 4}
+    profiles = {
+        "readers": {"execution": execution, "groups": {"corpus:a": 25.0}},
+        "no-readers": {"execution": execution, "groups": {"corpus:a": 2.5}},
+    }
+    path.write_text(json.dumps({"profiles": profiles}))
+    assert sharding.load_timings(path, readers=True) == {"corpus:a": 25.0}
+    assert sharding.load_timings(path, readers=False) == {"corpus:a": 2.5}
+    monkeypatch.setenv("PROOF_READERS", "0")
     assert sharding.load_timings(path) == {"corpus:a": 2.5}
-    path.write_text(json.dumps({"corpus:a": 2.5}))
-    with pytest.raises(sharding.ShardError, match="groups"):
-        sharding.load_timings(path)
+    monkeypatch.delenv("PROOF_READERS")
+    assert sharding.load_timings(path) == {"corpus:a": 25.0}
+    path.write_text(json.dumps({"profiles": {"readers": profiles["readers"]}}))
+    assert sharding.load_timings(path, readers=False) == {}
+    for written in ({"corpus:a": 2.5}, {"groups": {"corpus:a": 2.5}}, {"profiles": {"readers": {"groups": [1]}}}):
+        path.write_text(json.dumps(written))
+        with pytest.raises(sharding.ShardError, match="profiles"):
+            sharding.load_timings(path, readers=True)
 
 
 def _block(*names, estimate=1.0, fresh=()):
     groups = tuple(lane_blocks.QueuedGroup(name, name in fresh) for name in names)
     return lane_blocks.Block(lane_blocks.block_id(names), estimate, groups)
+
+
+def test_the_main_queues_bins_start_from_the_early_queues_so_no_shard_holds_both_heaviest_blocks():
+    """A shard runs its bin of each queue (proof.lane.serve): binned apart, the heaviest early block and the
+    heaviest main block both land on the first shard, which then runs twice what the others do."""
+    early = [_block("proof/a", estimate=10.0), _block("proof/b", estimate=1.0)]
+    main = [_block("corpus:x", estimate=10.0), _block("corpus:y", estimate=1.0)]
+    loads = [sum(block.estimate for block in members) for members in sharding.static_bins(early, 2)]
+    assert loads == [10.0, 1.0]
+    after = sharding.static_bins(main, 2, loads)
+    assert [[block.names for block in members] for members in after] == [[("corpus:y",)], [("corpus:x",)]]
+    assert [[block.names for block in members] for members in sharding.static_bins(main, 2)][0] == [("corpus:x",)]
 
 
 def test_static_bins_are_the_same_however_the_blocks_are_listed_and_balance_by_estimate():

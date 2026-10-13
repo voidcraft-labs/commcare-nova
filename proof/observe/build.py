@@ -23,7 +23,11 @@ by such an error of its own, and only when ``validate_app`` returned.
 for an app that is not a saved build, ``views/download.py::
 download_index_files``): the media profile becomes ``profile.ccpr`` and the
 plain profiles are left out. It runs HQ's own arrangement over the files the
-build wrote, so Core admits exactly what was built. ``admit_build`` has the
+build wrote, so Core admits exactly what was built. ``device_archive`` is the
+same arrangement with the app's multimedia, as HQ's download gives it when a
+person asks for both, and ``archive_record`` keeps it in a state's record, each
+entry a blob, so the Android reader (``proof.android``) installs the archive a
+worker installs from a file. ``admit_build`` has the
 Core runner install that arrangement as Core's archive installer does, and
 ``admit`` gives Core's admission report of any archive with its app
 released and nothing in it that names where or in which runner it was
@@ -139,29 +143,73 @@ def build_state(app, record, state):
 
 
 class _BuiltFiles:
-    """An app whose ``create_all_files()`` gives the files one build wrote, for HQ's archive arrangement."""
+    """An app whose ``create_all_files()`` gives the files one build wrote, for HQ's archive arrangement; with
+    ``app``, its multimedia is that app's."""
 
     copy_of = None
 
-    def __init__(self, files):
+    def __init__(self, files, app=None):
         self._files = files
+        self._app = app
 
     def create_all_files(self):
         return dict(self._files)
 
+    def get_media_objects(self, **arguments):
+        return self._app.get_media_objects(**arguments)
 
-def arrange(files, directory):
-    """HQ's build files written into ``directory`` as HQ's archive download arranges them."""
+
+def arranged(files):
+    """A build's files as HQ's archive download arranges them: ``[(entry name, bytes)]``, in HQ's order."""
     from corehq.apps.hqmedia.views import iter_index_files
 
     entries, errors, _ = iter_index_files(_BuiltFiles(files), build_profile_id=None)
     if errors:
         raise ArrangementRefused(errors)
-    for name, content in entries:
+    return [(name, _bytes(content)) for name, content in entries]
+
+
+def arranged_with_media(files, app):
+    """A build's files and the app's multimedia as HQ's archive download arranges them when a person asks for
+    the multimedia too (``hqmedia/views.py::iter_app_files``, both included): the archive a device installs
+    from a file with nothing left to fetch. ``[(entry name, bytes)]``, in HQ's order."""
+    from corehq.apps.hqmedia.views import iter_app_files
+
+    entries, errors, _ = iter_app_files(_BuiltFiles(files, app), True, True, build_profile_id=None)
+    # HQ's media errors are complete only once its iterator is exhausted (iter_media_files).
+    entries = [(name, _bytes(content)) for name, content in entries]
+    if errors:
+        raise ArrangementRefused(errors)
+    return entries
+
+
+def arrange(files, directory):
+    """HQ's build files written into ``directory`` as HQ's archive download arranges them."""
+    for name, content in arranged(files):
         target = Path(directory, name)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(_bytes(content))
+        target.write_bytes(content)
     return Path(directory)
+
+
+def device_archive(outcome: BuildOutcome, app):
+    """The archive HQ's download hands a device for a build of ``app``, multimedia included
+    (``arranged_with_media``): ``{"entries": [(name, bytes)]}``; ``{"refused": <HQ's errors>}`` where the
+    arrangement refused the build's files; None where HQ built none. It is what a worker installs from a file,
+    so what the Android reader (``proof.android``) installs for the state."""
+    if outcome.files is None:
+        return None
+    try:
+        return {"entries": arranged_with_media(outcome.files, app)}
+    except ArrangementRefused as refused:
+        return {"refused": str(refused)}
+
+
+def archive_record(archive, blobs):
+    """A ``device_archive`` as a record holds it: each entry's bytes a blob, by its name."""
+    if archive is None or "refused" in archive:
+        return archive
+    return {"entries": {name: blobs.put(content) for name, content in archive["entries"]}}
 
 
 def admit_build(core_runner, app, outcome: BuildOutcome):

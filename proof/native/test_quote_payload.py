@@ -100,7 +100,7 @@ def test_hq_compiles_or_refuses_every_quoted_query_core_builds(native):
         (carrier, *sample) for carrier in ["local", "hq"] for sample in SAMPLES
     ]
     results = []
-    with native_check(DOMAIN, validate=native.validate_form) as (state, _):
+    with native_check(DOMAIN) as (state, _):
         from corehq.apps.case_search.exceptions import CaseFilterError
         from django.core.serializers.json import DjangoJSONEncoder
 

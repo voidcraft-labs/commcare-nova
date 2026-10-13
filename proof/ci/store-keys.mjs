@@ -1,13 +1,19 @@
 // Names the GitHub cache entries that hold the proof lane's evidence store,
 // for the workflows that restore and save them:
 //
-//   node proof/ci/store-keys.mjs --arch arm64 [--lock proof/image.lock]
+//   node proof/ci/store-keys.mjs --arch arm64 [--lock proof/image.lock] [--save NAME]
 //
-// An entry is one store snapshot: `proof-store-<arch>-<image>-<scope>-<run id>`,
-// where <image> is the first 16 hex digits of the digest of the image the
-// lock records (a store is only ever read by runs of the image that wrote it,
-// on the same architecture; a run of a candidate image first records it in
-// the lock, proof/ci/candidate.mjs) and <scope> is `main` or `pr<number>`. GitHub keeps a
+// An entry is one store snapshot:
+// `proof-store-<arch>-<image>-<scope>-<run id>-<attempt>[-<save>]`, where
+// <image> is the first 16 hex digits of the digest of the image the lock
+// records (a store is only ever read by runs of the image that wrote it, on
+// the same architecture; a run of a candidate image first records it in the
+// lock, proof/ci/candidate.mjs) and <scope> is `main` or `pr<number>`. A
+// cache entry is never written over: a save under a key that exists is
+// dropped, and the action only warns. So the key names the run's attempt (a
+// run tried again saves what the new attempt observed) and, where one run
+// saves more than once (the nightly's two profiles, and a dispatch that also
+// runs the weekly audit), which save it is (`--save`). GitHub keeps a
 // cache written by a pull_request run in that pull request's scope, and one
 // written by a schedule, push or workflow_dispatch run on the default branch
 // in the default branch's scope, which every pull request can read; so the
@@ -18,9 +24,10 @@
 // It appends to GITHUB_OUTPUT (or prints, without it): `main` (the main
 // snapshots' prefix), `scope` (this run's snapshots' prefix, empty when the
 // run writes none: a dispatch on a branch other than main) and `key` (the key
-// this run saves under, empty likewise). It reads GITHUB_EVENT_NAME,
-// GITHUB_REF, GITHUB_RUN_ID and PROOF_PULL_REQUEST (the pull request's number,
-// which the workflow passes from github.event.pull_request.number).
+// this save is kept under, empty likewise). It reads GITHUB_EVENT_NAME,
+// GITHUB_REF, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT and PROOF_PULL_REQUEST (the
+// pull request's number, which the workflow passes from
+// github.event.pull_request.number).
 
 import { appendFileSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -29,6 +36,7 @@ const { values } = parseArgs({
 	options: {
 		arch: { type: "string" },
 		lock: { type: "string", default: "proof/image.lock" },
+		save: { type: "string" },
 	},
 });
 
@@ -69,10 +77,17 @@ if (event === "pull_request" && /^\d+$/.test(pullRequest)) {
 ) {
 	scope = `${base}-main-`;
 }
+if (values.save !== undefined && !/^[A-Za-z0-9+._-]+$/.test(values.save)) {
+	fail(
+		`--save names which of a run's saves this is, in letters, digits and + . _ - (it becomes part of a cache key); got ${JSON.stringify(values.save)}.`,
+	);
+}
+const attempt = process.env.GITHUB_RUN_ATTEMPT || "1";
+const save = values.save ? `-${values.save}` : "";
 const lines = [
 	`main=${base}-main-`,
 	`scope=${scope}`,
-	`key=${scope && run ? `${scope}${run}` : ""}`,
+	`key=${scope && run ? `${scope}${run}-${attempt}${save}` : ""}`,
 ];
 if (process.env.GITHUB_OUTPUT) {
 	appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);

@@ -148,7 +148,7 @@ def _idle(driver, page, script=None):
 
 
 def test_a_warm_vellum_host_sends_hq_nothing_once_its_run_is_over(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
@@ -205,7 +205,7 @@ def test_the_animations_a_warm_host_run_leaves_running_end_with_it(hq, core_runn
     finds none running, and the runs still equal a fresh page's."""
     from proof.editors.test_vellum import _with_orphan_bind
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
@@ -248,7 +248,7 @@ def test_a_failed_operation_leaves_its_page_to_be_replaced_and_the_next_gives_wh
     page replaced and a broken page reused would show. The view after them, and the Vellum run after a failed one,
     give what a fresh page gives."""
     monkeypatch.setenv("PROOF_EDITORS_RECYCLE_LOADS", "2")
-    with EditorDriver() as driver, hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with EditorDriver() as driver, hq_check(CONFIGURATION) as (state, _):
         assert driver.ready["recycleLoads"] == 2
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
@@ -303,7 +303,7 @@ def test_pages_replaced_every_recycle_loads_operations_keep_their_seed_and_give_
     hq, core_runner, monkeypatch
 ):
     monkeypatch.setenv("PROOF_EDITORS_RECYCLE_LOADS", "2")
-    with EditorDriver() as driver, hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with EditorDriver() as driver, hq_check(CONFIGURATION) as (state, _):
         assert driver.ready["recycleLoads"] == 2
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)
@@ -346,7 +346,7 @@ def test_a_request_a_saves_handler_starts_is_answered_in_its_sections_phase_howe
     # Every request the page sends reaches HQ 300 ms after the page starts it: a section's bar leaves "Saving",
     # and the build errors its handler asks for (app_manager.js::updateDOM) are still on their way.
     monkeypatch.setenv("PROOF_EDITORS_LATENCY_MS", "300")
-    with EditorDriver() as driver, hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with EditorDriver() as driver, hq_check(CONFIGURATION) as (state, _):
         assert driver.ready["latencyMs"] == 300
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, SUITE_APP)

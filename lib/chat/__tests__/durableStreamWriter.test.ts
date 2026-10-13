@@ -416,3 +416,30 @@ it("every concurrent close waits for the one terminal append", async () => {
 		terminalOutcome: "completed",
 	});
 });
+
+it("holds finish from live response, replay log and fold until the route commits its terminal state", async () => {
+	const live = makeInner();
+	const fold = makeInner();
+	const writer = makeWriter(live.inner, fold.inner);
+	writer.holdFinishUntilClose();
+	writer.write({ type: "start", messageId: "pause" });
+	writer.write({ type: "start-step" });
+	writer.write({ type: "finish-step" });
+	writer.write({ type: "finish", finishReason: "stop" });
+	await writer.flushNow();
+	expect(live.written.some((part) => part.type === "finish")).toBe(false);
+	expect(fold.written.some((part) => part.type === "finish")).toBe(false);
+	expect(appendedChunks()).toEqual(live.written);
+	writer.write({
+		type: "data-input-round",
+		data: { round: { id: "committed" } },
+		transient: true,
+	});
+	await writer.close("paused");
+	expect(live.written.slice(-2).map((part) => part.type)).toEqual([
+		"data-input-round",
+		"finish",
+	]);
+	expect(appendedChunks()).toEqual(live.written);
+	expect(fold.written).toEqual(live.written);
+});

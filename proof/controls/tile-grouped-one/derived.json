@@ -1,0 +1,312 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"proof text"
+						],
+						[
+							"last_visit",
+							"proof text"
+						],
+						[
+							"rank",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"10"
+						],
+						[
+							"last_visit",
+							"10"
+						],
+						[
+							"rank",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"2"
+						],
+						[
+							"last_visit",
+							"2"
+						],
+						[
+							"rank",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Tile grouped-one",
+			"modules": [
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "dabdc8f6-6f08-58c2-af24-6ae0203b5c06",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [
+								"visit"
+							],
+							"fieldWrites": {},
+							"formType": "registration",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "d8bdc5d0-6d08-559c-a124-6e061e3b58e0",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"dabdc8f6-6f08-58c2-af24-6ae0203b5c06",
+						"d8bdc5d0-6d08-559c-a124-6e061e3b58e0"
+					],
+					"uuid": "7a79d8d8-220d-550c-a126-aef6e466d6c8"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"proof text"
+						],
+						[
+							"last_visit",
+							"proof text"
+						],
+						[
+							"rank",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"10"
+						],
+						[
+							"last_visit",
+							"10"
+						],
+						[
+							"rank",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"2"
+						],
+						[
+							"last_visit",
+							"2"
+						],
+						[
+							"rank",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Tile grouped-one",
+			"modules": [
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "dabdc8f6-6f08-58c2-af24-6ae0203b5c06",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [
+								"visit"
+							],
+							"fieldWrites": {},
+							"formType": "registration",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "d8bdc5d0-6d08-559c-a124-6e061e3b58e0",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				},
+				{
+					"code": "sw",
+					"tag": "swh"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"dabdc8f6-6f08-58c2-af24-6ae0203b5c06",
+						"d8bdc5d0-6d08-559c-a124-6e061e3b58e0"
+					],
+					"uuid": "7a79d8d8-220d-550c-a126-aef6e466d6c8"
+				}
+			]
+		}
+	}
+}

@@ -92,6 +92,7 @@ import {
 } from "./mediaClient";
 import { ProjectMediaImage } from "./ProjectMediaResource";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
+import { useMediaAuthority } from "./useMediaAuthority";
 
 type Tab = "upload" | "library" | "icons";
 /** Library browse filter: one allowed kind, or "all" of them. */
@@ -107,7 +108,7 @@ export type MediaPickerSelection =
 			readonly entry: IconCatalogEntry;
 	  };
 
-export interface MediaPickerDialogProps {
+interface MediaPickerDialogBaseProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	/**
@@ -119,30 +120,10 @@ export interface MediaPickerDialogProps {
 	/**
 	 * The app this picker authors for, so the server resolves the app's Project
 	 * as the tenant for the Library tab and inline uploads. The builder media
-	 * slots pass it; the standalone file manager and chat composer (no app
-	 * context) omit it, so the server falls back to the active Project.
+	 * slots pass it; the chat composer and builder's account menu also pass it.
+	 * Outside an app, the server uses the active Project.
 	 */
 	appId?: string;
-	/**
-	 * Pick handler: fires when a library item is chosen (or an inline upload
-	 * completes), after which the dialog closes. OMITTED by the standalone file
-	 * manager (the account-menu "Files" entry): with no carrier to pick into,
-	 * clicking a library item opens its preview instead, the Upload tab simply
-	 * lands the file in the library, and the dialog titles itself "Your files" and
-	 * opens on the Library tab. The carrier media slots and the chat composer pass
-	 * it.
-	 */
-	onPick?: (selection: MediaPickerSelection) => void;
-	/**
-	 * When provided, a validated file picked on the Upload tab is handed
-	 * OFF instead of uploaded inline: the dialog closes immediately and
-	 * the caller stages the upload on its slot (progress + cancel live on
-	 * the slot's chip; the attach dispatches on upload confirm). The
-	 * builder media slots pass this: the doc must never reference an
-	 * asset that isn't ready. The chat file manager omits it and keeps
-	 * the inline flow (its attachments are message refs, not doc state).
-	 */
-	onUploadStart?: (file: File, kind: AssetKind) => void;
 	/**
 	 * Fires with the library's currently loaded assets whenever a page
 	 * lands. The builder slots feed these rows (which carry byte sizes)
@@ -180,8 +161,26 @@ export interface MediaPickerDialogProps {
 	/** Explicit Project write capability for standalone surfaces that do not
 	 *  mount BuilderSessionProvider. Inside the builder, omit this and the live
 	 *  session capability is authoritative. */
-	canWrite?: boolean;
+	canManageFiles?: boolean;
 }
+
+/** Selecting changes a destination; managing files changes the Project library.
+ * Every picker names the destination's authority explicitly. */
+export type MediaPickerDialogProps = MediaPickerDialogBaseProps &
+	(
+		| {
+				selectionAuthority: "project" | "blueprint";
+				onPick: (selection: MediaPickerSelection) => void;
+				/** Slot-owned upload with progress outside the dialog. Attaching on
+				 * confirmation still rechecks blueprint authority at the caller. */
+				onUploadStart?: (file: File, kind: AssetKind) => void;
+		  }
+		| {
+				selectionAuthority?: never;
+				onPick?: never;
+				onUploadStart?: never;
+		  }
+	);
 
 export function MediaPickerDialog({
 	open,
@@ -194,11 +193,10 @@ export function MediaPickerDialog({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
-	canWrite: canWriteOverride,
+	canManageFiles,
+	selectionAuthority,
 }: MediaPickerDialogProps) {
 	const accessPhase = useAccessPhase();
-	const sessionCanEdit = useCanEdit();
-	const canWrite = canWriteOverride ?? sessionCanEdit;
 	const scopeEpoch = useProjectScopeEpoch();
 	const previousScopeEpochRef = useRef(scopeEpoch);
 	useEffect(() => {
@@ -228,7 +226,8 @@ export function MediaPickerDialog({
 			>
 				<PickerBody
 					manage={manage}
-					canWrite={canWrite}
+					standaloneCanManageFiles={canManageFiles}
+					selectionAuthority={selectionAuthority}
 					kinds={kinds}
 					appId={appId}
 					onPick={(asset) => {
@@ -260,7 +259,8 @@ export function MediaPickerDialog({
  *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
 	manage,
-	canWrite,
+	standaloneCanManageFiles,
+	selectionAuthority,
 	kinds,
 	appId,
 	onPick,
@@ -271,7 +271,8 @@ function PickerBody({
 	iconLibrary,
 }: {
 	manage: boolean;
-	canWrite: boolean;
+	standaloneCanManageFiles?: boolean;
+	selectionAuthority: "project" | "blueprint" | undefined;
 	kinds: readonly AssetKind[];
 	appId?: string;
 	onPick: (selection: MediaPickerSelection) => void;
@@ -283,8 +284,16 @@ function PickerBody({
 }) {
 	const scopeEpoch = useProjectScopeEpoch();
 	const projectToast = useProjectToast();
-	const accessPhase = useAccessPhase();
+	const { canManageFiles, ownsScope, mayManageFiles } = useMediaAuthority(
+		standaloneCanManageFiles,
+	);
+	const canEditBlueprint = useCanEdit();
 	const session = useOptionalBuilderSessionApi();
+	const canSelect =
+		!manage &&
+		canManageFiles &&
+		(selectionAuthority === "project" ||
+			(session !== null && canEditBlueprint));
 	const reconciler = useReconcilerContext();
 	const deleteControllerRef = useRef<AbortController | null>(null);
 	useEffect(() => {
@@ -299,15 +308,10 @@ function PickerBody({
 			abortDelete();
 		};
 	}, [reconciler]);
-	const ownsScope = (epoch = scopeEpoch) => {
-		if (!session) return accessPhase === "authorized" && epoch === scopeEpoch;
-		const current = session.getState();
-		return current.accessPhase === "authorized" && current.scopeEpoch === epoch;
-	};
-	const ownsWritableScope = (epoch = scopeEpoch) => {
-		if (!canWrite || !ownsScope(epoch)) return false;
-		return session ? session.getState().canEdit : true;
-	};
+	const maySelect = () =>
+		!manage &&
+		mayManageFiles() &&
+		(selectionAuthority === "project" || session?.getState().canEdit === true);
 	// The built-in icons offered: a slot's family (`module`/`form`) for a picker,
 	// the whole set (`all`) for the file manager. Empty → no Icon Library tab.
 	const iconEntries = useMemo<readonly IconCatalogEntry[]>(
@@ -324,7 +328,7 @@ function PickerBody({
 	// opens on the curated Icon Library (the point of the click); any other picker
 	// opens on Upload (you came here to add something to a slot).
 	const [tab, setTab] = useState<Tab>(
-		manage || !canWrite ? "library" : showIcons ? "icons" : "upload",
+		manage || !canManageFiles ? "library" : showIcons ? "icons" : "upload",
 	);
 	// A multi-kind slot gets a browse filter (defaulting to "all"); a
 	// single-kind slot is pinned to its one kind with no filter UI.
@@ -339,17 +343,18 @@ function PickerBody({
 			? "Attach media"
 			: `Attach ${ASSET_KIND_META[kinds[0]].label.toLowerCase()}`;
 	const { nounPhrase } = describeKinds(kinds);
-	const description = manage
-		? canWrite
-			? "Upload, preview, or remove files in this Project"
-			: "Preview files in this Project"
-		: showIcons
-			? canWrite
-				? "Choose an icon, upload an image, or use a file you already added"
-				: "Preview icons and files in this Project"
-			: canWrite
-				? `Choose a file you already added, or upload ${nounPhrase}`
-				: "Preview files in this Project";
+	const description =
+		manage || !canSelect
+			? canManageFiles
+				? "Upload, preview, or remove files in this Project"
+				: "Preview files in this Project"
+			: showIcons
+				? canManageFiles
+					? "Choose an icon, upload an image, or use a file you already added"
+					: "Preview icons and files in this Project"
+				: canManageFiles
+					? `Choose a file you already added, or upload ${nounPhrase}`
+					: "Preview files in this Project";
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
@@ -384,8 +389,7 @@ function PickerBody({
 	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
-		if (!ownsWritableScope()) return;
-		addUploaded(asset);
+		if (!maySelect()) return;
 		onPick({ kind: "uploaded", asset });
 	};
 
@@ -415,7 +419,7 @@ function PickerBody({
 	const pickIcon = (entry: IconCatalogEntry) => {
 		if (!ownsScope()) return;
 		const ref = builtinIconRef(entry.slug);
-		if (manage || !ownsWritableScope()) {
+		if (!maySelect()) {
 			setPreviewTarget({
 				id: ref,
 				kind: "image",
@@ -433,11 +437,27 @@ function PickerBody({
 	// and then vanish on the next fetch; "all" keeps it in scope (and is the
 	// natural "here's everything you have" post-upload view).
 	const onManagedUpload = (asset: MediaAssetView) => {
-		if (!ownsWritableScope()) return;
+		if (!mayManageFiles()) return;
 		addUploaded(asset);
 		setFilter("all");
 		setQuery("");
 		setTab("library");
+	};
+
+	const onUploaded = (asset: MediaAssetView, selectAfterUpload: boolean) => {
+		if (!mayManageFiles()) return;
+		if (selectAfterUpload && maySelect()) {
+			onPick({ kind: "uploaded", asset });
+			return;
+		}
+		onManagedUpload(asset);
+		if (!manage) {
+			projectToast(
+				"info",
+				"File uploaded",
+				"Your file is in Files. You can attach it when app editing is available.",
+			);
+		}
 	};
 
 	// Delete a library asset, with confirmation. `deleteTarget` holds the asset
@@ -446,16 +466,16 @@ function PickerBody({
 	const [deleteTarget, setDeleteTarget] = useState<MediaAssetView | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	useEffect(() => {
-		if (canWrite) return;
+		if (canManageFiles) return;
 		deleteControllerRef.current?.abort();
 		deleteControllerRef.current = null;
 		setDeleteTarget(null);
 		setDeleting(false);
 		if (tab === "upload") setTab("library");
-	}, [canWrite, tab]);
+	}, [canManageFiles, tab]);
 
 	const confirmDelete = async () => {
-		if (!deleteTarget || !ownsWritableScope()) return;
+		if (!deleteTarget || !mayManageFiles()) return;
 		const deleteScopeEpoch = session?.getState().scopeEpoch ?? scopeEpoch;
 		const asset = deleteTarget;
 		const name = asset.displayName ?? asset.originalFilename;
@@ -465,7 +485,7 @@ function PickerBody({
 		setDeleting(true);
 		try {
 			await deleteMediaAsset(asset.id, controller.signal);
-			if (!ownsWritableScope(deleteScopeEpoch)) return;
+			if (!mayManageFiles(deleteScopeEpoch)) return;
 			removeAsset(asset.id);
 			// Pull any staged reference to the now-gone asset (e.g. the chat
 			// composer's chip). A no-op for a caller that wasn't staging it.
@@ -474,7 +494,7 @@ function PickerBody({
 			setDeleteTarget(null);
 		} catch (err) {
 			if (controller.signal.aborted) return;
-			if (!ownsWritableScope(deleteScopeEpoch)) return;
+			if (!mayManageFiles(deleteScopeEpoch)) return;
 			// A 409 (still referenced by one of your apps) or any failure: tell the
 			// user WHY: the message names the carriers, and leave the asset.
 			projectToast(
@@ -487,7 +507,7 @@ function PickerBody({
 			if (deleteControllerRef.current === controller) {
 				deleteControllerRef.current = null;
 			}
-			if (ownsWritableScope(deleteScopeEpoch)) setDeleting(false);
+			if (mayManageFiles(deleteScopeEpoch)) setDeleting(false);
 		}
 	};
 
@@ -521,7 +541,7 @@ function PickerBody({
 							Icons
 						</TabsTrigger>
 					)}
-					{canWrite && (
+					{canManageFiles && (
 						<TabsTrigger value="upload" className="min-h-11 flex-none px-3">
 							Upload
 						</TabsTrigger>
@@ -539,19 +559,21 @@ function PickerBody({
 						<IconLibraryTab
 							icons={iconEntries}
 							onPickIcon={pickIcon}
-							primaryAction={manage || !canWrite ? "Preview" : "Choose"}
+							primaryAction={canSelect ? "Choose" : "Preview"}
 						/>
 					</TabsContent>
 				)}
-				{canWrite && (
+				{canManageFiles && (
 					<TabsContent
 						value="upload"
 						className="min-h-0 overflow-y-auto overscroll-contain p-5"
 					>
 						<UploadTab
 							kinds={kinds}
-							onUploaded={manage ? onManagedUpload : commit}
+							onUploaded={onUploaded}
 							onUploadStart={onUploadStart}
+							maySelect={maySelect}
+							canManageFiles={canManageFiles}
 							appId={appId}
 						/>
 					</TabsContent>
@@ -561,7 +583,7 @@ function PickerBody({
 					className="min-h-0 overflow-y-auto overscroll-contain p-5"
 				>
 					<LibraryTab
-						canWrite={canWrite}
+						canManageFiles={canManageFiles}
 						assets={assets}
 						query={query}
 						onQueryChange={setQuery}
@@ -571,13 +593,13 @@ function PickerBody({
 						loadMore={loadMore}
 						retry={retry}
 						onUpload={() => setTab("upload")}
-						primaryAction={manage || !canWrite ? "Preview" : "Choose"}
+						primaryAction={canSelect ? "Choose" : "Preview"}
 						// In the manager a click previews (nothing to pick into); in a
 						// picker it commits the choice and closes.
-						onPick={manage || !canWrite ? openPreview : commit}
+						onPick={canSelect ? commit : openPreview}
 						onPreview={openPreview}
 						onDelete={(asset) => {
-							if (ownsWritableScope()) setDeleteTarget(asset);
+							if (mayManageFiles()) setDeleteTarget(asset);
 						}}
 						// Fold a freshly completed extract into the list so a preview
 						// opened right after upload shows its title/summary without
@@ -656,13 +678,17 @@ function UploadTab({
 	kinds,
 	onUploaded,
 	onUploadStart,
+	maySelect,
+	canManageFiles,
 	appId,
 }: {
 	kinds: readonly AssetKind[];
-	onUploaded: (asset: MediaAssetView) => void;
+	onUploaded: (asset: MediaAssetView, selectAfterUpload: boolean) => void;
 	/** Delegate a validated file to the caller's staged flow instead of
 	 *  uploading inline: see `MediaPickerDialogProps.onUploadStart`. */
 	onUploadStart?: (file: File, kind: AssetKind) => void;
+	maySelect: () => boolean;
+	canManageFiles: boolean;
 	/** Scopes an inline upload to this app's Project (the chat composer); the
 	 *  account-menu file manager omits it (uploads to the active Project). */
 	appId?: string;
@@ -670,7 +696,7 @@ function UploadTab({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
 	const [kindError, setKindError] = useState<string | null>(null);
-	const { upload, status } = useMediaUpload(appId);
+	const { upload, status } = useMediaUpload(appId, canManageFiles);
 	const { nounPhrase, accept } = useMemo(() => describeKinds(kinds), [kinds]);
 
 	const handleFile = async (file: File | undefined) => {
@@ -707,12 +733,15 @@ function UploadTab({
 		// (builder slots: the dialog closes and the slot chip owns
 		// progress/cancel/attach-on-confirm) or uploads inline (the chat
 		// file manager).
-		if (onUploadStart) {
+		if (onUploadStart && maySelect()) {
 			onUploadStart(file, kind);
 			return;
 		}
+		// An upload begun with no editable destination belongs only to Files,
+		// even if editing becomes available before its response arrives.
+		const selectAfterUpload = maySelect();
 		const asset = await upload(file);
-		if (asset) onUploaded(asset);
+		if (asset) onUploaded(asset, selectAfterUpload);
 	};
 
 	return (
@@ -829,7 +858,7 @@ function UploadTab({
 }
 
 function LibraryTab({
-	canWrite,
+	canManageFiles,
 	assets,
 	query,
 	onQueryChange,
@@ -848,7 +877,7 @@ function LibraryTab({
 	kinds,
 	onFilterChange,
 }: {
-	canWrite: boolean;
+	canManageFiles: boolean;
 	assets: MediaAssetView[];
 	/** Search text sent to the server before pagination. */
 	query: string;
@@ -969,21 +998,21 @@ function LibraryTab({
 					description={
 						normalizedQuery
 							? "Try a different name or clear your search"
-							: canWrite
+							: canManageFiles
 								? "Upload a file to use it here"
 								: "Files added by Project editors appear here"
 					}
 					action={
 						normalizedQuery
 							? "Clear search"
-							: canWrite
+							: canManageFiles
 								? "Upload file"
 								: undefined
 					}
 					onAction={
 						normalizedQuery
 							? () => onQueryChange("")
-							: canWrite
+							: canManageFiles
 								? onUpload
 								: undefined
 					}
@@ -1058,7 +1087,7 @@ function LibraryTab({
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the
 									 *  asset from the library. */}
-									{canWrite && (
+									{canManageFiles && (
 										<SimpleTooltip content="Delete">
 											<Button
 												type="button"
@@ -1080,7 +1109,7 @@ function LibraryTab({
 										<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
 											<ExtractionStatusBadge
 												asset={asset}
-												canExtract={canWrite}
+												canExtract={canManageFiles}
 												onExtracted={(extract) =>
 													onExtracted(asset.id, extract)
 												}

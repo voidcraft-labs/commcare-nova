@@ -30,6 +30,7 @@ import type { EditorPath } from "./path";
 export type TermMode =
 	| "literal"
 	| "property"
+	| "form-case"
 	| "field"
 	| "input"
 	| "table-column"
@@ -42,6 +43,8 @@ export type TermMode =
  *  rather than "Prop"; every other kind reads through unchanged. */
 export function termMode(term: Term): TermMode {
 	switch (term.kind) {
+		case "form-case":
+			return "form-case";
 		case "literal":
 			return "literal";
 		case "prop":
@@ -77,6 +80,8 @@ export function literalHasMeaningfulContent(value: Literal): boolean {
 
 export function termHasMeaningfulContent(value: Term): boolean {
 	switch (value.kind) {
+		case "form-case":
+			return value.property.length > 0;
 		case "literal":
 			return literalHasMeaningfulContent(value);
 		case "prop":
@@ -104,6 +109,8 @@ export function termModeLabel(
 	sourceContext: "value" | "subject",
 ): string {
 	switch (mode) {
+		case "form-case":
+			return "The form’s selected record";
 		case "literal":
 			return "A value";
 		case "property":
@@ -134,6 +141,12 @@ export function describeTermModeReplacement(
 	);
 	const title = `Use ${replacement} instead?`;
 	switch (source.kind) {
+		case "form-case":
+			return {
+				title,
+				description:
+					"This replaces the selected form record information. You can undo this change.",
+			};
 		case "literal":
 			return {
 				title,
@@ -267,6 +280,17 @@ export function computeModeAdmission(
 	const textAdmitted = constraintAdmitsType(constraint, "text");
 	const typeAdmission: ModeAdmission = {
 		literal: { admitted: true },
+		"form-case": {
+			admitted: ctx.caseTypes.some(
+				(type) =>
+					ctx.formCaseTypes?.has(type.name) &&
+					type.properties.some((property) =>
+						acceptsType(constraint, effectiveDataType(property)),
+					),
+			),
+			reason:
+				"This form needs one selected record with information of this type",
+		},
 		property: hasAcceptedProperty
 			? { admitted: true }
 			: { admitted: false, reason },
@@ -343,6 +367,21 @@ export function buildTermDefault(
 	constraint: SlotConstraint,
 ): Term {
 	switch (mode) {
+		case "form-case": {
+			for (const type of ctx.caseTypes) {
+				if (!ctx.formCaseTypes?.has(type.name)) continue;
+				const property = type.properties.find((p) =>
+					acceptsType(constraint, effectiveDataType(p)),
+				);
+				if (property)
+					return {
+						kind: "form-case",
+						caseType: type.name,
+						property: property.name,
+					};
+			}
+			throw new Error("No selected form record property is available.");
+		}
 		case "literal":
 			return constraint.accepts === "any"
 				? literal("")

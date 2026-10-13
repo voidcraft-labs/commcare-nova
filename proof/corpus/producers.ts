@@ -20,6 +20,7 @@
 
 import { isTag } from "domhandler";
 import { textContent } from "domutils";
+import { caseChoiceDoc } from "@/lib/__tests__/caseChoiceFixture";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
 import {
@@ -319,6 +320,7 @@ function produced(): Produced[] {
 	for (const scenario of containerScenarios) {
 		add("container", scenario, containerWireFixture(scenario));
 	}
+	add("case-choice", "attendance", caseChoiceDoc());
 	add("container", "section-entry", sectionEntryDoc());
 	add("container", "live-count-entry", liveCountEntryDoc());
 	add("container", "live-count-effects", liveCountEntryDoc(true));

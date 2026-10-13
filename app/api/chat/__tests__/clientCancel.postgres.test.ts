@@ -1,3 +1,4 @@
+import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
 /**
  * The chat POST against a real Postgres testcontainer: pinning the one
  * contract the whole resumable-threads design hangs on: **a client that
@@ -34,7 +35,7 @@
  * log.
  */
 
-import type { UIMessageChunk } from "ai";
+import type { UIMessage, UIMessageChunk } from "ai";
 import type { Insertable, Kysely } from "kysely";
 import { beforeEach, describe, expect, it as test, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
@@ -199,12 +200,12 @@ vi.mock("@/lib/db/threads", async (importOriginal) => {
 	return {
 		...actual,
 		persistResponseSnapshot: async (
-			args: Parameters<typeof actual.persistResponseSnapshot>[0],
+			...args: Parameters<typeof actual.persistResponseSnapshot>
 		) => {
-			if (failClearMarkerWrites.on && args.clearMarker) {
+			if (failClearMarkerWrites.on && args[0].clearMarker) {
 				throw new Error("thread write connection dropped");
 			}
-			return actual.persistResponseSnapshot(args);
+			return actual.persistResponseSnapshot(...args);
 		},
 		clawBackThreadResponse: async (
 			args: Parameters<typeof actual.clawBackThreadResponse>[0],
@@ -330,6 +331,7 @@ async function seedBoundSession(sessionId: string, appId: string) {
 			proposed_app_id: appId,
 			app_id: appId,
 			state: "materialized",
+			authoring_version: 1,
 			awaiting_input: false,
 			run_id: null,
 			run_holder_nonce: null,
@@ -929,6 +931,7 @@ describe("pause-stamp ownership admission", () => {
 			true,
 			USER,
 			PROJECT,
+			expect.any(Function),
 		);
 		expect(app.status).toBe("complete");
 		expect(app.res_run_id).toBe("replacement-run");
@@ -975,7 +978,7 @@ describe("pause-stamp ownership admission", () => {
 	it("takes the failure funnel when pause persistence faults instead of claiming a resumable pause", async () => {
 		await seedFeedEditApp();
 		configurePausedAgent();
-		setAwaitingInputMock.mockRejectedValueOnce(
+		setAwaitingInputMock.mockRejectedValue(
 			new Error("pause write connection dropped"),
 		);
 
@@ -1065,6 +1068,7 @@ describe("free-continuation resume admission", () => {
 			"edit",
 			USER,
 			PROJECT,
+			expect.any(Object),
 		);
 		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
 		expect(wire).toContain('"type":"internal"');
@@ -1140,6 +1144,41 @@ describe("free-continuation resume admission", () => {
 });
 
 describe("server-derived build-vs-edit mode", () => {
+	const pendingBuildQuestion: UIMessage = {
+		id: "paused-build-answer",
+		role: "assistant",
+		parts: [
+			{ type: "step-start" },
+			{
+				type: "tool-askQuestions",
+				toolCallId: "paused-build-question",
+				state: "input-available",
+				input: {
+					header: "Workflow",
+					questions: [
+						{
+							question: "Who will use this?",
+							options: [{ label: "Nurses" }, { label: "Volunteers" }],
+						},
+					],
+				},
+			},
+		],
+	};
+	const answeredBuildQuestion: UIMessage = {
+		...pendingBuildQuestion,
+		parts: pendingBuildQuestion.parts.map((part) =>
+			part.type === "tool-askQuestions" && part.state === "input-available"
+				? { ...part, state: "output-available", output: { "0": "Nurses" } }
+				: part,
+		),
+	};
+	const buildQuestionUser: UIMessage = {
+		id: "paused-build-user",
+		role: "user",
+		parts: [{ type: "text", text: "Build a nutrition app." }],
+	};
+
 	/** A real build claim and pause on the canonical app establish both the
 	 * exact holder and its matching ledger before a browser answer resumes. */
 	async function seedPausedBuild(): Promise<void> {
@@ -1179,8 +1218,8 @@ describe("server-derived build-vs-edit mode", () => {
 				summary: "Paused build answer",
 				run_id: PAUSED_BUILD_RUN,
 				active_stream_id: null,
-				active_holder_nonce: null,
-				messages: JSON.stringify([]),
+				active_holder_nonce: REPLACEMENT_NONCE,
+				messages: JSON.stringify([buildQuestionUser, pendingBuildQuestion]),
 			})
 			.execute();
 	}
@@ -1189,19 +1228,27 @@ describe("server-derived build-vs-edit mode", () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
 			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			const actualApps =
-				await vi.importActual<typeof import("@/lib/db/apps")>("@/lib/db/apps");
-			const outcome = await actualApps.setAwaitingInput(
-				PAUSED_BUILD_APP,
-				args.runId,
-				args.holderNonce,
-				"build",
-				true,
-				USER,
-				PROJECT,
-			);
-			args.writer.write({ type: "finish" });
-			return { kind: "awaiting-input", pauseOwned: outcome === "owned" };
+			args.writer.write({ type: "start-step" });
+			args.writer.write({ type: "text-start", id: "pause-note" });
+			args.writer.write({
+				type: "text-delta",
+				id: "pause-note",
+				delta: "Send your next instruction.",
+			});
+			args.writer.write({ type: "text-end", id: "pause-note" });
+			args.writer.write({ type: "finish-step" });
+			return {
+				kind: "awaiting-input",
+				pause: {
+					kind: "message",
+					origin: args.responseMessageId,
+					orchestration: {
+						expectedHead: await readOrchestrationHead(args.designSessionId),
+						state: { kind: "awaiting-input" },
+					},
+					toolCallIds: [],
+				},
+			};
 		});
 	}
 	async function expectOwnedBuildPause(runId: string): Promise<void> {
@@ -1250,18 +1297,7 @@ describe("server-derived build-vs-edit mode", () => {
 					threadId: PAUSED_BUILD_THREAD,
 					runId: PAUSED_BUILD_RUN,
 					holderNonce: REPLACEMENT_NONCE,
-					messages: [
-						{
-							id: "paused-build-user",
-							role: "user",
-							parts: [{ type: "text", text: "Build a nutrition app." }],
-						},
-						{
-							id: "paused-build-answer",
-							role: "assistant",
-							parts: [{ type: "text", text: "Questions answered." }],
-						},
-					],
+					messages: [buildQuestionUser, answeredBuildQuestion],
 				}),
 			}),
 		);
@@ -1275,6 +1311,7 @@ describe("server-derived build-vs-edit mode", () => {
 			"build",
 			USER,
 			PROJECT,
+			expect.any(Object),
 		);
 		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
 		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
@@ -1584,19 +1621,27 @@ describe("server-derived build-vs-edit mode", () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
 			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			const actualApps =
-				await vi.importActual<typeof import("@/lib/db/apps")>("@/lib/db/apps");
-			const paused = await actualApps.setAwaitingInput(
-				DIRECT_ADOPT_APP,
-				args.runId,
-				args.holderNonce,
-				"build",
-				true,
-				USER,
-				PROJECT,
-			);
-			args.writer.write({ type: "finish" });
-			return { kind: "awaiting-input", pauseOwned: paused === "owned" };
+			args.writer.write({ type: "start-step" });
+			args.writer.write({ type: "text-start", id: "pause-note" });
+			args.writer.write({
+				type: "text-delta",
+				id: "pause-note",
+				delta: "Send your next instruction.",
+			});
+			args.writer.write({ type: "text-end", id: "pause-note" });
+			args.writer.write({ type: "finish-step" });
+			return {
+				kind: "awaiting-input",
+				pause: {
+					kind: "message",
+					origin: args.responseMessageId,
+					orchestration: {
+						expectedHead: await readOrchestrationHead(args.designSessionId),
+						state: { kind: "awaiting-input" },
+					},
+					toolCallIds: [],
+				},
+			};
 		});
 
 		const response = await post(

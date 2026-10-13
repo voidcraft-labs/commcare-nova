@@ -56,7 +56,7 @@ def _record(run):
 
 
 def test_vellum_opens_and_saves_an_hq_form_twice_through_hqs_views(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, record):
+    with hq_check(CONFIGURATION) as (state, record):
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
         before = compare.build(state, app_id, record)
@@ -66,7 +66,10 @@ def test_vellum_opens_and_saves_an_hq_form_twice_through_hqs_views(hq, core_runn
             builds.append(compare.build(state, app_id, record, version=before.app.version))
         restore = TEMPLATE_RESTORE.read_bytes()
         traces = [compare.core_trace(core_runner, built, restore) for built in (before, *builds)]
-        es_reads = [read[0] for read in record.elasticsearch_reads]
+        from corehq.apps.es.forms import form_adapter
+
+        forms_index = form_adapter.index_name
+        form_counts = [read for read in record.elasticsearch_reads if read[1] == "_count" and forms_index in read[2]]
 
     for index, run in enumerate(runs):
         record_timing("vellum_open", run.seconds["open"])
@@ -89,9 +92,9 @@ def test_vellum_opens_and_saves_an_hq_form_twice_through_hqs_views(hq, core_runn
         # HQ's own form, in HQ's own editor: nothing to report.
         assert run.form_errors == [] and run.question_errors() == [] and run.serialization_warnings == []
         assert run.last_saved_is_created and not run.page_errors
-    # Vellum asked HQ whether the form has submissions, which the harness
-    # answers as an empty form index.
-    assert "form_has_submissions" in es_reads
+    # Vellum asked HQ whether the form has submissions, which HQ answers by
+    # counting the form's submissions in its own forms index.
+    assert form_counts
 
     # Core reads HQ's build after the second round trip as it read it after the
     # first: the second save changed nothing Core sees.
@@ -116,7 +119,7 @@ def _binds(source):
 
 
 def test_vellum_records_a_parse_error_and_the_save_drops_what_it_reports(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
         _with_orphan_bind(state, app_id, form_id)
@@ -136,7 +139,7 @@ YESNO_APP = "yesno.json"
 
 
 def _form_name_after_save(core_runner, editor_driver, lang):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, YESNO_APP)
         app = operations.held_app(state, app_id)
         form_id = app.modules[0].forms[0].unique_id

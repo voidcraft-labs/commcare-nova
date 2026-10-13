@@ -34,7 +34,7 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
     ],
 )
 def test_a_save_hqs_view_refuses_is_reported_as_refused(hq, core_runner, editor_driver, condition, refused):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty
         from corehq.apps.case_search.models import CaseSearchConfig
 
@@ -79,7 +79,7 @@ def test_a_save_the_page_refuses_with_a_dialog_is_reported_unsent(hq, core_runne
     (``details/bootstrap3/screen.js::save``). The run reports that dialog as the section's refusal, never a save
     it waits for until its deadline, from the view's one load and from a fresh page alike, and HQ keeps what it had.
     The same search with its default filter on another property saves."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty, DefaultCaseSearchProperty
         from corehq.apps.case_search.models import CaseSearchConfig
 

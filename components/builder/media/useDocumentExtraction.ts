@@ -14,6 +14,7 @@ import {
 	type ExtractableAsset,
 } from "./documentExtraction";
 import type { ExtractMeta } from "./mediaClient";
+import { useMediaAuthority } from "./useMediaAuthority";
 
 export type { ExtractableAsset } from "./documentExtraction";
 
@@ -33,6 +34,7 @@ export function useDocumentExtraction(
 	enabled = true,
 ): DocumentExtraction {
 	const reconciler = useReconcilerContext();
+	const { canManageFiles, mayManageFiles } = useMediaAuthority(enabled);
 	const callbacks = useRef({ onExtracted, onProgress });
 	callbacks.current = { onExtracted, onProgress };
 	const { id, kind } = asset;
@@ -45,12 +47,21 @@ export function useDocumentExtraction(
 					kind,
 					extract: storedStatus ? { status: storedStatus } : undefined,
 				},
-				enabled,
+				enabled: enabled && canManageFiles,
+				mayExtract: mayManageFiles,
 				signal: abortSignal,
 				onExtracted: (extract) => callbacks.current.onExtracted?.(extract),
 				onProgress: (delta) => callbacks.current.onProgress?.(delta),
 			}),
-		[id, kind, storedStatus, enabled, abortSignal],
+		[
+			id,
+			kind,
+			storedStatus,
+			enabled,
+			canManageFiles,
+			mayManageFiles,
+			abortSignal,
+		],
 	);
 	const status = useSyncExternalStore(
 		model.subscribe,

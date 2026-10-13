@@ -41,7 +41,8 @@ export const multiSelectFieldMetadata: FieldKindMetadata<"multi_select"> = {
 	label: "Multi Select",
 	isStructural: false,
 	isContainer: false,
-	saDocs: "Multi-choice from a fixed option list.",
+	saDocs:
+		"Multi-choice from inline choices, a Project data table, or cases available to the worker. Case choices save exact record IDs.",
 	// Both targets store a plain string where this kind stores a JSONB
 	// array of selected values — the case store's string↔array reshape
 	// space-joins every stored selection (the XForms wire convention),

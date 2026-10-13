@@ -1,9 +1,11 @@
 """The privileges a corpus document's content needs, and its configurations as the checks read them.
 
 A corpus document's minimum configuration grants exactly the plan
-privileges its content needs: HQ refuses to build, drops, or keeps its
-editors from offering that content on a plan without them, so a check that
-ran without them would report the plan, not a defect. ``PRIVILEGE_RULES``
+privileges its content needs: HQ refuses to build, drops, keeps its
+editors from offering, or keeps Web Apps from listing that content on a plan
+without them, so a check that ran without them would report the plan, not a
+defect. One of them every document needs: Web Apps (``CLOUDCARE``), since
+every app Nova sends is one a worker opens there. ``PRIVILEGE_RULES``
 holds one rule per privilege row of the research's gates file that content
 can need (``lib/commcare/surface/entries/gates.json``, the privilege
 entries). Each rule names the HQ reader that makes the content need its
@@ -124,8 +126,14 @@ def _needs_lookup_tables(content):
     """``helpers/validators.py::ApplicationValidator._validate_fixtures`` fails the build for
     a form whose source reads a lookup table (``FormBase.has_fixtures``), and HQ's lookup
     upload (``fixtures/views.py::upload_fixture_api``, through
-    ``fixtures/dispatcher.py::require_can_edit_fixtures``) refuses Nova's workbook push."""
-    return content.lookup_push or any(form.has_fixtures for form in _forms(content))
+    ``fixtures/dispatcher.py::require_can_edit_fixtures``) refuses Nova's workbook push.
+    Vellum's ``src/itemset.js::Itemset.itemsetData.validationFunc`` also rejects every
+    itemset without ``features.lookup_tables``, including a casedb itemset with no fixture."""
+    return (
+        content.lookup_push
+        or any(form.has_fixtures for form in _forms(content))
+        or any(root.find(f".//{{{XFORMS_NS}}}itemset") is not None for root in _parsed_sources(content))
+    )
 
 
 def _needs_intents(content):
@@ -179,9 +187,12 @@ def _needs_locations(content):
 
 
 def _needs_cloudcare(content):
-    """``models/applications.py::_create_app_from_doc`` sets ``cloudcare_enabled`` from the
-    privilege on create, whatever the app asks, so an app that declares Web Apps needs it."""
-    return bool(content.source.get("cloudcare_enabled"))
+    """Every app Nova sends is one a worker opens in Web Apps as well as on a device, and Web Apps lists an
+    app only where the project space has the privilege: ``models/applications.py::_create_app_from_doc`` sets a
+    new app's ``cloudcare_enabled`` from it when the upload lands, whatever the app asks, and
+    ``cloudcare/utils.py::get_web_apps_available_to_user`` offers a worker only an app that has it. A target
+    without it cannot run the app there, so the content of every publish needs it (finding 64)."""
+    return True
 
 
 def _needs_logo_uploader(content):
@@ -271,7 +282,8 @@ PRIVILEGE_RULES: tuple[PrivilegeRule, ...] = (
     ),
     PrivilegeRule(
         "privilege/lookup_tables",
-        "corehq/apps/app_manager/helpers/validators.py::ApplicationValidator._validate_fixtures",
+        "corehq/apps/app_manager/helpers/validators.py::ApplicationValidator._validate_fixtures; "
+        "Vellum/src/itemset.js::Itemset.itemsetData.validationFunc",
         _one("LOOKUP_TABLES", _needs_lookup_tables),
     ),
     PrivilegeRule(

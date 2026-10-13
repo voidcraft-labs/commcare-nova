@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 /**
  * Chat thread persistence — the durable conversation store.
  *
@@ -52,10 +53,22 @@
  */
 import type { UIMessage } from "ai";
 import { type ExpressionBuilder, sql, type Transaction } from "kysely";
+import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
+import {
+	type InputRound,
+	type InputRoundReconciliation,
+	inputRoundSchema,
+} from "@/lib/chat/inputRound";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
+import {
+	type SelectedSourceDocument,
+	selectedSourceDocumentsSchema,
+} from "@/lib/chat/selectedSources";
 import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { DESIGN_SESSION_LEASE_COLUMNS } from "./actorGenerationGate";
+import { assertProjectCapabilityInTransaction } from "./canonicalCommitKernel";
 import { RunHolderLostError } from "./commitGuard";
 import {
 	type GenerationTarget,
@@ -645,24 +658,28 @@ export function mergeTranscript(
  * admits no assistant messages at all: no server run has ever written to it,
  * so no client-sent assistant content on it can be authentic.
  */
-export async function upsertThreadTurn(args: {
-	target: ThreadTarget;
-	threadId: string;
-	runId: string;
-	streamId: string;
-	/** Chat passes the exact holder; optional only for old fixtures/importers. */
-	holderNonce: string;
-	threadType: "build" | "edit";
-	messages: UIMessage[];
-	/** Project captured by chat admission. */
-	expectedProjectId: string;
-	/** This claim re-runs a died turn — remove the dead run's trailing
-	 * partial before merging. Only the owning claim path honors it. */
-	redrive?: boolean;
-}): Promise<boolean> {
+export async function upsertThreadTurn(
+	args: {
+		target: ThreadTarget;
+		threadId: string;
+		runId: string;
+		streamId: string;
+		/** Chat passes the exact holder; optional only for old fixtures/importers. */
+		holderNonce: string;
+		threadType: "build" | "edit";
+		messages: UIMessage[];
+		/** Project captured by chat admission. */
+		expectedProjectId: string;
+		/** This claim re-runs a died turn — remove the dead run's trailing
+		 * partial before merging. Only the owning claim path honors it. */
+		redrive?: boolean;
+		clearInputRound?: boolean;
+	},
+	transaction?: Transaction<AppDatabase>,
+): Promise<boolean> {
 	const now = new Date().toISOString();
 	const logCtx = { target: args.target, threadId: args.threadId };
-	const result = await withAppTx(async (tx) => {
+	const write = async (tx: Transaction<AppDatabase>) => {
 		// Fixed lock order: authority row (app or design session) -> thread
 		// identity -> thread row. Every competing thread writer queues on the
 		// identity, whether or not the row exists yet, so proving the holder
@@ -798,6 +815,7 @@ export async function upsertThreadTurn(args: {
 				active_stream_id: args.streamId,
 				active_holder_nonce: args.holderNonce,
 				messages: JSON.stringify(merged),
+				...(args.clearInputRound ? { input_round: null } : {}),
 				clawed_back_ids: JSON.stringify(clawedBackIds),
 			})
 			.execute();
@@ -807,7 +825,8 @@ export async function upsertThreadTurn(args: {
 			threadId: args.threadId,
 		});
 		return true;
-	});
+	};
+	const result = await (transaction ? write(transaction) : withAppTx(write));
 	if (typeof result === "object") {
 		throw new RunHolderLostError(result.holderLost);
 	}
@@ -911,21 +930,25 @@ export async function mergeThreadTurnMessages(args: {
  * empty-parts message, normalized to null) means there is nothing to merge;
  * the marker arm still applies.
  */
-export async function persistResponseSnapshot(args: {
-	target: ThreadTarget;
-	threadId: string;
-	streamId: string;
-	/** Project captured by chat admission — guards the MERGE arm only. */
-	expectedProjectId: string;
-	responseMessage: UIMessage | null;
-	/** True only at stream end; barrier writes leave the run's marker live. */
-	clearMarker: boolean;
-	/** A paused askQuestions round keeps its generation for the answer POST;
-	 * every terminal/unpaused finish clears it with the exact stream marker. */
-	retainHolderNonce?: boolean;
-}): Promise<void> {
+export async function persistResponseSnapshot(
+	args: {
+		target: ThreadTarget;
+		threadId: string;
+		streamId: string;
+		/** Project captured by chat admission — guards the MERGE arm only. */
+		expectedProjectId: string;
+		responseMessage: UIMessage | null;
+		/** True only at stream end; barrier writes leave the run's marker live. */
+		clearMarker: boolean;
+		/** A paused askQuestions round keeps its generation for the answer POST;
+		 * every terminal/unpaused finish clears it with the exact stream marker. */
+		retainHolderNonce?: boolean;
+		inputRound?: InputRound;
+	},
+	transaction?: Transaction<AppDatabase>,
+): Promise<void> {
 	const now = new Date().toISOString();
-	await withAppTx(async (tx) => {
+	const write = async (tx: Transaction<AppDatabase>) => {
 		const authority = await lockThreadTargetAuthority(tx, args.target);
 		if (!authority) return;
 		await lockThreadIdentity(tx, args.threadId);
@@ -936,6 +959,7 @@ export async function persistResponseSnapshot(args: {
 			.selectFrom("threads")
 			.select([
 				"messages",
+				"input_round",
 				"active_stream_id",
 				"active_holder_nonce",
 				"clawed_back_ids",
@@ -946,7 +970,26 @@ export async function persistResponseSnapshot(args: {
 			? rowQuery.where("app_id", "=", args.target.appId)
 			: rowQuery.where("design_session_id", "=", args.target.designSessionId)
 		).executeTakeFirst();
-		if (!row) return;
+		if (!row) {
+			if (args.inputRound) throw new RunHolderLostError("released");
+			return;
+		}
+		if (args.inputRound) {
+			if (
+				row.input_round?.id === args.inputRound.id &&
+				row.input_round.state === "consumed"
+			)
+				throw new Error("A consumed input round cannot be republished");
+			if (
+				row.active_stream_id !== args.streamId &&
+				!(
+					row.active_stream_id === null &&
+					row.input_round?.id === args.inputRound.id &&
+					row.input_round.state === "pending"
+				)
+			)
+				throw new RunHolderLostError("superseded");
+		}
 		const clearMarker =
 			args.clearMarker && row.active_stream_id === args.streamId;
 		let responseMessage =
@@ -994,6 +1037,9 @@ export async function persistResponseSnapshot(args: {
 		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
 				updated_at: now,
+				...(args.inputRound
+					? { input_round: JSON.stringify(args.inputRound) }
+					: {}),
 				...(clearMarker ? { active_stream_id: null } : {}),
 				...(clearMarker && !args.retainHolderNonce
 					? { active_holder_nonce: null }
@@ -1004,7 +1050,8 @@ export async function persistResponseSnapshot(args: {
 					: {}),
 			})
 			.execute();
-	});
+	};
+	await (transaction ? write(transaction) : withAppTx(write));
 }
 
 /**
@@ -1351,6 +1398,7 @@ export async function loadThread(
 			"run_id",
 			"active_stream_id",
 			"active_holder_nonce",
+			"input_round",
 			"design_session_id",
 			"messages",
 		])
@@ -1376,7 +1424,10 @@ export async function loadThread(
 	if (holder) {
 		const identity = holder.holderIdentity;
 		const threadRunHoldsTarget = identity?.runId === doc.run_id;
-		runPaused = holder.paused && threadRunHoldsTarget;
+		runPaused =
+			holder.paused &&
+			threadRunHoldsTarget &&
+			storedHolderNonce === identity?.nonce;
 		if (
 			actorUserId !== undefined &&
 			identity &&
@@ -1392,8 +1443,18 @@ export async function loadThread(
 			}
 		}
 	}
+	if (doc.input_round?.state === "pending" && !runPaused)
+		doc.input_round = null;
 	const projected =
-		holderNonce === undefined ? doc : { ...doc, holder_nonce: holderNonce };
+		holderNonce === undefined
+			? doc
+			: {
+					...doc,
+					holder_nonce: holderNonce,
+					input_round:
+						doc.input_round ??
+						(runPaused ? legacyQuestionRound(threadId, doc.messages) : null),
+				};
 	// Transient, deliberately outside the stored-shape schema — see
 	// `LoadedThread`.
 	return {
@@ -1451,11 +1512,19 @@ export async function resolveThreadStream(threadId: string): Promise<{
 	target: ThreadTarget;
 	activeStreamId: string | null;
 	runId: string;
+	inputRound: InputRound | null;
 } | null> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("threads")
-		.select(["app_id", "design_session_id", "active_stream_id", "run_id"])
+		.select([
+			"app_id",
+			"design_session_id",
+			"active_stream_id",
+			"run_id",
+			"input_round",
+			"messages",
+		])
 		.where("thread_id", "=", threadId)
 		.executeTakeFirst();
 	if (!row) return null;
@@ -1463,5 +1532,414 @@ export async function resolveThreadStream(threadId: string): Promise<{
 		target: generationTargetFromColumns(row),
 		activeStreamId: row.active_stream_id,
 		runId: row.run_id,
+		inputRound: row.input_round
+			? inputRoundSchema.parse(row.input_round)
+			: legacyQuestionRound(threadId, row.messages as StoredMessage[]),
 	};
+}
+
+/** Compatibility projection for an old, genuinely unanswered final card.
+ * Answered cards and prose endings never become invitations. No loader writes. */
+function legacyQuestionRound(
+	threadId: string,
+	messages: readonly StoredMessage[],
+): InputRound | null {
+	const message = messages.at(-1);
+	if (
+		message?.role !== "assistant" ||
+		!message.id ||
+		!Array.isArray(message.parts)
+	)
+		return null;
+	const parts = message.parts as UIMessage["parts"];
+	const last = parts.at(-1);
+	if (last?.type !== "tool-askQuestions" || last.state !== "input-available")
+		return null;
+	const stepStart = parts.findLastIndex((part) => part.type === "step-start");
+	const calls = parts
+		.slice(stepStart + 1)
+		.filter(
+			(part) =>
+				part.type === "tool-askQuestions" && part.state === "input-available",
+		);
+	const identities: { toolCallId: string; input: unknown }[] = [];
+	for (const part of calls) {
+		if (
+			!("toolCallId" in part) ||
+			!("input" in part) ||
+			!askQuestionsInputSchema.safeParse(part.input).success
+		)
+			return null;
+		identities.push({ toolCallId: part.toolCallId, input: part.input });
+	}
+	if (identities.length === 0) return null;
+	identities.sort((a, b) => a.toolCallId.localeCompare(b.toolCallId));
+	return {
+		id: `legacy-questions:${canonicalJsonDigest([threadId, message.id, identities])}`,
+		kind: "questions",
+		assistantMessageId: message.id,
+		toolCallIds: identities.map((call) => call.toolCallId),
+		state: "pending",
+		acceptedStreamId: null,
+	};
+}
+
+/** A rejected continuation never changes the transcript or holder. */
+export class InputRoundRejectedError extends Error {
+	constructor(readonly reconciliation: InputRoundReconciliation) {
+		super(reconciliation.code);
+		this.name = "InputRoundRejectedError";
+	}
+}
+
+export type ThreadContinuation = {
+	actorUserId: string;
+	runId: string;
+	target: ThreadTarget;
+	threadId: string;
+	inputRoundId?: string;
+	holderNonce: string | null;
+	messages: UIMessage[];
+};
+
+/** Called under the actor gate and target UPDATE lock, before renewing a
+ * holder. The thread lock remains held through history admission + consume. */
+export async function checkInputRoundInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: ThreadContinuation,
+): Promise<void> {
+	const authority = await lockThreadTargetAuthority(tx, args.target);
+	await lockThreadIdentity(tx, args.threadId);
+	const row = await tx
+		.selectFrom("threads")
+		.select([
+			"app_id",
+			"design_session_id",
+			"input_round",
+			"active_stream_id",
+			"active_holder_nonce",
+			"messages",
+		])
+		.where("thread_id", "=", args.threadId)
+		.forUpdate()
+		.executeTakeFirst();
+	const round = row?.input_round
+		? inputRoundSchema.parse(row.input_round)
+		: row
+			? legacyQuestionRound(args.threadId, row.messages as StoredMessage[])
+			: null;
+	const reject = () => {
+		throw new InputRoundRejectedError({
+			code:
+				round !== null &&
+				round.id === args.inputRoundId &&
+				round.state === "consumed"
+					? "input_round_consumed"
+					: "input_round_stale",
+			threadId: args.threadId,
+			inputRound: round,
+			activeStreamId: row?.active_stream_id ?? null,
+		});
+	};
+	if (
+		!authority?.lease.pausedBy(args.actorUserId) ||
+		authority.lease.holderIdentity?.runId !== args.runId ||
+		authority.lease.holderIdentity.nonce !== args.holderNonce
+	)
+		return reject();
+	if (
+		row &&
+		threadRowMatchesTarget(row, args.target) &&
+		!round &&
+		args.inputRoundId === undefined &&
+		row.active_holder_nonce === args.holderNonce &&
+		args.messages.some(
+			(message) =>
+				message.role === "user" &&
+				!(row.messages as UIMessage[]).some(
+					(stored) => stored.id === message.id,
+				),
+		)
+	)
+		return;
+	if (
+		!row ||
+		!threadRowMatchesTarget(row, args.target) ||
+		!round ||
+		round.state !== "pending" ||
+		row.active_holder_nonce !== args.holderNonce ||
+		(args.inputRoundId !== undefined && args.inputRoundId !== round.id)
+	)
+		return reject();
+	// Old tabs may answer only the exact currently pending question calls.
+	if (
+		args.inputRoundId === undefined &&
+		round.kind !== "questions" &&
+		!args.messages.some(
+			(message) =>
+				message.role === "user" &&
+				!(row.messages as UIMessage[]).some(
+					(stored) => stored.id === message.id,
+				),
+		)
+	)
+		return reject();
+	if (round.kind === "questions") {
+		const assistant = args.messages.find(
+			(message) => message.id === round.assistantMessageId,
+		);
+		const stored = (row.messages as UIMessage[]).find(
+			(message) => message.id === round.assistantMessageId,
+		);
+		for (const toolCallId of round.toolCallIds) {
+			const answer = assistant?.parts.find(
+				(part) => "toolCallId" in part && part.toolCallId === toolCallId,
+			);
+			const question = stored?.parts.find(
+				(part) => "toolCallId" in part && part.toolCallId === toolCallId,
+			);
+			if (
+				!answer ||
+				!("state" in answer) ||
+				answer.state !== "output-available" ||
+				!("input" in answer) ||
+				!question ||
+				!("input" in question) ||
+				!isDeepStrictEqual(answer.input, question.input)
+			)
+				return reject();
+			const input = askQuestionsInputSchema.safeParse(question.input);
+			const output = "output" in answer ? answer.output : null;
+			if (
+				!input.success ||
+				output === null ||
+				typeof output !== "object" ||
+				Array.isArray(output)
+			)
+				return reject();
+			const answers = output as Record<string, unknown>;
+			if (
+				Object.keys(answers).length !== input.data.questions.length ||
+				input.data.questions.some(
+					(_, index) =>
+						typeof answers[String(index)] !== "string" ||
+						!(answers[String(index)] as string).trim(),
+				)
+			)
+				return reject();
+		}
+	} else if (
+		!args.messages.some(
+			(message) =>
+				message.role === "user" &&
+				!(row.messages as UIMessage[]).some(
+					(stored) => stored.id === message.id,
+				),
+		)
+	)
+		return reject();
+	if (!row.input_round && round)
+		await tx
+			.updateTable("threads")
+			.set({ input_round: JSON.stringify(round) })
+			.where("thread_id", "=", args.threadId)
+			.execute();
+}
+
+export async function consumeInputRoundInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: { threadId: string; streamId: string; messages: UIMessage[] },
+): Promise<InputRound> {
+	const row = await tx
+		.selectFrom("threads")
+		.select("input_round")
+		.where("thread_id", "=", args.threadId)
+		.executeTakeFirstOrThrow();
+	const round = row.input_round
+		? inputRoundSchema.parse(row.input_round)
+		: inputRoundSchema.parse({
+				id: `legacy:${args.threadId}:${args.messages.filter((message) => message.role === "user").at(-1)?.id}`,
+				kind: "message",
+				assistantMessageId:
+					args.messages.filter((message) => message.role === "assistant").at(-1)
+						?.id ?? args.threadId,
+				toolCallIds: [],
+				state: "pending",
+				acceptedStreamId: null,
+			});
+	if (round.state !== "pending")
+		throw new Error("Input round was not pending at consume");
+	const consumed: InputRound = {
+		...round,
+		state: "consumed",
+		acceptedStreamId: args.streamId,
+	};
+	await tx
+		.updateTable("threads")
+		.set({ input_round: JSON.stringify(consumed) })
+		.where("thread_id", "=", args.threadId)
+		.execute();
+	return consumed;
+}
+
+export async function selectThreadSource(args: {
+	target: ThreadTarget;
+	expectedProjectId: string;
+	actorUserId: string;
+	threadId: string;
+	threadType: "build" | "edit";
+	runId: string;
+	holderNonce: string;
+	streamId: string;
+	source: SelectedSourceDocument;
+}): Promise<void> {
+	await withAppTx(async (tx) => {
+		const authority = await lockThreadTargetAuthority(tx, args.target);
+		if (
+			!authority ||
+			authority.projectId !== args.expectedProjectId ||
+			!threadTargetHolderMatches(authority, {
+				mode: args.threadType,
+				runId: args.runId,
+				nonce: args.holderNonce,
+			})
+		)
+			throw new RunHolderLostError("superseded");
+		await assertProjectCapabilityInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+			"edit",
+			"You no longer have edit access to this Project.",
+		);
+		await lockThreadIdentity(tx, args.threadId);
+		const row = await tx
+			.selectFrom("threads")
+			.select([
+				"app_id",
+				"design_session_id",
+				"messages",
+				"selected_sources",
+				"active_stream_id",
+				"active_holder_nonce",
+			])
+			.where("thread_id", "=", args.threadId)
+			.forUpdate()
+			.executeTakeFirstOrThrow();
+		if (
+			!threadRowMatchesTarget(row, args.target) ||
+			row.active_stream_id !== args.streamId ||
+			row.active_holder_nonce !== args.holderNonce
+		)
+			throw new RunHolderLostError("superseded");
+		const asset = await tx
+			.selectFrom("media_assets")
+			.select(["project_id", "status", "kind", "content_hash", "extract"])
+			.where("id", "=", args.source.assetId)
+			.forShare()
+			.executeTakeFirst();
+		const extract = asset?.extract as {
+			status?: string;
+			version?: number;
+		} | null;
+		if (
+			!asset ||
+			asset.project_id !== args.expectedProjectId ||
+			asset.status !== "ready" ||
+			asset.kind !== args.source.kind ||
+			asset.content_hash !== args.source.contentHash ||
+			extract?.status !== "ready" ||
+			extract.version !== args.source.extractVersion
+		)
+			throw new Error(
+				"The source document changed. Read it again before continuing.",
+			);
+		const sources = selectedSourceDocumentsSchema.parse(row.selected_sources);
+		const index = sources.findIndex(
+			(source) => source.assetId === args.source.assetId,
+		);
+		if (index < 0) sources.push(args.source);
+		else sources[index] = args.source;
+		await threadTargetUpdate(tx, args.target, args.threadId)
+			.set({ selected_sources: JSON.stringify(sources) })
+			.execute();
+		await admitExactThreadMediaProjection(tx, {
+			projectId: args.expectedProjectId,
+			candidateMessages: row.messages,
+			threadId: args.threadId,
+		});
+	});
+}
+
+export async function loadThreadSelectedSources(
+	target: ThreadTarget,
+	threadId: string,
+): Promise<SelectedSourceDocument[]> {
+	const db = await getAppDb();
+	const query = db
+		.selectFrom("threads")
+		.select(["app_id", "design_session_id", "selected_sources"])
+		.where("thread_id", "=", threadId);
+	const row = await query.executeTakeFirst();
+	return row && threadRowMatchesTarget(row, target)
+		? selectedSourceDocumentsSchema.parse(row.selected_sources)
+		: [];
+}
+
+/** Chargeable legacy sends still have delivery identity: their latest user
+ * message. Distinct new instructions retain ordinary claim semantics; a
+ * retransmission never reserves again, even after the first consumer unpaused. */
+export async function checkThreadClaimContinuationInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: ThreadContinuation,
+): Promise<boolean> {
+	const authority = await lockThreadTargetAuthority(tx, args.target);
+	await lockThreadIdentity(tx, args.threadId);
+	const row = await tx
+		.selectFrom("threads")
+		.select([
+			"app_id",
+			"design_session_id",
+			"messages",
+			"input_round",
+			"active_stream_id",
+			"active_holder_nonce",
+		])
+		.where("thread_id", "=", args.threadId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (args.inputRoundId !== undefined) {
+		await checkInputRoundInTransaction(tx, args);
+		return true;
+	}
+	const latestUser = args.messages
+		.filter((message) => message.role === "user")
+		.at(-1);
+	if (
+		!row ||
+		!threadRowMatchesTarget(row, args.target) ||
+		!latestUser ||
+		(row.messages as StoredMessage[]).some(
+			(message) => message.id === latestUser.id,
+		)
+	) {
+		throw new InputRoundRejectedError({
+			code:
+				row?.input_round?.state === "consumed"
+					? "input_round_consumed"
+					: "input_round_stale",
+			threadId: args.threadId,
+			inputRound: row?.input_round ?? null,
+			activeStreamId: row?.active_stream_id ?? null,
+		});
+	}
+	if (
+		authority?.lease.pausedBy(args.actorUserId) &&
+		authority.lease.holderIdentity?.runId === args.runId &&
+		authority.lease.holderIdentity.nonce === args.holderNonce
+	) {
+		await checkInputRoundInTransaction(tx, args);
+		return true;
+	}
+	return false;
 }

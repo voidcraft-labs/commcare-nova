@@ -18,14 +18,19 @@ directories the partitions cover (``walked_files``).
 - ``observation``: every file ``proof.observe.partition.observes`` holds, and
   the lane's container configuration (``LANE_FILES``: the compose file that
   sets the harness's environment and the script that starts it), which
-  decides what the observation's code runs under.
+  decides what the observation's code runs under. No pytest test module is
+  one of them: an edit to a test observes no document again.
 - ``browser``: the editor driver's code, ``proof/editors/driver/**``, which
   node runs and the observation partition leaves out.
 - ``judge``: every file under ``proof/checks/`` the observation does not
   hold, ``proof/rules/**``, both registers (``proof/identity-moves.json``,
   and ``proof/known-defects.json``, which the sensitivity judge reads before
-  it writes its evidence: ``proof/checks/sensitivity.py::hold_flips``), and
-  ``lib/commcare/surface/**``.
+  it writes its evidence: ``proof/checks/sensitivity.py::hold_flips``), the
+  walk-stops list (``proof/walk-stops.json``, which the stops check holds a
+  document's walks to), ``lib/commcare/surface/**``, and the test modules
+  outside the checks whose items run in documents' groups
+  (``DOCUMENT_GROUP_TESTS``: HQ's branch proof), whose outcomes a document's
+  group keeps.
 - ``harness``: every file under ``proof/`` and ``lib/commcare/surface/``, and
   Nova's package manifest, lock and Node version (``HARNESS_FILES``): what a
   package group's tests can read of the checkout.
@@ -61,7 +66,14 @@ ARCHES = ("arm64", "amd64")
 LANE_FILES = frozenset({"proof/compose.yaml", "proof/run.mjs"})
 BROWSER_DIRECTORY = "proof/editors/driver/"
 JUDGE_DIRECTORIES = ("proof/checks/", "proof/rules/", "lib/commcare/surface/")
-JUDGE_FILES = frozenset({"proof/identity-moves.json", "proof/known-defects.json"})
+# The test modules outside the checks whose items run in a document's group (``proof.checks.sharding.item_group``):
+# their outcomes are part of that group's, which the store keeps under the judge's fingerprint, and no test module
+# is in the observation's (``proof.observe.partition``). ``proof/checks/test_judge_purity.py`` holds every
+# collected item of a document's group to a module of this partition.
+DOCUMENT_GROUP_TESTS = frozenset({"proof/hq/test_branches.py"})
+JUDGE_FILES = (
+    frozenset({"proof/identity-moves.json", "proof/known-defects.json", "proof/walk-stops.json"}) | DOCUMENT_GROUP_TESTS
+)
 HARNESS_DIRECTORIES = ("proof/", "lib/commcare/surface/")
 HARNESS_FILES = frozenset({"package.json", "package-lock.json", ".nvmrc"})
 # The paths a walk of a copy without git reads: the partitions' directories and files.

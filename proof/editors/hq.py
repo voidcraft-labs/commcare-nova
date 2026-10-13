@@ -31,8 +31,8 @@ Every exchange is recorded, with the phase of the operation it was asked in,
 the headers the page sent, and the digest of HQ's answer (``response_digest``:
 its status, headers and body), which is what a transcript keeps
 (``proof.editors.transcripts``). A view that reaches something the harness
-refuses (a network service, a Couch view or Elasticsearch read the harness
-does not answer) is answered with a 500 and recorded as a refusal, so the
+refuses (a network service, a Couch view the harness does not answer, or an
+Elasticsearch index the lane does not keep) is answered with a 500 and recorded as a refusal, so the
 run's caller fails the check; the page never decides that.
 
 Given a unit (``unit.request(digest)``, the HQ unit contract of

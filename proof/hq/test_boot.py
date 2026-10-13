@@ -10,7 +10,10 @@ attribute), or an image built from other commits than the pins.
 
 Each service is reached through the client HQ itself uses for it, so a
 refusal here is the refusal a path would meet. The lane's Postgres is the
-paired acceptance: the same guard lets it through.
+paired acceptance: the same guard lets it through. Elasticsearch is the
+harness's own server, reached only inside a unit (``proof.hq.elasticsearch``,
+``test_elasticsearch.py``): outside one, HQ's client is refused before it
+opens a socket, and the address HQ's settings name is never reached.
 """
 
 from __future__ import annotations
@@ -58,12 +61,6 @@ def _couch(hq):
     Application.get_db().info()
 
 
-def _elasticsearch(hq):
-    from corehq.apps.es.client import manager
-
-    manager.info()
-
-
 def _s3(hq):
     from corehq.blobs.s3db import S3BlobDB
 
@@ -89,7 +86,6 @@ SERVICES = [
     ("redis", _redis, "127.0.0.1:6379"),
     ("redis client", _redis_client, REDIS_CLIENT_SERVICE),
     ("couch", _couch, "127.0.0.1:5984"),
-    ("elasticsearch", _elasticsearch, "localhost:9200"),
     ("s3", _s3, "localhost:9980"),
     ("formplayer", _formplayer, "localhost:8080"),
     ("external host", _external_host, "www.commcarehq.org:443"),
@@ -105,6 +101,17 @@ def test_every_service_hq_names_is_refused(hq, network, service, reach, address)
     assert attempts and not attempts[-1].allowed
     assert attempts[-1].address == address, attempts
     network.expect(attempts[-1])
+
+
+def test_hqs_elasticsearch_client_is_refused_outside_a_unit_without_a_socket(hq, network):
+    from corehq.apps.es.client import manager
+
+    from proof.hq.seams import SeamRefused
+
+    before = len(GUARD.attempts)
+    with pytest.raises(SeamRefused, match="outside every HQ unit"):
+        manager.info()
+    assert GUARD.attempts[before:] == []
 
 
 def test_the_lanes_postgres_is_reachable(hq):
@@ -124,13 +131,19 @@ def test_the_lanes_postgres_is_reachable(hq):
     assert name == state.database
 
 
-LOCAL_BACKENDS = {"django.core.cache.backends.locmem.LocMemCache", "django.core.cache.backends.dummy.DummyCache"}
+LOCAL_BACKENDS = {
+    "django.core.cache.backends.locmem.LocMemCache",
+    "django.core.cache.backends.dummy.DummyCache",
+    "proof.hq.localcache.RedisShaped",
+}
 
 
 def test_no_cache_hq_holds_reaches_a_network_cache(hq, network):
     census = quickcache_census()
     assert census, "HQ registered no quickcache tiers, so the census proves nothing"
-    assert set(census) == {"django.core.cache.backends.locmem.LocMemCache"}, census
+    # Local memory alone: Django's own backend, and the harness's for the aliases HQ gives Redis
+    # (proof.hq.localcache, the same backend with the two calls HQ's rate counters make).
+    assert set(census) <= LOCAL_BACKENDS and "django.core.cache.backends.locmem.LocMemCache" in census, census
     assert hq.quickcache_tiers_rebound == hq.quickcache_tiers_total
     # Every backend alive, wherever HQ holds it (module globals such as the
     # rate counters' shared cache, instance attributes, default arguments).
@@ -368,10 +381,10 @@ def test_hq_notes_a_soft_assertion_and_goes_on_to_its_own_refusal(hq, core_runne
     from proof.hq.boot import soft_assertions
     from proof.hq.check import hq_check
 
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, record):
+    with hq_check(Configuration()) as (state, record):
         with soft_assertions() as noted:
             refused = operations.process_case_blocks(state, _case_submission("", ""))
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, quiet_record):
+    with hq_check(Configuration()) as (state, quiet_record):
         with soft_assertions() as quiet:
             accepted = operations.process_case_blocks(state, _case_submission("c-1", DATE_MODIFIED))
     assert isinstance(refused.refusal, IllegalCaseId)
@@ -443,7 +456,7 @@ def test_a_built_app_names_novas_server_wherever_hq_writes_its_own_address(hq, c
     from proof.hq.seams import build_seams
 
     configuration = Configuration(privileges={"CLOUDCARE"}, case_search_enabled=True)
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, record):
+    with hq_check(configuration) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
         from corehq.apps.app_manager.models import CaseSearch, CaseSearchProperty
 

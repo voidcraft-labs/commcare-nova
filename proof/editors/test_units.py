@@ -45,7 +45,7 @@ def _advance(connection, name):
 def test_a_fork_puts_sequences_and_documents_back_on_a_clean_exit_and_on_an_error(hq, core_runner):
     from django.db import connection
 
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(Configuration()) as (state, _):
         unit = CheckUnit(state)
         name = _sequence(connection)
         before = (_last_value(connection, name), dict(state.couch.mock_docs), unit.key, unit.depth)

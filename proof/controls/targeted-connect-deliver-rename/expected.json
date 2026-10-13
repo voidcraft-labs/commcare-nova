@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "household-held",
+			"export": "local",
+			"form": "8132f1f9-6ffe-5e85-a8e9-92035eecd5e9",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/household",
+						"value": "Okoye"
+					}
+				],
+				"expressions": [
+					"/data/household"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "Okoye"
+				}
+			]
+		}
+	]
+}

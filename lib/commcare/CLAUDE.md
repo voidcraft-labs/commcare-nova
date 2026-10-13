@@ -1389,3 +1389,26 @@ queries after selecting the own or ancestor record. Identity, owner and lifecycl
 status use attributes; external ID remains Core's copied child property.
 `StandardCaseReadsRuntimeTest` executes all supported metadata reads in the exact
 CCZ against native Case instances, including a closed parent.
+
+## Case-backed question choices
+
+`caseOptions.ts::caseOptionsNodeset` lowers the typed cases source to a standard
+casedb itemset. Values are @case_id; label properties use the shared wire-path
+mapper, including attributes for standard metadata. Both CCZ and HQ source forms
+use the same lowering. Candidate records use immediate-scope relationship joins:
+itemset current() is the QUESTION, never the candidate. `form-case` resolves
+separately through the form's selected-case bindings.
+
+`caseOptionsSource.ts` checks declared source/label identities, scalar selected
+record scope, and the same earlier/current-or-enclosing-repeat answer rule as
+lookup filters. It probes the shared on-device emitter to reject unsupported
+relation shapes before commit. This adds no report instance or arbitrary nodeset
+source. Core's ItemSetUtils::populateDynamicChoices evaluates the nodeset in the
+question context and the label/value in each candidate context; CaseInstanceTreeElement
+reads local case storage. The native case-choice family checks CCZ and HQ-regenerated
+forms with duplicate names, changed earlier answers and final-only attendance effects.
+
+Vellum's `src/itemset.js::Itemset.itemsetData.validationFunc` requires the
+`lookup_tables` privilege for every dynamic itemset, including casedb sources.
+HQ's build-only `FormBase.has_fixtures` check does not detect those; the proof
+configuration derives the editor privilege from the emitted itemset element too.

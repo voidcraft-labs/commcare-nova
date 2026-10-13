@@ -86,7 +86,7 @@ def _own_inputs(document, configuration, part):
     if part == "local":
         roles = files["local"]
     elif part == "b_aligned":
-        roles = {"local": files["local"]["local"]}
+        roles = {role: files["local"][role] for role in ("local", "local-again") if files["local"].get(role)}
     else:
         roles = files["configurations"][configuration][part]
     return {os.path.abspath(document.root / path) for path in roles.values()}

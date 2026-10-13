@@ -465,7 +465,7 @@ export class TriggerDag {
 		// prompt-rebuild re-filter of its embedded fixture.
 		if (
 			(f.kind === "single_select" || f.kind === "multi_select") &&
-			f.optionsSource.kind === "lookup"
+			f.optionsSource.kind !== "inline"
 		) {
 			expressions.push({ type: "choices", expr: "" });
 			if (f.optionsSource.filter !== undefined) {

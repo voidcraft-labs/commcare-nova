@@ -1,0 +1,48 @@
+{
+	"intent": [
+		{
+			"id": "zone-label-searched",
+			"export": "local",
+			"form": "0abe9019-1866-5325-ad69-3a077a4ff029",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0"
+				},
+				"caseList": {
+					"searchText": "South"
+				}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-kibera"
+				}
+			]
+		},
+		{
+			"id": "level-label-shown",
+			"export": "local",
+			"form": "641623af-c40b-5303-aa9e-576955303f5f",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m1-f0"
+				},
+				"caseList": {
+					"searchText": "Kibera"
+				}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-kibera"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/1",
+					"value": "Many"
+				}
+			]
+		}
+	]
+}

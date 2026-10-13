@@ -22,6 +22,8 @@ import * as appTestRequests from "./20260930000000_app_test_requests";
 import * as authoringReviewContinuation from "./20260930010000_authoring_review_continuation";
 import * as appTestDisposalConstraints from "./20260930020000_app_test_disposal_constraints";
 import * as appTestLookupDefinitions from "./20261004000000_app_test_lookup_definitions";
+import * as threadInputRounds from "./20261009010000_thread_input_rounds";
+import * as threadSelectedSources from "./20261009020000_thread_selected_sources";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -196,6 +198,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260914080000_authoring_fold_horizon": authoringFoldHorizon,
 	"20260913010000_design_conformance_reports": designConformanceReports,
 	"20260919000000_retire_better_auth_17_bridge": retireBetterAuth17Bridge,
+	"20261009010000_thread_input_rounds": threadInputRounds,
+	"20261009020000_thread_selected_sources": threadSelectedSources,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

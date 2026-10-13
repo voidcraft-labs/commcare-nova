@@ -49,6 +49,19 @@ read). The evidence must cover every document of the corpus it was run
 over, once, or nothing is written: effects written from some blocks would
 drop the classes only the others saw, so the run is one that reused no stored
 judgment (a group the queue cached runs nowhere and writes no evidence).
+
+``python -m proof.checks.sensitivity held <output>/blocks/*`` holds the
+committed effects to such a run without writing anything: it fails, naming
+each, where the file names an effect no flip of the run showed (a stale
+effect, which would let that class of difference pass if it came back), where
+a flip showed one the file lacks, where the file holds an effects list on a
+gate the run did not flip or none on one it did, and where the file is not
+the bytes the writer gives. The weekly's whole fresh run holds the file so
+(``proof-lane.yml``'s ``effects``), since no check of one document can: a
+check sees that its own differences are named, never that a named effect is
+still shown somewhere. It reads the corpus's documents from ``--corpus`` or
+from the queues the run ran (``--queue``), and writes what it found as JSON
+to ``--summary``.
 """
 
 from __future__ import annotations
@@ -458,23 +471,139 @@ def format_gates(gates):
     return _formatted(gates, 0, 0, "") + "\n"
 
 
+def held_effects(gates, found, committed_text=None):
+    """How the committed gate entries differ from what one whole run's flips showed (``found``,
+    ``observed_effects``), as the writer would write them (``with_effects``).
+
+    ``stale``: each effect the entries name that no flip of its gate showed. ``lacking``: each effect a flip
+    showed that its gate's entry does not name. ``problems`` says each of those and every other difference: an
+    effects list on a gate the run did not flip, none on a gate it flipped that changed nothing, a flipped gate no
+    entry names, and, with ``committed_text``, a file that is not the writer's bytes though its effects are.
+    """
+    written, homeless = with_effects(gates, found)
+    stale, lacking, problems = [], [], []
+    for entry, rewritten in zip(gates, written, strict=True):
+        committed = {(effect["artifact"], effect["path"]) for effect in entry.get("effects", ())}
+        shown = {(effect["artifact"], effect["path"]) for effect in rewritten.get("effects", ())}
+        flipped = entry["id"] in found
+        for artifact, path in sorted(committed - shown):
+            stale.append({"gate": entry["id"], "artifact": artifact, "path": path})
+            why = "no flip of it in this run showed that" if flipped else "this run flipped that gate nowhere"
+            problems.append(f"{entry['id']} names the effect {artifact} {path}, and {why}: a stale effect.")
+        for artifact, path in sorted(shown - committed):
+            lacking.append({"gate": entry["id"], "artifact": artifact, "path": path})
+            problems.append(f"A flip of {entry['id']} showed {artifact} {path}, which its effects do not name.")
+        if not committed and not shown and ("effects" in entry) != ("effects" in rewritten):
+            problems.append(
+                f"{entry['id']} holds an empty effects list, and this run flipped that gate nowhere, so nothing"
+                " measured it."
+                if "effects" in entry
+                else f"This run flipped {entry['id']} and it changed nothing, and the entry holds no effects list"
+                " saying so."
+            )
+    for gate, classes in homeless.items():
+        problems.append(f"This run flipped {gate}, which no gate entry names, and it changed {classes[:3]}.")
+    if not problems and committed_text is not None and committed_text != format_gates(written):
+        problems.append(
+            "The file names the effects this run showed, and is not written as the writer writes it (an entry's"
+            " effects out of order, or another formatting)."
+        )
+    return {"holds": not problems, "stale": stale, "lacking": lacking, "problems": problems}
+
+
+def queued_documents(paths):
+    """The corpus documents the queues at ``paths`` run or read from the store: every document of a whole lane."""
+    found = set()
+    for path in paths:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        names = [queued["group"] for block in value.get("blocks", []) for queued in block["groups"]]
+        names += [cached["group"] for cached in value.get("cached", [])]
+        found |= {name[len("corpus:") :].partition("@")[0] for name in names if name.startswith("corpus:")}
+        if value.get("unsampled"):
+            raise CorpusUnknown(
+                f"{path} is the queue of a run over a sample of the corpus ({len(value['unsampled'])} documents left"
+                " out), and the effects are held to a run over the whole of it."
+            )
+    return frozenset(found)
+
+
+WRITE_AGAIN = (
+    "Write the effects again from this run's evidence and review what changes (python3 -m proof.checks.sensitivity"
+    ' effects <the same block directories>; proof/README.md, "Configuration sensitivity").'
+)
+
+
+def _held(arguments) -> int:
+    """The ``held`` command: the committed effects held to one whole run's, each difference named."""
+    records, twice = evidence_records(arguments.directories)
+    try:
+        if arguments.queue:
+            documents, read_from = queued_documents(arguments.queue), list(arguments.queue)
+        else:
+            documents, read_from = corpus_documents(arguments.directories, arguments.corpus)
+        problems = incomplete(records, twice, documents)
+    except CorpusUnknown as error:
+        problems = [str(error)]
+        read_from = []
+    if problems:
+        found = {
+            "holds": False,
+            "stale": [],
+            "lacking": [],
+            "problems": [
+                "The evidence is not one whole run of the sensitivity check over the corpus"
+                f" ({', '.join(map(str, read_from)) or 'unknown'}), so the committed effects could not be held to it:",
+                *problems,
+            ],
+        }
+    else:
+        text = Path(arguments.gates).read_text(encoding="utf-8")
+        found = held_effects(json.loads(text), observed_effects(records), text)
+        if not found["holds"]:
+            found["problems"].append(WRITE_AGAIN)
+    if arguments.summary:
+        Path(arguments.summary).parent.mkdir(parents=True, exist_ok=True)
+        Path(arguments.summary).write_text(json.dumps(found, indent="\t") + "\n", encoding="utf-8")
+    title = "The committed sensitivity effects are what this run's flips showed"
+    print(f"{'holds' if found['holds'] else 'FAILS'}: {title}")
+    for problem in found["problems"]:
+        print(f"  {problem}")
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary:
+        with open(step_summary, "a", encoding="utf-8") as output:
+            output.write(f"- {'Holds' if found['holds'] else 'Fails'}: {title}\n")
+            output.writelines(f"  - {problem}\n" for problem in found["problems"][:60])
+    return 0 if found["holds"] else 1
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
         prog="python -m proof.checks.sensitivity",
-        description="Write each gate entry's effects from the sensitivity check's evidence.",
+        description="Write each gate entry's effects from the sensitivity check's evidence, or hold them to it.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     effects = commands.add_parser("effects", help="Write each gate entry's effects from the runs' evidence.")
-    effects.add_argument(
-        "directories", nargs="+", help="Each block's PROOF_OUT (<output>/blocks/*), every block of a run's shards."
-    )
-    effects.add_argument(
-        "--corpus",
-        help="The corpus the run read (default: PROOF_CORPUS, else the run's own <output>/corpus beside its blocks).",
-    )
-    effects.add_argument("--gates", default=str(GATES_JSON), help="The gate entries to read.")
+    held = commands.add_parser("held", help="Hold the committed effects to one whole run's, naming each difference.")
+    for command in (effects, held):
+        command.add_argument(
+            "directories",
+            nargs="+",
+            help="Each block's PROOF_OUT (<output>/blocks/*), every block of a run's shards.",
+        )
+        command.add_argument(
+            "--corpus",
+            help="The corpus the run read (default: PROOF_CORPUS, else the run's own <output>/corpus beside its"
+            " blocks).",
+        )
+        command.add_argument("--gates", default=str(GATES_JSON), help="The gate entries to read.")
     effects.add_argument("--out", help="Where to write the gate entries (default: --gates, in place).")
+    held.add_argument(
+        "--queue", action="append", default=[], help="A queue the run ran, whose documents are the corpus's."
+    )
+    held.add_argument("--summary", help="Where to write what was found, as JSON.")
     arguments = parser.parse_args(argv)
+    if arguments.command == "held":
+        return _held(arguments)
 
     records, twice = evidence_records(arguments.directories)
     try:

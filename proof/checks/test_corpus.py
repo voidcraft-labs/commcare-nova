@@ -100,11 +100,11 @@ def _corpus_document(document_id):
     ("document_id", "expected"),
     [
         # A lookup workbook pushed and forms reading tables, and Save to Case blocks.
-        ("lookup-app", ["LOOKUP_TABLES", "VELLUM_SAVE_TO_CASE"]),
+        ("lookup-app", ["CLOUDCARE", "LOOKUP_TABLES", "VELLUM_SAVE_TO_CASE"]),
         # A survey writing the worker's record.
-        ("case-worker-survey", ["USERCASE"]),
-        # A case list and its forms that need no privilege.
-        ("case-list-local", []),
+        ("case-worker-survey", ["CLOUDCARE", "USERCASE"]),
+        # A case list and its forms, which need only what every app does: Web Apps.
+        ("case-list-local", ["CLOUDCARE"]),
     ],
 )
 def test_a_configuration_grants_the_privileges_hq_derives_from_what_nova_sends(hq, document_id, expected):
@@ -119,12 +119,12 @@ def test_a_configuration_keeps_the_privileges_its_document_names(hq, copied):
     root, document_id = copied
     path = _configurations(root, document_id)
     value = json.loads(path.read_text())
-    value["maximum"]["namedPrivileges"] = ["CLOUDCARE"]
+    value["maximum"]["namedPrivileges"] = ["GEOCODER"]
     path.write_text(json.dumps(value))
     document = corpus.load(root).document(document_id)
     content = configurations.privileges_for(document.root, "minimum")
-    assert "CLOUDCARE" not in content
-    assert configurations.privileges_for(document.root, "maximum") == sorted({*content, "CLOUDCARE"})
+    assert "GEOCODER" not in content
+    assert configurations.privileges_for(document.root, "maximum") == sorted({*content, "GEOCODER"})
 
 
 def test_privileges_are_refused_for_an_unknown_configuration_or_a_lost_capture(hq, copied):

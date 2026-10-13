@@ -125,6 +125,37 @@ test("new documents stream progress, share an in-flight retry, and publish metad
 	unsubscribe();
 });
 
+test("lost Project authority refuses retry and disowns a build-owned read before observer cleanup", async () => {
+	const pendingResponse = delivery();
+	const fetch = vi
+		.spyOn(globalThis, "fetch")
+		.mockReturnValue(pendingResponse.promise);
+	const build = new AbortController();
+	let canManageFiles = true;
+	const extracted = vi.fn(),
+		progress = vi.fn();
+	const state = model({
+		asset: { id: "a", kind: "pdf" },
+		signal: build.signal,
+		mayExtract: () => canManageFiles,
+		onExtracted: extracted,
+		onProgress: progress,
+	});
+	try {
+		const pending = state.start();
+		canManageFiles = false;
+		await state.retry();
+		pendingResponse.resolve(response(ready, true));
+		await pending;
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(progress).not.toHaveBeenCalled();
+		expect(extracted).not.toHaveBeenCalled();
+		expect(vi.getTimerCount()).toBe(0);
+	} finally {
+		build.abort();
+	}
+});
+
 test("an existing job polls after four seconds and stops at its terminal result", async () => {
 	const fetch = vi
 		.spyOn(globalThis, "fetch")

@@ -350,7 +350,7 @@ export function OptionsEditor<F extends Field>(
 	 * a person who sees only that one would think their own edit was the
 	 * problem. Cleared on the next save that lands. */
 	const [rejection, setRejection] = useState<string | null>(null);
-	if (source.kind === "lookup") {
+	if (source.kind !== "inline") {
 		return (
 			<div
 				data-field-id="options"
@@ -358,8 +358,8 @@ export function OptionsEditor<F extends Field>(
 			>
 				<p className={INSPECTOR_LABEL_CLS}>Options</p>
 				<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-					These choices come from a Project data table. Change the table,
-					columns, or row filter in the table-source editor.
+					These choices come from your app's data. You can change their source
+					and filter in the choice source settings.
 				</p>
 			</div>
 		);

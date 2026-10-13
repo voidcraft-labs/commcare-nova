@@ -106,7 +106,13 @@ export function caseDatabaseRequirements(
 	const hasCaseBearingModule = Object.values(doc.modules).some(
 		(module) => module.caseType !== undefined,
 	);
+	const caseChoices = Object.values(doc.fields).some(
+		(field) =>
+			(field.kind === "single_select" || field.kind === "multi_select") &&
+			field.optionsSource.kind === "cases",
+	);
 	const required =
+		caseChoices ||
 		explicitReference ||
 		proseReference ||
 		(hasAfterSubmitTask && hasCaseBearingModule);

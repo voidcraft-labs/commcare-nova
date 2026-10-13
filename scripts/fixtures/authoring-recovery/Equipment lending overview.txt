@@ -1,0 +1,7 @@
+Equipment lending overview
+
+Our small community workshop lends individual tools to members. Desk staff use one shared Android phone, including when there is no network. Each tool has a unique workshop tag, a name, and a category: hand tool, power tool, or safety equipment. Staff register tools as they arrive. A new tool is available to lend.
+
+We need a list of available tools for lending and a separate list of tools currently out on loan for returns. Each list should show the workshop tag and tool name. The loan list should also show the borrower's name and due date. Staff should never be asked to type the workshop tag again when lending or returning a tool they selected from a list.
+
+This first app serves this one workshop and this one shared phone. We do not need member registration, payments, stock quantities, images, email notifications, or an integration with another system. A tool can be lent and returned many times. Follow the separate Equipment lending workflow document for what happens on each loan and return.

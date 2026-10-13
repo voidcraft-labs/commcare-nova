@@ -80,7 +80,7 @@ def _seed(places):
 def _fixture(session, exports, scenario, places):
     from corehq.apps.locations.fixtures import FlatLocationSerializer
 
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         nodes = FlatLocationSerializer().get_xml_nodes(DOMAIN, "locations", "worker", _seed(places))
     fixture = nodes[1]
     restore = Element("OpenRosaResponse", {"xmlns": "http://openrosa.org/http/response"})
@@ -106,7 +106,7 @@ def locations(session):
     exports = session.family("location")
     fixtures = [_fixture(session, exports, scenario, places) for scenario, places in FIXTURES.items()]
     forms = []
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         for scenario in FORM_SCENARIOS:
             path = exports / f"location-{scenario}.json"
             raw = path.read_bytes()

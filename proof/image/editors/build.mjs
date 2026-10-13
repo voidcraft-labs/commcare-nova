@@ -1,5 +1,6 @@
-// Builds the JavaScript of HQ's editor pages for the proof harness's editor
-// driver (proof/editors), at image build time, from HQ's own node packages.
+// Builds the JavaScript of HQ's editor pages and of its Web Apps page for the
+// proof harness's editor driver (proof/editors, proof/webapps), at image
+// build time, from HQ's own node packages.
 //
 // HQ ships its page JavaScript as webpack bundles (`yarn build`:
 // webpack/generateDetails.js, then webpack/webpack.prod.js). The harness
@@ -10,7 +11,13 @@
 // - resolve.alias, with webpack's matching (a key is the whole request or its
 //   first segments; aliases apply again to what they produce);
 // - resolve.fallback (`false` is an empty module), resolve's default
-//   extensions, main fields and condition names for a web target;
+//   extensions, main fields and condition names for a web target; and, where
+//   esbuild's resolver finds no file for a request, webpack's own resolver's
+//   answer (enhanced-resolve, from HQ's node packages): webpack completes a
+//   package `exports` target with its extensions where esbuild takes the
+//   target as written (Web Apps' `markdown-it/dist/markdown-it`), and reads a
+//   package's `browser` field mapping a request to `false` as an empty
+//   module (crypto-js's `crypto`);
 // - externals: every request of the page graphs is put to the
 //   configuration's externals, and one they make external fails the build
 //   (HQ's only external applies to a Vellum checkout beside HQ, which the
@@ -107,6 +114,23 @@ const PAGE_ENTRIES = [
 	"app_manager/js/modules/bootstrap3/module_view",
 	// app_manager/form_view.html: form settings, case management
 	"app_manager/js/forms/form_view",
+	// cloudcare/formplayer_home.html: Web Apps, the client the Web Apps
+	// driver runs against Formplayer (proof/webapps)
+	"cloudcare/js/formplayer/main",
+	// cloudcare/preview_app_base.html: App Preview, the same client under the
+	// app builder's preview page (proof/webapps)
+	"cloudcare/js/preview_app/main",
+	// motech/connection_settings_detail.html and
+	// repeaters/add_form_repeater.html: the Connection Settings and Add
+	// Forwarder pages a project space's admin sets Connect's forwarder up
+	// with (proof/connect/hq.py)
+	"motech/js/connection_settings_detail",
+	"repeaters/js/add_form_repeater",
+	// motech/connection_settings.html and repeaters/repeaters.html (whose
+	// base template names hqwebapp/js/base): the pages HQ sends the admin to
+	// once each of those saves
+	"motech/js/connection_settings",
+	"hqwebapp/js/base",
 ];
 
 // HQ's form designer page entry, whose page JavaScript adds options to
@@ -142,6 +166,27 @@ const PROVIDE_DIR = path.join(HQ, ".proof-editors-provide");
 // an entry's "use strict" to the top of the bundle, where it would make every
 // module strict).
 const ENTRY_NAMESPACE = "proof-entry";
+
+// The characters JSON's text leaves as they are that are not safe everywhere
+// JavaScript source is read: `<` and `>` open and close the markup of a page
+// the source is written into, and U+2028 and U+2029 end a line in source
+// before ES2019.
+const UNSAFE_IN_SOURCE = /[<>\u2028\u2029]/g;
+
+/**
+ * A JSON value (a module request, a name, a stylesheet's text) as JavaScript
+ * source: JSON's own text, with each character above written as its `\uXXXX`
+ * escape. JSON's text holds them only inside its strings, where the escape
+ * names the same character, so the source means the same value whatever the
+ * value holds, and it is JSON's text unchanged for a value that holds none.
+ */
+function asSource(value) {
+	return JSON.stringify(value).replace(
+		UNSAFE_IN_SOURCE,
+		(character) =>
+			`\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+	);
+}
 
 class BuildRefused extends Error {}
 
@@ -322,6 +367,41 @@ function loaderNames(rule) {
 	return []
 		.concat(rule.use || [])
 		.map((use) => (typeof use === "string" ? use : use.loader));
+}
+
+// webpack's own resolver (enhanced-resolve, from HQ's node packages), under
+// webpack's resolve defaults for a web target, by dependency type.
+const webpackResolvers = new Map();
+
+/**
+ * How webpack's own resolver answers a request esbuild's found no file for:
+ * the file, `false` for a module a package's `browser` field leaves out (an
+ * empty module to webpack), or undefined where webpack finds none either.
+ */
+function webpackResolve(mode, request, context, kind) {
+	const type = kind === "require-call" ? "require" : "import";
+	const key = `${mode}:${type}`;
+	if (!webpackResolvers.has(key)) {
+		const { ResolverFactory, CachedInputFileSystem } = hq("enhanced-resolve");
+		webpackResolvers.set(
+			key,
+			ResolverFactory.createResolver({
+				fileSystem: new CachedInputFileSystem(hq("node:fs"), 4000),
+				extensions: WEBPACK_EXTENSIONS,
+				mainFields: WEBPACK_MAIN_FIELDS,
+				aliasFields: ["browser"],
+				exportsFields: ["exports"],
+				conditionNames: [...webpackConditions(mode), "browser", type],
+			}),
+		);
+	}
+	return new Promise((resolve) => {
+		webpackResolvers
+			.get(key)
+			.resolve({}, context, request, {}, (error, file) =>
+				resolve(error ? undefined : file),
+			);
+	});
 }
 
 // --- JavaScript source analysis -------------------------------------------
@@ -507,7 +587,7 @@ function amdPrelude(dependencies) {
 	const table = dependencies
 		.map(
 			(dep) =>
-				`${JSON.stringify(dep)}: function () { return require(${JSON.stringify(dep)}); }`,
+				`${asSource(dep)}: function () { return require(${asSource(dep)}); }`,
 		)
 		.join(", ");
 	return (
@@ -727,7 +807,7 @@ function transformJavaScript(source, file, rules) {
 				edits.push([
 					node.start,
 					node.end,
-					JSON.stringify(pathToFileURL(file).toString()),
+					asSource(pathToFileURL(file).toString()),
 				]);
 			}
 		});
@@ -850,13 +930,30 @@ function webpackMirror({ config, folder, record }) {
 			}
 
 			async function plain(request, args) {
-				const result = await build.resolve(request, {
+				let result = await build.resolve(request, {
 					resolveDir: args.resolveDir,
 					kind: args.kind,
 					importer: args.importer,
 					pluginData: { plain: true },
 				});
-				if (result.errors.length) return null;
+				if (result.errors.length || !path.isAbsolute(result.path)) {
+					// Where esbuild's resolver finds no file, webpack's own answers
+					// (webpackResolve): it completes a package `exports` target
+					// with its extensions, where esbuild takes the target as
+					// written, and reads a `browser` field's `false` as an empty
+					// module.
+					const answered = await webpackResolve(
+						config.mode,
+						request,
+						args.resolveDir,
+						args.kind,
+					);
+					if (answered === undefined) return null;
+					note(args.importer, { webpackResolved: request });
+					if (answered === false)
+						return { path: request, namespace: "webpack-empty" };
+					result = { path: answered, namespace: "file" };
+				}
 				let file = result.path;
 				for (const replacement of replacements) {
 					if (replacement.resourceRegExp.test(file)) {
@@ -914,7 +1011,7 @@ function webpackMirror({ config, folder, record }) {
 			}));
 
 			build.onLoad({ filter: /.*/, namespace: ENTRY_NAMESPACE }, (args) => ({
-				contents: `require(${JSON.stringify(args.path)});\n`,
+				contents: `require(${asSource(args.path)});\n`,
 				loader: "js",
 				resolveDir: path.dirname(args.path),
 			}));
@@ -981,7 +1078,7 @@ function webpackMirror({ config, folder, record }) {
 				return {
 					contents:
 						"var style = document.createElement('style');" +
-						`style.textContent = ${JSON.stringify(cssText)};` +
+						`style.textContent = ${asSource(cssText)};` +
 						"document.head.appendChild(style);",
 					loader: "js",
 				};
@@ -1065,8 +1162,8 @@ function esbuildOptions(flavour, record, extra = {}) {
 		definitions
 			.map(([name, request], i) => {
 				const [module, ...members] = [].concat(request);
-				const access = members.map((m) => `[${JSON.stringify(m)}]`).join("");
-				return `var provided${i} = require(${JSON.stringify(module)})${access};\nexport { provided${i} as ${JSON.stringify(name)} };`;
+				const access = members.map((m) => `[${asSource(m)}]`).join("");
+				return `var provided${i} = require(${asSource(module)})${access};\nexport { provided${i} as ${asSource(name)} };`;
 			})
 			.join("\n"),
 	);
@@ -1114,36 +1211,40 @@ async function buildPageEntries(flavours, report) {
 	const manifests = new Map(flavours.map((f) => [f.manifest, {}]));
 	for (const entry of PAGE_ENTRIES) {
 		const owners = flavours.filter((f) => f.config.entry[entry]);
-		if (owners.length !== 1) {
+		if (owners.length === 0) {
 			refuse(
-				`HQ's webpack configurations name the page entry ${entry} ${owners.length} times; the harness expects exactly one.`,
+				`HQ's webpack configurations name no page entry ${entry}; the harness builds the entries HQ's own build does.`,
 			);
 		}
-		const [flavour] = owners;
-		const source = flavour.config.entry[entry].import;
-		checkBabelIsIdentity(source);
-		const record = { applied: {} };
-		const outdir = path.join(OUT, "static", flavour.folder);
-		const started = Date.now();
-		const result = await esbuild.build(
-			esbuildOptions(flavour, record, {
-				entryPoints: { [entry]: `${ENTRY_NAMESPACE}:${source}` },
-				outdir,
-			}),
-		);
-		manifests.get(flavour.manifest)[entry] = [`${entry}.js`];
-		report.pages.push({
-			entry,
-			folder: flavour.folder,
-			manifest: flavour.manifest,
-			source: path.relative(HQ, source),
-			bundle: path.join("static", flavour.folder, `${entry}.js`),
-			seconds: (Date.now() - started) / 1000,
-			strictModules: record.strictModules ?? 0,
-			externalsAsked: record.externalsAsked ?? 0,
-			inputs: inputsOf(result.metafile),
-			applied: record.applied,
-		});
+		// An entry several configurations name (hqwebapp/js/base, which HQ's
+		// generateDetails.js copies into the Bootstrap 3 configuration) is
+		// built by each, as HQ's own build does, so each manifest names it.
+		for (const flavour of owners) {
+			const source = flavour.config.entry[entry].import;
+			checkBabelIsIdentity(source);
+			const record = { applied: {} };
+			const outdir = path.join(OUT, "static", flavour.folder);
+			const started = Date.now();
+			const result = await esbuild.build(
+				esbuildOptions(flavour, record, {
+					entryPoints: { [entry]: `${ENTRY_NAMESPACE}:${source}` },
+					outdir,
+				}),
+			);
+			manifests.get(flavour.manifest)[entry] = [`${entry}.js`];
+			report.pages.push({
+				entry,
+				folder: flavour.folder,
+				manifest: flavour.manifest,
+				source: path.relative(HQ, source),
+				bundle: path.join("static", flavour.folder, `${entry}.js`),
+				seconds: (Date.now() - started) / 1000,
+				strictModules: record.strictModules ?? 0,
+				externalsAsked: record.externalsAsked ?? 0,
+				inputs: inputsOf(result.metafile),
+				applied: record.applied,
+			});
+		}
 	}
 	// HQ reads the manifests where its own build writes them.
 	const manifestDir = hqBuildArtifactsDir();
@@ -1282,7 +1383,7 @@ async function buildVellumHost(flavours, report) {
 	const hostScript = [
 		"// The Vellum host page's script, generated by proof/image/editors/build.mjs.",
 		...[...hostImports].map(
-			([name, request]) => `import ${name} from ${JSON.stringify(request)};`,
+			([name, request]) => `import ${name} from ${asSource(request)};`,
 		),
 		'import "bootstrap";',
 		'import "select2/dist/js/select2.full.min";',
@@ -1293,7 +1394,7 @@ async function buildVellumHost(flavours, report) {
 		`\t// What ${path.relative(HQ, designer)} adds to the server's Vellum options, as it wrote it,`,
 		"\t// strict as that ES module runs.",
 		`\tpageOptions: function () { "use strict"; return (${additions}); },`,
-		`\tcoreCallbacks: ${JSON.stringify(coreCallbacks)},`,
+		`\tcoreCallbacks: ${asSource(coreCallbacks)},`,
 		"};",
 		"",
 	].join("\n");

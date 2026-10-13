@@ -58,13 +58,26 @@ request. The editor's `--resume` and `--answers` continue a saved ordinary
 question using its original thread and server-issued tool-call identity; changed
 app revisions refuse. Architect continuations may add ordinary user feedback or
 answer the pending question. There is no expert repair hidden in the evaluator.
+Architect resume requires the original durable pending input round and exact
+holder; admission checks and consumption commit with the new claim and accepted
+transcript. Pause publication uses the same atomic pause writer as the chat route,
+including the orchestration checkpoint and server-owned invitation.
+
+Repeatable `--library-document <file>` arguments install unprepared text assets
+in the isolated Project library without adding message attachments. Discovery and
+preparation run through the production source tools and the trial's captured,
+budgeted extractor. `library-fixtures.json` retains the source bytes and hashes;
+`library-assets.json` maps them to asset identities, and `result.json` includes
+the final selected-source collection. A resume reuses that library and refuses
+new library fixture arguments.
 
 The harness persists real user messages and folds actual SDK output through the
 ordinary thread writer, retiring the terminal stream marker so a completed
 fixture can be opened in the Builder. A paused architect response retains its
 holder nonce so a reloaded thread can answer a question or continue its review.
 This establishes the saved transcript and
-fixture entry only. It does not exercise `/api/chat`, network reconnect, browser
-streaming, or the continuation control. Those need separate production-boundary
+fixture entry and shared continuation transaction only. It does not exercise
+`/api/chat`, network reconnect, browser streaming, or the SDK's automatic send
+loop. Those need separate production-boundary
 acceptance, followed by ordinary browser, Postgres and exact native-export checks
 of the delivered app.

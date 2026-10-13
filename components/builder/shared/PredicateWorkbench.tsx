@@ -360,6 +360,7 @@ export interface PredicateWorkbenchProps {
 	/** Form answers this rule may read: already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly formCaseTypes?: ReadonlySet<string>;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
@@ -404,6 +405,7 @@ export function PredicateWorkbench({
 	knownInputs = [],
 	userProperties,
 	formFields,
+	formCaseTypes,
 	lookupTables,
 	tableScope,
 	operationScope,
@@ -451,6 +453,7 @@ export function PredicateWorkbench({
 				currentCaseType,
 				userProperties,
 				formFields,
+				formCaseTypes,
 				lookupTables: effectiveLookupTables,
 				tableScope,
 				operationScope,
@@ -462,6 +465,7 @@ export function PredicateWorkbench({
 			knownInputs,
 			userProperties,
 			formFields,
+			formCaseTypes,
 			effectiveLookupTables,
 			tableScope,
 			operationScope,
@@ -488,6 +492,7 @@ export function PredicateWorkbench({
 			currentCaseType: focusedCaseType,
 			knownInputs,
 			formFields,
+			formCaseTypes,
 			lookupTables: effectiveLookupTables,
 			tableScope,
 			operationScope,
@@ -502,6 +507,7 @@ export function PredicateWorkbench({
 			focusedCaseType,
 			knownInputs,
 			formFields,
+			formCaseTypes,
 			effectiveLookupTables,
 			tableScope,
 			operationScope,
@@ -663,6 +669,7 @@ export function PredicateWorkbench({
 			knownInputs={knownInputs}
 			userProperties={userProperties}
 			formFields={formFields}
+			formCaseTypes={formCaseTypes}
 			lookupTables={effectiveLookupTables}
 			tableScope={tableScope}
 			operationScope={operationScope}

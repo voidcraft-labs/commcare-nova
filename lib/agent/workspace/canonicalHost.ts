@@ -37,6 +37,7 @@ export interface CanonicalMutationHost {
 	readonly chatRunHolder?: ToolInvocationContext["chatRunHolder"];
 	readonly lookupDefinitions?: ToolInvocationContext["lookupDefinitions"];
 	readonly lookupCatalog?: ToolInvocationContext["lookupCatalog"];
+	readonly sourceDocuments?: ToolInvocationContext["sourceDocuments"];
 	readonly conversionImpact: ToolInvocationContext["conversionImpact"];
 
 	/**

@@ -1,7 +1,8 @@
 // The page's clock and randomness, fixed for a run: installed before any of
 // the page's own scripts (the driver adds it as a script every new document
-// runs first). The argument is {seed, epoch}: `seed` is 32 hex digits drawn
-// from the run's spec, `epoch` milliseconds since 1970.
+// runs first). The argument is {seed, epoch, advancing}: `seed` is 32 hex
+// digits drawn from the run's spec, `epoch` milliseconds since 1970, and
+// `advancing` whether the clock runs on from the epoch.
 //
 // - Date: `new Date()` and `Date.now()` read `epoch`; a Date made from a
 //   value is an ordinary Date, and subclasses construct as they do natively.
@@ -19,6 +20,13 @@
 //   driver compares runs under the same clock (a held view, a warm Vellum
 //   run, a fresh page), and test_seeding.py shows that fixing the clock and
 //   randomness changes nothing a run records.
+//   With `advancing`, `new Date()` and `Date.now()` read the epoch plus the
+//   time the document has run (its `performance.now()`), so time passes as
+//   it does for a worker's browser: the Web Apps client's animations end
+//   (it fades a "Form successfully saved!" out once the worker moves on, and
+//   removes it when the fade ends), and its debounced handlers run. The
+//   client shows no time it reads from its clock, so its records are the
+//   same however long a step took.
 // - Math.random and crypto.getRandomValues draw from one sfc32 generator
 //   seeded with `seed`. getRandomValues still runs the browser's own (so it
 //   refuses what the browser refuses, and returns the same array), then
@@ -26,7 +34,7 @@
 //   no crypto.randomUUID, and none is added.
 // - `window.proofReseed(seed)` restarts the generator, for a run that reuses
 //   the document.
-({ seed, epoch }) => {
+({ seed, epoch, advancing }) => {
 	const state = new Uint32Array(4);
 	const reseed = (hex) => {
 		for (let i = 0; i < 4; i++)
@@ -71,18 +79,22 @@
 	};
 
 	const NativeDate = Date;
+	const origin = performance.now();
+	const now = advancing
+		? () => epoch + Math.floor(performance.now() - origin)
+		: () => epoch;
 	function FixedDate(...args) {
-		if (!new.target) return new NativeDate(epoch).toString();
+		if (!new.target) return new NativeDate(now()).toString();
 		return Reflect.construct(
 			NativeDate,
-			args.length ? args : [epoch],
+			args.length ? args : [now()],
 			new.target,
 		);
 	}
 	Object.setPrototypeOf(FixedDate, NativeDate);
 	FixedDate.prototype = NativeDate.prototype;
-	FixedDate.now = function now() {
-		return epoch;
+	FixedDate.now = function now_() {
+		return now();
 	};
 	Object.defineProperty(FixedDate, "name", { value: "Date" });
 	Object.defineProperty(FixedDate, "length", { value: 7 });

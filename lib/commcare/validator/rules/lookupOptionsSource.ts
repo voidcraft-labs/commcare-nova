@@ -405,3 +405,20 @@ export function validateLookupOptionsSources(
 	}
 	return errors;
 }
+
+/** Value-bearing answers available at this question, respecting order and repeats. */
+export function selectFilterFieldTypes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	fieldUuid: Uuid,
+) {
+	const positions = fieldPositions(doc, formUuid);
+	const current = positions.get(fieldUuid);
+	return current
+		? eligibleFormFieldTypes({
+				allTypes: formFieldTypes(positions),
+				positions,
+				current,
+			})
+		: new Map();
+}

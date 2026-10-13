@@ -87,7 +87,10 @@ def unheld(monkeypatch):
         ({"document": "producer.plain", "values": {"before": "a", "after": "b"}}, "not a targeted document"),
         ({"values": {"before": "a"}}, "exactly before and after"),
         ({"kind": "moved"}, "or left out for every kind"),
-        ({"equivalence": ""}, "equivalence names the runtimes"),
+        # Two spellings every reader reads alike are a spelling rule, and what a device does is an entry held by
+        # the check that reports it: neither is a field an entry carries.
+        ({"equivalence": "Android's and Web Apps' readers take the value its absence gives"}, "beyond them"),
+        ({"android": "HiddenPreferences.isSavedFormsEnabled (absent reads yes)"}, "beyond them"),
     ],
     ids=[
         "unknown-key",
@@ -100,7 +103,8 @@ def unheld(monkeypatch):
         "values-untargeted",
         "values-shape",
         "unknown-kind",
-        "empty-equivalence",
+        "equivalence-field",
+        "android-citation-field",
     ],
 )
 def test_the_register_loader_refuses_an_entry_it_cannot_hold_to(tmp_path, change, refusal, unheld):
@@ -113,9 +117,6 @@ def test_the_register_loader_refuses_an_entry_it_cannot_hold_to(tmp_path, change
     }
     accepted = registers.load_known_defects(_write(tmp_path / "good.json", [GOOD]), controls=controls, **corpus)
     assert [entry.id for entry in accepted] == [GOOD["id"]]
-    named = {**GOOD, "equivalence": "Android's and Web Apps' readers take the value its absence gives"}
-    (held,) = registers.load_known_defects(_write(tmp_path / "named.json", [named]), controls=controls, **corpus)
-    assert held.equivalence == named["equivalence"]
     with pytest.raises(registers.RegisterError) as refused:
         registers.load_known_defects(_write(tmp_path / "bad.json", [{**GOOD, **change}]), controls=controls, **corpus)
     assert refusal in str(refused.value)
@@ -273,6 +274,52 @@ def test_pinned_values_match_only_their_values_on_their_document(known_differenc
     assert pinned.matches(option)
     assert not registers.Entry(**{**pinned.__dict__, "values": {"before": option.before, "after": "z"}}).matches(option)
     assert not registers.Entry(**{**pinned.__dict__, "document": "another"}).matches(option)
+
+
+def test_a_pinned_entry_holds_its_values_alone_beside_its_class_unpinned():
+    """Contract: an entry pinning exact values on its targeted document owns what it matches, so one class can
+    hold two defects, one pinned where its values are fixed by hand and one unpinned everywhere else, and
+    neither is redundant. Failure it catches: the unpinned entry also owning the pinned one's difference, which
+    leaves the pinned entry redundant and the split impossible, or the pinned entry swallowing a difference whose
+    values it does not pin."""
+    sorted_path = "/walks/*/steps/*/list/sorted/*"
+
+    def sorted_by(before, after, document="targeted.sort"):
+        return Difference(
+            "proof3", document, "android@local.ccz", sorted_path, "/walks/m0/steps/1/list/sorted/Zone", "changed",
+            before, after,
+        )  # fmt: skip
+
+    unpinned = registers.Entry(
+        id="sort-keys",
+        defect=51,
+        part="sort keys",
+        check="proof3",
+        artifact="android@local.ccz",
+        path=sorted_path,
+        document="producer.sorted",
+        control="producer.sorted",
+        kind="changed",
+    )
+    pinned = replace(
+        unpinned, id="label-order", defect=10, document="targeted.sort", control="targeted.sort",
+        values={"before": "a | b", "after": "b | a"},
+    )  # fmt: skip
+    label, other = sorted_by("a | b", "b | a"), sorted_by("c | d", "d | c")
+    result = registers.reconcile("proof3", "targeted.sort", [label, other], (unpinned, pinned))
+    assert result.registered == {"label-order": [label], "sort-keys": [other]}
+    assert result.holds, result.explain()
+    # Where only the pinned values show, the unpinned entry holds nothing there and names another document, so the
+    # check holds; and the pinned entry is never redundant beside the class it narrows.
+    result = registers.reconcile("proof3", "targeted.sort", [label], (unpinned, pinned))
+    assert result.registered == {"label-order": [label]} and result.holds, result.explain()
+    # Elsewhere the unpinned entry holds the class whatever the values, and the pinned one holds nothing.
+    elsewhere = sorted_by("a | b", "b | a", document="producer.sorted")
+    result = registers.reconcile("proof3", "producer.sorted", [elsewhere], (unpinned, pinned))
+    assert result.registered == {"sort-keys": [elsewhere]} and result.holds, result.explain()
+    # Without its values pinned the narrower entry is left redundant: the reason a split pins them.
+    result = registers.reconcile("proof3", "targeted.sort", [label], (unpinned, replace(pinned, values=None)))
+    assert [entry.id for entry in result.redundant] == ["label-order"] and not result.holds
 
 
 def test_proof1_accepts_exactly_the_identity_moves_the_register_names(known_differences, tmp_path):

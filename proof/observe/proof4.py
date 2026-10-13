@@ -98,6 +98,8 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from proof.observe.browser import browser_fingerprint
+from proof.observe.build import archive_record, device_archive
 from proof.observe.record import bytes_digest, canonical, digest
 
 CHECK = "proof4"
@@ -131,10 +133,8 @@ VERIFY_ENVIRONMENT = "PROOF_VERIFY_MEMOS"
 TRANSCRIPTS_ENVIRONMENT = "PROOF_TRANSCRIPTS"
 
 # The editor driver's own files: the browser's code, fingerprinted apart from the observation partition
-# (``proof.observe.partition.OBSERVATION_EXCLUDED``), which a view's or Vellum run's outputs depend on.
-WORKTREE = Path(__file__).resolve().parents[2]
-BROWSER_PARTITION = "proof/editors/driver"
-
+# (``proof.observe.partition.OBSERVATION_EXCLUDED``), which a view's or Vellum run's outputs depend on
+# (``proof.observe.browser``).
 # How Core's parser reads an XForm's attributes (commcare-core ``xform/parse/XFormParser.java``): the attributes it
 # parses as XPath, each named as ``proof.checks.compare.xml_tree`` names it in a path, with the elements it parses
 # it on (``XPATH``, read through ``XPathParseTool.parseXPath`` or ``XPathReference.getPathExpr``):
@@ -190,17 +190,6 @@ def _json(value):
 
 
 # What the observation reads beyond its part's own inputs ---------------------------------------------------
-
-
-def browser_fingerprint(root=WORKTREE):
-    """The sha256 of the editor driver's files (``proof/editors/driver/**``): each path and its bytes' digest."""
-    base = Path(root, BROWSER_PARTITION)
-    entries = [
-        [path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()]
-        for path in sorted(base.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    ]
-    return "sha256:" + hashlib.sha256(canonical(entries)).hexdigest()
 
 
 def inputs(document, state):
@@ -478,9 +467,7 @@ def _raw_builds_differ_changed(base, after):
     # A language's app strings are read over its default file's (``as_read``), so a changed language file is
     # compared with the default beside it, on both sides, whether or not the default's bytes changed.
     kept += [
-        default
-        for default in sorted({default_strings_path(path) for path in parsed_after} - {None})
-        if default in same
+        default for default in sorted({default_strings_path(path) for path in parsed_after} - {None}) if default in same
     ]
     for path in kept:
         parsed_after[path] = base.parsed[path]
@@ -849,6 +836,35 @@ def _exchange(exchange):
     }
 
 
+def _answered_alike(exchanges, key=None):
+    """The exchanges in an order every run gives: as HQ answered them, but each run of reads that no write or
+    phase separates in a fixed order of their own (by ``key``; as a report keeps each, where none is given). The
+    page sends several reads at once as it loads (a module's validation beside its case types), and they reach HQ
+    in either order; the writes-alone guard (``pages._check_writes_alone``) holds every write apart from them, so
+    no read's answer depends on that order. A hosted run recorded one such pair in each order on two
+    architectures."""
+    ordered, reads = [], []
+    key = key or (lambda exchange: json.dumps(_exchange(exchange), sort_keys=True))
+
+    def flush():
+        ordered.extend(sorted(reads, key=key))
+        reads.clear()
+
+    phase = object()
+    for exchange in exchanges:
+        # A request no unit watched (``wrote`` None) may have written, so it keeps its place like a write.
+        read = exchange.wrote is False
+        if not read or exchange.phase != phase:
+            flush()
+        phase = exchange.phase
+        if read:
+            reads.append(exchange)
+        else:
+            ordered.append(exchange)
+    flush()
+    return ordered
+
+
 def page_report(saved, shown_before=None):
     """What one section's save showed and HQ answered, as data (``proof.editors.pages.PageSave``).
 
@@ -861,7 +877,7 @@ def page_report(saved, shown_before=None):
     report = {
         "kind": "page",
         "save": None if saved.save is None else {**_exchange(saved.save), "body": _text(saved.save.response)},
-        "exchanges": [_exchange(exchange) for exchange in saved.exchanges],
+        "exchanges": [_exchange(exchange) for exchange in _answered_alike(saved.exchanges)],
         "alerts": list(saved.alerts),
         "alertsShownBefore": None if shown_before is None else list(shown_before),
         "barState": saved.bar_state,
@@ -967,6 +983,11 @@ class Base:
         if hq_build is None and fallback is not None:
             self.previous, self.previous_key = fallback.previous, fallback.previous_key
         self._parsed = None
+        # What the state's readers made of it once served (``proof.observe.served``): the digest of Formplayer's
+        # trace, and of what HQ's Web Apps page hands the client of the app; None where it was not served.
+        self.served_trace = self.served_reads = None
+        if fallback is not None:
+            self.served_trace, self.served_reads = fallback.served_trace, fallback.served_reads
 
     def parsed(self):
         """The state's build parsed once (``ParsedBuild``), for the comparisons of saves over it."""
@@ -1097,6 +1118,18 @@ class _Observation:
         self.b = None
         self.held_b = None
         self.raw_b = None
+        # Whether each state is also served to Formplayer and the Web Apps client (``BContext.serve``: the
+        # unit's served hook runs), the walk Formplayer derived on B, and what was kept of each served state by
+        # its build's files and what the client reads of its app.
+        self.serves = bool(getattr(ctx, "serve", False))
+        self.walk = None
+        self.served_kept = {}
+        # The unit's Connect opportunity (``proof.observe.connect``), which B and each save forward to, and
+        # Core's sessions on B as their submissions are posted to it.
+        self.connect = getattr(ctx, "connect", None)
+        self.baseline_trace = None
+        # Whether the opportunity was made from this B's release (the app is a Connect app only from here).
+        self.opened_here = False
 
     # The whole B ---------------------------------------------------------------------------------------------
 
@@ -1113,6 +1146,8 @@ class _Observation:
         record["stored"] = self.blobs.put(self.held_b.canonical)
         record["baseline"] = self.baseline()
         self.b = Base(self.held_b, self.b_build, previous=previous, previous_key=previous_key)
+        if self.serves:
+            record["served"] = self.serve_b()
         return record
 
     def observe(self, views=None, forms=None):
@@ -1179,7 +1214,175 @@ class _Observation:
         found, run, _ = self.sessions(self.b_build, None)
         if run.trace is not None:
             self.script = script_of(run.trace)
+            self.baseline_trace = run.trace
         return found
+
+    # B and each save, served to Formplayer and the Web Apps client ------------------------------------------
+
+    def _serving(self, label, previous, change=None):
+        from proof.observe import served
+
+        return served.serving(
+            self.unit,
+            self.ctx.document,
+            self.app_id,
+            driver=self.driver,
+            blobs=self.blobs,
+            label=label,
+            previous=previous,
+            change=change,
+            edit=self.ctx.over == "B-edit",
+        )
+
+    def _forwarded(self, held, label):
+        """The served state forwarding to the unit's Connect opportunity (``proof.observe.connect.forwarded``),
+        where the document has one."""
+        from proof.observe import connect, served
+
+        if not served.observes("connect"):
+            return connect.forwarded(held.served, None, label)
+        if self.connect is not None and self.connect.opportunity is None and connect.is_connect(self.b_build.files):
+            # The app holds no Connect block at A and holds one here (an edit made it a Connect app): its
+            # opportunity is made from this release, the first there is to make one from.
+            self.connect.opportunity = connect.open_opportunity(held.served)
+            self.opened_here = True
+        opportunity = self.connect.opportunity if self.connect is not None else None
+        return connect.forwarded(held.served, opportunity, label)
+
+    def _forwards(self, forwarder, held, trace, core):
+        """What a served state forwarded, as its record keeps it: the walk's runs named, and a device's walks'
+        (``proof.android.hq``) by their walks."""
+        if forwarder is None:
+            return None
+        forwarder.walked(trace)
+        return forwarder.take(self.blobs)
+
+    def serve_b(self):
+        """B served (``proof.observe.served``): Formplayer's walk derived on B's release, and the client's
+        screens on it; ``{"served": False}`` where HQ releases no build of B."""
+        from proof.formplayer.observe import script_of
+        from proof.observe import connect, served
+        from proof.observe.runs import unbuildable
+
+        if unbuildable(self.b_build) is not None:
+            return {"served": False}
+        from proof.webapps.hq import ReleaseRefused
+
+        try:
+            with (
+                self._serving("proof4", self.ctx.previous_build) as held,
+                self._forwarded(held, "proof4") as forwarder,
+            ):
+                with connect.reading(forwarder, "formplayer"):
+                    side, trace = held.formplayer()
+                self.walk = script_of(trace)
+                record = {
+                    "served": True,
+                    **served._state(held, side, trace, files=self.b_build.files, label=self.ctx.over),
+                }
+                kept = self._forwards(forwarder, held, trace, self.baseline_trace)
+                if kept is not None:
+                    record["connect"] = kept
+                if self.opened_here:
+                    record["opportunity"] = connect.opportunity_record(self.connect.opportunity)
+        except ReleaseRefused as error:
+            return served.refused(error)
+        # What the client reads of the app, from the stored app as read once, as every save's is.
+        record["clientReads"] = served.client_reads(self.held_b.stored["doc"])
+        self.b.served_trace, self.b.served_reads = side["trace"], record["clientReads"]
+        return record
+
+    def served_after(self, over, held, outcome, differs, traced=None):
+        """What Formplayer and the client make of a saved app, where it can differ from the state it was saved
+        over: its build differs, or what HQ's Web Apps page hands the client of the app does.
+
+        Formplayer replays B's walk on the saved app's release. The client is shown the walk only where
+        Formplayer's trace or what the page hands it is not the state's it was saved over: the client reads
+        nothing else, so the same answers and the same page show the same screens. A served state is kept by its
+        build's files and what the client reads of its app (HQ serves Formplayer the build, and its views read
+        nothing else of the app that the build's files do not hold); ``PROOF_VERIFY_MEMOS=1`` serves it again and
+        holds the two alike. Returns the record's entry (None where nothing is served) and the state's two digests.
+        """
+        from proof.observe import connect, served
+        from proof.observe.runs import unbuildable
+
+        unchanged = (None, over.served_trace, over.served_reads)
+        if not self.serves or self.walk is None or over.served_trace is None:
+            return unchanged
+        if unbuildable(over.build) is not None or unbuildable(outcome) is not None:
+            return unchanged
+        reads = served.client_reads(held.stored["doc"])
+        if not differs and reads == over.served_reads:
+            return unchanged
+        key = (files_key(outcome), reads, over.served_trace, over.served_reads)
+        kept = self.served_kept.get(key)
+        if kept is not None and not self.verify:
+            return kept, kept["formplayer"]["trace"], reads
+        from proof.webapps.hq import ReleaseRefused
+
+        previous, _ = self.previous_of(over)
+        try:
+            with (
+                self._serving("proof4-save", previous) as serving,
+                self._forwarded(serving, "proof4-save") as forwarder,
+            ):
+                with connect.reading(forwarder, "formplayer"):
+                    side, trace = serving.formplayer(self.walk)
+                record = {"formplayer": side, "clientReads": reads}
+                # What a worker's device makes of the saved app's release, and, where the save changed the profile,
+                # what a device on the state it was saved over holds once it updates to it, with a worker's own
+                # settings (``proof.android.observe``).
+                record.update(serving.devices_on("save"))
+                updated = self._device_update(serving, over, held, outcome)
+                if updated is not None:
+                    record["androidUpdate"] = updated
+                core = self.blobs.get_json(traced["trace"]) if traced and traced.get("trace") else None
+                kept_connect = self._forwards(forwarder, serving, trace, core)
+                if kept_connect is not None:
+                    record["connect"] = kept_connect
+                if side["trace"] != over.served_trace or reads != over.served_reads:
+                    shown = serving.webapps(trace)
+                    if shown is not None:
+                        record["webapps"] = shown
+                release = serving.release_differs(outcome.files)
+                if release is not None:
+                    record["releaseDiffers"] = release
+        except ReleaseRefused as error:
+            # HQ releases no build of the saved app: what it raised is the save's difference, and the state the
+            # save was made over stands for what a worker is still served.
+            return {"refused": served.refused(error)["refused"]}, over.served_trace, over.served_reads
+        if kept is not None and kept != record:
+            raise MemoMismatch(
+                "Proof 4 kept what Formplayer and the Web Apps client made of a saved app by its build's files and"
+                " what HQ's Web Apps page hands the client of the app, and serving it again gave another record."
+                " A served state reads something the key does not name; compare the two records."
+            )
+        self.served_kept[key] = record
+        return record, side["trace"], reads
+
+    def _device_update(self, serving, over, held, outcome):
+        """A device on ``over``'s archive updated to the saved app's, over a worker's own settings, where the save
+        changed the profile; None where it did not."""
+        from proof.android import observe as android
+        from proof.observe import served
+        from proof.observe.build import device_archive
+
+        if not served.observes("android"):
+            return None
+        before = device_archive(over.build, over.held.app)
+        after = device_archive(outcome, held.app)
+        if not before or not after or "entries" not in before or "entries" not in after:
+            return None
+        if dict(before["entries"]).get("profile.ccpr") == dict(after["entries"]).get("profile.ccpr"):
+            return None
+        return android.update(
+            serving.served,
+            self.blobs,
+            label="save:update",
+            before=android.archive_bytes(before["entries"]),
+            after=android.archive_bytes(after["entries"]),
+            incomplete=False,
+        )
 
     # One save's stored app, build and trace ----------------------------------------------------------------
 
@@ -1196,11 +1399,17 @@ class _Observation:
         found["build"] = build_delta(outcome, over.build, self.blobs)
         differs = raw_builds_differ(over.build, outcome, over.parsed(), verify=self.verify)
         found["trace"] = self.trace(outcome, over=over, label=processing_label(editor)) if differs else None
+        # What a device installs of the saved app where its build is not the one it was saved over: the Android
+        # reader's input (``proof.android``).
+        found["archive"] = archive_record(device_archive(outcome, held.app), self.blobs) if differs else None
         answers = read_xpath(self.core_runner, xpath_pairs(over.held.stored, stored, over.build, outcome))
         found["xpath"] = self.blobs.put_json(answers) if answers else None
+        found["served"], served_trace, served_reads = self.served_after(over, held, outcome, differs, found["trace"])
         if not keep:
             return found, None
-        return found, Base(held, outcome, hq_build=hq_build, fallback=over)
+        left = Base(held, outcome, hq_build=hq_build, fallback=over)
+        left.served_trace, left.served_reads = served_trace, served_reads
+        return found, left
 
     def previous_of(self, over):
         """The build HQ keeps of ``over`` and what names it: B's made once (``prepare``), a first Vellum save's

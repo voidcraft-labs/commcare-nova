@@ -19,7 +19,9 @@
 //   {"reply": rid, "status", "headers": [[name, value], ...], "bodyBase64"}
 //   before anything else happens in the page that waits on it. A view
 //   operation also sends {"phase": {"pid", "name", "event"}} as it starts and
-//   ends each section, and waits for {"phaseReady": pid} before it goes on.
+//   ends each section, and waits for {"phaseReady": pid} before it goes on;
+//   that wait is Python's work, and moves the operation's deadline on by as
+//   long as it took (Python's own deadline for the operation likewise).
 // - The operation ends with {"id", "ok": true, "result"} or {"id", "ok":
 //   false, "error": {"kind", "message", ...}}; by then every request the page
 //   made has been answered or abandoned.
@@ -36,15 +38,35 @@
 //   "until" (a step file of proof/editors/driver/steps called with "arg":
 //   once, its value kept, or until it holds), "dispatch" (an event on the
 //   elements a selector finds), "click" (the element's own click),
+//   "files" and "draw" (the element a step file finds, called with
+//   `find`, given a chosen file, or the pointer pressed, moved through
+//   "stroke" and released, each point a fraction of its box and optionally
+//   pixels more; or, with "drag", dragged that many pixels from its middle
+//   in strokes that stay inside it and the window, each followed by the
+//   page's answer to it, "answeredBy", and the page quiet),
+//   "mark" (the page's answered requests counted, for an "awaitRequest"
+//   with "sinceMark", which then waits for one answered after the mark, and
+//   with "unlessMissed" is skipped where the wait that a step allowed to
+//   miss before it missed, or held with a value other than true),
 //   "awaitRequest" (until the page's request to a path has been answered;
 //   with "orDialog", or until the page answers the last click with a dialog
 //   and sends nothing, the outcome's "unsent" naming the dialog, after which
 //   every step marked "unlessUnsent" is skipped),
+//   "advance" (a step file asked again and again as a wait's predicate,
+//   each "next" it answers followed by the page's answer to the request it
+//   caused, "answeredBy", and the page quiet, until it answers otherwise:
+//   a form shown one question a screen stepped forward by its own Next;
+//   its last answer the outcome's value, any but true and those "passes"
+//   names skipping to "orSkipTo"),
 //   "followRedirect" (that, and when HQ's answer sent the page elsewhere,
 //   until the redirected document has loaded) and "settle" (until none of
-//   the page's requests is in flight, a frame and a task later still). With
+//   the page's requests is in flight, a frame and a task later still; with
+//   "timers", and none of the page's own short timers still set). With
 //   "seed" ({seed, epoch}) the context runs steps/page/seed.js before each
-//   document's own scripts.
+//   document's own scripts, and with "timers" steps/page/timers.js, which
+//   counts the page's short one-off timers. Every document of every page
+//   the driver opens first runs steps/page/polls.js, which holds the page's
+//   polls.
 // - "view": one load of an app-manager page on the driver's reused view
 //   page, every offered section's save held and then released into its own
 //   phase (see below).
@@ -191,6 +213,60 @@ const HOP_HEADERS = new Set([
 
 const tools = createRequire(path.join(TOOLS, "package.json"));
 const { chromium } = tools("playwright-core");
+
+// The web font HQ's pages load (hqwebapp/base.html links Google Fonts'
+// stylesheet for Nunito Sans, the face HQ's stylesheets name first), served
+// from the image (the font's own package, OFL-1.1, among the image's Node
+// tools) where the page asks Google for it, so the page lays its text out in
+// HQ's face; every other host stays refused.
+const FONTS_ORIGIN = "https://fonts.googleapis.com";
+const FONTS = {
+	"Nunito Sans": path.dirname(
+		tools.resolve("@fontsource/nunito-sans/package.json"),
+	),
+};
+
+/**
+ * Google Fonts' answer to a request of its stylesheet (`/css?family=Name:w1,w2`,
+ * `|` between families) or of a font file the stylesheet names (relative to
+ * it, `/files/<file>`), from the fonts the image holds: each weight asked for
+ * that the font has, in the order asked; null for anything else.
+ */
+async function webFont(url) {
+	if (url.pathname === "/css") {
+		const sheets = [];
+		for (const asked of (url.searchParams.get("family") ?? "").split("|")) {
+			const [family, weights = "400"] = asked.split(":");
+			const directory = FONTS[family];
+			if (!directory) return null;
+			for (const weight of weights.split(",")) {
+				const file = path.join(directory, `${weight}.css`);
+				const found = await readFile(file, "utf8").catch(() => null);
+				if (found !== null) sheets.push(found);
+			}
+		}
+		if (!sheets.length) return null;
+		return {
+			contentType: "text/css; charset=utf-8",
+			body: Buffer.from(sheets.join("\n")),
+		};
+	}
+	const name = url.pathname.startsWith("/files/")
+		? url.pathname.slice("/files/".length)
+		: null;
+	if (!name || name.includes("/")) return null;
+	for (const directory of Object.values(FONTS)) {
+		const body = await readFile(path.join(directory, "files", name)).catch(
+			() => null,
+		);
+		if (body !== null)
+			return {
+				contentType: name.endsWith(".woff2") ? "font/woff2" : "font/woff",
+				body,
+			};
+	}
+	return null;
+}
 const playwrightVersion = tools("playwright-core/package.json").version;
 
 const CONTENT_TYPES = {
@@ -301,14 +377,23 @@ function askHq(request) {
 	});
 }
 
-/** Tells Python a phase starts or ends, and waits until Python is ready for what follows. */
-function announcePhase(name, event, detail = {}) {
+/**
+ * Tells Python a phase starts or ends, and waits until Python is ready for
+ * what follows. The wait is Python's own work (the caller's fork opened, or
+ * what HQ's state holds after a section read and served to Formplayer and
+ * the Web Apps client), not the page's, so `served`'s deadline, which
+ * catches a stuck page, is moved on by as long as it took.
+ */
+async function announcePhase(served, name, event, detail = {}) {
 	const pid = nextPhaseId++;
-	return new Promise((resolve, reject) => {
+	const started = Date.now();
+	const ready = await new Promise((resolve, reject) => {
 		pendingPhases.set(pid, { resolve, reject });
 		send({ phase: { pid, name, event, ...detail } });
 		trace(`phase ${pid}: ${name} ${event}`);
 	});
+	served.deadline += Date.now() - started;
+	return ready;
 }
 
 // -- the origin --------------------------------------------------------------
@@ -383,7 +468,8 @@ async function handleRequest(request, response) {
 	}
 	// The operation this request belongs to: its own page's, and only while
 	// that page is serving one.
-	const owner = REUSED_PAGES.get(request.headers[PAGE_HEADER]) ?? null;
+	const named = request.headers[PAGE_HEADER];
+	const owner = REUSED_PAGES.get(named) ?? RUN_PAGES.get(named) ?? null;
 	const served = owner?.serving ?? null;
 	if (url.pathname.startsWith(STATIC_PREFIX)) {
 		// The image's own files change nothing in HQ, whenever a page asks;
@@ -677,6 +763,11 @@ class ReusedPage {
 		// The seed script is added through this session, which runs it only
 		// with the Page domain on.
 		await cdp.send("Page.enable");
+		// Every document of the page holds its polls (steps/page/polls.js),
+		// whatever seed a load then adds.
+		await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+			source: stepCall("page/polls"),
+		});
 		const inFlight = await PageRequests.attach(cdp, () =>
 			this.serving?.notify(),
 		);
@@ -796,6 +887,15 @@ const REUSED_PAGES = new Map([
 	[viewPage.name, viewPage],
 	[vellumPage.name, vellumPage],
 ]);
+
+// The page of each "run" operation in progress, by the name its requests
+// carry (PAGE_HEADER). A run's requests are answered through its context's
+// route (PageRun.route), but Chromium follows an HTTP redirect the route
+// answered with itself, past the route, to the origin: the origin serves
+// that request to its run (PageRun.handle), as a person's browser follows
+// HQ's redirect after a form's post.
+const RUN_PAGES = new Map();
+let runPages = 0;
 
 // -- what a served operation records ------------------------------------------
 
@@ -1476,7 +1576,7 @@ async function runView(message) {
 				"pages/save_state",
 				section.bar,
 			);
-			await announcePhase(`section:${index}`, "start");
+			await announcePhase(served, `section:${index}`, "start");
 			served.phase = `section:${index}`;
 			await served.release(index, page);
 			if (served.redirected) {
@@ -1497,7 +1597,7 @@ async function runView(message) {
 			} while (after === null);
 			sections[index].after = after;
 			served.phase = `settled:${index}`;
-			await announcePhase(`section:${index}`, "end");
+			await announcePhase(served, `section:${index}`, "end");
 		}
 		served.phase = "end";
 	} catch (error) {
@@ -1877,6 +1977,8 @@ class PageRun {
 		this.cdp = null;
 		this.answered = [];
 		this.waiters = [];
+		// Inside a "recover" step: the page is being left as a person leaves it.
+		this.leaving = false;
 	}
 
 	remaining() {
@@ -1888,6 +1990,47 @@ class PageRun {
 
 	notify() {
 		for (const waiter of [...this.waiters]) waiter();
+	}
+
+	record(entry) {
+		this.requests.push(entry);
+	}
+
+	/**
+	 * A request of the run's page that reached the origin past its route: the
+	 * one Chromium sends following an HTTP redirect HQ answered a request
+	 * with. It is HQ's to answer, as every request of the run is.
+	 */
+	async handle({ request, response, url, body }) {
+		const entry = { method: request.method, url: url.href };
+		this.requests.push(entry);
+		const handled = (async () => {
+			try {
+				const reply = await askHq({
+					method: request.method,
+					url: url.href,
+					headers: pageHeaders(request),
+					bodyBase64: body ? body.toString("base64") : null,
+					phase: "run",
+					forwarded: null,
+				});
+				entry.answeredBy = "hq";
+				entry.status = reply.status;
+				deliver(response, reply);
+			} catch (error) {
+				entry.answeredBy = "failed";
+				entry.error = String(error.message ?? error);
+				response.destroy();
+			}
+		})();
+		this.inFlight.add(handled);
+		try {
+			await handled;
+		} finally {
+			this.inFlight.delete(handled);
+			this.answered.push(entry);
+			this.notify();
+		}
 	}
 
 	/** Follows the page's requests in flight, through a DevTools session of the driver's own (PageRequests). */
@@ -1930,6 +2073,19 @@ class PageRun {
 		const url = new URL(request.url());
 		const entry = { method: request.method(), url: request.url() };
 		this.requests.push(entry);
+		if (url.origin === FONTS_ORIGIN) {
+			const font = await webFont(url);
+			if (font) {
+				entry.answeredBy = "font";
+				entry.status = 200;
+				await route.fulfill({
+					status: 200,
+					contentType: font.contentType,
+					body: font.body,
+				});
+				return;
+			}
+		}
 		if (url.origin !== ORIGIN) {
 			entry.answeredBy = "refused";
 			await route.abort("blockedbyclient");
@@ -1970,7 +2126,11 @@ class PageRun {
 				const reply = await askHq({
 					method: request.method(),
 					url: request.url(),
-					headers: await request.allHeaders(),
+					headers: Object.fromEntries(
+						Object.entries(await request.allHeaders()).filter(
+							([name]) => name !== PAGE_HEADER,
+						),
+					),
 					bodyBase64: body ? body.toString("base64") : null,
 					phase: "run",
 					forwarded: null,
@@ -2074,6 +2234,61 @@ class PageRun {
 	}
 }
 
+/**
+ * Until the page is quiet: none of its requests in flight, and so still a
+ * frame and four tasks later (FRAME_AND_TASK). With `timers` (a run whose
+ * documents count their short timers, steps/page/timers.js), none of the
+ * page's own short timers is still set either: what such a timer runs may
+ * start a request, so the two are waited for in turn until both hold at once.
+ */
+async function runQuiet(run, timers) {
+	for (;;) {
+		await run.idle();
+		if (timers) {
+			await waitInPage(
+				run.cdp,
+				{ expression: "() => window.proofShortTimers() === 0" },
+				null,
+				{ polling: "raf", timeoutMs: run.remaining() },
+			);
+		}
+		await pageValue(run.cdp, FRAME_AND_TASK);
+		if (
+			!run.pageInFlight.size &&
+			!run.inFlight.size &&
+			(!timers || (await pageValue(run.cdp, "window.proofShortTimers()")) === 0)
+		)
+			return;
+	}
+}
+
+/**
+ * The strokes a drag of [dx, dy] whole pixels is made of: each from the
+ * middle of `box`, as few as keep every stroke's end inside the box and the
+ * window (`viewport`) with a margin, the pixels shared among them so they add
+ * up to the drag exactly.
+ */
+function dragStrokes([dx, dy], box, viewport) {
+	const margin = 8;
+	const middle = [box.x + box.width / 2, box.y + box.height / 2];
+	const reach = (half, from, size) =>
+		Math.max(1, Math.floor(Math.min(half, from, size - from) - margin));
+	const across = reach(box.width / 2, middle[0], viewport.width);
+	const down = reach(box.height / 2, middle[1], viewport.height);
+	const count = Math.max(
+		1,
+		Math.ceil(Math.abs(dx) / across),
+		Math.ceil(Math.abs(dy) / down),
+	);
+	const share = (total, index) =>
+		Math.trunc(((index + 1) * total) / count) -
+		Math.trunc((index * total) / count);
+	return Array.from({ length: count }, (_, index) => [
+		[0.5, 0.5],
+		[0.5, 0.5, share(dx, index), share(dy, index)],
+	]);
+}
+
 async function runSteps(page, run, steps) {
 	const outcomes = [];
 	// The dialogs the page had shown when the last click was made, and
@@ -2082,17 +2297,105 @@ async function runSteps(page, run, steps) {
 	// `unlessUnsent`.
 	let dialogsAtClick = 0;
 	let unsent = false;
+	// The page's answered requests when the last "mark" step ran, which an
+	// "awaitRequest" with "sinceMark" looks past (a request the steps after
+	// the mark caused, never one answered earlier); and whether the last wait
+	// a step allowed to miss missed or held with a value other than true,
+	// which skips an "awaitRequest" marked "unlessMissed" (the page did not
+	// do what would send the request).
+	let answeredAtMark = 0;
+	let lastMissed = false;
+	// A wait a step allows to miss (`within`, with `orSkipTo` or `optional`):
+	// once one with `orSkipTo` has missed, every step up to the one labelled
+	// so is skipped, and `missed` stays set until a `recover` step puts the
+	// page back.
+	let skipTo = null;
+	let missed = false;
 	for (const [index, step] of steps.entries()) {
 		const started = Date.now();
 		const outcome = { step: index };
 		trace(`step ${index}: ${JSON.stringify(step).slice(0, 200)}`);
+		if (skipTo !== null) {
+			if (step.label === skipTo) {
+				skipTo = null;
+			} else {
+				outcome.skipped = true;
+				outcomes.push(outcome);
+				continue;
+			}
+		}
 		if (step.unlessUnsent && unsent) {
 			outcome.skipped = true;
 			outcomes.push(outcome);
 			continue;
 		}
 		try {
-			if (step.goto !== undefined) {
+			if (step.label !== undefined && step.recover === undefined) {
+				// A place a missed wait skips to; nothing to do.
+				outcome.label = step.label;
+			} else if (step.mark !== undefined) {
+				answeredAtMark = run.answered.length;
+				lastMissed = false;
+			} else if (
+				(step.awaitRequest !== undefined ||
+					step.files !== undefined ||
+					step.draw !== undefined) &&
+				step.unlessMissed &&
+				lastMissed
+			) {
+				outcome.skipped = true;
+			} else if (step.recover !== undefined) {
+				// The page back where a run starts: by the click a person makes
+				// when nothing missed and the element is there, else by loading
+				// the address again; either way leaving what the run left open
+				// (a form asks whether to leave it, and is told yes).
+				run.leaving = true;
+				try {
+					const clicked =
+						!missed &&
+						(await pageValue(run.cdp, clickExpression(step.recover.click)));
+					if (!clicked) {
+						await page.goto(new URL(step.recover.goto, ORIGIN).toString(), {
+							waitUntil: "load",
+							timeout: run.remaining(),
+						});
+						outcome.reloaded = true;
+					}
+				} finally {
+					run.leaving = false;
+				}
+				missed = false;
+			} else if (step.until !== undefined && step.within !== undefined) {
+				// A wait that may miss: the page is given `within` ms to hold it.
+				try {
+					outcome.value = await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.until) },
+						step.arg,
+						{
+							polling: step.polling ?? "raf",
+							timeoutMs: Math.min(step.within, run.remaining()),
+						},
+					);
+					lastMissed = outcome.value !== true;
+					// A wait that held with another answer than true (the page
+					// said it cannot go on: a search it refused) ends the run
+					// where a miss would.
+					if (lastMissed && step.orSkipTo !== undefined) {
+						skipTo = step.orSkipTo;
+						missed = true;
+					}
+				} catch (error) {
+					if (error?.name !== "TimeoutError" || run.remaining() <= 0)
+						throw error;
+					outcome.missed = true;
+					lastMissed = true;
+					if (step.orSkipTo !== undefined) {
+						skipTo = step.orSkipTo;
+						missed = true;
+					}
+				}
+			} else if (step.goto !== undefined) {
 				const response = await page.goto(
 					new URL(step.goto, ORIGIN).toString(),
 					{
@@ -2113,12 +2416,29 @@ async function runSteps(page, run, steps) {
 					timeoutMs: run.remaining(),
 				});
 			} else if (step.until !== undefined) {
-				await waitInPage(
-					run.cdp,
-					{ source: stepSource(step.until) },
-					step.arg,
-					{ polling: step.polling ?? "raf", timeoutMs: run.remaining() },
-				);
+				try {
+					await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.until) },
+						step.arg,
+						{ polling: step.polling ?? "raf", timeoutMs: run.remaining() },
+					);
+				} catch (error) {
+					// A step file that can say what it is still waiting for
+					// (it takes `explain`) says it, once, in the failure.
+					if (
+						error?.name === "TimeoutError" &&
+						step.arg?.explain === undefined
+					) {
+						const said = await pageValue(
+							run.cdp,
+							`(${stepSource(step.until)})(${literal({ ...step.arg, explain: true })})`,
+						).catch(() => undefined);
+						if (typeof said === "string")
+							error.message = `${error.message} The page was still waiting: ${said}.`;
+					}
+					throw error;
+				}
 			} else if (step.eval !== undefined) {
 				// The page function called with its argument, as one expression
 				// the page evaluates (literal).
@@ -2144,6 +2464,215 @@ async function runSteps(page, run, steps) {
 						"page",
 						`No element matches ${step.dispatch}, so the ${step.event ?? "change"} event went nowhere.`,
 					);
+			} else if (step.files !== undefined || step.draw !== undefined) {
+				// A worker's own input, which no page function can give: a file
+				// chosen in the browser's file chooser, or a stroke drawn with
+				// the pointer. The step file names the element (called with
+				// `find`), and Playwright gives the input as the browser does:
+				// the chosen file set on the file input with the input and
+				// change events a choice fires, or the pointer pressed at one
+				// point of the element, moved to another and released.
+				const name = step.files ?? step.draw;
+				const handle = await page.evaluateHandle(
+					`(${stepSource(name)})(${literal({ ...step.arg, find: true })})`,
+				);
+				try {
+					const element = handle.asElement();
+					if (!element)
+						throw new StepFailed(
+							"page",
+							`${name} found no element for ${JSON.stringify(step.arg)}, so nothing was given to it.`,
+						);
+					if (step.files !== undefined) {
+						await element.setInputFiles({
+							name: step.file.name,
+							mimeType: step.file.mimeType,
+							buffer: Buffer.from(step.file.base64, "base64"),
+						});
+					} else {
+						// The element brought to the middle of the window, as a
+						// person scrolls what they draw on into view, clear of
+						// what the page pins to the window's edges: at once (the
+						// page's stylesheet may ask a scroll to glide), and then
+						// until the element stands in one place two frames running,
+						// so no scroll of the page's own still moves it.
+						const place = () =>
+							element.evaluate(async (target) => {
+								target.scrollIntoView({
+									block: "center",
+									inline: "center",
+									behavior: "instant",
+								});
+								const frame = () =>
+									new Promise((resolve) => requestAnimationFrame(resolve));
+								let last = null;
+								for (;;) {
+									await frame();
+									const { x, y, width, height } =
+										target.getBoundingClientRect();
+									const now = `${x} ${y} ${width} ${height}`;
+									if (now === last) return now;
+									last = now;
+								}
+							});
+						// A scroll can set the page laying itself out again a
+						// moment later (a picture it brings on, a handler of the
+						// page's own it throttles), which two frames do not show:
+						// a map of a form shown whole stood 163 pixels lower by
+						// the time its stroke began. So the element is placed, the
+						// page let go quiet, and the element placed again, until it
+						// stands where it stood.
+						const counted =
+							(await pageValue(
+								run.cdp,
+								"typeof window.proofShortTimers === 'function'",
+							)) === true;
+						const placed = async () => {
+							let stood = await place();
+							for (;;) {
+								await runQuiet(run, counted);
+								const now = await place();
+								if (now === stood) break;
+								stood = now;
+							}
+							const box = await element.boundingBox();
+							if (!box || box.width < 1 || box.height < 1)
+								throw new StepFailed(
+									"page",
+									`${name} found an element with no box to draw in for ${JSON.stringify(step.arg)}.`,
+								);
+							return box;
+						};
+						let box = await placed();
+						// A point is a fraction of the box across and down, and
+						// optionally whole pixels more each way.
+						const at = ([x, y, dx = 0, dy = 0]) => [
+							box.x + box.width * x + dx,
+							box.y + box.height * y + dy,
+						];
+						// A drag ("drag": whole pixels across and down) is made of
+						// strokes from the element's middle that each stay inside
+						// it and the window, as a person drags a map further than
+						// it shows in several strokes; after each, the page's
+						// answer to it ("answeredBy") and the page quiet again, so
+						// each stroke is one answer however fast the page is. The
+						// page's answer can move the element, so it is placed
+						// again before each stroke, and where it then stands
+						// elsewhere the strokes for what is left of the drag are
+						// laid out from there.
+						const left = step.drag === undefined ? null : [...step.drag];
+						let strokes =
+							left === null
+								? [step.stroke]
+								: dragStrokes(left, box, page.viewportSize());
+						for (let first = true; strokes.length; first = false) {
+							if (!first) {
+								const now = await placed();
+								const moved = ["x", "y", "width", "height"].some(
+									(side) => now[side] !== box[side],
+								);
+								box = now;
+								if (moved && left !== null)
+									strokes = dragStrokes(left, box, page.viewportSize());
+							}
+							const stroke = strokes.shift();
+							// Every point of the stroke lands on the element itself:
+							// one that lands on something the page lays over it, or
+							// outside the window, would press or move nothing the
+							// element hears.
+							for (const point of stroke) {
+								const [x, y] = at(point);
+								const covering = await element.evaluate(
+									(target, [left, top]) => {
+										const hit = document.elementFromPoint(left, top);
+										if (hit === target || target.contains(hit)) return null;
+										const stands = (element) => {
+											if (!element) return "nowhere";
+											const { x, y, width, height } =
+												element.getBoundingClientRect();
+											return `at (${x}, ${y}), ${width} by ${height}`;
+										};
+										return (
+											`${(hit?.outerHTML ?? "nothing").slice(0, 200)} (${stands(hit)}),` +
+											` not on the element (${stands(target)}, in a window ` +
+											`${window.innerWidth} by ${window.innerHeight})`
+										);
+									},
+									[x, y],
+								);
+								if (covering !== null)
+									throw new StepFailed(
+										"page",
+										`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, so nothing would be drawn.`,
+									);
+							}
+							const since = run.answered.length;
+							const [from, ...through] = stroke;
+							await page.mouse.move(...at(from));
+							await page.mouse.down();
+							for (const point of through) await page.mouse.move(...at(point));
+							await page.mouse.up();
+							if (left !== null) {
+								const [, [, , dx = 0, dy = 0]] = stroke;
+								left[0] -= dx;
+								left[1] -= dy;
+								await run.awaitRequest(step.answeredBy, since, null);
+								await runQuiet(run, true);
+							}
+						}
+						// A canvas shows the stroke it took: one that shows none
+						// heard none of it.
+						const drew = await element.evaluate((target) => {
+							if (!(target instanceof HTMLCanvasElement)) return true;
+							if (!target.isConnected) return false;
+							const { width, height } = target;
+							const pixels = target
+								.getContext("2d")
+								.getImageData(0, 0, width, height).data;
+							for (let i = 3; i < pixels.length; i += 4)
+								if (pixels[i]) return true;
+							return false;
+						});
+						if (!drew)
+							throw new StepFailed(
+								"page",
+								`${name}'s stroke for ${JSON.stringify(step.arg)} left nothing drawn on the canvas, so the page heard none of it.`,
+							);
+					}
+				} finally {
+					await handle.dispose();
+				}
+			} else if (step.advance !== undefined) {
+				// A form shown one question a screen stepped forward as a person
+				// steps it: the step file presses the form's own Next ("next")
+				// until it answers otherwise, and after each press the page's
+				// answer to the request it sent ("answeredBy") and the page quiet
+				// are waited for before it is asked again. Its last answer is the
+				// outcome's value; any but true and those "passes" names ends the
+				// run where a missed wait does, with "orSkipTo".
+				outcome.advanced = 0;
+				for (;;) {
+					const from = run.answered.length;
+					const said = await waitInPage(
+						run.cdp,
+						{ source: stepSource(step.advance) },
+						step.arg,
+						{ polling: "raf", timeoutMs: run.remaining() },
+					);
+					if (said !== "next") {
+						outcome.value = said;
+						break;
+					}
+					outcome.advanced += 1;
+					await run.awaitRequest(step.answeredBy, from);
+					await runQuiet(run, Boolean(step.timers));
+				}
+				lastMissed = outcome.value !== true;
+				const passes = step.passes ?? [true];
+				if (!passes.includes(outcome.value) && step.orSkipTo !== undefined) {
+					skipTo = step.orSkipTo;
+					missed = true;
+				}
 			} else if (step.click !== undefined) {
 				dialogsAtClick = run.dialogs.length;
 				const clicked = await pageValue(run.cdp, clickExpression(step.click));
@@ -2155,7 +2684,7 @@ async function runSteps(page, run, steps) {
 			} else if (step.awaitRequest !== undefined) {
 				const entry = await run.awaitRequest(
 					step.awaitRequest,
-					step.from ?? 0,
+					step.sinceMark ? answeredAtMark : (step.from ?? 0),
 					step.orDialog ? dialogsAtClick : null,
 				);
 				if (entry.dialog !== undefined) {
@@ -2183,13 +2712,7 @@ async function runSteps(page, run, steps) {
 				outcome.redirect = entry.redirect ?? null;
 				if (entry.redirectLoaded) await entry.redirectLoaded;
 			} else if (step.settle !== undefined) {
-				// The page is quiet: none of its requests in flight, and so still
-				// a frame and four tasks later (FRAME_AND_TASK).
-				for (;;) {
-					await run.idle();
-					await pageValue(run.cdp, FRAME_AND_TASK);
-					if (!run.pageInFlight.size && !run.inFlight.size) break;
-				}
+				await runQuiet(run, Boolean(step.timers));
 			} else {
 				throw new StepFailed(
 					"request",
@@ -2218,9 +2741,23 @@ async function runSteps(page, run, steps) {
 
 async function runOperation(message) {
 	const run = new PageRun(Date.now() + (message.deadlineMs ?? 60000));
+	runPages += 1;
+	const name = `run-${runPages}`;
+	const owner = {
+		name,
+		serving: run,
+		statics: { editors: 0, missing: 0 },
+		close: async () => {},
+	};
+	RUN_PAGES.set(name, owner);
 	const context = await browser.newContext({
 		baseURL: ORIGIN,
 		javaScriptEnabled: true,
+		// Every request the run's page sends names it (RUN_PAGES).
+		extraHTTPHeaders: { [PAGE_HEADER]: name },
+		// The window the run's pages are laid out in (a phone's, for what a
+		// worker sees on a small screen), or Playwright's own desktop window.
+		...(message.viewport ? { viewport: message.viewport } : {}),
 	});
 	const started = Date.now();
 	let outcomes = [];
@@ -2231,6 +2768,10 @@ async function runOperation(message) {
 			await context.addCookies(
 				cookies.map(({ name, value }) => ({ name, value, url: ORIGIN })),
 			);
+		}
+		await context.addInitScript({ content: stepCall("page/polls") });
+		if (message.timers) {
+			await context.addInitScript({ content: stepCall("page/timers") });
 		}
 		if (message.seed) {
 			await context.addInitScript({
@@ -2249,7 +2790,12 @@ async function runOperation(message) {
 		});
 		page.on("dialog", (dialog) => {
 			run.dialogs.push({ type: dialog.type(), message: dialog.message() });
-			dialog.dismiss().catch(() => {});
+			// While a "recover" step takes the page back where a run starts, the
+			// page is left as a person leaves it: the page's question whether to
+			// leave (a form still open asks) is answered yes. Otherwise every
+			// dialog is dismissed and kept for the outcome.
+			if (run.leaving) dialog.accept().catch(() => {});
+			else dialog.dismiss().catch(() => {});
 			run.notify();
 		});
 		outcomes = await runSteps(page, run, message.steps ?? []);
@@ -2263,6 +2809,9 @@ async function runOperation(message) {
 	await context.close().catch(() => {});
 	trace(`closed; draining ${run.inFlight.size} requests`);
 	await run.drain();
+	// A request of the page that arrives once its run is over is a stray.
+	owner.serving = null;
+	RUN_PAGES.delete(name);
 	failure = withStrays(failure);
 	const result = {
 		outcomes,

@@ -149,7 +149,15 @@ def _rebuilt(element, parent, old, new, inherited):
 
 
 def renamespace_xform(source, new_xmlns):
-    """The XForm source with its data node (and every element in its namespace) in ``new_xmlns``."""
+    """The XForm source with its data node (and every element in its namespace) in ``new_xmlns``.
+
+    The source keeps its own spelling wherever it can: HQ reads a stored source as text in one place (its
+    CommTrack test for the session's supply point is a substring test, ``suite_xml/sections/entries.py::
+    EntriesHelper.entry_for_module``), and a source written again by a serializer spells its apostrophes
+    another way. So the answer is the source's own bytes with the namespace's name replaced, where that
+    parses to exactly the document the structural rewrite gives; where it does not (the name is also part of
+    something else the source holds), it is the structural rewrite, serialized.
+    """
     if isinstance(source, str):
         source = source.encode("utf-8")
     parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=True)
@@ -162,7 +170,18 @@ def renamespace_xform(source, new_xmlns):
         return source
     replacement = _rebuilt(data, None, old, new_xmlns, instance.nsmap)
     instance.replace(data, replacement)
-    return etree.tostring(root, encoding="utf-8", xml_declaration=True)
+    rewritten = etree.tostring(root, encoding="utf-8", xml_declaration=True)
+    if old:
+        kept = source.replace(old.encode("utf-8"), new_xmlns.encode("utf-8"))
+        try:
+            same = etree.tostring(etree.fromstring(kept, parser), method="c14n") == etree.tostring(
+                etree.fromstring(rewritten, parser), method="c14n"
+            )
+        except etree.XMLSyntaxError:
+            same = False
+        if same:
+            return kept
+    return rewritten
 
 
 def aligned_app(b_app, alignment: Alignment):

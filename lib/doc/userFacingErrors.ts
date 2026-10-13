@@ -778,6 +778,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using an answer that comes later in the form. Move the source question earlier or remove that dependency.`,
 	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using a repeated answer from a different repetition context. Use a root answer or an earlier answer from the current or an enclosing repeat.`,
+	CASE_SELECT_SOURCE_INVALID: (e) =>
+		`${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`,
+	CASE_SELECT_FILTER_INVALID: (e) =>
+		`${q(fieldName(e))} uses information that isn't available in its choice filter. You can use candidate records, the selected record, worker information, and earlier answers in the same form and repeat.`,
+	CASE_SELECT_FILTER_NOT_ON_DEVICE: (e) =>
+		`${q(fieldName(e))} uses a choice filter that can't run on a device. You can choose another comparison or calculation.`,
 	LOOKUP_SELECT_FILTER_TYPE_ERROR: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice filter whose values don't fit the comparison. Adjust the referenced columns, values, or operator.`,
 	LOOKUP_SELECT_FILTER_NOT_ON_DEVICE: (e) =>

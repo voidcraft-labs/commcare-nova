@@ -6,10 +6,12 @@ this module stands where a deployment's ``localsettings.py`` stands. Without
 it HQ falls back to ``dev_settings.py``, which adds a development-only app and
 points every service at localhost.
 
-HQ's services other than Postgres are never reached: Couch, Redis,
-Elasticsearch, Kafka, S3 and Formplayer keep addresses here only because HQ's
-settings require them to be named, and ``proof.hq.boot`` refuses every
-connection to them. The two Redis caches must be django-redis backends while
+HQ's services other than Postgres are never reached at these addresses:
+Couch, Redis, Elasticsearch, Kafka, S3 and Formplayer keep them here only
+because HQ's settings require them to be named, and ``proof.hq.boot`` refuses
+every connection to them. The harness's own Redis, Elasticsearch and
+Formplayer are reached at addresses of their own, each admitted as it starts
+(``proof.hq.redis``, ``proof.hq.elasticsearch``). The two Redis caches must be django-redis backends while
 HQ imports (``corehq/apps/users/device_rate_limiter.py`` builds a Redis client
 at import); the boot moves every cache to local memory right after
 ``django.setup()``.
@@ -29,6 +31,7 @@ __all__ = [
     "EMAIL_BACKEND",
     "BASE_ADDRESS",
     "DEFAULT_PROTOCOL",
+    "MAPBOX_ACCESS_TOKEN",
 ]
 
 
@@ -108,3 +111,9 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 # Nova publishes to would. Nothing reaches it: the boot refuses the network.
 BASE_ADDRESS = "www.commcarehq.org"
 DEFAULT_PROTOCOL = "https"
+
+# The map layer HQ's pages draw maps with (Web Apps' location question, entries.js::GeoPointEntry, which draws
+# no map and takes no answer without one). Production names one, so a worker answers a location question on the
+# map; the map's pictures come from the layer's host, which the browser does not reach, and the map moves and
+# answers all the same.
+MAPBOX_ACCESS_TOKEN = "proof-map-layer"

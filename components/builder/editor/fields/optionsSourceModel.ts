@@ -1,6 +1,8 @@
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
 import {
 	asUuid,
+	type CaseOptionsSource,
+	type CaseType,
 	DEFAULT_SELECT_OPTIONS,
 	type InlineOptionsSource,
 	type LookupColumnId,
@@ -17,7 +19,10 @@ export interface LookupSourceDraft {
 	readonly filter?: Predicate;
 }
 
-export type SourceDraft = InlineOptionsSource | LookupSourceDraft;
+export type SourceDraft =
+	| InlineOptionsSource
+	| LookupSourceDraft
+	| CaseOptionsSource;
 
 export function freshInlineSource(): InlineOptionsSource {
 	return {
@@ -41,8 +46,22 @@ export function beginOptionsSource(
 	source: SelectOptionsSource,
 	next: string | null,
 	tables: readonly EditorLookupTableDecl[],
+	caseTypes: readonly CaseType[] = [],
 ) {
 	if (next === null) return { kind: "unchanged" as const };
+	if (next === "cases") {
+		const type = caseTypes[0];
+		if (!type)
+			return {
+				kind: "refused" as const,
+				reason:
+					"This app needs a record type before it can offer case choices.",
+			};
+		return {
+			kind: "draft" as const,
+			draft: source.kind === "cases" ? null : freshCaseSource(type.name),
+		};
+	}
 	if (next === "inline")
 		return {
 			kind: "draft" as const,
@@ -83,5 +102,21 @@ export function completeLookupSource(
 		valueColumnId: draft.valueColumnId,
 		labelColumnId: draft.labelColumnId,
 		...(draft.filter === undefined ? {} : { filter: draft.filter }),
+	};
+}
+
+export function freshCaseSource(caseType: string): CaseOptionsSource {
+	return {
+		kind: "cases",
+		caseType,
+		labelProperty: "case_name",
+		filter: {
+			kind: "eq",
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType, property: "status" },
+			},
+			right: { kind: "term", term: { kind: "literal", value: "open" } },
+		},
 	};
 }

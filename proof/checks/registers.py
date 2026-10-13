@@ -4,7 +4,7 @@
 a symptom class::
 
     {"id", "defect", "part", "check", "artifact", "path", "document",
-     "kind"?, "values"?, "android"?, "equivalence"?, "control"}
+     "kind"?, "values"?, "control"}
 
 - ``check``, ``artifact``, ``path`` and ``kind`` name the class: a
   difference is in it when its check is the entry's, its artifact matches
@@ -23,20 +23,28 @@ a symptom class::
   never one of the fuzz sample, which holds only the documents its size and
   seed draw.
 - ``values`` (``{"before", "after"}``), only on an entry whose document is a
-  targeted one, pins the exact values; such an entry matches only there.
-- ``android`` names the Android predicate the harm rests on (decision 18).
-- ``equivalence`` marks a class that is no harm: two spellings every reader
-  reads alike, held only because those readers are runtimes the lane does
-  not run (Android, Web Apps' client, Connect), so no spelling rule's test
-  can prove them alike (``proof/CLAUDE.md``). It names those readers and
-  why each reads the two alike. Such an entry is held and verified as any
-  other, and the defect or finding it is filed under owns its removal.
+  targeted one, pins the exact values; such an entry matches only there, and
+  owns what it matches, so a class's unpinned entry holds none of it
+  (``reconcile``).
+- An entry whose artifact is ``android@...`` is a difference in what CommCare Android's own code made of two
+  states a shard handed a device (``proof.checks.android``), reported and held by the entry's check like
+  every other entry's. What a defect does on a device is such an entry, never a citation of Android's
+  source.
+- An entry is a symptom, never an equivalence: two spellings every reader of which reads alike are a spelling
+  rule, proven by tests that run each of those readers on both (``proof.rules``, CommCare Android among them,
+  ``proof/android/predicates.py``), and the register holds no entry for them.
 - A ``manifest`` entry never names an undecided use
   (``/<key>/undecided/<value class>``, ``proof.checks.manifest_usage.standing``):
   the check could not place the use in or out of a REFUSED value class, a gap
   in the check that a value class reader closes, not a symptom of the export.
 - ``control`` is the directory under ``proof/controls/`` retaining the
   pre-fix inputs the check must keep showing the symptom on.
+- An entry whose artifact is a served reader's (``served_entry``: its first step one of
+  ``proof.checks.differences.SERVED_ARTIFACTS``, the names every check reports a reader's difference under) can be
+  shown only by a run that hands its states to the readers. A run without them (``PROOF_READERS=0``, the pull
+  request lane's, ``proof.lane.readers``) leaves such entries to the nightly run, which holds them: its checks hold
+  their differences to the other entries alone (``proof.checks.cases.load_register``), and the gate holds the run's
+  evidence to those (``verify_evidence``'s ``readers``).
 
 A check passes only when every difference it reports on a document falls in
 a registered class, and every entry naming that document and check matches
@@ -72,7 +80,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from proof.checks.differences import CHECKS, KINDS, Difference
+from proof.checks.differences import CHECKS, KINDS, Difference, artifact_reader, served_artifact
 
 # The checks whose differences a test holds to the register (each one's test
 # module calls ``proof.checks.cases.hold``). An entry naming another check
@@ -97,7 +105,7 @@ IDENTITY_MOVES = PROOF_DIR / "identity-moves.json"
 CONTROLS = PROOF_DIR / "controls"
 
 ENTRY_KEYS = frozenset({"id", "defect", "part", "check", "artifact", "path", "document", "control"})
-OPTIONAL_KEYS = frozenset({"kind", "values", "android", "equivalence"})
+OPTIONAL_KEYS = frozenset({"kind", "values"})
 MOVE_KEYS = frozenset({"defect", "entity", "path"})
 
 
@@ -127,8 +135,6 @@ class Entry:
     control: str
     kind: str | None = None
     values: dict | None = None
-    android: str | None = None
-    equivalence: str | None = None
 
     def matches(self, difference) -> bool:
         if difference.check != self.check or difference.path != self.path:
@@ -163,6 +169,28 @@ class IdentityMove:
             and difference.path == self.path
             and fnmatch.fnmatchcase(difference.artifact, self.entity)
         )
+
+
+def served_entry(entry) -> bool:
+    """Whether a register entry (an ``Entry``, or an entry's raw object) names a served reader's artifact, which
+    only a run with the readers can show (``proof.checks.differences.served_artifact``)."""
+    artifact = entry.get("artifact") if isinstance(entry, dict) else entry.artifact
+    return isinstance(artifact, str) and served_artifact(artifact)
+
+
+def held_entries(entries, *, readers=True):
+    """The entries a run holds: those whose artifacts no served reader writes, and those whose reader the run
+    observes. ``readers`` is the set it observes (``proof.lane.readers``), true for every reader and false for
+    none; the nightly holds the rest."""
+    if readers is True:
+        return tuple(entries)
+    observed = frozenset() if readers is False else frozenset(readers)
+
+    def held(entry):
+        artifact = entry.get("artifact") if isinstance(entry, dict) else entry.artifact
+        return not served_entry(entry) or artifact_reader(artifact) in observed
+
+    return tuple(entry for entry in entries if held(entry))
 
 
 def _load_list(path: Path, what: str):
@@ -247,13 +275,6 @@ def load_known_defects(
                 )
         if "kind" in raw and raw["kind"] not in KINDS:
             problems.append(f"{where}: kind {raw['kind']!r} is one of {sorted(KINDS)}, or left out for every kind.")
-        if "android" in raw and (not isinstance(raw["android"], str) or not raw["android"]):
-            problems.append(f"{where}: android names the Android predicate the harm rests on.")
-        if "equivalence" in raw and (not isinstance(raw["equivalence"], str) or not raw["equivalence"]):
-            problems.append(
-                f"{where}: equivalence names the runtimes that read the two spellings alike and why, where no test"
-                " the lane runs can prove it."
-            )
         if documents is not None and raw.get("document") not in documents:
             problems.append(f"{where} names the document {raw.get('document')!r}, which the corpus does not hold.")
         elif fuzz is not None and raw.get("document") in fuzz:
@@ -336,6 +357,11 @@ def reconcile(check, document, differences, entries):
     result = Reconciliation(check, document)
     for difference in differences:
         owners = [entry for entry in entries if entry.matches(difference)]
+        # An entry that pins the exact values on its targeted document is the narrower claim, so a difference it
+        # holds is its alone: a class's unpinned entry, which holds the class wherever else it shows, holds none
+        # of the pinned entry's, and neither entry is left redundant by the other.
+        pinned = [entry for entry in owners if entry.values is not None]
+        owners = pinned or owners
         if not owners:
             result.unregistered.append(difference)
         for entry in owners:
@@ -364,19 +390,72 @@ def accepted_moves(differences, moves):
 
 
 def _evidence(directories):
-    """Each evidence record the checks wrote (``proof.checks.cases.evidence``), by (check, kind, id)."""
+    """Each check's differences on each document (``proof.checks.cases.evidence``), by (check, kind, id), and each
+    problem reading them with the group it names."""
     records, problems = {}, []
     for directory in directories:
         for path in sorted(Path(directory, "checks").glob("*/*.json")):
             record = json.loads(path.read_text(encoding="utf-8"))
             key = (record["check"], record["kind"], record["document"])
             if key in records:
-                problems.append(f"Two runs wrote the evidence of {record['check']} on {record['document']} ({path}).")
-            records[key] = [Difference(**difference) for difference in record["differences"]]
+                problems.append(
+                    (
+                        f"Two runs wrote the evidence of {record['check']} on {record['document']} ({path}).",
+                        (f"{record['kind']}:{record['document']}",),
+                    )
+                )
+            records.setdefault(key, []).extend(Difference(**difference) for difference in record["differences"])
     return records, problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset()):
+def held_evidence(directories, entries, *, unsampled=frozenset(), readers=True, selected=None):
+    """``verify_evidence``'s problems, each with the lane's groups a rerun of which shows it again: the document's
+    (``corpus:<id>``) where a check's differences on it do not hold or an entry was not seen on it, the control's
+    (``control:<id>``) where an entry's control did not run or no longer shows it; none where no one group does."""
+    entries = held_entries(entries, readers=readers)
+    records, problems = _evidence(directories)
+    if not records:
+        return [("No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run.", ())]
+    for (check, kind, document), differences in sorted(records.items()):
+        if kind == "corpus":
+            result = reconcile(check, document, differences, entries)
+            if not result.holds:
+                problems.append((result.explain(), (f"corpus:{document}",)))
+    for entry in entries:
+        if selected is not None and entry.document not in selected:
+            # A class a selected document's differences may fall in (above); its own document and control are no
+            # part of this run.
+            continue
+        shown = (entry.check, "corpus", entry.document) in records
+        if not shown and entry.document not in unsampled:
+            problems.append(
+                (
+                    f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, and no shard ran"
+                    f" {entry.check} on {entry.document}, so nothing shows the defect is still there.",
+                    (f"corpus:{entry.document}",),
+                )
+            )
+        on_control = records.get((entry.check, "control", entry.control))
+        if on_control is None:
+            problems.append(
+                (
+                    f"The known-defect entry {entry.id} retains its control {entry.control}, and no shard ran"
+                    f" {entry.check} on it, so nothing shows the check still sees the symptom there.",
+                    (f"control:{entry.control}",),
+                )
+            )
+        elif not any(entry.matches(replace(d, document=entry.document)) for d in on_control):
+            problems.append(
+                (
+                    f"The known-defect entry {entry.id}'s control {entry.control} no longer shows {entry.check}"
+                    f" {entry.artifact} {entry.path}{_kind(entry)}.",
+                    (f"control:{entry.control}",),
+                )
+            )
+    return problems
+
+
+def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True, selected=None):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -385,35 +464,17 @@ def verify_evidence(directories, entries, *, unsampled=frozenset()):
     (``reconcile``), and every entry was seen on its document and on its
     control, which fails when the check never ran on either. ``unsampled``
     names the corpus documents a run over a sample left out: an entry naming
-    one is held on its control alone, and none ran on its document.
+    one is held on its control alone, and none ran on its document. Without
+    ``readers`` (a run that served no state to the readers) the served
+    readers' entries are left out (``held_entries``): no check of that run
+    could show one, and the nightly holds them. ``selected`` names the
+    documents of a run over documents named by hand (``proof.store.queue``,
+    ``--documents only:``): every entry is still a class their differences
+    may fall in, and only an entry naming one of them must have been seen, on
+    it and on its control; the others' documents and controls did not run.
     """
-    records, problems = _evidence(directories)
-    if not records:
-        return ["No check wrote evidence, so nothing shows the register holds; look for PROOF_OUT in the run."]
-    for (check, kind, document), differences in sorted(records.items()):
-        if kind == "corpus":
-            result = reconcile(check, document, differences, entries)
-            if not result.holds:
-                problems.append(result.explain())
-    for entry in entries:
-        shown = records.get((entry.check, "corpus", entry.document))
-        if shown is None and entry.document not in unsampled:
-            problems.append(
-                f"The known-defect entry {entry.id} names {entry.check} on {entry.document}, and no shard ran"
-                f" {entry.check} on {entry.document}, so nothing shows the defect is still there."
-            )
-        on_control = records.get((entry.check, "control", entry.control))
-        if on_control is None:
-            problems.append(
-                f"The known-defect entry {entry.id} retains its control {entry.control}, and no shard ran"
-                f" {entry.check} on it, so nothing shows the check still sees the symptom there."
-            )
-        elif not any(entry.matches(replace(d, document=entry.document)) for d in on_control):
-            problems.append(
-                f"The known-defect entry {entry.id}'s control {entry.control} no longer shows {entry.check}"
-                f" {entry.artifact} {entry.path}{_kind(entry)}."
-            )
-    return problems
+    found = held_evidence(directories, entries, unsampled=unsampled, readers=readers, selected=selected)
+    return [problem for problem, _ in found]
 
 
 def main(argv):

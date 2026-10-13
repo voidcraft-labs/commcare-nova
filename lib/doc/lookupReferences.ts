@@ -452,24 +452,25 @@ function extractLookupOptionsSources(
 			continue;
 		}
 		const source = field.optionsSource;
-		if (source.kind !== "lookup") continue;
+		if (source.kind === "inline") continue;
 		const location = fieldLocation(doc, field, parents);
-		references.push(
-			{
-				carrierUuid: field.uuid,
-				subpath: ["valueColumnId"],
-				tableId: source.tableId,
-				columnId: source.valueColumnId,
-				location,
-			},
-			{
-				carrierUuid: field.uuid,
-				subpath: ["labelColumnId"],
-				tableId: source.tableId,
-				columnId: source.labelColumnId,
-				location,
-			},
-		);
+		if (source.kind === "lookup")
+			references.push(
+				{
+					carrierUuid: field.uuid,
+					subpath: ["valueColumnId"],
+					tableId: source.tableId,
+					columnId: source.valueColumnId,
+					location,
+				},
+				{
+					carrierUuid: field.uuid,
+					subpath: ["labelColumnId"],
+					tableId: source.tableId,
+					columnId: source.labelColumnId,
+					location,
+				},
+			);
 		if (source.filter !== undefined) {
 			references.push(
 				...extractAstLookupReferences({

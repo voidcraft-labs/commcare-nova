@@ -1,15 +1,16 @@
 """``python -m proof.lane.gate``: the proof lane's verdict from every shard's output, on the standard library alone.
 
-    python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--store DIR]
-        [--surface FILE] [--summary FILE]
+    python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--store DIR] [--surface FILE]
+        [--summary FILE] [--documents ID,ID...]
 
 It runs where the shards' outputs and the queues were downloaded, on the
 runner's own Python (3.12 or later) with no image: everything it imports is
 the standard library or the proof's own standard-library modules
 (``proof.lane.blocks``, ``proof.lane.reader``, ``proof.checks.sharding``,
-``proof.checks.registers``, ``proof.checks.differences``). With no queue
-named, it reads the ``queue.json`` a run on one machine writes into its
-output. Four sections, each with its problems:
+``proof.checks.registers``, ``proof.checks.stops``,
+``proof.checks.differences``). With no queue named, it reads the
+``queue.json`` a run on one machine writes into its output. Five sections,
+each with its problems:
 
 1. Exactly once (``proof.checks.sharding.verify``): every queued block ran
    exactly once (a block two shards ran fails, whatever they wrote), every
@@ -22,16 +23,46 @@ output. Four sections, each with its problems:
    (``proof.lane.reader``), held to ``proof/known-defects.json``. A run over
    a sample of the corpus (its main queue names the documents the sample
    leaves out, ``unsampled``) holds each entry naming one of those on its
-   control alone, and the section says how many entries it held so.
-4. Surface: the surface block's extraction (``blocks/<id>/surface/
+   control alone, and the section says how many entries it held so, which
+   documents the sample kept and the seed that chose them (``sample``). A run
+   without the readers (its queues say ``readers: false``,
+   ``proof.lane.readers``) leaves the served readers' entries
+   (``proof.checks.registers.served_entry``) to the nightly and holds every
+   other, and the section says how many it left; every shard must have run
+   in the profile its queues were built for (``serve.json``'s ``readers``).
+   A run over documents named by hand (its main queue's ``selection``,
+   ``proof.store.queue --documents only:``) holds every difference on them
+   to the whole register (an entry holds its class on every document), asks
+   to see only the entries naming one of them, on it and on its control,
+   leaves every other to the nightly and the weekly, and says so with what
+   else it left out: it shows the lane on those documents, and is no verdict
+   on the corpus. A slice a person ran by path and ``-k`` writes a queue of
+   its own that names no documents, so the gate is told them
+   (``--documents``) and holds that run the same way; a document it is told
+   and the run did not run fails by name.
+4. Walk stops (``proof.checks.stops.held_evidence``): the stops each
+   document's and control's walks showed (the ``stops`` check's evidence,
+   read as the register's is), held to ``proof/walk-stops.json``: a stop no
+   entry holds fails by name, and so does an entry whose document's run
+   showed no such stop. A run holds the entries of the readers it handed its
+   states to and says how many it left; an entry naming a document the run
+   left out of its sample, or one a run over documents named by hand did not
+   name, is left to the run that runs it.
+5. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
    committed surface is another process's extraction (``npm run surface``),
    so this is also what holds the extractor to the same bytes at the same
-   pins (``proof/surface/test_extraction.py``).
+   pins (``proof/surface/test_extraction.py``). A run over documents named by
+   hand whose queues hold no surface block leaves the surface to the lane
+   that extracts it, and says so; any other run without one fails.
 
 It prints each section, writes the whole as JSON to ``--summary`` when named,
-and appends it as Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. It
+and appends it as Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. The
+JSON names each group a problem is about (``failing``: the group, why, the
+items of it that failed and every item it holds), which the nightly's and the
+weekly's issue turn into the command that reruns that group alone
+(``proof.lane.report``). It
 exits 0 when every section holds, 1 when one does not, and 2 when its
 arguments cannot be read.
 """
@@ -45,9 +76,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from proof.checks import registers, sharding
+from proof.checks import registers, sharding, stops
+from proof.checks.differences import SERVED_ARTIFACTS
 from proof.lane import blocks as lane_blocks
 from proof.lane import reader
+from proof.lane import readers as lane_readers
 
 WORKTREE = sharding.PROOF_DIR.parent
 COMMITTED_SURFACE = WORKTREE / "lib" / "commcare" / "surface" / "surface.json"
@@ -61,13 +94,14 @@ def _section(problems, notes=(), **extra) -> dict:
 def _cached_dir(records, directory: Path) -> Path:
     """The cached groups' evidence written as checks write theirs, for the register to read beside the blocks'."""
     for record in records:
-        path = directory / "checks" / record["check"] / f"{record['kind']}-{record['document']}.json"
+        name = f"{record['kind']}-{record['document']}.json"
+        path = directory / "checks" / record["check"] / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record, indent="\t", ensure_ascii=False) + "\n", encoding="utf-8")
     return directory
 
 
-def _surface(queues, verdict, store, committed: Path) -> dict:
+def _surface(queues, verdict, store, committed: Path, selection=None) -> dict:
     queued = [block.id for _, queue in queues for block in queue.blocks if SURFACE in block.names]
     cached = next((entry for _, queue in queues for entry in queue.cached if entry.group == SURFACE), None)
     try:
@@ -90,6 +124,13 @@ def _surface(queues, verdict, store, committed: Path) -> dict:
         if actual is None:
             return _section([f"The surface could not be read: {why}."], verdict="missing")
         source = f"the store at {store}"
+    elif selection is not None:
+        # A slice of documents extracts no surface, and holds none: the lane that runs the surface block does.
+        note = (
+            "This run checked the documents named by hand and ran no surface block, so the surface was left to the"
+            " lane that extracts it (every pull request's)."
+        )
+        return _section([], [note], verdict="left")
     else:
         return _section(["The queues neither run the surface block nor read it from the store."], verdict="absent")
     if actual == expected:
@@ -112,16 +153,35 @@ def _surface(queues, verdict, store, committed: Path) -> dict:
     )
 
 
-def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) -> dict:
-    """The verdict over ``outputs`` (each shard's output directory) and ``queues`` (``(phase, Queue)`` pairs)."""
+def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, documents=None) -> dict:
+    """The verdict over ``outputs`` (each shard's output directory) and ``queues`` (``(phase, Queue)`` pairs);
+    ``documents`` names the documents of a slice a person ran by hand, whose own queue names none (``told``)."""
     verdict = sharding.verify(queues, outputs)
     sections = {"exactlyOnce": _section(verdict.problems, verdict.notes, blocks=len(verdict.chosen))}
+    # Each group a problem names, with why and the items it holds, for whoever reruns it (proof.lane.report).
+    by_group: dict[str, dict] = {}
+    collected: dict[str, list[str]] = {}
+
+    def fails(group: str, why: str) -> dict:
+        entry = by_group.setdefault(group, {"group": group, "why": [], "failed": []})
+        entry["why"].append(why)
+        return entry
+
+    for name, reasons in verdict.groups.items():
+        for why in reasons:
+            fails(name, why)
 
     failing, ran = [], 0
     for directory in verdict.chosen.values():
         record = json.loads((directory / lane_blocks.MANIFEST).read_text(encoding="utf-8"))
         ran += sum(len(group["outcomes"]) for group in record["groups"])
         failing += lane_blocks.failing_items(record)
+        for group in record["groups"]:
+            collected[group["group"]] = list(group["collected"])
+            failed = sorted(node for node, outcome in group["outcomes"].items() if outcome in lane_blocks.FAILING)
+            if failed:
+                why = f"{len(failed)} of its {len(group['outcomes'])} items failed"
+                fails(group["group"], why)["failed"] = failed
     sections["tests"] = _section(
         [f"{len(failing)} of the {ran} items run failed:"] + [f"  {item}" for item in failing[:50]] if failing else [],
         items=ran,
@@ -129,33 +189,225 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
 
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
-    entries = registers.load_known_defects()
-    records, problems = reader.cached_evidence(cached, store)
+    selection = told(documents, queues)
+    readers, problems = _profile(queues, outputs)
+    if selection is not None:
+        # Naming a document is a claim that this run shows it: a document it never ran would otherwise pass
+        # wherever no entry names it (a witness with nothing registered).
+        ran = {group for _, queue in queues for group in queue.groups() | {entry.group for entry in queue.cached}}
+        for document in selection.documents:
+            if f"corpus:{document}" not in ran:
+                problem = (
+                    f"This run was to be held to {document}, and it ran no group corpus:{document}: no check of"
+                    " that document wrote evidence here. Run the document in the slice (proof/checks -k"
+                    f" {document}), or name only the documents the slice ran."
+                )
+                problems.append(problem)
+                fails(f"corpus:{document}", problem)
+    register = registers.load_known_defects()
+    # A run over documents named by hand must see the entries naming one of them, and no other: every entry is
+    # still a class its documents' differences may fall in.
+    selected = None if selection is None else frozenset(selection.documents)
+    entries = register if selected is None else [entry for entry in register if entry.document in selected]
+    records, read_problems = reader.cached_evidence(cached, store)
+    problems += read_problems
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        problems += registers.verify_evidence(directories, entries, unsampled=unsampled)
-    on_control_alone = sum(entry.document in unsampled for entry in entries)
-    notes = (
-        [
+        for problem, groups in registers.held_evidence(
+            directories, register, unsampled=unsampled, readers=readers, selected=selected
+        ):
+            problems.append(problem)
+            for group in groups:
+                fails(group, problem)
+        walk_stops = _stops(directories, unsampled, readers, fails, selected)
+    held = registers.held_entries(entries, readers=readers)
+    left = len(entries) - len(held)
+    on_control_alone = sum(entry.document in unsampled for entry in held)
+    notes = []
+    if selection is not None and documents is not None:
+        notes.append(
+            f"This gate was told the run is a slice of the documents named by hand ({', '.join(selection.documents)}),"
+            " so it asked to see the register's entries naming them, on each document and on its control, and left"
+            f" the other {len(register) - len(entries)} of the register's {len(register)} entries to the nightly and"
+            " the weekly. It shows the lane on those documents, and is no verdict on the corpus."
+        )
+    elif selection is not None:
+        notes.append(
+            f"This run checked the documents named by hand ({', '.join(selection.documents)}) and the controls of"
+            f" the register's entries naming them, so the other {len(register) - len(entries)} of the register's"
+            f" {len(register)} entries were left to the nightly and the weekly, and {len(selection.left)} groups"
+            " beside the other documents were not run (every other control, and the packages that read the corpus)."
+            " It shows the lane on those documents, and is no verdict on the corpus."
+        )
+    unnamed = [name for name in lane_readers.READERS if name not in readers]
+    # The entries the run could have held: the register's, or those naming the documents it was held to.
+    its = f"the register's {len(entries)} entries" if selection is None else f"the {len(entries)} entries naming them"
+    if not readers:
+        notes.append(
+            f"This run handed no state to the readers ({lane_readers.VARIABLE}=0, the pull request lane), so {left}"
+            f" of {its}, whose artifacts only the served readers write"
+            f" ({', '.join(sorted(SERVED_ARTIFACTS))}), were left to the nightly run with every reader;"
+            f" the other {len(held)} were held."
+        )
+    elif unnamed:
+        notes.append(
+            f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
+            f"{lane_readers.canonical(readers)}), so {left} of {its}, whose"
+            f" artifacts {', '.join(unnamed)} write, were left to the nightly run with every reader; the other"
+            f" {len(held)} were held."
+        )
+    if unsampled:
+        entries_held = f"the register's {len(held)} entries" if not left else f"the {len(held)} entries it held"
+        notes.append(
             f"This run checked a sample of the corpus, leaving {len(unsampled)} documents out, so {on_control_alone}"
-            f" of the register's {len(entries)} entries name a document it did not run and were held on their"
-            f" controls alone; the other {len(entries) - on_control_alone} were held on their documents and controls."
-        ]
-        if unsampled
-        else []
-    )
+            f" of {entries_held} name a document it did not run and were held on their controls alone; the other"
+            f" {len(held) - on_control_alone} were held on their documents and controls."
+        )
+    sample = next((queue.sample for _, queue in queues if queue.sample is not None), None)
+    if sample is not None:
+        chosen = (
+            f"the one the seed {sample.seed} chooses; name that seed to run the same sample again"
+            if sample.seed is not None
+            else "the first of the ranking, which no seed chose"
+        )
+        notes.append(f"The sample is {chosen}. Its {len(sample.documents)} documents: {', '.join(sample.documents)}.")
     sections["register"] = _section(
-        problems, notes, cached=len(cached), unsampled=len(unsampled), heldOnControlAlone=on_control_alone
+        problems,
+        notes,
+        cached=len(cached),
+        unsampled=len(unsampled),
+        heldOnControlAlone=on_control_alone,
+        readers=lane_readers.to_record(readers),
+        leftToNightly=left,
+        **({"outsideSelection": len(register) - len(entries)} if selection is not None else {}),
     )
+    sections["stops"] = walk_stops
 
-    sections["surface"] = _surface(queues, verdict, store, committed)
-    return {"holds": all(section["holds"] for section in sections.values()), "sections": sections}
+    sections["surface"] = _surface(queues, verdict, store, committed, selection)
+    for problem in sections["surface"]["problems"]:
+        fails(SURFACE, problem)
+    return {
+        "holds": all(section["holds"] for section in sections.values()),
+        "sections": sections,
+        "failing": [{**entry, "items": collected.get(group, [])} for group, entry in sorted(by_group.items())],
+        **({"sample": {"seed": sample.seed, "documents": list(sample.documents)}} if sample is not None else {}),
+        **(
+            {"selection": {"documents": list(selection.documents), "left": list(selection.left)}}
+            if selection is not None
+            else {}
+        ),
+    }
+
+
+def told(documents, queues):
+    """The documents the run is held to as a run over documents named by hand: its main queue's ``selection``
+    (``proof.store.queue --documents only:``), or the ``documents`` the gate itself is told, for a slice run by
+    path and ``-k``, whose own queue names none. Both at once is refused: the queue already says what the run was
+    asked for."""
+    selection = next((queue.selection for _, queue in queues if queue.selection is not None), None)
+    if documents is None:
+        return selection
+    if selection is not None:
+        raise lane_blocks.QueueError(
+            "--documents names the documents of a slice run by hand, and this run's queue already names the"
+            f" documents it was built for ({', '.join(selection.documents)}). Leave --documents out: the gate holds"
+            " the run to the queue's."
+        )
+    return lane_blocks.Selection(tuple(documents))
+
+
+def _documents(named: str) -> tuple[str, ...]:
+    """The document ids ``--documents`` names, as written: comma-separated, each an id of the corpus."""
+    identifiers = [part.strip() for part in named.split(",")]
+    if not all(identifiers) or any(":" in identifier or " " in identifier for identifier in identifiers):
+        raise lane_blocks.QueueError(
+            "--documents names the documents a slice run by hand is held to, by their ids, comma-separated"
+            f" (--documents case-list-inline,targeted-survey-menu); got {named!r}."
+        )
+    return tuple(dict.fromkeys(identifiers))
+
+
+def _stops(directories, unrun, readers, fails, selected=None) -> dict:
+    """The walk-stops section: every stop the run's documents and controls showed is one ``proof/walk-stops.json``
+    holds, and every entry it holds was shown by its document (``proof.checks.stops.held_evidence``), each problem
+    named to the group a rerun of which shows it again (``fails``). A run holds the entries of the readers it
+    handed its states to, and leaves the rest to the run with every reader. A run over documents named by hand
+    (``selected``) ran no other document, so the entries naming another are left to the run that runs it, as a
+    sample's are; a stop one of its own documents shows is still held to the whole list. ``held`` and
+    ``leftToNightly`` count the entries this run held and the entries its readers, its sample or its selection
+    left."""
+    try:
+        entries = stops.load()
+    except stops.StopsError as error:
+        return _section([str(error)])
+    held = stops.held_entries(entries, readers=readers)
+    notes = []
+    unsampled = frozenset(unrun) & {entry.document for entry in held}
+    if unsampled:
+        notes.append(
+            f"This run checked a sample of the corpus, so the {sum(entry.document in unsampled for entry in held)}"
+            f" stops the list holds on {len(unsampled)} documents it left out were left to the nightly and the weekly."
+        )
+    if selected is not None:
+        outside = {entry.document for entry in held} - selected - unsampled
+        unrun = frozenset(unrun) | outside
+        if outside:
+            notes.append(
+                "This run checked the documents named by hand, so the"
+                f" {sum(entry.document in outside for entry in held)} stops the list holds on {len(outside)} other"
+                " documents were left to the nightly and the weekly."
+            )
+    # What this run held: the entries of its readers on the documents it ran.
+    its = [entry for entry in held if entry.document not in unrun]
+    if len(held) != len(entries):
+        notes.append(
+            f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
+            f"{lane_readers.canonical(readers)}), so {len(entries) - len(held)} of the list's {len(entries)} stops,"
+            " which the readers it did not observe show, were left to the run with every reader"
+            + (f"; the other {len(held)} were held." if len(its) == len(held) else ".")
+        )
+    problems = []
+    for problem, groups in stops.held_evidence(directories, entries, unrun=unrun, readers=readers):
+        problems.append(problem)
+        for group in groups:
+            fails(group, problem)
+    return _section(problems, notes, held=len(its), leftToNightly=len(entries) - len(its))
+
+
+def _profile(queues, outputs) -> tuple[frozenset, list[str]]:
+    """The readers the run handed its states to, as its queues say (``readers``), and why the queues or a shard do
+    not agree on them: a shard of another set ran other groups and kept other records."""
+    sets = {queue.readers for _, queue in queues}
+    problems = []
+    if len(sets) > 1:
+        built = ", ".join(f"the {phase} queue for {lane_readers.described(queue.readers)}" for phase, queue in queues)
+        problems.append(
+            f"The queues were built for different readers ({built}); build both with the same {lane_readers.VARIABLE}."
+        )
+    readers = next(iter(sets)) if len(sets) == 1 else lane_readers.EVERY
+    for output in outputs:
+        serve = Path(output) / lane_blocks.SERVE
+        if not serve.is_file():
+            continue
+        try:
+            ran = lane_readers.from_record(json.loads(serve.read_text(encoding="utf-8")).get("readers"))
+        except lane_readers.ReadersError as error:
+            problems.append(f"{output}: {error}")
+            continue
+        if ran != readers:
+            problems.append(
+                f"{output} ran with {lane_readers.described(ran)} ({lane_readers.VARIABLE}), and its queues were"
+                f" built for {lane_readers.described(readers)}, so it ran other groups than they name and kept other"
+                " records."
+            )
+    return readers, problems
 
 
 TITLES = {
     "exactlyOnce": "Every block ran exactly once",
     "tests": "Every item passed",
     "register": "Every difference holds to the register",
+    "stops": "Every walk reaches its end or a held stop",
     "surface": "The surface matches the committed one",
 }
 
@@ -172,7 +424,10 @@ def _markdown(result: dict) -> str:
 def _queues(arguments, outputs) -> list:
     named = [
         (phase, path)
-        for phase, path in (("early", arguments.early_queue), ("main", arguments.queue))
+        for phase, path in (
+            ("early", arguments.early_queue),
+            ("main", arguments.queue),
+        )
         if path is not None
     ]
     if not named:
@@ -196,13 +451,19 @@ def main(argv=None) -> int:
     parser.add_argument("--store", type=Path, help="the evidence store, for the groups the queues cache")
     parser.add_argument("--surface", type=Path, default=COMMITTED_SURFACE, help="the committed surface to compare")
     parser.add_argument("--summary", type=Path, help="where to write the verdict as JSON")
+    parser.add_argument(
+        "--documents",
+        help="the documents a slice run by hand (by path and -k) is held to, by their ids, comma-separated",
+    )
     arguments = parser.parse_args(argv)
     try:
         queues = _queues(arguments, arguments.outputs)
+        documents = None if arguments.documents is None else _documents(arguments.documents)
+        told(documents, queues)
     except lane_blocks.QueueError as error:
         print(error, file=sys.stderr)
         return 2
-    result = gate(arguments.outputs, queues, store=arguments.store, committed=arguments.surface)
+    result = gate(arguments.outputs, queues, store=arguments.store, committed=arguments.surface, documents=documents)
     for key, section in result["sections"].items():
         print(f"{'holds' if section['holds'] else 'FAILS'}: {TITLES[key]}")
         for note in section["notes"]:

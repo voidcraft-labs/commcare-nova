@@ -447,9 +447,36 @@ describe("the workflow", () => {
 		);
 		expect([...granted].sort()).toEqual([
 			"contents",
+			"issues",
 			"packages",
 			"pull-requests",
 		]);
+		// The image build's call alone carries the issues scope, and only because a call's grant bounds every
+		// job of the workflow it calls: there, one job asks for it, the report of that workflow's own weekly
+		// comparison, which a call for a ref never reaches.
+		const withIssues = Object.entries(workflow.jobs)
+			.filter(
+				([, job]) =>
+					(job as { permissions?: Record<string, string> }).permissions
+						?.issues === "write",
+			)
+			.map(([name]) => name);
+		expect(withIssues).toEqual(["image"]);
+		const image = parse(
+			await readFile(
+				join(WORKTREE, ".github/workflows/proof-image.yml"),
+				"utf8",
+			),
+		);
+		const asking = Object.entries(image.jobs)
+			.filter(
+				([, job]) =>
+					(job as { permissions?: Record<string, string> }).permissions
+						?.issues === "write",
+			)
+			.map(([name]) => name);
+		expect(asking).toEqual(["report"]);
+		expect(image.jobs.report.if).toContain("inputs.ref == ''");
 		expect(workflow.jobs.surface.permissions).toEqual({ contents: "read" });
 		expect(workflow.jobs.report.if).toContain("always()");
 		expect(JSON.stringify(workflow)).not.toMatch(/pr merge|\/merge/);

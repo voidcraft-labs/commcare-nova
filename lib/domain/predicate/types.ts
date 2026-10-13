@@ -395,6 +395,15 @@ export const propertyRefSchema = z.strictObject({
 });
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
 
+/** A form's selected record or one of its ancestors, independent of the
+ * candidate row a case-backed choice filter is currently testing. */
+export const formCasePropertyRefSchema = z.strictObject({
+	kind: z.literal("form-case"),
+	caseType: caseTypeField("Form record type"),
+	property: casePropertyField("Property name"),
+});
+export type FormCasePropertyRef = z.infer<typeof formCasePropertyRefSchema>;
+
 /**
  * Reference to a value the user typed into a search input on the
  * case-search screen. Resolved at compile time by mapping
@@ -652,6 +661,7 @@ export type Literal = z.infer<typeof literalSchema>;
 
 export const termSchema = z.discriminatedUnion("kind", [
 	propertyRefSchema,
+	formCasePropertyRefSchema,
 	searchInputRefSchema,
 	sessionUserSchema,
 	sessionUserPropertySchema,

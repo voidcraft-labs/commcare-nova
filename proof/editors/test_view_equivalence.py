@@ -162,7 +162,7 @@ def assert_equivalent(driver, unit, spec):
 def test_held_sections_of_hqs_test_apps_equal_fresh_page_saves(
     hq, core_runner, editor_driver, prepare, modules, forms, expected
 ):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = prepare(state)
         app = operations.held_app(state, app_id)
@@ -179,7 +179,7 @@ def test_held_sections_of_hqs_test_apps_equal_fresh_page_saves(
 
 
 def test_held_user_properties_equal_fresh_page_saves(hq, core_runner, editor_driver):
-    with hq_check(USERCASE_CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(USERCASE_CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id, form_id = user_properties_form(state)
         app = operations.held_app(state, app_id)
@@ -191,7 +191,7 @@ def test_held_user_properties_equal_fresh_page_saves(hq, core_runner, editor_dri
 
 def test_a_two_language_app_held_in_its_second_language_equals_fresh_page_saves(hq, core_runner, editor_driver):
     """HQ's two-language test app, its pages opened with the second language as the display language."""
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
         app = operations.held_app(state, app_id)
@@ -217,7 +217,7 @@ def test_held_sections_of_corpus_documents_equal_fresh_page_saves(hq, core_runne
 
     document = _corpus_document(document_id)
     export = document.exports["minimum"]
-    with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(export.configuration.hq()) as (state, _):
         unit = CheckUnit(state)
         # Nova's first publish of D, then its republish over it (B), as the unit applies them.
         app_id, refusal, _ = publish.create(state, export)
@@ -232,7 +232,7 @@ def test_held_sections_of_corpus_documents_equal_fresh_page_saves(hq, core_runne
 
 
 def test_a_section_hqs_view_raises_on_held_beside_one_it_takes_equals_fresh_page_saves(hq, core_runner, editor_driver):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         view = assert_equivalent(editor_driver, unit, form_view_hq_raises_on(state))
     settings, management = view.sections
@@ -245,7 +245,7 @@ def test_a_section_hqs_view_raises_on_held_beside_one_it_takes_equals_fresh_page
 def test_a_section_hqs_view_refuses_held_beside_one_on_the_same_save_view_equals_fresh_page_saves(
     hq, core_runner, editor_driver
 ):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         view = assert_equivalent(editor_driver, unit, module_view_hq_refuses(state))
     settings, case_list, case_detail = view.sections
@@ -267,7 +267,7 @@ def test_two_sections_adding_the_same_alert_held_equal_fresh_page_saves(hq, core
     def get_app_failing(*args, **kwargs):
         raise RuntimeError("HQ could not read the app")
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         spec = form_view_hq_raises_on(state)
         # HQ's form save views (edit_form_attr, edit_form_actions) read the app through it; the page view does not.
@@ -287,7 +287,7 @@ def test_two_sections_adding_the_same_alert_held_equal_fresh_page_saves(hq, core
 def test_the_audit_reruns_the_sections_it_chooses_and_fails_on_a_difference(
     hq, core_runner, editor_driver, monkeypatch
 ):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = suite_app(state)
         module = operations.held_app(state, app_id).modules[0]
@@ -321,7 +321,7 @@ def test_the_audit_reruns_the_sections_it_chooses_and_fails_on_a_difference(
 def test_the_audit_keeps_a_section_hqs_view_raised_on_as_the_sections_answer(
     hq, core_runner, editor_driver, monkeypatch
 ):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         spec = form_view_hq_raises_on(state)
         rerun = []
@@ -338,6 +338,48 @@ def test_the_audit_keeps_a_section_hqs_view_raised_on_as_the_sections_answer(
             view = pages.run_view(editor_driver, HQAnswers(state, unit), spec, on_section=lambda _index: unit.fork())
     assert rerun == ["form settings", "case management"]
     assert [(saved.save.status, saved.bar_state) for saved in view.sections] == [(500, RETRY), (200, SAVED)]
+
+
+# The deadline -------------------------------------------------------------------------------------
+
+
+def test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_deadline(hq, core_runner, editor_driver):
+    """The lane serves each save's state to every reader inside that save's fork, between the page's steps (proof
+    4's ``section_fork``), which can take longer than the page's whole deadline. The deadline stops a stuck page,
+    never one whose harness observed more between its sections: here the harness's work at the sections together
+    outlasts the deadline and the client's grace beside it, and every section is still saved."""
+    import time
+    from contextlib import contextmanager
+
+    from proof.editors.client import CLIENT_GRACE_SECONDS
+
+    # A deadline the page's own work keeps well within, so the sections' pauses, which together outlast it and
+    # the client's grace, are the test's whole wait.
+    deadline = 30.0
+    # Each of the two sections holds the page this long once its save has settled.
+    pause = (deadline + CLIENT_GRACE_SECONDS) / 2 + 5
+    with hq_check(CONFIGURATION) as (state, _):
+        unit = CheckUnit(state)
+        app_id = suite_app(state)
+        module = operations.held_app(state, app_id).modules[0]
+        spec = pages.ViewSpec(
+            "view_module", app_id, module.unique_id, sections=(pages.MODULE_SETTINGS, pages.CASE_LIST)
+        )
+
+        @contextmanager
+        def observed_slowly(_index):
+            with unit.fork():
+                yield
+                time.sleep(pause)
+
+        with unit.fork():
+            view = pages.run_view(
+                editor_driver, HQAnswers(state, unit), spec, on_section=observed_slowly, deadline=deadline
+            )
+    assert view.seconds["view"] > deadline + CLIENT_GRACE_SECONDS, view.seconds
+    assert [saved.page for saved in view.sections] == list(spec.sections)
+    for saved in view.sections:
+        assert (saved.save.url_name, saved.bar_state) == (saved.page.save, SAVED)
 
 
 # A save that sends the page elsewhere ----------------------------------------------------------------
@@ -370,7 +412,7 @@ def _child_under_a_shadowed_parent(state, app_id):
 def test_a_save_hq_answers_with_a_redirect_is_followed_and_the_held_sections_are_saved_from_their_own_loads(
     hq, core_runner, editor_driver
 ):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         unit = CheckUnit(state)
         app_id = suite_app(state)
         child = _child_under_a_shadowed_parent(state, app_id)

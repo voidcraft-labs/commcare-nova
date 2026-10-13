@@ -228,6 +228,7 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	evaluateForm: null,
 	readAppTest: null,
 	listMediaAssets: null,
+	readSource: null,
 	getOrganization: null,
 	getAuthoringGuide: [{ topic: "expressions" }],
 	getUsers: [{}],
