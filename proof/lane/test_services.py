@@ -9,6 +9,11 @@ session's own end over five services that record their close, one of which raise
 
 The lane's own session (``proof/conftest.py::lane_services``) holds the module's state while a test here runs,
 so each test sets it aside and it is put back after.
+
+It is here, beside the lane's other tests of the session's services, and not beside the module it tests:
+``proof/observe/`` holds no test module, since the observation's roots are every module there
+(``proof.observe.partition.OBSERVATION_ROOTS``) and a test module is in no observation fingerprint
+(``proof/store/test_partition.py``, ``proof/checks/test_judge_purity.py``).
 """
 
 from __future__ import annotations
