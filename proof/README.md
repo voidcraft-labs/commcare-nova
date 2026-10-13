@@ -597,9 +597,11 @@ In it:
 - `workers/w<n>.log` and `workers/w<n>/`: each worker's output;
 - `timings/`: each group's seconds per worker, which
   `node proof/run.mjs --timings <output>...` turns into `proof/timings.json`;
-- `blocks/<id>/connect-unit/`: the logs of the Connect runtime a Connect
-  document's observation started (its fetch, its services, its migrations
-  and each served session);
+- `blocks/<id>/connect-unit/w<n>/`: the logs of the Connect runtime worker
+  n started for the first Connect document it observed, in that document's
+  block (its fetch, its services, its migrations and each served session of
+  the run; each worker's are its own, since two workers may start theirs in
+  one block, as the two pieces of a Connect document do);
 - `store/`: what the run observed for the evidence store, and `audit/`, any
   record the audit sample observed differently from the store;
 - `corpus/`: the corpus the run emitted, and `corpus.log`.
@@ -2625,8 +2627,9 @@ carry the edit renaming their Connect ids), and, for finding 60,
 Each run leaves, under its block's `connect/`: each document's archive as
 HQ's view served it, each
 path's submission and HQ's payload for it (`<document>/`), every scenario's
-steps with the rows after each (`scenario.<name>.json`) and its timings; the
-runtime's logs, with each session's, are under `connect-unit/`.
+steps with the rows after each (`scenario.<name>.json`) and its timings. A
+document's observation in the lane leaves its runtime's logs, with each
+session's, under `connect-unit/w<n>/` ("Where a run writes").
 
 ## Native proofs
 
@@ -3387,6 +3390,25 @@ What holds it exact, each by a test or a run:
   gives one item for each piece it names), so no shard collects an item no
   queue runs, and a lane with no pieces collects none.
 
+Executed on a proof machine with every reader, at head `a3ecaf51`
+(2026-10-13): `case-list-inline` and `connect-deliver-default` ran as two
+lanes over one emitted corpus, each with a store of its own, whole on two
+workers and in pieces on four. Each document's two pieces ran on different
+workers, and its own group after them observed nothing. The two runs wrote
+the same 18 evidence records, byte for byte as written, and their stores
+hold the same 16 record parts, 2 document entries and 30 transcripts under
+the same keys with the same bytes. Whole, the documents took 3,846 and
+1,435 seconds on one worker; in pieces their configurations took 1,866 and
+1,860 seconds, and 826 and 819, and the judging after them 6.2 and 1.4, so
+the lane in pieces ended in half the time. A Connect session answers at an
+address its process's id names, and the admin types that address into HQ's
+Connection Settings page, so a Connect document's two pieces are observed at
+two addresses, neither of them the one a single worker would have used for
+both: a third run observed that document's pieces at two other addresses
+than the whole run's, and its nine records have the whole run's digests and
+its evidence the same bytes (`proof/connect/hq.py::keyed_body` keys that
+page's form without the address).
+
 A run that observed a document in pieces measures it as it ran: each piece
 under its own name, and the document's own group its judging alone
 (`proof/timings.json`). The document's whole measure is their sum
@@ -3537,20 +3559,20 @@ the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are modelled, not measured on hosted runs: `plan fit`
 over the queues the queue builder's own code makes for each change, from
-this commit's corpus (357 documents, 69 controls, 29 package groups: 455
-groups, 4,045 box-seconds whole) and `proof/timings.json`, with a store taken
+this commit's corpus (357 documents, 69 controls, 30 package groups: 456
+groups, 4,091 box-seconds whole) and `proof/timings.json`, with a store taken
 to hold everything the change's keys do not move.
 
 | The change | Groups that run | Shards | Expected end |
 | --- | --- | --- | --- |
 | Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | about 6 min (356 to 365 s) |
-| Nova's emission in 10 documents | 24: those, the audit sample and the 10 package groups whose keys name them | 2 | 8.4 min (506 s) |
-| 40 documents | 56 or 57, 13 of them package groups | 3 | 8.8 min (520 to 530 s) |
-| 100 documents | 125 to 127, 23 of them package groups | 7 | 9.8 min (587 s) |
-| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 33: every package group and the audit sample | 3 | 8.8 min (529 s) |
-| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 33: every package group and the audit sample | 3 | 8.8 min (529 s) |
-| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 455, the documents and controls judged from their stored records | 5 or 6 | 10.2 to 10.4 min (610 to 625 s) |
-| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 455, observed afresh | 14 | 12.8 min (768 s) |
+| Nova's emission in 10 documents | 25: those, the audit sample and the 11 package groups whose keys name them | 2 | 8.5 min (509 to 511 s) |
+| 40 documents | 57 or 58, 14 of them package groups | 3 | 9.0 min (539 to 540 s) |
+| 100 documents | 126 to 128, 24 of them package groups | 7 | 9.8 to 9.9 min (588 to 593 s) |
+| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 9.0 min (538 to 539 s) |
+| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 9.0 min (538 to 539 s) |
+| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 456, the documents and controls judged from their stored records | 6 | 10.2 min (610 s) |
+| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 456, observed afresh | 14 | 12.9 min (771 s) |
 
 A test module is no part of the observation ("The evidence store and its
 audits"), so an edit to one runs the package groups and leaves every

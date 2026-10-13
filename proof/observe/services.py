@@ -19,8 +19,10 @@ there is none, and asking raises.
 - ``connect()``: the session's one Connect runtime (``proof.connect.runtime``:
   Connect at its pin, its Postgres and Redis, its migrated database), which
   a Connect document's observation serves an opportunity from
-  (``proof.observe.connect``). Its logs go under the run's output
-  (``$PROOF_OUT/connect-unit``).
+  (``proof.observe.connect``). Its logs go under the run's output, by the
+  worker whose runtime it is (``$PROOF_OUT/connect-unit/w<worker>``): two
+  workers of a shard may each start theirs while in one block, as the two
+  pieces of a Connect document always do, and each keeps its own logs.
 - ``android()``: the session's Android reader (``proof.android.client``:
   commcare-android's own code under Robolectric, one JVM and one device a
   request), which reads each served state beside HQ's unit, its network
@@ -207,19 +209,31 @@ def validator():
     return _SESSION["validator"]
 
 
+def connect_logs(environment=None):
+    """Where this worker's Connect runtime logs under the run's output (``$PROOF_OUT/connect-unit/w<worker>``), or
+    None where the run has none. The directory is the worker's own: a runtime names its logs by service and by
+    session (``connect.session_1.log``), and two workers of a shard may each start theirs while in one block, as
+    the two pieces of a Connect document always do, so in one directory each would write over the other's."""
+    import os
+    from pathlib import Path
+
+    from proof.hq import database
+
+    environment = os.environ if environment is None else environment
+    out = environment.get("PROOF_OUT")
+    return Path(out) / "connect-unit" / f"w{database.session_worker(environment)}" if out else None
+
+
 def connect():
     """The session's Connect runtime, started on first use (its fetch and its migrations, once a session)."""
     _reader("connect", "Connect")
     if _SESSION["connect"] is None:
-        import os
         import tempfile
         from pathlib import Path
 
         from proof.connect.runtime import ConnectRuntime
 
-        out = os.environ.get("PROOF_OUT")
-        logs = Path(out) / "connect-unit" if out else Path(tempfile.mkdtemp(prefix="proof-connect-unit-"))
-        runtime = ConnectRuntime(logs)
+        runtime = ConnectRuntime(connect_logs() or Path(tempfile.mkdtemp(prefix="proof-connect-unit-")))
         runtime.__enter__()
         _SESSION["connect"] = runtime
     return _SESSION["connect"]

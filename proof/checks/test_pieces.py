@@ -248,3 +248,17 @@ def test_the_same_records_write_the_same_evidence_whether_observed_or_read_back(
     assert list(record["differences"][0]) == ["check", "document", "artifact", "path", "at", "kind", "before", "after"]
     assert list(record["differences"][0]["after"]) == ["form", "type"]
     assert list(record["saves"][0]["stored"]["form"]) == ["id", "name", "unique_id"]
+
+
+def test_two_workers_in_one_block_keep_their_connect_runtimes_logs_apart(tmp_path):
+    """A Connect document's two pieces run at once on two workers of one block, and each worker starts its own
+    Connect runtime there. Each runtime names its logs alike (its services, ``connect.session_1.log``), so in one
+    directory the later would write over the earlier's and a failed piece would be read from the other's log."""
+    from proof.observe import services
+
+    block = {"PROOF_OUT": str(tmp_path)}
+    first = services.connect_logs({**block, "PROOF_WORKER": "1/4"})
+    other = services.connect_logs({**block, "PROOF_WORKER": "4/4"})
+    assert (first, other) == (tmp_path / "connect-unit" / "w1", tmp_path / "connect-unit" / "w4")
+    # A run with no output has nowhere of its own to name: the runtime takes a scratch directory.
+    assert services.connect_logs({}) is None
