@@ -98,8 +98,11 @@ leaves out beside the other documents (``selection``: each other control,
 and the packages that read the corpus), so a shard counts those as accounted
 for and the gate asks to see the entries naming a selected document alone,
 saying so (``proof.lane.gate``). One of the documents must carry an edit:
-proof 5's check is collected over the edited documents, and the lane refuses
-to collect a check with none. The corpus's index is rewritten as for a sample.
+the shards collect the named documents alone, proof 5's check is collected
+over the edited ones, and the lane refuses to collect a check with none. The
+corpus's index is rewritten as for a sample. A slice a person runs by path
+and ``-k`` builds no queue here: the run writes its own, and the gate is told
+the slice's documents (``python3 -m proof.lane.gate --documents``).
 One of the documents named must carry an edit: proof 5's check runs over the
 edited documents, and a lane collects no check with none to run over.
 
@@ -316,9 +319,11 @@ def selected(corpus: Path, identifiers: list[str]) -> list[str]:
     if not any((corpus / identifier / "edit").is_dir() for identifier in kept):
         raise QueueBuildError(
             f"--documents only:{','.join(identifiers)} names no document that carries an edit (an edit/ directory"
-            " beside its export/). Proof 5's check runs over the edited documents, and the lane refuses to collect a"
-            " check that has none to run over (proof/pytest.ini, empty_parameter_set_mark), so no shard would start"
-            " its documents. Name one edited document among them."
+            " beside its export/). The shards that run this queue collect those documents alone, proof 5's check"
+            " runs over the edited ones, and the lane refuses to collect a check that has none to run over"
+            " (proof/pytest.ini, empty_parameter_set_mark), so no shard would start. Name one edited document"
+            " among them. A slice you run yourself by path and -k needs no queue built: its gate is told the"
+            f" documents (python3 -m proof.lane.gate <output> --documents {','.join(identifiers)})."
         )
     left = [entry for entry in index["documents"] if entry["id"] not in kept]
     index["documents"] = [entry for entry in index["documents"] if entry["id"] in kept]

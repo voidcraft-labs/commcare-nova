@@ -1,7 +1,7 @@
 """``python -m proof.lane.gate``: the proof lane's verdict from every shard's output, on the standard library alone.
 
     python -m proof.lane.gate OUTPUT... [--early-queue FILE] [--queue FILE] [--store DIR] [--surface FILE]
-        [--summary FILE]
+        [--summary FILE] [--documents ID,ID...]
 
 It runs where the shards' outputs and the queues were downloaded, on the
 runner's own Python (3.12 or later) with no image: everything it imports is
@@ -36,7 +36,10 @@ each with its problems:
    to see only the entries naming one of them, on it and on its control,
    leaves every other to the nightly and the weekly, and says so with what
    else it left out: it shows the lane on those documents, and is no verdict
-   on the corpus.
+   on the corpus. A slice a person ran by path and ``-k`` writes a queue of
+   its own that names no documents, so the gate is told them
+   (``--documents``) and holds that run the same way; a document it is told
+   and the run did not run fails by name.
 4. Walk stops (``proof.checks.stops.held_evidence``): the stops each
    document's and control's walks showed (the ``stops`` check's evidence,
    read as the register's is), held to ``proof/walk-stops.json``: a stop no
@@ -50,7 +53,9 @@ each with its problems:
    for byte the committed ``lib/commcare/surface/surface.json``. The
    committed surface is another process's extraction (``npm run surface``),
    so this is also what holds the extractor to the same bytes at the same
-   pins (``proof/surface/test_extraction.py``).
+   pins (``proof/surface/test_extraction.py``). A run over documents named by
+   hand whose queues hold no surface block leaves the surface to the lane
+   that extracts it, and says so; any other run without one fails.
 
 It prints each section, writes the whole as JSON to ``--summary`` when named,
 and appends it as Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. The
@@ -96,7 +101,7 @@ def _cached_dir(records, directory: Path) -> Path:
     return directory
 
 
-def _surface(queues, verdict, store, committed: Path) -> dict:
+def _surface(queues, verdict, store, committed: Path, selection=None) -> dict:
     queued = [block.id for _, queue in queues for block in queue.blocks if SURFACE in block.names]
     cached = next((entry for _, queue in queues for entry in queue.cached if entry.group == SURFACE), None)
     try:
@@ -119,6 +124,13 @@ def _surface(queues, verdict, store, committed: Path) -> dict:
         if actual is None:
             return _section([f"The surface could not be read: {why}."], verdict="missing")
         source = f"the store at {store}"
+    elif selection is not None:
+        # A slice of documents extracts no surface, and holds none: the lane that runs the surface block does.
+        note = (
+            "This run checked the documents named by hand and ran no surface block, so the surface was left to the"
+            " lane that extracts it (every pull request's)."
+        )
+        return _section([], [note], verdict="left")
     else:
         return _section(["The queues neither run the surface block nor read it from the store."], verdict="absent")
     if actual == expected:
@@ -141,8 +153,9 @@ def _surface(queues, verdict, store, committed: Path) -> dict:
     )
 
 
-def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) -> dict:
-    """The verdict over ``outputs`` (each shard's output directory) and ``queues`` (``(phase, Queue)`` pairs)."""
+def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, documents=None) -> dict:
+    """The verdict over ``outputs`` (each shard's output directory) and ``queues`` (``(phase, Queue)`` pairs);
+    ``documents`` names the documents of a slice a person ran by hand, whose own queue names none (``told``)."""
     verdict = sharding.verify(queues, outputs)
     sections = {"exactlyOnce": _section(verdict.problems, verdict.notes, blocks=len(verdict.chosen))}
     # Each group a problem names, with why and the items it holds, for whoever reruns it (proof.lane.report).
@@ -176,8 +189,21 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
 
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
-    selection = next((queue.selection for _, queue in queues if queue.selection is not None), None)
+    selection = told(documents, queues)
     readers, problems = _profile(queues, outputs)
+    if selection is not None:
+        # Naming a document is a claim that this run shows it: a document it never ran would otherwise pass
+        # wherever no entry names it (a witness with nothing registered).
+        ran = {group for _, queue in queues for group in queue.groups() | {entry.group for entry in queue.cached}}
+        for document in selection.documents:
+            if f"corpus:{document}" not in ran:
+                problem = (
+                    f"This run was to be held to {document}, and it ran no group corpus:{document}: no check of"
+                    " that document wrote evidence here. Run the document in the slice (proof/checks -k"
+                    f" {document}), or name only the documents the slice ran."
+                )
+                problems.append(problem)
+                fails(f"corpus:{document}", problem)
     register = registers.load_known_defects()
     # A run over documents named by hand must see the entries naming one of them, and no other: every entry is
     # still a class its documents' differences may fall in.
@@ -198,7 +224,14 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     left = len(entries) - len(held)
     on_control_alone = sum(entry.document in unsampled for entry in held)
     notes = []
-    if selection is not None:
+    if selection is not None and documents is not None:
+        notes.append(
+            f"This gate was told the run is a slice of the documents named by hand ({', '.join(selection.documents)}),"
+            " so it asked to see the register's entries naming them, on each document and on its control, and left"
+            f" the other {len(register) - len(entries)} of the register's {len(register)} entries to the nightly and"
+            " the weekly. It shows the lane on those documents, and is no verdict on the corpus."
+        )
+    elif selection is not None:
         notes.append(
             f"This run checked the documents named by hand ({', '.join(selection.documents)}) and the controls of"
             f" the register's entries naming them, so the other {len(register) - len(entries)} of the register's"
@@ -207,17 +240,19 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
             " It shows the lane on those documents, and is no verdict on the corpus."
         )
     unnamed = [name for name in lane_readers.READERS if name not in readers]
+    # The entries the run could have held: the register's, or those naming the documents it was held to.
+    its = f"the register's {len(entries)} entries" if selection is None else f"the {len(entries)} entries naming them"
     if not readers:
         notes.append(
             f"This run handed no state to the readers ({lane_readers.VARIABLE}=0, the pull request lane), so {left}"
-            f" of the register's {len(entries)} entries, whose artifacts only the served readers write"
+            f" of {its}, whose artifacts only the served readers write"
             f" ({', '.join(sorted(SERVED_ARTIFACTS))}), were left to the nightly run with every reader;"
             f" the other {len(held)} were held."
         )
     elif unnamed:
         notes.append(
             f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
-            f"{lane_readers.canonical(readers)}), so {left} of the register's {len(entries)} entries, whose"
+            f"{lane_readers.canonical(readers)}), so {left} of {its}, whose"
             f" artifacts {', '.join(unnamed)} write, were left to the nightly run with every reader; the other"
             f" {len(held)} were held."
         )
@@ -248,7 +283,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     )
     sections["stops"] = walk_stops
 
-    sections["surface"] = _surface(queues, verdict, store, committed)
+    sections["surface"] = _surface(queues, verdict, store, committed, selection)
     for problem in sections["surface"]["problems"]:
         fails(SURFACE, problem)
     return {
@@ -262,6 +297,34 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
             else {}
         ),
     }
+
+
+def told(documents, queues):
+    """The documents the run is held to as a run over documents named by hand: its main queue's ``selection``
+    (``proof.store.queue --documents only:``), or the ``documents`` the gate itself is told, for a slice run by
+    path and ``-k``, whose own queue names none. Both at once is refused: the queue already says what the run was
+    asked for."""
+    selection = next((queue.selection for _, queue in queues if queue.selection is not None), None)
+    if documents is None:
+        return selection
+    if selection is not None:
+        raise lane_blocks.QueueError(
+            "--documents names the documents of a slice run by hand, and this run's queue already names the"
+            f" documents it was built for ({', '.join(selection.documents)}). Leave --documents out: the gate holds"
+            " the run to the queue's."
+        )
+    return lane_blocks.Selection(tuple(documents))
+
+
+def _documents(named: str) -> tuple[str, ...]:
+    """The document ids ``--documents`` names, as written: comma-separated, each an id of the corpus."""
+    identifiers = [part.strip() for part in named.split(",")]
+    if not all(identifiers) or any(":" in identifier or " " in identifier for identifier in identifiers):
+        raise lane_blocks.QueueError(
+            "--documents names the documents a slice run by hand is held to, by their ids, comma-separated"
+            f" (--documents case-list-inline,targeted-survey-menu); got {named!r}."
+        )
+    return tuple(dict.fromkeys(identifiers))
 
 
 def _stops(directories, unrun, readers, fails, selected=None) -> dict:
@@ -377,13 +440,19 @@ def main(argv=None) -> int:
     parser.add_argument("--store", type=Path, help="the evidence store, for the groups the queues cache")
     parser.add_argument("--surface", type=Path, default=COMMITTED_SURFACE, help="the committed surface to compare")
     parser.add_argument("--summary", type=Path, help="where to write the verdict as JSON")
+    parser.add_argument(
+        "--documents",
+        help="the documents a slice run by hand (by path and -k) is held to, by their ids, comma-separated",
+    )
     arguments = parser.parse_args(argv)
     try:
         queues = _queues(arguments, arguments.outputs)
+        documents = None if arguments.documents is None else _documents(arguments.documents)
+        told(documents, queues)
     except lane_blocks.QueueError as error:
         print(error, file=sys.stderr)
         return 2
-    result = gate(arguments.outputs, queues, store=arguments.store, committed=arguments.surface)
+    result = gate(arguments.outputs, queues, store=arguments.store, committed=arguments.surface, documents=documents)
     for key, section in result["sections"].items():
         print(f"{'holds' if section['holds'] else 'FAILS'}: {TITLES[key]}")
         for note in section["notes"]:

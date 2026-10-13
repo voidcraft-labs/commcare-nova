@@ -327,8 +327,10 @@ harness keeps, each with its reason.
   what a reader observes (`proof/formplayer`, `proof/webapps`,
   `proof/android`, `proof/connect`, `proof/observe/served.py`, a reader's
   judge or register entry, a pin) is proven by running that reader's slice
-  with the readers on a proof machine before it is pushed (`proof/README.md`,
-  "Proving a reader change before you push"). A test that starts a served
+  with the readers on a proof machine before it is pushed, and holding it
+  with the gate told the slice's documents (`python3 -m proof.lane.gate
+  <output> --documents <id>,<id>`; `proof/README.md`, "Proving a reader
+  change before you push"). A test that starts a served
   reader is marked `reader`, by its fixture or by hand, and the readers-off
   run refuses one left unmarked. Every hosted job has four vCPUs, so optimize
   the work, never the parallelism: measure a change in CPU-seconds (the

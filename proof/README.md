@@ -515,21 +515,65 @@ default), over the documents your change touches:
 
 ```bash
 export PROOF_ANDROID_RUNTIME=<the runtime build-runtime.sh built> PROOF_ANDROID_JDK=<the JDK it was built with>
-PROOF_READERS=android npm run proof -- --workers 8 proof/checks -k "<document id>"  # each state, on a device
-npm run proof -- --workers 8 proof/checks -k "<document id> or <another id>"   # each served state, every reader
+npm run proof -- --workers 4 proof/checks -k "<document id> or <another id>"   # each served state, every reader
+python3 -m proof.lane.gate .proof/out --documents <document id>,<another id>   # the slice, held to its documents
+PROOF_READERS=android npm run proof -- --workers 4 proof/checks -k "<document id>"  # one reader: each state, on a device
+python3 -m proof.lane.gate .proof/out --documents <document id>
 npm run proof -- --workers 4 proof/formplayer proof/webapps                     # the readers' own tests
 npm run proof -- --workers 4 proof/connect proof/rules                          # Connect, and the rules' readers
-python3 -m proof.lane.gate .proof/out
 python3 -m unittest proof.android.selfcheck proof.android.predicates -v          # the Android reader's own checks
 ```
 
-A document's checks are one group on one worker, so more workers than the
-documents you select buy nothing. Read only the gate's problems that name your
-documents and the entries on them: an entry on a document the slice did not
-run shows as not run, which is expected for a slice. Each night runs the
-lane with every reader over what changed and each week runs it whole, each
-opening an issue when it fails; they are the backstop for what a slice
-missed, never the first run of a reader change.
+A document's checks are one group on one worker, and its control's another,
+so more workers than the documents and controls you select buy nothing.
+`-k` matches a test's id by substring: a document's id selects its checks,
+the checks of the control of the same id (`control-<id>`) and those of any
+document whose id holds it. Where a register entry naming your document
+retains a control of another id (its `control`), name that too (`or
+control-<that id>`).
+
+**The gate over a slice.** A run by path and `-k` writes a queue of its own
+(`queue.json` in its output) that names no documents. Held to that queue as
+it stands, the gate reports every entry of the register that names a
+document the slice did not run, and the surface the slice did not extract,
+so its verdict fails whatever the slice showed. Tell it the slice's
+documents, by their ids: `--documents <id>,<id>`. It then holds the run as
+it holds a run over documents named by hand ("The gate"):
+
+- every block of the run ran once and every item passed;
+- every difference the run's documents and controls showed is held to the
+  whole register, and every stop their walks showed to the whole
+  `proof/walk-stops.json`;
+- every entry naming one of those documents was seen on the document and on
+  its control, with the readers the run observed (`PROOF_READERS`); the
+  entries only another reader shows, and every entry naming another
+  document, are left to the nightly and the weekly, and the gate says how
+  many;
+- it fails by name where an entry of the slice's was not seen, where the
+  control an entry retains did not run, and where a document it was told
+  did not run;
+- the surface is left to the lane that extracts it, every pull request's.
+
+A run of package tests (`proof/formplayer`, `proof/connect` and the like)
+names no document: its own exit is its verdict, every item passed.
+
+Executed on a proof machine, 2026-10-13, over `targeted-shared-property-sort`
+and `targeted-sync-on-form-entry` with their controls (23 items): without
+the readers through `npm run proof` (`PROOF_READERS=0`), and with Formplayer
+through `proof/remote/run.sh <host> --env PROOF_READERS=formplayer`. Told the
+two documents, each gate holds: 11 of their 23 entries held without the
+readers, 16 with Formplayer, the rest left to the readers that show them.
+The same slice run without one document's control fails by name, once for
+each of that document's ten held entries ("retains its control
+targeted-sync-on-form-entry, and no shard ran proof3 on it"), and so does
+the clean run told a third document it never ran. Held to its own queue as
+it stands, the clean run without the readers shows 1,250 register problems
+and the absent surface, and the run with Formplayer 1,428, 24 walk-stops
+problems and the absent surface, none of them the slice's.
+
+Each night runs the lane with every reader over what changed and each week
+runs it whole, each opening an issue when it fails; they are the backstop
+for what a slice missed, never the first run of a reader change.
 
 ### Running the lane on another machine
 
@@ -546,8 +590,11 @@ your working tree, over ssh:
 
 ```bash
 proof/remote/run.sh <host> --provision --android-licenses <a directory holding an accepted SDK's licenses/>
-proof/remote/run.sh <host> -- --workers 8 proof/checks -k "<document id>"
+proof/remote/run.sh <host> -- --workers 4 proof/checks -k "<document id> or <another id>"       # a slice, every reader
+python3 -m proof.lane.gate .proof/remote/<slot>-<stamp> --documents <document id>,<another id>  # held to its documents
+proof/remote/run.sh <host> --env PROOF_READERS=formplayer -- --workers 4 proof/checks -k "<document id>"  # one reader
 proof/remote/run.sh <host> --env PROOF_READERS=0 -- --workers 32                  # the pull request lane, whole
+python3 -m proof.lane.gate .proof/remote/<slot>-<stamp>                           # a whole lane, held whole
 ```
 
 `--provision` copies the tree to the host and runs `proof/remote/provision.sh`
@@ -564,7 +611,11 @@ to `~/proof-remote/<slot>` on the host (`--slot`, the tree's directory name
 by default, keeps two trees apart on one host), links its `node_modules`
 from that install, runs `npm run proof -- <arguments>` there with the
 runtime and the JDK and each `--env`, and copies the output back to
-`.proof/remote/<slot>-<stamp>/`, where `python3 -m proof.lane.gate` reads it.
+`.proof/remote/<slot>-<stamp>/` (it prints the directory), where
+`python3 -m proof.lane.gate` reads it: told a slice's documents
+(`--documents`, "Proving a reader change before you push"), or with nothing
+more for a whole lane. The output comes back without the emitted corpus and
+the store's blobs, neither of which the gate reads.
 
 On Google Cloud, for example, a spot VM is the cheapest such machine: create
 one from the `ubuntu-2404-lts-amd64` image family with no external address
@@ -607,7 +658,9 @@ In it:
 - `corpus/`: the corpus the run emitted, and `corpus.log`.
 
 `python3 -m proof.lane.gate .proof/out` holds a finished run to the lane's
-verdict, as CI's gate does ("The gate", below).
+verdict, as CI's gate does ("The gate", below); a slice of documents is held
+to them with `--documents <id>,<id>` ("Proving a reader change before you
+push").
 
 ### The switches run.mjs passes
 
@@ -3184,7 +3237,12 @@ its problems:
    is that lane's purpose.
 3. **Register**: the evidence of every block that ran, with the cached groups'
    evidence read from the store, held to `proof/known-defects.json`, and
-   every entry seen on its document and its control.
+   every entry seen on its document and its control. A run over documents
+   named by hand (a queue built with `--documents only:`, or a slice run by
+   `-k` whose documents the gate is told with `--documents`) holds every
+   difference to the whole register and asks to see only the entries naming
+   those documents; a document it was to be held to and did not run fails by
+   name.
 4. **Walk stops**: the stops every document's and control's walks showed,
    read as the register's evidence is, held to `proof/walk-stops.json`: a
    stop no entry holds fails by name, and so does an entry whose document's
@@ -3193,7 +3251,9 @@ its problems:
    run over documents named by hand ran no other document, so it leaves the
    entries naming one to the run that runs it, and says how many.
 5. **Surface**: the surface block's extraction, or the store's for this image
-   and extractor, is byte for byte the committed `surface.json`.
+   and extractor, is byte for byte the committed `surface.json`. A run over
+   documents named by hand whose queues hold no surface block leaves it to
+   the lane that extracts it and says so; any other run without one fails.
 
 It prints each section, writes the whole to `--summary` (uploaded as the
 run's verdict), and appends it to the job's summary. The verdict names each

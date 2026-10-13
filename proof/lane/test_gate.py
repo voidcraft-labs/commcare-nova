@@ -13,7 +13,10 @@ entry naming one on its control alone and says so; a run whose queue names
 none holds every entry on its document as well. A run without the readers
 (its queues built so, ``proof.lane.readers``) leaves the served readers'
 entries to the nightly and holds every other exactly as a run with them does,
-and says how many it left; a shard of the other profile fails it. The
+and says how many it left; a shard of the other profile fails it. A slice a
+person ran by path and ``-k``, whose own queue names no documents, is held to
+the documents the gate is told (``--documents``) as a run over documents
+named by hand is, and a document it is told that never ran fails by name. The
 plausible failures: an
 import of pytest, pluggy, lxml or HQ creeping into the verify path (the gate
 would die on the runner), a verdict that passes a run with a missing block,
@@ -475,6 +478,72 @@ def test_a_run_over_documents_named_by_hand_holds_their_entries_alone_and_says_i
     assert not unseen["holds"] and f"retains its control {control}" in unseen["problems"][0]
 
 
+def test_a_slice_run_by_hand_is_held_to_the_documents_the_gate_is_told(tmp_path, own_register, capsys):
+    """A person proves a change on a slice: a few documents and their controls, run by path and ``-k``. That
+    run's own queue names no documents, so held as it stands it fails on every entry of the register naming a
+    document it never ran and on the surface it never extracted, and the person reads past a thousand problems
+    for theirs. Told the slice's documents (``--documents``), the gate holds the run to them: it holds when the
+    slice is clean, and fails by name when an entry naming one of them was not seen on its control, when a
+    document it was told never ran, and when the run's queue already names its own documents."""
+    from proof.checks import registers
+
+    control, another = [path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir()][:2]
+    entry = {"defect": 1, "part": "a part", "check": "bar", "artifact": "upload", "path": "/x"}
+    register = [
+        {**entry, "id": "of-the-slice", "document": "a", "control": control},
+        {**entry, "id": "elsewhere", "document": "b", "control": another, "path": "/elsewhere"},
+    ]
+    own_register.write_text(json.dumps(register), encoding="utf-8")
+    shown = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
+    output, queue, committed = _lane(tmp_path, differences=[{**shown, "document": "a"}], with_surface_block=False)
+    # The run's own queue, as a run on one machine writes it into its output: it names no documents.
+    shutil.copyfile(queue, output / "queue.json")
+    [document_dir] = [directory for directory, _ in lane_blocks.read_manifests(output)]
+    on_control = document_dir / "checks" / "bar" / f"control-{control}.json"
+    seen = {"check": "bar", "document": control, "kind": "control", "differences": [{**shown, "document": control}]}
+    lane_blocks.write_json(on_control, seen)
+
+    as_it_stands = _run(output, queue, committed)["sections"]
+    assert not as_it_stands["register"]["holds"] and as_it_stands["surface"]["verdict"] == "absent"
+
+    told = _run(output, queue, committed, documents=("a",))
+    assert told["holds"] and told["selection"] == {"documents": ["a"], "left": []}
+    assert told["sections"]["register"]["outsideSelection"] == 1
+    assert told["sections"]["register"]["notes"] == [
+        "This gate was told the run is a slice of the documents named by hand (a), so it asked to see the"
+        " register's entries naming them, on each document and on its control, and left the other 1 of the"
+        " register's 2 entries to the nightly and the weekly. It shows the lane on those documents, and is no"
+        " verdict on the corpus."
+    ]
+    surface = told["sections"]["surface"]
+    assert surface["verdict"] == "left" and "ran no surface block" in surface["notes"][0]
+
+    # An entry of the slice's own that its control no longer shows fails the run, by the entry's and control's names.
+    on_control.unlink()
+    unseen = _run(output, queue, committed, documents=("a",))
+    [problem] = unseen["sections"]["register"]["problems"]
+    assert "of-the-slice" in problem and f"retains its control {control}" in problem
+    assert [entry["group"] for entry in unseen["failing"]] == [f"control:{control}"]
+    lane_blocks.write_json(on_control, seen)
+
+    # A document the gate is told and the run never ran fails by name, though no entry names it.
+    unrun = _run(output, queue, committed, documents=("a", "witness"))
+    [problem] = unrun["sections"]["register"]["problems"]
+    assert "was to be held to witness, and it ran no group corpus:witness" in problem
+    assert [entry["group"] for entry in unrun["failing"]] == ["corpus:witness"]
+
+    # The command a person runs: no queue named (the run's own), the documents by their ids.
+    assert gate.main([str(output), "--surface", str(committed), "--documents", "a"]) == 0
+    assert "holds: Every difference holds to the register" in capsys.readouterr().out
+    assert gate.main([str(output), "--surface", str(committed), "--documents", "only:a"]) == 2
+    assert "by their ids, comma-separated" in capsys.readouterr().err
+    # A queue the builder made for documents named by hand already says what the run was asked for.
+    value = json.loads(queue.read_text())
+    queue.write_text(json.dumps({**value, "selection": {"documents": ["a"], "left": []}}))
+    assert gate.main([str(output), "--queue", str(queue), "--surface", str(committed), "--documents", "a"]) == 2
+    assert "already names the documents it was built for (a)" in capsys.readouterr().err
+
+
 def test_the_gate_fails_cached_groups_it_has_no_reader_for(tmp_path):
     output, queue, committed = _lane(tmp_path)
     value = json.loads(queue.read_text())
@@ -530,6 +599,12 @@ def test_a_run_without_the_readers_leaves_the_readers_entries_to_the_nightly_and
         " entries, whose artifacts only the served readers write"
     )
     assert register["notes"][0].endswith("were left to the nightly run with every reader; the other 1 were held.")
+    # Held to its document as a slice, it counts what it left among the entries naming that document.
+    told = _run(*_served_lane(tmp_path / "told", own_register, readers=False), documents=("a",))
+    assert told["holds"] and told["sections"]["register"]["notes"][1].startswith(
+        "This run handed no state to the readers (PROOF_READERS=0, the pull request lane), so 1 of the 2 entries"
+        " naming them, whose artifacts only the served readers write"
+    )
 
     # With the readers the same evidence fails: the Formplayer entry was never seen, on its document or control.
     with_readers = _run(*_served_lane(tmp_path / "with", own_register, readers=True))["sections"]["register"]

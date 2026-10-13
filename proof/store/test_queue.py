@@ -696,7 +696,9 @@ def test_a_document_measured_in_pieces_is_split_by_its_whole_measure_and_each_gr
     assert queue.main([*arguments, "--timings", str(checkout / "proof" / "timings.json")]) == 2
 
 
-def test_a_run_over_documents_named_by_hand_queues_them_and_their_controls_and_names_what_it_leaves_out(tmp_path, lane):
+def test_a_run_over_documents_named_by_hand_queues_them_and_their_controls_and_names_what_it_leaves_out(
+    tmp_path, lane, capsys
+):
     checkout, corpus = lane
     _two_configurations(corpus, "two")
     control = copied_control(checkout / "proof" / "controls")
@@ -737,7 +739,12 @@ def test_a_run_over_documents_named_by_hand_queues_them_and_their_controls_and_n
     # A selection with no edited document would leave proof 5's check with nothing to run over, which the lane's
     # collection refuses: the builder says so before any shard starts.
     shutil.rmtree(corpus / "one" / "edit")
+    capsys.readouterr()
     assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:one"]) == 2
+    refusal = capsys.readouterr().err
+    # It says why, and how a slice run by hand is held instead: by the gate, told its documents.
+    assert "names no document that carries an edit" in refusal
+    assert "python3 -m proof.lane.gate <output> --documents one" in refusal
     assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:one,two"]) == 0
     (corpus / "index.json").write_bytes(index)
     assert queue.main(["early", *base, "--documents", "only:two"]) == 2
