@@ -3522,13 +3522,22 @@ reader.
   and the part-key cases for `content.request.body` and
   `content.media.body`. Before the privilege roles named both imports,
   every corpus document failed ("The privileges", above). The whole corpus
-  and the lane's packages have not run under these file names: of the
-  readers listed above, the slice does not reach
+  and the lane's packages have not run under these file names: every run
+  on a proof machine is on hold (the planning notes, `AFTER-EXIT-RUNS.md`,
+  item 17, which holds the command, the scratch and what the run is
+  expected to show). The layout and its readers above are the plan's
+  design; the scratch for them is written, on the branch `proof/fix01-p3x`
+  at `acb0a021`; and its run over the whole lane is queued. Of the readers
+  listed above, the slice does not reach
   `proof/checks/test_proof3_behavior.py`'s two tests,
   `proof/checks/test_record_determinism.py`'s three,
   `proof/checks/test_alignment.py`, `proof/views/test_lookup_upload.py`,
-  the privilege test's new case or any package, and it is the first thing
-  this pull request's own lane shows.
+  the privilege test's new case or any package. This bullet takes the
+  outcome: "executed during planning, without the readers, on the lane's
+  head, the whole pull request lane under this layout's file names: every
+  document's group, every control's and every package pass", with the
+  run's counts; or what the run shows in its place, with each reader it
+  finds unturned added to the list above.
 
 **This pull request's lane, run without the readers.** Executed during
 planning, on a proof machine, at this pull request's state as its registers

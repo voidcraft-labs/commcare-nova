@@ -132,6 +132,25 @@ reading left doubt:
   project's key: accepted, decrypting within its window, refusing after it,
   and removed (part 10).
 
+**Written and not yet run.** Three runs are written as scratch on the lane and
+have not been made. Each part states its design as the plan's and says in
+place that the run is outstanding; this list is every such place, and it is
+empty when the plan is complete.
+
+- The whole lane with every reader at the exit state with the publish
+  sequence in it. The every-reader run this plan cites read the stack
+  without part 01's A3 and A2. The same stack with both has run without the
+  readers and shows no class that no entry holds; its every-reader run is
+  composed and has not run (part 09, Where the lane runs).
+- The two-import capture layout under the file names part 01 gives it
+  (`Export.content`): a six-document slice passes without the readers; the
+  whole corpus, the other controls and the packages have not run under those
+  names (part 01, A7).
+- The build recreated under a stored part (pull request 13): the cause of
+  the one package test that fails at the exit state is read from HQ's code
+  and the lane's, and neither of the two tests of the change has run with
+  it (part 03, C2).
+
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
 CommCare version for a new app is 2.64 on the production server read (October
