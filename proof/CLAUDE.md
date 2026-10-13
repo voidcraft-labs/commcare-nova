@@ -286,7 +286,7 @@ harness keeps, each with its reason.
     again). The whole run without the readers also holds the committed
     sensitivity effects to its own flips both ways, so an effect no flip
     shows any longer fails the week by name.
-  The lane with every reader costs about 300 worker-hours whole, against
+  The lane with every reader costs about 550 worker-hours whole, against
   GitHub's free plan of twenty jobs at once and six hours a job, so each
   lane with the readers sizes its shards from its queue
   (`python3 -m proof.lane.plan size`: within two and a half hours a shard,

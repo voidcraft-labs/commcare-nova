@@ -449,8 +449,9 @@ The lane runs in one of two profiles (`proof/lane/readers.py`), and
   Connect app, Connect's own server ("Served states"), and every test runs.
 - **Some of them** (`PROOF_READERS=android`, or a comma list of
   `formplayer`, `webapps`, `android` and `connect`), for proving one
-  reader's change on a slice: a document's group walks every reader in 15 to
-  40 minutes on one worker, and one reader in a fraction of that. Every
+  reader's change on a slice: a document's group walks every reader in about
+  an hour on one worker (twenty minutes to more than two and a half hours for
+  eight documents in ten), and one reader in a fraction of that. Every
   reader named brings Formplayer, whose walk the client replays, whose
   submissions Connect receives, and along which B and proof 4's saves are
   served to a device. The served hook observes those readers alone and names
@@ -522,8 +523,11 @@ missed, never the first run of a reader change.
 
 A slice with every reader, or the whole lane, wants a machine larger than a
 laptop: Linux on amd64 (the Android reader's native runtime ships for no
-other Linux), about 3 GB of memory a worker, and a vCPU a worker, which
-saturates it (more workers than vCPUs only slow each). `run.mjs` sizes
+other Linux), about 5 GB of memory a worker with every reader (a run of
+twelve workers peaked at 58 GB and its Postgres at 1.6; a device's JVM alone
+may hold 2.3) and 3 without, and a vCPU a worker, which saturates it (more
+workers than vCPUs only slow each: under twice the load, a document took
+about one and a half times as long). `run.mjs` sizes
 Postgres's client cap from the worker count (125 a worker, at least 500,
 `proof/compose.yaml`). `proof/remote/` runs the lane on such a machine from
 your working tree, over ssh:
@@ -1808,7 +1812,10 @@ or a form leads back to its list). The starts are most of it: fifty of
 them are about a thousand processor seconds a document whatever it walks.
 With every reader the devices were 45 and 60 percent of a group's time over
 the two documents run that way (case-list-inline and localization-bilingual,
-each with its control).
+each with its control). The whole lane of 2026-10-13 made 24,662 device
+requests over its 441 documents and controls, 56 a group, each 41 seconds
+and 40 processor seconds on machines other runs loaded: 280 hours of the
+workers' 570, and 272 processor-hours.
 
 Three things keep a request to that. Each walk's screens end with it
 (`Opened.java`): Robolectric holds a screen it built, with every theme its
@@ -3108,7 +3115,7 @@ written from where a pull request's own run read documents from the store
   `proof/remote/run.sh` where it needs one; a lane that left no verdict is
   named as that. The repository is on GitHub's free plan for
   organizations (twenty jobs at once, six hours a job) and the lane with
-  every reader costs about 300 worker-hours whole, so no lane runs it fresh
+  every reader costs about 550 worker-hours whole, so no lane runs it fresh
   every night: each lane with the readers sizes its shards from its queue
   (`python3 -m proof.lane.plan size`: no shard expected past two and a half
   hours as every shard bins the queues, its deadline twice its expected
@@ -3146,17 +3153,36 @@ parallelism on a larger machine buys nothing there.
 
 **The whole lane with every reader.** Serving each state to Formplayer and
 the Web Apps client, walking every run of it whole in the client, a fresh
-page a run, and handing it to a phone and a tablet beside HQ's unit made a
-document's group cost ten to thirty times what it did: 800 to 2,400 seconds
-on one worker once every reader observes in the unit (a small document's,
-32 seconds without the readers, took 898 with them), about 300 worker-hours
-for the whole lane, most of it the devices' JVMs and the client's walks. On
-GitHub's free plan that holds every runner for about five hours, which no
-pull request can wait for and no night can spend whole, so the nightly runs
-it against main's store, observing what changed, and the weekly runs it
-whole (`proof-audit.yml`). Each sizes its shards from its queue's
-estimates, which come from the `readers` costs, to stay within two and a
-half hours a shard.
+page a run, for every case and in every language, and handing it to a phone
+and a tablet that walk the same beside HQ's unit, makes a document's group
+cost over a hundred times what it costs without them. One run of the whole
+lane measured it on 2026-10-13, every group observed afresh with no store
+(357 documents, 84 controls and 30 package groups, on two proof machines;
+the `readers` profile's `measured.basis` says how): 552 worker-hours at
+about a vCPU a worker, 496,353 box-seconds, where the lane without the
+readers is 4.5 worker-hours. The median document takes 3,361 seconds on one
+worker (25 without the readers), one in ten more than 9,564, and the longest,
+`fuzz-xform-20260930-9`, 13,321. Half of it is the devices: 49% of the
+workers' time is inside a device's request ("Android in the unit": 24,662
+requests, a JVM each). Twenty-four groups drawn across the lane's range and
+run again with Formplayer alone took 8% of what they took with every reader,
+HQ's, Core's and the editors' own work included, which leaves the Web Apps
+client's walks about 43%.
+
+On GitHub's free plan that is 138 hours of four-vCPU runners, about ten
+hours with fourteen at once, which no pull request can wait for and no night
+can spend whole, so the nightly runs it against main's store, observing what
+changed, and the weekly runs it whole (`proof-audit.yml`). Each sizes its
+shards from its queue's estimates, which come from the `readers` costs, to
+stay within two and a half hours a shard. As measured, a whole fresh lane
+does not fit that: 56 groups (55 documents and controls, and the
+`proof/formplayer` package) are each expected past the 9,000 seconds a shard
+is given, on one worker, so `plan size` refuses a queue that holds one of
+them fresh, naming the longest; given 13,500 seconds a shard it plans 37
+shards. Until a group that long runs in parts, the whole lane with every
+reader runs on proof machines, as this run did ("Running the lane on another
+machine": sixteen static bins of one queue, 184 workers on 224 vCPUs, each
+bin two and three quarter to four and three quarter hours, gated together).
 
 **The pull request lane.** The `no-readers` costs come from one run of the
 whole lane without the readers on a 32-vCPU proof machine at 32 workers, one

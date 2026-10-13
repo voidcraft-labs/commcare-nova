@@ -133,4 +133,4 @@ else
 fi
 
 echo "This machine is a proof machine: $(nproc) vCPUs, $(free -g | awk '/^Mem:/ {print $2}') GB."
-echo "Run the lane on it with proof/remote/run.sh <host> -- --workers <k> <pytest arguments>, about 3 GB of memory and one vCPU a worker."
+echo "Run the lane on it with proof/remote/run.sh <host> -- --workers <k> <pytest arguments>, about 5 GB of memory a worker with every reader (3 without) and one vCPU a worker."
