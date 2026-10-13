@@ -2329,6 +2329,8 @@ step, as defect 24's other entries do:
   and search entries name, each beside its control ("Lane"). The slice's
   sixteenth document, `targeted-supply-point-read`, is there for the entry
   A1 re-files, and ran at this state without the readers (A1, "Register").
+  Its seventeenth, `fuzz-suite-20260930-8`, is there for the judge change
+  below, registers nothing, and ran at this state by itself.
   Six documents outside the slice were read at that state
   and showed none but classes among the eighteen: `case-list-inline` with
   every reader and `case-choice-attendance` and `container-live-count-entry`
@@ -2344,10 +2346,10 @@ step, as defect 24's other entries do:
   document. Planning makes that run with every fix's bytes stacked, and parts
   09 and 11 state its outcome.
 - **The exit-state run shows one more class from here, and a judge change
-  reads it.** On `fuzz-suite-20260930-8`, outside the slice, Formplayer's
-  record of the local archive shows `/runs/*/steps/*/response/exception`,
-  changed, two differences, one under each configuration, and no entry
-  names it. Form 1-0 of that document sets the literal `'a'` into its
+  reads it.** On `fuzz-suite-20260930-8`, Formplayer's record of the local
+  archive shows `/runs/*/steps/*/response/exception`, changed, two
+  differences, one under each configuration, and no entry names it. Form
+  1-0 of that document sets the literal `'a'` into its
   choice question `model`, which none of the question's options carries
   (finding 72, a held stop of this document: part 09, "The held walk
   stops"). Formplayer opens the form on neither export
@@ -2409,9 +2411,10 @@ step, as defect 24's other entries do:
     the control that still shows it, and here the two builds refuse the
     same question of the same form with the same message, which the judge
     already reads as one wherever it can tell the question. The document
-    joins no reader slice (part 09, "Where the lane runs"): the test holds
-    the reading at this pull request, and the whole lane at the stack's top
-    holds the document with every reader.
+    joins this pull request's reader slice as the judge change's witness,
+    in its first run ("Lane"; part 09, "Where the lane runs"): without
+    it the first reader to hold the change at a real state would be the
+    run at the stack's top.
   - **Executed during planning, on a proof machine, with Formplayer**
     (`PROOF_READERS=formplayer`, `proof/checks -k fuzz-suite-20260930-8`,
     the document's ten items under its two configurations), at two states,
@@ -2439,7 +2442,12 @@ step, as defect 24's other entries do:
     runs there on pull request 5's six manifest keys of this document
     (part 09, "Where the lane runs"), and no other count moves. The ten
     tests of `proof/checks/test_served.py` that need no served reader pass
-    in the lane's image, the changed one among them.
+    in the lane's image, the changed one among them. And at this pull
+    request's state with the change, under the two readers of the slice's
+    first run (`PROOF_READERS=formplayer,android`): all ten items pass,
+    the 585 classes of the Formplayer run show with the same counts beside
+    58 classes of the device's, 880 differences in all, every one held,
+    and the gate told the document holds every section.
 - Each owner's block names its entry here and moves it with its own.
   Executed during planning, under Formplayer, on A5's archive with each
   owner's fix: the submit message, the trimmed case name and the sort keys
@@ -2666,9 +2674,12 @@ the result is under "Lane".
 emits for the configuration's project space (A7). Each was run by hand
 during planning over an archive with the planned bytes written in, and the
 served rows again as this pull request's reader slice, the fifteen
-documents of its first run each beside its control ("Register", "What the
-working submit shows"); the sixteenth, `targeted-supply-point-read`, is A1's
-and is its second run ("Register").
+documents its entries name in its first run each beside its control
+("Register", "What the working submit shows"); the sixteenth,
+`targeted-supply-point-read`, is A1's and is its second run ("Register");
+the seventeenth, `fuzz-suite-20260930-8`, joins the first run as the
+witness of the judge change and ran by itself ("What the working submit
+shows").
 
 | Proof | Reader | Document | It must show |
 |---|---|---|---|
@@ -2686,8 +2697,9 @@ proof/checks -k "case-list-inline or search-hidden-link or
 control-search-registration-link"`, the documents and controls of Core's
 three trace entries, and `PROOF_READERS=0 npm run proof -- proof/rules`.
 
-Reader slice of pull request 3, on a proof machine, two runs. The first,
-under the two readers the entries of its fifteen documents name:
+Reader slice of pull request 3, on a proof machine, seventeen documents in
+two runs. The first holds sixteen, under the two readers the entries of
+fifteen of them name:
 `proof/remote/run.sh <host> --env PROOF_READERS=formplayer,android --
 --workers <n> proof/checks -k "case-capture-followup or
 control-case-capture-followup or control-case-capture-multiple or
@@ -2706,9 +2718,10 @@ case-extension-registration or control-case-extension-registration-after-59
 or case-extension-repeat or control-case-extension-repeat-after-59 or
 case-extension-query or control-case-extension-query-after-59 or
 case-capture-repeat or control-case-capture-repeat-after-59 or
-search-hidden-link or control-search-registration-link"`, its output held
+search-hidden-link or control-search-registration-link or
+fuzz-suite-20260930-8"`, its output held
 by `python3 -m proof.lane.gate <output> --documents
-case-capture-followup,targeted-sync-on-form-entry,no-matches-multiple-home,search-automatic,case-list-browse,targeted-close-conditions,targeted-custom-tile,targeted-hq-side-state,targeted-form-link-hidden-target,targeted-connect-deliver-rename,case-extension-registration,case-extension-repeat,case-extension-query,case-capture-repeat,search-hidden-link`.
+case-capture-followup,targeted-sync-on-form-entry,no-matches-multiple-home,search-automatic,case-list-browse,targeted-close-conditions,targeted-custom-tile,targeted-hq-side-state,targeted-form-link-hidden-target,targeted-connect-deliver-rename,case-extension-registration,case-extension-repeat,case-extension-query,case-capture-repeat,search-hidden-link,fuzz-suite-20260930-8`.
 The second, for the control A1 retains again, under the two readers whose
 entries name it (seven Web Apps entries and one Android): `proof/remote/run.sh
 <host> --env PROOF_READERS=webapps,android -- --workers <n> proof/checks -k
@@ -2727,8 +2740,15 @@ request moves or registers: A1's one on the device, the seventeen of
 finding 32 and the three of finding 59 that Formplayer and the device hold,
 and the eighteen of "What the working submit shows"; the document and the
 control of the entry A1 re-files, `targeted-supply-point-read`, whose
-control eight reader entries name; and `search-hidden-link`, the second
-document the submit-label entry shows on. With them, `proof/remote/run.sh
+control eight reader entries name; `search-hidden-link`, the second
+document the submit-label entry shows on; and `fuzz-suite-20260930-8`, the
+witness of the judge change this pull request makes to `merged_text_ids`
+("What the working submit shows"), which no entry names and which has no
+control. Planning's evidence for that document is its own runs at this
+pull request's state, by itself: under Formplayer without the change and
+with it, and under Formplayer and Android with it (the same passage). The
+slice's planning run of the other documents was made without it. With
+them, `proof/remote/run.sh
 <host> -- proof/formplayer/test_local_archive.py
 proof/connect/test_receiver.py proof/checks/test_connect_unit.py
 proof/rules/test_runtime_url_app_id.py`, the reader tests this block
@@ -2977,13 +2997,13 @@ something production does not.
 | `proof/corpus/publish.ts::capturePublish` | A first publish is captured as two imports: `create` (the shell, no `app_id`) and `content` (the first update, naming `PLACEHOLDER_APP_ID`). Then `update` (the republish of D) and each later update, as today. The peer answers the source read after the create, and each update's source read, with the assumed source. The capture sends its requests in the sequence's order: the shell create and its source read come before the lookup workbook, and the `content` import after it; `proof/corpus/__tests__/publish.postgres.test.ts` holds that order to `publishAppToHq`'s. |
 | `proof/corpus/targetPeer.ts::TargetPeer` | The peer that answers Nova's requests at capture. It holds a whole assumed source in place of `profile` alone (`holdProfile` becomes `holdSource`), answers the source read after a create with the shell's source (`doc_type: "Application"`, the configuration's `build_spec.version`, an empty `profile`, the shell's `langs`, `modules: []`, `_attachments: {}`). That assumed source is built from the captured `create.body` by the `APP_SHELL_KEYS` table of A3: a key the table's row holds is answered as the shell sent it, `build_spec.version` is always the configuration's because HQ discards the body's, and a key the row does not hold is answered as HQ's default for an app created without it. So pull requests 5 and 13 change the peer's shell source with the list, and `proof/hq/operations.py::publish_capture`'s `CapturedSourceNotHeld` holds each version of it to HQ's own read of the shell. It answers the second import as an update of the app the first made, and counts both imports. |
 | `proof/corpus/entryWriter.ts` | Writes the two-import layout for a corpus entry: `create.body`, `content.body`, `"layout": 2`, `placeholderAppId` and `assumedSource` in each sidecar, where it writes `assumedSourceProfile` today. It also writes `import-file.zip` beside the exports: the HQ import file for D, built by the function `/api/compile/json` calls (`expandDoc` with no target, then `buildHqJsonExportArchive` with the rendered guide), which `proof/checks/corpus.py` reads as `Document.import_file` and A6's lane tests import. `proof/corpus/emitCorpus.ts`'s layout comment and `inputs.json` name it. |
-| `proof/corpus/__tests__/emitCorpus.test.ts` | Reads the new layout (a `content` step beside `create`), and A4's media observation. |
+| `proof/corpus/__tests__/emitCorpus.test.ts` | Reads the new layout (a `content` step beside `create`), and A4's media observation. Its two tests that hold a minted id turn as "The corpus tests that hold a minted id, at this pull request" states below. |
 | `proof/corpus/publish.ts::PublishInput`, `::PublishCapture` | `sourceProfile` becomes `source`, and `assumedSourceProfile` becomes `assumedSource`: the fields of HQ's source the captured body depends on. In this pull request those are `doc_type`, `build_spec.version` and `profile`; work items B and D add theirs. The profile an update is captured over is the one the import before it left in HQ. For the content update that is the shell's HQ default. For the republish and the edit it is what the content update wrote: in this pull request Nova's search custom property (`custom_properties` `cc-index-case-search-results`) on the 72 documents whose capture writes it and nothing on the rest, as `assumedSourceProfile` holds today; and from pull request 5 the seventeen settings beside it, with `cc-show-saved` and `cc-show-incomplete` taken from the document's `appSettings`. Those two are `no` in every sidecar: every corpus document holds the default, and the one edit that changes a setting, `setAppSettings` on four documents (part 04, Defect 7 and finding 62: saved and incomplete forms differ by reader), is the last update captured for its document, over D's profile. So every republish and edit sidecar changes in pull request 5 (part 04, Finding 40: an HQ settings save writes its defaults into the profile). Executed during planning with pull request 5's bodies: while the sidecars still named `{}`, `proof/observe/publish.py::update` refused every update as captured over another profile than HQ serves, and with the sidecars naming the create's profile the run went through. Executed again without the readers over every document of the lane's branch with main merged (360): an update whose body and sidecar left the custom property out was refused on each of the 72, and with it carried beside the seventeen every update went through. |
-| `proof/corpus/publish.ts::capturePublish`, a capture-time assertion | The republish is captured twice and the two import bodies must be byte equal: a third publish sends the second's bytes. The capture throws otherwise. |
+| `proof/corpus/publish.ts::capturePublish`, a capture-time assertion | The republish is captured twice and the two import bodies must be byte equal: a third publish sends the second's bytes. The capture throws otherwise. The second capture is drawn in a stream of its own, at `OPERATION_ORDINALS.update` plus the count of later updates, the first ordinal no update holds, so the two are equal because Nova derives what it sends and never because they shared a draw. |
 | `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). Every corpus archive is compiled for a project space, as every archive Nova serves is, and its profile holds the four server properties of A5. From pull request 5 the one reached target also carries `emptyCaseListText`, the configuration's own `USH_EMPTY_CASE_LIST_TEXT` (part 04, Finding 65). |
 | `proof/corpus/publish.ts::sendsTheSame` and the header comment | No longer cite `multimedia_map`: the media upload follows from the prepared assets. The header says ids are derived. |
-| `proof/corpus/entropy.mts` | `OPERATION_ORDINALS.create` and `.republish` no longer feed ids, and the rule that draws a later update at an ordinal of its own goes with them. The local export ordinals stay, here and after: defect 9's fix in pull request 5 removes the profile `uniqueid` draw, the last a local export makes, and changes no ordinal (part 04, Defect 9, Files). The header comment changes. |
-| `proof/corpus/writePublishCaptures.ts` | Writes `create.body` (the shell), `content.body`, then the update bodies, with the assumed source in the sidecar. Controls keep their legacy layout (a full `create.body`), which the lane mechanics pull request already replays. |
+| `proof/corpus/entropy.mts` | `OPERATION_ORDINALS.create` and `.republish` no longer feed ids, and the rule that draws a later update twice, at the republish's ordinal and then at one of its own, goes with them: `proof/corpus/publish.ts::capturePublish` draws each update once, the republish at `.republish` and each later update at its own (`.update`, then one more for each), with no comparison between two draws. No key and no value changes. The reason is under "The corpus tests that hold a minted id, at this pull request" below. The local export ordinals stay, here and after: defect 9's fix in pull request 5 removes the profile `uniqueid` draw, the last a local export makes, and changes no ordinal (part 04, Defect 9, Files). The header comment changes. |
+| `proof/corpus/writePublishCaptures.ts` | Writes `create.import.body` (the shell), `content.import.body`, then the update bodies, with the assumed source in the sidecar. Controls keep their legacy layout (a full `create.body`), which the lane mechanics pull request already replays. |
 | `proof/hq/operations.py::publish_capture` | Applies the shell create, holds HQ's own `app_source` of the shell against the assumed source, applies `content` with A's id (`with_app_id`), then the captured update. `CapturedProfileNotHeld` becomes `CapturedSourceNotHeld` and names each differing field. |
 | `proof/hq/operations.py::with_runtime_app_id(archive, app_id)`, new | Returns the local archive with `PLACEHOLDER_APP_ID` replaced by A's id in the `suite.xml` member's search and case fixture URLs and in the `profile.ccpr` member's `PostURL` and `ota-restore-url` values, each parsed and written as XML, never by text substitution over the archive. The observation applies it to the local `.ccz` before every reader that takes the archive, so both sides name A's id: Core's local sessions (`proof/observe/sessions.py`, given the id by `proof/observe/unit.py`), Formplayer's local walk (`proof/formplayer/observe.py::local`), both devices on the archive and the device that updates (`proof/observe/served.py`), and Connect's post and forward (`proof/observe/connect.py`, `served.py`). The planning run of A5's Register applied it at exactly those places. It is the counterpart of `with_app_id`, which does the same for the update's `app_id` field. |
 | `proof/observe/publish.py::create` | Applies both imports of a first publish and returns A's id; HQ's refusal of either is the create's refusal. The module docstring says so, and that state A is HQ app version 2 (3 after media). |
@@ -2995,7 +3015,7 @@ something production does not.
 | `proof/hq/conftest.py`, `proof/store/queue.py` | The new `proof/hq` tests read corpus documents, the pull request's own emission (the capture's `create.body` and `content.body`, and A7's `import-file.zip`), never the controls, which hold the legacy layout. So `proof/hq/conftest.py` gains `DOCUMENTS`, a literal tuple naming every corpus document a test of the package reads: `test_branches.py`'s seven (`lookup-app`, `media-rich`, `location-multirung`, `search-parent`, `nested-menu-registration-children`, `localization-bilingual`, `connect-deliver-custom`) and this pull request's four (`navigation-base`, `targeted-form-links-hidden-and-fallback`, `case-list-inline`, `targeted-hq-side-lookup`), with a `documents` fixture that fails for a test reading a document it does not name, as `proof/formplayer/conftest.py`'s does. `PACKAGE_DATA["proof/hq"]` becomes `{"documents": ("proof/hq/conftest.py", "DOCUMENTS"), "native": EVERY}`, so a change to any of the eleven re-keys the package and its split groups; `test_branches.py` keeps its own `DOCUMENTS` for its parameters. A later pull request whose `proof/hq` test reads another document adds it there (part 02's reads add `search-registration-link` and `targeted-hq-side-state` in pull request 4). `proof/checks/sharding.py` is not edited. |
 | `proof/hq/test_import_file.py` (new) | A6's two tests of HQ's import page over the emitted import file. |
 | `proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`, `proof/checks/test_connect_unit.py` (its local line, A5), `proof/android/predicates.py`, `proof/android/hq.py` | The reader tests A2, A5 and A6 name (A4's device case is in `proof/hq/test_publish.py`, and A1 changes no predicate). The Android reader gains no request: its device already signs in, syncs and sends each saved form through Android's own requester and network, answered by HQ's views, so from this pull request a device on the local archive reaches HQ at the addresses the archive names. `proof/android/hq.py`'s docstring and `proof/CLAUDE.md` say that a device meets Android's own defaults (finding 59) on the controls' pre-fix archives alone. |
-| `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. |
+| `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. What `writePublishCaptures.test.ts`'s assertions on minted ids become is under "The corpus tests that hold a minted id, at this pull request" below. |
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts` | A2's `planLanguageWire` signature. |
 | `proof/targeted/documents/hqSideState.ts` | A2's `wireCodes` in its two roots and its module comment (A2, "Files"). |
 | `proof/checks/served.py`, `proof/checks/test_served.py` | A5's judge changes, each with its case in the test file: a submission's `path` is handed to the rule `runtime_url_app_id`; `TRACE_DATA_MAPS` gains the translations of the screen after a submit; and `_text_references` and `merged_text_ids` read a question's own label alone, with the constant `NOT_A_QUESTION` (A5, "What the working submit shows"). |
@@ -3043,6 +3063,147 @@ nothing stable, which starts from these texts):
 - `proof/corpus/entropy.mts`'s header comment, which says a document's
   create and its next publish mint different ids, says a publish draws no id
   and its two local exports draw different profile `uniqueid`s (defect 9).
+  Its sentence after that, "An update to D′ is drawn at the republish's
+  ordinal first and kept only when it sends exactly the republish of D;
+  otherwise it is drawn again at its own (`./publish.ts::capturePublish`),
+  so the ids it mints are never the ones D's republish minted for another
+  entity.", becomes "Each update is captured once, in a stream of its own:
+  the republish of D at its ordinal and each update to D′ at another
+  (`./publish.ts::capturePublish`). An update that changes nothing Nova
+  sends equals the republish because Nova derives what it sends, never
+  because the two shared a draw." `OPERATION_ORDINALS`'s own comment keeps
+  its first sentence and ends "Every update to D′ is drawn at `update`, then
+  one more for each later update, a stream of its own."
+
+**The corpus tests that hold a minted id, at this pull request.** Three
+tests in `proof/corpus/__tests__/` hold assertions that require two
+publishes of a document to mint different ids, and each fails once ids are
+derived. What each becomes:
+
+- `emitCorpus.test.ts`, "writes the same bytes on every run for a seed,
+  minted identities included, and keeps defects 1 and 9 visible". Its defect
+  1 assertion reads the app JSON of `export/minimum/create` and
+  `export/minimum/republish` for `arithmetic` and `localization-mandarin`,
+  and requires that no module id, form id or `xmlns` of the first is the
+  second's at the same place
+  (`expect(before.filter((value, at) => value === after[at]), id).toEqual([])`).
+  From this pull request `create` is the shell and holds no module, so the
+  test reads the first publish's ids from `content`, and the assertion turns
+  to equality: `expect(after, id).toEqual(before)`, with `before.length`
+  still more than one. Its comment "Defect 1: the next publish of an
+  unchanged document mints new ids." becomes "The next publish of an
+  unchanged document sends the ids the first sent." The title's "and keeps
+  defects 1 and 9 visible" becomes "sends the first publish's ids on the
+  republish, and keeps defect 9 visible". The assertions after it, on the
+  profile `uniqueid` of `local.ccz` and `local-again.ccz`, stay until pull
+  request 5 turns them (part 04, Defect 9, Files).
+- `emitCorpus.test.ts`, "draws an update to D′ that sends anything but the
+  republish from a stream of its own, and keeps one that sends the republish
+  byte-identical". It sorts every edited document and configuration by
+  whether `edit/export/<configuration>/update.body` equals
+  `export/<configuration>/republish.body`, and for the ones that differ it
+  requires that the update holds none of the republish's ids
+  (`expect(after.filter((value) => before.has(value)), name).toEqual([])`).
+  From this pull request an update to D′ holds, for every menu and form D
+  also holds, the id and `xmlns` the republish holds, so that assertion is
+  removed with the ids it read (`minted`, `before`, `after`). What it kept,
+  that an id of D′ never names another entity of D, no longer rests on a
+  stream: an id is a function of its own entity's UUID alone, which
+  `lib/commcare/__tests__/wireIdentity.test.ts` holds over `expandDoc`,
+  again after an edit elsewhere (A1, "Nova tests"). The other half stays and
+  is the test: `same` and `changed` are both non-empty, so an edit that changes
+  nothing Nova sends leaves its update byte-identical to the republish, and
+  an edit that changes something does not. The title becomes "sends an
+  update to D′ that changes nothing Nova sends as the republish's bytes,
+  each drawn in a stream of its own".
+- `writePublishCaptures.test.ts`, "writes the same bytes on every run for a
+  seed, keeps Nova's minted identities apart, and sends an unchanged update
+  as the republish". Two groups turn.
+  - Under "Nova's own minting reaches the files: each export draws other
+    ids", the test reads `clinic-visits/none/create.import` and
+    `clinic-visits/none/update.import`, requires the first module id of the
+    create to be 40 lower case hex, and requires it to differ from the
+    update's. From this pull request `create.import` is the shell, so the
+    test reads `clinic-visits/none/content.import` in its place. The first
+    module id is 32 lower case hex (`/^[0-9a-f]{32}$/`, the shape
+    `derivedUniqueId` gives), and the `not.toBe` becomes
+    `expect(minted(content)).toEqual(minted(updated))` over every module id,
+    form id and `xmlns` (`minted` moves above it). The comment becomes
+    "Nova's derived ids reach the files: every publish sends the same ones."
+    The assertion after it, that `local-1.ccz` and `local-2.ccz` differ,
+    stays until pull request 5 (part 04, Defect 9, Files).
+  - Under "An edit that changes nothing sends exactly the republish; a
+    rename does not, and mints none of the ids the republish minted", the
+    two body comparisons stay: `clinic-visits-unchanged`'s
+    `update-edited.import.body` equals its `update.import.body`, and
+    `clinic-visits`'s does not. The last assertion,
+    `expect(minted(renamed).filter((id) => republished.has(id))).toEqual([])`,
+    becomes `expect(minted(renamed)).toEqual(minted(updated))`: renaming the
+    app changes no menu and no form, so its update sends the republish's
+    ids. The comment ends "a rename does not, and sends the republish's
+    ids."
+
+  The title's "keeps Nova's minted identities apart" becomes "sends every
+  publish of a document the same ids". The header's contract loses
+  "`lib/commcare/ids.ts` for module and form `unique_id`s and form `xmlns`,
+  "; its failure "the minted identities collapsing, which would hide defects
+  1 and 9 from the checks that must see them (the create and update of one
+  document must carry different module ids, and the two local exports must
+  differ)" becomes "the profile `uniqueid`s collapsing, which would hide
+  defect 9 from the checks that must see it (the two local exports must
+  differ)"; and its failure "an update of a changed document minting ids the
+  republish minted, so an id of D′ would name an entity of D" becomes "a
+  publish sending other module or form ids than the publish before it, which
+  is defect 1".
+- `emitCorpus.test.ts`'s header, from "Seeding must keep what Nova keeps
+  apart" to "is byte-identical to it.", becomes "Seeding must keep what Nova
+  keeps apart: a document's two local exports draw different profile
+  `uniqueid`s (defect 9), or the corpus would hide that defect from the
+  checks that must see it. And seeding must shape no id a publish sends: the
+  republish carries the first publish's module and form ids and `xmlns`, and
+  an update to D′ that changes nothing Nova sends is byte-identical to the
+  republish though each is drawn in a stream of its own, so a change that
+  mints an id per publish again fails here."
+
+Each update takes a stream of its own because that is what makes these
+equalities evidence. Executed during planning at the lane's head, a census
+(`PROOF_ENTROPY_TRACE`) of `writePublishCaptures` over the three documents
+of its own test: inside a publish's operation the draws are
+`lib/commcare/ids.ts`'s (78, which this pull request removes with the file)
+and the multipart boundary Node's `fetch` draws for each request, from
+`lib/commcare/client.ts::importApp` (16), `::uploadAppMediaBundle` (2) and
+`lib/commcare/hq/lookupTables.ts::uploadLookupTableWorkbook` (2), which
+`proof/corpus/publish.ts::reframed` replaces with a fixed one in every
+captured body. So from this pull request no draw reaches a captured body,
+and an update is the same bytes at any ordinal. Under the republish's
+ordinal an unchanged update would equal the republish even after a change
+that mints an id per publish again, since both would draw one value. In
+streams of their own the two differ after such a change, so the tests above
+fail and the capture-time assertion stops the emission. Today's rule draws
+an update at the republish's ordinal first only so that an unchanged one can
+equal it while ids are drawn, and that reason goes with the draw. With
+seeding off (`PROOF_ENTROPY=real`) each update is drawn once, as today.
+
+The comments that state the two-draw rule state this one: `capturePublish`'s
+own, the headers of `proof/corpus/publish.ts`, `proof/corpus/entryWriter.ts`
+and `proof/corpus/writePublishCaptures.ts`, and the two in
+`proof/corpus/entropy.mts` named above. Three docstrings of proof 5 change
+with them, and no line of its code:
+`proof/observe/alignment.py::Alignment.value_map` maps only an id that
+differs, so on a corpus document it maps none. `proof/checks/proof5.py`'s
+"Every export mints its module and form ids and `xmlns` anew (proof 1 judges
+that), so D''s are mapped to D's as proof 2 maps them" becomes "Every export
+derives its module and form ids and `xmlns` from the document, so on a
+corpus document D''s are D's; where they differ, as in a capture whose ids
+were drawn, D''s are mapped to D's as proof 2 maps them".
+`proof/checks/test_proof5_locality.py`'s
+"(`proof/corpus/publish.ts::capturePublish` draws an update that sends
+anything but the republish from a stream of its own)" becomes "(an id is
+derived from its own entity's UUID alone, `lib/commcare/wireIdentity.ts`)".
+In the same file `_retarget_subject`'s docstring, which says the ids D′'s
+publish mints for an added form are drawn where the republish drew another
+form's, says the added form's id is derived from its own UUID and so is no
+form's of D; its search for a carried id stays and finds none.
 
 No Nova TypeScript runs inside a proof shard: the capture runs at emission,
 and the shards apply its bytes.
