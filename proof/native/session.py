@@ -6,7 +6,7 @@ artifacts, and then fills it on demand:
 
 - ``family(name)`` gives the family's producer's output (``families.FAMILIES``)
   the first time any test needs it: copied from the products the lane's
-  corpus carries (``$PROOF_CORPUS/native``, which CI's ``quality`` job writes
+  corpus carries (``$PROOF_CORPUS/native``, which CI's ``proof-corpus`` job writes
   with ``python3 -m proof.native.produce``, since a CI shard mounts no
   ``node_modules``), or, when it carries none, produced here from the
   checkout's root with the Linux ``node_modules`` the lane mounts

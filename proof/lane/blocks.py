@@ -18,8 +18,8 @@ for a run without one, by the server from its own collection
      "readers": false | [<reader>, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
-(from ``proof-plan``), and the main queue (from ``quality``, once the corpus
-is emitted). A group is every item of one corpus document (``corpus:<id>``) or
+(from ``proof-plan``), and the main queue (from ``proof-corpus``, once the
+corpus is emitted). A group is every item of one corpus document (``corpus:<id>``) or
 control (``control:<id>``), one piece of either (``corpus:<id>@<configuration>``,
 ``control:<id>@<configuration>``: one configuration of it observed, below), of one
 package (``proof``, ``proof/<package>``), of one test module a package's

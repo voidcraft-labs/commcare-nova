@@ -504,12 +504,12 @@
 				"runner": "ubuntu-24.04",
 				"workers": 4,
 				"slots": [
-					125, 125, 125, 192, 202, 206, 206, 209, 220, 245, 250, 261, 268, 285,
+					110, 110, 110, 192, 202, 206, 206, 209, 220, 245, 250, 261, 268, 285,
 					291, 334, 336, 342
 				],
 				"fixed": 146,
 				"gate": 45,
-				"basis": "execution.shards: the most shards python3 -m proof.lane.plan fit gives the pull request lane, and its count where a dispatch asks for the default; execution.slots: when each runner the account's twenty-job limit leaves for a shard frees, in seconds after the workflow starts, from pull request run 38081646423's jobs, none earlier than the plan, which waits for quality's main queue; execution.fixed: what each shard spends beside its blocks, the pull and setup (75), the lane's start and collection (20), each worker's own Elasticsearch and its first build's wait on the shard's one validation Formplayer (45, 11 less than when each worker started its own, measured on four vCPUs) and the upload (6); execution.gate: the gate job after the last shard."
+				"basis": "execution.shards: the most shards python3 -m proof.lane.plan fit gives the pull request lane, and its count where a dispatch asks for the default; execution.slots: when each runner the account's twenty-job limit leaves for a shard frees, in seconds after the workflow starts, from pull request run 38081646423's jobs, none earlier than a shard can start, 110: the plan waits for the corpus job, which ends when the main queue is uploaded (88 and 96 seconds into runs 38081646423 and 38425969767, in the job that then held those steps), and the plan's own ten seconds and the few seconds before each job starts follow; execution.fixed: what each shard spends beside its blocks, the pull and setup (75), the lane's start and collection (20), each worker's own Elasticsearch and its first build's wait on the shard's one validation Formplayer (45, 11 less than when each worker started its own, measured on four vCPUs) and the upload (6); execution.gate: the gate job after the last shard."
 			},
 			"measured": {
 				"at": "2026-10-12",

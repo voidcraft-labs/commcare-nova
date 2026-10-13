@@ -3,7 +3,7 @@
  * in the layout `./emitCorpus.ts` describes.
  *
  * Run from the worktree root, with Nova's `node_modules` (CI runs it in the
- * `quality` job; the lane runs it inside the proof image when no corpus is
+ * `proof-corpus` job; the lane runs it inside the proof image when no corpus is
  * named, through `proof/checks/corpus.py`):
  *
  *   node --conditions=react-server --import ./proof/corpus/entropy.mts \

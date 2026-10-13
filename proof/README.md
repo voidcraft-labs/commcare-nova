@@ -848,7 +848,7 @@ node --conditions=react-server --import ./proof/corpus/entropy.mts \
   --import tsx proof/corpus/emit.ts --out <dir> [--sample <n>] [--seed <n>] [--jobs <n>]
 ```
 
-CI emits it once, in the `quality` job; a local run emits it inside the image
+CI emits it once, in the `proof-corpus` job; a local run emits it inside the image
 unless `PROOF_CORPUS` names one. Every file but `timings.json` is the same,
 byte for byte, on every run at one seed, on every machine: the entropy preload
 answers every identity Nova's exports mint (`lib/commcare/ids.ts`, the `.ccz`
@@ -882,8 +882,8 @@ reads it. Per document, under its id:
 - `inputs.json`: the digest of every file a check reads, by the part of the
   document's HQ tree that reads it.
 
-`<corpus>/native/` holds the native proofs' products, which CI's `quality` job
-writes beside the corpus (`python3 -m proof.native.produce`).
+`<corpus>/native/` holds the native proofs' products, which CI's `proof-corpus`
+job writes beside the corpus (`python3 -m proof.native.produce`).
 
 ### Configurations
 
@@ -2742,7 +2742,7 @@ A family is one corpus, and each runs as one chain:
    with `NOVA_EXPANDER_EVIDENCE_DIR`) and `hq-oracle` (`hqJsonOracle.test.ts`
    with `NOVA_HQ_ORACLE_EVIDENCE_DIR`). `npm run proof` runs each inside the
    image from the checkout, with the Linux `node_modules` it mounts. CI's
-   shards mount none: there `quality` runs every producer once
+   shards mount none: there `proof-corpus` runs every producer once
    (`python3 -m proof.native.produce`, `proof/native/produce.py`) and the
    corpus carries what they wrote as `native/`, which the session copies in
    place of producing (`NativeSession.family`), a producer's failure with its
@@ -3176,14 +3176,17 @@ to Formplayer, the Web Apps client, a device or Connect. `ci.yml` sets
 `PROOF_READERS: '0'` for the whole workflow, and runs the lane beside the
 existing jobs:
 
-- **`quality`** ("Lint & type-check", x64) emits the corpus once
+- **`proof-corpus`** ("Proof corpus", x64) emits the corpus once
   (`proof/corpus/emit.ts`) and, beside it, the native proofs' products
   (`python3 -m proof.native.produce`, carried in the corpus as `native/`),
   builds the main queue from them and the evidence store
-  (`python3 -m proof.store.queue main --lane-env PROOF_READERS=0`), and
-  uploads both as artifacts. A failed emission never fails this job: it
-  uploads a failure marker, the shards stop waiting, and the gate names the
-  step that failed.
+  (`python3 -m proof.store.queue main --lane-env PROOF_READERS=0`), uploads
+  both as artifacts, and ends there. It is a job of its own, with its own
+  install of Nova's dependencies, so that the plan waits for the queue and
+  for nothing else: lint and type-check ("Lint & type-check") are no part of
+  the proofs' path, and a failure there skips no shard. A failed emission
+  fails this job and the lane still runs: it uploads a failure marker, the
+  shards stop waiting, and the gate names this job.
 - **`proof-plan`** builds the early queue (groups that need no corpus: the
   surface block and every package whose tests read none; the lane's server
   refuses an early queue holding a document's, a control's or a package in
@@ -3194,10 +3197,13 @@ existing jobs:
   the runners to the tests and smoke, and one that changes everything takes
   what shortens it. The plan chooses a count and nothing else: every group
   the queues hold runs. It writes when the lane is expected to end into the
-  job's summary and gives each shard its deadline. It waits for `quality`,
-  which builds the main queue, and for `smoke-plan`, so its shards queue
-  behind every existing job; without a main queue (a failed emission) it
-  plans the early queue alone, which is all that runs.
+  job's summary and gives each shard its deadline. It waits for
+  `proof-corpus`, which ends when the main queue is uploaded, and for
+  `smoke-plan`, so its shards queue behind every existing job, and it runs
+  whatever `proof-corpus`'s result: without a main queue (a failed emission)
+  it plans the early queue alone, which is all that runs. The shards run
+  whenever the plan gave them a matrix, by a condition of their own, since
+  a job without one is skipped when any job behind its needs failed.
 - **`proof`** ("Proof i/n", `ubuntu-24.04`, x64, the nightly's architecture,
   so the records main's audit saves are the ones it reads) installs nothing,
   runs none of Nova's TypeScript and needs no Android runtime: it pulls the
@@ -3206,8 +3212,10 @@ existing jobs:
   as it claims them, with four workers. It prints its containers' memory
   every few minutes and whenever one passes its last printed peak, and writes
   their peaks into its output (`memory.json`), so a runner that dies says
-  why. `proof/ci/wait.mjs` brings the main queue and the corpus into a shard
-  that started before they existed, and `proof/ci/drained.mjs` ends a shard
+  why. `proof/ci/wait.mjs` brings the main queue and the corpus into a shard:
+  they are there when it starts, since the plan waited for them, and where
+  the emission failed it finds the failure marker in their place and the
+  shard runs the early queue alone. `proof/ci/drained.mjs` ends a shard
   that starts after every block is claimed. A shard fails only when it cannot
   run its blocks; whether the proofs hold is the gate's. Its deadline, twice
   what the plan expects the longest shard to take and never under twenty
@@ -3599,7 +3607,10 @@ for their first three to four minutes, starts most shards one to four minutes
 late, in no fixed order (run 38081646423 started its ten shards from 44 to
 205 seconds, and later shards wait for the test and smoke jobs to end). The
 `no-readers` execution records those as its `slots` (when each runner frees
-for a shard, no earlier than the main queue at about 125 seconds) and its
+for a shard, none earlier than 110 seconds: the plan waits for the corpus
+job, which ends when the main queue is uploaded, 88 and 96 seconds into the
+two runs measured, and the plan's ten seconds and each job's few seconds of
+start follow) and its
 `fixed` and `gate` costs, which the planner models a lane's end from
 (`python3 -m proof.lane.plan`): a lane of N shards is expected to end when
 its N-th slot opens, every shard charged that late start, plus the fixed
@@ -3638,12 +3649,12 @@ to hold everything the change's keys do not move.
 
 | The change | Groups that run | Shards | Expected end |
 | --- | --- | --- | --- |
-| Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | about 6 min (356 to 365 s) |
-| Nova's emission in 10 documents | 25: those, the audit sample and the 11 package groups whose keys name them | 2 | 8.5 min (509 to 511 s) |
-| 40 documents | 57 or 58, 14 of them package groups | 3 | 9.0 min (539 to 540 s) |
+| Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | about 6 min (341 to 350 s) |
+| Nova's emission in 10 documents | 25: those, the audit sample and the 11 package groups whose keys name them | 2 | 8.3 min (494 to 496 s) |
+| 40 documents | 57 or 58, 14 of them package groups | 3 | 8.7 min (524 to 525 s) |
 | 100 documents | 126 to 128, 24 of them package groups | 7 | 9.8 to 9.9 min (588 to 593 s) |
-| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 9.0 min (538 to 539 s) |
-| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 9.0 min (538 to 539 s) |
+| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 8.7 min (523 to 524 s) |
+| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 8.7 min (523 to 524 s) |
 | A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 456, the documents and controls judged from their stored records | 6 | 10.2 min (610 s) |
 | The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 456, observed afresh | 14 | 12.9 min (771 s) |
 

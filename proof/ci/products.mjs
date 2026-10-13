@@ -4,8 +4,8 @@
 //
 //   node proof/ci/products.mjs compare LEFT RIGHT
 //
-// CI's quality job produces them once, on an x64 runner with the runner's own
-// Node, and the lane's shards read them on arm64 in the image; so a product
+// CI's proof-corpus job produces them once, on an x64 runner with the runner's
+// own Node, and the lane's shards read them in the image; so a product
 // must be the same wherever it is produced, but for the identities its
 // producers mint afresh in every production (they export outside the corpus's
 // seeded operations, proof/corpus/entropy.mts): Nova's 40- and 16-digit hex
