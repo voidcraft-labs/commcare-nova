@@ -43,10 +43,25 @@ import java.util.Map;
  * .updateAndProcessRecord): what the record is called and holds and the cases the device then holds are read,
  * and home is handed the result. A walk that cannot
  * leave a screen (a required question the table has no answer for, a constraint none of its values meets, an
- * alert) ends there, with what the screen shows.
+ * alert) ends there, with what the screen shows; and one a form brings back to a repeat's dialog it declined,
+ * with the form's data as it was, ends at that dialog ("cycle"): the form cannot be left that way. A form that
+ * shows MAX_SCREENS screens with neither is one the reader cannot answer for, and the request fails.
  */
 final class Forms {
-    private static final int MAX_SCREENS = 80;
+    /**
+     * The screens a form may show before the reader gives up on it as one that never ends (Formplayer's walk
+     * gives up at the same count, proof/formplayer/walk.py, MAX_SCREENS). The corpus's longest form ends well
+     * within it; a form that reaches it has an end the reader did not see, so reaching it is the reader's
+     * failure, which fails the request by name, and never an end a record holds (FormNeverEnds).
+     */
+    static final int MAX_SCREENS = 400;
+
+    /** A form that showed MAX_SCREENS screens without ending: the reader cannot answer the request. */
+    static final class FormNeverEnds extends Screens.WalkNeverEnds {
+        FormNeverEnds(String message) {
+            super(message);
+        }
+    }
 
     private Forms() {
     }
@@ -113,9 +128,11 @@ final class Forms {
         JSONArray screens = new JSONArray();
         form.put("screens", screens);
         Map<String, Integer> added = new HashMap<>();
+        // Each repeat's dialog the walk declined, with the form's data as it declined.
+        java.util.Set<String> declined = new java.util.HashSet<>();
         String before = null;
-        String ended = "screens";
-        for (int count = 0; count < MAX_SCREENS; count++) {
+        String ended = null;
+        for (int count = 0; ; count++) {
             settle(activity);
             if (activity.isFinishing()) {
                 // The form ended itself: a form with no question left to show is saved without a finish
@@ -124,6 +141,14 @@ final class Forms {
                 break;
             }
             JSONObject screen = screen(activity);
+            if (count >= MAX_SCREENS) {
+                throw new FormNeverEnds("The form " + form.opt("title") + " (" + step.opt("session") + ") showed "
+                        + count + " screens without ending, and is now at " + screen.opt("event") + " "
+                        + screen.opt("index") + "; the reader cannot say how it ends, and no record may hold the"
+                        + " part of it the reader saw as the whole. If the form is this long, raise"
+                        + " Forms.MAX_SCREENS (and Formplayer's, proof/formplayer/walk.py); if it loops, the walk's"
+                        + " answers never leave a repeat or a screen.");
+            }
             screens.put(screen);
             String event = screen.getString("event");
             String now = event + " " + screen.getString("index");
@@ -155,6 +180,15 @@ final class Forms {
                         .genericize());
                 int rows = added.getOrDefault(repeat, 0);
                 boolean add = rows < Answers.repeatsToAdd();
+                if (!add && !declined.add(now + "\u0000" + data())) {
+                    // The form has brought the worker back to a dialog they declined, with nothing of its data
+                    // changed: declining again brings them back again, so the form cannot be left this way. A
+                    // form's end that shows no screen does it (FormEntryActivityUIController.showNextView, at
+                    // EVENT_END_OF_FORM with a view shown, draws the current view again, which steps back from
+                    // the repeat's prompt to the question before it).
+                    ended = "cycle";
+                    break;
+                }
                 added.put(repeat, rows + 1);
                 screen.put("chose", String.valueOf(choices[add ? 1 : 2].getText()));
                 choices[add ? 1 : 2].performClick();
@@ -239,6 +273,13 @@ final class Forms {
             saved.put("afterSend", sent(heldSaved));
         }
         return shadow.getResultCode() == Activity.RESULT_OK;
+    }
+
+    /** The form's data as it stands, serialized as the form's own save serializes it. */
+    private static String data() throws java.io.IOException {
+        return new String(new org.javarosa.model.xform.XFormSerializingVisitor()
+                .serializeInstance(FormEntryActivity.mFormController.getInstance()),
+                java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /**
