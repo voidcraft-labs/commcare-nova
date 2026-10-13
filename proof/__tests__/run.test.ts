@@ -132,10 +132,10 @@ const HANDED = ["ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL", "GITHUB_TOKEN"];
  * so the same assertions hold wherever the suite runs.
  */
 function environmentOf(given: Record<string, string>): NodeJS.ProcessEnv {
-	const environment: NodeJS.ProcessEnv = {};
-	for (const [name, value] of Object.entries(process.env)) {
-		if (!name.startsWith("PROOF_") && !HANDED.includes(name)) {
-			environment[name] = value;
+	const environment = { ...process.env };
+	for (const name of Object.keys(environment)) {
+		if (name.startsWith("PROOF_") || HANDED.includes(name)) {
+			delete environment[name];
 		}
 	}
 	return {
