@@ -333,34 +333,45 @@ def _stops(directories, unrun, readers, fails, selected=None) -> dict:
     named to the group a rerun of which shows it again (``fails``). A run holds the entries of the readers it
     handed its states to, and leaves the rest to the run with every reader. A run over documents named by hand
     (``selected``) ran no other document, so the entries naming another are left to the run that runs it, as a
-    sample's are; a stop one of its own documents shows is still held to the whole list."""
+    sample's are; a stop one of its own documents shows is still held to the whole list. ``held`` and
+    ``leftToNightly`` count the entries this run held and the entries its readers, its sample or its selection
+    left."""
     try:
         entries = stops.load()
     except stops.StopsError as error:
         return _section([str(error)])
     held = stops.held_entries(entries, readers=readers)
     notes = []
+    unsampled = frozenset(unrun) & {entry.document for entry in held}
+    if unsampled:
+        notes.append(
+            f"This run checked a sample of the corpus, so the {sum(entry.document in unsampled for entry in held)}"
+            f" stops the list holds on {len(unsampled)} documents it left out were left to the nightly and the weekly."
+        )
     if selected is not None:
-        outside = {entry.document for entry in held} - selected
+        outside = {entry.document for entry in held} - selected - unsampled
         unrun = frozenset(unrun) | outside
         if outside:
             notes.append(
-                f"This run checked the documents named by hand, so the stops the list holds on {len(outside)} other"
+                "This run checked the documents named by hand, so the"
+                f" {sum(entry.document in outside for entry in held)} stops the list holds on {len(outside)} other"
                 " documents were left to the nightly and the weekly."
             )
+    # What this run held: the entries of its readers on the documents it ran.
+    its = [entry for entry in held if entry.document not in unrun]
     if len(held) != len(entries):
         notes.append(
             f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
             f"{lane_readers.canonical(readers)}), so {len(entries) - len(held)} of the list's {len(entries)} stops,"
-            f" which the readers it did not observe show, were left to the run with every reader; the other"
-            f" {len(held)} were held."
+            " which the readers it did not observe show, were left to the run with every reader"
+            + (f"; the other {len(held)} were held." if len(its) == len(held) else ".")
         )
     problems = []
     for problem, groups in stops.held_evidence(directories, entries, unrun=unrun, readers=readers):
         problems.append(problem)
         for group in groups:
             fails(group, problem)
-    return _section(problems, notes, held=len(held), leftToNightly=len(entries) - len(held))
+    return _section(problems, notes, held=len(its), leftToNightly=len(entries) - len(its))
 
 
 def _profile(queues, outputs) -> tuple[frozenset, list[str]]:

@@ -281,15 +281,38 @@ def test_a_run_over_documents_named_by_hand_leaves_the_stops_of_the_documents_it
     value = json.loads(queue.read_text())
     queue.write_text(json.dumps({**value, "selection": {"documents": ["a"], "left": ["proof/checks"]}}))
     section = _run(output, queue, committed)["sections"]["stops"]
-    assert section["holds"] and section["held"] == 2, section
+    # The counts are of what this run held and what it left, not of the list.
+    assert section["holds"] and (section["held"], section["leftToNightly"]) == (1, 1), section
     assert section["notes"] == [
-        "This run checked the documents named by hand, so the stops the list holds on 1 other documents were left"
+        "This run checked the documents named by hand, so the 1 stops the list holds on 1 other documents were left"
         " to the nightly and the weekly."
     ]
     # Its own document's entry is held in full: a stop the run no longer shows fails it.
     _stopped(output, [])
     [stale] = _run(output, queue, committed)["sections"]["stops"]["problems"]
     assert stale.startswith("a: proof/walk-stops.json holds a stop")
+
+
+def test_a_sampled_run_counts_the_stops_of_the_documents_its_sample_left_out_as_left(tmp_path, own_stops):
+    """A sampled run leaves the entries naming a document outside its sample to the run that runs it. Its section
+    counts them as left and says why, where it once counted every entry of its readers as held."""
+    output, queue, committed = _lane(tmp_path)
+    _stopped(output, [("preview", "form-held")])
+    entries = [
+        {"document": "a", "reader": "preview", "cause": "form-held", "reason": "Because."},
+        {"document": "b", "reader": "formplayer", "cause": "search-refused", "reason": "Because."},
+        {"document": "b", "reader": "preview", "cause": "form-held", "reason": "Because."},
+    ]
+    own_stops.write_text(json.dumps(entries), encoding="utf-8")
+    whole = _run(output, queue, committed)["sections"]["stops"]
+    assert not whole["holds"] and (whole["held"], whole["leftToNightly"], whole["notes"]) == (3, 0, [])
+    queue.write_text(json.dumps({**json.loads(queue.read_text()), "unsampled": ["b", "c"]}))
+    section = _run(output, queue, committed)["sections"]["stops"]
+    assert section["holds"] and (section["held"], section["leftToNightly"]) == (1, 2), section
+    assert section["notes"] == [
+        "This run checked a sample of the corpus, so the 2 stops the list holds on 1 documents it left out were left"
+        " to the nightly and the weekly."
+    ]
 
 
 def _surface_block_dir(output):
