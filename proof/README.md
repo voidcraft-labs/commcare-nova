@@ -3186,7 +3186,9 @@ its problems:
    read as the register's evidence is, held to `proof/walk-stops.json`: a
    stop no entry holds fails by name, and so does an entry whose document's
    run showed no such stop. A run holds the entries of the readers it handed
-   its states to and says how many it left to the run with every reader.
+   its states to and says how many it left to the run with every reader; a
+   run over documents named by hand ran no other document, so it leaves the
+   entries naming one to the run that runs it, and says how many.
 5. **Surface**: the surface block's extraction, or the store's for this image
    and extractor, is byte for byte the committed `surface.json`.
 
