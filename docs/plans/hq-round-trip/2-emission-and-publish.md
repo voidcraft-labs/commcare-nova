@@ -124,10 +124,11 @@ reading left doubt:
   privileges against HQ's own model over every corpus document (part 03); the
   edit-kind rebalancing that `setAppSettings` causes (part 04); and every
   accepted media file in Chromium, Chrome and WebKit on macOS and in
-  Chromium, Firefox and WebKit on Linux. Firefox on macOS could not be
-  launched on the planning machine, so that one pair was not run, and M4A's
-  AAC, which Firefox takes from the operating system, rests there on the
-  vendor's documentation (part 08).
+  Chromium, Firefox and WebKit on Linux. Firefox does not launch on the
+  planning machine's macOS, so that one pair was not run. M4A's AAC is the
+  one accepted encoding Firefox takes from the operating system there, and
+  its decoder was read at Firefox's source at release 155.0: AudioToolbox's,
+  the one that decodes the AAC of an MP4, accepted today (part 08).
 - The expiring IAM condition the cutover's grant carries, on the development
   project's key: accepted, decrypting within its window, refusing after it,
   and removed (part 10).
