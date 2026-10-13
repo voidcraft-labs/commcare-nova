@@ -2172,6 +2172,14 @@ five controls this pull request retains, `targeted-custom-tile-after-59`,
 `targeted-connect-deliver-rename-after-59`, keep an archive that names its
 server and submits, and show the ten classes of "What the working submit
 shows" until each owner's fix, and after it for the nine that move.
+Executed during planning, every reader, with every fix's bytes stacked on
+the lane (the exit state): the five entries on
+`targeted-custom-tile-after-59`, the two on
+`targeted-close-conditions-after-59`, the submit label's on
+`targeted-form-link-hidden-target-after-59` and the location's on
+`targeted-connect-deliver-rename-after-59` each still show on their
+control, and neither `targeted-connect-deliver-rename` nor
+`targeted-hq-side-state` shows the location at its submissions.
 
 **Nova tests.** Each holds what Nova's own code does. What a reader does with
 the result is under "Lane".

@@ -310,18 +310,19 @@ Part 09 holds this in full.
   the editor's spelling; 24 of the lane's stay, one of them widened, and pull
   request 3 adds one (`runtime_url_app_id`), so 25 stand at the exit. Part 09
   gives each rule's verdict and the pull request that retires or adds it.
-- **The register step 2 starts from is the proof lane's as it merges: 883
-  entries.** Step 2 moves 717 entries to the fixed register (666 of the base's
-  and 51 the stack itself registers first), deletes 15 with a judge change or
-  an allowance (14 of the base's and one the stack registers first), and adds
-  126 (2 written straight into the fixed register and 124 live). At the exit
-  the fixed register holds 719 and 275 stay live: the 203 later-step entries
+- **The register step 2 starts from is the proof lane's as it merges: 885
+  entries.** Step 2 moves 721 entries to the fixed register (669 of the base's
+  and 52 the stack itself registers first), deletes 12 with a judge change or
+  an allowance (11 of the base's and one the stack registers first), and adds
+  127 (2 written straight into the fixed register and 125 live). At the exit
+  the fixed register holds 723 and 277 stay live: the 205 later-step entries
   of the base (defects 20, 21, 23 to 28 and 30), of which pull request 9
   re-files one from defect 14 to defect 26, and 72 the stack adds for later
   steps' symptoms its own fixes newly show (defect 25's 61, defect 24's 6,
-  defect 23's 2 and defect 26's 1) or for step 3 (finding 56's 2). Every entry's disposition, by
-  id and pull request, is in part 09; a script over the parts' register
-  sections derives it and fails on an entry with none or two.
+  defect 23's 2 and defect 26's 1) or for step 3 (finding 56's 2). Every
+  entry's disposition, by id and pull request, is in part 09; a script over
+  the parts' register sections derives it and fails on an entry with none or
+  two.
 - **Where the lane runs.** The pull request lane in CI runs without the served
   readers and runs every group the change invalidates, with nothing dropped
   for time: about six minutes when a pull request leaves every group as
