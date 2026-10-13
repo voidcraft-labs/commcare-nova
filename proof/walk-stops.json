@@ -1,0 +1,50 @@
+[
+	{
+		"document": "tile-grouped-browse",
+		"reader": "preview",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-browse",
+		"reader": "webapps",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-one",
+		"reader": "preview",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-one",
+		"reader": "webapps",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-search",
+		"reader": "preview",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-search",
+		"reader": "webapps",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-two",
+		"reader": "preview",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	},
+	{
+		"document": "tile-grouped-two",
+		"reader": "webapps",
+		"cause": "case-not-listed",
+		"reason": "The list groups its tiles by the parent index and the document's visits have none, so the client draws them as one tile whose click takes the first visit (menus/views.js::CaseTileGroupedListView); no worker can open another, which Formplayer itself takes."
+	}
+]

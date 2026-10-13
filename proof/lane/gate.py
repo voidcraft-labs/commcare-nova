@@ -7,9 +7,10 @@ It runs where the shards' outputs and the queues were downloaded, on the
 runner's own Python (3.12 or later) with no image: everything it imports is
 the standard library or the proof's own standard-library modules
 (``proof.lane.blocks``, ``proof.lane.reader``, ``proof.checks.sharding``,
-``proof.checks.registers``, ``proof.checks.differences``). With no queue
-named, it reads the ``queue.json`` a run on one machine writes into its
-output. Four sections, each with its problems:
+``proof.checks.registers``, ``proof.checks.stops``,
+``proof.checks.differences``). With no queue named, it reads the
+``queue.json`` a run on one machine writes into its output. Five sections,
+each with its problems:
 
 1. Exactly once (``proof.checks.sharding.verify``): every queued block ran
    exactly once (a block two shards ran fails, whatever they wrote), every
@@ -29,7 +30,14 @@ output. Four sections, each with its problems:
    (``proof.checks.registers.served_entry``) to the nightly and holds every
    other, and the section says how many it left; every shard must have run
    in the profile its queues were built for (``serve.json``'s ``readers``).
-4. Surface: the surface block's extraction (``blocks/<id>/surface/
+4. Walk stops (``proof.checks.stops.held_evidence``): the stops each
+   document's and control's walks showed (the ``stops`` check's evidence,
+   read as the register's is), held to ``proof/walk-stops.json``: a stop no
+   entry holds fails by name, and so does an entry whose document's run
+   showed no such stop. A run holds the entries of the readers it handed its
+   states to and says how many it left; an entry naming a document the run
+   left out of its sample is left to the run that runs it.
+5. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
    committed surface is another process's extraction (``npm run surface``),
@@ -55,7 +63,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from proof.checks import registers, sharding
+from proof.checks import registers, sharding, stops
 from proof.checks.differences import SERVED_ARTIFACTS
 from proof.lane import blocks as lane_blocks
 from proof.lane import reader
@@ -170,6 +178,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
             problems.append(problem)
             for group in groups:
                 fails(group, problem)
+        walk_stops = _stops(directories, unsampled, readers, fails)
     held = registers.held_entries(entries, readers=readers)
     left = len(entries) - len(held)
     on_control_alone = sum(entry.document in unsampled for entry in held)
@@ -213,6 +222,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         readers=lane_readers.to_record(readers),
         leftToNightly=left,
     )
+    sections["stops"] = walk_stops
 
     sections["surface"] = _surface(queues, verdict, store, committed)
     for problem in sections["surface"]["problems"]:
@@ -223,6 +233,32 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         "failing": [{**entry, "items": collected.get(group, [])} for group, entry in sorted(by_group.items())],
         **({"sample": {"seed": sample.seed, "documents": list(sample.documents)}} if sample is not None else {}),
     }
+
+
+def _stops(directories, unrun, readers, fails) -> dict:
+    """The walk-stops section: every stop the run's documents and controls showed is one ``proof/walk-stops.json``
+    holds, and every entry it holds was shown by its document (``proof.checks.stops.held_evidence``), each problem
+    named to the group a rerun of which shows it again (``fails``). A run holds the entries of the readers it
+    handed its states to, and leaves the rest to the run with every reader."""
+    try:
+        entries = stops.load()
+    except stops.StopsError as error:
+        return _section([str(error)])
+    held = stops.held_entries(entries, readers=readers)
+    notes = []
+    if len(held) != len(entries):
+        notes.append(
+            f"This run observed {lane_readers.described(readers)} ({lane_readers.VARIABLE}="
+            f"{lane_readers.canonical(readers)}), so {len(entries) - len(held)} of the list's {len(entries)} stops,"
+            f" which the readers it did not observe show, were left to the run with every reader; the other"
+            f" {len(held)} were held."
+        )
+    problems = []
+    for problem, groups in stops.held_evidence(directories, entries, unrun=unrun, readers=readers):
+        problems.append(problem)
+        for group in groups:
+            fails(group, problem)
+    return _section(problems, notes, held=len(held), leftToNightly=len(entries) - len(held))
 
 
 def _profile(queues, outputs) -> tuple[frozenset, list[str]]:
@@ -258,6 +294,7 @@ TITLES = {
     "exactlyOnce": "Every block ran exactly once",
     "tests": "Every item passed",
     "register": "Every difference holds to the register",
+    "stops": "Every walk reaches its end or a held stop",
     "surface": "The surface matches the committed one",
 }
 

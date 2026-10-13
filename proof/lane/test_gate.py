@@ -79,6 +79,16 @@ def own_register(tmp_path, monkeypatch):
     return register
 
 
+@pytest.fixture(autouse=True)
+def own_stops(tmp_path, monkeypatch):
+    """A synthetic run holds none of the walk-stops list's documents either, so the gate holds it to a list of its
+    own, empty (``proof.checks.stops.stops_path``)."""
+    held = tmp_path / "walk-stops.json"
+    held.write_text("[]\n", encoding="utf-8")
+    monkeypatch.setenv("PROOF_WALK_STOPS", str(held))
+    return held
+
+
 def _lane(tmp_path, *, outcome="passed", surface=b'{"items": {}}\n', differences=(), with_surface_block=True):
     """One shard's output with a document block and the surface block, and the queue they ran."""
     output = tmp_path / "out"
@@ -181,6 +191,63 @@ def test_the_gate_fails_a_difference_the_register_does_not_hold(tmp_path):
     result = _run(*_lane(tmp_path, differences=[difference]))
     assert not result["sections"]["register"]["holds"]
     assert result["sections"]["tests"]["holds"]
+
+
+def _stopped(output, shown):
+    """The stops check's evidence of document ``a`` in the run's document block: each a reader and a cause."""
+    [directory] = [directory for directory, record in lane_blocks.read_manifests(output) if record["phase"] == "main"]
+    record = {"check": "stops", "document": "a", "kind": "corpus", "differences": []}
+    record["stops"] = [{"reader": reader, "cause": cause} for reader, cause in shown]
+    lane_blocks.write_json(directory / "checks" / "stops" / "corpus-a.json", record)
+    return directory / "checks" / "stops" / "corpus-a.json"
+
+
+def test_the_gate_fails_by_name_a_stop_the_list_does_not_hold_and_a_held_stop_no_run_showed(tmp_path, own_stops):
+    output, queue, committed = _lane(tmp_path)
+    evidence = _stopped(output, [("preview", "form-held")])
+    unheld = _run(output, queue, committed)
+    assert not unheld["holds"] and not unheld["sections"]["stops"]["holds"]
+    assert unheld["sections"]["register"]["holds"] and unheld["sections"]["tests"]["holds"]
+    [problem] = unheld["sections"]["stops"]["problems"]
+    assert problem.startswith("a: a run of the Web Apps client in App Preview stops for form-held")
+    # The verdict names the document's group for whoever reruns it.
+    assert [(entry["group"], entry["why"]) for entry in unheld["failing"]] == [("corpus:a", [problem])]
+
+    entry = {"document": "a", "reader": "preview", "cause": "form-held", "reason": "Because."}
+    own_stops.write_text(json.dumps([entry]), encoding="utf-8")
+    held = _run(output, queue, committed)
+    assert held["holds"] and held["sections"]["stops"]["held"] == 1, held["sections"]["stops"]
+
+    _stopped(output, [])
+    [stale] = _run(output, queue, committed)["sections"]["stops"]["problems"]
+    assert stale.startswith("a: proof/walk-stops.json holds a stop") and "Remove the entry" in stale
+    evidence.unlink()
+    [unran] = _run(output, queue, committed)["sections"]["stops"]["problems"]
+    assert "no shard ran the stops check on it" in unran
+
+    own_stops.write_text("{}", encoding="utf-8")
+    [unread] = _run(output, queue, committed)["sections"]["stops"]["problems"]
+    assert "holds a list of entries" in unread
+
+
+def test_a_run_holds_the_stops_of_the_readers_it_observed_and_says_how_many_it_left(tmp_path, own_stops):
+    output, queue, committed = _lane(tmp_path)
+    _stopped(output, [("formplayer", "search-refused")])
+    entries = [
+        {"document": "a", "reader": "formplayer", "cause": "search-refused", "reason": "Because."},
+        {"document": "a", "reader": "preview", "cause": "form-held", "reason": "Because."},
+    ]
+    own_stops.write_text(json.dumps(entries), encoding="utf-8")
+    # With every reader the client's entry is the run's to show, and it did not.
+    assert not _run(output, queue, committed)["sections"]["stops"]["holds"]
+    serve = json.loads((output / lane_blocks.SERVE).read_text())
+    lane_blocks.write_json(output / lane_blocks.SERVE, {**serve, "readers": ["formplayer", "android"]})
+    queue.write_text(json.dumps({**json.loads(queue.read_text()), "readers": ["formplayer", "android"]}))
+    some = _run(output, queue, committed)["sections"]["stops"]
+    assert some["holds"] and some["held"] == 1 and some["leftToNightly"] == 1, some
+    assert (
+        "observed only formplayer, android (PROOF_READERS=formplayer,android), so 1 of the list's 2" in some["notes"][0]
+    )
 
 
 def _surface_block_dir(output):
