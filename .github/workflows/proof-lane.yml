@@ -10,15 +10,23 @@ name: Proof lane
 # group runs nowhere and the gate holds its stored evidence; the audit sample
 # is observed afresh), builds or finds the Android reader's runtime, runs the
 # shards (`shards`: a count, or `auto`, as many as keep each shard's expected
-# work within two and a half hours of GitHub's six-hour job limit, each with a
-# deadline from it, python3 -m proof.lane.plan size; at most fourteen at once, so
-# six of the account's twenty runners stay free for pull requests) of `image`
+# work within the profile's budget inside GitHub's six-hour job limit
+# (proof/timings.json, execution.budget), each with a deadline from it,
+# python3 -m proof.lane.plan size; at most fourteen at once, so six of the
+# account's twenty runners stay free for pull requests, and past fourteen the
+# count fills its last round) of `image`
 # on `runner`, each handing every state it serves to a device beside HQ's live
 # unit, holds the outputs to the lane's gate, and, as `store`
 # asks, compares them with main's evidence store (a difference fails the run
 # with both records uploaded) and saves them as main's newest snapshot, or
 # packs them for the caller to merge with another call's and save
 # (proof-store-save.yml).
+#
+# A document or control heavy enough is observed in pieces (proof/README.md,
+# "Documents observed in pieces"): each configuration by a group of its own,
+# on a worker of its own, and the document's own group after them judges it
+# whole from the run's store. The queue builder decides which, by the
+# profile's threshold (proof/timings.json, execution.split) or `split-above`.
 #
 # With `readers` false it runs the pull request lane's profile
 # (proof/lane/readers.py, PROOF_READERS=0): no state is served to a reader,
@@ -80,9 +88,13 @@ on:
         type: string
         default: ''
       documents:
-        description: Which corpus documents to queue (all, or sample:<n> for a sample of n the queue builder chooses)
+        description: Which corpus documents to queue (all; sample:<n> for a sample of n the queue builder chooses; or only:<id>,<id> for those documents and their controls alone, which shows the lane on them and is no verdict on the corpus)
         type: string
         default: all
+      split-above:
+        description: The seconds of one worker past which an observed document or control is queued in pieces, one configuration a worker (the profile's execution.split in proof/timings.json when empty; 0 for every one under two configurations; none for no pieces)
+        type: string
+        default: ''
       sample-seed:
         description: The ISO year and week that chooses a sample's window of the corpus (2026-W42; the ranking's first n without one)
         type: string
@@ -192,6 +204,7 @@ jobs:
         env:
           DOCUMENTS: ${{ inputs.documents }}
           SAMPLE_SEED: ${{ inputs.sample-seed }}
+          SPLIT_ABOVE: ${{ inputs.split-above }}
           ARCH: ${{ inputs.arch }}
           LANE_ENV: ${{ inputs.lane-env }}
           FRESH: ${{ inputs.fresh }}
@@ -212,6 +225,8 @@ jobs:
           # A sample's window of the corpus, where the caller names its seed; the builder writes the seed and the
           # sample into this job's summary, and the gate into its verdict.
           if [ -n "$SAMPLE_SEED" ]; then main+=(--sample-seed "$SAMPLE_SEED"); fi
+          # The pieces' threshold, where the caller names one in the profile's place.
+          if [ -n "$SPLIT_ABOVE" ]; then main+=(--split-above "$SPLIT_ABOVE"); fi
           python3 -m proof.store.queue early "${early[@]}" --timings proof/timings.json --arch "$ARCH" \
             "${lane_env[@]}" --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           python3 -m proof.store.queue main "${main[@]}" --documents "$DOCUMENTS" \
@@ -270,8 +285,7 @@ jobs:
     # desktop, on a phone and in App Preview, for every case of each list and
     # in every language the app holds. A sized matrix gives each shard twice
     # the work it is expected to run (python3 -m proof.lane.plan size); a
-    # counted one, the hours a shard of the whole lane with every reader takes
-    # on sixteen shards.
+    # counted one, five and a half hours, which only ends a stuck shard.
     timeout-minutes: ${{ matrix.deadline || 330 }}
     strategy:
       fail-fast: false

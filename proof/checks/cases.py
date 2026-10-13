@@ -14,13 +14,18 @@ A control (``proof/controls/<document id>/``, the retained inputs of one
 document, ``proof.checks.controls``) is run by each check a register entry
 naming it names (``control_params``), and there every such entry must match:
 the check keeps showing the symptom on the retained pre-fix inputs.
+
+A document heavy enough is observed in pieces (``proof.lane.blocks``): each
+configuration by an item of its own (``piece_params``, the items of
+``proof/checks/pieces.py``), before the document's checks, which then read
+what the pieces kept (``proof.checks.observations``).
 """
 
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
@@ -28,6 +33,7 @@ import pytest
 
 from proof.checks import corpus, registers
 from proof.checks.differences import sorted_differences
+from proof.checks.sharding import PIECES_ENVIRONMENT
 
 
 @cache
@@ -68,15 +74,94 @@ def control_params(check):
     ]
 
 
+@dataclass(frozen=True)
+class Piece:
+    """One configuration of one document or control, observed by a group of its own."""
+
+    document: object
+    configuration: str
+
+    @property
+    def group(self) -> str:
+        return f"{self.document.group}@{self.configuration}"
+
+    @property
+    def id(self) -> str:
+        """The item's id, which ``proof.checks.sharding.piece_item`` writes from the group's name alone."""
+        prefix = "control-" if self.document.kind == "control" else ""
+        return f"{prefix}{self.document.id}@{self.configuration}"
+
+
+def queued_pieces(environ=None) -> frozenset[str] | None:
+    """The pieces the lane's main queue names (``PROOF_LANE_PIECES``, which the lane's server sets where its queue
+    names any), or None where no queue is named."""
+    path = (os.environ if environ is None else environ).get(PIECES_ENVIRONMENT)
+    if not path:
+        return None
+    queue = json.loads(Path(path).read_text(encoding="utf-8"))
+    return frozenset(
+        queued["group"] for block in queue["blocks"] for queued in block["groups"] if "@" in queued["group"]
+    )
+
+
+def pieces(documents, controls, named: frozenset[str] | None) -> list[Piece]:
+    """Every piece of ``documents`` and ``controls`` that ``named`` holds (every one, where it is None)."""
+    wholes = None if named is None else {name.partition("@")[0] for name in named}
+    found = [
+        Piece(document, configuration)
+        for document in [*documents, *controls]
+        if wholes is None or document.group in wholes
+        for configuration in sorted(document.exports)
+    ]
+    return [piece for piece in found if named is None or piece.group in named]
+
+
+def piece_params():
+    """The pieces ``proof/checks/pieces.py`` gives an item each: those the lane's queue names, each of which the
+    corpus or the controls must hold; with no queue, every configuration of every document and control, for a
+    person who names one by hand."""
+    named = queued_pieces()
+    found = pieces(load_corpus().documents, corpus.load_controls(), named)
+    missing = sorted((named or frozenset()) - {piece.group for piece in found})
+    if missing:
+        raise AssertionError(
+            f"The queue {os.environ[PIECES_ENVIRONMENT]} names the pieces {', '.join(missing[:5])}"
+            + (f" and {len(missing) - 5} more" if len(missing) > 5 else "")
+            + ", and the corpus and the controls hold no such document under that configuration: the queue was"
+            " built over another corpus."
+        )
+    return [pytest.param(piece, id=piece.id) for piece in found]
+
+
+def _ordered(value):
+    """``value`` with every object's keys in sorted order, all the way down."""
+    if isinstance(value, dict):
+        return {key: _ordered(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_ordered(item) for item in value]
+    return value
+
+
 def evidence(check, document, differences, **extra):
-    """The check's differences on one document, written for the lane's artifacts."""
+    """The check's differences on one document, written for the lane's artifacts.
+
+    What a difference quotes of a record (``before``, ``after``) and what a check adds beside its differences are
+    written with each object's keys in sorted order: a record read back from the evidence store lists them so
+    (it is kept as canonical JSON), where one just observed lists them as HQ built them, and the same records
+    write the same bytes either way. A document judged from the store (one whose pieces observed it, among them)
+    then writes the evidence the same document observed in its own group writes.
+    """
     out = os.environ.get("PROOF_OUT")
     if not out:
         return
     directory = Path(out, "checks", check)
     directory.mkdir(parents=True, exist_ok=True)
-    record = {"check": check, "document": document.id, "kind": document.kind, **extra}
-    record["differences"] = [difference.as_json() for difference in sorted_differences(differences)]
+    record = {"check": check, "document": document.id, "kind": document.kind}
+    record.update({name: _ordered(value) for name, value in extra.items()})
+    record["differences"] = [
+        {**written, "before": _ordered(written["before"]), "after": _ordered(written["after"])}
+        for written in (difference.as_json() for difference in sorted_differences(differences))
+    ]
     (directory / f"{document.kind}-{document.id}.json").write_text(
         json.dumps(record, indent="\t", ensure_ascii=False) + "\n", encoding="utf-8"
     )

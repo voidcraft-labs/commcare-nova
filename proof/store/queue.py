@@ -3,8 +3,8 @@
     python3 -m proof.store.queue early [--store DIR]... [--timings FILE] [--arch A] [--image I] [--fresh]
         --out FILE
     python3 -m proof.store.queue main --corpus DIR [--store DIR]... [--timings FILE] [--arch A] [--image I]
-        [--audit-seed TEXT] [--audit-units N] [--fresh] [--no-dedupe] [--documents all|sample:N]
-        [--sample-seed YYYY-Www] --out FILE
+        [--audit-seed TEXT] [--audit-units N] [--fresh] [--no-dedupe] [--documents all|sample:N|only:ID,...]
+        [--sample-seed YYYY-Www] [--split-above SECONDS|none] --out FILE
 
 The early queue holds the groups whose tests read no corpus
 (``proof.lane.blocks.reads_corpus``): the surface block and every other
@@ -33,17 +33,36 @@ Each group is one of three classes, from the snapshots ``--store`` names
 - observed: everything else, which runs, reading from the store each part it
   holds.
 
-A document split by configuration (``corpus:<id>@<configuration>``) is never
-queued: the checks give each document one item per check, over every
-configuration (``proof.checks.cases.document_params``), so such a group
-would collect nothing.
+Pieces. A document or control is one group on one worker, and with every
+reader the heaviest take one worker hours. One that is observed, is exported
+under more than one configuration, and whose whole measure on one worker is
+past the split threshold is queued in pieces (``split``,
+``proof.lane.blocks``): each configuration a group of its own
+(``corpus:<id>@<configuration>``), which observes it whole into the run's
+store, and the document's own group after them, which reads what they kept
+and judges the document whole. The pieces carry the document's freshness;
+the group that follows them is never fresh. All of them share one block, so
+one shard runs them, on different workers. The threshold is the profile's
+(``proof/timings.json``, ``profiles.<profile>.execution.split``, seconds of
+one worker; a profile that names none splits nothing, as the pull request
+lane's), or ``--split-above`` (``none`` for no pieces). A judged or cached
+document observes nothing and is never split.
+
+A document's whole measure is its own group's with its pieces' where the
+timings were measured from a run that split it (``proof.checks.sharding
+.documents``): its own group then measured its judging alone. Each queued
+group carries the estimate of what it runs as queued: a piece its own
+measure, or ``proof.checks.sharding.PIECE_SHARE`` of the whole where no run
+measured it; the group after its pieces its judging (measured, or the
+profile's judged share of the whole: ``execution.judged`` in the timings,
+``JUDGED_SHARE`` where it names none).
 
 Blocks hold the groups that run. Two documents that share any record part's
 inputs (``signatures``) are put in one block, so the second reads what the
 first kept in its run's delta (``--no-dedupe`` puts each in its own); the
 groups are then packed first-fit, longest first, into blocks of about
 ``BLOCK_SECONDS`` box-seconds, from ``--timings`` (a judged document counts
-``JUDGED_SHARE`` of its estimate), and the blocks are listed longest first.
+its profile's judged share of its estimate), and the blocks are listed longest first.
 
 ``--audit-seed`` (the run's id) marks documents fresh, chosen by sha256 of
 the seed and each group, until they hold ``--audit-units`` (document,
@@ -69,6 +88,20 @@ and the same seed gives the same sample again; without a seed the sample is
 the ranking's first N. The queue names the sample and its seed (``sample``),
 and the builder writes both into the job's summary where
 ``$GITHUB_STEP_SUMMARY`` is set.
+
+``--documents only:<id>,<id>`` builds the main queue of a run over documents
+named by hand: those documents, and the controls of the register's entries
+naming them, and nothing else. It is for showing the lane's mechanics, or one
+change, on a few documents (proof-audit.yml's ``mechanics`` dispatch), never a
+verdict on the corpus: the queue names the documents and every group it
+leaves out beside the other documents (``selection``: each other control,
+and the packages that read the corpus), so a shard counts those as accounted
+for and the gate asks to see the entries naming a selected document alone,
+saying so (``proof.lane.gate``). One of the documents must carry an edit:
+proof 5's check is collected over the edited documents, and the lane refuses
+to collect a check with none. The corpus's index is rewritten as for a sample.
+One of the documents named must carry an edit: proof 5's check runs over the
+edited documents, and a lane collects no check with none to run over.
 
 Each queued group names its key (``key``): a document's document key, a
 package's or the surface block's outcome key, which ``proof.store.pack``
@@ -113,9 +146,11 @@ PROOF_DIR = Path(__file__).resolve().parents[1]
 KNOWN_DEFECTS = PROOF_DIR / "known-defects.json"
 CONTROLS = PROOF_DIR / "controls"
 BLOCK_SECONDS = 12.0
-# What share of a document's estimate its group costs judged (its checks' judges over stored records): 24
-# documents judged took 32.5 s of the 222.9 s they took observed with every browser run replayed from transcripts
-# (every check, four workers, the proof-lane VM).
+# What share of a document's estimate its group costs judged (its checks' judges over stored records) where its
+# profile names none (``execution.judged`` in the timings): 24 documents judged took 32.5 s of the 222.9 s they
+# took observed without the readers, with every browser run replayed from transcripts (every check, four workers,
+# the proof-lane VM). With the readers an observation costs far more and its judging little more, so that
+# profile names its own.
 JUDGED_SHARE = 0.15
 # The (document, configuration) units the audit sample observes fresh.
 AUDIT_UNITS = 8
@@ -162,6 +197,12 @@ class Group:
     units: int = 0
     # An Android group's document: the key its record parts are kept under.
     document: str | None = None
+    # The configurations a document or control is exported under, by name.
+    configurations: tuple[str, ...] = ()
+    # The pieces this group follows (``split``): it runs after them, reading what they observed.
+    after: tuple[str, ...] = ()
+    # Whether the group is a piece: one configuration of a document, observed.
+    piece: bool = False
 
     def __post_init__(self):
         self.observed_estimate = self.estimate
@@ -206,16 +247,18 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
     return sorted(found)
 
 
-def control_groups(known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS, *, readers=True) -> list[str]:
+def control_groups(
+    known_defects: Path = KNOWN_DEFECTS, controls: Path = CONTROLS, *, readers=True, documents=None
+) -> list[str]:
     """The controls the register's held entries name whose directories exist (``proof.checks.cases.control_params``):
     every entry but those whose artifacts the readers a run leaves out write (``readers``, the set it observes;
-    ``proof.checks.registers.held_entries``)."""
+    ``proof.checks.registers.held_entries``); with ``documents``, only the entries naming one of those."""
     try:
         entries = json.loads(known_defects.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
     held = registers.held_entries([entry for entry in entries if isinstance(entry, dict)], readers=readers)
-    named = {entry.get("control") for entry in held}
+    named = {entry.get("control") for entry in held if documents is None or entry.get("document") in documents}
     return sorted(f"control:{name}" for name in named if isinstance(name, str) and (controls / name).is_dir())
 
 
@@ -257,6 +300,33 @@ def sampled(corpus: Path, count: int, seed: str | None = None) -> list[str]:
     return sorted(kept)
 
 
+def selected(corpus: Path, identifiers: list[str]) -> list[str]:
+    """Keep the documents ``identifiers`` name, rewriting ``index.json`` to list them alone and the others under
+    ``unsampled`` (as ``sampled`` does), so the lane collects only those."""
+    path = corpus / "index.json"
+    index = json.loads(path.read_text(encoding="utf-8"))
+    held = {entry["id"] for entry in index["documents"]}
+    unknown = sorted(set(identifiers) - held)
+    if unknown or not identifiers:
+        raise QueueBuildError(
+            "--documents only:<id>,<id> names documents of the corpus by their ids; the corpus at"
+            f" {corpus} holds no {', '.join(unknown) or 'document named so'}."
+        )
+    kept = set(identifiers)
+    if not any((corpus / identifier / "edit").is_dir() for identifier in kept):
+        raise QueueBuildError(
+            f"--documents only:{','.join(identifiers)} names no document that carries an edit (an edit/ directory"
+            " beside its export/). Proof 5's check runs over the edited documents, and the lane refuses to collect a"
+            " check that has none to run over (proof/pytest.ini, empty_parameter_set_mark), so no shard would start"
+            " its documents. Name one edited document among them."
+        )
+    left = [entry for entry in index["documents"] if entry["id"] not in kept]
+    index["documents"] = [entry for entry in index["documents"] if entry["id"] in kept]
+    index["unsampled"] = [*index.get("unsampled", []), *left]
+    path.write_text(json.dumps(index, indent="\t", ensure_ascii=False) + "\n", encoding="utf-8")
+    return sorted(kept)
+
+
 def declared_documents(root: Path, module: str, constant: str) -> tuple[str, ...] | None:
     """The document ids the test module ``module`` (under the checkout ``root``) names in its module-level
     ``constant``, a string or a tuple or list of them, read from its source; None where it names none so."""
@@ -281,13 +351,18 @@ def declared_documents(root: Path, module: str, constant: str) -> tuple[str, ...
     return None
 
 
-def configurations_of(root: Path) -> int:
-    """How many configurations a document or control is exported under (each directory of its ``export/``, as
-    ``proof.checks.corpus.Document.exports`` reads them), at least one."""
+def configuration_names(root: Path) -> tuple[str, ...]:
+    """The configurations a document or control is exported under, by name (each directory of its ``export/``, as
+    ``proof.checks.corpus.Document.exports`` reads them)."""
     directory = Path(root) / "export"
     if not directory.is_dir():
-        return 1
-    return max(1, sum(1 for child in directory.iterdir() if child.is_dir()))
+        return ()
+    return tuple(sorted(child.name for child in directory.iterdir() if child.is_dir()))
+
+
+def configurations_of(root: Path) -> int:
+    """How many configurations a document or control is exported under, at least one."""
+    return max(1, len(configuration_names(root)))
 
 
 def signatures(root: Path) -> frozenset:
@@ -322,10 +397,32 @@ def _passed(outcome) -> bool:
 class Builder:
     """What one queue is built from: the store, the fingerprints, the timings."""
 
-    def __init__(self, stores, found, timings, *, fresh=False, environ=None):
+    def __init__(
+        self,
+        stores,
+        found,
+        timings,
+        *,
+        fresh=False,
+        environ=None,
+        split_above=None,
+        workers=1,
+        judged_share=JUDGED_SHARE,
+    ):
         self.store = pack.merged([] if fresh else stores)
         self.fingerprints = found
+        self.timings = dict(timings)
         self.estimate = sharding.estimate(timings)
+        # Each measured document's whole box-seconds, its pieces' with its own (a run that split it measured both).
+        self.wholes = sharding.documents(timings)
+        # The documents and controls the timings measured in pieces: their own groups' measures are of judging alone.
+        self.measured_in_pieces = {piece[0] for piece in map(lane_blocks.piece_of, timings) if piece is not None}
+        # The seconds of one worker past which an observed document is queued in pieces (None: never), and the
+        # workers a box holds, which the timings' box-seconds are divided by.
+        self.split_above = split_above
+        self.workers = max(1, int(workers))
+        # What share of a document's whole measure its judging costs, where no run measured that alone.
+        self.judged_share = judged_share
         # The environment the lane's shards run in: proof/compose.yaml's, with what a run sets beyond it
         # (proof-lane.yml's lane-env, ``--lane-env``), which the keys their records are kept under name.
         self.environ = {**keys.LANE_ENVIRONMENT, **(environ or {})}
@@ -345,8 +442,21 @@ class Builder:
             group.status, group.judgments = "cached", {"outcome": group.key}
         return group
 
+    def whole(self, name: str) -> float:
+        """A document's or control's whole box-seconds observed: measured (its pieces' with its own), else counted
+        as an unmeasured document is."""
+        return self.wholes[name] if name in self.wholes else self.estimate(name)
+
+    def judging(self, name: str) -> float:
+        """What a document's group costs where every part is read from the store: its own measure where a run
+        measured it after its pieces, else the profile's judged share of its whole (``judged_share``)."""
+        if name in self.timings and name in self.measured_in_pieces:
+            return float(self.timings[name])
+        return self.whole(name) * self.judged_share
+
     def document(self, name: str, root: Path, files: str | None = None) -> Group:
-        group = Group(name, self.estimate(name), fresh=self.fresh, signatures=signatures(root))
+        group = Group(name, self.whole(name), fresh=self.fresh, signatures=signatures(root))
+        group.configurations = configuration_names(root)
         group.units = configurations_of(root)
         files = files if files is not None else keys.files_digest(root)
         group.key = keys.document_key(self.document_scope, name, files)
@@ -360,7 +470,7 @@ class Builder:
             stored = index["parts"].get(keys.storage_key(self.scope, bytes.fromhex(key)))
             if stored is None or stored["record"] != held:
                 return group
-        group.status, group.estimate = "judged", round(group.estimate * JUDGED_SHARE, 3)
+        group.status, group.estimate = "judged", round(self.judging(name), 3)
         records = {part: held for part, (_, held) in entry["parts"].items()}
         judged = keys.group_key(group.key, self.fingerprints["judge"], records)
         outcome = index["groups"].get(judged)
@@ -390,8 +500,46 @@ def audit_sample(groups: list[Group], seed: str, units: int) -> None:
         chosen += max(1, group.units)
 
 
+def split(groups: list[Group], builder: Builder) -> list[Group]:
+    """The groups with each observed document and control past the builder's split threshold queued in pieces: one
+    group for each configuration it is exported under, and its own group after them (the module's docstring)."""
+    if builder.split_above is None:
+        return groups
+    found = []
+    for group in groups:
+        whole = group.observed_estimate
+        if (
+            group.piece
+            or not group.name.startswith(lane_blocks.DOCUMENT_KINDS)
+            or group.status != "observed"
+            or len(group.configurations) < 2
+            or whole * builder.workers <= builder.split_above
+        ):
+            found.append(group)
+            continue
+        share = sharding.piece_share(len(group.configurations))
+        pieces = []
+        for configuration in group.configurations:
+            name = f"{group.name}@{configuration}"
+            measured = builder.timings.get(name)
+            piece = Group(
+                name,
+                round(float(measured) if measured is not None else whole * share, 3),
+                fresh=group.fresh,
+                signatures=group.signatures,
+                piece=True,
+            )
+            pieces.append(piece)
+        group.after = tuple(piece.name for piece in pieces)
+        # It reads what its pieces observed, which carry its freshness.
+        group.fresh, group.estimate = False, round(builder.judging(group.name), 3)
+        found += [*pieces, group]
+    return found
+
+
 def _atoms(groups: list[Group], dedupe: bool) -> list[list[Group]]:
-    """The groups that must share a block: those whose record parts share inputs (with ``dedupe``)."""
+    """The groups that must share a block: those whose record parts share inputs (with ``dedupe``), and always a
+    document's own group with the pieces it follows."""
     parent = {group.name: group.name for group in groups}
 
     def root(name):
@@ -408,6 +556,9 @@ def _atoms(groups: list[Group], dedupe: bool) -> list[list[Group]]:
                     parent[root(group.name)] = root(owner[signature])
                 else:
                     owner[signature] = group.name
+    for group in sorted(groups, key=lambda group: group.name):
+        for piece in group.after:
+            parent[root(piece)] = root(group.name)
     atoms = {}
     for group in sorted(groups, key=lambda group: group.name):
         atoms.setdefault(root(group.name), []).append(group)
@@ -435,7 +586,10 @@ def blocks(groups: list[Group], *, dedupe: bool = True, capacity: float = BLOCK_
             lane_blocks.Block(
                 lane_blocks.block_id(names),
                 round(sum(group.estimate for group in members), 3),
-                tuple(lane_blocks.QueuedGroup(group.name, group.fresh) for group in sorted(members, key=_by_name)),
+                tuple(
+                    lane_blocks.QueuedGroup(group.name, group.fresh, group.after, round(group.estimate, 3))
+                    for group in sorted(members, key=_by_name)
+                ),
             )
         )
     return sorted(found, key=lambda block: (-block.estimate, block.id))
@@ -454,6 +608,7 @@ def queue_value(
     readers: bool = True,
     environment=None,
     sample: lane_blocks.Sample | None = None,
+    selection: lane_blocks.Selection | None = None,
 ) -> dict:
     running = [group for group in groups if group.status != "cached"]
     by_name = {group.name: group for group in groups}
@@ -470,21 +625,25 @@ def queue_value(
             tuple(sorted(unsampled)),
             readers,
             sample,
+            selection,
         )
     )
     for block in value["blocks"]:
         for queued in block["groups"]:
-            # Each group's share of its block's estimate: a group runs on one worker, so the planner reads how
-            # long a shard's longest group is (proof.lane.plan).
-            queued["estimate"] = round(by_name[queued["group"]].estimate, 3)
+            # Each group carries its share of its block's estimate (lane_blocks.QueuedGroup.estimate): a group runs
+            # on one worker, so the planner reads how long a shard's longest group is (proof.lane.plan).
             if by_name[queued["group"]].key is not None:
                 queued["key"] = by_name[queued["group"]].key
             if by_name[queued["group"]].document is not None:
                 queued["document"] = by_name[queued["group"]].document
     value["classes"] = {
-        status: sorted(group.name for group in groups if group.status == status)
+        status: sorted(group.name for group in groups if group.status == status and not group.piece)
         for status in ("cached", "judged", "observed")
     }
+    pieces = sorted(group.name for group in groups if group.piece)
+    if pieces:
+        # The configurations observed by a group of their own, each for its document's group to judge.
+        value["pieces"] = pieces
     value["fresh"] = sorted(group.name for group in groups if group.fresh)
     # The environment every key above names (proof.store.keys.environment), which proof.store.pack holds a run's to.
     value["environment"] = keys.environment(keys.LANE_ENVIRONMENT if environment is None else environment)
@@ -524,19 +683,66 @@ def package_data(name: str, corpus: Path, files: dict[str, str], checkout: Path)
     return found
 
 
-def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR) -> list[Group]:
+def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, only=None) -> list[Group]:
+    """The main queue's groups over the corpus as its index lists it; with ``only`` (the documents a run names by
+    hand, which the index then lists alone), those documents and the controls of the entries naming them."""
     corpus = Path(corpus)
     listed = keys.corpus_documents(corpus)
     # The documents a sample left out are not queued, and a package that names one reads it, so its key reads them.
     emitted = [*listed, *lane_blocks.unsampled_documents(corpus)]
     files = {identifier: keys.files_digest(corpus / identifier) for identifier in emitted}
     groups = [builder.document(f"corpus:{identifier}", corpus / identifier, files[identifier]) for identifier in listed]
-    for name in control_groups(proof_dir / "known-defects.json", proof_dir / "controls", readers=builder.readers):
+    register, controls = proof_dir / "known-defects.json", proof_dir / "controls"
+    for name in control_groups(register, controls, readers=builder.readers, documents=only):
         groups.append(builder.document(name, proof_dir / "controls" / name.partition(":")[2]))
+    if only is not None:
+        return groups
     for name in queued_packages(builder, proof_dir):
         if lane_blocks.reads_corpus(name):
             groups.append(builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent)))
     return groups
+
+
+def selection_left(builder: Builder, groups: list[Group], proof_dir: Path = PROOF_DIR) -> list[str]:
+    """The groups a run over documents named by hand leaves out beside the other documents: each control it does
+    not queue, and the packages that read the corpus."""
+    queued = {group.name for group in groups}
+    every = control_groups(proof_dir / "known-defects.json", proof_dir / "controls", readers=builder.readers)
+    every += [name for name in queued_packages(builder, proof_dir) if lane_blocks.reads_corpus(name)]
+    return sorted(set(every) - queued)
+
+
+def split_threshold(named: str | None, execution: dict) -> float | None:
+    """The seconds of one worker past which an observed document is queued in pieces: ``--split-above``'s where
+    it is given (``none`` for never), else the profile's (``execution.split``), else never."""
+    if named is None:
+        named = execution.get("split")
+        if named is None:
+            return None
+    if named == "none":
+        return None
+    try:
+        seconds = float(named)
+    except (TypeError, ValueError):
+        seconds = -1.0
+    if isinstance(named, bool) or seconds < 0 or seconds != seconds:
+        raise QueueBuildError(
+            "The split threshold is the seconds of one worker past which a document is observed in pieces, or"
+            f" none (--split-above, or the profile's execution.split in the timings); got {named!r}."
+        )
+    return seconds
+
+
+def judged_share(execution: dict) -> float:
+    """What share of a document's whole measure its judging costs in the profile (``execution.judged``),
+    ``JUDGED_SHARE`` where it names none."""
+    named = execution.get("judged", JUDGED_SHARE)
+    if isinstance(named, bool) or not isinstance(named, (int, float)) or not 0 < named <= 1:
+        raise QueueBuildError(
+            "The profile's execution.judged in the timings is the share of a document's whole measure its judging"
+            f" costs, above 0 and at most 1; got {named!r}."
+        )
+    return float(named)
 
 
 def described_sample(sample: lane_blocks.Sample, corpus_documents: int) -> str:
@@ -574,6 +780,12 @@ def main(argv=None) -> int:
     parser.add_argument("--documents", default="all", help="all, or sample:N")
     parser.add_argument("--sample-seed", help="the ISO year and week that chooses a sample's window (2026-W42)")
     parser.add_argument(
+        "--split-above",
+        metavar="SECONDS",
+        help="queue in pieces each observed document and control whose whole measure on one worker is past this"
+        " many seconds (the profile's execution.split in --timings by default; none for no pieces)",
+    )
+    parser.add_argument(
         "--lane-env",
         action="append",
         default=[],
@@ -589,18 +801,21 @@ def main(argv=None) -> int:
             raise QueueBuildError(
                 f"The {arguments.phase} queue holds the corpus's documents: name the corpus with --corpus."
             )
-        sample = None
-        if arguments.documents != "all":
-            kind, _, count = arguments.documents.partition(":")
-            if kind != "sample" or not count.isdecimal() or int(count) < 1 or arguments.phase != "main":
-                raise QueueBuildError(
-                    f"--documents is all or sample:N for the main queue; got {arguments.documents!r}."
-                )
-            sample = lane_blocks.Sample(
-                tuple(sampled(arguments.corpus, int(count), arguments.sample_seed)), arguments.sample_seed
-            )
-        elif arguments.sample_seed is not None:
+        sample, only = None, None
+        kind, _, count = arguments.documents.partition(":")
+        if arguments.sample_seed is not None and kind != "sample":
             raise QueueBuildError("--sample-seed chooses a sample's window, and --documents names no sample.")
+        if arguments.documents != "all":
+            if kind == "only" and arguments.phase == "main":
+                only = selected(arguments.corpus, [name for name in count.split(",") if name])
+            elif kind != "sample" or not count.isdecimal() or int(count) < 1 or arguments.phase != "main":
+                raise QueueBuildError(
+                    f"--documents is all, sample:N or only:<id>,<id> for the main queue; got {arguments.documents!r}."
+                )
+            else:
+                sample = lane_blocks.Sample(
+                    tuple(sampled(arguments.corpus, int(count), arguments.sample_seed)), arguments.sample_seed
+                )
         environ = {}
         for assignment in arguments.lane_env:
             name, equals, value = assignment.partition("=")
@@ -610,22 +825,31 @@ def main(argv=None) -> int:
                 )
             environ[name] = value
         found = fingerprints.compute(arguments.root, arch=arguments.arch, image=arguments.image)
+        execution = sharding.load_execution(arguments.timings, readers=lane_readers.served(environ))
         builder = Builder(
             arguments.store,
             found,
             sharding.load_timings(arguments.timings, readers=lane_readers.served(environ)),
             fresh=arguments.fresh,
             environ=environ,
+            split_above=split_threshold(arguments.split_above, execution),
+            workers=execution.get("workers", 1),
+            judged_share=judged_share(execution),
         )
         proof_dir = Path(arguments.root) / "proof"
-        unsampled = ()
+        unsampled, selection = (), None
         if arguments.phase == "early":
             groups = early(builder, proof_dir)
         else:
-            groups = main_groups(builder, arguments.corpus, proof_dir)
-            unsampled = lane_blocks.unsampled_documents(arguments.corpus)
+            groups = main_groups(builder, arguments.corpus, proof_dir, only=only)
+            if only is None:
+                unsampled = lane_blocks.unsampled_documents(arguments.corpus)
+            else:
+                # The other documents are no sample's remainder: nothing of them is held, on a control or anywhere.
+                selection = lane_blocks.Selection(tuple(only), tuple(selection_left(builder, groups, proof_dir)))
             if arguments.audit_seed and not arguments.fresh:
                 audit_sample(groups, arguments.audit_seed, arguments.audit_units)
+            groups = split(groups, builder)
         dedupe = not arguments.no_dedupe
         value = queue_value(
             groups,
@@ -635,18 +859,27 @@ def main(argv=None) -> int:
             readers=builder.readers,
             environment=builder.environ,
             sample=sample,
+            selection=selection,
         )
         write_queue(arguments.out, value)
     except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
         print(error, file=sys.stderr)
         return 2
     classes = ", ".join(f"{len(names)} {status}" for status, names in value["classes"].items())
+    if value.get("pieces"):
+        split_documents = sorted({name.partition("@")[0] for name in value["pieces"]})
+        classes += f" ({len(split_documents)} of them in {len(value['pieces'])} pieces)"
     left_out = f"; {len(value['unsampled'])} documents left out of the sample" if value.get("unsampled") else ""
     profile = "" if builder.readers == lane_readers.EVERY else f" (for {lane_readers.described(builder.readers)})"
     print(
         f"The {arguments.phase} queue{profile} holds {len(value['blocks'])} blocks; {classes}; {len(value['fresh'])}"
         f" fresh{left_out}; built in {time.perf_counter() - started:.2f} s."
     )
+    if selection is not None:
+        print(
+            f"This run checks the documents named by hand ({', '.join(selection.documents)}) and their controls,"
+            f" and leaves {len(selection.left)} other groups out: it is no verdict on the corpus."
+        )
     if sample is not None:
         said = described_sample(sample, len(sample.documents) + len(value.get("unsampled", ())))
         print(said)

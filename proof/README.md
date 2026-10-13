@@ -2956,6 +2956,12 @@ the others do:
   profiles, the run that proves the store's keys and replaces the snapshot,
   beside the sampled comparisons ("The evidence store and its audits").
 
+With every reader the heaviest documents are hours of one worker, so a lane
+with the readers observes each of those in pieces, one configuration a
+worker, and judges it whole ("Documents observed in pieces", below); the
+profile without the readers names no threshold, and observes every document
+whole.
+
 A scheduled night or week that fails opens an issue that names each failing
 group, why, and the command that reruns that group alone at the commit the
 run checked (`python3 -m proof.lane.report`): `PROOF_READERS=0 npm run proof
@@ -3097,7 +3103,10 @@ written from where a pull request's own run read documents from the store
   snapshot, or packs them for its caller to merge (`store: pack`).
   `ci.yml`'s `lane_sample` input runs it from a branch over a sample of that
   many documents, storing nothing, to hold a change to it before main's
-  audit runs it.
+  audit runs it. `documents` names what it queues (`all`, `sample:<n>`, or
+  `only:<id>,<id>` for those documents and their controls alone), and
+  `split-above` the pieces' threshold in the profile's place ("Documents
+  observed in pieces", below).
 - **`proof-audit.yml`**: the nightly runs and the weekly fresh audit ("The
   evidence store and its audits", above). Each night it runs `proof-lane.yml`
   twice over main against main's store (`fresh: false`), with every reader
@@ -3115,13 +3124,29 @@ written from where a pull request's own run read documents from the store
   `proof/remote/run.sh` where it needs one; a lane that left no verdict is
   named as that. The repository is on GitHub's free plan for
   organizations (twenty jobs at once, six hours a job) and the lane with
-  every reader costs about 550 worker-hours whole, so no lane runs it fresh
-  every night: each lane with the readers sizes its shards from its queue
-  (`python3 -m proof.lane.plan size`: no shard expected past two and a half
-  hours as every shard bins the queues, its deadline twice its expected
-  work; a group alone expected past that fails the plan, naming it) and runs
-  at most fourteen at once, leaving six runners for pull requests; GitHub
-  queues the rest, and queued time is no job's.
+  every reader costs about 550 worker-hours whole, so no lane runs it
+  fresh every night: each lane with the readers sizes its shards from its
+  queue (`python3 -m proof.lane.plan size`: no shard expected past the
+  profile's budget as every shard bins the queues, its deadline twice its
+  expected work; a group alone expected past that fails the plan, naming
+  it; "Documents observed in pieces", below) and runs at most fourteen at
+  once, leaving six runners for pull requests; GitHub queues the rest, and
+  queued time is no job's. A dispatch that names documents (`mechanics`,
+  with `nightly` unticked) runs the lane with every reader (or with none,
+  `mechanics_readers` unticked) over those documents and the controls of
+  the register's entries naming them, and nothing else of the corpus
+  (`python3 -m proof.store.queue --documents only:<ids>`), in pieces as
+  `mechanics_split` says, on `mechanics_shards` shards, and writes what a
+  failed night's issue would say into the run's summary: it shows the queue,
+  the matrix, the shards and their artifacts, the gate and the report on
+  GitHub's runners in minutes (`gh workflow run proof-audit.yml --ref
+  <branch> -f nightly=false -f mechanics=<id>,<id>`). One of the documents
+  named must be an edited one, because proof 5's check is collected over
+  those and the lane refuses to collect a check with nothing to run over;
+  the queue builder refuses a selection without one. It saves no store and
+  is no verdict on the corpus: its gate holds every difference on its
+  documents to the whole register, asks to see only the entries naming
+  them, on the document and on the control, and says what it left.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
   weekly, and for the weekly pin pull request.
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
@@ -3129,6 +3154,131 @@ written from where a pull request's own run read documents from the store
   image and saves it for the pin pull request's CI; beside it the lane runs
   with every reader on the candidate, so a reader that does not hold on the
   new pins fails that run before a person merges them.
+
+### Documents observed in pieces
+
+A document's checks share one observation, and a group runs on one worker.
+With every reader that is hours for the heaviest documents: every state
+served to Formplayer, walked whole in the Web Apps client in every language
+and for every case, and handed to a phone and a tablet. In the whole lane
+run at head `dd12db6b` on the proof machines (471 groups, 2,053,913
+worker-seconds as run) 56 of the 441 documents and controls took more than
+two and a half hours on one worker, and the longest 15,711 seconds. GitHub
+ends a job at six hours, and one document's seconds differ between two runs
+by up to about 1.65 times (hosted run 38152876104 against proof machine runs
+of the same documents: HQ's own operations took 0.8 to 1.2 times as long on
+a hosted runner, a whole document's parts up to 1.65), so no budget alone
+holds the heaviest document on one worker with room to spare.
+
+The observation's own unit is one configuration of one document ("One HQ
+unit per document and configuration"): each configuration is observed in a
+unit of its own, every part under its own key, and shares no state with the
+other. So a document or control that is observed (not judged from the
+store), is exported under more than one configuration, and whose whole
+measure on one worker is past the profile's split threshold is queued in
+pieces (`python3 -m proof.store.queue`, `proof/timings.json`'s
+`execution.split`, or `--split-above`):
+
+- each configuration is a group of its own, a piece
+  (`corpus:<id>@<configuration>`, `control:<id>@<configuration>`): one item
+  (`proof/checks/pieces.py`) that observes that configuration whole into the
+  run's evidence store. It calls the observation the unsplit group calls,
+  for that configuration alone (`observe_document(configurations=...)`), so
+  it runs the same unit and keeps the same parts under the same keys;
+- the document's own group (`corpus:<id>`) follows its pieces (`after` in
+  the queue): a shard hands it out once each piece has passed
+  (`proof/lane/broker.py`), and it reads every part from the run's store and
+  observes nothing (`held_only`). Its checks then judge the document whole,
+  exactly as on a document observed whole: every judge, every comparison of
+  one reader's record with another's, the register and the evidence (one
+  record a check and document) are untouched.
+
+The pieces and the group after them share one block, so one shard runs them,
+on different workers (its workers write one store, and a part one kept is a
+hit for the next that asks). No one worker carries the document: the longest
+run of its work a shard cannot divide is its heavier configuration and the
+judging after it. The heavier configuration took 0.50 to 0.64 of its document
+in three runs with every reader. A worker asks for its next group before its
+group's last item (so pytest knows what runs next), and a piece is one item
+as long as its whole observation, so a worker that holds a piece is handed
+nothing ahead: handed the document's other piece at its start, it would
+carry the whole document while the others stood idle. It asks again when the
+piece ends (`proof/lane/broker.py`).
+
+The profile's budget is three hours a shard and its threshold half of that
+(`proof/timings.json`, `execution.budget` and `execution.split`, set from
+that whole run): the longest document's heavier configuration, counted at
+0.65 of it until a run measures it (10,212 s), fits the budget with its
+judging, and at 1.7 times it is inside the 345-minute deadline. 153 of the
+441 documents and controls ran past the threshold, 146 as the profile counts
+them (`measured.basis`: each bin at one density, where the longest is
+13,321 s).
+
+What holds it exact, each by a test or a run:
+
+- **No new key and no recreated state.** A piece is the unit an unsplit
+  observation runs for that configuration. `proof/lane/test_forkserver.py`
+  runs two real documents whole and in pieces through two nested lanes, in
+  the lane's own profile, and holds every check's evidence, every record
+  part the store keeps and each document's entry to the same bytes, and
+  the document's own group to having observed nothing.
+- **The same records write the same evidence.** A record read back from the
+  store is canonical JSON, so a judge reads each object's keys in sorted
+  order, where a record just observed lists them as HQ built them. What a
+  difference quotes and what a check adds beside its differences are
+  written with their keys sorted (`proof.checks.cases.evidence`), so a
+  document judged from the store writes the bytes its own observation
+  writes.
+- **The document's group never observes in its pieces' place.** A piece that
+  fails, runs no item or is lost with its worker fails the group that
+  follows it at once, by the piece's name, and that group is never handed
+  out (`proof/lane/test_broker.py`). Where it runs, a part no piece kept
+  raises `PartsNotHeld` naming it (`proof/checks/test_pieces.py`); a
+  configuration whose create HQ refused keeps only its `a`, and reads whole.
+  A lane that keeps no store (`PROOF_STORE=off`) fails each piece before it
+  observes, so nothing is observed twice or for no one.
+- **Exactly once.** A piece is a queued group of one item: the gate holds it
+  as any group (its block ran once, its item ran and passed), and names a
+  failed piece and the group it kept from running, each with why
+  (`proof/lane/test_gate.py`). A queue is refused unless each piece is in its
+  document's block with the group that follows it, a piece follows nothing,
+  and a group that follows pieces is not fresh: the pieces carry a fresh
+  lane's freshness, each part they observe held to the store as an unsplit
+  fresh group's is (`proof/lane/test_blocks.py`).
+- **Collected only where queued.** `proof/checks/pieces.py` is no
+  `test_*.py`. A shard whose main queue names pieces collects it as a test
+  module for that run (`PROOF_LANE_PIECES` names the queue, and the module
+  gives one item for each piece it names), so no shard collects an item no
+  queue runs, and a lane with no pieces collects none.
+
+A run that observed a document in pieces measures it as it ran: each piece
+under its own name, and the document's own group its judging alone
+(`proof/timings.json`). The document's whole measure is their sum
+(`proof.checks.sharding.documents`), which is what the threshold is held to,
+so a document does not pass for light by its judging's measure. A piece no
+run has measured counts at 0.65 of its document's whole (`PIECE_SHARE`), so a
+lane sized before its pieces are measured is oversized, never overrun.
+
+`plan size` counts a document in pieces as its longest piece and the judging
+after it, and refuses a lane in which that run alone is past the budget, by
+the piece's name: a configuration is the smallest piece a document is
+observed in. The smaller seams are not exact without more: a part
+(`b`, `b_edit`) observed by another worker than `a` would be observed over a
+recreated A, which draws other ids where HQ's determinism is off and gives a
+Connect app an opportunity that never received the earlier states'
+deliveries; a reader's share of one state cannot be divided from the others',
+since Connect receives what Formplayer and the devices each submit, a
+device's judge reads what HQ refused Formplayer in the same state, and the
+client replays Formplayer's walk; and proof 4's saves inside `b` share one
+record and one memo of served states.
+
+A failed night's issue names a failed piece as one, with the line that
+observes that configuration again alone
+(`proof/remote/run.sh <host> -- 'proof/checks/pieces.py::<the piece's item>'`:
+named by its path with no queue, the module gives an item for every
+configuration of every document, and the one named runs), and the document's
+group it kept from running with the line that reruns the document's checks,
+which observe it whole on one worker.
 
 ### Timings and what the lane is expected to take
 
@@ -3174,15 +3324,18 @@ hours with fourteen at once, which no pull request can wait for and no night
 can spend whole, so the nightly runs it against main's store, observing what
 changed, and the weekly runs it whole (`proof-audit.yml`). Each sizes its
 shards from its queue's estimates, which come from the `readers` costs, to
-stay within two and a half hours a shard. As measured, a whole fresh lane
-does not fit that: 56 groups (55 documents and controls, and the
-`proof/formplayer` package) are each expected past the 9,000 seconds a shard
-is given, on one worker, so `plan size` refuses a queue that holds one of
-them fresh, naming the longest; given 13,500 seconds a shard it plans 37
-shards. Until a group that long runs in parts, the whole lane with every
-reader runs on proof machines, as this run did ("Running the lane on another
-machine": sixteen static bins of one queue, 184 workers on 224 vCPUs, each
-bin two and three quarter to four and three quarter hours, gated together).
+stay within the profile's budget a shard (`execution.budget`), with its
+heaviest documents observed in pieces ("Documents observed in pieces",
+above). From this measure `plan size` gives a whole fresh lane 56 shards,
+four rounds of fourteen, none expected past 10,640 seconds: 146 documents
+and controls are queued in 294 pieces, each counted at 0.65 of its document
+until a run measures the pieces. Past fourteen shards the count is rounded
+up to a multiple of fourteen: fourteen run at once, so the lane takes as
+many rounds either way, and the same work over a full last round ends
+sooner. The measuring run itself was on proof machines
+("Running the lane on another machine": sixteen static bins of one queue,
+every document whole, 184 workers on 224 vCPUs, each bin two and three
+quarter to four and three quarter hours, gated together).
 
 **The pull request lane.** The `no-readers` costs come from one run of the
 whole lane without the readers on a 32-vCPU proof machine at 32 workers, one
@@ -3226,10 +3379,11 @@ heaviest block first, each to the least loaded bin), the main queue's bins
 starting from the early queue's loads so no shard holds the heaviest block of
 both; each block runs on exactly one shard, which the gate holds. A shard's
 expected span is its bin's box-seconds, or the longest group in it on one
-worker (its box-seconds times four) when that is longer. For the lanes with
-the readers, `plan size` refuses a group that alone is expected past a
-shard's budget, naming it, so the planning step fails loudly instead of
-starting a shard that would run out its six hours.
+worker (its box-seconds times four) when that is longer; a group that
+follows pieces counts with its longest piece. For the lanes with the
+readers, `plan size` refuses a group that alone is expected past a shard's
+budget, naming it (a piece, by its name), so the planning step fails loudly
+instead of starting a shard that would run out its six hours.
 
 More shards end the work sooner and start later, so some count ends soonest.
 `plan fit` takes the fewest shards (up to `execution.shards`) whose expected

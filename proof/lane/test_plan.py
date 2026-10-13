@@ -2,21 +2,27 @@
 
 Contracts (``proof.lane.plan``): a plan chooses a shard count and nothing else, so the queues it reads are left as
 they are and every group they hold runs. A lane with the readers takes the fewest shards over which no shard is
-expected past its budget, each with twice its expected work as a deadline, and a group that alone would run past
-the budget fails the plan by name. A pull request's lane takes the fewest shards whose expected end is within the
-tolerance of the soonest any count ends, every shard charged the latest start of the slots its count uses, and
-says when it expects to end and each shard's deadline (twice its expected time, never under the floor). The
-plausible failures: a plan that drops or rewrites a group to end sooner, a small lane taking every runner for a
-second's gain, a large lane held to few shards, a deadline short enough to end a shard that is only doing its work,
-and a summary that names another end than the plan's.
+expected past its budget (the profile's, from proof/timings.json), each with twice its expected work as a deadline,
+and a group that alone would run past the budget fails the plan by name. A document observed in pieces counts as
+its longest piece and the judging after it, the longest run of its work a shard cannot divide. Past as many shards
+as run at once the count is rounded up to a multiple of that many, never past the blocks there are to run. A
+pull request's lane takes the fewest shards whose expected end is within the tolerance of the soonest any count ends,
+every shard charged the latest start of the slots its count uses, and says when it expects to end and each
+shard's deadline (twice its expected time, never under the floor). The plausible failures: a plan that drops or
+rewrites a group to end sooner, a small lane taking every runner for a second's gain, a large lane held to few
+shards, a deadline short enough to end a shard that is only doing its work, a summary that names another end than
+the plan's, a lane refused for a document whose pieces each fit (or planned as if its pieces and its judging ran
+at once), and a last round of two shards beside rounds of fourteen twice as long as they need be.
 """
 
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
+from proof.checks import sharding
 from proof.lane import blocks as lane_blocks
 from proof.lane import plan
 
@@ -89,10 +95,75 @@ def test_a_lane_with_the_readers_is_sized_to_its_budget_and_refuses_a_group_past
     lane = _lane(_queue([("proof/core", 100.0)]), _documents(100, 90.0))
     sized = plan.size(lane, workers=4, budget=3600.0)
     # 9,100 box-seconds within 3,600 a shard: three shards.
-    assert sized == {"shards": 3, "deadline": 102, "expected": 3060.0}
-    assert plan.size(_lane(_queue(), _queue()), workers=4) == {"shards": 1, "deadline": 60, "expected": 0.0}
-    with pytest.raises(plan.PlanError, match="The group corpus:huge is expected to run 4000 s on one worker"):
+    assert sized == {"shards": 3, "fewest": 3, "deadline": 102, "expected": 3060.0}
+    assert plan.size(_lane(_queue(), _queue()), workers=4) == {
+        "shards": 1,
+        "fewest": 1,
+        "deadline": 60,
+        "expected": 0.0,
+    }
+    with pytest.raises(plan.PlanError) as refused:
         plan.size(_lane(_queue(), _queue([("corpus:huge", 1000.0)])), workers=4, budget=3600.0)
+    # A document queued whole past the budget is named with what would divide it.
+    assert "The group corpus:huge is expected to run 4000 s on one worker of a shard, past the 3600 s" in str(
+        refused.value
+    )
+    assert "is observed in pieces, one configuration a worker" in str(refused.value)
+    with pytest.raises(plan.PlanError, match=r"The group proof/editors is expected to run 4000 s .* Split it \("):
+        plan.size(_lane(_queue([("proof/editors", 1000.0)]), _queue()), workers=4, budget=3600.0)
+
+
+def _pieces(name: str, heavier: float, lighter: float, judging: float) -> dict:
+    """The queue of one document in pieces, in box-seconds: its two configurations' and its own group after them."""
+    value = _queue([(f"{name}@maximum", heavier), (f"{name}@minimum", lighter), (name, judging)])
+    value["blocks"][0]["groups"][2]["after"] = [f"{name}@maximum", f"{name}@minimum"]
+    return value
+
+
+def test_a_document_in_pieces_counts_as_its_longest_piece_and_the_judging_after_it():
+    # Whole, the document would run 4,040 s on one worker. In pieces its longest run is 600 box-seconds of the
+    # heavier configuration and 10 of judging, 2,440 s on a worker, while the lighter piece runs beside it.
+    lane = _lane(_queue(), _pieces("corpus:heavy", 600.0, 400.0, 10.0))
+    assert lane.after == {"corpus:heavy": ("corpus:heavy@maximum", "corpus:heavy@minimum")}
+    assert lane.runs() == {"corpus:heavy@maximum": 600.0, "corpus:heavy@minimum": 400.0, "corpus:heavy": 610.0}
+    assert plan.spans(lane, 1, 4) == [2440.0]
+    assert plan.size(lane, workers=4, budget=3600.0) == {"shards": 1, "fewest": 1, "deadline": 82, "expected": 2440.0}
+    # A configuration that alone outgrows the budget is refused by its piece's name: nothing smaller divides it.
+    with pytest.raises(plan.PlanError) as refused:
+        plan.size(lane, workers=4, budget=2400.0)
+    assert str(refused.value).startswith(
+        "The piece corpus:heavy@maximum and the judging of corpus:heavy that follows it are expected to run 2440 s"
+        " on one worker of a shard, past the 2400 s a shard is given"
+    )
+    assert "A configuration is the smallest piece a document is observed in" in str(refused.value)
+    # The fit, which a pull request's lane uses, reads the same run of work.
+    execution = plan.Execution(shards=2, workers=4, slots=(0.0,), fixed=0.0, gate=0.0)
+    assert plan.span(lane, 1, execution) == 2440.0
+
+
+def test_past_as_many_shards_as_run_at_once_the_count_fills_its_last_round():
+    # 160 documents of 20 box-seconds within 210 a shard: sixteen shards of 200 s, fourteen at once, so two rounds
+    # either way. Twenty-eight fill the second round, and each then runs six documents at most, 120 s.
+    lane = _lane(_queue(), _documents(160, 20.0))
+    assert plan.size(lane, workers=1, budget=210.0, parallel=14) == {
+        "shards": 28,
+        "fewest": 16,
+        "deadline": 60,
+        "expected": 120.0,
+    }
+    # Within one round nothing is added: the fewest shards take the fewest runners.
+    assert plan.size(lane, workers=1, budget=210.0, parallel=16)["shards"] == 16
+    assert plan.size(_lane(_queue(), _documents(60, 20.0)), workers=1, budget=210.0, parallel=14)["shards"] == 6
+    # A count already a multiple stands, and no shard is added past the blocks there are to run: sixteen
+    # documents of 100 s, one a shard, take sixteen shards, and eighteen of them eighteen.
+    assert plan.size(_lane(_queue(), _documents(280, 20.0)), workers=1, budget=210.0, parallel=14)["shards"] == 28
+    assert plan.size(_lane(_queue(), _documents(16, 100.0)), workers=1, budget=110.0, parallel=14)["shards"] == 16
+    assert plan.size(_lane(_queue(), _documents(18, 100.0)), workers=1, budget=110.0, parallel=14)["shards"] == 18
+
+
+def test_as_many_shards_run_at_once_as_the_lanes_workflow_says():
+    workflow = (sharding.PROOF_DIR.parent / ".github" / "workflows" / "proof-lane.yml").read_text(encoding="utf-8")
+    assert [int(found) for found in re.findall(r"^\s*max-parallel: (\d+)$", workflow, re.M)] == [plan.PARALLEL_SHARDS]
 
 
 def _timings(tmp_path):
@@ -105,8 +176,39 @@ def _timings(tmp_path):
         "fixed": 100,
         "gate": 50,
     }
-    timings.write_text(json.dumps({"profiles": {"no-readers": {"execution": execution, "groups": {}}}}))
+    readers = {"shards": 16, "workers": 4, "runner": "ubuntu-24.04", "budget": 2500, "split": 1250}
+    profiles = {
+        "no-readers": {"execution": execution, "groups": {}},
+        "readers": {"execution": readers, "groups": {}},
+    }
+    timings.write_text(json.dumps({"profiles": profiles}))
     return timings
+
+
+def test_a_sized_lane_is_given_its_profiles_budget_from_the_timings(tmp_path, monkeypatch, capsys):
+    timings = _timings(tmp_path)
+    early, main = tmp_path / "early.json", tmp_path / "main.json"
+    early.write_text(json.dumps({**_queue([("proof/core", 20.0)]), "readers": True}))
+    main.write_text(json.dumps({**_pieces("corpus:heavy", 600.0, 400.0, 10.0), "readers": True}))
+    arguments = ["size", str(early), str(main), "--timings", str(timings)]
+    # With every reader the profile gives a shard 2,500 s, which holds the heavier piece and its judging (2,440 s).
+    monkeypatch.setenv("PROOF_READERS", "all")
+    assert plan.main(arguments) == 0
+    assert json.loads(capsys.readouterr().out) == {"shards": 1, "fewest": 1, "deadline": 82, "expected": 2440.0}
+    # A budget named by hand stands in its place, and one the piece outgrows refuses the lane by the piece's name.
+    assert plan.main([*arguments, "--budget", "2400"]) == 1
+    assert "The piece corpus:heavy@maximum and the judging of corpus:heavy" in capsys.readouterr().err
+    # A profile that names no budget is given the lane's own: the pull request lane's profile names none.
+    monkeypatch.setenv("PROOF_READERS", "0")
+    early.write_text(json.dumps(_queue([("proof/core", 20.0)])))
+    main.write_text(json.dumps(_pieces("corpus:heavy", 600.0, 400.0, 10.0)))
+    assert plan.main(arguments) == 0
+    assert json.loads(capsys.readouterr().out)["expected"] == 2440.0
+    broken = json.loads(timings.read_text())
+    broken["profiles"]["no-readers"]["execution"]["budget"] = "long"
+    timings.write_text(json.dumps(broken))
+    assert plan.main(arguments) == 1
+    assert "execution.budget is the seconds a shard" in capsys.readouterr().err
 
 
 def test_the_command_prints_the_plan_leaves_the_queues_as_they_are_and_writes_the_summary(

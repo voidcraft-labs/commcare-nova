@@ -47,7 +47,14 @@ run it all once between them. With queues it runs the early
 queue's blocks first (groups that need no corpus: each group's tests,
 ``proof.checks.sharding.collection_roots``), and the main queue's as soon as
 it is known, every test under ``proof/`` but the early phase's; while early
-groups still run, main workers take the slots early workers leave. An
+groups still run, main workers take the slots early workers leave. Where
+the main queue names pieces (``proof.lane.blocks``: one configuration of a
+heavy document observed by a group of its own), the main phase collects
+their items too (``proof.checks.sharding.PIECES_MODULE``, named a test module
+for this collection, which gives one item for each piece the queue
+``PROOF_LANE_PIECES`` names), and a group that follows pieces is handed out
+once they have passed (``proof.lane.broker``); one whose piece did not pass
+is never run, and the server's exit says so (1) whatever its items. An
 early queue holding a group that reads the corpus (a document's, a
 control's, or a package in ``proof.lane.blocks.CORPUS_PACKAGES``) is refused
 at the start, before HQ boots. The main phase reads the corpus PROOF_CORPUS
@@ -256,6 +263,8 @@ class Server:
         self.validation = None
         self.restored = False
         self.failing: list[str] = []
+        # Each group a block was written with as failed before it ran an item (one whose piece did not pass).
+        self.unrun: list[str] = []
         self.ran_items = 0
         self.collect_only_code: int | None = None
         self.record: dict = {
@@ -408,9 +417,21 @@ class Server:
             self.phases["main"] = PhaseInfo("main", [*self._base_args(), str(PROOF_DIR), *ignored])
             self.broker.add_phase("main", static=static)
             if options.queue.exists():
-                self.broker.offer("main", self._binned(self._load(options.queue, "main"), after=self._early()))
+                queue = self._load(options.queue, "main")
+                self._collect_pieces(queue)
+                self.broker.offer("main", self._binned(queue, after=self._early()))
             else:
                 self._start_wait()
+
+    def _collect_pieces(self, queue: lane_blocks.Queue):
+        """Have the main phase collect the pieces the main queue names: their module, which reads the queue for
+        them (``proof.checks.pieces``), named a test module for this collection beside every test under
+        ``proof/`` (``sharding.PIECES_FILES``). A queue that names none collects none, so no shard collects an
+        item no queue runs."""
+        if not any(lane_blocks.piece_of(name) is not None for name in queue.groups()):
+            return
+        os.environ[sharding.PIECES_ENVIRONMENT] = str(self.options.queue)
+        self.phases["main"].args += sharding.PIECES_FILES
 
     def _load(self, path: Path, phase: str) -> lane_blocks.Queue:
         try:
@@ -532,6 +553,7 @@ class Server:
             self.broker.cancel("main")
             return
         say(f"The main queue arrived after {seconds} s: {len(queue.blocks)} blocks.")
+        self._collect_pieces(queue)
         self.broker.offer("main", self._binned(queue, after=self._early()))
 
     # Collecting ------------------------------------------------------------------------------
@@ -629,6 +651,9 @@ class Server:
             if path is not None and path.exists():
                 queue = lane_blocks.load_queue(path)
                 accounted |= queue.groups() | {entry.group for entry in queue.cached}
+                if queue.selection is not None:
+                    # A run over documents named by hand leaves these out, and says so (proof.lane.gate).
+                    accounted |= set(queue.selection.left)
         info.record["unaccounted"] = sorted(set(info.by_group) - accounted)
         queued = {name for block in self.broker.phases[info.name].blocks for name in block.names}
         missing = sorted(queued - set(info.by_group))
@@ -772,7 +797,7 @@ class Server:
         if held.refusal or self.stopping or held.phase in self.broken:
             self._send(held, {"group": None})
             return True
-        assignment = self.broker.next_for(held.phase, held.sequence)
+        assignment = self.broker.next_for(held.phase, held.sequence, ahead=not wait)
         if assignment == WAIT:
             if wait:
                 return False
@@ -790,6 +815,7 @@ class Server:
                 "block": assignment.block,
                 "fresh": assignment.fresh,
                 "phase": assignment.phase,
+                "after": list(assignment.after),
             },
         )
         return True
@@ -952,6 +978,8 @@ class Server:
             failure = state.failure
             if state.status not in ("finished", "failed"):
                 failure = unfinished or "it never ran"
+            elif failure and state.worker is None:
+                self.unrun.append(f"{group}: {failure}")
             groups.append(
                 lane_blocks.group_record(
                     group=group,
@@ -1086,7 +1114,7 @@ class Server:
             return EXIT_INTERRUPTED
         if self.problems:
             return EXIT_BROKEN
-        if self.failing:
+        if self.failing or self.unrun:
             return EXIT_FAILED
         if not any(info.groups for info in self.phases.values()) and all(info.local for info in self.phases.values()):
             return EXIT_NOTHING
@@ -1097,6 +1125,8 @@ class Server:
         say(f"Ran {blocks} blocks, {self.ran_items} items; {len(self.failing)} failed.")
         for node_id in self.failing[:30]:
             say(f"  failed: {node_id}")
+        for group in self.unrun[:30]:
+            say(f"  not run: {group}")
         for problem in self.problems:
             say(f"Problem: {problem}")
         say(f"Exit status {code}; the run's record is {self.out / lane_blocks.SERVE}.")

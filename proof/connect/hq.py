@@ -104,12 +104,31 @@ def _admin_signed_in(unit, operation, label):
 
 # The headers that belong to the browser's connection to the origin, not to the request HQ is handed.
 _BROWSER_TRANSPORT = {"host", "connection", "content-length", "accept-encoding"}
+# What a request's key reads in place of an address the lane drew for this process.
+DRAWN = b"@drawn"
 
 
-def _drive_page(unit, path, steps, signed_in, label):
+def keyed_body(body: bytes, drawn) -> bytes:
+    """A posted body as its request's key reads it: each text of ``drawn`` (an address the lane drew for this
+    process: Connect's, which names the process's id, ``proof.connect.runtime.ConnectSession``) written as one
+    constant, in each spelling a form posts it in. The admin types Connect's address into HQ's Connection
+    Settings page, so the form it posts holds it; keyed on the body as it stands, the unit's key, and every key
+    and drawn id after it, would differ with the process that observed, and two observations of one document
+    would keep two records under one key."""
+    from urllib.parse import quote, quote_plus
+
+    for text in drawn:
+        for spelled in (quote(text, safe=""), quote_plus(text), text):
+            body = body.replace(spelled.encode(), DRAWN)
+    return body
+
+
+def _drive_page(unit, path, steps, signed_in, label, drawn=()):
     """HQ's page at ``path`` opened in Chromium for the signed-in admin and ``steps`` run on it, as their browser
     runs them: every request the page makes answered by the view HQ's URLconf names behind HQ's own middleware
     (``proof.formplayer.hq.respond``), each in a request of the unit, and HQ's static files by HQ's own finders.
+    ``drawn`` names what the steps type that the lane drew for this process, which a request's key reads as one
+    constant (``keyed_body``).
 
     The lane has two names for HQ where a deployment has one (the browser's origin, and the address HQ answers
     as), so the ``Origin`` and ``Referer`` the browser wrote are sent under HQ's own, and HQ's CSRF check then
@@ -152,7 +171,8 @@ def _drive_page(unit, path, steps, signed_in, label):
                 value = formplayer_hq.PAGE_ORIGIN + value[len(browser) :]
             headers.append((name, value))
         body = asked.body or b""
-        digest = hashlib.sha256(f"connect-page|{label}|{asked.method}|{asked.url}|".encode() + body).digest()
+        keyed = keyed_body(body, drawn)
+        digest = hashlib.sha256(f"connect-page|{label}|{asked.method}|{asked.url}|".encode() + keyed).digest()
         # Django masks the CSRF token it writes into each page it renders with a string it draws: drawn from the
         # request's digest, as an editor page's are, so the form the page posts, and every key after it, is the
         # same on every run.
@@ -248,6 +268,7 @@ def forwarding(unit, connect_url: str, operation, label: str):
                     ],
                     signed_in,
                     f"connection-settings@{label}",
+                    drawn=(connect_url,),
                 )
                 settings = ConnectionSettings.objects.filter(domain=unit.domain, name=CONNECTION_NAME).first()
                 if settings is None:

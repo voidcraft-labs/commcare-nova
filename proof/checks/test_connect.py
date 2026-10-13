@@ -297,3 +297,27 @@ def test_what_another_state_already_shows_is_not_reported_again_beyond_it():
         "/runs/*/refused/400/payment-unit-is-not-configured-for-the-deliver-unit"
     ]
     assert len(_own(edited)) == 2
+
+
+def test_the_admins_form_is_keyed_without_the_address_connect_answers_at():
+    """Connect answers at an address its process's id names, and the admin types it into HQ's Connection Settings
+    page. Keyed on the posted form as it stands, a Connect app's unit would draw other ids and keys on every
+    worker, and its record would be no function of its key (the evidence store would hold two for one)."""
+    from urllib.parse import urlencode
+
+    from proof.connect import hq
+
+    def posted(address):
+        form = {"name": "CommCare Connect", "url": f"{address}/api/receiver/", "token_url": f"{address}/o/token/"}
+        return urlencode(form).encode()
+
+    one, other = "http://127.2.3.4", "http://127.2.199.201:8080"
+    assert posted(one) != posted(other)
+    assert hq.keyed_body(posted(one), (one,)) == hq.keyed_body(posted(other), (other,))
+    assert b"127.2" not in hq.keyed_body(posted(one), (one,)) and hq.DRAWN in hq.keyed_body(posted(one), (one,))
+    # What the admin types that the lane did not draw stays in the key, and a body that names no address is kept.
+    assert b"CommCare+Connect" in hq.keyed_body(posted(one), (one,))
+    assert hq.keyed_body(b"connection_settings_id=7", (one,)) == b"connection_settings_id=7"
+    # A browser's own form encoding, which writes a space as + and leaves ~ alone, and the address as it stands.
+    assert hq.keyed_body(b"url=http%3A%2F%2F127.2.3.4%2Fapi", (one,)) == b"url=" + hq.DRAWN + b"%2Fapi"
+    assert hq.keyed_body(b'{"url": "http://127.2.3.4/api"}', (one,)) == b'{"url": "' + hq.DRAWN + b'/api"}'

@@ -29,6 +29,13 @@ output. Four sections, each with its problems:
    (``proof.checks.registers.served_entry``) to the nightly and holds every
    other, and the section says how many it left; every shard must have run
    in the profile its queues were built for (``serve.json``'s ``readers``).
+   A run over documents named by hand (its main queue's ``selection``,
+   ``proof.store.queue --documents only:``) holds every difference on them
+   to the whole register (an entry holds its class on every document), asks
+   to see only the entries naming one of them, on it and on its control,
+   leaves every other to the nightly and the weekly, and says so with what
+   else it left out: it shows the lane on those documents, and is no verdict
+   on the corpus.
 4. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
@@ -160,13 +167,20 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
 
     cached = [entry for _, queue in queues for entry in queue.cached if entry.group != SURFACE]
     unsampled = frozenset(document for _, queue in queues for document in queue.unsampled)
+    selection = next((queue.selection for _, queue in queues if queue.selection is not None), None)
     readers, problems = _profile(queues, outputs)
-    entries = registers.load_known_defects()
+    register = registers.load_known_defects()
+    # A run over documents named by hand must see the entries naming one of them, and no other: every entry is
+    # still a class its documents' differences may fall in.
+    selected = None if selection is None else frozenset(selection.documents)
+    entries = register if selected is None else [entry for entry in register if entry.document in selected]
     records, read_problems = reader.cached_evidence(cached, store)
     problems += read_problems
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        for problem, groups in registers.held_evidence(directories, entries, unsampled=unsampled, readers=readers):
+        for problem, groups in registers.held_evidence(
+            directories, register, unsampled=unsampled, readers=readers, selected=selected
+        ):
             problems.append(problem)
             for group in groups:
                 fails(group, problem)
@@ -174,6 +188,14 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     left = len(entries) - len(held)
     on_control_alone = sum(entry.document in unsampled for entry in held)
     notes = []
+    if selection is not None:
+        notes.append(
+            f"This run checked the documents named by hand ({', '.join(selection.documents)}) and the controls of"
+            f" the register's entries naming them, so the other {len(register) - len(entries)} of the register's"
+            f" {len(register)} entries were left to the nightly and the weekly, and {len(selection.left)} groups"
+            " beside the other documents were not run (every other control, and the packages that read the corpus)."
+            " It shows the lane on those documents, and is no verdict on the corpus."
+        )
     unnamed = [name for name in lane_readers.READERS if name not in readers]
     if not readers:
         notes.append(
@@ -212,6 +234,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         heldOnControlAlone=on_control_alone,
         readers=lane_readers.to_record(readers),
         leftToNightly=left,
+        **({"outsideSelection": len(register) - len(entries)} if selection is not None else {}),
     )
 
     sections["surface"] = _surface(queues, verdict, store, committed)
@@ -222,6 +245,11 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
         "sections": sections,
         "failing": [{**entry, "items": collected.get(group, [])} for group, entry in sorted(by_group.items())],
         **({"sample": {"seed": sample.seed, "documents": list(sample.documents)}} if sample is not None else {}),
+        **(
+            {"selection": {"documents": list(selection.documents), "left": list(selection.left)}}
+            if selection is not None
+            else {}
+        ),
     }
 
 
