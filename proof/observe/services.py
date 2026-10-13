@@ -50,7 +50,7 @@ validation Formplayer is HQ's (its build asks for it), never refused.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 _SESSION: dict = {
     "open": False,
@@ -84,41 +84,34 @@ def asked() -> int:
     return _ASKED[0]
 
 
+# The session's services, in the order its end closes them.
+_SERVICES = ("android", "browser", "connect", "validator", "formplayer")
+
+
 @contextmanager
 def session(on_start=None):
-    """The lifetime of the session's services; ``on_start(runner)`` is told each runner as it starts."""
+    """The lifetime of the session's services; ``on_start(runner)`` is told each runner as it starts. At its end
+    every service it started is closed, whatever another's close raises, and the session has ended before any of
+    them is, so the process can open another."""
     if _SESSION["open"]:
         raise NoSession("The session's services are already open in this process; one session owns them.")
-    _SESSION.update(
-        open=True, formplayer=None, validator=None, browser=None, connect=None, android=None, on_start=on_start
-    )
+    _SESSION.update(dict.fromkeys(_SERVICES), open=True, on_start=on_start)
     try:
         yield
     finally:
-        reader, _SESSION["android"] = _SESSION["android"], None
-        if reader is not None:
-            ANDROID_SECONDS.extend(reader.seconds)
-            ANDROID_CPU_SECONDS.extend(reader.cpu_seconds)
-            reader.close()
-        runner, _SESSION["formplayer"] = _SESSION["formplayer"], None
-        validating, _SESSION["validator"] = _SESSION["validator"], None
-        browser, _SESSION["browser"] = _SESSION["browser"], None
-        connect_runtime, _SESSION["connect"] = _SESSION["connect"], None
-        _SESSION["open"] = False
-        try:
-            if browser is not None:
-                browser.close()
-        finally:
-            try:
-                if connect_runtime is not None:
-                    connect_runtime.close()
-            finally:
-                try:
-                    if validating is not None:
-                        validating.close()
-                finally:
-                    if runner is not None:
-                        runner.close()
+        held = {name: _SESSION[name] for name in _SERVICES}
+        _SESSION.update(dict.fromkeys(_SERVICES), open=False)
+        # An exit stack calls what it was given last first, each whatever an earlier one raised, and raises the
+        # last of what they raised: a close that fails (a reader that cannot remove its work directory, a
+        # browser already gone) leaves no JVM, Chromium or Postgres of the others running.
+        with ExitStack() as closing:
+            for name in reversed(_SERVICES):
+                if held[name] is not None:
+                    closing.callback(held[name].close)
+            reader = held["android"]
+            if reader is not None:
+                ANDROID_SECONDS.extend(reader.seconds)
+                ANDROID_CPU_SECONDS.extend(reader.cpu_seconds)
 
 
 def _reader(reader, what):
