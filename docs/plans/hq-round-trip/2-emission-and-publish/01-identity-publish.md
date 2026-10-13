@@ -1078,7 +1078,7 @@ mapping is assigned one selector:
 | `components/builder/DeploymentWorkers.tsx`, `published` | `publishedRemoteApp` | The same predicate the server refuses on. |
 | `lib/deployment/entryPointLinks.ts::getEntryPointLink`, the link's HQ app | `publishedRemoteApp` | A link into an empty or a gone app opens nothing. Its manifest check already refuses a shell. |
 | `service.ts::setupArtifactFor`, `hqAppId` | `publishedRemoteApp` | The artifact's links into the app's pages are offered only when the app is there. |
-| `store.ts::readReachedDeploymentTargets` (A5) | reached, live and not missing | A shell-only record never displays as reached. |
+| `store.ts::readReachedDeploymentTargets` (A5) | reached, live and not missing; `{ server, domain, hqAppId }`, and from pull request 5 `emptyCaseListText` (part 02, Store functions) | A shell-only record never displays as reached. |
 | `service.ts::publishAppToHq`, the refusal's and the outcome's `hqAppUrl` | `activeRemoteApp` | The version floor refusal must link the empty app so a person can raise its version. |
 | `service.ts::refreshDeployment`; `components/builder/DeploymentStatus.tsx`, `observable` | `activeRemoteApp` | Check status must be able to ask about an app marked gone, which is how HQ's own undo heals. |
 | `lib/mcp/tools/deploymentProjection.ts::describeDeployment` | `activeRemoteApp`, plus the two flags below | A caller sees the id Nova holds and what Nova knows of it. |
@@ -1481,6 +1481,13 @@ What these tests need of the harness, each found by running them:
   requests at depths 0 to 9, one a second. The limiter reads only that clock
   and that store, so each `Retry-After` HQ computes is the same bytes on
   every run, and the module waits for nothing.
+- Every `api_request` outside the 429 cases runs under the new seam
+  `proof/hq/seams.py::api_rate_limits`, which answers each of HQ's
+  rate-counter calls as within its limits and records each count HQ asked it
+  to make, so a group's many reads in one second are never refused at the
+  limiter's floor. The 429 test and `test_retained_reads.py`'s two 429
+  answers replace it with the counter store above, which answers as Redis
+  does.
 - The released builds of A1's tests are made with HQ's `make_build` under
   the build's seams and released, as the Web Apps reader's
   `proof/webapps/hq.py` makes and releases one. By hand the task that
@@ -1707,7 +1714,11 @@ from it.
   (`templates/app_manager/profile.xml`, `models/applications.py::ApplicationBase.post_url`,
   `::ota_restore_url`, `::key_server_url`,
   `corehq/apps/users/util.py::cc_user_domain`, which joins the domain to
-  `settings.py::HQ_ACCOUNT_ROOT`, `commcarehq.org` at the pin), each
+  `settings.py::HQ_ACCOUNT_ROOT`, `commcarehq.org` at the pin; Dimagi's
+  deploy configuration, `dimagi/commcare-cloud` at `e375c3c6799a`, sets no
+  `HQ_ACCOUNT_ROOT` for the production, India or EU environment and its
+  `localsettings.py.j2` writes none, so every server Nova publishes to holds
+  that default), each
   `force="true"`, and HQ's URLconf resolves the three URLs to
   `corehq/apps/receiverwrapper/views.py::post`,
   `corehq/apps/ota/views.py::restore` and
@@ -1888,6 +1899,12 @@ from it.
     readonly server: CommCareServer;
     readonly domain: string;
     readonly hqAppId: string;
+    /**
+     * From pull request 5 (part 04, Finding 65): the target's `USH_EMPTY_CASE_LIST_TEXT`
+     * as this deployment's last publish read it (`app_deployments.target_empty_case_list_text`),
+     * false where no publish has read it. `chooseDownloadTarget` never reads it.
+     */
+    readonly emptyCaseListText: boolean;
   }
   export interface DownloadTargetInput {
     readonly format: "ccz" | "json";
@@ -1940,9 +1957,13 @@ from it.
   - `resolveDownloadTarget` calls the new
     `store.ts::readReachedDeploymentTargets(scope)` (a plain read at `view`:
     for each deployment that displays as reached and whose `app` mapping is
-    live and not missing, `{ server, domain, hqAppId }`), then
+    live and not missing, `{ server, domain, hqAppId }`, and from pull
+    request 5 `emptyCaseListText` (part 02, Store functions)), then
     `chooseDownloadTarget`, then, for a `.ccz`,
-    `readDeploymentIdentityOverrides` and `targetWireIdentity`. For the
+    `readDeploymentIdentityOverrides` and `targetWireIdentity`. From pull
+    request 5 it hands `target.emptyCaseListText` to `compileLocalArchive`,
+    which passes it to `compileCcz` as `CompileOptions.emptyCaseListText`
+    (part 04, Finding 65). For the
     import file, `kind: "project-space"` gives only the attachment target. A
     read that faults throws, as today: a download that silently lost its
     target would lose a case write.
@@ -2644,7 +2665,7 @@ export interface ManualImportGuideInput {
   readonly logo: { readonly fileName: string } | null;
   /** False until work item C fills it. */
   readonly readsLocations: boolean;
-  /** False until work item C fills it: whether the app's forms carry Connect blocks. */
+  /** False until work item C fills it. */
   readonly sendsToConnect: boolean;
 }
 export function manualImportGuide(input: ManualImportGuideInput): readonly ManualImportStep[];
@@ -2668,7 +2689,7 @@ What it lists, in this order, each step present only when it applies:
 | `plan-features` | Each plan feature the content needs, as "<label>: <plans>. <consequence>" from its `lib/publish/planFeatures.ts::PlanFeatureDefinition`. | C |
 | `logo` | The logo file and where to upload it in the app's settings. | C |
 | `flat-location-fixture` | For an app that reads locations. | C |
-| `connect-forwarding` | For an app whose forms carry Connect blocks: its forms reach CommCare Connect only through the project space's Data Forwarding and a Connect forwarder. Present when `sendsToConnect`. The guide's last step. | C |
+| `connect-forwarding` | For an app whose forms hold a Connect block: its forms reach CommCare Connect only through CommCare HQ's data forwarding. | C |
 
 The three moved steps (`lookup-tables`, `import-app`, `media`) keep the text
 `hqJsonExportArchive.ts::importReadme` writes today, line for line, with its
@@ -2700,8 +2721,10 @@ Both constants are `lib/publish/projectSpaceCompatibility.ts`'s, the ones the
 publish dialog's compatibility report already shows. The texts of
 `plan-features`, `logo`, `flat-location-fixture` and `connect-forwarding` are
 work item C's (part 03, C2. Plan features: the per-privilege confirmation;
-C6. Defect 14: logos; C5. Defect 14: the flat location fixture; C8), and so
-are the four inputs they read.
+C6. Defect 14: logos; C5. Defect 14: the flat location fixture; C8. Data
+Forwarding and a Connect forwarder for a Connect app), and so are the four
+inputs they read, which the guide's two callers fill (part 03, C2,
+"Downloads").
 
 - **The floor constant.** This pull request creates
   `lib/commcare/versionFloor.ts` exporting `COMMCARE_VERSION_FLOOR = { major:
@@ -2842,7 +2865,7 @@ something production does not.
 | `proof/corpus/__tests__/emitCorpus.test.ts` | Reads the new layout (a `content` step beside `create`), and A4's media observation. |
 | `proof/corpus/publish.ts::PublishInput`, `::PublishCapture` | `sourceProfile` becomes `source`, and `assumedSourceProfile` becomes `assumedSource`: the fields of HQ's source the captured body depends on. In this pull request those are `doc_type`, `build_spec.version` and `profile`; work items B and D add theirs. The profile an update is captured over is the one the import before it left in HQ. For the content update that is the shell's HQ default. For the republish and the edit it is what the content update wrote: in this pull request Nova's search custom property (`custom_properties` `cc-index-case-search-results`) on the 72 documents whose capture writes it and nothing on the rest, as `assumedSourceProfile` holds today; and from pull request 5 the seventeen settings beside it, with `cc-show-saved` and `cc-show-incomplete` taken from the document's `appSettings`. Those two are `no` in every sidecar: every corpus document holds the default, and the one edit that changes a setting, `setAppSettings` on four documents (part 04, Defect 7 and finding 62: saved and incomplete forms differ by reader), is the last update captured for its document, over D's profile. So every republish and edit sidecar changes in pull request 5 (part 04, Finding 40: an HQ settings save writes its defaults into the profile). Executed during planning with pull request 5's bodies: while the sidecars still named `{}`, `proof/observe/publish.py::update` refused every update as captured over another profile than HQ serves, and with the sidecars naming the create's profile the run went through. Executed again without the readers over every document of the lane's branch with main merged (360): an update whose body and sidecar left the custom property out was refused on each of the 72, and with it carried beside the seventeen every update went through. |
 | `proof/corpus/publish.ts::capturePublish`, a capture-time assertion | The republish is captured twice and the two import bodies must be byte equal: a third publish sends the second's bytes. The capture throws otherwise. |
-| `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). Every corpus archive is compiled for a project space, as every archive Nova serves is, and its profile holds the four server properties of A5. |
+| `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). Every corpus archive is compiled for a project space, as every archive Nova serves is, and its profile holds the four server properties of A5. From pull request 5 the one reached target also carries `emptyCaseListText`, the configuration's own `USH_EMPTY_CASE_LIST_TEXT` (part 04, Finding 65). |
 | `proof/corpus/publish.ts::sendsTheSame` and the header comment | No longer cite `multimedia_map`: the media upload follows from the prepared assets. The header says ids are derived. |
 | `proof/corpus/entropy.mts` | `OPERATION_ORDINALS.create` and `.republish` no longer feed ids, and the rule that draws a later update at an ordinal of its own goes with them. The local export ordinals stay until defect 9's fix removes the profile `uniqueid` draw. The header comment changes. |
 | `proof/corpus/writePublishCaptures.ts` | Writes `create.body` (the shell), `content.body`, then the update bodies, with the assumed source in the sidecar. Controls keep their legacy layout (a full `create.body`), which the lane mechanics pull request already replays. |
