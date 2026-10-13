@@ -423,18 +423,22 @@ count. These are hosted observations, including setup and aggregate checks;
 future workload changes need fresh measurements. Detailed timings and resource
 observations remain in the CI artifacts and shipping PR.
 
-The proof lane's pull request half must end within ten minutes, counting
-setup, the image pull and the gate. It runs without the readers
+The proof lane's pull request half has no cap on its time: it runs every
+group its change leaves out of the evidence store, and its planner chooses
+only how many shards run them (`python3 -m proof.lane.plan fit`: about six
+minutes where nothing the lane reads changed, about thirteen with every group
+observed afresh, as modelled). It runs without the readers
 (`PROOF_READERS=0`: HQ, Core and HQ's editors over every document, nothing
 handed to Formplayer, the Web Apps client, CommCare Android or Connect), its
 shards running blocks of groups packed from each profile's measured costs
 (`proof/timings.json`) on four-vCPU amd64 runners. Each night runs the lane
 with every reader over what changed since main's last store snapshot, each
-week runs it whole and fresh (the run that proves the store's keys), each
-opening an issue when it fails, and a change a reader would show is proven on
-a proof machine before it is pushed
-(`proof/README.md`, "The lane in CI", "Timings and the ten-minute bound" and
-"Proving a reader change before you push"). It is the one place a result is
+week runs it whole and fresh (the run that proves the store's keys), a
+document too heavy for one worker observed in pieces, each opening an issue
+when it fails, and a change a reader would show is proven on a proof machine
+before it is pushed (`proof/README.md`, "The lane in CI", "Timings and what
+the lane is expected to take", "Documents observed in pieces" and "Proving a
+reader change before you push"). It is the one place a result is
 read rather than recomputed: an observation is reused only under a key that
 names every input it read (and the profile it ran in), a sample of documents
 is observed afresh and held to the store on every pull request, and the whole

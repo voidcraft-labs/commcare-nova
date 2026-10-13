@@ -32,11 +32,13 @@ this directory. What endures lives where it is read:
   request (`.github/workflows/upstream-pins.yml`) brings upstream changes in
   as one reviewed pull request.
 - **The proof lane**, `proof/`: CommCare's own code reading Nova's exports at
-  the pinned commits, over a reproducible corpus, on every pull request:
-  HQ's import, build, case processing, editors, receiver, restore, search
-  views and Connect repeater; CommCare Core's runtime; Formplayer's own
-  application; HQ's Web Apps client in Chromium; CommCare Connect's own
-  server; and commcare-android's own code, in a stage of its own.
+  the pinned commits, over a reproducible corpus: HQ's import, build, case
+  processing, editors, receiver, restore, search views and Connect repeater;
+  CommCare Core's runtime; Formplayer's own application; HQ's Web Apps client
+  in Chromium; CommCare Connect's own server; and commcare-android's own
+  code, beside HQ's live unit. Every pull request runs it without the served
+  readers, each night runs every reader over what changed, and each week runs
+  it whole (`proof/README.md`, "The lane in CI").
   `proof/README.md` holds what it proves (the bar, the intent, manifest and
   sensitivity checks, proofs 1 to 5, each judged over every reader), the
   corpus, the registers, the spelling rules, the defect rows of the plan's
@@ -63,9 +65,8 @@ once done but for, defect 3's unknown-question warning, shows on
 `targeted-save-to-case-read`; and "20, CommTrack", which step 1 had left out
 as an input Nova cannot produce, is a row again, since Nova's gate admits the
 read it needs (finding 68). `proof/README.md` ("What the lane does not
-observe") names what is still not run, each with the reader that would
-settle it: none is out of reach, and step 2's work takes each up where it
-fixes the defect it belongs to.
+observe") holds what is outside the lane, a behavior that depends on nothing
+in Nova's app; everything that depends on Nova's export is observed.
 
 ## Why each later step is planned when the one before it exits
 

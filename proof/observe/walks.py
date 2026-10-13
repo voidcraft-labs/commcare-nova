@@ -54,7 +54,8 @@ the same runs on every reader:
   run is walked again with them (``{"places": {...}, "toward": {...},
   "window": "small"}``), and the phone replays that run in its place.
 
-Standard library only: the Android stage reads it outside the image.
+Standard library only: the Android reader's own checks read it outside the image, on the runner's own Python
+(``proof/android/selfcheck.py``, ``predicates.py``).
 """
 
 from __future__ import annotations

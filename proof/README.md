@@ -10,8 +10,11 @@ views, and CommCare Connect's own server run at the upstream commits
 Nova's real publish client and compilers export: everything but Android
 inside one pinned image, and Android beside it in the same container, its
 network answered by HQ's own views ("Android in the unit"). Every pull
-request runs the lane in CI (`.github/workflows/ci.yml`), and `npm run
-proof` runs it on your machine.
+request runs the lane in CI without the served readers
+(`.github/workflows/ci.yml`: HQ, Core and HQ's editors), each night runs it
+with every reader over what changed and each week whole
+(`.github/workflows/proof-audit.yml`; "The lane in CI"), and `npm run proof`
+runs it on your machine.
 
 Each check reports the complete set of differences it finds, never only the
 first. The lane passes when every difference is erased by a proven spelling
