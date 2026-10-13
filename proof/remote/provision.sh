@@ -54,9 +54,22 @@ if ! command -v docker >/dev/null; then
   sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q
   sudo env DEBIAN_FRONTEND=noninteractive apt-get install -yq \
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  # Many lanes' networks at once on one machine.
-  echo '{"default-address-pools":[{"base":"172.80.0.0/12","size":24}],"max-concurrent-downloads":16}' |
-    sudo tee /etc/docker/daemon.json >/dev/null
+fi
+# Each lane in flight holds one Docker network, its compose project's, and Docker's own pools give about thirty
+# (fifteen /16 and sixteen /20), so a machine running more lanes than that at once refuses the next one's. This
+# pool gives 1,024 networks of 254 addresses, in private address space (172.20.0.0/14, inside 172.16.0.0/12).
+# Written where Docker has no configuration yet, and in place of the pool an earlier provision.sh wrote, which
+# was not private space (172.80.0.0/12); any other configuration is a person's, and is kept.
+docker_config=/etc/docker/daemon.json
+pool='{"default-address-pools":[{"base":"172.20.0.0/14","size":24}],"max-concurrent-downloads":16}'
+retired='{"default-address-pools":[{"base":"172.80.0.0/12","size":24}],"max-concurrent-downloads":16}'
+held="$(sudo cat "$docker_config" 2>/dev/null || true)"
+if [ -z "$held" ] || [ "$held" = "$retired" ]; then
+  if [ -n "$(sudo docker ps -q)" ]; then
+    echo "Docker's address pool on this machine is to be replaced, which restarts Docker and ends every container; some are running. Run provision.sh again once no lane is in flight." >&2
+    exit 1
+  fi
+  echo "$pool" | sudo tee "$docker_config" >/dev/null
   sudo systemctl restart docker
 fi
 sudo usermod -aG docker "$user"

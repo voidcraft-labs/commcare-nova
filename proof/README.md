@@ -602,9 +602,13 @@ python3 -m proof.lane.gate .proof/remote/<slot>-<stamp>                         
 
 `--provision` copies the tree to the host and runs `proof/remote/provision.sh`
 there, which makes a fresh Ubuntu 24.04 amd64 machine a proof machine: Docker,
-the Node and npm versions `.nvmrc` and `package.json` name, the JDK
-`proof/android/toolchain.json` names (at `/opt/proof-jdk`), the limits many
-workers reach, one install of Nova's dependencies for the lock, the harness
+with an address pool of 1,024 networks in private space (172.20.0.0/14 in
+/24s: each lane in flight holds one network, its compose project's, and
+Docker's own pools give about thirty, so a machine running more lanes than
+that at once would refuse the next), the Node and npm versions `.nvmrc` and
+`package.json` name, the JDK `proof/android/toolchain.json` names (at
+`/opt/proof-jdk`), the limits many workers reach, one install of Nova's
+dependencies for the lock, the harness
 image and Postgres pulled, and the Android reader's runtime built and held to
 its own checks (`~/proof-android-reader`; its build installs Android SDK
 packages, which only an SDK whose license a person accepted may receive, so
