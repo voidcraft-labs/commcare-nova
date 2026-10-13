@@ -53,6 +53,28 @@ typed model is what knows each operand's type: a lowering chosen per operand
 that compares instants in every device zone, or a refusal where none exists.
 This step's exit removes its entries.
 
+The lowering meets seven requirements, each set by a run on Core that step 2
+made (`docs/research/2026-09-26-hq-round-trip/harness-findings.md`, finding
+56):
+
+- It is chosen per operand from the operand's type, never by wrapping the
+  whole comparison.
+- `date()` is never applied to `now()` or to a typed answer. Each is already
+  a date to Core, and `date()` of one orders by calendar day only.
+- A date against a date stays bare.
+- A date against a datetime is refused by the type checker, so a date operand
+  meets a datetime only through an explicit coercion. It then enters the
+  lowering as the UTC-midnight day number, agreeing with the UTC-day rule of
+  `lib/domain/predicate/CLAUDE.md`, with Preview and with CSQL.
+- A lowering that applies `date()` to text does not throw on malformed text,
+  where today's comparison is a quiet false. Core's `date()` of text that is
+  not a date throws.
+- No on-device wrapper leaks into a CSQL segment. CSQL is a separate dialect
+  that already compares instants.
+- A native proof runs the ordering in at least two device zones with a value
+  written in a third, because Core's parse of an offset-bearing date and time
+  converts the clock to the reader's zone and keeps the written date.
+
 Findings 72 and 73 (`harness-findings.md`, "Found by holding every walk to its
 end"; `2-emission-and-publish/09-proof.md`, "The held walk stops"): two forms
 Nova admits that a reader refuses to open. Each fails alike on HQ's build and
