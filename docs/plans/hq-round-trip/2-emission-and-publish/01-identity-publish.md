@@ -2031,7 +2031,13 @@ step, as defect 24's other entries do:
   with the three nodes written into the local forms of
   `targeted-connect-deliver-rename` its submissions show no location class,
   and under the stated-value judge `targeted-hq-side-state` shows none
-  either.
+  either. Finding 37's two and finding 33's name inside a repeat move in
+  pull request 9, and defect 24's five stay live. Executed during planning,
+  under Formplayer, with every fix's bytes stacked: the two order classes
+  and that name are gone from `case-extension-registration` and
+  `case-capture-repeat`, and defect 24's five are each held on their
+  document and on their `-after-59` control with the counts above (part 05,
+  Finding 37, "What Formplayer's own submission shows").
 
 **The two that A5's bytes alone leave.**
 
