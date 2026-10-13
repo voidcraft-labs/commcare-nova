@@ -119,6 +119,33 @@ async function calls(log: string): Promise<string[][]> {
 		.map((line) => JSON.parse(line));
 }
 
+/** Variables a test hands a run for its command environment, which CI's own steps may also hold. */
+const HANDED = ["ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL", "GITHUB_TOKEN"];
+
+/**
+ * The environment a runner under test is given: this machine's, without
+ * anything the runner reads or passes into the harness, and then what the
+ * test itself names. The runner reads its switches from the environment
+ * (every `PROOF_` variable), and the suite runs where some are set for other
+ * reasons: CI's workflow sets PROOF_READERS for its own lane, and a proof
+ * machine names its Android runtime. Each test states what its run is given,
+ * so the same assertions hold wherever the suite runs.
+ */
+function environmentOf(given: Record<string, string>): NodeJS.ProcessEnv {
+	const environment: NodeJS.ProcessEnv = {};
+	for (const [name, value] of Object.entries(process.env)) {
+		if (!name.startsWith("PROOF_") && !HANDED.includes(name)) {
+			environment[name] = value;
+		}
+	}
+	return {
+		...environment,
+		PATH: `${scratch}:${process.env.PATH}`,
+		PROOF_IMAGE: "proof-image:test",
+		...given,
+	};
+}
+
 /**
  * Runs one of the runner's entry points (`main` for `npm run proof`, `shard`
  * for `--lane`) as its command line would, writing into an output directory
@@ -130,22 +157,10 @@ async function runner(
 	platform: string,
 	env: Record<string, string> = {},
 ) {
-	const environment: NodeJS.ProcessEnv = {
-		...process.env,
-		PATH: `${scratch}:${process.env.PATH}`,
-		PROOF_IMAGE: "proof-image:test",
+	const environment = environmentOf({
 		PROOF_OUT_DIR: join(scratch, "out"),
 		...env,
-	};
-	for (const name of [
-		"PROOF_SHARD",
-		"PROOF_WORKER",
-		"PROOF_CORPUS",
-		"PROOF_SURFACE_EXTRACTION",
-		"PROOF_STORE",
-	]) {
-		if (!(name in env)) delete environment[name];
-	}
+	});
 	try {
 		const { stdout, stderr } = await run(
 			process.execPath,
@@ -303,6 +318,8 @@ it("reuses a filled volume and serves the whole harness with one worker when not
 		"--claim",
 		"static",
 	]);
+	// A run that names no profile passes none, and the harness serves every reader.
+	expect(passed(harness)).not.toContain("PROOF_READERS");
 });
 
 it("mounts the checkout's own node_modules on Linux instead of a volume", async () => {
@@ -346,6 +363,7 @@ it("passes the corpus selection and the audit switches through and nothing else,
 		PROOF_CORPUS_SEED: "11",
 		PROOF_HQ_DETERMINISM: "0",
 		PROOF_EDITOR_AUDIT: "0.03",
+		PROOF_READERS: "formplayer,android",
 		PROOF_SOMETHING_ELSE: "1",
 	});
 	expect(result.code).toBe(0);
@@ -358,7 +376,10 @@ it("passes the corpus selection and the audit switches through and nothing else,
 		"PROOF_FINGERPRINTS",
 		"PROOF_HQ_DETERMINISM",
 		"PROOF_IMAGE_ID",
+		"PROOF_READERS",
 	]);
+	// The lane's profile reaches the harness as it was named (proof/lane/readers.py reads it there).
+	expect(flagValue(harness, "PROOF_READERS")).toBe("formplayer,android");
 	expect(flagValue(harness, "PROOF_IMAGE_ID")).toBe(IMAGE_ID);
 	// The evidence store's keys name this checkout's code, the image the lane runs (its id: the reference pins no
 	// digest) and the Docker server's architecture.
@@ -654,6 +675,8 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 		{
 			PROOF_CORPUS: corpus,
 			PROOF_STORE: store,
+			// The pull request lane's profile, which its workflow sets for every step.
+			PROOF_READERS: "0",
 			ACTIONS_RUNTIME_TOKEN: "token",
 			ACTIONS_RESULTS_URL: "https://results.example",
 			GITHUB_TOKEN: "not for the harness",
@@ -677,8 +700,10 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 		"PROOF_CORPUS",
 		"PROOF_FINGERPRINTS",
 		"PROOF_IMAGE_ID",
+		"PROOF_READERS",
 		"PROOF_STORE",
 	]);
+	expect(flagValue(harness, "PROOF_READERS")).toBe("0");
 	expect(served(harness)).toEqual([
 		"--out",
 		"/out",
@@ -949,14 +974,7 @@ async function regenerate(destination: string, output: string) {
 		await run(
 			process.execPath,
 			["--input-type=module", "-e", CALL_RUNNER, call],
-			{
-				cwd: WORKTREE,
-				env: {
-					...process.env,
-					PATH: `${scratch}:${process.env.PATH}`,
-					PROOF_IMAGE: "proof-image:test",
-				},
-			},
+			{ cwd: WORKTREE, env: environmentOf({}) },
 		);
 		return 0;
 	} catch (error) {
