@@ -6,6 +6,18 @@
 		"reason": "Formplayer refuses the form's submission: its guard case block carries no case id (Core's case parser; defect 13), on every state, so no reader sees what follows the form."
 	},
 	{
+		"document": "expander-expanddoc-hq-json-projection-case-search-4d53ba11-0",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "The search the typed prompts send reads related cases, which HQ's case search view refuses in the configuration without the related lookups flag (case_search/filter_dsl.py; defect 12), and Formplayer answers with that in place of the results."
+	},
+	{
+		"document": "expander-expanddoc-hq-json-projection-case-search-cd8e0ffa-0",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "The search the typed prompts send reads related cases, which HQ's case search view refuses in the configuration without the related lookups flag (case_search/filter_dsl.py; defect 12), and Formplayer answers with that in place of the results."
+	},
+	{
 		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
 		"reader": "formplayer",
 		"cause": "notification:you-cannot-query-related-cases-here",
