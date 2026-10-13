@@ -4,8 +4,9 @@ A device the lane serves has a network (``proof/android/README.md``, "The networ
 (Core's ``CommCareNetworkServiceGenerator``, which every request of the app's requester and data pull goes
 through) is given this proxy as a device on a network with a proxy is given one (``Peer.java``): a plain
 request is sent to it whole, and an ``https`` one through a tunnel it asks for with ``CONNECT``, inside which
-this side speaks TLS for the host the app named, with a certificate of its own authority that the device is
-given to trust (``Authority``). So every address the app names, whatever its host, reaches this proxy, and the
+this side speaks TLS (1.2 or later) for the host the app named, with a certificate of its own authority that
+the device is given to trust (``Authority``). So every address the app names, whatever its host, reaches this
+proxy, and the
 request read here is the one the app wrote, its scheme, host, path, headers and body. The app's client keeps
 everything else of its own (its interceptors, its credentials, its refusal to send a password in clear).
 
@@ -147,6 +148,9 @@ class Authority:
                 "-out", str(certificate), "-extfile", str(config), "-extensions", "server",
             )  # fmt: skip
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            # No device is offered less than TLS 1.2, whatever the Python the proxy runs on allows by default:
+            # the app's own client offers 1.3 and 1.2 (OkHttp's ConnectionSpec.MODERN_TLS), as it does to HQ.
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(str(certificate), str(key))
             self._contexts[host] = context
             return context
