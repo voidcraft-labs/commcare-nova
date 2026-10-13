@@ -3693,11 +3693,17 @@ shard that is stuck, and a shard it ends fails the lane.
 What a pull request runs is what its changes leave out of main's store, which
 the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
-expected ends below are modelled, not measured on hosted runs: `plan fit`
-over the queues the queue builder's own code makes for each change, from
-this commit's corpus (357 documents, 69 controls, 30 package groups: 456
-groups, 4,091 box-seconds whole) and `proof/timings.json`, with a store taken
-to hold everything the change's keys do not move.
+expected ends below are the model's: `plan fit` over the queues the queue
+builder's own code makes for each change, from this commit's corpus (357
+documents, 69 controls, 30 package groups: 456 groups, 4,091 box-seconds
+whole) and `proof/timings.json`, with a store taken to hold everything the
+change's keys do not move. One row has been measured on hosted runners,
+once: the last. Pull request run 38425969767 observed every group afresh on
+fourteen shards, each of which ran its blocks to the end, and its gate's job,
+which judged all 5,226 items (one of them, a test of the lane's own, failed),
+ended 755 seconds after the workflow started, 12 minutes 40 seconds after
+the pull request was opened, where the model expects 771. The other rows are
+the model's alone.
 
 | The change | Groups that run | Shards | Expected end |
 | --- | --- | --- | --- |
