@@ -3209,7 +3209,13 @@ existing jobs:
   a job without one is skipped when any job behind its needs failed.
 - **`proof`** ("Proof i/n", `ubuntu-24.04`, x64, the nightly's architecture,
   so the records main's audit saves are the ones it reads) installs nothing,
-  runs none of Nova's TypeScript and needs no Android runtime: it pulls the
+  runs none of Nova's TypeScript and needs no Android runtime. Its checkout
+  holds `proof/`, `lib/commcare/surface/` and its two actions, and nothing
+  else of the repository, and the lane's tests run from that: one that reads
+  any other part of the tree (a workflow, say) passes on a machine that
+  copied the whole tree and fails on every shard, so what must hold between
+  the lane's code and a workflow is tested where the whole checkout is
+  (`proof/ci/__tests__/laneWorkflow.test.ts`, in the test shards). It pulls the
   image and Postgres while it fetches the queues, and its fork server (`node
   proof/run.mjs --lane`) runs the early queue's blocks and the main queue's
   as it claims them, with four workers. It prints its containers' memory

@@ -13,12 +13,15 @@ rewrites a group to end sooner, a small lane taking every runner for a second's 
 shards, a deadline short enough to end a shard that is only doing its work, a summary that names another end than
 the plan's, a lane refused for a document whose pieces each fit (or planned as if its pieces and its judging ran
 at once), and a last round of two shards beside rounds of fourteen twice as long as they need be.
+
+That the lane's workflow runs as many shards at once as ``PARALLEL_SHARDS`` says is held outside the lane, where
+the workflow's file is (``proof/ci/__tests__/laneWorkflow.test.ts``): a shard's checkout holds ``proof/``, the
+surface and its actions, and no workflow, so a test here that reads one fails on every shard.
 """
 
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 
@@ -147,8 +150,6 @@ def test_an_unmeasured_piece_is_counted_by_how_many_pieces_its_document_is_obser
     for the configurations the document is exported under; counted at the two-piece share whatever their number,
     a control under four configurations weighs 2.6 times itself, and its block's other groups are planned
     lighter than they are and its pieces past a budget they fit."""
-    from proof.checks import sharding
-
     pieces = [f"control:wide@{name}" for name in ("a", "b", "c", "d")]
     block = {
         "id": lane_blocks.block_id([*pieces, "control:wide", "corpus:beside"]),
@@ -191,11 +192,6 @@ def test_past_as_many_shards_as_run_at_once_the_count_fills_its_last_round():
     assert plan.size(_lane(_queue(), _documents(280, 20.0)), workers=1, budget=210.0, parallel=14)["shards"] == 28
     assert plan.size(_lane(_queue(), _documents(16, 100.0)), workers=1, budget=110.0, parallel=14)["shards"] == 16
     assert plan.size(_lane(_queue(), _documents(18, 100.0)), workers=1, budget=110.0, parallel=14)["shards"] == 18
-
-
-def test_as_many_shards_run_at_once_as_the_lanes_workflow_says():
-    workflow = (sharding.PROOF_DIR.parent / ".github" / "workflows" / "proof-lane.yml").read_text(encoding="utf-8")
-    assert [int(found) for found in re.findall(r"^\s*max-parallel: (\d+)$", workflow, re.M)] == [plan.PARALLEL_SHARDS]
 
 
 def _timings(tmp_path):
