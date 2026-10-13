@@ -379,12 +379,16 @@ planning (the facts table above).
 | `proof/hq/test_publish.py::test_hq_mints_the_id_shapes_nova_derives`, new | HQ | `navigation-base` | A menu and a form made through `views/modules.py::new_module` and `views/forms.py::new_form` hold ids that match the shapes `derivedUniqueId` and `derivedFormXmlns` write (32 lower case hex; the prefix and an upper case hyphenated UUID). |
 | `proof/android/predicates.py::test_an_incomplete_form_reopens_only_while_its_xmlns_is_the_apps` | Android | `targeted-survey-menu` | A form saved incomplete reopens after an update whose archive keeps its `xmlns`. From this pull request the kept case updates from the document's `local.ccz` to its `local-again.ccz`, whose `xmlns` Nova's compiler now derives alike, with the second archive's versions raised as the predicate raises them today (part 04 makes Nova raise them); the renamed case stays the hand-written refusal. |
 
-Locally the pull request runs `npm run proof --
-proof/hq/test_publish.py proof/hq/test_publish_capture.py`, which need no
-served reader. On a proof machine: the lane selected to
-`targeted-multi-select-destinations`, `case-operation-query` and
-`navigation-base`, and the Android predicate (`python3 -m unittest
-proof.android.predicates`).
+Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
+run proof -- proof/hq/test_publish.py proof/hq/test_publish_capture.py` and
+`PROOF_READERS=0 npm run proof -- proof/checks -k
+"targeted-multi-select-destinations or control-case-operation-query or
+navigation-base"`: the document and the control of the five entries HQ and
+the local path hold, and the document the HQ tests publish. Reader slice, on
+a proof machine: `case-capture-followup` and `control-case-capture-followup`,
+the document and control of the device's entry, in the one run "A5" gives
+for this pull request, and, over the Android reader's runtime there, the
+Android predicate (`python3 -m unittest proof.android.predicates`).
 
 ## A2. `localization.wireCodes`
 
@@ -656,9 +660,14 @@ archive or the device's update from A to B. Every
 corpus document with a localization root gains `wireCodes`; `localization-mandarin`'s two Mandarin
 branches take the preferred spelling and one suffixed code where today both
 are suffixed, which shows in the corpus `index.json` diff and nowhere in a
-proof. On a proof machine: the lane selected to `targeted-hq-side-state` and
-`localization-mandarin`, and the Android predicate below. The whole lane
-shows no proof 1 difference at `/langs/*`, no `XFormException` under
+proof. Locally, with the readers off: `PROOF_READERS=0 npm run proof --
+proof/checks -k "targeted-hq-side-state or localization-mandarin"`, the
+document and control of the two entries, which are HQ's, and the document
+whose codes change. Reader slice, on a proof machine: the Android predicate
+below, over the Android reader's runtime there (`python3 -m unittest
+proof.android.predicates`). The block moves no served reader's entry and has
+no targeted witness, so its share of the slice holds no document. The whole
+lane shows no proof 1 difference at `/langs/*`, no `XFormException` under
 `create_all_files:*@B-edit`, and both fixed entries reproducing on their
 control.
 
@@ -1299,12 +1308,14 @@ What these tests need of the harness, each found by running them:
   prunes old automatic builds (`tasks.py::prune_auto_generated_builds`) was
   not started and `is_released` was set on the build.
 
-Locally the pull request runs `npm run proof -- proof/hq/test_publish.py
-proof/hq/test_publish_capture.py proof/hq/test_retained_reads.py`, which need
-no served reader. On a proof machine: the lane selected to `navigation-base`,
-`targeted-form-links-hidden-and-fallback` and `case-list-inline`. The whole
-lane shows state A built at HQ version 2, or 3 for a document with media,
-with no new difference in proofs 1 to 5.
+Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
+run proof -- proof/hq/test_publish.py proof/hq/test_publish_capture.py
+proof/hq/test_retained_reads.py` and `PROOF_READERS=0 npm run proof --
+proof/checks -k "navigation-base or targeted-form-links-hidden-and-fallback
+or case-list-inline"`, the three documents those tests publish. The block has
+no share of the reader slice: it moves no entry and has no targeted witness
+and no reader test. The whole lane shows state A built at HQ version 2, or 3
+for a document with media, with no new difference in proofs 1 to 5.
 
 ## A4. No `multimedia_map` (finding 49)
 
@@ -1431,10 +1442,15 @@ with it is under "Lane".
 | `proof/android/predicates.py::test_a_build_made_before_its_media_installs`, new | Android | `case-list-inline` | Android installs the archive of the build made before the upload (`Installed`), and refuses the same build made from an import carrying the map (`MissingResourcesWithMessage`). Both archives are written by the HQ test above into the run's output. |
 | The bar, proof 2 and proof 3 | HQ, Core | every document with media | Every file maps after the media upload (`proof/observe/publish.py::upload_media` reports none unmatched), and the media suite is unchanged. |
 
-Locally the pull request runs `npm run proof -- proof/hq/test_publish.py`,
-which needs no served reader. On a proof machine: the lane selected to
-`case-list-inline`, and the Android predicate (`python3 -m unittest
-proof.android.predicates`).
+Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
+run proof -- proof/hq/test_publish.py` and `PROOF_READERS=0 npm run proof --
+proof/checks -k case-list-inline`, a document with media. Reader slice, on a
+proof machine: `proof/remote/run.sh <host> -- proof/hq/test_publish.py`,
+then, over the Android reader's runtime there, the Android predicate
+(`python3 -m unittest proof.android.predicates`), whose new case reads the
+two archives that run's HQ test wrote into its output. The block moves no
+entry and has no targeted witness, so its share of the slice holds no
+document.
 
 ## A5. A `.ccz` is made for one project space (findings 32 and 59)
 
@@ -2106,24 +2122,37 @@ served rows again with every reader, over the four documents under
 | `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The control keeps the refusal. |
 | Proof 3 over the served states: finding 59's three fixed entries and finding 32's seventeen served ones, and the nine this pull request adds | Formplayer with HQ's own views answering it, and commcare-android beside HQ's live unit, its sign-in, its searches and each form it sends answered by HQ's views | every document | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, and its searches are answered as `formplayer@A`'s (`asked/*/*`, `response/type`); `android@local.ccz` signs in where `android@A` does, its searches are answered, with every walk past them taken, as `android@A`'s are, and its search URL, its form post address and Formplayer's submission path differ from A's by the app's id alone, which the spelling rule reads as one. The twenty fixed entries reproduce on their controls, and the six classes of "What the working submit shows" are held on every document that shows them and on the two new controls. |
 
-Locally the pull request runs `npm run proof -- proof/hq/test_publish.py`,
-which needs no served reader. On a proof machine: the lane selected to the
-documents the Register names (`case-list-inline`, `search-hidden-link`,
-`targeted-sync-on-form-entry`, `no-matches-multiple-home`, `search-automatic`,
-`case-list-browse`, `case-capture-followup`, `targeted-close-conditions`,
-`targeted-custom-tile`, `targeted-hq-side-state`,
-`targeted-form-link-hidden-target`), to the four others planning read with
-A5's bytes (`targeted-connect-deliver-rename`,
-`targeted-invalid-question-ids`, `case-choice-attendance`,
-`container-live-count-entry`) and to
-`search-registration-link` and
-`targeted-survey-menu`, then `-k "control-targeted-custom-tile-after-59 or
-control-targeted-hq-side-state-after-59 or
-control-targeted-close-conditions-after-59 or
-control-targeted-form-link-hidden-target-after-59"`, `proof/formplayer/test_local_archive.py`,
-`proof/connect/test_receiver.py`, the spelling rule's own test
-(`proof/rules/test_runtime_url_app_id.py`) and its device test (`python3 -m
-unittest proof.android.predicates`).
+Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
+run proof -- proof/hq/test_publish.py`, `PROOF_READERS=0 npm run proof --
+proof/checks -k "case-list-inline or search-hidden-link or
+control-search-registration-link"`, the documents and controls of Core's
+three trace entries, and `PROOF_READERS=0 npm run proof -- proof/rules`.
+
+Reader slice of pull request 3, on a proof machine, one run for the whole
+pull request: `proof/remote/run.sh <host> -- --workers <n> proof/checks -k
+"case-capture-followup or control-case-capture-followup or
+targeted-sync-on-form-entry or control-targeted-sync-on-form-entry or
+no-matches-multiple-home or control-no-matches-multiple-home or
+search-automatic or control-search-automatic or case-list-browse or
+control-case-list-browse or targeted-close-conditions or
+control-targeted-close-conditions or
+control-targeted-close-conditions-after-59 or targeted-custom-tile or
+control-targeted-custom-tile-after-59 or targeted-hq-side-state or
+control-targeted-hq-side-state-after-59 or targeted-form-link-hidden-target
+or control-targeted-form-link-hidden-target-after-59 or search-hidden-link"`.
+That is the document and control of every served reader's entry this pull
+request moves or registers: A1's one on the device, the seventeen of
+finding 32 and the three of finding 59 that Formplayer and the device hold,
+and the nine of "What the working submit shows"; and `search-hidden-link`,
+the second document the submit-label entry shows on. With it,
+`proof/remote/run.sh <host> -- proof/formplayer/test_local_archive.py
+proof/connect/test_receiver.py proof/rules/test_runtime_url_app_id.py`, the
+reader tests this block rewrites or adds, and, over the Android reader's
+runtime there, `python3 -m unittest proof.android.predicates`, which holds
+the device tests A1, A2, A4, A5 and A6 name. No other document is in the
+slice: the documents A5's bytes change, which are every document with a
+local archive, are read with every reader once, at the stack's top (part
+09).
 
 ## A6. The HQ import file as a ZIP with its guide
 

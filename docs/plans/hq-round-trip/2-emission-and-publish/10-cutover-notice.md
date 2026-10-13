@@ -908,7 +908,7 @@ What stays: the DDL (immutable), the two contract sentences, `lib/notices/`, the
 
 **Nova tests.** "The proofs that carry the cutover", below, under "Nova's own code". They prove what Nova's transform, plan and writer do to Nova's database. None of them is offered as proof of what HQ answers or of what a reader does with an app.
 
-**Lane.** "The proofs that carry the cutover", under "HQ, in the lane". From pull request 3 the lane applies each fixture document's pre-step upload bodies to HQ, takes HQ's two reads of each state and every refusal the classification names, and holds the committed copies under `proof/hq-reads/cutover/` to them byte for byte; the matcher and the read classification are then run over those files. On a proof machine, pull request 2 runs the slice `proof/remote/run.sh <host> -- --workers 2 proof/checks -k "case-operation-query or targeted-custom-tile"` to show two documents unmoved by the skeleton with every reader; locally pull request 3 runs `npm run proof -- proof/hq/test_retained_reads.py`, which needs no served reader. The whole lane shows both registers exactly as the pull request beneath left them.
+**Lane.** "The proofs that carry the cutover", under "HQ, in the lane". From pull request 3 the lane applies each fixture document's pre-step upload bodies to HQ, takes HQ's two reads of each state and every refusal the classification names, and holds the committed copies under `proof/hq-reads/cutover/` to them byte for byte; the matcher and the read classification are then run over those files. Pull request 2 has no reader slice: it moves no served reader's entry and adds no targeted witness and no reader test, so the lane it runs is the pull request lane, without the readers, which holds every document unmoved by the skeleton (part 09). Locally, with the readers off, pull request 3 runs `PROOF_READERS=0 npm run proof -- proof/hq/test_retained_reads.py`. The whole lane shows both registers exactly as the pull request beneath left them.
 
 ## Work item F: the migration notice
 
@@ -1070,7 +1070,7 @@ Renderer copy for the reasons whose copy is this part's, per the reason tables. 
 | `get_app` returns a seeded notice with its summary and truncation; `dismiss_app_notice` removes it for the caller, a viewer included; a caller outside the Project gets the ordinary access error with no hint that a notice exists; a token without `nova.write` gets `scope_missing` | real Postgres through the MCP SDK transport: `lib/mcp/__tests__/appNotices.postgres.test.ts` |
 | A seeded notice shows the chip, the dialog lists its lines, "Got it" removes the chip, and it stays gone after a reload; the home line shows for a seeded key reader and dismisses | Playwright: `e2e/` smoke |
 
-**Lane.** Nothing in the lane changes. On a proof machine the pull request runs the slice of the two documents named in the cutover's block; the whole lane shows both registers unchanged.
+**Lane.** Nothing in the lane changes, and the work item has no share of a reader slice: pull request 2 moves no served reader's entry and adds no targeted witness and no reader test (the cutover's block). The whole lane shows both registers unchanged.
 
 ## The proofs that carry the cutover
 
