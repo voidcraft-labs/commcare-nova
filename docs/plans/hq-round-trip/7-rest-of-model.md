@@ -41,6 +41,10 @@ less what steps 2 to 6 build.
 8. **Media and lookup data:** field properties and multi-valued cells, row
    attributes, ownership and non-global tables, indexed fields, cell absence
    states, a referenced-only `types` table, and import-sized tables and media.
+   Until this group holds the indexed-field flag, a push removes it from a
+   table Nova adopts, and step 2's adoption and discard confirmations say so.
+   A table's description stays outside every step: no lookup upload can carry
+   one.
    Its cutover clears the baseline of each adopted table defect 5 left blocked,
    so its first push stops at the drift check and offers to bring HQ's content
    in.

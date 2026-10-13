@@ -66,7 +66,7 @@ A search's own filter (`_xpath_query`), the zero-input `match-all()` included, i
 
 **No new `/api` route.** Every surface below uses an existing route or a server action, so `lib/hostnames.ts` gains no entry. A later change that adds a route for any of this needs its allowlist entry there, or the proxy answers 404 in production.
 
-**Tool schemas change** (`upload_app_to_hq`, `check_project_space_compatibility`, `get_deployment`, the new `withdraw_deployment_confirmation`, and the SA and MCP description of `set_app_logo`, C6). `npm run test:schema` bills one live request per schema: the implementer asks the person before running it. Each of these tools keeps its scope through `lib/mcp/scopes.ts::oauthScopeChallenge`. `set_app_logo` is a Solutions Architect tool, so its changed description changes the tool catalog and pull request 13 bumps `lib/models.ts::MODEL_CONTEXT_VERSION`, as each pull request that changes the catalog does (part 11, The model-addition checklist, item 13, is the one list of them and of the value each sets).
+**Tool schemas change** (`upload_app_to_hq`, `check_project_space_compatibility`, `get_deployment`, the new `withdraw_deployment_confirmation`, and the SA and MCP description of `set_app_logo`, C6). The first four are served by MCP alone, so the billed schema check does not send them: `lib/mcp/__tests__/servedSchemas.test.ts` holds each as an MCP client receives it, with no billing. `setAppLogo` is one of the 20 schemas the stack's one question names at the head of pull request 14, and nothing is run in pull request 13 (part 11, The model-addition checklist, item 14). Each of these tools keeps its scope through `lib/mcp/scopes.ts::oauthScopeChallenge`. `set_app_logo` is a Solutions Architect tool, so its changed description changes the tool catalog and pull request 13 bumps `lib/models.ts::MODEL_CONTEXT_VERSION`, as each pull request that changes the catalog does (part 11, The model-addition checklist, item 13, is the one list of them and of the value each sets).
 
 ## C1. The version floor
 
@@ -478,7 +478,7 @@ Locally: `npm run proof -- -k "targeted-custom-tile or navigation-search-day-ran
 **Files.**
 - Emitters: `lib/commcare/suite/case-search/xpathQuery.ts`, `lib/commcare/suite/case-search/searchSession.ts`, `lib/commcare/hqJson/caseList.ts`, `lib/commcare/surface/entries/case-search.json` (its cells name the constant's file).
 - Lane: `proof/hq/test_case_search.py`; `proof/native/core/SearchRuntimeTest.java` (its `automatic` scenario expects `_xpath_query=match-all()` on both paths, where it expected it on HQ's build alone); `proof/native/test_search_emission.py` (`compare_entries`' `automatic` arm goes: the two suites now hold the same datum, so HQ's is no longer an expected extra). Executed during planning at pull request 12's state: unedited, both fail, and they are the only package tests this block breaks.
-- Docs: `docs/research/2026-09-26-hq-round-trip/harness-findings.md`.
+- Docs: `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (finding 53's rewording, made in pull request 1 with the file's other edits; part 11, Edits to the other plans and the research).
 - CLAUDE.md: `lib/commcare/CLAUDE.md`.
 - Domain, doc and mutations, validator, builder, SA and MCP tools: none. Preview: none; it evaluates the typed predicate, and no predicate already means every case.
 
@@ -606,7 +606,7 @@ So the fix gives up one thing knowingly: today an app that reads places works wh
   - The `logo` input's description in `setAppLogoInputSchema`: "Asset id of the image to use as the app logo (shown in Preview, and in Web Apps once it is added in the app's settings in CommCare HQ), or null to clear it. Must be an image asset: discover image asset ids with list_media_assets."
   - The `set_app_logo` row of `content/docs/mcp/tools.mdx`: "Set or clear the app logo. It shows in Preview, and in Web Apps once it is added in the app's settings in CommCare HQ."
 
-  The first two are a tool's schema, so the implementer asks the person before running `npm run test:schema` (it bills), and `../nova-plugin` is swept for the old claim in the plugin's own pull request.
+  The first two are a Solutions Architect tool's definition, so `setAppLogo` is among the schemas the stack's one billed check names (part 11, The model-addition checklist, item 14), and `../nova-plugin` is swept for the old claim in the plugin's own pull request.
 
 **Files.**
 - Domain: `lib/domain/mediaRefs.ts` (`uncarriedLogoAsset` removed with its cases in `lib/domain/__tests__/mediaRefDescribe.test.ts`; no schema change).
@@ -692,7 +692,7 @@ What an API key can read of either: nothing. The repeater and connection setting
 - Public vocabulary: `lib/publish/planFeatures.ts` (`data-forwarding`, `CONNECT_FORWARDER`), `lib/publish/manualImportGuide.ts`.
 - Publish: `lib/deployment/preflight.ts`, `service.ts`, `store.ts`, `types.ts` (part 02 adds the kind and the key arm), `actions.ts`; `app/api/commcare/upload/route.ts`, `app/api/commcare/project-space-compatibility/route.ts`.
 - Builder: `components/builder/PublishDialog.tsx`, `DeploymentStatus.tsx`, `app-setup/publishingSectionModel.ts`.
-- SA and MCP tools: `lib/mcp/tools/uploadAppToHq.ts` (`confirm_connect_forwarder`), `checkProjectSpaceCompatibility.ts` (`connect_forwarder`), `deploymentProjection.ts`, `withdrawDeploymentConfirmation.ts` (the kind). These are tool schema changes named in the stack's one billed check. SA: none. `../nova-plugin`'s `upload_to_hq` skill names the two Connect questions in the plugin's own pull request.
+- SA and MCP tools: `lib/mcp/tools/uploadAppToHq.ts` (`confirm_connect_forwarder`), `checkProjectSpaceCompatibility.ts` (`connect_forwarder`), `deploymentProjection.ts`, `withdrawDeploymentConfirmation.ts` (the kind). Each is a tool only MCP serves, so the billed schema check does not send it and the served-schema test holds it (part 11, The model-addition checklist, item 14). SA: none. `../nova-plugin`'s `upload_to_hq` skill names the two Connect questions in the plugin's own pull request.
 - Lane: `proof/checks/configurations.py`, `proof/connect/hq.py`, `proof/connect/test_forwarding.py`, `proof/hq/seams.py` (`withheld`, under "Lane"), `proof/hq/test_plan_features.py`, `proof/corpus/hq/test_privileges.py`, `proof/checks/test_corpus.py`.
 - Docs: `content/docs/commcare-connect.mdx` (the page pull request 10 creates: part 08, Defect 15: identifiers HQ's editors refuse, Files) gains a section on what a Connect app's publish asks for, Data Forwarding and a Connect forwarder, and why; `content/docs/project-space-compatibility.mdx`, `content/docs/mcp/tools.mdx`.
 - CLAUDE.md: `lib/deployment/CLAUDE.md` (the confirmation ledger's third kind), `lib/commcare/CLAUDE.md` (the Connect paragraph: a Connect app needs Data Forwarding and a Connect forwarder, which publish asks the person to confirm).

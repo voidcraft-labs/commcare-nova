@@ -371,6 +371,11 @@ document's group and every control's passes whole but one document's,
 `targeted-supply-point-read`, for the two entries below. The run's other
 three failures are tests of the corpus's input manifest, which that state's
 corpus got from a rewrite of the emitted files and not from the emitter.
+Executed during planning again, without the readers, once the two entries
+were re-filed and the rest of this pull request's registers and controls
+were in that state: every document's group and every control's passes
+whole, and the lane's packages ran with them (A7, "This pull request's
+lane, run without the readers").
 
 **Two entries pin a form's `xmlns`, and this pull request re-files them as
 one.** `d20-supply-point-proof4-trace-vellum-xmlns-removed-21` and `-22`
@@ -2120,11 +2125,12 @@ from it.
     operational lookup failure, the image bundle and the workbook.
 - SA and MCP tools: `lib/mcp/tools/compileApp.ts` (`domain`, the
   `nova/target` meta, the description, which says a CCZ needs a project space
-  the app is published to). This changes a tool input schema: the
-  implementer asks the person before running `npm run test:schema`, which
-  bills one live request per schema; the ask is the single one part 11, The
-  stack, places at the head of pull request 14, naming `compile_app` among
-  the schemas the stack changed. `../nova-plugin` is swept for any claim
+  the app is published to). This changes the input schema of a tool only
+  MCP serves, so the billed schema check does not send it: `npm run
+  test:schema` sends the Solutions Architect's tool definitions alone, and
+  `lib/mcp/__tests__/servedSchemas.test.ts` holds `compile_app`'s schema as
+  an MCP client receives it, with no billing (part 11, The model-addition
+  checklist, item 14). `../nova-plugin` is swept for any claim
   that `compile_app` takes only a server, returns bare JSON, or compiles a
   CCZ for an app that is not published, and its change rides the plugin pull
   request that merges after the deploy.
@@ -2812,6 +2818,8 @@ run proof -- proof/hq/test_publish.py`, `PROOF_READERS=0 npm run proof --
 proof/checks -k "case-list-inline or search-hidden-link or
 control-search-registration-link"`, the documents and controls of Core's
 three trace entries, and `PROOF_READERS=0 npm run proof -- proof/rules`.
+What the whole pull request lane showed at this pull request's state is
+under A7, "This pull request's lane, run without the readers".
 
 Reader slice of pull request 3, on a proof machine, seventeen documents in
 two runs. The first holds sixteen, under the two readers the entries of
@@ -2856,8 +2864,10 @@ request moves or registers: A1's one on the device, the seventeen of
 finding 32 and the three of finding 59 that Formplayer and the device hold,
 and the nineteen of "What the working submit shows"; the document and the
 control of the entry A1 re-files, `targeted-supply-point-read`, whose
-control eight reader entries name; `search-hidden-link`, the second
-document the submit-label entry shows on; and `fuzz-suite-20260930-8`, the
+control eight reader entries name; `search-hidden-link`, a second
+document the submit-label entry shows on (the third,
+`case-extension-registration`, is in the slice for its own entries); and
+`fuzz-suite-20260930-8`, the
 witness of the judge change this pull request makes to `merged_text_ids`
 ("What the working submit shows"), which no entry names and which has no
 control. Planning's evidence for that document is its own runs at this
@@ -3327,6 +3337,185 @@ form's of D; its search for a carried id stays and finds none.
 
 No Nova TypeScript runs inside a proof shard: the capture runs at emission,
 and the shards apply its bytes.
+
+**The lane's readers of a first publish, at this pull request.** The table
+above names `proof/observe/publish.py::create` as the function that applies
+both imports. At the lane's head four more places apply a first publish
+themselves, and the lane reads state A's app, its lookup workbook and its
+media upload from `export.create` in many more. From this pull request
+`create.body` is the shell, so each of them changes here.
+
+- *The layout.* In the two-import layout `content.json` names the lookup
+  workbook pushed before the content import and the media upload sent after
+  it (`lookups`, `media`), as `create.json` names them in the legacy layout,
+  and `create.json` names neither: the workbook follows the shell's create,
+  and the media follows the content. `proof/checks/corpus.py::Export` holds
+  the second import as `content`, read with the marker (part 09, "The
+  layout marker"). In the legacy layout `Export.content` is `create`
+  itself, so no reader of state A's app asks which layout a directory
+  holds: `create` is the import a first publish sends first, and `content`
+  is the import whose body is the app state A holds.
+- *One function applies a first publish.*
+  `proof/rules/conftest.py::published`, `proof/formplayer/apps.py::published`,
+  `proof/webapps/hq.py::project` and `proof/hq/test_branches.py::_create`
+  each push the workbook and then make one
+  `operations.apply_upload(unit, export.create.upload())`. Each calls
+  `publish.create(unit, export)` where those two calls stand, and asserts
+  that it returned no refusal and that the workbook's upload reported no
+  error. The first three then send `export.content.media` where they send
+  `export.create.media` today. `proof/connect/conftest.py` publishes
+  through `proof/rules/conftest.py::published` and changes with it. Sent
+  alone, `create.body` makes the shell, an app with no menu.
+- *The readers of state A's workbook, media and app.* Each reads
+  `export.content` where it reads `export.create` today. The workbook:
+  `proof/observe/unit.py::_Unit.restore_for_sessions` and `::_Unit.b_context`,
+  `proof/rules/conftest.py::restore`,
+  `proof/connect/conftest.py::_Paths.__init__`, in
+  `proof/checks/test_proof3_behavior.py` the functions `_behavior`,
+  `control`, `_lookup_document`,
+  `test_hqs_builds_read_lookup_tables_from_hqs_restore` and
+  `test_a_lookup_table_hq_cannot_serve_is_a_refused_comparison` (which
+  also rebuilds the export around a changed workbook), and in
+  `proof/views/test_lookup_upload.py` the tests
+  `test_hq_answers_the_push_with_its_upgrade_page_and_status_200_where_the_plan_lacks_lookup_tables`
+  and
+  `test_hqs_upload_reads_a_table_whose_tag_holds_32_characters_and_fails_on_33`.
+  The media: `proof/observe/unit.py::_Unit.create_a`, and in
+  `proof/checks/test_record_determinism.py` the tests
+  `test_a_create_that_sends_media_maps_it_into_a_the_same_way_in_every_unit`,
+  `test_b_and_its_recreation_send_the_media_again_and_a_publish_hq_refuses_sends_none`
+  and `test_b_edit_maps_the_media_its_update_adds_over_an_a_that_had_none`.
+  The app: `proof/checks/test_alignment.py::_sources` and
+  `proof/checks/test_corpus.py::test_a_document_is_read_with_every_export_and_its_configuration`,
+  which holds that every import of the export has a body.
+- *The privileges.*
+  `proof/checks/configurations.py::PRIVILEGE_CAPTURES` names the minimum
+  configuration's `create` as the import whose app the privilege
+  derivation reads (`::_content_privileges`, `::_captured_app`). It reads
+  that configuration's `content` where the sidecars carry the marker,
+  since the shell holds no menu to derive a privilege from, and
+  `PrivilegeInputError` names the file it lacked.
+  `proof/checks/test_corpus.py::test_privileges_are_refused_for_an_unknown_configuration_or_a_lost_capture`
+  removes the sidecar the derivation reads.
+- *What part `a` reads.* Part `a` reads both imports, so a changed shell
+  moves its key and the evidence store's guard lets its observation read
+  both. `proof/observe/unit.py::input_files` and `proof/corpus/inputs.ts`,
+  which lay out `inputs.json` alike, give part `a` the content's files
+  under the prefix `content.` (`content.request.body`,
+  `content.request.json`, and `content.lookups.*` and `content.media.*`
+  where its sidecar names them) beside the shell's under `create.`, and
+  the `privileges.create.` roles name the content's files.
+  `_Unit.create_a` and `proof/hq/test_branches.py::_create` open their
+  `create` operation on the digest of both imports
+  (`proof/observe/publish.py::captured_digest` of each).
+  `proof/observe/manifest.py::uploads_of` yields `<configuration>/content`
+  beside `<configuration>/create`, so the manifest check reads the shell as
+  it reads every app Nova sends, and `proof/checks/manifest_usage.py`
+  expects it among a document's publishes. The assertions that name the
+  roles follow:
+  `proof/checks/test_corpus.py::test_the_input_manifest_names_the_bytes_each_part_reads`
+  and the parameters of `proof/checks/test_record_determinism.py` that name
+  `create.request.body` and `create.media.body`, which gain the content's
+  roles beside them.
+- *The branches comparison, `proof/hq/test_branches.py`.* From this pull
+  request state A holds the form ids Nova sent, because its content arrives
+  as an update (A3), and a republish sends the same ids, because they are
+  derived (A1). So B's import puts each form's source again under the
+  attachment name it already has, and HQ deletes the blob it replaces
+  (`corehq/blobs/mixin.py::BlobMixin.atomic_blobs`, reached from
+  `models/applications.py::ApplicationBase.save_attachments`). That delete
+  goes through `corehq/blobs/metadata.py::MetaDB.delete` to the database
+  function `delete_blob_meta`
+  (`corehq/blobs/sql_templates/delete_blob_meta_v2.sql`), which writes the
+  blob's row of `blobs_deletedblobmeta` with `deleted_on` from Postgres's
+  own `NOW()`. The harness freezes Python's clock
+  (`proof/hq/determinism.py`) and not the database's, so the fresh state
+  and the branched one hold two times in that column, and
+  `test_branches_of_one_unit_equal_fresh_states` reports it as state a
+  branch failed to put back. It is not: the row is written alike on both
+  sides, and HQ writes the column and reads it nowhere under `corehq`. The
+  comparison leaves that one column out where both states hold a value in
+  it, through a constant `DATABASE_CLOCK = {"blobs_deletedblobmeta":
+  {"deleted_on"}}` that `_differences` reads, and compares every other
+  column of the row; the module docstring says so beside the frozen clock.
+  A new case,
+  `test_the_comparison_leaves_out_the_database_clock_and_nothing_else`,
+  holds it over states written by hand: two rows that differ in
+  `deleted_on` alone compare equal, and a differing `key`, a `deleted_on`
+  one state lacks, a row one state lacks and a differing `deleted_on` in
+  another table each differ. At the lane's head a create re-mints every
+  form id and each update draws its own, so no import replaces a form's
+  source under its name.
+
+Executed during planning, without the readers, at this pull request's
+state written as scratch (the next paragraph gives the state). Its files
+keep the first update under `create` and name the shell's body in that
+sidecar, so these runs hold the sequence, two of the four callers and the
+comparison. They hold nothing of the Formplayer and Web Apps callers,
+whose packages need a reader, and nothing of the readers turned to
+`export.content`, whose list above is read from the lane's head.
+
+- With `proof/rules/conftest.py::published` unchanged, HQ answers its one
+  import with 404, "Application not found", since the body it sends names
+  the placeholder app id, and 43 of the 80 tests of `proof/rules` fail,
+  each at that assertion. With `published` calling `publish.create` the
+  package passes 80 of 80.
+- With `proof/hq/test_branches.py::_create` unchanged, its fourteen items
+  (the seven documents under both configurations) fail on the same 404.
+  With `_create` calling `publish.create`, the fourteen fail at B in the
+  first order of the branches, and every differing path is
+  `/sql/blobs_deletedblobmeta/<row>/deleted_on`: one row on ten of the
+  items and two on four. The row read by hand, on `localization-bilingual`,
+  is a form's source (`<form id>.xml`, type code 5, under the app's id).
+  With the column left out the file passes 71 of 71. The comparison's five
+  hand-written states gave the five verdicts above.
+
+**This pull request's lane, run without the readers.** Executed during
+planning, on a proof machine, at this pull request's state as its registers
+and controls give it. The state is the one "Register" under A1 describes
+(derived ids, the two-import first publish, no `multimedia_map` and A5's
+bytes, written into the lane's corpus of 357 documents by a rewrite of its
+files), with the nineteen entries of "What the working submit shows" live,
+the nine `-after-59` controls and `targeted-supply-point-read` retained in
+the two-import layout, and twenty-nine entries in the fixed register: the
+thirty-one this pull request moves less A2's two. It holds none of Nova's
+own code and no byte the emitter wrote; A2's codes and A6's import file are
+not in it (A2, "Lane", gives the runs of the codes); the tests this pull
+request adds to the lane are not written in it; and its base is the lane's
+branch at `e368cb1e`, before the lane's last 35 commits. So these runs hold
+what HQ and Core read of this pull request's bytes over the whole corpus
+and what the lane's own packages do with them, and they leave the emitter,
+A2 and A6 to the pull request's own lane in CI.
+
+- **The documents and controls.** `proof/checks` over all 357 documents
+  and the 69 controls a run without the readers holds: 4,334 items in 430
+  groups, and every document's group and every control's passes whole. The
+  gate holds every difference to the register, with no class unheld: 627
+  of that state's 874 live entries are held on their documents and
+  controls, and the other 247 are a served reader's and left to the run
+  with the readers, as all 31 held walk stops are. The eight fixed entries
+  no served reader writes (finding 32's three trace entries and A1's five)
+  show on no document and on their controls, `case-list-inline`,
+  `search-registration-link` and `case-operation-query`; the other
+  twenty-one are a served reader's. One item fails,
+  `proof/checks/test_corpus.py::test_the_input_manifest_names_the_bytes_each_part_reads`:
+  the corpus root's `inputs.json` lists each document's manifest by digest,
+  and the rewrite did not write it again. The emitter writes both.
+- **The packages.** `proof/rules` passes 80 of 80 once `published` calls
+  `publish.create`. `proof/core`, `proof/corpus`, `proof/editors`,
+  `proof/hq`, `proof/lane`, `proof/native`, `proof/store`, `proof/views`
+  and the surface: 780 items in 28 groups, 766 passing, and the fourteen
+  that fail are the branches comparison's, which pass once it leaves the
+  database's clock out ("The lane's readers of a first publish", above).
+  That state holds the lane's own native probes and none of Nova's tests,
+  so these runs say nothing of a package test that holds a byte this pull
+  request's emitter changes.
+
+The runs were made one after another at four scratch commits, each adding
+only the change it names to the one before: the documents, controls and
+`proof/rules` first, then `proof/rules` with `published` changed, then the
+other packages with `_create` changed, then `proof/hq/test_branches.py`
+with the comparison changed.
 
 ## What this work item leaves to others
 

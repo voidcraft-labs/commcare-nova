@@ -210,8 +210,9 @@ decision; the part named gives its evidence.
     List page writes that filter without the flag (part 03).
 16. **Defect 16's tile clause is corrected.** A column hidden from Results is
     usually shown on Details, so the research's refusal and removal would
-    delete fields workers see. Nothing is removed for it; one shape with no
-    in-envelope spelling is refused (part 07).
+    delete fields workers see. Nothing is removed for it; two shapes with no
+    in-envelope spelling are refused under one code, a hidden order rule on
+    a calculated column and one on a column over `case_id` (part 07).
 17. **Defect 13's leaf constraints are deleted, not moved.** Core evaluates a
     constraint only for a question a worker answers, so the ones Nova writes on
     case leaves never ran (part 05).
@@ -384,11 +385,11 @@ files, entries, rules, transform steps and ordering constraints.
 | 2 | The cutover's skeleton, the notice, frozen pre-step fixtures, every ledger table | 10, 02 |
 | 3 | Identity and the publish sequence | 01, 09 (the capture), 10 (the cutover's group of the retained reads, `api_request` and the rate-limit seam) |
 | 4 | Drift and baselines | 02, 09 (the retained reads) |
-| 5 | App-level emission | 04, 02 (the ownership descriptor) |
-| 6 | XForms, first part: shadows, leaf constraints, datetime leaves, defaults, translations, the form's name | 05 |
+| 5 | App-level emission | 04, 01 (the shell's keys), 02 (the ownership descriptor) |
+| 6 | XForms, first part: shadows, leaf constraints, datetime leaves, defaults, translations, the form's name; work item H's closure | 05, 04 and 09 (work item H) |
 | 7 | XForms, second part: groups, the rename, the root create id, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
-| 8 | Defect 3 and work item H's closure | 04 |
-| 9 | Case writes through basic actions: findings 33, 37 and 66, `update_case`, close conditions | 05 (findings 33, 37, 66), 06 (`update_case`, close conditions) |
+| 8 | Defect 3 | 04 |
+| 9 | Case writes through basic actions: findings 33, 37 and 66, `update_case`, close conditions, `external_id` as an update row | 05 (findings 33, 37, 66), 06 (`update_case`, close conditions, the `external_id` row) |
 | 10 | Identifiers and form content: defect 15 with its Connect forwarding; findings 31, 43, 44, 60, 61, 68, 70, 71 | 08 |
 | 11 | Case lists, with findings 41 and 54 | 07, 06 (findings 41, 54) |
 | 12 | Menus, navigation and search settings, with finding 53 | 06, 03 (finding 53) |
@@ -403,8 +404,9 @@ reason it adds. Each pull request that changes a stored shape adds its
 transform step and its notice reason. Each fix moves its entries and retires its rule in the same pull
 request. Each validator narrowing emits the corpus before and after, compares
 the document ids, and rewrites or removes what it refuses. A pull request that
-changes a tool's input schema asks the person before `npm run test:schema`,
-which bills.
+changes a tool definition the Solutions Architect is given says so, and the
+stack asks the person once before `npm run test:schema`, which bills, at the
+head of pull request 14 (part 11, The model-addition checklist, item 14).
 
 ## The cutover
 
