@@ -55,8 +55,11 @@ on:
         description: The ISO year and week whose sample the readers' comparison checks (2026-W42); this week's when empty
         type: string
         default: ''
+  # Monday, late afternoon: after the pin pull request's lanes (upstream-pins.yml, from 00:37) and before
+  # Tuesday's night (proof-audit.yml), so no two workflows' lanes with the readers run at once
+  # (proof/README.md, "The other workflows").
   schedule:
-    - cron: "17 5 * * 1"
+    - cron: "17 17 * * 1"
   workflow_call:
     inputs:
       ref:

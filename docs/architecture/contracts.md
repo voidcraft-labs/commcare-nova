@@ -147,7 +147,7 @@ Nova's real publish client and compilers export it: CommCare HQ's own import,
 build, case processing and editors and CommCare Core's own runtime on every
 pull request, and with them Formplayer's own application, HQ's Web Apps
 client, CommCare Android's own code and CommCare Connect's own server each
-night over what changed and each week whole. Every difference a check reports
+scheduled night over what changed and each week whole. Every difference a check reports
 is either erased by a spelling rule whose own tests show that each reader it
 names reads both spellings alike, or held by an entry of the known-defect
 register (`proof/known-defects.json`). The register is strict: a new

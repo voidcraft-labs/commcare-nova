@@ -15,10 +15,13 @@ name: Upstream pins
 # profile (without the readers, proof/lane/readers.py) and saves what it
 # observed as main's evidence store for that image (proof-lane.yml), so the
 # pin pull request's CI reads its records instead of observing every document
-# again. Beside it the lane runs with every reader on the candidate, compared
+# again. After it the lane runs with every reader on the candidate, compared
 # with main's store, so the readers' verdict on the new pins is this run's
 # before the pull request merges (a reader that does not hold fails the run);
-# the nightly audit holds main to it after. The pull request waits only for
+# the nightly audit holds main to it after. The two run one after the other,
+# the prewarm first, so this run never holds more than fourteen runners, and
+# the whole lane with every reader is about twelve hours of them
+# (proof/README.md, "The other workflows"). The pull request waits only for
 # the prewarm its CI reads;
 # this schedule's runs write the default branch's caches, which every pull
 # request can read. The prewarm
@@ -31,8 +34,11 @@ name: Upstream pins
 # extraction, the prewarm, the readers' lane) hold only a read token; the jobs
 # that write run none.
 on:
+  # Monday, just after midnight: after the weekly audit (proof-audit.yml, from Saturday evening) and with the
+  # day ahead of it, so its lane with every reader ends before the image comparison starts (proof-image.yml,
+  # 17:17) and no two workflows' lanes with the readers run at once (proof/README.md, "The other workflows").
   schedule:
-    - cron: "37 6 * * 1"
+    - cron: "37 0 * * 1"
   workflow_dispatch:
 
 permissions: {}
@@ -130,9 +136,11 @@ jobs:
       # observed whatever it is.
       verdict: false
 
+  # After the prewarm, whatever it found: the two together would hold more than fourteen runners.
   readers:
     name: Every reader on the candidate image
-    needs: [image, surface]
+    needs: [image, surface, prewarm]
+    if: ${{ !cancelled() && needs.image.result == 'success' && needs.surface.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml

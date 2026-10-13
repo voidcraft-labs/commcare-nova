@@ -11,8 +11,8 @@ Nova's real publish client and compilers export: everything but Android
 inside one pinned image, and Android beside it in the same container, its
 network answered by HQ's own views ("Android in the unit"). Every pull
 request runs the lane in CI without the served readers
-(`.github/workflows/ci.yml`: HQ, Core and HQ's editors), each night runs it
-with every reader over what changed and each week whole
+(`.github/workflows/ci.yml`: HQ, Core and HQ's editors), each scheduled
+night runs it with every reader over what changed and each week whole
 (`.github/workflows/proof-audit.yml`; "The lane in CI"), and `npm run proof`
 runs it on your machine.
 
@@ -574,8 +574,9 @@ it stands, the clean run without the readers shows 1,250 register problems
 and the absent surface, and the run with Formplayer 1,428, 24 walk-stops
 problems and the absent surface, none of them the slice's.
 
-Each night runs the lane with every reader over what changed and each week
-runs it whole, each opening an issue when it fails; they are the backstop
+Each scheduled night runs the lane with every reader over what changed and
+each week runs it whole, each opening an issue when it fails; they are the
+backstop
 for what a slice missed, never the first run of a reader change.
 
 ### Running the lane on another machine
@@ -2476,15 +2477,17 @@ reused is only what a key names whole, and the reuse is audited:
   observed whole and held to the store, a mismatch written under `audit/` and
   failing its group. A share of live editor runs (`PROOF_EDITOR_AUDIT`) is
   rerun on a fresh page;
-- **nightly, on main** (`proof-audit.yml`): the lane in both profiles ("The
-  lane's two profiles"), with every reader and without them, each queued as a
-  pull request's is, against main's newest snapshot: every group whose key
+- **nightly, on main** (`proof-audit.yml`, Tuesday to Saturday; "The other
+  workflows" gives the week): the lane in both profiles ("The lane's two
+  profiles"), without the readers and then with every reader, each queued as
+  a pull request's is, against main's newest snapshot: every group whose key
   changed since it was saved is observed, the audit sample afresh, and the
-  rest read. The two are merged over main's snapshot into the newest one
-  every pull request reads; a profile one of whose shards could not run
-  packs nothing and is left out of the merge, where main's records for it
-  stay, so a failed shard with the readers never keeps back the records
-  without them. A scheduled night that fails in either profile
+  rest read. Each is merged over main's snapshot as soon as its lane ends,
+  into the newest one every pull request reads, so the records without the
+  readers are saved before the lane with them starts; a profile one of whose
+  shards could not run packs nothing and saves nothing, where main's records
+  for it stay, so a failed shard with the readers never keeps back the
+  records without them. A scheduled night that fails in either profile
   opens an issue. A merge to main writes nothing to main's store (only the
   nightly, the weekly audit and the pin pull request's prewarm do, "Changing
   a pin", below), so a pull request opened right after a large merge is
@@ -3325,15 +3328,16 @@ written from where a pull request's own run read documents from the store
   `split-above` the pieces' threshold in the profile's place ("Documents
   observed in pieces", below).
 - **`proof-audit.yml`**: the nightly runs and the weekly fresh audit ("The
-  evidence store and its audits", above). Each night it runs `proof-lane.yml`
-  twice over main against main's store (`fresh: false`), with every reader
-  and without them, and **`proof-store-save.yml`** merges the two packed
-  stores over main's snapshot into the one the run saves (`python3 -m
+  evidence store and its audits", above). A night runs `proof-lane.yml`
+  twice over main against main's store (`fresh: false`), without the readers
+  and then with every reader, and **`proof-store-save.yml`** merges each
+  one's packed store over main's snapshot as its lane ends (`python3 -m
   proof.store.pack merge`: every key names its profile, so the two never
-  share one), so a pull request that changes no proof input finds every
-  group cached, and its lane is setup, the audit sample and the gate. Each week it runs both profiles
-  whole and fresh, which replace the snapshot, beside the sampled
-  comparisons. A scheduled night or week that fails, or cannot save the
+  share one; each save is kept under a key of its own, since a cache entry
+  is never written over), so a pull request that changes no proof input
+  finds every group cached, and its lane is setup, the audit sample and the
+  gate. Each week it runs both profiles whole and fresh, which replace the
+  snapshot, and then the sampled comparisons. A scheduled night or week that fails, or cannot save the
   store, opens an issue written from the lanes' verdicts (`python3 -m
   proof.lane.report`): each lane's failing groups, why, and the command that
   reruns each one alone at the commit the run checked, on any machine with
@@ -3347,8 +3351,10 @@ written from where a pull request's own run read documents from the store
   profile's budget as every shard bins the queues, its deadline twice its
   expected work; a group alone expected past that fails the plan, naming
   it; "Documents observed in pieces", below) and runs at most fourteen at
-  once, leaving six runners for pull requests; GitHub queues the rest, and
-  queued time is no job's. A dispatch that names documents (`mechanics`,
+  once; the rest of its shards wait, and waiting is no job's time. That
+  bound is one lane's, so the lanes are kept from running at once ("When
+  the scheduled lanes run", below), which is what leaves six runners for
+  pull requests. A dispatch that names documents (`mechanics`,
   with `nightly` unticked) runs the lane with every reader (or with none,
   `mechanics_readers` unticked) over those documents and the controls of
   the register's entries naming them, and nothing else of the corpus
@@ -3384,9 +3390,39 @@ written from where a pull request's own run read documents from the store
   says how a rerun names the image a lane ran (`PROOF_IMAGE`).
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
   below). Its prewarm runs the pull request lane's profile on the candidate
-  image and saves it for the pin pull request's CI; beside it the lane runs
+  image and saves it for the pin pull request's CI; after it the lane runs
   with every reader on the candidate, so a reader that does not hold on the
   new pins fails that run before a person merges them.
+
+**When the scheduled lanes run.** The account runs twenty jobs at once, and
+a lane's shards are at most fourteen at once (`proof-lane.yml`'s
+`max-parallel`). That bound is one lane's, so six runners stay free for pull
+requests only while no two lanes' shards run at once. Within a workflow each
+lane waits for the one before it (`needs`) and runs whatever that one found;
+across workflows the schedules are set apart by what each takes. The times
+below are the planner's, from the lane's measured seconds
+(`proof/timings.json`) on fourteen four-vCPU runners, with each lane's
+emission, its Android runtime's restore and its gate; the second figure is
+what the same plan gives once a run has measured the pieces, which are
+counted high until then. A hosted run of one document took up to 1.65 times
+a proof machine's, and a schedule's start may be late by some minutes, which
+the gaps between the schedules are for.
+
+| Schedule (UTC) | Lanes, in order | Takes |
+| --- | --- | --- |
+| Nights, 03:23 Tuesday to Saturday (`proof-audit.yml`) | without the readers against main's store (one shard: minutes, 1.2 h where every key moved), its save, with every reader against main's store, its save | what changed: minutes on most nights, 13.5 h (11.5) where every key moved, as after an emission change or new pins |
+| The week, 19:07 Saturday (`proof-audit.yml`) | whole and fresh without the readers (eight shards, 0.3 h), whole and fresh with every reader (56 shards in four rounds, 12 h; 10), their save, then the three sampled lanes (14 shards each, 3 h each) | 22 h (20), to Sunday evening |
+| The pin pull request, 00:37 Monday (`upstream-pins.yml`) | the image's build and the surface (ten minutes in run 37330885047), the prewarm without the readers (eight shards, 0.3 h), whole and fresh with every reader on the candidate (12 h; 10) | 13 h (11), where an upstream moved |
+| The image comparison, 17:17 Monday (`proof-image.yml`) | the build (six minutes in run 38253793793), the three whole lanes without the readers together (four shards each, 0.4 h), then the two sampled lanes with every reader (3 h each) | 7 h |
+
+No night runs on Sunday or Monday. The week's whole fresh lanes observe main
+on Saturday evening, which is more than that night would, and Monday is the
+pin pull request's and the image comparison's; Tuesday's night observes
+every group whose key changed since Saturday's snapshot, so nothing is left
+unobserved, and a pull request opened on Sunday or Monday reads Saturday's
+store and observes for itself what merged since. A dispatch is a person's
+to time: one that runs lanes while a schedule's are running takes runners
+beside them.
 
 ### Documents observed in pieces
 
@@ -3723,11 +3759,12 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
 4. **Prewarm**: the whole lane runs fresh on the candidate image over the tree
    the pull request will carry, in the pull request lane's profile (without
    the readers), and saves what it observed as main's store for that image,
-   so the pull request's own CI reads its records. Beside it the lane runs
+   so the pull request's own CI reads its records. After it the lane runs
    with every reader on the candidate, compared with main's store, and a
    reader that does not hold on the new pins fails the run: the readers'
    verdict on new pins is there before a person merges them, as the nightly's
-   is after.
+   is after. It takes about twelve hours of fourteen runners ("When the
+   scheduled lanes run"), and the pull request waits only for the prewarm.
 5. **Report** (`pins.mjs report`) adds the image lock and the regenerated
    surface to the one commit, opens the pull request or updates the open one,
    and requests review. GitHub holds CI on a pull request the workflow's own

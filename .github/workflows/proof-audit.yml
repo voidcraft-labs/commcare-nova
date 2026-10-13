@@ -12,18 +12,21 @@ name: Proof audit
 # walks), so a whole fresh lane would hold every runner for about five hours.
 # So it runs whole once a week, and each night only what changed.
 #
-# Nightly, on main: the lane in both of its profiles (proof/lane/readers.py),
-# with every reader and without them, each queued as a pull request's is,
-# against main's newest store snapshot: a cached group runs nowhere and the
-# gate holds its stored evidence, the audit sample is observed afresh, and
-# every group whose key changed since the last snapshot is observed. Both are
-# merged over main's snapshot into its newest (proof-store-save.yml, `base`),
-# which every pull request reads, and older snapshots of the image are
+# Nightly, on main, Tuesday to Saturday: the lane in both of its profiles
+# (proof/lane/readers.py), without the readers and then with every reader,
+# each queued as a pull request's is, against main's newest store snapshot:
+# a cached group runs nowhere and the gate holds its stored evidence, the
+# audit sample is observed afresh, and every group whose key changed since
+# the last snapshot is observed. Each is merged over main's snapshot into
+# its newest as its lane ends (proof-store-save.yml, `base`), so the records
+# without the readers, which every pull request reads, are saved before the
+# lane with them starts; older snapshots of the image are
 # deleted. A scheduled night that fails in either profile opens an issue
 # that names each failing group and the command that reruns it alone
 # (python3 -m proof.lane.report).
 #
-# Weekly, on main: the fresh audit, what proves the store's keys. The whole
+# Weekly, on main, from Saturday evening: the fresh audit, what proves the
+# store's keys. The whole
 # lane runs fresh with every reader (every group, nothing shared between
 # documents), with every memo verified on every hit, every editor view rerun
 # the slow way and every document's HQ branches held to fresh states, and
@@ -47,10 +50,23 @@ name: Proof audit
 # Every lane that runs the readers sizes its shards from its queue's measured
 # cost (python3 -m proof.lane.plan size: no shard expected past the profile's
 # budget, proof/timings.json's execution.budget) and runs at most fourteen at
-# once, leaving six runners for pull requests. A document heavy enough is
-# observed in pieces, one configuration a worker, so no one worker carries it
-# whole (proof/README.md, "Documents observed in pieces"). A dispatch runs the
-# nightly, the weekly, or both, as its inputs say.
+# once. That bound is each lane's own (a matrix's max-parallel), so the
+# lanes of a run go one after another, each waiting for the one before it
+# and running whatever that one found: the lane without the readers, its
+# save, the lane with them, its save; and in the weekly the two whole lanes,
+# their save, then the three sampled ones. So a run never holds more than
+# fourteen of the account's twenty runners, and six stay free for pull
+# requests. The schedules keep the workflows apart the same way (the
+# README's table, "The other workflows", gives what each takes): the weekly
+# starts on Saturday evening, the pin pull request's lanes on Monday just
+# after midnight (upstream-pins.yml), the image comparison on Monday
+# afternoon (proof-image.yml), and the nights run Tuesday to Saturday. No
+# night runs on Sunday or Monday: the weekly observes main whole on
+# Saturday evening, and Tuesday's night observes every group whose key
+# changed since. A document heavy enough is observed in pieces, one
+# configuration a worker, so no one worker carries it whole
+# (proof/README.md, "Documents observed in pieces"). A dispatch runs the
+# nightly, the weekly, or both, as its inputs say, in the same order.
 #
 # A dispatch that names documents (`mechanics`) runs the lane with every
 # reader (or with none, `mechanics_readers` unticked) over those documents
@@ -63,8 +79,10 @@ name: Proof audit
 # says so; it saves no store.
 on:
   schedule:
-    - cron: "23 3 * * *"
-    - cron: "41 4 * * 0"
+    # The nights, Tuesday to Saturday.
+    - cron: "23 3 * * 2-6"
+    # The week, from Saturday evening.
+    - cron: "7 19 * * 6"
   workflow_dispatch:
     inputs:
       nightly:
@@ -159,22 +177,13 @@ jobs:
             --out "$RUNNER_TEMP/report.md"
           cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
 
-  nightly:
-    name: Nightly
-    if: ${{ inputs.nightly == true || github.event.schedule == '23 3 * * *' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/proof-lane.yml
-    with:
-      label: audit
-      fresh: false
-      store: pack
-
-  # The pull request lane's profile over main: the records and judgments every
-  # pull request's lane reads for the groups it did not change.
+  # The pull request lane's profile over main, first: the records and
+  # judgments every pull request's lane reads for the groups it did not
+  # change, saved before the lane with the readers starts, which may take
+  # half a day.
   nightly-no-readers:
     name: Nightly, without the readers
-    if: ${{ inputs.nightly == true || github.event.schedule == '23 3 * * *' }}
+    if: ${{ inputs.nightly == true || github.event.schedule == '23 3 * * 2-6' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
@@ -184,29 +193,51 @@ jobs:
       fresh: false
       store: pack
 
-  # One snapshot of both profiles' records over main's, saved whatever either
-  # verdict (as a single lane's save is). A profile one of whose shards could
-  # not run packed nothing and is left out: main's records for it stay, and
-  # the other profile's are saved all the same.
+  # Each profile's records are merged over main's snapshot as soon as its
+  # lane ends, whatever its verdict (as a single lane's save is): a profile
+  # one of whose shards could not run packed nothing, and saves nothing.
+  save-no-readers:
+    name: Save main's store, without the readers
+    needs: nightly-no-readers
+    if: ${{ !cancelled() && needs.nightly-no-readers.result != 'skipped' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-store-save.yml
+    with:
+      base: true
+      labels: audit-no-readers
+
+  # After the lane without the readers and its save, whatever they found, so
+  # the two lanes' shards never run at once.
+  nightly:
+    name: Nightly
+    needs: [nightly-no-readers, save-no-readers]
+    if: ${{ !cancelled() && (inputs.nightly == true || github.event.schedule == '23 3 * * 2-6') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: audit
+      fresh: false
+      store: pack
+
   save:
-    name: Save main's store
-    needs: [nightly, nightly-no-readers]
+    name: Save main's store, with the readers
+    needs: nightly
     if: ${{ !cancelled() && needs.nightly.result != 'skipped' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-store-save.yml
     with:
       base: true
-      labels: |
-        audit
-        audit-no-readers
+      labels: audit
 
   # Keeps the newest two of main's snapshots of the image the audit ran, so a
   # pull request opened while the newest is being written still reads one.
   prune:
     name: Delete older snapshots
-    needs: [save, weekly-save]
-    if: ${{ always() && (needs.save.result == 'success' || needs.weekly-save.result == 'success') }}
+    needs: [save-no-readers, save, weekly-save]
+    if: ${{ always() && (needs.save-no-readers.result == 'success' || needs.save.result == 'success' || needs.weekly-save.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -236,8 +267,8 @@ jobs:
   # whoever fixes it reruns the smallest slice and not the night.
   report:
     name: Report a failed night
-    needs: [nightly, nightly-no-readers, save]
-    if: ${{ failure() && github.event.schedule == '23 3 * * *' }}
+    needs: [nightly, nightly-no-readers, save, save-no-readers]
+    if: ${{ failure() && github.event.schedule == '23 3 * * 2-6' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -272,7 +303,7 @@ jobs:
   # as the corpus holds samples of 24 (fifteen, for 357). The three lanes below check the same sample.
   weekly-sample:
     name: This week's comparison sample
-    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    if: ${{ github.event.schedule == '7 19 * * 6' || inputs.weekly == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -286,9 +317,12 @@ jobs:
           echo "seed=$seed" >> "$GITHUB_OUTPUT"
           echo "The weekly comparisons check the corpus sample the seed \`$seed\` chooses; each sampled lane's summary lists its documents. Dispatch the audit with \`sample_seed=$seed\` to run the same sample again." >> "$GITHUB_STEP_SUMMARY"
 
+  # The three sampled lanes run after the whole ones and their save, one after another, whatever each before
+  # them found.
   weekly-baseline:
     name: Weekly baseline
-    needs: weekly-sample
+    needs: [weekly-sample, weekly-save]
+    if: ${{ !cancelled() && needs.weekly-sample.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
@@ -299,7 +333,8 @@ jobs:
 
   weekly-unseeded:
     name: Weekly, every clock and draw left real
-    needs: weekly-sample
+    needs: [weekly-sample, weekly-baseline]
+    if: ${{ !cancelled() && needs.weekly-sample.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
@@ -312,7 +347,8 @@ jobs:
 
   weekly-unseamed:
     name: Weekly, HQ's speed seams off
-    needs: weekly-sample
+    needs: [weekly-sample, weekly-unseeded]
+    if: ${{ !cancelled() && needs.weekly-sample.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
@@ -322,9 +358,11 @@ jobs:
       sample-seed: ${{ needs.weekly-sample.outputs.seed }}
       lane-env: PROOF_HQ_SPEED=0
 
+  # After the whole lane without the readers, whatever it found.
   weekly-verified:
     name: Weekly, every memo verified, every view rerun, every branch held
-    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    needs: weekly-no-readers
+    if: ${{ !cancelled() && (github.event.schedule == '7 19 * * 6' || inputs.weekly == true) }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
@@ -338,16 +376,21 @@ jobs:
         PROOF_BRANCH_DOCUMENTS=all
 
   # The pull request lane's profile fresh, compared with main's snapshot: the audit of the keys every pull
-  # request's lane reads, and that profile's half of the snapshot the week starts from.
+  # request's lane reads, and that profile's half of the snapshot the week starts from. The first of the
+  # week's lanes; in a dispatch that also runs the nightly, after its lanes and their saves.
   weekly-no-readers:
     name: Weekly, without the readers
-    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    needs: save
+    if: ${{ !cancelled() && (github.event.schedule == '7 19 * * 6' || inputs.weekly == true) }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
       label: weekly-no-readers
       readers: false
+      # Sized by its budget this lane would be one shard for over an hour, with the week's other lanes waiting
+      # behind it; eight end it in about a quarter of that.
+      shards: '8'
       store: pack
       # The whole fresh run that holds the committed sensitivity effects to its own flips: it observes every
       # document, and the flips are built, never run, so the readers add nothing to them. The sampled lanes
@@ -418,7 +461,7 @@ jobs:
   weekly-report:
     name: Report a failed week
     needs: [weekly-sample, weekly-compare, weekly-no-readers, weekly-save]
-    if: ${{ always() && github.event.schedule == '41 4 * * 0' && (contains(needs.*.result, 'failure') || needs.weekly-compare.result == 'skipped') }}
+    if: ${{ always() && github.event.schedule == '7 19 * * 6' && (contains(needs.*.result, 'failure') || needs.weekly-compare.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

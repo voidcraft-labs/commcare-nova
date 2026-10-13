@@ -7,8 +7,8 @@ application, HQ's Web Apps client, CommCare Android's own app and CommCare
 Connect's own server, over a reproducible corpus. Every pull request runs it
 without the readers (`PROOF_READERS=0`, `proof/lane/readers.py`: HQ and Core
 whole, no state served to Formplayer, the client, a device or Connect); each
-night runs it with every reader over what changed since main's last store
-snapshot, and each week runs it whole and fresh, which is what proves the
+scheduled night runs it with every reader over what changed since main's last
+store snapshot, and each week runs it whole and fresh, which is what proves the
 store's keys; a scheduled failure of either opens an issue.
 `proof/README.md` says what it proves, how to run it and read a failure, how
 to add a document, a targeted document, a spelling rule, a register entry and
@@ -287,9 +287,10 @@ harness keeps, each with its reason.
     group fresh. A shard's deadline is twice its expected time, never under
     twenty minutes: it ends a stuck shard, which fails the lane, and never
     decides what is verified.
-  - **Nightly** (`proof-audit.yml`): both profiles over main against main's
-    store, so every group main's store lacks is observed, and the two are
-    merged into the snapshot every pull request reads.
+  - **Nightly** (`proof-audit.yml`, Tuesday to Saturday): both profiles over
+    main against main's store, without the readers and then with them, so
+    every group main's store lacks is observed, and each is merged into the
+    snapshot every pull request reads as its lane ends.
   - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
     that proves the store's keys and replaces the snapshot, beside the
     comparisons over a 24-document sample that turns each week (its seed
@@ -302,7 +303,12 @@ harness keeps, each with its reason.
   GitHub's free plan of twenty jobs at once and six hours a job, so each
   lane with the readers sizes its shards from its queue
   (`python3 -m proof.lane.plan size`: within the profile's budget a shard,
-  `proof/timings.json`'s `execution.budget`, fourteen at once). A document
+  `proof/timings.json`'s `execution.budget`, fourteen at once). Fourteen is
+  one lane's bound, so no two lanes' shards may run at once: a workflow's
+  lanes wait for one another (`needs`), and the schedules are set apart by
+  what each takes (`proof/README.md`, "When the scheduled lanes run"); keep
+  both true when a lane or a schedule is added, or pull requests lose the
+  six runners left to them. A document
   or control too heavy for one worker is observed in pieces
   (`proof/README.md`, "Documents observed in pieces"): each configuration
   by a group of its own into the run's store, and the document's own group

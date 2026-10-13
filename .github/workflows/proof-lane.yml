@@ -12,9 +12,8 @@ name: Proof lane
 # shards (`shards`: a count, or `auto`, as many as keep each shard's expected
 # work within the profile's budget inside GitHub's six-hour job limit
 # (proof/timings.json, execution.budget), each with a deadline from it,
-# python3 -m proof.lane.plan size; at most fourteen at once, so six of the
-# account's twenty runners stay free for pull requests, and past fourteen the
-# count fills its last round) of `image`
+# python3 -m proof.lane.plan size; at most fourteen of this call's at once,
+# and past fourteen the count fills its last round) of `image`
 # on `runner`, each handing every state it serves to a device beside HQ's live
 # unit, holds the outputs to the lane's gate, and, as `store`
 # asks, compares them with main's evidence store (a difference fails the run
@@ -36,8 +35,14 @@ name: Proof lane
 # change.
 #
 # Each artifact it writes carries `label`, so one run can call it several
-# times (proof-image.yml compares three) without two calls' claims or outputs
+# times (proof-image.yml compares five) without two calls' claims or outputs
 # meeting.
+#
+# Fourteen at once is this call's bound, a matrix's, and the account runs
+# twenty jobs at once. Six stay free for pull requests only where no two
+# calls' shards run at once, which is the callers': each makes its calls
+# wait for one another (`needs`), and the schedules keep the workflows apart
+# (proof/README.md, "The other workflows", gives what each takes).
 #
 # A run of an image the checkout's lock does not name (`image`) records it in
 # the lock first, in every job (proof/ci/candidate.mjs), so the queue's keys,
@@ -289,8 +294,10 @@ jobs:
     timeout-minutes: ${{ matrix.deadline || 330 }}
     strategy:
       fail-fast: false
-      # Six of the account's twenty runners stay free for pull requests; the
-      # shards past fourteen queue, and queued time is no job's.
+      # Fourteen of this call's shards at once; the rest wait, and waiting is
+      # no job's time. The bound is this matrix's alone: the callers keep two
+      # calls' shards from running at once, which is what leaves six of the
+      # account's twenty runners to pull requests.
       max-parallel: 14
       matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}
     env:
