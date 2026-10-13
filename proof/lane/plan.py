@@ -119,7 +119,14 @@ def _group_estimates(block: Mapping, estimate: Callable[[str], float]) -> list[t
     own = [queued.get("estimate") for queued in block["groups"]]
     if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in own):
         return list(zip(names, (float(value) for value in own), strict=True))
-    weights = [estimate(name) for name in names]
+    # A piece no run measured counts by how many pieces its document is observed in, all of them in this block.
+    pieces = lane_blocks.piece_counts(names)
+
+    def weight(name):
+        piece = lane_blocks.piece_of(name)
+        return estimate(name) if piece is None else estimate(name, pieces=pieces[piece[0]])
+
+    weights = [weight(name) for name in names]
     total = sum(weights) or 1.0
     return [(name, float(block["estimate"]) * weight / total) for name, weight in zip(names, weights, strict=True)]
 

@@ -150,6 +150,11 @@ def test_a_group_the_timings_do_not_list_counts_high_among_those_of_its_kind():
     assert sharding.PIECE_SHARE > 0.5
     assert seconds("corpus:6@minimum") == pytest.approx(6.0 * sharding.PIECE_SHARE)
     assert seconds("corpus:new@maximum") == pytest.approx(10.0 * sharding.PIECE_SHARE)
+    # A document under more configurations is observed in as many pieces, each a smaller share of it, as the
+    # queue builder counts one (``piece_share``): four pieces at the two-piece share would be 2.6 documents.
+    assert seconds("corpus:6@minimum", pieces=4) == pytest.approx(6.0 * sharding.piece_share(4))
+    assert 4 * seconds("corpus:6@minimum", pieces=4) == pytest.approx(6.0 * 2 * sharding.PIECE_SHARE)
+    assert seconds("corpus:6", pieces=4) == 6.0 and seconds("proof/new", pieces=4) == 100.0
     assert seconds("proof/new") == 100.0
     assert sharding.estimate({})("corpus:new") == sharding.estimate({})("proof/new") == sharding.DEFAULT_SECONDS
     assert sharding.piece_share(2) == sharding.PIECE_SHARE and sharding.piece_share(1) == 1.0

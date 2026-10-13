@@ -162,6 +162,27 @@ def _split(*others, estimates=(60.0, 40.0, 2.0)):
 PASSED = {"outcomes": {"checks/pieces.py::test[x]": "passed"}}
 
 
+def test_a_piece_its_queue_gives_no_estimate_is_ordered_by_its_share_among_its_documents_pieces():
+    """The heaviest group goes out first. A queue that carries no estimates is ordered by the timings, where a
+    piece no run measured is a share of its document, for the number of pieces the document is observed in
+    (``proof.checks.sharding.piece_share``). Counted at the two-piece share whatever their number, each of four
+    pieces of a 200-second document would pass for 130 seconds and go out before a 100-second group it is
+    lighter than."""
+    from proof.checks import sharding
+
+    pieces = tuple(f"control:wide@{name}" for name in ("a", "b", "c", "d"))
+    groups = (
+        *(QueuedGroup(piece) for piece in pieces),
+        QueuedGroup("control:wide", False, pieces),
+        QueuedGroup("corpus:beside"),
+    )
+    broker = Broker(sharding.estimate({"control:wide": 200.0, "corpus:beside": 100.0}))
+    broker.add_phase("main", static=True)
+    broker.offer("main", [Block(block_id(group.group for group in groups), 400.0, groups)])
+    assert broker.next_for("main", 1).group == "corpus:beside"
+    assert broker.next_for("main", 2).group in pieces
+
+
 def test_a_group_that_follows_pieces_is_handed_out_once_each_has_passed_and_a_worker_waits_meanwhile():
     block = _split()
     # The timings know the document's own name as its whole cost, far past either piece: the queue's estimates,

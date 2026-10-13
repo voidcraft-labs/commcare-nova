@@ -179,6 +179,17 @@ def piece_of(name: str) -> tuple[str, str] | None:
     return (whole, configuration) if at else None
 
 
+def piece_counts(groups) -> dict[str, int]:
+    """How many pieces each document or control among ``groups`` (a block's) is observed in, by its own group's
+    name: what an unmeasured piece's share of its document is counted from (``proof.checks.sharding.estimate``)."""
+    counts: dict[str, int] = {}
+    for group in groups:
+        piece = piece_of(group)
+        if piece is not None:
+            counts[piece[0]] = counts.get(piece[0], 0) + 1
+    return counts
+
+
 def package_of(name: str) -> str:
     """The package a group belongs to: ``proof/<package>`` for its own group and every module or test it splits off
     (``proof/<package>/<module>.py[::<test>]``), and the group itself for any other."""

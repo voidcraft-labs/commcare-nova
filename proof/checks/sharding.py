@@ -49,7 +49,8 @@ partial profile oversizes a lane rather than overrunning its shards
 (``estimate``). A document a run observed in pieces is measured as it ran: each
 piece under its own name, and the document's own group judging alone; its
 whole measure is their sum (``documents``), and a piece no run has measured is
-counted at ``PIECE_SHARE`` of it.
+counted at its share of it for the number of pieces the document is observed
+in (``piece_share``: ``PIECE_SHARE`` for two).
 
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
 claimed by one shard. ``static_bins`` splits the blocks across ``n`` shards
@@ -292,8 +293,10 @@ def piece_share(configurations: int) -> float:
 def estimate(timings):
     """Each group's box-seconds: measured where ``timings`` lists it, else counted high: a document or control at
     the 90th percentile of the measured documents' whole measures (``documents``, ``UNMEASURED_PERCENTILE``), a
-    piece no run measured at ``PIECE_SHARE`` of its document's, any other group at the 90th percentile of the
-    measured groups that are not documents, each at least ``DEFAULT_SECONDS``."""
+    piece no run measured at its share of its document's (``piece_share`` for the ``pieces`` the document is
+    observed in, as the queue builder counts one and ``proof.lane.blocks.piece_counts`` reads them from a block;
+    two where the caller names none), any other group at the 90th percentile of the measured groups that are not
+    documents, each at least ``DEFAULT_SECONDS``."""
     whole = documents(timings)
     document = max(DEFAULT_SECONDS, _percentile(whole.values(), UNMEASURED_PERCENTILE) or 0.0)
     other = max(
@@ -302,12 +305,12 @@ def estimate(timings):
         or 0.0,
     )
 
-    def seconds(group):
+    def seconds(group, pieces: int = 2):
         if group in timings:
             return float(timings[group])
         if group.startswith(DOCUMENT_KINDS):
             name, piece, _ = group.partition("@")
-            return PIECE_SHARE * whole.get(name, document) if piece else document
+            return piece_share(pieces) * whole.get(name, document) if piece else document
         return other
 
     return seconds

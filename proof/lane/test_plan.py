@@ -141,6 +141,38 @@ def test_a_document_in_pieces_counts_as_its_longest_piece_and_the_judging_after_
     assert plan.span(lane, 1, execution) == 2440.0
 
 
+def test_an_unmeasured_piece_is_counted_by_how_many_pieces_its_document_is_observed_in():
+    """A queue whose groups carry no estimates (one written by hand, or by an older builder) is planned from the
+    timings, and a piece no run measured is a share of its document there. The queue builder counts that share
+    for the configurations the document is exported under; counted at the two-piece share whatever their number,
+    a control under four configurations weighs 2.6 times itself, and its block's other groups are planned
+    lighter than they are and its pieces past a budget they fit."""
+    from proof.checks import sharding
+
+    pieces = [f"control:wide@{name}" for name in ("a", "b", "c", "d")]
+    block = {
+        "id": lane_blocks.block_id([*pieces, "control:wide", "corpus:beside"]),
+        "estimate": 400.0,
+        "groups": [
+            *({"group": piece, "fresh": False} for piece in pieces),
+            {"group": "control:wide", "fresh": False, "after": pieces},
+            {"group": "corpus:beside", "fresh": False},
+        ],
+    }
+    queue = {"version": 1, "fingerprints": {}, "blocks": [block], "cached": [], "readers": True}
+    # The document measured whole at 200 box-seconds (its own group's judging counted among them), the one beside
+    # it at 100: each of four pieces is 0.325 of 200, not 0.65 of it.
+    estimate = sharding.estimate({"control:wide": 200.0, "corpus:beside": 100.0})
+    lane = plan.lane_of(None, queue, estimate)
+    share = sharding.piece_share(4)
+    assert share == pytest.approx(0.325)
+    total = 4 * share * 200.0 + 200.0 + 100.0
+    assert lane.groups()["control:wide@a"] == pytest.approx(400.0 * share * 200.0 / total)
+    assert lane.groups()["corpus:beside"] == pytest.approx(400.0 * 100.0 / total)
+    # The four pieces together are what the builder would queue for them: 1.3 documents, never 2.6.
+    assert sum(lane.groups()[piece] for piece in pieces) == pytest.approx(400.0 * 1.3 * 200.0 / total)
+
+
 def test_past_as_many_shards_as_run_at_once_the_count_fills_its_last_round():
     # 160 documents of 20 box-seconds within 210 a shard: sixteen shards of 200 s, fourteen at once, so two rounds
     # either way. Twenty-eight fill the second round, and each then runs six documents at most, 120 s.

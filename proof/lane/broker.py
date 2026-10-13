@@ -47,7 +47,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from proof.lane.blocks import Block, piece_of
+from proof.lane.blocks import Block, piece_counts, piece_of
 
 WAIT = "wait"
 
@@ -205,8 +205,15 @@ class Broker:
 
     def _expected(self, phase: Phase, identifier: str, group: str) -> float:
         """What the group is expected to cost: as its queue says where it does, else by the timings."""
-        queued = phase.runs[identifier].groups[group].queued
-        return queued.estimate if queued.estimate is not None else self._estimate(group)
+        groups = phase.runs[identifier].groups
+        queued = groups[group].queued
+        if queued.estimate is not None:
+            return queued.estimate
+        piece = piece_of(group)
+        if piece is None:
+            return self._estimate(group)
+        # A piece no run measured counts by how many pieces its document is observed in, all of them in its block.
+        return self._estimate(group, pieces=piece_counts(groups)[piece[0]])
 
     def next_for(self, name: str, worker: int, *, ahead: bool = False):
         """The next group for ``worker`` in the phase, ``WAIT`` while a claim or a piece still running may bring

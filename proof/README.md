@@ -3477,7 +3477,10 @@ under its own name, and the document's own group its judging alone
 (`proof/timings.json`). The document's whole measure is their sum
 (`proof.checks.sharding.documents`), which is what the threshold is held to,
 so a document does not pass for light by its judging's measure. A piece no
-run has measured counts at 0.65 of its document's whole (`PIECE_SHARE`), so a
+run has measured counts at 0.65 of its document's whole where the document
+is observed in two (`PIECE_SHARE`), and at that share scaled to the number
+of its pieces where it is observed in more (`piece_share`: 0.43 of it in
+three), by the queue builder, the planner and the shard's broker alike, so a
 lane sized before its pieces are measured is oversized, never overrun.
 
 `plan size` counts a document in pieces as its longest piece and the judging

@@ -52,8 +52,9 @@ A document's whole measure is its own group's with its pieces' where the
 timings were measured from a run that split it (``proof.checks.sharding
 .documents``): its own group then measured its judging alone. Each queued
 group carries the estimate of what it runs as queued: a piece its own
-measure, or ``proof.checks.sharding.PIECE_SHARE`` of the whole where no run
-measured it; the group after its pieces its judging (measured, or the
+measure, or its share of the whole where no run measured it
+(``proof.checks.sharding.piece_share``, by the configurations the document
+is observed in); the group after its pieces its judging (measured, or the
 profile's judged share of the whole: ``execution.judged`` in the timings,
 ``JUDGED_SHARE`` where it names none).
 
