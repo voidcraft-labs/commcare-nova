@@ -6,11 +6,15 @@ name: Proof audit
 # every input; these run the readers and hold the store to its keys.
 #
 # The repository runs on GitHub's free plan for organizations: twenty jobs at
-# once, six hours a job. The lane with every reader costs about 300
-# worker-hours observed whole (a document's group 800 to 2,400 seconds on one
-# worker, most of it the Android devices' JVMs and the Web Apps client's
-# walks), so a whole fresh lane would hold every runner for about five hours.
-# So it runs whole once a week, and each night only what changed.
+# once, six hours a job. The lane with every reader costs about 550
+# worker-hours observed whole, as one whole run measured it (552 at about a
+# vCPU a worker; proof/timings.json's readers profile says how): the median
+# document takes 3,361 seconds on one worker, one in ten more than 9,564 and
+# the longest 13,321, half of it the Android devices' JVMs and most of the
+# rest the Web Apps client's walks. That is 138 hours of four-vCPU runners:
+# planned within the profile's budget it is 56 shards, four rounds of
+# fourteen, about twelve hours. So it runs whole once a week, and on the
+# other scheduled nights only what changed.
 #
 # Nightly, on main, Tuesday to Saturday: the lane in both of its profiles
 # (proof/lane/readers.py), without the readers and then with every reader,
@@ -56,8 +60,8 @@ name: Proof audit
 # save, the lane with them, its save; and in the weekly the two whole lanes,
 # their save, then the three sampled ones. So a run never holds more than
 # fourteen of the account's twenty runners, and six stay free for pull
-# requests. The schedules keep the workflows apart the same way (the
-# README's table, "The other workflows", gives what each takes): the weekly
+# requests. The schedules keep the workflows apart the same way
+# (proof/README.md, "When the scheduled lanes run", gives what each takes): the weekly
 # starts on Saturday evening, the pin pull request's lanes on Monday just
 # after midnight (upstream-pins.yml), the image comparison on Monday
 # afternoon (proof-image.yml), and the nights run Tuesday to Saturday. No
