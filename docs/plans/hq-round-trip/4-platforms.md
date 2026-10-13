@@ -30,14 +30,16 @@ defects 11 (its second half), 18, 19 and 20.
 6. **Defect 18.** The date-and-time question is offered only in an app that does
    not declare Web Apps. Finding 74 (`harness-findings.md`) is its harm as the
    lane's Web Apps client shows it: the client draws no widget for a date and
-   time and holds "Not Supported by Web Entry" as its answer, and where the
-   question sits in a repetition a worker adds last it submits that text, which
-   Formplayer refuses, so the form can never be submitted. It is the client's
-   own, the same on HQ's build of the app, and a device has a widget for the
-   question. Step 2 holds it as a walk stop in `proof/walk-stops.json`,
-   Formplayer's `submit-refused:validation-error` on `fuzz-xform-20260930-10`
+   time and holds "Not Supported by Web Entry" as its answer, and where it
+   submits that text Formplayer refuses it, so the form can never be
+   submitted: a question in a repetition a worker adds last, and the two
+   questions of a survey form. It is the client's own, the same on HQ's build
+   of the app, and a device has a widget for the question. Step 2 holds it as
+   two walk stops in `proof/walk-stops.json`, Formplayer's
+   `submit-refused:validation-error` on `fuzz-xform-20260930-10` and on
+   `targeted-datetime-ordering`, the witness of finding 56
    (`2-emission-and-publish/09-proof.md`, "The held walk stops"), and this
-   step's exit removes that entry.
+   step's exit removes both entries.
 7. **Defect 19.** Inline search, multi-select case lists, entry points and the
    case list menu item carry their per-platform behavior, and Preview shows it.
 
