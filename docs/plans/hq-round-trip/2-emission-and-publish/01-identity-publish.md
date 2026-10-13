@@ -279,7 +279,9 @@ Reasons:
   CommCare HQ keeps for up to 7 days, under "On CommCare HQ", as "Stable
   form ids keep HQ's validation verdict" above gives them).
 - CLAUDE.md: root `CLAUDE.md` (a form's `xmlns` and its HQ ids follow from
-  its identity); `lib/commcare/CLAUDE.md` ("After-submit links", "HQ shape");
+  its identity); `lib/commcare/CLAUDE.md` ("After-submit links", "HQ shape";
+  "Client-safe barrel", which names the deleted `./ids`: part 11, Contract
+  sentences step 2 rewrites, the second table);
   `lib/deployment/CLAUDE.md` (a new "Identities" section: the derivation, the
   sparse overrides, read-only to the runtime role).
 
@@ -1444,7 +1446,10 @@ from `activeRemoteApp` and gains two flags beside it, so `get_deployment` and
   sentences step 2 rewrites, gives them; "Preflight": the `target-app` edge; the contract row "a publish
   creates afresh after the cutover ends a deployment whose HQ app HQ reports
   deleted"); `lib/commcare/CLAUDE.md` (the `importApp` paragraph: an update
-  answers 404 for an unknown id and 400 for a deleted app).
+  answers 404 for an unknown id and 400 for a deleted app); root `CLAUDE.md`
+  (the `lib/deployment` entry, whose "`resources` puts what the app depends
+  on there BEFORE the app" the shell create makes false: part 11's row gives
+  the sentence).
 
 **Stored shape and migration.** No document shape changes.
 `app_deployment_resources.remote_missing_at`, its row type, its domain field
@@ -2137,11 +2142,22 @@ from it.
 - Docs: `content/docs/publishing.mdx` (a CCZ is made for one project space
   the app is published to, signs workers in there and sends their forms
   there; an app that is published nowhere has no CCZ yet),
-  `content/docs/mcp/tools.mdx`.
+  `content/docs/mcp/tools.mdx`, `content/docs/project-space-compatibility.mdx`
+  ("Downloads stay available", whose "You can always create" and "A download
+  has no chosen project space" are rewritten for the project-space choice: a
+  CommCare HQ app file is always there for a valid app, a CommCare mobile app
+  file once the app is published, and neither download checks a project
+  space).
 - CLAUDE.md: `lib/commcare/CLAUDE.md` "Runtime request destinations",
   rewritten: a full target or none, no portable placeholders, every `.ccz`
   is made for one project space and its profile names that space's
-  addresses; `lib/export/CLAUDE.md`; `components/builder/CLAUDE.md`.
+  addresses, and its sentence "JSON and CCZ have no target project space, so
+  compatibility is `not_checked`"; `lib/export/CLAUDE.md` (the same report
+  sentence, and that `compileLocalArchive` requires the target);
+  `lib/deployment/CLAUDE.md` ("What the record answers besides publishing":
+  `resolveDownloadTarget` in place of the deleted `attachmentSpace.ts`);
+  `components/builder/CLAUDE.md` (the download options). Part 11's second
+  contract table gives each sentence.
 
 **Stored shape and migration.** None. This pull request adds the document
 notice reason `ccz-needs-project-space` to `DOCUMENT_NOTICE_REASONS`
@@ -3358,7 +3374,13 @@ media upload from `export.create` in many more. From this pull request
   layout `Export.content` is `create`
   itself, so no reader of state A's app asks which layout a directory
   holds: `create` is the import a first publish sends first, and `content`
-  is the import whose body is the app state A holds.
+  is the import whose body is the app state A holds. The readers that
+  must know (`publish.py::create`, the digest of a first publish and the
+  manifest's list of a document's publishes) ask the marker
+  (`Export.two_imports`, read from the create's sidecar) and never whether
+  the two captures are one object: `test_a_lookup_table_hq_cannot_serve_is_a_refused_comparison`
+  rebuilds an export around a changed `content`, which is then another
+  object than `create` in the legacy layout too.
 - *One function applies a first publish.*
   `proof/rules/conftest.py::published`, `proof/formplayer/apps.py::published`,
   `proof/webapps/hq.py::project` and `proof/hq/test_branches.py::_create`
@@ -3396,19 +3418,29 @@ media upload from `export.create` in many more. From this pull request
   `proof/checks/configurations.py::PRIVILEGE_CAPTURES` names the minimum
   configuration's `create` as the import whose app the privilege
   derivation reads (`::_content_privileges`, `::_captured_app`). It reads
-  that configuration's `content` where the sidecars carry the marker,
-  since the shell holds no menu to derive a privilege from, and
-  `PrivilegeInputError` names the file it lacked.
+  that configuration's `create.json` for the marker and, where it carries
+  one, the app of `content`, since the shell holds no menu to derive a
+  privilege from; `PrivilegeInputError` names the file it lacked. So the
+  derivation reads both imports' files, and its roles name both: the
+  `privileges.create.` roles stay the create's files, and
+  `privileges.content.` roles name the content's beside them
+  (`proof/observe/unit.py::input_files`, `proof/corpus/inputs.ts`).
+  Executed during planning, without the readers, with the roles naming the
+  content's files alone: the evidence store's guard refuses the read of
+  `export/minimum/create.json` under `maximum`
+  (`proof.store.guard.UndeclaredRead`), and each corpus document's group
+  the run finished before it was stopped failed, with no more than two
+  of its items passing.
   `proof/checks/test_corpus.py::test_privileges_are_refused_for_an_unknown_configuration_or_a_lost_capture`
-  removes the sidecar the derivation reads.
+  gains the case of a marked directory that lost its `content.json`.
 - *What part `a` reads.* Part `a` reads both imports, so a changed shell
   moves its key and the evidence store's guard lets its observation read
   both. `proof/observe/unit.py::input_files` and `proof/corpus/inputs.ts`,
   which lay out `inputs.json` alike, give part `a` the content's files
   under the prefix `content.` (`content.request.body`,
   `content.request.json`, and `content.lookups.*` and `content.media.*`
-  where its sidecar names them) beside the shell's under `create.`, and
-  the `privileges.create.` roles name the content's files.
+  where its sidecar names them) beside the shell's under `create.`, with
+  the privilege roles of "The privileges", above.
   `_Unit.create_a` and `proof/hq/test_branches.py::_create` open their
   `create` operation on the digest of both imports
   (`proof/observe/publish.py::captured_digest` of each).
