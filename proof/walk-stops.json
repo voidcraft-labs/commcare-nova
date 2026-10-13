@@ -84,6 +84,12 @@
 		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (defect 14, both_fixtures; proof/views/test_location_fixture.py)."
 	},
 	{
+		"document": "prompt-guards",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "The search the typed prompts send reads related cases, which HQ's case search view refuses in the configuration without the related lookups flag (case_search/filter_dsl.py; defect 12), and Formplayer answers with that in place of the results."
+	},
+	{
 		"document": "prompt-widgets",
 		"reader": "formplayer",
 		"cause": "search-refused",
