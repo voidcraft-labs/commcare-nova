@@ -3557,20 +3557,20 @@ the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are modelled, not measured on hosted runs: `plan fit`
 over the queues the queue builder's own code makes for each change, from
-this commit's corpus (357 documents, 69 controls, 29 package groups: 455
-groups, 4,045 box-seconds whole) and `proof/timings.json`, with a store taken
+this commit's corpus (357 documents, 69 controls, 30 package groups: 456
+groups, 4,091 box-seconds whole) and `proof/timings.json`, with a store taken
 to hold everything the change's keys do not move.
 
 | The change | Groups that run | Shards | Expected end |
 | --- | --- | --- | --- |
 | Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | about 6 min (356 to 365 s) |
-| Nova's emission in 10 documents | 24: those, the audit sample and the 10 package groups whose keys name them | 2 | 8.4 min (506 s) |
-| 40 documents | 56 or 57, 13 of them package groups | 3 | 8.8 min (520 to 530 s) |
-| 100 documents | 125 to 127, 23 of them package groups | 7 | 9.8 min (587 s) |
-| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 33: every package group and the audit sample | 3 | 8.8 min (529 s) |
-| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 33: every package group and the audit sample | 3 | 8.8 min (529 s) |
-| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 455, the documents and controls judged from their stored records | 5 or 6 | 10.2 to 10.4 min (610 to 625 s) |
-| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 455, observed afresh | 14 | 12.8 min (768 s) |
+| Nova's emission in 10 documents | 25: those, the audit sample and the 11 package groups whose keys name them | 2 | 8.5 min (509 to 511 s) |
+| 40 documents | 57 or 58, 14 of them package groups | 3 | 9.0 min (539 to 540 s) |
+| 100 documents | 126 to 128, 24 of them package groups | 7 | 9.8 to 9.9 min (588 to 593 s) |
+| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 9.0 min (538 to 539 s) |
+| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 9.0 min (538 to 539 s) |
+| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 456, the documents and controls judged from their stored records | 6 | 10.2 min (610 s) |
+| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 456, observed afresh | 14 | 12.9 min (771 s) |
 
 A test module is no part of the observation ("The evidence store and its
 audits"), so an edit to one runs the package groups and leaves every
