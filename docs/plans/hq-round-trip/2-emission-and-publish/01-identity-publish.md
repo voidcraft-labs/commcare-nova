@@ -307,6 +307,44 @@ stops showing there and stays held on its control, where the device updated
 from A's release to B's holds the form and cannot open it (`/update/reopened/m0-f0`,
 `opened` true to false, the alert "Error Occurred"). No class appears.
 
+Executed during planning, without the readers, over the whole corpus on the
+lane's head at this pull request's state: every menu id, form id and `xmlns`
+derived from its entity's uuid in every import body and every local archive
+of all 357 documents; a first publish applied as the shell's create, the
+lookup workbook and then the first update (A3), with each control in its
+legacy layout; no body carrying `multimedia_map` (A4); A5's bytes in every
+local archive, with its rule, its data map and its entries. A2's codes were
+not in that state. 4,334 items in 430 groups. The five HQ and local-path
+entries show on no document and stay held on `case-operation-query`. Every
+document's group and every control's passes whole but one document's,
+`targeted-supply-point-read`, for the two entries below. The run's other
+three failures are tests of the corpus's input manifest, which that state's
+corpus got from a rewrite of the emitted files and not from the emitter.
+
+**Two entries pin a form's `xmlns`, and this pull request re-files them as
+one.** `d20-supply-point-proof4-trace-vellum-xmlns-removed-21` and `-22`
+(proof 4, `trace@vellum@*`, `/runs/*/trace/*/xmlns`, kind `removed`,
+document and control `targeted-supply-point-read`) each pin the `xmlns` one
+configuration's export drew for the document's form. From this pull request
+both configurations carry the one derived `xmlns`, so the document shows
+that value twice and neither pinned value, while the control, on its
+pre-fix bytes, keeps showing the two drawn ones. An entry's pinned values
+hold on its document and on its control alike, so no value serves both.
+This pull request retains the control again in place from its own corpus
+(`python3 -m proof.checks.controls <corpus> targeted-supply-point-read
+manifest,proof4`; no fixed entry names the directory, so part 09's rule
+allows it), pins the first entry to the derived value
+(`http://openrosa.org/formdesigner/B039255D-FBEE-5F59-AE2C-4B3F1FEA7CAD`,
+the document's form uuid in upper case) and deletes the second, whose
+difference the first now holds. They are the only entries of either
+register that pin an id or an `xmlns`. Executed during planning, without
+the readers, at that state: with the control retained so and the one entry
+pinned, the document passes whole (9 of 9) and so does its control (3 of
+3), which still shows every other entry that names it and that a run
+without the readers can show. Eight entries that name the control are a
+served reader's, so the document and the control retained again are in this
+pull request's reader slice (A5, "Lane").
+
 **Spelling rule.** None. No rule under `proof/rules/` erases an id or an
 `xmlns`.
 
@@ -2003,8 +2041,11 @@ step, as defect 24's other entries do:
   holds the class on every form and document that shows it.
 - **Pull request 3 registers what its reader slice shows.** The eighteen
   are every class with no entry that the slice showed when planning ran it
-  at this pull request's state: its fifteen documents, each beside its
-  control ("Lane"). Six documents outside the slice were read at that state
+  at this pull request's state: the fifteen documents its working-submit
+  and search entries name, each beside its control ("Lane"). The slice's
+  sixteenth document, `targeted-supply-point-read`, is there for the entry
+  A1 re-files, and ran at this state without the readers (A1, "Register").
+  Six documents outside the slice were read at that state
   and showed none but classes among the eighteen: `case-list-inline` with
   every reader and `case-choice-attendance` and `container-live-count-entry`
   under Formplayer, before the lane's walk submitted every form it
@@ -2071,7 +2112,8 @@ step, as defect 24's other entries do:
   `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed`
   nothing on `case-capture-followup`, each stays held on its control (four
   differences and two), and Formplayer's submission path shows on none of
-  the fifteen documents of this pull request's reader slice.
+  the fifteen documents of this pull request's reader slice that ran with
+  it.
 - **One Formplayer class on `targeted-sync-on-form-entry` stays after A5,
   and it is defect 20's.** The lane's branch registers it under defect 20 as
   `d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked`
@@ -2241,9 +2283,9 @@ the result is under "Lane".
 **Lane.** Each of these runs the reader, on the archive Nova's compiler
 emits for the configuration's project space (A7). Each was run by hand
 during planning over an archive with the planned bytes written in, and the
-served rows again as this pull request's reader slice, each of its fifteen
-documents beside its control ("Register", "What the working submit
-shows").
+served rows again as this pull request's reader slice, fifteen of its
+sixteen documents each beside its control ("Register", "What the working
+submit shows"); the sixteenth is A1's ("Register").
 
 | Proof | Reader | Document | It must show |
 |---|---|---|---|
@@ -2279,11 +2321,14 @@ case-extension-registration or control-case-extension-registration-after-59
 or case-extension-repeat or control-case-extension-repeat-after-59 or
 case-extension-query or control-case-extension-query-after-59 or
 case-capture-repeat or control-case-capture-repeat-after-59 or
+targeted-supply-point-read or control-targeted-supply-point-read or
 search-hidden-link"`.
 That is the document and control of every served reader's entry this pull
 request moves or registers: A1's one on the device, the seventeen of
 finding 32 and the three of finding 59 that Formplayer and the device hold,
-and the eighteen of "What the working submit shows"; and `search-hidden-link`,
+and the eighteen of "What the working submit shows"; the document and the
+control of the entry A1 re-files, `targeted-supply-point-read`, which eight
+reader entries name; and `search-hidden-link`,
 the second document the submit-label entry shows on. With it,
 `proof/remote/run.sh <host> -- proof/formplayer/test_local_archive.py
 proof/connect/test_receiver.py proof/rules/test_runtime_url_app_id.py`, the
@@ -2520,7 +2565,7 @@ something production does not.
 | `proof/formplayer/test_local_archive.py`, `proof/connect/test_receiver.py`, `proof/android/predicates.py`, `proof/android/hq.py` | The reader tests A1, A2, A4, A5 and A6 name. The Android reader gains no request: its device already signs in, syncs and sends each saved form through Android's own requester and network, answered by HQ's views, so from this pull request a device on the local archive reaches HQ at the addresses the archive names. `proof/android/hq.py`'s docstring and `proof/CLAUDE.md` say that a device meets Android's own defaults (finding 59) on the controls' pre-fix archives alone. |
 | `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. |
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts`, `proof/targeted/documents/hqSideState.ts` | A2's `planLanguageWire` signature. |
-| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Thirty-one entries move: A1's six, A2's two, A5's twenty-three. Eighteen are added live, on the nine controls this pull request retains, `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (A5, "What the working submit shows"). |
+| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Thirty-one entries move: A1's six, A2's two, A5's twenty-three. Eighteen are added live, on the nine controls this pull request retains, `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (A5, "What the working submit shows"). Two of defect 20's entries that pin a form's `xmlns` are re-filed as one, and their control `targeted-supply-point-read` is retained again in place (A1, "Register"). |
 | `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the README's "Formplayer is not run over Nova's local archives past their menus and forms" goes; the import file is imported through HQ's import page. |
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
 | Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |

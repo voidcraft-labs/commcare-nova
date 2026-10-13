@@ -311,13 +311,15 @@ Part 09 holds this in full.
   request 3 adds one (`runtime_url_app_id`), so 25 stand at the exit. Part 09
   gives each rule's verdict and the pull request that retires or adds it.
 - **The register step 2 starts from is the proof lane's as it merges: 885
-  entries.** Step 2 moves 724 entries to the fixed register (669 of the base's
-  and 55 the stack itself registers first), deletes 12 with a judge change or
-  an allowance (11 of the base's and one the stack registers first), and adds
+  entries.** Step 2 moves 723 entries to the fixed register (668 of the base's
+  and 55 the stack itself registers first), deletes 13 (12 of the base's and
+  one the stack registers first: eleven with a judge change or an allowance,
+  and one in pull request 3 where the entry beside it comes to hold its
+  difference), and adds
   136 (2 written straight into the fixed register and 134 live). Pull request
   13 deletes 6 of the moved entries from the fixed register with their
   control, which its own change to the lane's privileges stops showing them.
-  At the exit the fixed register holds 720 and 283 stay live: the 205 later-step entries
+  At the exit the fixed register holds 719 and 283 stay live: the 205 later-step entries
   of the base (defects 20, 21, 23 to 28 and 30), of which pull request 9
   re-files one from defect 14 to defect 26, and 78 the stack adds for later
   steps' symptoms its own fixes newly show (defect 25's 62, defect 24's 11,
