@@ -95,6 +95,48 @@ def test_the_same_rows_are_no_difference_whatever_names_the_submission_or_the_bu
     assert _differences(before, _record(core=[other])) == []
 
 
+def _three_forms(listed, *, flagged=None):
+    """A walk that submitted the form three times: payloads 5, 6 and 7 in turn, the first visit rejected for the
+    worker's pending task, and the visits ``listed`` in the order the forms' ids sort in on that app."""
+    run = _run("m0/m0-f0/@case:c-1")
+    ids = [f"@generated:uuid:{number}" for number in (5, 6, 7)]
+    run["received"] = [{"status": 201}] * 3
+    run["forwards"] = [{"form": form, "state": "Success", "attempts": []} for form in ids]
+    run["posts"] = [{"payload": {**_payload(), "id": form}, "status": 200, "body": None, "raised": []} for form in ids]
+    first = {"status": "rejected", "flags": [["pending_task", "Worker has an incomplete assigned task."]]}
+    made = {ids[0]: first, ids[1]: {}, ids[2]: dict(flagged or {})}
+    visit = run["state"]["visits"][0]
+    run["state"]["visits"] = [{**visit, "xform": ids[place], **made[ids[place]]} for place in listed]
+    return run
+
+
+def test_rows_are_compared_in_the_order_connect_received_their_forms_whatever_ids_the_reader_drew():
+    """A device draws each form's id, another on each app, and the record lists a run's visits by those ids. A
+    walk whose form leads back to itself submits it three times: Connect rejects the first visit for the pending
+    task that form completes and approves the next two, on HQ's build and on Nova's archive alike, listed second
+    on one and last on the other (fuzz-xform-20260930-8, the whole lane of 2026-10-13). Failure it catches: the
+    visits paired by where the ids happened to sort, so a visit Connect treated alike is a flag removed, a flag
+    added and two statuses changed; or, the other way, a visit Connect flagged on one side alone lost in the
+    reordering."""
+    before = _record(android=[_three_forms((1, 0, 2))])
+    after = _record(android=[_three_forms((1, 2, 0))])
+    assert _differences(before, after) == []
+    # The third form's visit flagged on one side alone is still that visit's flag, at its place as received.
+    gps = {"flags": [["gps", "GPS data is missing"]], "status": "pending"}
+    found = connect.differences(
+        before,
+        _record(android=[_three_forms((2, 1, 0), flagged=gps)]),
+        check="proof3",
+        document="d",
+        artifact="connect@x",
+    )
+    run = "/runs/android:m0~1m0-f0~1@case:c-1"
+    assert sorted((d.at, d.kind) for d in found) == [
+        (f"{run}/state/visits/2/flags/gps", "added"),
+        (f"{run}/state/visits/2/status", "changed"),
+    ]
+
+
 def test_a_planted_row_difference_is_reported_and_only_it():
     before = _record(core=[_run(), _run("core-1")], formplayer=[_run("walk-0")])
     planted = _record(

@@ -25,7 +25,13 @@ a submit and HQ's of a submission are the walks' and the case processing's
 to report (``proof.checks.served``, ``proof.checks.proof3``).
 
 What is left out of the rows: what names a submission or a build and not
-what a worker did (a form's id, the build's id and version).
+what a worker did (a form's id, the build's id and version). The record lists
+the rows a form made (visits, completed modules, assessments) by the form's
+id, and an id is what a reader drew: a device draws another on each app, so a
+walk that submits three forms lists its three visits in one order on HQ's
+build and another on Nova's archive. So they are compared in the order
+Connect received their forms in (the run's payloads'), a form's own rows as
+the record lists them.
 
 A run is ``/runs/*`` in a path whichever reader made its submission (Core or
 Formplayer: one symptom is one path), and ``/runs/<reader>:<run>`` in ``at``.
@@ -175,6 +181,25 @@ def _flag_consequences(before: dict, after: dict) -> None:
                 visit.pop(name, None)
 
 
+# The rows the record lists by the id of the form that made them (``proof/connect/driver.py`` orders each by
+# ``xform_id``).
+ROWS_BY_FORM = ("completedModules", "assessments", "visits")
+
+
+def _as_received(state, posts):
+    """The state with each list of rows a form made in the order Connect received the forms in (``posts``, the
+    run's payloads in turn), a form's own rows as the record lists them, and a row of no payload of the run's
+    after them."""
+    place = {}
+    for index, post in enumerate(posts or []):
+        place.setdefault((post.get("payload") or {}).get("id"), index)
+    ordered = dict(state or {})
+    for name in ROWS_BY_FORM:
+        if isinstance(ordered.get(name), list):
+            ordered[name] = sorted(ordered[name], key=lambda row: place.get(row.get("xform"), len(place)))
+    return ordered
+
+
 def comparable(run) -> dict:
     """One run as it is compared (the module's first part)."""
     return _unnumbered(
@@ -184,7 +209,7 @@ def comparable(run) -> dict:
                 {"task": task["task"].rsplit(".", 1)[-1], "state": task["state"], "error": task.get("error")}
                 for task in run.get("tasks") or []
             ],
-            "state": _rows(run.get("state")),
+            "state": _rows(_as_received(run.get("state"), run.get("posts"))),
         }
     )
 
