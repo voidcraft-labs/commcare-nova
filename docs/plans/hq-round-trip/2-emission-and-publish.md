@@ -385,7 +385,7 @@ files, entries, rules, transform steps and ordering constraints.
 | 6 | XForms, first part: shadows, leaf constraints, datetime leaves, defaults, translations, the form's name | 05 |
 | 7 | XForms, second part: groups, the rename, the root create id, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
 | 8 | Defect 3 and work item H's closure | 04 |
-| 9 | Case writes through basic actions: findings 33 and 37, `update_case`, close conditions | 05 (findings 33, 37), 06 (`update_case`, close conditions) |
+| 9 | Case writes through basic actions: findings 33, 37 and 66, `update_case`, close conditions | 05 (findings 33, 37, 66), 06 (`update_case`, close conditions) |
 | 10 | Identifiers and form content: defect 15 with its Connect forwarding; findings 31, 43, 44, 60, 61, 68, 70, 71 | 08 |
 | 11 | Case lists, with findings 41 and 54 | 07, 06 (findings 41, 54) |
 | 12 | Menus, navigation and search settings, with finding 53 | 06, 03 (finding 53) |
