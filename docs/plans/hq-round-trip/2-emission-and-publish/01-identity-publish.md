@@ -1861,9 +1861,11 @@ device that updates, Connect's post and forward):
   `d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status`
   stops showing on `targeted-close-conditions` and stays held on its control
   (18 differences on `formplayer@local.ccz`), because Formplayer's submit
-  from the archive now reaches HQ; and `d32-search-url-trace-requests-url`
+  from the archive now reaches HQ; `d32-search-url-trace-requests-url`
   and `d32-search-url-trace-url` stop showing on `case-list-inline`, where
-  Core's trace of the archive asks the working app's search URL.
+  Core's trace of the archive asks the working app's search URL; and
+  `d32-search-url-trace-stackaftersubmit-steps` stops showing on
+  `search-hidden-link`. Each stays held on its control.
 
 **What the working submit shows.** Before this pull request the local
 archive's submit fails for want of a `PostURL`, so nothing past it is
@@ -1884,7 +1886,7 @@ request registers the nine live, all check `proof3`, artifact
 | `d9-form-version-formplayer-local-ccz-submissions-data-version` | `/runs/*/steps/*/submissions/*/instance/data/@version` (`changed`) | HQ's form version against the archive's `1` | defect 9's form version (part 04, Defect 9: the local profile identifies nothing stable); deleted in 5 with `d9-form-version-formplayer-local-ccz-output-data-version`, by the same judge change | `targeted-hq-side-state` | `targeted-hq-side-state-after-59` |
 | `d14-close-conditions-formplayer-local-ccz-submissions-data-case-close` | `/runs/*/steps/*/submissions/*/instance/data/case[*]/close[*]` (`removed`) | the close in the submission of the second close form, "Close on either" (answer `x' or 'y`): HQ's build reads the condition as an `or` that is always true and its submission carries `<close/>`, and the archive's does not close | defect 14's close conditions (part 06, 2. Close conditions the Case Management tab cannot state), 9 | `targeted-close-conditions` | `targeted-close-conditions-after-59` |
 | `d14-close-conditions-formplayer-local-ccz-submit-nextscreen-type` | `/runs/*/steps/*/submit/nextScreen/type` (`changed`) | `"entities"` after HQ's build's submit of that form and `"commands"` after the archive's: Formplayer lands on the list where the case closed and on the menu where it did not | defect 14's close conditions, 9 | `targeted-close-conditions` | `targeted-close-conditions-after-59` |
-| `d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-translations` | `/runs/*/steps/*/submit/nextScreen/translations/*` (`removed`) | the submit label of the form a link opens after the submit (`forms.m1f0.submit_label`): the screen HQ's build hands back holds it and the archive's does not | finding 65, 5 | `targeted-form-link-hidden-target` | `targeted-form-link-hidden-target-after-59` |
+| `d65-texts-the-local-archive-leav-formplayer-local-ccz-submit-nextscreen-translations` | `/runs/*/steps/*/submit/nextScreen/translations/*` (`removed`) | the submit label of the form the next screen opens (`forms.m<menu>f<form>.submit_label`): the screen HQ's build hands back holds it and the archive's does not. It shows on `targeted-form-link-hidden-target` and on `search-hidden-link` | finding 65, 5 | `targeted-form-link-hidden-target` | `targeted-form-link-hidden-target-after-59` |
 
 - Each was seen in the planning runs with A5's bytes, every reader: the
   submit message on all four documents above and on `targeted-custom-tile`
@@ -1915,15 +1917,25 @@ request registers the nine live, all check `proof3`, artifact
   `targeted-form-link-hidden-target-after-59` (the name argument arrives in
   pull request 1, as part 05's `-after-13` controls use it).
   `proof/timings.json` gains the four `control:` groups.
+- **The submit label's path takes its structural form here.** Formplayer's
+  record keys a screen's translations by the app's own ids
+  (`forms.m1f0.submit_label`), so as recorded the class is another for each
+  form. `proof/checks/served.py::TRACE_DATA_MAPS`, the lane's list of trace
+  maps whose keys are the app's data, holds
+  `/runs/*/steps/*/response/translations` and not the screen after a submit.
+  This pull request adds `/runs/*/steps/*/submit/nextScreen/translations` to
+  it, with its case in `proof/checks/test_served.py`, so the one entry above
+  holds the class on every form and document that shows it.
 - **Pull request 3 registers what its reader slice shows.** The nine are
   every class Formplayer's working submit showed, with no entry, on the
-  thirteen documents planning read with A5's bytes, which are in this pull
+  fourteen documents planning read with A5's bytes, which are in this pull
   request's reader slice ("Lane"): `targeted-sync-on-form-entry`,
   `no-matches-multiple-home`, `search-automatic`, `case-capture-followup`,
   `targeted-custom-tile`, `targeted-hq-side-state`,
   `targeted-connect-deliver-rename`, `targeted-invalid-question-ids`,
-  `case-list-inline`, `targeted-close-conditions`, `case-choice-attendance`,
-  `container-live-count-entry` and `targeted-form-link-hidden-target`. The
+  `case-list-inline`, `search-hidden-link`, `targeted-close-conditions`,
+  `case-choice-attendance`, `container-live-count-entry` and
+  `targeted-form-link-hidden-target`. The
   stack requires no run with every reader over the whole corpus at an
   intermediate state: the pull request lane runs without the readers at each
   pull request, and the whole lane with every reader runs once, at the

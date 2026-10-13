@@ -311,15 +311,15 @@ Part 09 holds this in full.
   request 3 adds one (`runtime_url_app_id`), so 25 stand at the exit. Part 09
   gives each rule's verdict and the pull request that retires or adds it.
 - **The register step 2 starts from is the proof lane's as it merges: 883
-  entries.** Step 2 moves 711 entries to the fixed register (666 of the base's
-  and 45 the stack itself registers first), deletes 15 with a judge change or
+  entries.** Step 2 moves 714 entries to the fixed register (666 of the base's
+  and 48 the stack itself registers first), deletes 15 with a judge change or
   an allowance (14 of the base's and one the stack registers first), and adds
-  118 (2 written straight into the fixed register and 116 live). At the exit
-  the fixed register holds 713 and 273 stay live: the 203 later-step entries
+  123 (2 written straight into the fixed register and 121 live). At the exit
+  the fixed register holds 716 and 275 stay live: the 203 later-step entries
   of the base (defects 20, 21, 23 to 28 and 30), of which pull request 9
-  re-files one from defect 14 to defect 26, and 70 the stack adds for later
-  steps' symptoms its own fixes newly show (defect 25's 61, defect 24's 6 and
-  defect 26's 1) or for step 3 (finding 56's 2). Every entry's disposition, by
+  re-files one from defect 14 to defect 26, and 72 the stack adds for later
+  steps' symptoms its own fixes newly show (defect 25's 61, defect 24's 6,
+  defect 23's 2 and defect 26's 1) or for step 3 (finding 56's 2). Every entry's disposition, by
   id and pull request, is in part 09; a script over the parts' register
   sections derives it and fails on an entry with none or two.
 - **Where the lane runs.** The pull request lane in CI runs without the served
