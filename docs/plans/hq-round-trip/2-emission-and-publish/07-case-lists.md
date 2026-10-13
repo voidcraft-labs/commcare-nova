@@ -610,7 +610,7 @@ The local `<sort>` writes `blanks` wherever a rule is authored, as HQ's build co
 
 **Register.** None; these differences were erased by rules, never registered.
 
-**Spelling rule.** Four retire in this pull request: `proof/rules/sort_type_plain.py`, `sort_blanks_default.py`, `sort_calculation_pair.py`, `sort_display_empty.py`, each with its test (`proof/rules/test_closed_set.py` holds the set). `column_tab_keys`, `tile_cell_fields`, `detail_null_booleans` and `lookup_fields_unshown` stay.
+**Spelling rule.** Four retire in this pull request: `proof/rules/sort_type_plain.py`, `sort_blanks_default.py`, `sort_calculation_pair.py`, `sort_display_empty.py`, each with its test (`proof/rules/test_closed_set.py` holds the set). `proof/rules/conftest.py::DOCUMENTS` loses `expander-expanddoc-hq-json-projection-sort-elements-1e1c54c0-0` and `expander-expanddoc-hq-json-projection-sort-elements-5899296f-0`, which only those four tests read; part 09, "The spelling rules", holds the tuple's whole change in pull request 11. `column_tab_keys`, `tile_cell_fields`, `detail_null_booleans` and `lookup_fields_unshown` stay.
 
 **Identity.** None; `proof/identity-moves.json` gains no entry.
 
