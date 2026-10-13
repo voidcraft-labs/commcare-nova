@@ -209,9 +209,14 @@ _AUTHORED = re.compile(r"(?<!\d):|:(?!\d)|\.\s|\s[\[\|(]|\sat index\s|\sfor form
 _DIGITS = re.compile(r"-?\d+")
 # What a reader says with what the app authored inside the sentence, as the class it is said for: Core's refusal of
 # a stored choice a question does not offer (``Selection.java``, ``"value " + xmlValue + " could not be loaded
-# into question " + questionText``).
+# into question " + questionText``), and HQ's of a search value that is no date
+# (``case_search/xpath_functions/comparison.py``, ``"{value} is not a correctly formatted date or datetime."``).
 _SAID_WITH_NAMES = (
     (re.compile(r"^value .* could not be loaded into question "), "value could not be loaded into question"),
+    (
+        re.compile(r"^\S+ is not a correctly formatted date or datetime"),
+        "value is not a correctly formatted date or datetime",
+    ),
 )
 _NOT_WORD = re.compile(r"[^a-z0-9]+")
 

@@ -117,10 +117,11 @@ def test_a_cause_is_the_readers_words_without_the_index_the_form_or_the_value_th
         "index-n-out-of-bounds"
     }
     assert stops.said("Please check the following fields:NameName check") == "please-check-the-following-fields"
-    # A clock's colons are not where a reader's words end.
-    assert stops.said("09:00:00 is not a correctly formatted date or datetime.") == (
-        "n-n-n-is-not-a-correctly-formatted-date-or-datetime"
-    )
+    # A clock's colons are not where a reader's words end, and the value HQ names first is the app's.
+    assert stops.said("at 09:00:00 the view answered: no") == "at-n-n-n-the-view-answered"
+    assert {
+        stops.said(f"{value} is not a correctly formatted date or datetime.") for value in ("09:00:00", "tomorrow")
+    } == {"value-is-not-a-correctly-formatted-date-or-datetime"}
     assert stops.said("org.commcare.resources.model.UnresolvedResourceException: Question bound to X: [/d]") == (
         "question-bound-to-x"
     )

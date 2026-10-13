@@ -1,5 +1,131 @@
 [
 	{
+		"document": "case-operation-link",
+		"reader": "formplayer",
+		"cause": "submit-refused:the-case-id-attribute-of-a-case-wasn-t-set",
+		"reason": "Formplayer refuses the form's submission: its guard case block carries no case id (Core's case parser; defect 13), on every state, so no reader sees what follows the form."
+	},
+	{
+		"document": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
+	},
+	{
+		"document": "expander-output-references-in-labels-lowers-several-typed-e72b42c4-0",
+		"reader": "formplayer",
+		"cause": "notification:invalid-data-type-in-setvalue-event-targetting",
+		"reason": "Formplayer answers the form's opening with Core's refusal of the form's setvalue into its date question (the case property it copies holds text that is no date), on every state, so no reader opens the form."
+	},
+	{
+		"document": "function-arguments",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
+	},
+	{
+		"document": "fuzz-suite-20260930-5",
+		"reader": "formplayer",
+		"cause": "notification:value-could-not-be-loaded-into-question",
+		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
+	},
+	{
+		"document": "fuzz-suite-20260930-8",
+		"reader": "formplayer",
+		"cause": "notification:value-could-not-be-loaded-into-question",
+		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
+	},
+	{
+		"document": "fuzz-suite-20260930-8",
+		"reader": "formplayer",
+		"cause": "search-refused",
+		"reason": "The search's one prompt is required and this run leaves the screen as it opens, so the client keeps its Search from being sent (menus/views/query.js) and the walk sends none; the run that types into the prompt sends it."
+	},
+	{
+		"document": "fuzz-xform-20260930-0",
+		"reader": "formplayer",
+		"cause": "notification:value-could-not-be-loaded-into-question",
+		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
+	},
+	{
+		"document": "fuzz-xform-20260930-1",
+		"reader": "formplayer",
+		"cause": "notification:value-could-not-be-loaded-into-question",
+		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
+	},
+	{
+		"document": "fuzz-xform-20260930-4",
+		"reader": "formplayer",
+		"cause": "submit-refused:validation-error",
+		"reason": "The form's weight question is always required and its validation is false(), so Formplayer refuses every answer and every submission; no worker can submit the form."
+	},
+	{
+		"document": "fuzz-xform-20260930-7",
+		"reader": "formplayer",
+		"cause": "notification:value-could-not-be-loaded-into-question",
+		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
+	},
+	{
+		"document": "location-direct",
+		"reader": "formplayer",
+		"cause": "notification:unable-to-find-lookup-table",
+		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (defect 14, both_fixtures; proof/views/test_location_fixture.py)."
+	},
+	{
+		"document": "location-multirung",
+		"reader": "formplayer",
+		"cause": "notification:unable-to-find-lookup-table",
+		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (defect 14, both_fixtures; proof/views/test_location_fixture.py)."
+	},
+	{
+		"document": "prompt-widgets",
+		"reader": "formplayer",
+		"cause": "search-refused",
+		"reason": "The search's Name prompt is required and this run leaves the screen as it opens, so the client keeps its Search from being sent (menus/views/query.js) and the walk sends none; the run that types into the prompts sends it."
+	},
+	{
+		"document": "search-parent",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
+	},
+	{
+		"document": "targeted-close-condition-unparsable",
+		"reader": "formplayer",
+		"cause": "notification:encountered-a-problem-with-display-condition",
+		"reason": "Formplayer cannot install the app: Core does not parse the close condition its form's case block carries (UnresolvedResourceException), which is the document's witness of defect 14, so the walk ends at its first request."
+	},
+	{
+		"document": "targeted-invalid-question-ids",
+		"reader": "formplayer",
+		"cause": "notification:question-bound-to-non-existent-node",
+		"reason": "Formplayer cannot install the app: a question of its form is bound to a node the form does not hold (UnresolvedResourceException), which is the document's witness of defect 15, so the walk ends at its first request."
+	},
+	{
+		"document": "targeted-lookup-reserved-tags",
+		"reader": "formplayer",
+		"cause": "notification:make-sure-the-lookup-table-is-available-and-that-its-contents-are-accessible-to-the-current-user",
+		"reason": "Formplayer answers the form's opening with Core's refusal to read the lookup table the form names, whose tag holds a reserved substring, which is the document's witness of defect 5, so no reader opens the form."
+	},
+	{
+		"document": "targeted-search-hq-compile",
+		"reader": "formplayer",
+		"cause": "notification:value-is-not-a-correctly-formatted-date-or-datetime",
+		"reason": "HQ's case search view refuses the query's own date comparison, which is the document's witness of defect 6, and Formplayer answers with that in place of the results, on every state."
+	},
+	{
+		"document": "targeted-search-related-lookups",
+		"reader": "formplayer",
+		"cause": "notification:you-cannot-query-related-cases-here",
+		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
+	},
+	{
+		"document": "targeted-supply-point-read",
+		"reader": "formplayer",
+		"cause": "notification:calculation-error",
+		"reason": "Formplayer answers the form's opening with Core's calculation error: the form reads the session's supply point id, which no session holds without CommTrack (defect 20), so no reader opens the form."
+	},
+	{
 		"document": "tile-grouped-browse",
 		"reader": "preview",
 		"cause": "case-not-listed",
