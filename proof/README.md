@@ -3388,6 +3388,25 @@ What holds it exact, each by a test or a run:
   gives one item for each piece it names), so no shard collects an item no
   queue runs, and a lane with no pieces collects none.
 
+Executed on a proof machine with every reader, at head `a3ecaf51`
+(2026-10-13): `case-list-inline` and `connect-deliver-default` ran as two
+lanes over one emitted corpus, each with a store of its own, whole on two
+workers and in pieces on four. Each document's two pieces ran on different
+workers, and its own group after them observed nothing. The two runs wrote
+the same 18 evidence records, byte for byte as written, and their stores
+hold the same 16 record parts, 2 document entries and 30 transcripts under
+the same keys with the same bytes. Whole, the documents took 3,846 and
+1,435 seconds on one worker; in pieces their configurations took 1,866 and
+1,860 seconds, and 826 and 819, and the judging after them 6.2 and 1.4, so
+the lane in pieces ended in half the time. A Connect session answers at an
+address its process's id names, and the admin types that address into HQ's
+Connection Settings page, so a Connect document's two pieces are observed at
+two addresses, neither of them the one a single worker would have used for
+both: a third run observed that document's pieces at two other addresses
+than the whole run's, and its nine records have the whole run's digests and
+its evidence the same bytes (`proof/connect/hq.py::keyed_body` keys that
+page's form without the address).
+
 A run that observed a document in pieces measures it as it ran: each piece
 under its own name, and the document's own group its judging alone
 (`proof/timings.json`). The document's whole measure is their sum
