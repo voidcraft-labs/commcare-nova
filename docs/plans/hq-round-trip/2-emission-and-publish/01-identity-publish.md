@@ -268,8 +268,9 @@ derived id (and, for a form, its derived `xmlns`) once, under notice reason
 `menu-id-changes-once`, and the cutover goes on. Two entities of one export can
 then never share an id. The case is in the cutover's test list. Notice reasons
 (deployment kind), each naming the deployment and the entities:
-`menu-id-changes-once` (a Nova menu or form left without a pair, or whose HQ
-id is another entity's derived id),
+`menu-id-changes-once` (a Nova menu or form left without a pair, one the
+matcher could not tell from another included, or whose HQ id is another
+entity's derived id),
 `form-ids-change-once` (no API access, or every credential refused the form
 ids), `ids-change-once-unreadable` (no credential read the source),
 `ended-app-deleted` (HQ reports the app gone). A fifth deployment reason of
