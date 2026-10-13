@@ -338,7 +338,12 @@ harness keeps, each with its reason.
   <output> --documents <id>,<id>`; `proof/README.md`, "Proving a reader
   change before you push"). A test that starts a served
   reader is marked `reader`, by its fixture or by hand, and the readers-off
-  run refuses one left unmarked. Every hosted job has four vCPUs, so optimize
+  run refuses one left unmarked. A shard's checkout holds `proof/`,
+  `lib/commcare/surface/` and its two actions, with no `node_modules`, so a
+  lane test reads nothing else of the repository: one that does passes on a
+  proof machine, which copies the whole tree, and fails on every shard. What
+  the lane's code and a workflow must say alike is tested on the vitest
+  side, where the checkout is whole (`proof/ci/__tests__/`). Every hosted job has four vCPUs, so optimize
   the work, never the parallelism: measure a change in CPU-seconds (the
   harness's and Postgres's container cgroups) and wall time with the worker
   count, per document, per check, per group and per job's fixed cost, and
