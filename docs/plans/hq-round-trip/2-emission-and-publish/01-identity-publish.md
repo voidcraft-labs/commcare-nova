@@ -186,6 +186,9 @@ Reasons:
   (`lib/deployment/resources.ts::leftBehindResources`). A form's `xmlns`
   identifies its data in the project space, not in one HQ app, so a deployment
   whose HQ app is gone and is created afresh keeps the space's recorded ids.
+  That is a deployment whose ids were recorded while its app could be read; one
+  the cutover's read finds already gone has no rows to keep and takes derived
+  ids (A3, "Stored shape and migration").
 - Rows for an entity the document no longer holds stay: an undo that restores
   the form restores its HQ id.
 - **Stable form ids keep HQ's validation verdict for a form across
@@ -1390,8 +1393,11 @@ registers it. For a deployment whose HQ app
 the cutover's read finds gone, the cutover sets `remote_missing_at` and the
 folded `remote_app_missing` failure, and writes notice reason
 `ended-app-deleted`, naming the deployment and saying the next publish makes
-a new app there (its line is A1's, "The notice lines"). A deleted deployment
-gets no identity row, so the new app holds derived ids and derived `xmlns`.
+a new app there (its line is A1's, "The notice lines"). A deployment found
+deleted then gets no identity row, since no app is left to read ids from, so
+the new app holds derived ids and derived `xmlns`; a deployment whose app is
+deleted after its ids were recorded keeps them (A1, "Sparse rows, keyed to the
+deployment").
 For a deployment whose HQ app the
 cutover's read finds `unsupported`, it writes `hq-app-not-nova-made` and no
 identity row (part 10, Reading HQ).
