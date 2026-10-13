@@ -91,6 +91,7 @@ def observed(hq, core_runner, formplayer_runner, editor_driver):
     return found
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_hqs_own_views_answer_formplayer_and_its_receiver_processes_each_submission(observed):
     first = observed["first"]
     asked = {(entry.url_name, entry.status) for entry in first["exchanges"]}
@@ -144,6 +145,7 @@ def test_a_session_hq_does_not_hold_is_refused_by_hq_where_the_workers_own_is_an
             assert (refused.url_name, refused.status) == ("session_details", 404)
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_a_run_leaves_hq_as_it_found_it(observed):
     before, after = observed["unit"]
     assert before == after
@@ -151,6 +153,7 @@ def test_a_run_leaves_hq_as_it_found_it(observed):
     assert observed["first"]["cases_while_served"] == observed["again"]["cases_while_served"] >= before[1]
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 @pytest.mark.under_determinism
 def test_a_state_served_twice_gives_the_same_bytes(observed):
     first, again = observed["first"], observed["again"]
@@ -166,6 +169,7 @@ def test_a_state_served_twice_gives_the_same_bytes(observed):
     )
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_each_reader_shows_a_planted_difference_and_only_it(observed):
     first, planted = observed["first"], observed["planted"]
     for found in (
@@ -187,6 +191,7 @@ def test_each_reader_shows_a_planted_difference_and_only_it(observed):
     assert PLANTED not in str(first["screens"])
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_the_release_is_the_build_and_a_file_that_differs_is_named(observed):
     assert observed["first"]["release"] is None
     assert observed["first"]["planted_release"] == {"differing": ["suite.xml"]}
