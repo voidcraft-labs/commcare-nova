@@ -307,26 +307,28 @@ Part 09 holds this in full.
   that move once for existing deployments are listed in part 09 and held by
   the cutover's tests over frozen pre-step fixtures (part 10).
 - **Twelve spelling rules retire** with the fixes that make the emitter write
-  the editor's spelling; 24 stay, and one widens. Part 09 gives each rule's
-  verdict and the pull request that retires it.
-- **The register step 2 starts from is the proof lane's as it merges: 886
-  entries.** Step 2 moves 709 entries to the fixed register (671 of the base's
-  and 38 the stack itself registers first), deletes 14 with a judge change or
-  an allowance, and adds 109. At the exit the fixed register holds 711 and 270
-  stay live: the 201 later-step entries of the base (defects 20, 21, 23 to 28
-  and 30) and 69 the stack adds for later steps' symptoms its own fixes newly
-  show (defect 25's 61 and defect 24's 6) or for step 3 (finding 56's 2). Every
-  entry's disposition, by id and pull request, is in part 09; a script over the
-  parts' register sections derives it and fails on an entry with none or two.
+  the editor's spelling; 24 of the lane's stay, one of them widened, and pull
+  request 3 adds one (`runtime_url_app_id`), so 25 stand at the exit. Part 09
+  gives each rule's verdict and the pull request that retires or adds it.
+- **The register step 2 starts from is the proof lane's as it merges: 883
+  entries.** Step 2 moves 709 entries to the fixed register (666 of the base's
+  and 43 the stack itself registers first), deletes 15 with a judge change or
+  an allowance (14 of the base's and one the stack registers first), and adds
+  116 (2 written straight into the fixed register and 114 live). At the exit
+  the fixed register holds 711 and 273 stay live: the 203 later-step entries
+  of the base (defects 20, 21, 23 to 28 and 30), of which pull request 9
+  re-files one from defect 14 to defect 26, and 70 the stack adds for later
+  steps' symptoms its own fixes newly show (defect 25's 61, defect 24's 6 and
+  defect 26's 1) or for step 3 (finding 56's 2). Every entry's disposition, by
+  id and pull request, is in part 09; a script over the parts' register
+  sections derives it and fails on an entry with none or two.
 - **Where the lane runs.** The pull request lane in CI runs without the served
   readers and runs every group the change invalidates, with nothing dropped
   for time: about six minutes when a pull request leaves every group as
   stored, and ten to thirteen when it changes the register and an emitter, as
   each of this stack's does (part 09 gives the model). The nightly runs every
-  reader over main and
-  opens an issue on a failure, and the weekly runs the whole lane fresh. So
-  each pull request of the stack runs,
-  on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
+  reader over main and opens an issue on a failure, and the weekly runs the
+  whole lane fresh. So each pull request of the stack runs, on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
   the readers their entries name before it is marked ready, and the whole lane
   with every reader runs once at the stack's top before the merge (part 09,
   part 11's house rules). The implementer asks the person once, at the start,
