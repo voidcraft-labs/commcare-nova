@@ -169,7 +169,8 @@ def test_a_run_app_preview_then_showed_whole_is_no_stop_and_is_kept_beside_the_s
     """App Preview's one-question form ended early and the replay went on with the form shown whole: the run
     reached its end, so it is no stop, and where the one-question form ended is listed beside them; the whole
     replay's own stop is the run's."""
-    ended = _client([{"menu": 0}], "form", alerts=["Cannot get question prompts from a non-field-list group at X"])
+    said = "Cannot get question prompts from a non-field-list group at index 1_0 for form Assess"
+    ended = _client([{"menu": 0}], "form", alerts=[said])
     whole = {"script": [{"menu": 0}], "screens": [{}] * 4, "viewport": "preview", "oneQuestion": ended}
     assert stops.client_cause(whole) is None
     assert stops.one_question_cause(whole) == "alert:cannot-get-question-prompts-from-a-non-field-list-group"
