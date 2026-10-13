@@ -175,7 +175,7 @@ Notes that are part of the decision:
 
 ### Row types (`lib/db/pg.ts`)
 
-`lib/db/pg.ts::AppDatabase` gains the four tables. The two existing interfaces gain one column each.
+`lib/db/pg.ts::AppDatabase` gains the four tables. `AppDeploymentResourcesTable` gains one column and `AppDeploymentsTable` two.
 
 ```ts
 export interface AppDeploymentResourcesTable {
@@ -253,7 +253,7 @@ export interface ProjectSpaceResourceBaselinesTable {
 | `app_migration_notices`, `app_migration_notice_key_readers` | `RUNTIME_READ_ONLY_TABLES` | Work item F. |
 | `app_migration_notice_dismissals` | `RUNTIME_APPEND_ONLY_TABLES` | Work item F. |
 
-`app_deployments` and `app_deployment_resources` stay read-write. The upserts are written with Kysely's `insertInto(...).onConflict(...doUpdateSet(...))`, which the source guard `lib/db/__tests__/runtimeRowLockPrivileges.test.ts` reads as INSERT plus UPDATE (its row-lock pattern matches `FOR UPDATE` and `FOR SHARE` only), both of which the insert-update class grants. `AUDIT_SELECT_PUBLIC_TABLES` does not change: the frozen scanner reads none of these.
+`app_deployments` and `app_deployment_resources` stay read-write. The upserts are written with Kysely's `insertInto(...).onConflict(...doUpdateSet(...))`, which the source guard `lib/db/__tests__/runtimeRowLockPrivileges.test.ts` reads as INSERT plus UPDATE (its row-lock patterns match row locks only, and it reads `doUpdateSet` as an UPDATE), both of which the insert-update class grants. `AUDIT_SELECT_PUBLIC_TABLES` does not change: the frozen scanner reads none of these.
 
 ### What a Project move does (`lib/db/apps.ts::commitAppProjectMoveInTransaction`)
 
@@ -448,7 +448,7 @@ Which pull request lands which type, and why:
 
 | Lands in | Types | Reason |
 |---|---|---|
-| pull request 2 | `DEPLOYMENT_CONFIRMATION_KINDS`, `DeploymentConfirmationKind`, `DeploymentConfirmation` (with `subject: string`), `DeploymentWithResources.confirmations`, `DeploymentResource.remoteMissingAt`, `DeploymentRecord.offeredLogoContentHash`, `DeploymentRecord.targetEmptyCaseListText` (`boolean | null`: null until a publish has read the flag), the `DeploymentIdentityOverride` interface, and the baseline read types `AppOwnership`, `AppBaseline`, `CanonicalLookupTable`, `CanonicalPlace`, `ResourceBaseline` | Each is the read side of a column or table the migration adds, and none imports a file a later pull request creates. The read mappings that fill them land in the same pull request (see the store tables below), so pull request 3 adds behavior over a field that already exists. |
+| pull request 2 | `DEPLOYMENT_CONFIRMATION_KINDS`, `DeploymentConfirmationKind`, `DeploymentConfirmation` (with `subject: string`), `DeploymentWithResources.confirmations`, `DeploymentResource.remoteMissingAt`, `DeploymentRecord.offeredLogoContentHash`, `DeploymentRecord.targetEmptyCaseListText` (`boolean | null`: null until a publish has read the flag), the `DeploymentIdentityOverride` interface, and the baseline read types `AppOwnership`, `AppBaseline`, `CanonicalLookupTable`, `CanonicalPlace`, `ResourceBaseline` | Each is the read side of a column or table the migration adds, and none imports a file a later pull request creates. The read mappings that fill the confirmations, `remoteMissingAt` and the two `DeploymentRecord` fields land in the same pull request (see the store tables below), so pull request 3 adds behavior over a field that already exists. The baseline read types are filled by `readAppBaseline` and `readResourceBaselines`, which land in pull request 4 with the comparison that reads them; until then only the Project-move copy touches those rows, by column. |
 | pull request 3 | `DeploymentIdentityOverride` becomes the alias of `lib/commcare/wireIdentity.ts::WireIdentityOverride` | part 01, A1. Derived ids, and why `Form.xmlns` is not stored, owns the shape from then on. |
 | pull request 4 | `ResourceBaselineRef`, `RemoteChangeDiscard`, `DeploymentRemoteChange`, `BaselineDiscardWrite`, `AppBaselineWrite`, `ResourceBaselineWrite`, `PublishInput.discardRemoteChanges`, `DeploymentAttemptRefusal.remoteChanges` | They are the comparison's and the writers' types, and the writers need `lib/deployment/hqSourceBaseline.ts`. |
 | pull request 13 | `DeploymentConfirmationKey`, `PublishInput.confirm`, `DeploymentConfirmationNeeded`, `DeploymentAttemptRefusal.confirmationsNeeded` | `PlanFeatureId` is declared in `lib/publish/planFeatures.ts`, which pull request 13 creates (part 03, C2. Plan features: the per-privilege confirmation). A pull request 2 type cannot import it. |
@@ -461,7 +461,7 @@ The failure codes land with their producers, each in the same three places (`lib
 | `hq_table_content_unsupported` | pull request 14 | defect 5 |
 | `hq_confirmation_needed`, `hq_app_version_below_floor` | pull request 13 | work item C (part 03, C1. The version floor, and C2. Plan features: the per-privilege confirmation) |
 
-A baseline's `observed_by` and `discarded_by` are `scope.actorUserId`, and a resource baseline's `observed_from_app_id` is `scope.appId`; a writer never takes any of the three from its caller. A `create` baseline's `ownership` is the ownership of the shell body `hqImportApplication` returned for the create (no add-on, no profile key, `autoGpsCapture` as the shell carried it), which satisfies the CHECK that a stored source has one.
+A baseline's `observed_by` and `discarded_by` are `scope.actorUserId`, and a resource baseline's `observed_from_app_id` is `scope.appId`; a writer never takes any of the three from its caller. A `create` baseline's `ownership` is the ownership `hqImportApplication` returned for the shell body of the create, which satisfies the CHECK that a stored source has one. From pull request 5 that is `shellOwnership(shell)`: no add-on, no profile key, `autoGpsCapture` as the shell carried it (part 04, Shared: one source read and one overlay module). In pull request 4 it is `appOwnershipOf` of the shell, which names the ten add-ons `lib/commcare/hqShells.ts::applicationShell` still sets `true` there (the shell keeps `add_ons` until pull request 5: part 01, A3. The publish sequence, the `APP_SHELL_KEYS` table); that decides nothing, since a comparison over a `create` baseline reads `modules` only.
 
 ### Store functions (`lib/deployment/store.ts`)
 
@@ -477,6 +477,7 @@ Changed:
 | `writeResourceMapping` | its conflict arm also sets `remote_missing_at = NULL` | `app_deployment_resources` | pull request 3 (part 01, A3. The publish sequence) |
 | `applyDeploymentObservation` | Under the same remote-id and push-token guard: an `upload` outcome that failed with `remote_app_missing` sets `remote_missing_at = now` on the active app mapping; a succeeded `upload` outcome clears it. | as today | pull request 3 (part 01, A3. The publish sequence) |
 | `recordRemoteResource(scope, target, input)` | `input` gains the required `baseline: AppBaselineWrite` (which carries the discard, as `ResourceBaselineWrite` does) | `app_deployment_resources`, `app_deployment_baselines`, `app_deployments` | pull request 4 |
+| `recordRemoteResource(scope, target, input)` | `input` gains `targetEmptyCaseListText?: boolean`, the answer of this publish's `USH_EMPTY_CASE_LIST_TEXT` read (part 04, Finding 65), written to `app_deployments.target_empty_case_list_text` in the same `UPDATE` as the `uploaded` fold. `lib/deployment/service.ts::publishAppToHq` passes it only when the read answered (`PreflightResult.ready.targetEmptyCaseListText` is a boolean). A read that did not answer leaves the field out and the column as stored: the last answer a publish read stands until a later publish reads another, because it is a fact of the project space that the failure of one read does not change, and a null column (no publish has read it since step 2) compiles as `false` | `app_deployments` | pull request 5 (part 04, Finding 65) |
 | `recordRemoteResource(scope, target, input)` | `input` gains `offeredLogoContentHash?: string \| null` (the column is written only when the field is present; `null` clears it) | `app_deployments` | pull request 13 (part 03, C6. Defect 14: logos) |
 | `recordPushedResources(scope, target, inputs, outcome, baselines?)` | `baselines: readonly ResourceBaselineWrite[]`, upserted in `(kind, remote_id)` order (two apps of a Project can write overlapping sets, and a fixed order keeps them from deadlocking). Allowed with every outcome status. | `app_deployment_resources`, `project_space_resource_baselines`, `app_deployments` | pull request 4 |
 | `foldDeploymentAttempt(scope, target, phase, outcome, { ensure?, confirmations? })` | `confirmations` (allowed only with a succeeded `preflight`) are inserted `ON CONFLICT (deployment_id, kind, subject) WHERE withdrawn_at IS NULL DO NOTHING`, with `confirmed_by = scope.actorUserId`, whether or not the fold changed the record | `app_deployments`, `app_deployment_confirmations` | pull request 13 (part 03, C2. Plan features: the per-privilege confirmation) |
@@ -487,7 +488,7 @@ New:
 |---|---|---|---|
 | `recordCreatedRemoteApp(scope, target, { remoteId, baseline })` | `withDeploymentRow`, `ensure: false` | `writeResourceMapping` for the `app` kind with `pushedRevision: null`, `remoteRevision: null`; `notifyAppDeployments`. Folds no rung. From pull request 4 it also takes `baseline` and upserts the `create` (or `unread`) baseline in the same transaction. | pull request 3 (part 01, A3. The publish sequence); the `baseline` argument in pull request 4 |
 | `readDeploymentIdentityOverrides(scope, target)` | none (plain read, `view`) | `app_deployment_identities` joined to the target's deployment. Empty for a target with no deployment. | pull request 3 (part 01, A1. Derived ids, and why `Form.xmlns` is not stored) |
-| `readReachedDeploymentTargets(scope)` | none (plain read, `view`) | Replaces `readDeploymentPreviewRecords` for the download resolver: for each deployment that displays as reached and whose app mapping is live and not missing, `{ server, domain, hqAppId }`. | pull request 3 (part 01, A5. Downloads by project space) |
+| `readReachedDeploymentTargets(scope)` | none (plain read, `view`) | Replaces `readDeploymentPreviewRecords` for the download resolver: for each deployment that displays as reached and whose app mapping is live and not missing, `{ server, domain, hqAppId }`. From pull request 5 each also carries `emptyCaseListText`, the deployment's `target_empty_case_list_text`, `false` where it is null (part 04, Finding 65). | pull request 3 (part 01, A5. A `.ccz` is made for one project space); `emptyCaseListText` in pull request 5 |
 | `markResourceBaselinesUnread(scope, target, refs)` | `withDeploymentRow` | Upserts `unread` rows for resources a push may have changed and Nova could not read back. `refs` is `readonly ResourceBaselineRef[]` (`lib/deployment/types.ts`). | pull request 4 |
 | `readAppBaseline(scope, target)` | none (plain read, `edit`) | One row. Gunzips and verifies `source_digest` outside any transaction; a mismatch is logged at `error` and returned as `unread`. `edit`, not `view`: the row holds HQ app source. | pull request 4 |
 | `readResourceBaselines(scope, target, refs)` | none (plain read, `edit`) | Rows of this Project and target for the `(kind, remote_id)` pairs in `refs` (`readonly ResourceBaselineRef[]`). A pair with no row is absent from the result, and the caller treats it as `unread`. | pull request 4 |
@@ -526,7 +527,7 @@ Pure selectors (`lib/deployment/resources.ts`): defined in part 01, A3. The publ
 | Contract | Boundary |
 |---|---|
 | Every CHECK and partial unique index refuses what it names (an `unread` baseline with a source, a discard with no person, two live confirmations of one subject, an identity row with neither id, `remote_missing_at` on a table mapping); the backfill marks exactly live app mappings beside a failed upload, and leaves untouched a superseded mapping, a table mapping, a reached deployment, and a deployment that failed its upload and holds no resource row; writing `remote_missing_at` rotates no push token | real Postgres: new `lib/case-store/migrations/__tests__/deploymentLedger.postgres.test.ts`, and one assertion in `deploymentPushTokens.postgres.test.ts` |
-| Each case lands with the function it exercises. Pull request 2: a seeded live confirmation is read with its `confirmedByName`, a withdrawn one is omitted, and one whose user no longer exists reads "A former member"; `remoteMissingAt`, `offeredLogoContentHash` and `targetEmptyCaseListText` are read as stored. Pull request 3: `recordCreatedRemoteApp` folds no rung. Pull request 4: mapping and baseline commit together or not at all; the `observed_at` guard keeps the newer read when two publishes record out of order; two apps mapping one HQ table share one row and write it without deadlock; an `adopted` table mapping and an `adopted` place mapping write and read their baselines as `nova-created` ones do; `readAppBaseline` returns `unread` for a row whose digest does not match; `recordCreatedRemoteApp` writes the `create` baseline with its mapping. Pull request 13: a confirmation given with a succeeded preflight is stored once, and a withdrawal makes the next read omit it | real Postgres: `lib/deployment/__tests__/store.postgres.test.ts` |
+| Each case lands with the function it exercises. Pull request 2: a seeded live confirmation is read with its `confirmedByName`, a withdrawn one is omitted, and one whose user no longer exists reads "A former member"; `remoteMissingAt`, `offeredLogoContentHash` and `targetEmptyCaseListText` are read as stored. Pull request 3: `recordCreatedRemoteApp` folds no rung. Pull request 4: mapping and baseline commit together or not at all; the `observed_at` guard keeps the newer read when two publishes record out of order; two apps mapping one HQ table share one row and write it without deadlock; an `adopted` table mapping and an `adopted` place mapping write and read their baselines as `nova-created` ones do; `readAppBaseline` returns `unread` for a row whose digest does not match; `recordCreatedRemoteApp` writes the `create` baseline with its mapping. Pull request 5: `recordRemoteResource` given `targetEmptyCaseListText` writes it with the fold, and given none leaves a stored `true` as it was; `readReachedDeploymentTargets` reads `emptyCaseListText` as stored and `false` for a null column. Pull request 13: a confirmation given with a succeeded preflight is stored once, and a withdrawal makes the next read omit it | real Postgres: `lib/deployment/__tests__/store.postgres.test.ts` |
 | A Project move copies the moving app's place baselines to the destination, leaves the source rows, keeps the newer row on conflict, and carries a discard record by the upsert's rule (pull request 2, over seeded rows) | real Postgres: `lib/db/__tests__/projectMove.postgres.test.ts` |
 | The runtime role cannot insert into `app_deployment_identities` and cannot delete from the three insert-update tables | real Postgres: `lib/db/__tests__/privilegeConvergence.postgres.test.ts`, which derives from the lists |
 
@@ -575,7 +576,13 @@ export function ownedProjection(normalized: unknown, ownership: AppOwnership): u
 export type AppChangePart =
   | { readonly kind: "name" | "languages" | "settings" | "text" | "menu-list" }
   | { readonly kind: "menu"; readonly menu: number; readonly name: string }
-  | { readonly kind: "form"; readonly menu: number; readonly form: number; readonly name: string };
+  | {
+      readonly kind: "form";
+      readonly menu: number;
+      readonly form: number;
+      readonly name: string;      // the form's
+      readonly menuName: string;  // its menu's
+    };
 
 /**
  * Empty when nothing Nova writes differs. Both sides are projected with the BASELINE's ownership.
@@ -702,7 +709,7 @@ The comparison projects BOTH the stored baseline and HQ's current read with the 
 
 | Part | Sentence |
 |---|---|
-| app, `form` | "The form `<name>` in the menu `<menu name>`" |
+| app, `form` | "The form `<name>` in the menu `<menuName>`" |
 | app, `menu` | "The menu `<name>`" |
 | app, `menu-list` | "The list of menus" |
 | app, `name` | "The app's name" |
@@ -721,7 +728,14 @@ The comparison projects BOTH the stored baseline and HQ's current read with the 
 | place, `information` | "Its place information changed." |
 | place, `missing` | "CommCare HQ no longer lists this place. It was archived or deleted there. Publishing makes it again if it was deleted. If it was archived, CommCare HQ refuses the publish while the place stays archived there." |
 
-An app change lists one line per differing menu or form, in HQ's order, then the app-level lines. A change whose baseline is `unread` has no parts; the dialog shows the `baselineKnown: false` sentence in their place.
+How `diffHqAppSource` finds the menu and form parts, over the two projections:
+
+- **Menus pair by position, and so do forms within a menu.** A module's `unique_id` is kept as HQ returned it and is stable across reads, so where the two `modules` lists differ in length, or hold a different `unique_id` at any one position (a menu added, removed or moved in HQ), the positions no longer name the same menus: the result is the one part `menu-list`, and no `menu` or `form` part is computed.
+- Otherwise each position `i` is compared. Any difference in the menu's keys other than `forms`, or in the length of its `forms` list (a form added or removed), is the part `menu` for `i`. Where the `forms` lists are of one length, each position `j` whose form (with its attachment, under its token) differs is the part `form` for `(i, j)`. A form moved within its menu therefore reads as the forms at the positions it left and took.
+- **Names come from HQ's current read.** HQ holds a name as a map from language code to text. A part's name is the text under the first code of the current read's `langs` whose value in the map is a non-empty string; else the first non-empty value in the map's own key order; else `#<n>`, the position counted from one. `menuName` is the name of the form's menu, resolved the same way.
+- **The order of the parts:** `menu-list`, or else each `menu` and `form` part in HQ's order (a menu's own part before its forms'); then `name`, `languages`, `settings` and `text`.
+
+A change with `baselineKnown: false` has no parts; the dialog shows that sentence (the copy table under "The refusal, the discard and the copy") in their place.
 
 ### Lookup table baselines
 
@@ -838,7 +852,11 @@ export interface DeploymentAttemptRefusal {
   readonly resourceConflicts: readonly DeploymentResourceConflict[];
   /** Non-empty exactly for `hq_confirmation_needed`. Work item C adds it in pull request 13. */
   readonly confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
-  /** Non-empty exactly for `hq_changed`. */
+  /**
+   * Non-empty exactly for `hq_changed` at `preflight`. The `upload` stop (the second read) carries
+   * none: its tables and places were already pushed, nothing a person confirmed there would still
+   * be current, and the next publish's preflight lists the change with its digest.
+   */
   readonly remoteChanges: readonly DeploymentRemoteChange[];
 }
 ```
@@ -985,7 +1003,7 @@ The comparator is TypeScript and HQ runs in the lane's Python, and a proof shard
 | Contract | Boundary |
 |---|---|
 | Two retained reads of one app normalize to the same text and digest, for each of the five documents and for the HQ-built pair that holds all four reference paths and two report configs; the retained read after each save of decision 7's table gives that table's outcome and part (equal under `diffHqAppSource` after App Settings and Case Management while the digest differs; `settings`, `menu` or `form` after the others); the read after each `hq-side.json` save names the right part; the read after the media upload is equal; no attachment outside the current forms and no `admin_password` is in the normalized text; with `shell: true` the retained shell is equal to itself after an App Settings save, and against the shell with a menu yields the one part `menu-list` | pure, over `proof/hq-reads/`: `lib/deployment/__tests__/hqSourceBaseline.test.ts` |
-| The schema-growth rule, over a retained read edited to add one key the test names: at its manifest default it is no change, at another value it is one, and an added map key is one. With `shell: true`, a retained shell edited to raise `build_spec.version`, change the name and change the profile is equal | pure, over edited retained reads: the same file |
+| The schema-growth rule, over a retained read edited to add one key the test names: at its manifest default it is no change, at another value it is one, and an added map key is one. With `shell: true`, a retained shell edited to raise `build_spec.version`, change the name and change the profile is equal. The parts, over `navigation-base`'s retained read edited one way per case: its one menu removed, a second menu added after it, and a second menu added before it each yield only `menu-list`; a form added to a menu yields that menu's `menu` part; a changed form label yields the `form` part with `name` and `menuName`; a name map holding only a language the read's `langs` lists second is named in that language, one holding no listed language by its first value, and one holding only empty texts `#<n>`; the parts come in the stated order | pure, over edited retained reads: the same file |
 | Table comparison order (identity, then definition, then count, then rows digest) with the part and observed digest each case yields, over HQ's retained answers: the plain table against itself, against the read after the editor added a column (`definition`, rows never read), against the read after the rename (`renamed`) and against a list without it (`deleted`); both retained row shapes digest, the multi-valued one by its ordered values and sorted properties, and row ids never enter the digest; the two pages of the 1,005-row table digest as one list; place projection onto the baseline's `ownedKeys`; coordinates as HQ's strings; the inventory after a no-change update is equal though its order and `last_modified` moved; an archived place and a deleted one are each `missing` | pure, over `proof/hq-reads/lookups/` and `proof/hq-reads/places/`: `lib/deployment/__tests__/hqResourceBaseline.test.ts` |
 | `decideRemoteChanges`: equal, differs, confirmed for this digest, confirmed for an older digest, `unread`, one of several unconfirmed; each `describe` function returns the copy table's sentence for every part kind; `boundedParts` at 20 and 21 lines | pure: `lib/deployment/__tests__/remoteChanges.test.ts` |
 | `appOwnershipOf` names exactly the overlay keys of the body it is given | pure: `lib/commcare/__tests__/appOwnership.test.ts` (pull request 5 moves its cases to `targetOverlay.test.ts`) |
