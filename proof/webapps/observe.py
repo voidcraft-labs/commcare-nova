@@ -848,7 +848,8 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     question), that way of showing the form has ended. A person there switches "Use one question per screen" off
     in App Preview's Settings, which it offers everyone, so the run is replayed with that switched off
     (``replay``'s ``preview_whole``): its form is answered and submitted as on Web Apps' own page, its submission
-    is held to the walk's, and that replay is the run's record, with where the one-question form ended beside it
+    is held to the walk's (but where the run gave a location question its place, which the frame's map gives as
+    its own), and that replay is the run's record, with where the one-question form ended beside it
     (``ONE_QUESTION``: its ``stopped``, and what became of its answers and its Next).
 
     A run the client shows nothing to click for at some choice (once it has arrived, within ``steps.WITHIN_MS``)
@@ -882,8 +883,11 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
             deadline=180.0 + 2.0 * len(made),
             viewport=viewport,
         )
-        if window != PREVIEW or whole:
-            # A form the client shows whole it submits whole, in App Preview as in Web Apps.
+        if window != PREVIEW or (whole and not walks.places_of(each["script"])):
+            # A form the client shows whole it submits whole, in App Preview as in Web Apps. A run that gave a
+            # location question its place is the exception there: the builder's frame lays the map out at
+            # another size, so the same drags bring it to a place of its own, as a phone's do, and the walk
+            # holds a desktop's places and a phone's, never the frame's.
             submitted_alike(served, each, run)
         one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
         if not any("stopped" in held for held in one["runs"]):

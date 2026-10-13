@@ -1398,7 +1398,11 @@ a step clicks what a worker clicks, or reads what the page shows.
   from its start with that switched off after the language is set
   (`steps.py::show_forms_whole`), its form answered and submitted as on Web
   Apps' own page, and that replay is the run's record, with where the
-  one-question form ended kept beside it (`oneQuestion`).
+  one-question form ended kept beside it (`oneQuestion`). Its submission is
+  held to the walk's, as a desktop's and a phone's are, but where the run
+  gave a location question its place: the frame lays the map out at another
+  size, so the same drags bring it to a place of its own, and the walk holds
+  a desktop's places and a phone's.
 - **Stylesheets** (`static.py`). What a worker sees is the client's markup
   under HQ's stylesheets, so the page has them: HQ's own precompiler compiles
   the SCSS the page names (HQ's test settings switch it off, and HQ's own
