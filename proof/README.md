@@ -342,60 +342,33 @@ form, and App Preview's admin logs in as the worker through the client's own
 Log in as), and holds no claim about them; ConnectID is not in the lane, and
 each notification task Connect queues runs up to that request, which is
 recorded and fails as a connection that could not be made. Everything that
-depends on Nova's export is observed, and what is left out of that is listed
-here.
+depends on Nova's export is observed; which paths, cases and languages each
+reader's walk takes of an app, and where a walk ends, is told where the
+reader is ("How the lane observes", below).
 
-- **What a device does not show.** CommCare Android's own code is handed
-  every state the lane serves, beside HQ's live unit, and proofs 1, 3 and 4
-  judge what it did ("Android in the unit", below), with these left out.
-  Not run: a language other than the one the app starts in. A walk opens
-  the first case of each list, so a
-  form opened for any other case of a list is not walked (each list's every
-  row is laid out and searched, and its Sort read). A device is handed the
-  states HQ releases: a document whose build of A HQ's validation refuses
-  has no device, as it has no Formplayer.
-- **What Connect in the unit does not show.** Every Connect document's
-  submissions are forwarded to Connect in its unit ("Connect in the unit",
-  below), with these left out. A device's location fix
-  is the one the device's GPS gives the app, which the app's own sensor
-  poll (`PollSensorAction`) writes where the form holds the node. The
-  project space's admin saves HQ's Connection Settings
-  page and its Add Forwarder page for Connect as a person does (signed in
-  through HQ's own sign-in form, each page opened in Chromium with its own
-  JavaScript, typed into, chosen from and saved by its own button,
-  `proof/connect/hq.py::forwarding`), and the
-  forwarder is then given the 404 retry that page gives a forwarder to
-  production's Connect address. The opportunity is made once, from A's release: a
-  manager who asks for its units again after an edit, or pays for a renamed
-  unit, is not in the unit, and neither is the distance check between two
-  visits, since each run meets the opportunity as it stood
-  (`proof/connect/test_receiver.py` runs all three). HQ's Connect payload
-  carries no attachments, so Connect's download of a visit's attachments
-  runs and asks HQ for nothing.
-- **A configuration Nova's publish refuses is not checked** (decision 19).
-  Each document's configurations hold the flags and case search Nova's
-  publish requires for it, so a symptom that shows only where Nova refuses to
-  publish reaches no one and is not a defect: defect 23 without
-  `MM_CASE_PROPERTIES` is one, and Nova's publish check refusing that target
-  is held by `proof/targeted/__tests__/unproducedInputs.test.ts`.
-  Configuration sensitivity alone still builds a flip into such a
-  configuration, since a gate's effects are what HQ's build changes wherever
-  that is, and holds its differences to the gate's effects, never to the
-  register.
+### Claims held outside a document's checks
 
-The lane's accepted seams are not left out: each stands for a state
-production can be in, and `proof/CLAUDE.md` gives each its reason. A
-restore hands a worker's cases in the order of their ids
-(`proof/formplayer/hq.py::cases_in_id_order`; HQ asks its database for no
-order, so every fixed order is one production gives); a page's repeating
-timers of 10 s or more and Elasticsearch's own refresh timer are held; the
-Connect opportunity's own rows (its worker, payment unit, claim and assigned
-tasks) are made with Connect's own factories; and Connect's source is
-fetched at its pin when a run starts.
+A configuration Nova's publish refuses is not checked (decision 19): each
+document's configurations hold the flags and case search Nova's publish
+requires for it, so a symptom that shows only where Nova refuses to publish
+reaches no one and is not a defect. Defect 23 without `MM_CASE_PROPERTIES` is
+one, and Nova's publish check refusing that target is held by
+`proof/targeted/__tests__/unproducedInputs.test.ts`. Configuration
+sensitivity alone still builds a flip into such a configuration, since a
+gate's effects are what HQ's build changes wherever that is, and holds its
+differences to the gate's effects, never to the register.
 
-What the earlier text of this section listed as harm in no system the lane
-runs, or as inputs Nova cannot produce, is now run or proven, each where it
-is held:
+The lane's accepted seams each stand for a state production can be in, and
+`proof/CLAUDE.md` gives each its reason. A restore hands a worker's cases in
+the order of their ids (`proof/formplayer/hq.py::cases_in_id_order`; HQ asks
+its database for no order, so every fixed order is one production gives); a
+page's repeating timers of 10 s or more and Elasticsearch's own refresh timer
+are held; the Connect opportunity's own rows (its worker, payment unit, claim
+and assigned tasks) are made with Connect's own factories; and Connect's
+source is fetched at its pin when a run starts.
+
+These claims are held by a test of their own, or by a document and check
+named here, rather than by every document's checks:
 
 | What | Held by | What it shows |
 | --- | --- | --- |
@@ -1642,6 +1615,19 @@ pins, and nothing is called on a system's behalf:
   costs about two seconds, and a run that reaches Connect about a third of
   one.
 
+The project space's admin saves HQ's Connection Settings page and its Add
+Forwarder page for Connect as a person does (signed in through HQ's own
+sign-in form, each page opened in Chromium with its own JavaScript, typed
+into, chosen from and saved by its own button,
+`proof/connect/hq.py::forwarding`), and the forwarder is then given the 404
+retry that page gives a forwarder to production's Connect address. Each run
+meets the opportunity as it stood once A was served, so what a manager does
+later (asking for its units again after an edit, paying for a renamed unit)
+and the distance check between two visits run in the Connect proof's own
+tests (`proof/connect/test_receiver.py`, "The Connect proof"). HQ's Connect
+payload carries no attachments, so Connect's download of a visit's
+attachments runs and asks HQ for nothing.
+
 What the unit states of the world for that, each named where it is done: the
 project space's plan has Data Forwarding (`proof/hq/seams.py::also_granted`);
 Connect is reached over plain HTTP at a loopback address
@@ -1672,7 +1658,9 @@ short, and the picture, whose PNG the record keeps). Each installs the state
 as a worker installs it from a file: HQ's own
 download of the released build with the app's multimedia
 (`hqmedia/views.py::iter_app_files`), and Nova's local archive for the
-local state. The worker HQ made signs in, and the device walks every path
+local state; a state HQ releases no build of (its validation refuses A, say)
+is handed to no device, as it is served to no Formplayer. The worker HQ made
+signs in, and the device walks every path
 the app's menus offer, every case each list shows (a walk of its own named
 by the case) and all of it again in each other language the app holds,
 chosen on the app's own Change Language dialog (a walk named by the
@@ -2016,7 +2004,7 @@ class; the table names it where it shows what the row's other checks do not.
 number.
 
 One row is not reproduced: "12, same-type child", whose input no Nova document
-holds ("What the lane does not observe", above). "20, CommTrack", which step 1
+holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
 left out the same way, is a row again: Nova's gate admits the read it needs.
 
 | Defect, part | Symptom | Shown by | Documents |
