@@ -2343,6 +2343,103 @@ step, as defect 24's other entries do:
   the stack requires, and the exit state's whole run is what holds every
   document. Planning makes that run with every fix's bytes stacked, and parts
   09 and 11 state its outcome.
+- **The exit-state run shows one more class from here, and a judge change
+  reads it.** On `fuzz-suite-20260930-8`, outside the slice, Formplayer's
+  record of the local archive shows `/runs/*/steps/*/response/exception`,
+  changed, two differences, one under each configuration, and no entry
+  names it. Form 1-0 of that document sets the literal `'a'` into its
+  choice question `model`, which none of the question's options carries
+  (finding 72, a held stop of this document: part 09, "The held walk
+  stops"). Formplayer opens the form on neither export
+  (`api/json/PromptToJson.java::parseQuestionAnswer`) and answers with
+  Core's message, which names the question by the id of its label's text
+  (`org/javarosa/core/model/data/helper/Selection.java::attachChoice`,
+  `org/javarosa/core/model/QuestionDef.java::getTextID`). HQ's build keeps
+  one id for the texts of a form that are the same in every language, the
+  id that sorts first, and points every reference at it
+  (`models/forms.py::FormBase.add_stuff_to_xform`,
+  `xform.py::XForm.normalize_itext`), so its message names
+  `instance-input-input-opt3-label`, the id of a choice's text, and the
+  archive's names `model-label`. The run that opens the form asks HQ one
+  search on its way (`app_aware_remote_search`), which the archive leaves
+  unanswered until A5 (finding 32), and a run is compared no further than
+  the first step whose two answers are of two kinds
+  (`proof/checks/served.py::one_symptom`), so the class first shows at this
+  pull request.
+  - **What the judge reads today.**
+    `proof/checks/served.py::merged_text_ids` pairs the references the two
+    builds' forms make to texts, form by form and place by place, and the
+    judge reads the archive's message with HQ's id where HQ's build points
+    a reference at another id of the same texts. It maps nothing for an id
+    that HQ's build of any form kept, since a message does not say which
+    form its question is of. Form 3-0 of this document labels a group
+    `model-label`, and HQ's build keeps that id there, so nothing is
+    mapped. The step names no form either: it holds the walk's selections
+    (`["0", "patient-4", "0", "household-4", "0"]`), Formplayer's
+    `exception`, `status`, `statusCode`, `type` and `url`
+    (`beans/exceptions/BaseExceptionResponseBean.java`), and the one
+    request Formplayer made of HQ, `session_details`. So a map made for
+    each form has nothing to choose its form by.
+  - **The change.** Core names only a question in that message, and only
+    by its label: `attachChoice` takes a `QuestionDef`, and Core's parser
+    makes a group of `group` and `repeat`, a question's choices of `item`
+    and `itemset`, and a question of every other control
+    (`org/javarosa/xform/parse/XFormParser.java::setupGroupLevelHandlers`).
+    This pull request changes two functions of `proof/checks/served.py`.
+    `_text_references` gives each reference a third member, whether it is
+    a question's own label: a `label` whose parent is none of `group`,
+    `repeat`, `item` and `itemset` (a new constant, `NOT_A_QUESTION`).
+    `merged_text_ids` reads those references alone, to map an id and to
+    refuse one, and reads a form only where the two builds' references
+    agree in every place, by element and by that member. An id that a
+    question of another form keeps, or that two forms' questions map two
+    ways, still maps nothing, and its message stays a difference.
+    `proof/checks/test_served.py::test_a_question_named_by_a_text_hq_merged_is_the_same_question_and_another_question_is_not`
+    gains five cases: the question's id still maps where another form's
+    group, choice or hint keeps it (three), and a label HQ's build merged
+    that is a group's or a choice's maps nothing (two). Each of the five
+    fails on the judge as the lane has it. The module's opening and
+    `proof/README.md`, "Served states", say the pairing is read from each
+    question's own label.
+  - **Why nothing else holds it.** Nova's local archive does not take HQ's
+    ids: the two ids name the same texts, which the judge's map requires
+    before it reads one as the other, and the form opens on neither export
+    whichever id its message carries, which is finding 72's defect and
+    step 3's. No entry holds it either: an entry holds a defect and names
+    the control that still shows it, and here the two builds refuse the
+    same question of the same form with the same message, which the judge
+    already reads as one wherever it can tell the question. The document
+    joins no reader slice (part 09, "Where the lane runs"): the test holds
+    the reading at this pull request, and the whole lane at the stack's top
+    holds the document with every reader.
+  - **Executed during planning, on a proof machine, with Formplayer**
+    (`PROOF_READERS=formplayer`, `proof/checks -k fuzz-suite-20260930-8`,
+    the document's ten items under its two configurations), at two states,
+    each run without the change and with it. At this pull request's state
+    (the scratch branch `proof/plan-settle-f7`: the change on
+    `proof/plan-settle-p01s`, whose corpus holds A5's bytes with A1's ids
+    and A3's two imports): without the change nine items pass and proof 3
+    fails on this class alone, at step 7 of the run that opens Form 1-0;
+    with it all ten pass. The two runs' checks write 762 and 760
+    differences in 586 and 585 classes, every class but this one with the
+    same count in both, and the document's two held stops show in four
+    runs each in both. HQ's own build in that run's record labels the
+    question of Form 1-0 with `jr:itext('instance-input-input-opt3-label')`
+    and keeps `jr:itext('model-label')` on the group of Form 3-0. The gate
+    of the lane's branch, told the document (`python3 -m proof.lane.gate
+    <output> --documents fuzz-suite-20260930-8`), fails the first run on
+    the class and holds every section over the second; the scratch branch
+    is cut on the lane's head at `e368cb1e`, whose own gate takes no
+    `--documents`. At the exit state
+    (`proof/plan-settle-f7x`: the change on
+    `proof/plan-settle-main-exit-lane` at `c94af724`, with its corpus),
+    where the two ids are `itext-input-input-opt3-label` and `model-label`:
+    without the change proof 3 fails on this class alone, and with it
+    proof 3 passes with no difference. The manifest item fails in both
+    runs there on pull request 5's six manifest keys of this document
+    (part 09, "Where the lane runs"), and no other count moves. The ten
+    tests of `proof/checks/test_served.py` that need no served reader pass
+    in the lane's image, the changed one among them.
 - Each owner's block names its entry here and moves it with its own.
   Executed during planning, under Formplayer, on A5's archive with each
   owner's fix: the submit message, the trimmed case name and the sort keys
@@ -2901,8 +2998,9 @@ something production does not.
 | `proof/corpus/__tests__/entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts` | Drop `genHexId` and `genShortId`; assert the two-import first publish and the equal republish. |
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts` | A2's `planLanguageWire` signature. |
 | `proof/targeted/documents/hqSideState.ts` | A2's `wireCodes` in its two roots and its module comment (A2, "Files"). |
+| `proof/checks/served.py`, `proof/checks/test_served.py` | A5's judge changes, each with its case in the test file: a submission's `path` is handed to the rule `runtime_url_app_id`; `TRACE_DATA_MAPS` gains the translations of the screen after a submit; and `_text_references` and `merged_text_ids` read a question's own label alone, with the constant `NOT_A_QUESTION` (A5, "What the working submit shows"). |
 | `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Thirty-one entries move: A1's six, A2's two, A5's twenty-three. Eighteen are added live, on the nine controls this pull request retains, `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (A5, "What the working submit shows"). Two of defect 20's entries that pin a form's `xmlns` are re-filed as one, and their control `targeted-supply-point-read` is retained again in place (A1, "Register"). |
-| `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the three README passages that say Nova's local archive names no server ("Android in the unit"), no address ("Connect in the unit") and no submission URL ("What the package's tests hold"), and `proof/CLAUDE.md`'s paragraph on finding 59, say it of the controls' pre-fix archives alone; the import file is imported through HQ's import page. |
+| `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the three README passages that say Nova's local archive names no server ("Android in the unit"), no address ("Connect in the unit") and no submission URL ("What the package's tests hold"), and `proof/CLAUDE.md`'s paragraph on finding 59, say it of the controls' pre-fix archives alone; the import file is imported through HQ's import page; "Served states" says the judge pairs the text ids of a message that names a question from each question's own label alone (A5, "What the working submit shows"). |
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
 | Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |
 

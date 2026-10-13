@@ -381,7 +381,7 @@ files, entries, rules, transform steps and ordering constraints.
 
 | # | Pull request | Parts |
 |---|---|---|
-| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for findings 56, 57, 70 and 71; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 06 (finding 50), 07 (finding 57), 08 (findings 56, 70 and 71) |
+| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for findings 56, 57, 70 and 71; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 06 (finding 50), 07 (findings 51, 57 and 67), 08 (findings 56, 70 and 71) |
 | 2 | The cutover's skeleton, the notice, frozen pre-step fixtures, every ledger table | 10, 02 |
 | 3 | Identity and the publish sequence | 01, 09 (the capture), 10 (the cutover's group of the retained reads, `api_request` and the rate-limit seam) |
 | 4 | Drift and baselines | 02, 09 (the retained reads) |
