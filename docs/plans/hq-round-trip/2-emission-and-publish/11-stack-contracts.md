@@ -10,15 +10,15 @@ The stack is cut over the proof lane as its own pull request merges it onto `mai
 
 One `gh stack` chain of sixteen pull requests, merged together for one deploy. Each row's "Green alone" is in addition to the repo's ordinary checks at that pull request's own head: typecheck, lint, Vitest with Postgres, the production build, the pull request lane in CI, the Playwright smoke and the Python infra tests. Before it is marked ready, each row also runs its reader slice on a proof machine, which is exactly the document and control of every served-reader entry it moves, registers, re-files or deletes and of every held walk stop it moves, removes or adds, plus its witnesses, the targeted documents of a fix with no entry and the document of a judge change no entry names, and with them the reader package tests the pull request itself adds or changes (part 09, Where the lane runs, states the rule once), and, where it changes an emitter, adds a corpus document or changes a gate entry, the sensitivity check whole and fresh; the whole lane with every reader runs once, at row 16's head, before the merge (part 09, Where the lane runs). "Register" counts entries by id: "moves" are entries that leave `proof/known-defects.json` for `proof/fixed-defects.json`, "adds" are entries the pull request registers live, and "deletes" are entries that leave a register for neither: with a judge change or an allowance, in pull request 3 because the entry beside it comes to hold the one difference the two pinned, and in pull request 13, from the fixed register, because the lane's oracle grants a control a privilege under which it stops showing them (part 09, What step 2 moves and deletes).
 
-The files each pull request touches are under Files, by pull request, below, the list an implementer holds a diff against; the table's Files cell only points there. Pull requests 1, 2, 3 and 5 hold more than a cell reads well, so their Contains cell gives the headline and What pull requests 1, 2, 3 and 5 contain, below, gives the whole.
+The files each pull request touches are under Files, by pull request, below the table: the list an implementer holds a diff against. For pull requests 1, 2, 3 and 5 the Contains cell gives the headline, and each of those four opens its list there with the whole.
 
 | # | Title | Contains | Files | Register | Rules | Cutover steps, notice reasons and blockers | Green alone |
 |---|---|---|---|---|---|---|---|
-| 1 | Lane mechanics | The lane's own mechanics: `proof/fixed-defects.json` with its loader, gate, queue and fingerprint; a held walk stop that names a control; the name argument (`--as`) on control retention; `targeted-hq-side-state` split, and `targeted-shared-property-sort` given its second menu; targeted documents, entries and controls for findings 43 (`parsererror`), 56, 57, 70 and 71; `HQ_OWN_REPORTS` with its three members; the build recreated under a stored part. No emitter change. In full under What pull requests 1, 2, 3 and 5 contain, below | Below | Writes finding 52's 2 straight into the fixed register on `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`. Adds 29 live: finding 56's 2, finding 57's 17, finding 70's 6, finding 71's 2 and finding 43's 2 (part 09, The entries step 2 adds). Re-documents defect 5's seven `d5-table-content-*` entries on `targeted-hq-side-lookup`, their control `targeted-hq-side-state` unchanged (part 02, Defect 5: the lookup push, Lane; part 09, Corpus changes). Walk stops: adds `targeted-datetime-ordering`'s, Formplayer's `submit-refused:validation-error`, with the document (part 09, The held walk stops). Deletes 9 with their members: finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries, with the controls `nested-menu-previous`, `tile-grouped-one` and `targeted-connect-learn-rename` | `vellum_alert` retires | none | Proof 4 shows no `alert` difference on any corpus document; the gate holds finding 52's two fixed entries on their control and every control directory is named; no product change |
-| 2 | Cutover skeleton, the notice and the ledger tables | The fold-horizon DDL and writer with an empty step list; the notice, in the builder, on the home line and over MCP; the Job `commcare-nova-hq-round-trip-cutover` with its runbook and its frozen pre-step fixtures; every additive ledger table and column, in three migrations; the three pre-horizon readers, `RUNTIME_VERSION` 15 and the frozen fold. In full under What pull requests 1, 2, 3 and 5 contain, below | Below | none | none | The transform runs zero steps: a horizon over an unchanged document. Document reason `unsaved-assistant-work-discarded`; deployment reason `deep-links-need-republish`. Blockers `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-change` | Writer Postgres tests over the frozen fixtures with zero steps; deployment store Postgres tests; the infra tests with the Job; nothing shows in the product |
-| 3 | Identity and the publish sequence | Defect 1 and findings 32, 49 and 59; `localization.wireCodes`; the shell create then the in-place update, with the `target-app` preflight edge and its one source read; downloads by project space; no `multimedia_map`; the manual-import guide and the ZIP; the proof capture's two-import first publish with its layout marker and the marker's reader; the spelling rule `runtime_url_app_id`; nineteen classes registered live, with nine controls. `MODEL_CONTEXT_VERSION` does not move. In full under What pull requests 1, 2, 3 and 5 contain, below | Below | Moves 31: defect 1's 8, finding 32's 20, finding 59's 3; two of them leave by the new rule. Deletes 1: one of defect 20's two entries that each pin a drawn `xmlns`; the other is pinned to the one derived `xmlns`, and their control `targeted-supply-point-read` is retained again in place (part 01, A1; part 09, What step 2 moves and deletes). Adds 19 live on `formplayer@local.ccz`, on the nine `-after-59` controls: fourteen leave with their owner's fix (six in pull request 5, two of them deleted there, one in 6, six in 9 and one in 11), and defect 24's 5 stay live, step 5's (part 09, The entries step 2 adds, which gives each entry with its control and its pull request) | `runtime_url_app_id` is added | Step `language-wire-codes` (no reason: no deployed code moves). The Job's deployment reads write `app_deployment_identities` (the cutover's one `ApplicationResource` read writes nothing else), and a deployment whose HQ app they find gone takes `remote_missing_at` with the folded `remote_app_missing` failure; deployment reasons `menu-id-changes-once`, `form-ids-change-once`, `ids-change-once-unreadable`, `ended-app-deleted`, `hq-app-not-nova-made`; no-write document reason `ccz-needs-project-space`. Blocker `app-mapping-without-pushed-revision` | Proof 1 holds no defect 1 entry; Formplayer's submission from the local archive shows no class at its `path`; its reader slice is seventeen documents in two runs, each beside every control its entries name: sixteen under Formplayer and Android, `search-hidden-link` (the second document the submit-label entry shows on) and `fuzz-suite-20260930-8` (the witness of the judge change to `merged_text_ids`, which no entry names) among them, and `targeted-supply-point-read` with the control A1 retains again under Web Apps and Android (part 01, A5, Lane); `proof/corpus/__tests__/publish.postgres.test.ts` runs the real `publishAppToHq` three times and asserts the three send the same menu id, form id and `xmlns` in every import body (part 01, A3. The publish sequence, Nova tests) |
+| 1 | Lane mechanics | The lane's own mechanics: `proof/fixed-defects.json` with its loader, gate, queue and fingerprint; a held walk stop that names a control; the name argument (`--as`) on control retention; `targeted-hq-side-state` split, and `targeted-shared-property-sort` given its second menu; targeted documents, entries and controls for findings 43 (`parsererror`), 56, 57, 70 and 71; `HQ_OWN_REPORTS` with its three members; the build recreated under a stored part. No emitter change. In full under Files, by pull request, below | Below | Writes finding 52's 2 straight into the fixed register on `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`. Adds 29 live: finding 56's 2, finding 57's 17, finding 70's 6, finding 71's 2 and finding 43's 2 (part 09, The entries step 2 adds). Re-documents defect 5's seven `d5-table-content-*` entries on `targeted-hq-side-lookup`, their control `targeted-hq-side-state` unchanged (part 02, Defect 5: the lookup push, Lane; part 09, Corpus changes). Walk stops: adds `targeted-datetime-ordering`'s, Formplayer's `submit-refused:validation-error`, with the document (part 09, The held walk stops). Deletes 9 with their members: finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries, with the controls `nested-menu-previous`, `tile-grouped-one` and `targeted-connect-learn-rename` | `vellum_alert` retires | none | Proof 4 shows no `alert` difference on any corpus document; the gate holds finding 52's two fixed entries on their control and every control directory is named; no product change |
+| 2 | Cutover skeleton, the notice and the ledger tables | The fold-horizon DDL and writer with an empty step list; the notice, in the builder, on the home line and over MCP; the Job `commcare-nova-hq-round-trip-cutover` with its runbook and its frozen pre-step fixtures; every additive ledger table and column, in three migrations; the three pre-horizon readers, `RUNTIME_VERSION` 15 and the frozen fold. In full under Files, by pull request, below | Below | none | none | The transform runs zero steps: a horizon over an unchanged document. Document reason `unsaved-assistant-work-discarded`; deployment reason `deep-links-need-republish`. Blockers `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-change` | Writer Postgres tests over the frozen fixtures with zero steps; deployment store Postgres tests; the infra tests with the Job; nothing shows in the product |
+| 3 | Identity and the publish sequence | Defect 1 and findings 32, 49 and 59; `localization.wireCodes`; the shell create then the in-place update, with the `target-app` preflight edge and its one source read; downloads by project space; no `multimedia_map`; the manual-import guide and the ZIP; the proof capture's two-import first publish with its layout marker and the marker's reader; the spelling rule `runtime_url_app_id`; nineteen classes registered live, with nine controls. `MODEL_CONTEXT_VERSION` does not move. In full under Files, by pull request, below | Below | Moves 31: defect 1's 8, finding 32's 20, finding 59's 3; two of them leave by the new rule. Deletes 1: one of defect 20's two entries that each pin a drawn `xmlns`; the other is pinned to the one derived `xmlns`, and their control `targeted-supply-point-read` is retained again in place (part 01, A1; part 09, What step 2 moves and deletes). Adds 19 live on `formplayer@local.ccz`, on the nine `-after-59` controls: fourteen leave with their owner's fix (six in pull request 5, two of them deleted there, one in 6, six in 9 and one in 11), and defect 24's 5 stay live, step 5's (part 09, The entries step 2 adds, which gives each entry with its control and its pull request) | `runtime_url_app_id` is added | Step `language-wire-codes` (no reason: no deployed code moves). The Job's deployment reads write `app_deployment_identities` (the cutover's one `ApplicationResource` read writes nothing else), and a deployment whose HQ app they find gone takes `remote_missing_at` with the folded `remote_app_missing` failure; deployment reasons `menu-id-changes-once`, `form-ids-change-once`, `ids-change-once-unreadable`, `ended-app-deleted`, `hq-app-not-nova-made`; no-write document reason `ccz-needs-project-space`. Blocker `app-mapping-without-pushed-revision` | Proof 1 holds no defect 1 entry; Formplayer's submission from the local archive shows no class at its `path`; its reader slice is seventeen documents in two runs, each beside every control its entries name: sixteen under Formplayer and Android, `search-hidden-link` (the second document the submit-label entry shows on) and `fuzz-suite-20260930-8` (the witness of the judge change to `merged_text_ids`, which no entry names) among them, and `targeted-supply-point-read` with the control A1 retains again under Web Apps and Android (part 01, A5, Lane); `proof/corpus/__tests__/publish.postgres.test.ts` runs the real `publishAppToHq` three times and asserts the three send the same menu id, form id and `xmlns` in every import body (part 01, A3. The publish sequence, Nova tests) |
 | 4 | Drift and baselines | Work item B: the comparator, the `target-app`, `project-data` and `organization` comparisons, `hq_changed`, the bound discard, the shell's exemption (while a baseline's origin is `create` the app comparison reads only `modules`), the capture's confirmed discard for `hqSide` documents, `StepOutcome`'s `stopped`, the retained reads under `proof/hq-reads/`, written by `proof/hq/test_retained_reads.py`, which publishes five documents | Below | none: defect 5's seven table entries on `targeted-hq-side-lookup` stay live and still show | none | The Job's baseline reads, outside the per-app transform; deployment reasons `next-publish-overwrites-hq-edits`, `next-publish-asks-before-overwriting` | Comparator tests over the retained reads; the lane regenerates and byte-compares `proof/hq-reads/` |
-| 5 | App-level emission | Defects 2, 4, 7, 8, 9; findings 34, 39, 40, 62, 65; `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`; the overlay module `lib/commcare/targetOverlay.ts`; one local archive per configuration in the corpus; the judge, manifest and surface changes these need; two controls retained and one removed; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`). In full under What pull requests 1, 2, 3 and 5 contain, below | Below | Moves 126: defect 2's 1, defect 4's 10, defect 7's 6, defect 8's 2, defect 9's 5, finding 34's 8 (7 of the base and the one pull request 3 added), finding 39's 2, finding 40's 82, finding 62's 2, finding 65's 8 (5 of the base and the 3 pull request 3 added). Three of them move under a judge change that leaves each showing on its control: defect 9's Android update entry and finding 40's two worker-setting entries (part 09, What step 2 moves and deletes). Deletes 4 with the form-version judge change, which no control shows afterwards: defect 9's 2 of the base and the two pull request 3 added. Adds 3 live: defect 15's pinned proof 1 entries on `targeted-invalid-question-ids-after-9` (moved in 10). Adds none for the new edit kind, which changes no register outcome (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds). Walk stops: adds the control entry of `targeted-invalid-question-ids-after-9` (part 09, The held walk stops) | `profile_required_minimal` retires; `profile_unread_properties` widens to `app.json` | Step `app-settings` (`android-form-lists-setting-stored`). No-write document reasons `validation-now-enforced`, `local-archive-changes`; deployment reasons `setting-changes-at-next-publish`, `settings-unknown-unreadable`, `worker-settings-reset-at-next-publish` | The intent check holds the local versions to the document sequence; no `/profile/properties/<key>` difference on any document; each configuration's A matches its own local archive; proof 5 reports no form's data `version` outside an edit's footprint |
+| 5 | App-level emission | Defects 2, 4, 7, 8, 9; findings 34, 39, 40, 62, 65; `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`; the overlay module `lib/commcare/targetOverlay.ts`; one local archive per configuration in the corpus; the judge, manifest and surface changes these need; two controls retained and one removed; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`). In full under Files, by pull request, below | Below | Moves 126: defect 2's 1, defect 4's 10, defect 7's 6, defect 8's 2, defect 9's 5, finding 34's 8 (7 of the base and the one pull request 3 added), finding 39's 2, finding 40's 82, finding 62's 2, finding 65's 8 (5 of the base and the 3 pull request 3 added). Three of them move under a judge change that leaves each showing on its control: defect 9's Android update entry and finding 40's two worker-setting entries (part 09, What step 2 moves and deletes). Deletes 4 with the form-version judge change, which no control shows afterwards: defect 9's 2 of the base and the two pull request 3 added. Adds 3 live: defect 15's pinned proof 1 entries on `targeted-invalid-question-ids-after-9` (moved in 10). Adds none for the new edit kind, which changes no register outcome (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds). Walk stops: adds the control entry of `targeted-invalid-question-ids-after-9` (part 09, The held walk stops) | `profile_required_minimal` retires; `profile_unread_properties` widens to `app.json` | Step `app-settings` (`android-form-lists-setting-stored`). No-write document reasons `validation-now-enforced`, `local-archive-changes`; deployment reasons `setting-changes-at-next-publish`, `settings-unknown-unreadable`, `worker-settings-reset-at-next-publish` | The intent check holds the local versions to the document sequence; no `/profile/properties/<key>` difference on any document; each configuration's A matches its own local archive; proof 5 reports no form's data `version` outside an edit's footprint |
 | 6 | XForm, first part | Leaf `constraint` attributes removed; no `#case/` shadow (findings 45 and 47); the datetime leaf; relative defaults; the registration case-id read; Vellum's fill for blank translations, the leaf-label rule and `SELECT_OPTION_LABEL_EMPTY`; finding 55; the ref-less repeat group; finding 46 with the data node name, and proof 2's version clause reading a form's bytes, which leaves none of the lone version's six paths (the form's, the suite's and the trace's, and Formplayer's three); the emission test that closes work item H, with `proof/README.md`'s two rows for the clause (part 09, Work item H); the control `container-query-conditional-after-13`, retained from this pull request's corpus for defect 25's new classes; targeted document `targeted-blank-labels`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.6"` (the authoring guide's prose) | Below | Moves 69: defect 13's 45 (13 leaf constraint, 8 shadows, 5 datetime, 4 defaults and case-id read, 15 translations), finding 45's 5, finding 47's 4, finding 46's 6, defect 14's 7 data node name entries (6 of the base and the submit message pull request 3 added), work item H's 2. Adds 62 live of defect 25's on `container-query-conditional-after-13` (step 5's) | `connect_work_area_empty` retires | Step `option-labels` (`option-label-filled`) | `d41-empty-list-text-app-no-items-text` still shows on `localization-optional`; defect 25's two entries and defect 27's three stand at their paths |
 | 7 | XForm, second part | Containers as groups; the rename, with the validator code `RESERVED_FIELD_ID_PREFIX` and its rule retired; `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`; guards as update-only Save to Case blocks; conditions in `nova_condition_` groups; reads between blocks through `current()`; the root keyed create inside its one-row repeat; six new controls, each retained from this pull request's corpus under `<document id>-after-13`: `case-capture-multiple-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13`, `case-extension-registration-after-13`, `case-extension-repeat-after-13`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.7"` (`operationIdInputSchema`) | Below | Moves 158: guard blocks 80, reserved names 25, wrapper containers 6, wrapper conditions 32, the root create id 14, and the datetime leaves' Formplayer entry, which shows until the guards and wrapper conditions are fixed. Re-paths defect 23's 70 entries from this run's evidence, Formplayer's two among them, and points them, defect 23's manifest entry on those documents and defect 24's 15, at the `-after-13` controls | none | No document step; deployment reason `data-paths-move-once` | Every later-step entry still shows on its document, defects 23 and 24 on their `-after-13` controls and the rest on the controls they name today; `names.py` still reads `__nova_` names on the old controls |
 | 8 | Defect 3 | `lib/commcare/xform/caseSaveReferences.ts`; `save_differing_from_vellum` returns False for the derived map; the intent check reads `case_type` as a standard property, which HQ learns from every Save to Case create's list; the control `case-capture-multiple-after-3`, retained from this pull request's corpus (`--as`) for the two intent classes an attachment under a Save to Case block keeps showing; `proof/README.md`'s "Intent checks" gains that `case_type` is a standard property | Below | Moves 3: defect 3's. Adds 2 live of defect 23's on `case-capture-multiple-after-3`, `d23-attachment-form-case-updates-attachment-under-save-to-case` and `d23-attachment-data-dictionary-attachment-under-save-to-case` (step 5's; part 04, Defect 3) | none | none | Defect 3's proof 4 class shows on no document; its two intent classes show on `case-capture-multiple` alone, held there by defect 23's two new entries; the manifest check reports no `save-differing-from-vellum` use |
@@ -33,118 +33,15 @@ The files each pull request touches are under Files, by pull request, below, the
 
 Totals the stack reaches: 724 entries move to `proof/fixed-defects.json` (31 + 126 + 69 + 158 + 3 + 78 + 68 + 91 + 26 + 50 + 24): 669 of the base register and 55 the stack itself registered. 14 are deleted from the live register: 12 of the base register (finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries in pull request 1, with their allowances; one of finding 68's two `xmlns` entries in pull request 3, where the other comes to hold its difference; defect 9's 2 form-version entries in pull request 5, with their judge change) and the two pull request 3 registered for defect 9's form version (pull request 5). 2 are written straight into the fixed register (finding 52's). The stack registers 135 live entries: 55 of them move, 2 are deleted, and 78 stay live (finding 56's 2, defect 25's 62, defect 24's 11, defect 23's 2, defect 26's 1). One entry is re-filed from defect 14 to defect 26 in pull request 9 and stays live. Pull request 13 deletes 6 of the moved entries from the fixed register, with their control. At the exit `proof/fixed-defects.json` holds 720 and `proof/known-defects.json` holds 282: the 204 later-step entries of the base, the re-filed one among them, and those 78. 12 spelling rules retire, 1 is added (pull request 3) and 25 stand at the exit, one of them widened. `proof/controls/` goes from 85 directories to 105, every one named. `proof/walk-stops.json` goes from 33 held stops to 29: 20 stay on their documents, 7 move to a control, 6 are removed and 2 are added, one on a document in pull request 1 and one on a control in pull request 5, so 21 are on a document and 8 on a control at the exit (part 09, The held walk stops).
 
-What every pull request of the stack does:
+## Files, by pull request
 
-- A pull request that changes a stored shape adds its transform step under `scripts/lib/hqRoundTripCutover/steps/`, registers it in `transform.ts`, adds its notice reason and renderer, and adds its expectations over the frozen pre-step fixtures, all in that pull request. At every point of the stack the migrate script is therefore complete for the shape that point reads, which is how "a stored-shape change never merges without its migration" holds inside a stack that merges together. A pull request whose change stores nothing and still gets a line adds its reason's selection function to `scripts/lib/hqRoundTripCutover/behavior.ts` in the same way, and one whose reason is a deployment's adds its line to `notice.ts`. The Job's own steps land with their owners: the deployment reads and the matcher in pull request 3 (`hqRead.ts`, `matching.ts`), the baseline reads and writes in pull request 4 (`writer.ts`), and the lookup tag rename in pull request 14 (`lookupTags.ts`). Part 10, Scripts and their layout, gives each module's pull request.
-- `transform.ts` holds the steps in one fixed order, which is not the order of the pull requests: `language-wire-codes`, `media-slots`, `hidden-inert-default`, `search-button-label`, `question-ids`, `case-operation-ids`, `connect-ids`, `connect-task-forms`, `entry-point-ids`, `option-values`, `option-labels`, `empty-forms`, `unsupplied-session-reads`, `reserved-search-inputs`, `time-ordering`, `hidden-from-menu`, `post-submit`, `id-mapping-keys`, `date-patterns`, `tile-hidden-calculated-sort`, `sort-property-ownership`, `tile-cells`, `app-settings`. A pull request inserts its step at that position, never at the end. The order is identity additions, then removals, then renames (later steps name questions), then semantic moves, then case lists, then the one step that takes values read from HQ. That order is part 10's (The transform steps, in order), which is the registry; where the two lists ever differ, part 10's holds. `option-labels` follows `option-values`, so a filled label is the value the option keeps. `time-ordering` runs before `hidden-from-menu`: the first only replaces comparisons and writes no flag, and the second, the only step that sets the flag, must see every `match-none` the first wrote. The table's step column gives each step id with the notice reasons it mints in brackets; a "no-write" reason is a line for a change that stores nothing (part 10, Changes that write nothing and still get a line), and each reason's copy is where part 10's reason tables say it is.
-- A fix moves its entries to the fixed register and retires its rule (the module, its test, its reader tests, its import and its `RULES` line) in its own pull request. One reader test a retired rule names stays, because registered entries rest on it too (part 09, The spelling rules, row 20).
-- A pull request that removes a document, or whose fix removes the cause of a held walk stop, changes that stop's entry in `proof/walk-stops.json` in the same change: to the control that still shows it, or out of the list where none does. A pull request that retains a control under another name from a document that holds a stop adds that control's entry. The list names only documents the corpus holds and directories `proof/controls/` holds (part 09, The held walk stops, gives each of the 33 its disposition).
-- A validator narrowing runs the corpus emission first (no Docker), diffs `index.json`'s document ids before and after, and rewrites or removes each document it refuses (part 09, Corpus changes). An expander document's id is built from its test's title and its index among that test's documents (`proof/corpus/documents.ts::readExpanderCapture`), so retitling a test in `lib/commcare/__tests__/expander.test.ts` renames documents.
-- A pull request writes `lib/commcare/surface/entries/gates.json`'s `effects` again when its sensitivity check fails on a difference a flipped gate made that the effects do not name, and when it adds or removes a gate entry. Each pull request that changes an emitter, adds a corpus document or changes a gate entry therefore runs the sensitivity check whole and fresh on a proof machine before it pushes, and writes the effects from that run where the check fails so (`python3 -m proof.checks.sensitivity effects <output>/blocks/* --corpus <output>/corpus`), committing them with the diff reviewed; where the check passes it commits nothing. Part 09, Where the lane runs, gives the command and the two other routes. Pull request 13 is the one that also edits gate entries' `content`.
-- A pull request that adds or deletes a control directory, or a corpus document, updates `proof/timings.json` in each profile that holds the group: a new group is measured in, a deleted one removed (part 09, Corpus changes, names each). A document's groups are in both profiles. A control's is in the `readers` profile alone where every entry that names it is a served reader's, as 15 of the lane's 84 are. A test added to a package or taken out of one changes no group, since a module runs in its package's group unless `proof/checks/sharding.py::SPLIT` names it: so the `cutover` group of `proof/hq/test_retained_reads.py` edits nothing in `proof/timings.json` when it arrives in pull request 3 or leaves in pull request 16, and pull request 15's refresh measures the package with it (part 10, Block: the cutover, Files).
-- From pull request 3 the lane writes every file under `proof/hq-reads/` again on each run and holds the committed copy to it byte for byte (`proof/hq/test_retained_reads.py`, and from pull request 4 `proof/editors/test_retained_reads.py`). A pull request that changes a byte Nova publishes for a document those reads are made of, or the ownership descriptor beside them, therefore commits the files again in that pull request: it copies `.proof/out/blocks/<id>/hq-reads/` over `proof/hq-reads/` and reviews the diff against what its own change sends (part 09, The retained HQ reads for the drift comparator; part 02, The retained HQ reads). Pull request 5 is the first, with `navigation-base`'s read after the Add-ons save and its `ownership.json` (part 04, Defect 4). A difference the pull request's change does not explain is a failure to find, never a file to commit. The legacy upload bodies under `proof/hq-reads/cutover/<document>/legacy/` are the pre-step emitter's and are never written again (part 10, The proofs that carry the cutover).
-- A pull request that changes the name, the description or the input schema of a tool the Solutions Architect is offered, or the authoring guide, bumps `lib/models.ts::MODEL_CONTEXT_VERSION` in that pull request. Item 13 of the checklist below lists the nine that do and the value each sets.
-- A pull request that changes what the billed schema check sends says so in its fix's block. The check is `npm run test:schema`, which bills one live OpenAI request for each schema it sends, so no pull request of the stack runs it at its own head. It is asked for once for the stack, at the head of pull request 14 after the last tool edit, as one question that gives the number of billed requests and names each schema; on a yes the implementer runs `npm run test:schema -- <schema name>` once per named schema, which bills one request per named schema and none for any other. The model-addition checklist, item 14, is the one statement of what the check sends, of the 20 schemas the question names, of the pull request that registers each new one in `scripts/test-schema.ts`, and of the question's words. Reason: the stack deploys once, so only the tool definitions at its top reach the provider, and a per-pull-request ask would bill the same schemas again at each later head. A schema the provider refuses is fixed in the pull request that owns it and the question is asked again for that schema alone.
-- No pull request of this step adds an `/api` route (`/api/compile` and `/api/commcare/upload` gain inputs). A route added during implementation needs its `lib/hostnames.ts` allowlist entry in the same pull request, or the proxy answers 404 in production while localhost serves it.
+This is the list an implementer holds a pull request's diff against, and no summary. Under each pull request it names every file the parts' Files, Nova tests and Lane sections give that pull request, by name or by the directory that holds it. Every path is written from the repository root, one to a line, in up to six lists: Nova source, Nova tests named outright, the lane, scripts and the cutover, CI and config, and docs. A file is named outright where the pull request creates, deletes or moves it and where it is a test the fix turns, and its line says "new", "deleted" or "moved"; a directory stands for the files under it that the parts name. A line carries at most a few words on what changes in the file. What the change is for is in the row's Contains cell and in the part. Pull requests 1, 2, 3 and 5 contain more than a table cell reads well, so each of those four opens here with its Contains in full, one item to a line.
 
-## Ordering constraints
+Five kinds of file are given once, here, and are named under a pull request only where the edit is that pull request's own subject. A source file stands for its tests in the `__tests__` directory beside it. A pull request that moves, adds or deletes an entry edits `proof/known-defects.json` and `proof/fixed-defects.json`, and its Register cell says what. A pull request that adds or deletes a control directory or a corpus document edits `proof/timings.json` (What every pull request of the stack does, below). A docs page under `content/docs/` and a `CLAUDE.md` file are given, each with its pull request, by Contract sentences step 2 rewrites and Public docs that change, below, and by the Files of the fix that changes them; the lane's own two, `proof/README.md` and `proof/CLAUDE.md`, are listed under every pull request that edits them. Of the cutover modules under `scripts/lib/hqRoundTripCutover/` and the notice modules under `lib/notices/`, a list names the module or the directory and what the pull request adds there, and part 10, Scripts and their layout, gives the pull request that creates each module.
 
-| Constraint | Reason |
-|---|---|
-| The proof lane's own pull request merges onto `main`, at `7b153dc3` or later, before the stack is cut | Every count of this plan is of the register that pull request merges, and its pull request lane, nightly, weekly and `proof/remote/` are how every pull request below proves itself |
-| Lane mechanics is first | A fix cannot move an entry to a register that does not exist, and a control must be retained from the pre-fix corpus. Findings 56's, 57's, 70's and 71's controls and finding 43's `parsererror` control can only be captured before the fixes that silence them, and so can the second menu of `targeted-shared-property-sort`, whose pre-fix bytes its control must hold |
-| `targeted-hq-side-state` is split in pull request 1 | Its entries need a republish (B) to land. Defect 5's refusal is the one stop with no discard, so with the table on its own document (`targeted-hq-side-lookup`) the other 14 entries never lose B. Defect 5 is still last among the fixes |
-| The frozen pre-step fixtures are captured in pull request 2, before any shape change | They are the only witnesses of the old shape once the tree's fixtures change. Pull request 1 changes no emitter, so capturing after it loses nothing. The frozen fold (`scripts/lib/hqRoundTripCutover/prestep/prestepFold.generated.mjs`) is built there too, from the last tree that holds the pre-step reducer and schema: pull request 3 changes the mutation dialect and deletes the fold's entry, build script and inputs test, and a rebase that changes one of the fold's inputs rebuilds it in pull request 2 (part 10, The matching algorithm, "The fold is the pre-step one, frozen") |
-| The source read and the floor's constant (3) before their readers (4, 5, 13) | `readHqAppSource` and `lib/commcare/versionFloor.ts` are created in pull request 3. Pull request 4 reads the source's `raw` for the comparison, pull request 5 adds the overlay's typed fields and reads the floor for the local profile, and pull request 13 adds `compareToVersionFloor` and, on `HqAppSource`, `logoRefs` and `cloudcareEnabled`. Each extends the one type; none makes a second read |
-| The shell's drift exemption lands with drift (4) | From pull request 4 a changed target stops the publish. The version floor's own next step is to raise the CommCare version on the shell in HQ, so without the exemption (origin `create` compares only `modules`) that step would always be followed by a discard prompt. A failed read after the create still records origin `unread`, which stops |
-| Ledger tables (2) before the behavior that reads them (3, 4, 5, 13) | `remote_missing_at` and its backfill must exist before any publish can create a shell: without it the retry of a failed first update takes the create path and makes a second HQ app (`lib/deployment/resources.ts::plannedInPlaceUpdate`). Pull request 4 reads and writes the baseline tables, pull request 5 reads the empty-list text flag into `app_deployments.target_empty_case_list_text`, and pull request 13 writes the confirmation store and `offered_logo_content_hash` |
-| Drift (4) carries the capture's confirmed discard for `hqSide` documents | From pull request 4 a republish over an HQ-side change stops; the documents that need B must confirm the discard in the same pull request or their entries stop showing |
-| Drift (4) before app-level emission (5), with the owned-key sets behind one descriptor | The comparison reads the baseline's own ownership descriptor (`lib/commcare/appOwnership.ts::appOwnershipOf`), so pull request 5 extending the owned keys changes no stored baseline's meaning. Pull request 4 writes the descriptor's producer with today's sets; pull request 5 replaces that producer with the `ownership` `lib/commcare/targetOverlay.ts::projectApplicationForTarget` returns, deletes `appOwnership.ts`, and narrows the comparison of `translations` from the whole map to the owned-key predicate. No consumer names the producer |
-| Wire codes (3) before the sort spellings (11) | A sort element's `display` is keyed by the first language's HQ code; `sort_display_empty` retires only once that code is stored |
-| Wire codes and the reached targets (3) before app-level emission (5) | The local profile's `cur_locale` is the first language's stored wire code (`localization.wireCodes`; part 04, Finding 39), and finding 65's download path hands the chosen target's empty-list flag through `lib/deployment/downloadTarget.ts::resolveDownloadTarget` and `lib/deployment/store.ts::readReachedDeploymentTargets`, both written in pull request 3 (part 04, Finding 65) |
-| The empty-list text (5) before finding 41 (11) | Finding 41's HQ JSON text reads the one constant `lib/commcare/suite/case-list/detailTexts.ts::EMPTY_CASE_LIST_TEXT`, which pull request 5 writes (part 04, Finding 65; part 06, 12. Finding 41) |
-| `setAppSettings` (5), the stack's one new mutation kind, as early as its feature allows | A new kind rebalances the fixed producers' edit batches (`proof/corpus/editKinds.ts::EDIT_KIND_GENERATORS`), and a document's configurations follow its edit. Executed during planning on the lane's branch with main merged: the kind moves the edits of 107 documents and changes no register outcome; pull request 10's removal of two documents then moves 28 documents' edits and one entry's document, `d14-logos-media-unmatched-logo-refs` (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds) |
-| The working submit (3) before the fixes that own what it shows (5, 6, 9, 11) | From pull request 3 the local archive's submit reaches HQ, and Formplayer's record then shows nineteen classes at paths the owners' entries do not name. No control that exists shows them, since a pre-fix archive cannot submit. So pull request 3 registers them and retains nine `-after-59` controls from its own corpus, after A5's bytes and before those fixes; each owner in this stack moves its entry with its own, pull request 5 deletes the two version entries, the first with `targeted-hq-side-state-after-59`, and defect 24's five stay live on their controls, step 5's (part 01, A5) |
-| Defect 9 (5) before defect 15 (10) | On `targeted-invalid-question-ids` defect 9's two unpinned proof 1 entries hold `/installs/*` and `/update` today, where HQ's build does not install on Android and the local archive does. Pull request 5 moves both to the fixed register, the update entry under its judge change, so it registers those paths as defect 15's, three entries pinned to their values, on `targeted-invalid-question-ids-after-9`, retained at its head. Pull request 10, where HQ's build of the document installs, moves them (part 04, Defect 9) |
-| Finding 34 (5) before defect 15 (10) | `d34-connect-location-trace-meta-location` sits on `targeted-invalid-connect-ids`, which defect 15 rewrites, and its control `connect-location-capture` is retained from that document's pre-fix bytes as pull request 5's first commit. The rewrite keeps it a Connect app |
-| Finding 62 (5) before defect 15 (10) | `d62-incomplete-forms-tile-webapps-app-settings-screens-tiles-incomplete` is pinned to `targeted-invalid-question-ids` and stops showing there once defect 15's rewrite lets the client's walks leave the first screen, so pull request 5 moves it before the document is rewritten (part 08, Defect 15, Lane) |
-| XForm first part (6) before the rename (7) | 18 of pull request 6's entries (12 leaf-constraint, 4 datetime-leaf and 2 shadow entries) hold `__nova_` in their paths. A fixed entry must show on its control, and a control keeps its pre-fix bytes, so each is fixed while its document still spells the old path |
-| The Android corpus package (6) before its users (7, 9, 11, 12) | Pull request 6 writes `proof/android/conftest.py` with `DOCUMENTS` and makes `proof/android` a package that reads the corpus (`proof/store/queue.py::PACKAGE_DATA`, `proof/lane/blocks.py::CORPUS_PACKAGES`). Pull requests 7, 9, 11 and 12 each add their documents to that list (part 05, Reader tests this part adds, "How the Android tests run") |
-| XForm first part (6) and the rename (7) before identifiers (10) | Pull request 6 deletes `proof/rules/test_connect_work_area_empty.py` with its rule, so finding 61 has no rule test to change. Pull request 7 deletes the `reserved_prefix` arm of `lib/doc/identifierVerdicts.ts::formatVerdict`, the code `RESERVED_FIELD_ID_PREFIX` and the `__nova_` refine of `operationIdInputSchema`, in whose place pull request 10's verdicts and refines stand (part 08, Defect 15, Finding 43 and Finding 61) |
-| The root keyed create (7) with the groups | Its one-row repeat's control sits inside the `nova_operations` control, which exists only once the containers are groups (part 05, Order the parts land in). `case-operation-key` keeps its root keyed create, and its 15 guard-block entries stay on it through pull request 6 and move in pull request 7 |
-| Finding 46 and defect 14's data node name share pull request 6 | Each fix needs the other: both write the default-language form name, one into `<h:title>` and one into the data node's `name` |
-| Defect 3 (8) after the restructure (7) | The keys of `case_references_data.save` are the wrapper paths the restructure moves, and proof 4's entry empties only once Vellum keeps the containers. Its two intent entries are unpinned and also hold `case-capture-multiple`, where an attachment under a Save to Case block stays unlearned after the fix, so pull request 8 registers those two classes as defect 23's on a control it retains (part 04, Defect 3) |
-| The comparison with Vellum's computation (5) before defect 3 (8) | `proof/checks/manifest_value_classes.py::save_differing_from_vellum` is written in pull request 5, where no form of the corpus reaches it, and first decides a form in pull request 8, where every form holding a Save to Case block stores its derived map (part 04, Defect 3) |
-| Work item H's entries move with findings 45 and 47 (6) | With no `#case/` hashtag in any export the warning cannot occur; the document, its control and its two entries are on the lane's branch, so nothing of work item H precedes pull request 6 in the stack. Pull request 6 also rewrites `proof/README.md`'s two rows for the clause, and no later pull request records anything for it. Defect 3's fix needs no order against finding 47's |
-| The rename (7) keeps later-step entries on `-after-13` controls | The six old control directories keep the pre-fix bytes that defect 13's, defect 14's, finding 33's and finding 37's fixed entries need, so they are never retained again. Defect 23's and 24's live entries move to six controls retained under new names, which no fixed entry names, and two of which, `case-extension-query-after-13` and `case-extension-repeat-after-13`, pull request 9 retains again in place |
-| The moved close (9) after the rename (7) | It writes into `nova_operations` and a `nova_condition_` group and takes its names from `planGeneratedNodes` |
-| Finding 33 (9) before the case-list sort rewrite (11) | Three of its entries sit on `expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0`, a document the sort tests produce. Pull request 11 also keeps that test's title and count, so findings 35 and 36 keep their document |
-| Case lists (11) before menus and search settings (12) | Both edit `lib/commcare/hqJson/caseList.ts`; the sort and carrier rewrite goes first so the later edits land on the plan-driven shape. Finding 41's entries move in 11 with the empty-list text, which `localization-optional` shows through pull request 10 |
-| Tiles and finding 42 (11) before the tile gate (13) | The gate removes `targeted-custom-tile`'s `CASE_LIST_TILE` named configuration (`proof/corpus/entryWriter.ts` throws for a configuration the verdict refuses). Pull request 11 moves defect 14's and finding 42's tile entries and registers the thirteen classes the Case List save under `CASE_LIST_TILE` still shows as defect 12's, on their own control, so pull request 13 moves defect 12's 48 entries together and strands nothing |
-| Emitters (7, 9, 11) before publish gates (13) | The plan-feature list reads the emitters' own predicates (which forms emit Save to Case, which lists are tiles), and moved close conditions widen who needs `save_to_case` |
-| Identifiers (10) before publish gates (13) and before the media slots (14) | Pull request 13 adds its section to `content/docs/commcare-connect.mdx`, the page pull request 10 creates (part 03, C8). Pull request 14's media-slot tests write a form over a published app through `proof/formplayer/apps.py`'s `form_written`, which pull request 10 adds (part 08, Defect 16: three media slots leave the model, Lane) |
-| Drift (4) and the republish statement (5) before defect 5 (14) | Defect 5's refusal reads the client changes and the retained upload answers pull request 4 wrote (`lib/commcare/hq/lookupTables.ts`, `proof/hq-reads/lookup-upload/`), and its document states `republish: "stops"` with a `stopCode`, the third value `proof/corpus/documents.ts::HqSideSaves.republish` declares from pull request 5 (part 02, Defect 5: the lookup push) |
-| `hiddenFromMenu` (12) before defect 6's migration (14) | `time-ordering` (registered by pull request 14 before `hidden-from-menu` in `transform.ts`) only replaces comparisons with `match-none` and writes no flag. The `hidden-from-menu` step, which pull request 12 adds, is the only step that sets the flag, and it then sets it on every display condition that is, or starts with, a `match-none` the earlier step wrote. That step and the `hiddenFromMenu` slot must therefore exist before pull request 14 lands, or defect 6's migration would leave a display condition the shape rule refuses |
-| `targeted-search-hq-compile` is edited three times, in 9, 12 and 14 | 20 entries of four fixes name it as their document (defect 14's non-writing follow-up 3 and search settings 5, defect 6's 9, finding 48's 3). Each pull request removes its part and keeps the document admitted. Pull request 12 removes its `include_closed` input with its case property and leaves its `owner_id` input as written, the one free-text input it keeps: finding 48's entries read that input's quote cascade until pull request 14, and pull request 14's witness keeps it. Its follow-up form stays through all three edits: pull request 9 moves the three non-writing follow-up entries and the form then stands as the passing witness |
-| `POST_SUBMIT_NOT_OFFERED` exempts a fallback beside form links until step 5 | Otherwise `targeted-form-links-hidden-and-fallback`, the document of defect 26's live entries, becomes inadmissible in pull request 12 |
-| `nova_count_` keeps reading as `*` in `proof/checks/compare/names.py` | Defect 30's four entries run through a count node; the rename must not start keeping that name literally |
-| Each pull request is green on its lanes at its own head | Removing one fix's entries can leave another entry holding nothing on its document, which `proof/checks/registers.py::reconcile` refuses |
-| The removal (16) differs from 15 only in tooling paths | The gate that migrated must be the gate the deploy's probe runs (`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`). It touches nothing under `lib/domain`, `lib/commcare/validator`, `lib/doc`, `lib/db` or `lib/case-store/migrations`, and under `proof` only the lane's `cutover` group, which it removes (row 16; part 10, Removal) |
+### Pull request 1: Lane mechanics
 
-What the planning runs settled about the stack, each stated in its block:
-
-- **Finding 52's control** shows both classes with `vellum_alert` retired, so pull request 1 writes its two fixed entries (part 09, The fixed-defect register and finding 52's orphaned control).
-- **`d41-empty-list-text-app-no-items-text`** still shows on `localization-optional` after pull request 6's translation fill, which does not touch a stored short detail's `no_items_text`; it moves in pull request 11 with finding 41. From pull request 5, where Nova writes only the add-ons an app needs, finding 41's two entries that run without the readers already stop showing on four survey-menu documents, since HQ's menu page then shows a survey menu its Advanced panel only where the app needs one of two add-ons or the project space holds `CUSTOM_ASSERTIONS` or `MOBILE_UCR`, which no lane configuration does; neither entry goes unseen (part 04, Defect 4; part 05, Blank translations; part 06, 12).
-- **Later-step entries a step 2 fix touches.** Defect 27's three and defect 25's two stand at their paths at pull requests 6 and 9; defect 25 gains 62 classes once the saved form builds, registered live in pull request 6; defect 24's five trace and three Formplayer entries stand at pull request 9, which registers 6 new classes finding 37's block order draws and moves the one entry filed under defect 24 that is finding 37's own, `d24-inert-subcase-formplayer-local-ccz-item-id-order`; defect 23's 70 move path in pull request 7, read from its run's evidence; finding 68's 31 lose one in pull request 3, where one derived `xmlns` leaves two pinned entries one difference to hold, and the other 30 leave every corpus document in pull request 10 and move to the fixed register (part 09, The entries that remain).
-- **Every document at once.** Without the readers, over every document of the lane's branch with main merged, at one state holding pull request 5's edit kind and finding 65's emitter, pull requests 6, 7 and 9, and pull request 12's label: no class shows that this plan does not already assign, and no entry of a later step goes unseen (part 09, The entries that remain).
-- **The rebalancing with every reader.** On the merged branch, with pull request 5's edit kind, each of the 62 reader entries pinned to a document whose edit moves keeps showing, the four `setAppSettings` documents show no reader class, and no document whose configurations change shows a class no entry holds; with pull request 10's removal on top the same holds for its 13 documents, the logo entry apart. The moved documents no reader entry is pinned to are in no pull request's reader slice and are held with every reader at the stack's top (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds).
-- **The working submit.** Once the local archive's submit reaches HQ in pull request 3, Formplayer's record shows nineteen classes other fixes own. Pull request 3 registers them: twelve leave with their owner's fix, in pull requests 5, 6, 9 and 11, two are deleted with pull request 5's judge change, and defect 24's five stay live past the step. The submission's `path` differs by the app's id alone, which the rule pull request 3 adds reads as one (part 01, A5).
-- **Defect 15's proof 1 classes.** On `targeted-invalid-question-ids` HQ's build does not install on Android and the local archive does, so two proof 1 paths keep differing there once defect 9 is fixed. Pull request 5 registers them as three pinned defect 15 entries on a control of their own, and pull request 10 moves them (part 04, Defect 9).
-- **Pull request 11's emitter, written and run.** The order plan and both emitters were written from part 07 and run without the readers over the whole corpus. Of the 25 entries of part 07's that run without the readers, 23 leave every corpus document that showed their class and stay held on their controls (`d51-sort-keys-trace-rows-sortfields-removed` leaves 187 documents); the other two, `d14-tiles-app-font-size` and `d42-tile-alignment-app-horizontal-align`, keep showing on `targeted-custom-tile` under `CASE_LIST_TILE` alone, the classes pull request 11 files as defect 12's. No entry of another block goes unseen, and with the four sort rules retired proof 4 reports no sort element difference on any document. The emission refuses six fuzz documents until the arbitrary rewrites them, changes no document's edit kind, and changes one batch's target. Then every reader ran on the emitter's bytes over 23 documents and their 17 controls: of the 85 entries of part 07's that the scratch register holds, 75 show on no document of the slice and each is held on its control, and the other ten show on `targeted-custom-tile` under `CASE_LIST_TILE` alone, the ones pull request 11 files as defect 12's; all 17 control groups pass (part 07, What was executed during planning; part 09, Corpus changes).
-- **Pull request 10 over the whole corpus.** Each of its rules was held by the validator and run over every document and every document's edit, the corpus emitted, and all of `proof/checks` run without the readers. Outside the fuzz sample the rules refuse exactly the documents part 08 names, and no document for its edit alone; 23 of the fuzz sample's 24 documents change, each generator mapping its draw and removing none; no rule moves an edit. No entry goes unseen that was seen before, every moved entry that runs without the readers stays held on its control, and no moved class shows on a corpus document. One class showed that no entry held: HQ's form builder's "Unknown question: #form" on three fuzz documents, which is finding 71, fixed in the same pull request (part 08, Finding 71; part 09, Corpus changes).
-- **Pull request 14 over the whole corpus.** The same way, on pull request 10's state. Its rules refuse the six documents its blocks name, `media-only`, 13 of the fuzz sample, and `container-cousins` for its edit alone; no edit kind moves and no configuration changes. Its emitters reach 46 documents the blocks do not name. Without the readers no class shows that no entry holds, every moved entry that runs without the readers stays held on its control, and the mixed-quote class and `time-operand` show on no corpus document (part 08; part 09, Corpus changes).
-- **Pull request 5's three judge changes, written and run.** Each was written with its planted test and run with every reader, each document beside its control. The form-version mapping takes its class off the document and off every control, so its entries are deleted. The update comparison and `settings_replaced` take theirs off the document and leave them showing on the control, so `d9-android-proof1-local-ccz-update-changed` and finding 40's two worker-setting entries move to the fixed register like any other fixed entry (part 04, Defect 9 and Finding 40; part 09, What step 2 moves and deletes).
-- **The lane's packages at each fix's state.** The whole lane without the readers, packages included, ran at the states of pull requests 6 and 7 (together), 8, 12 and 13, and `proof/native` and `proof/rules` at the states of pull requests 10, 11 and 14. Every package run passes whole but eighteen tests, each holding bytes its fix changes and each named in the Files of its part and in its row above; pull request 10 breaks none of its own, and pull request 14 breaks three, `CsqlQuoteRuntimeTest`, `proof/native/test_quote_payload.py` and `MediaRuntimeTest` (part 08, What every block below shares; part 09, Where the lane runs).
-- **The derived save map.** With defect 3's derivation implemented and the whole corpus run without the readers, 37 documents hold a save map and no local archive changes; the intent check needs `case_type` as a standard property; and `case-capture-multiple` keeps showing the two intent classes for its attachment, which pull request 8 registers as defect 23's (part 04, Defect 3).
-- **The exit state, every reader.** Planning made the run the stack's top makes, with every fix a scratch chain wrote stacked on the lane's head: every check with every reader over every document and control. Executed during planning, from commit `52a84499` of the scratch branch `proof/plan-settle-main-exit-lane` over its own corpus, with A5's, pull request 5's and finding 65's bytes written in: 360 documents and 93 controls, 5,714 items, every block once. Every entry of a later step, 282, shows on its document, and every fixed entry, 113, on its control. 557 entries of step 2 show on no document; the 19 that still show are held by fixes that run's tree lacked, part 01's A3 and A2 (pull request 3), defect 5's push (pull request 14) and pull request 1's closed allowances. Nine classes no entry holds: pull request 5's seven manifest keys, the local profile's `checkoff` feature and the build-injected `pollsensor`; Connect's `task-completed-nothing` on `targeted-connect-deliver-rename`, which pull request 10's widened allowance drops; and Formplayer's `response/exception` from the local archive of `fuzz-suite-20260930-8`, which shows from pull request 3 and which that pull request's judge change reads (part 01, A5, "What the working submit shows"; executed during planning, with Formplayer, on that document at the exit state with the change: proof 3 passes with no difference). Three live entries on `targeted-hq-side-state` go unseen on that control, which pull request 5 deletes or re-homes. The run's list of walk stops held 30 of the lane's 33 entries, without the two case-search expander documents', which the lane gained after the run's base, and `targeted-supply-point-read`'s, whose document the stack removes. 21 walk stops show, the 21 the list keeps on documents: 20 of the 30, and `targeted-datetime-ordering`'s, which appears and which pull request 1 adds. The other ten held stops no longer occur: nine of the twelve the stack moves or removes beside `fuzz-xform-20260930-10`'s, the three more being the ones the run's list lacked, and `fuzz-xform-20260930-10`'s, which pull request 10 removes. 44 package tests fail, and each has an owner: 39 are their fixes', two of `proof/checks/test_connect_unit.py` are pull request 10's (part 08, Finding 61, Files), two of `proof/lane/test_forkserver.py` are pull request 1's, which gives their nested runs the time two served documents take (part 09, Corpus changes), and the determinism test of `proof/checks/test_connect_unit.py` is pull request 1's: the fault is the lane's own, pull request 13's privilege oracle brings it to that test's document, and pull request 1's change to `proof/observe/unit.py::_build` mends it (part 09, "A build recreated under a stored part"). Executed during planning, the five run again by themselves at that state with every reader: the first four pass as their pull requests write them, and the fifth fails as before, on one leaf. Its cause is read from the code; the change and a test of it that needs no reader are written as scratch; and neither test has run with the change yet (the same block; the main file, "Written and not yet run"). What the run does not hold, and the runs that do, are in part 09, Where the lane runs. The same stack with part 01's A3 as the two imports HQ receives and its A2 as a scratch emitter writes it (commit `16dd7c29` of the scratch branch `proof/plan-settle-true-exit`; no chain wrote the publish sequence's code, A6's import file or A7's capture, so each first publish of the corpus is split by hand into the shell's create and the first update) has run without the readers. Executed during planning, without the readers, every check over its 360 documents and 81 controls, 5,265 items, 118 of them failing: no class shows that no entry holds; `d1-ids-app-unique-id-b812` shows on no document and the two `d1-language-codes-*` show nothing on `targeted-hq-side-state`, each held on its control; every later-step entry that is not a served reader's, 192, shows on its document, and every fixed entry that is not a served reader's, 71, on its control and none on a document; 390 entries of step 2 show on no document and 9 still show, defect 5's seven (pull request 14) and finding 50's two (pull request 1). Of the 118, 82 are a document's or a control's check naming an entry that no longer shows there, 22 are package tests that fail in the same stack without A3 and A2, and 14 arrive with the two imports: `proof/hq/test_branches.py::test_branches_of_one_unit_equal_fresh_states` on its seven documents under both configurations, where HQ stamps a deleted blob's row from Postgres's own clock, and part 01's A7 leaves that column out of the comparison ("This pull request's lane, run without the readers"). So A3 and A2 are held without the readers at that state and, with them, not yet beyond pull request 3's own slice. Its run with every reader is composed and not yet run (part 09, Where the lane runs; `2-emission-and-publish.md`, "Written and not yet run").
-- **The tile block.** Under `CASE_LIST_TILE` the Case List save drops `horizontal_align`, `vertical_align` and `font_size` from every cell with the custom tile. The explicit cell run read `vertical_align` as kept, because the lane then held the rule `tile_vertical_align_start`, which erases `start` against an absent value; pull request 11's emitter run, with the rule retired, shows it removed in the stored app and in Formplayer's styles, and not in the Web Apps client or on Android. So pull request 11 adds thirteen defect 12 entries and pull request 13 moves them (part 07, Tile cells and finding 42).
-
-## House rules for the stack
-
-1. The proof lane's pull request merges first, and the stack is one `gh stack` chain cut from the latest `origin/main` after it and rebased on it before the first pull request opens.
-2. Every pull request is undrafted.
-3. `/code-review medium` runs on each pull request and its findings are fixed there. Where the review's agents sit idle for about a minute with no notification, their findings are collected by hand.
-4. The stack merges together with `gh stack merge <top> --squash`: one push, one deploy. Never pull request by pull request, and never through the merge API. `gh stack merge --squash` lands one squash commit per pull request (observed on #704 to #707 and on #729 and #730), so each pull request, the cutover scripts among them, stays one commit in `main`'s history.
-5. The cutover runs before the merge. The maintenance image is built by hand (`docker build --target maintenance`) from the head commit of pull request 15, the pull request beneath the removal, and the Job is managed from a checkout of that same commit, because the Job contract and the allowlist arm exist only there. The scripts leave `main`'s tip with pull request 16 and stay in its history in pull request 15's commit. The runbook records pull request 15's head commit hash and the maintenance image's digest before the merge.
-6. `main` is frozen from the image build to the merge. A rebase after the image is built changes the tree, so the image is rebuilt and the dry run repeated.
-7. A rehearsal applies the stack's migrations for real (`runCaseStoreMigrationsWithReport` commits outside the rehearsal's rollback). After the first rehearsal a fix to any migration in the stack is a new migration file, never an edit.
-8. The advisory scan runs between 30 hours and three days before the window and writes nothing. It reads HQ with the same credential order as the execute run, so the members whose keys it uses are the same unless membership or a key changed in between. Only the execute run records each member whose key it used, and those rows are what a member is shown; a member whose key only the advisory run used gets no notice line. The runbook states both bounds; the 30 hours let HQ's day counter forget the advisory run's reads (part 10, Pacing).
-9. The capture-cleanup Scheduler job is resumed after the cutover Job commits and before the merge: `scripts/infra/manage-deployment.py::scheduler_findings` requires it enabled, and the deploy's `prerequisites` step fails otherwise.
-10. After the merge the deploy check-run is watched on the merge commit with `gh`: list the commit's check-runs first and build the watch from the app name observed there. Pull request CI being green is not a deploy, and this deploy runs the runtime probe because the stack changes `lib/domain` and the validator.
-11. The `../nova-plugin` change is its own pull request in that repository, cut after the stack's last tool change and merged only after the Nova deploy is live. `version` in `.claude-plugin/plugin.json` goes to the next minor from whatever it holds when the pull request is cut (it holds `2.1.2` at the plugin's `0976b10`, which makes `2.2.0`: new behavior, nothing removed from the plugin's own commands). What the pull request edits was read during planning at `0976b10`, over every prose file the repository tracks: the seven `skills/*/SKILL.md`, `agents/nova-architect-autonomous.md` and `README.md`. `.dev-plugin/` is a generated copy the repository ignores, and nothing there is edited.
-
-    - **`skills/upload_to_hq/SKILL.md`, the sentences step 2 makes false.** All three follow from pull request 3, where a first upload makes the app, empty, before it sends the Project data (part 01, A3. The publish sequence, steps 5 to 8).
-        - Under `hq_upload_failed`: "This also covers CommCare HQ refusing the app's Project data tables or its places, which happens before the app is sent, so the app never went up either." It becomes: "This also covers CommCare HQ refusing the app's Project data tables or its places. That happens before the app's content is sent. On a first upload Nova has by then made the app on the project space, empty, so `get_deployment` reports `hq_app_empty: true` and the next upload fills that same app."
-        - Under `hq_organization_mismatch`: "**Nothing was uploaded.**" holds where the check before the upload finds the mismatch. Where CommCare HQ refuses a place during the upload, a first upload has already made the empty app, so the sentence becomes: "**The app's content was not sent.** If the check before the upload found this, nothing was written. If CommCare HQ refused a place during the upload, a first upload has already made the empty app, and `get_deployment` says what is there."
-        - The paragraph that opens "A `retry_from: "resources"` does not mean nothing was created." gains, before its sentence on places: "On a first upload the app itself is already there, empty, and the next upload fills it."
-    - **The same file, what it gains.** Each is new prose for an answer the tool did not give before.
-        - Step 4, the compatibility check: `plan_features`, the plan features and project-space settings the upload will ask the person to confirm, relayed with their reasons before the upload; and the `not-a-member` issue, a project space the connected account has left, which stops the upload (part 03, C2 and C3).
-        - Step 5 and the failed-upload list, one entry per new `error_type`. `hq_confirmation_needed`: ask the person about each item of `confirmations_needed`, one at a time, as the skill already does for `adopt_resources`, and resend with `confirm_plan_features`, `confirm_flat_location_fixture` or `confirm_connect_forwarder` naming only what they confirmed; the two Connect questions are among them (part 03, C2, C5 and C8). `hq_app_version_below_floor`: relay the message and its `url`, the app's settings page in CommCare HQ where the person raises the CommCare version (part 03, C1). `hq_changed`: list every entry of `remote_changes` with its parts, ask before writing over each, and resend with `discard_hq_changes` carrying each confirmed entry's `observed_digest`; never send a digest the person did not see (part 02, Surfaces). `hq_table_content_unsupported`: a lookup table in CommCare HQ holds what Nova cannot keep yet, with the way out the message gives (part 02, Defect 5: the lookup push). A table or place CommCare HQ would not let Nova read reaches the tool as `hq_upload_failed` with its own sentence, as today, so it takes no entry. The entry for `hq_app_state_unknown`, "Nova could not safely read the current HQ app before updating it, so it left the existing app unchanged.", gains that on a first upload the type also covers an app Nova just made whose CommCare version it could not read, which is then on the project space, empty.
-        - Step 6, the report: `app_preview_note`, relayed as it is when present (part 02, The 7-day App Preview statement); `logo_step`, the one step in CommCare HQ that puts the app's logo in Web Apps (part 03, C6); `hq_app_gone` and `hq_app_empty` on `get_deployment` and `refresh_deployment`, each said plainly (part 01, A3); `deployment.confirmations` on the same two, with `withdraw_deployment_confirmation` for a confirmation the person takes back (part 03, C2); and a non-empty `notices` from `get_app`, relayed before the upload is confirmed, since a notice can say what the next upload there does (part 10, Work item F: the migration notice).
-    - **`skills/show/SKILL.md` and `skills/edit/SKILL.md`.** Each reads `get_app` ("Present its name, Project, workflows and languages in a readable overview."; "Read `get_app` for app `$0`, then inspect the modules, forms or fields relevant to the request.") and gains one sentence after it: "If `notices` is non-empty, tell the user what each one says before anything else, and offer `dismiss_app_notice` once they have read it."
-    - **`README.md`.** Beside "Version 2.1's retained-session, page-action, operation-feedback and navigation guidance requires the paired Nova server release.", one sentence for the new minor: its publishing guidance (confirmations, the CommCare version stop, changes made in CommCare HQ, notices) requires the Nova release that carries step 2.
-    - **No edit:** `skills/build/SKILL.md`, `skills/autobuild/SKILL.md`, `skills/list/SKILL.md`, `skills/find/SKILL.md` and `agents/nova-architect-autonomous.md`. None states an authoring rule. Each sends the model to `get_agent_prompt` and `get_authoring_guide`, which Nova serves and which change with the deploy. So for every authoring claim the parts name for the sweep, the plugin does not say it: what `get_languages` returns, and that `compile_app` takes only a server, returns bare JSON or compiles a CCZ for an app that is published nowhere (part 01; no file names either tool, and "compile" appears only in the one-line description of `README.md` and `plugin.json`); that the logo shows on the login and home screens (part 03; no file holds "logo"); that `update_app` sets the display name and nothing more (part 04); operation id rules (part 05); where a close is written, the list of after-submit destinations, `app_home` described as the list of menus, a search button label, the column a lookup-backed search input sorts its choices by, reserved search input names, an always-false display condition, and what a link to a hidden target opens (part 06; the one sentence on navigation, "After a submission, Previous resumes the preceding task or record selection.", in `build` and `edit`, with its like in `README.md`, stays true, since `previous` keeps its meaning); what a case list orders by, what its search matches, tile cell defaults and date patterns (part 07); question, Connect and entry-point id rules, media slot names, a hidden value needing a value, ordering a time, and the accepted media formats (part 08, which records its own sweep at the same commit). The one claim the plugin does hold is part 01's, that a deployment with an HQ app id holds the app: the three `upload_to_hq` sentences above.
-
-    The plugin's pull request runs the sweep again at the head the plugin then holds, by claim and never by this list of files, so a sentence added there since `0976b10` is found.
-12. Each pull request passes the pull request lane in CI at its own head; the lane has no time cap and runs every group the change invalidates, the lane's packages among them, and part 09, Where the lane runs, gives how long to expect and the local run of the packages (`PROOF_READERS=0 npm run proof`, no target) a pull request makes before it pushes. Before it is marked ready it runs its reader slice on a proof machine, as part 09, Where the lane runs, bounds it: the document and control of every served-reader entry it moves, registers, re-files or deletes and of every held walk stop it moves, removes or adds, plus its witnesses, with `PROOF_READERS` narrowed to the readers those entries name, and with them the reader package tests the pull request itself adds or changes, and nothing wider. No pull request runs every reader over the whole corpus; a pull request that changes an emitter, adds a corpus document or changes a gate entry also runs the sensitivity check whole and fresh there before it pushes, the run its sensitivity effects are written from where they must be written again. Pull request 14 makes one more run, on a machine that is neither CI nor a proof machine: its author runs the Android decode probe (`python3 -m unittest proof.android.decode.probe -v`) on an Apple-silicon Mac with the Android emulator and the arm64 system images of API 23, 29 and 35 before the pull request is marked ready, and so does any later pull request that changes the accepted media formats or a fixture (part 08, Defect 11, first half, "Lane"). Its description carries each run's gate summary. The whole lane with every reader runs once, from the stack's top, before the merge: 552 worker-hours on proof machines, as measured on the lane's own branch. The nightly runs on `main` after it, on its next scheduled night (Tuesday to Saturday, 03:23 UTC); the stack moves every key, so that night is a whole lane with the readers, about thirteen hours, and a merge on a Sunday or a Monday is read by Tuesday's. A night that fails opens an issue naming each failing group with the command that reruns it alone (`python3 -m proof.lane.report`; part 09, Where the lane runs). The implementer asks the person once, at the session's start, for the proof machine's use and budget (spot machines, each stopped when idle), and not again before each run. After the whole lane at the top, its `readers` timings are committed into pull request 15, and only then is the maintenance image built (rule 5).
-
-Removing the tooling at the top of the same stack, not in a follow-up pull request, is a stated choice: a later removal would be a second deploy that exists only because of the split. The habit it adjusts (run, confirm, then remove) is kept in substance because the run and its post-migration scan precede the merge.
-
-## What pull requests 1, 2, 3 and 5 contain
-
-These four hold more than a table cell reads well. Each list is the whole of that row's Contains cell, one item to a line; the cell in the table gives the headline.
-
-### Pull request 1, in full
+**Contains, in full**
 
 - `proof/fixed-defects.json` with its loader, gate, queue and fingerprint.
 - A held walk stop that names a control (`proof/walk-stops.json`'s `control` key), so a stop moves to its control with its fix, with the stops check and the queue reading every control the list names and the gate carrying a `control` entry through a selection.
@@ -161,7 +58,60 @@ These four hold more than a table cell reads well. Each list is the whole of tha
 - `proof/timings.json` loses `control:nested-menu-previous` from both profiles, and `control:tile-grouped-one` and `control:targeted-connect-learn-rename` from the `readers` profile, the only one that holds them; the new groups are measured in.
 - No emitter change.
 
-### Pull request 2, in full
+**The lane**
+
+- `proof/checks/registers.py`
+- `proof/checks/cases.py`
+- `proof/checks/controls.py`
+- `proof/checks/stops.py`
+- `proof/checks/test_stops.py`
+- `proof/checks/proof4.py`
+- `proof/checks/android.py`
+- `proof/checks/connect.py`
+- `proof/checks/hq_own_reports.py` (new)
+- `proof/checks/test_hq_own_reports.py` (new)
+- `proof/checks/test_registers.py` (the fixed register's cases; the control directory test)
+- `proof/checks/test_controls.py` (`--as`)
+- `proof/fixed-defects.json` (new)
+- `proof/known-defects.json`
+- `proof/store/queue.py`
+- `proof/store/test_queue.py`
+- `proof/store/fingerprints.py`
+- `proof/store/conftest.py`
+- `proof/store/test_keys.py`
+- `proof/lane/gate.py`
+- `proof/lane/test_gate.py`
+- `proof/lane/test_forkserver.py` (a nested run's limit with the readers)
+- `proof/walk-stops.json`
+- `proof/observe/unit.py` (`_build` asks the identities in every build)
+- `proof/checks/test_record_determinism.py` (the new stored-part test)
+- `proof/editors/test_hq_own_registration_alert.py` (new)
+- `proof/android/test_hq_own_grouped_tile_reopen.py` (new)
+- `proof/connect/test_hq_own_rename.py` (new)
+- `proof/rules/vellum_alert.py` (deleted)
+- `proof/rules/test_vellum_alert.py` (deleted)
+- `proof/rules/__init__.py` (the rule's import and `RULES` line leave)
+- `proof/targeted/documents/datetimeOrdering.ts` (new)
+- `proof/targeted/documents/caseIdColumn.ts` (new)
+- `proof/targeted/documents/hqSideLookup.ts` (new)
+- `proof/targeted/documents/hqSideState.ts` (loses its lookup table)
+- `proof/targeted/documents/formShapes.ts` (findings 43, 70 and 71's documents)
+- `proof/targeted/documents/sortKeys.ts` (`sharedPropertySort`'s second menu)
+- `proof/targeted/index.ts`
+- `proof/controls/` (the controls retained and deleted)
+- `proof/timings.json` (three control groups leave; the new ones enter)
+
+**Docs**
+
+- `proof/CLAUDE.md`
+- `proof/README.md`
+- `docs/architecture/contracts.md` (the strict register's sentence)
+- `CLAUDE.md` (the strict register's sentence)
+- `docs/research/2026-09-26-hq-round-trip/harness-findings.md`
+
+### Pull request 2: Cutover skeleton, the notice and the ledger tables
+
+**Contains, in full**
 
 - The fold-horizon DDL and writer with an empty step list.
 - The notice tables, store, builder chip and dialog, the Publishing card's note, home line, `get_app.notices`, `dismiss_app_notice`.
@@ -172,7 +122,71 @@ These four hold more than a table cell reads well. Each list is the whole of tha
 - These are three migrations (`<timestamp>_hq_round_trip_fold_horizon.ts`, `<timestamp>_app_migration_notices.ts`, `<timestamp>_hq_round_trip_deployment_ledger.ts`); the stack's fourth and last, `<timestamp>_app_settings.ts`, is pull request 5's.
 - The three pre-horizon readers over `greatestFoldBaselineSeq` and the stream route's reload, `abandonPreAppDesignSessionInTransaction`, `RUNTIME_VERSION` 15, the frozen fold `prestepFold.generated.mjs` with its entry, build script and inputs test, the legacy bodies under `proof/hq-reads/cutover/<document>/legacy/`, and the two contract sentences of `docs/architecture/contracts.md` (part 10, Block: the cutover).
 
-### Pull request 3, in full
+**Nova source**
+
+- `lib/case-store/migrations/` (the three new migrations)
+- `lib/agent/change-set/baseLoader.ts`
+- `lib/agent/build/orchestrator.ts`
+- `lib/agent/change-set/materializeGenesis.ts`
+- `app/api/apps/[id]/stream/route.ts`
+- `lib/db/designSessions.ts`
+- `lib/db/appTests.ts`
+- `lib/db/apps.ts` (`commitAppProjectMoveInTransaction`)
+- `lib/log/types.ts`
+- `lib/db/pg.ts`
+- `lib/db/privilegeConvergence.ts`
+- `lib/notices/` (new: reasons, store and renderers)
+- `lib/deployment/store.ts`
+- `lib/deployment/types.ts`
+- `components/builder/notices/AppNoticeChip.tsx` (new)
+- `components/builder/notices/AppNoticeDialog.tsx` (new)
+- `components/builder/notices/appNoticeModel.ts` (new)
+- `components/builder/BuilderHeader.tsx`
+- `components/builder/BuilderProvider.tsx`
+- `components/builder/app-setup/PublishingSection.tsx`
+- `components/builder/app-setup/publishingSectionModel.ts`
+- `components/notices/KeyReaderNotice.tsx` (new)
+- `app/(app)/(site)/page.tsx`
+- `app/(app)/build/[id]/[[...path]]/page.tsx`
+- `lib/mcp/tools/getApp.ts`
+- `lib/mcp/tools/dismissAppNotice.ts` (new)
+- `lib/mcp/server.ts`
+
+**Nova tests named outright**
+
+- `lib/db/__tests__/projectMove.postgres.test.ts`
+- `lib/mcp/__tests__/appNotices.postgres.test.ts` (new)
+- `e2e/tests/app/app-notices.spec.ts` (new)
+
+**The lane**
+
+- `proof/hq-reads/cutover/` (new: the legacy upload bodies)
+
+**Scripts and the cutover**
+
+- `scripts/build-hq-round-trip-prestep-fold.mjs` (new; pull request 3 deletes it)
+- `scripts/scan-hq-round-trip-cutover.ts` (new)
+- `scripts/migrate-hq-round-trip-cutover.ts` (new)
+- `scripts/lib/hqRoundTripCutover/` (new: the skeleton and the frozen fixtures)
+- `scripts/rollout/deploy-cloud-run.py`
+- `scripts/infra/` (the Job's tests)
+
+**CI and config**
+
+- `biome.json`
+- `Dockerfile`
+- `config/deployment-jobs.json`
+
+**Docs**
+
+- `docs/architecture/contracts.md` (its two contract sentences)
+- `scripts/README.md`
+- `docs/plans/hq-round-trip/2-cutover-runbook.md` (new)
+- `docs/architecture/deployment.md`
+
+### Pull request 3: Identity and the publish sequence
+
+**Contains, in full**
 
 - Defect 1.
 - `localization.wireCodes`: `addLanguage` and `relabelSourceLanguage` carry a required `wireCode` that every producer mints through the planner `lib/doc/languageMutations.ts`, and the reducer stores it.
@@ -190,154 +204,7 @@ These four hold more than a table cell reads well. Each list is the whole of tha
 - The judge's map of the text ids HQ's build merges, read from questions' own labels alone, which reads the one class the working walk shows on `fuzz-suite-20260930-8` and registers nothing (part 01, A5).
 - `MODEL_CONTEXT_VERSION` does not move (item 13 of the checklist below).
 
-### Pull request 5, in full
-
-- Defects 2, 4, 7, 8, 9.
-- Findings 34, 39, 40, 62, 65.
-- `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`, and its edit-kind generator.
-- The overlay module `lib/commcare/targetOverlay.ts` (it absorbs `targetProfile.ts` and replaces `appOwnership.ts`: the overlay's `ownership` replaces pull request 4's `appOwnershipOf`, and the drift comparison narrows `translations` from whole to the owned-key predicate).
-- Finding 40's fifteen constants seeded on HQ only where the target holds no value.
-- Finding 65's texts, the publish's read of the empty-list text flag into `app_deployments.target_empty_case_list_text`, and one local archive per configuration in the corpus.
-- The bare `pollsensor` of a GPS question with its surface entry `questions/hq-generated-pollsensor` and the reader that takes `questions/authored-orx-pollsensor` out of `KNOWN_GAPS` (part 04, Finding 34).
-- The proof 3 and proof 1 judge changes for the form version and the Android update, whose record names each archive's `uniqueid` and `version`, and `settings_replaced`'s, which reads the state's own next build.
-- The manifest's reading of a target's value carried back (`manifest_usage.py`) and the footprint that reaches the app's record when the needed add-ons differ.
-- The four lane tests that hold the former bytes, rewritten (part 04, Defect 4).
-- Proof 5's version clause (`proof/checks/proof5.py` compares a local form without its data node's `version`, which is the sequence from this pull request).
-- `intent.py::profile_settings` and `::local_archive_versions`.
-- `manifest_value_classes.py::save_differing_from_vellum` as the comparison with Vellum's computation, which no form of the corpus reaches, `::setting_outside_choices`, the reader of the manifest's `outside-choices` class (out of `KNOWN_GAPS`), and `::android_verified_path_without_entry`'s decision for an app that stores `cc-content-valid` `no`.
-- The surface key family `profile-feature:` (`proof/surface/families/profile.py`, with `surface.json` regenerated) and the entry `application-and-settings/profile-feature-checkoff` for the local profile's `checkoff` feature (part 04, Defect 7, Files).
-- As the pull request's first commit, before any judge or emitter change, the control `connect-location-capture` retained from `targeted-invalid-connect-ids` (`--as`), which `d34-connect-location-trace-meta-location` takes as its `control`.
-- `d34-connect-location-capture-formplayer-local-ccz-data-meta-location` re-documented on `targeted-connect-deliver-rename` (part 04, Finding 34).
-- At its head, the control `targeted-invalid-question-ids-after-9` retained from `targeted-invalid-question-ids` (`--as`) for defect 15's three pinned proof 1 entries, the four form-version entries deleted with the proof 3 judge change, the two pull request 3 registers among them, and `proof/controls/targeted-hq-side-state-after-59/` removed with the one of them that names it (part 04, Defect 9).
-- Targeted documents `targeted-attribute-display-condition` and `targeted-gps-question`.
-- `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`).
-
-## Files, by pull request
-
-This is the list an implementer holds a pull request's diff against, and no summary. Under each pull request it names every file the parts' Files, Nova tests and Lane sections give that pull request, by name or by the directory that holds it. Every path is written from the repository root, one to a line, in six lists: Nova source, Nova tests named outright, the lane, scripts and the cutover, CI and config, and docs. A file is named outright where the pull request creates, deletes or moves it and where it is a test the fix turns, and its line says "new", "deleted" or "moved"; a directory stands for the files under it that the parts name. A line says at most what changes in the file. What the change is for is in the row's Contains cell and in the part.
-
-Five kinds of file are given once, here, and are named under a pull request only where the edit is that pull request's own subject. A source file stands for its tests in the `__tests__` directory beside it. A pull request that moves, adds or deletes an entry edits `proof/known-defects.json` and `proof/fixed-defects.json`, and its Register cell says what. A pull request that adds or deletes a control directory or a corpus document edits `proof/timings.json` (The stack, What every pull request of the stack does). A docs page under `content/docs/` and a `CLAUDE.md` file are given, each with its pull request, by Contract sentences step 2 rewrites and Public docs that change, below, and by the Files of the fix that changes them. Of the cutover modules under `scripts/lib/hqRoundTripCutover/` and the notice modules under `lib/notices/`, a list names the module or the directory and what the pull request adds there, and part 10, Scripts and their layout, gives the pull request that creates each module.
-
-### Pull request 1: Lane mechanics
-
-The lane:
-
-- `proof/checks/registers.py`
-- `proof/checks/cases.py`
-- `proof/checks/controls.py`
-- `proof/checks/stops.py`
-- `proof/checks/test_stops.py`
-- `proof/checks/proof4.py`
-- `proof/checks/android.py`
-- `proof/checks/connect.py`
-- `proof/checks/hq_own_reports.py` (new)
-- `proof/checks/test_hq_own_reports.py` (new)
-- `proof/checks/test_registers.py` (the fixed register's cases; every control directory is named by a register)
-- `proof/checks/test_controls.py` (`--as`)
-- `proof/fixed-defects.json` (new)
-- `proof/known-defects.json`
-- `proof/store/queue.py`
-- `proof/store/test_queue.py`
-- `proof/store/fingerprints.py`
-- `proof/store/conftest.py`
-- `proof/store/test_keys.py`
-- `proof/lane/gate.py`
-- `proof/lane/test_gate.py`
-- `proof/lane/test_forkserver.py` (a nested run's limit with the readers)
-- `proof/walk-stops.json`
-- `proof/observe/unit.py` (`_build` asks the identities in every build)
-- `proof/checks/test_record_determinism.py` (the stored-part test, which needs no reader)
-- `proof/editors/test_hq_own_registration_alert.py` (new)
-- `proof/android/test_hq_own_grouped_tile_reopen.py` (new)
-- `proof/connect/test_hq_own_rename.py` (new)
-- `proof/rules/vellum_alert.py` (deleted)
-- `proof/rules/test_vellum_alert.py` (deleted)
-- `proof/rules/__init__.py` (the rule's import and its `RULES` line leave)
-- `proof/targeted/documents/datetimeOrdering.ts` (new)
-- `proof/targeted/documents/caseIdColumn.ts` (new)
-- `proof/targeted/documents/hqSideLookup.ts` (new)
-- `proof/targeted/documents/hqSideState.ts` (loses its lookup table)
-- `proof/targeted/documents/formShapes.ts` (the documents of findings 43, 70 and 71)
-- `proof/targeted/documents/sortKeys.ts` (`sharedPropertySort`'s second menu)
-- `proof/targeted/index.ts`
-- `proof/controls/` (the controls this pull request retains and deletes)
-- `proof/timings.json` (three control groups leave, the new groups are measured in)
-
-Docs:
-
-- `proof/CLAUDE.md`
-- `proof/README.md`
-- `docs/architecture/contracts.md` (the strict register's sentence)
-- `CLAUDE.md` (the strict register's sentence)
-- `docs/research/2026-09-26-hq-round-trip/harness-findings.md`
-
-### Pull request 2: Cutover skeleton, the notice and the ledger tables
-
-Nova source:
-
-- `lib/case-store/migrations/` (the three new migrations Contains names)
-- `lib/agent/change-set/baseLoader.ts`
-- `lib/agent/build/orchestrator.ts`
-- `lib/agent/change-set/materializeGenesis.ts`
-- `app/api/apps/[id]/stream/route.ts`
-- `lib/db/designSessions.ts`
-- `lib/db/appTests.ts`
-- `lib/db/apps.ts` (`commitAppProjectMoveInTransaction` copies an app's baseline rows)
-- `lib/log/types.ts`
-- `lib/db/pg.ts`
-- `lib/db/privilegeConvergence.ts`
-- `lib/notices/` (new: the reason lists, the store and the renderers)
-- `lib/deployment/store.ts`
-- `lib/deployment/types.ts`
-- `components/builder/notices/AppNoticeChip.tsx` (new)
-- `components/builder/notices/AppNoticeDialog.tsx` (new)
-- `components/builder/notices/appNoticeModel.ts` (new)
-- `components/builder/BuilderHeader.tsx`
-- `components/builder/BuilderProvider.tsx`
-- `components/builder/app-setup/PublishingSection.tsx`
-- `components/builder/app-setup/publishingSectionModel.ts`
-- `components/notices/KeyReaderNotice.tsx` (new)
-- `app/(app)/(site)/page.tsx`
-- `app/(app)/build/[id]/[[...path]]/page.tsx`
-- `lib/mcp/tools/getApp.ts`
-- `lib/mcp/tools/dismissAppNotice.ts` (new)
-- `lib/mcp/server.ts`
-
-Nova tests named outright:
-
-- `lib/db/__tests__/projectMove.postgres.test.ts`
-- `lib/mcp/__tests__/appNotices.postgres.test.ts` (new)
-- `e2e/tests/app/app-notices.spec.ts` (new)
-
-The lane:
-
-- `proof/hq-reads/cutover/` (new: the legacy upload bodies)
-
-Scripts and the cutover:
-
-- `scripts/build-hq-round-trip-prestep-fold.mjs` (new; pull request 3 deletes it)
-- `scripts/scan-hq-round-trip-cutover.ts` (new)
-- `scripts/migrate-hq-round-trip-cutover.ts` (new)
-- `scripts/lib/hqRoundTripCutover/` (new: the skeleton, with the frozen fixtures)
-- `scripts/rollout/deploy-cloud-run.py`
-- `scripts/infra/` (the Job's tests)
-
-CI and config:
-
-- `biome.json`
-- `Dockerfile`
-- `config/deployment-jobs.json`
-
-Docs:
-
-- `docs/architecture/contracts.md` (its two contract sentences)
-- `scripts/README.md`
-- `docs/plans/hq-round-trip/2-cutover-runbook.md` (new)
-- `docs/architecture/deployment.md`
-
-### Pull request 3: Identity and the publish sequence
-
-Nova source:
+**Nova source**
 
 - `lib/commcare/wireIdentity.ts` (new)
 - `lib/commcare/ids.ts` (deleted)
@@ -348,7 +215,7 @@ Nova source:
 - `lib/commcare/hqShells.ts`
 - `lib/commcare/types.ts`
 - `lib/commcare/compiler.ts`
-- `lib/commcare/client.ts` (`importApp` waits out a short `Retry-After`)
+- `lib/commcare/client.ts` (`importApp` waits out a `Retry-After`)
 - `lib/commcare/targetProfile.ts`
 - `lib/commcare/runtimeTarget.ts`
 - `lib/commcare/versionFloor.ts` (new: the constant alone)
@@ -362,7 +229,7 @@ Nova source:
 - `lib/commcare/validator/hqJsonOracle.ts`
 - `lib/commcare/validator/errors.ts`
 - `lib/doc/types.ts`
-- `lib/doc/languageMutations.ts` (new: the planner that mints a language's `wireCode`)
+- `lib/doc/languageMutations.ts` (new: the `wireCode` planner)
 - `lib/doc/mutations/app.ts`
 - `lib/doc/diffDocsToMutations.ts`
 - `lib/doc/mutationTargetAdmission.ts`
@@ -396,33 +263,33 @@ Nova source:
 - `lib/mcp/tools/compileApp.ts`
 - `lib/mcp/tools/deploymentProjection.ts`
 - `lib/mcp/tools/uploadAppToHq.ts`
-- `lib/notices/` (this pull request's six reasons and their renderers)
+- `lib/notices/` (six reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
-- `lib/commcare/__tests__/` (the emission tests of A1 to A6, 31 callers of `compileCcz`, the fixtures that write a localization root)
-- `lib/commcare/__tests__/runtimeTargetFixture.ts` (new: the target of the 36 Vitest callers of `compileCcz`)
-- `lib/commcare/locations/__tests__/` (one caller of `compileCcz`)
-- `lib/commcare/suite/case-search/__tests__/` (two callers of `compileCcz`)
+- `lib/commcare/__tests__/` (the emission tests; 31 `compileCcz` callers; localization roots)
+- `lib/commcare/__tests__/runtimeTargetFixture.ts` (new: `TEST_RUNTIME_TARGET`)
+- `lib/commcare/locations/__tests__/` (one `compileCcz` caller)
+- `lib/commcare/suite/case-search/__tests__/` (two `compileCcz` callers)
 - `lib/commcare/validator/__tests__/localization.test.ts`
-- `lib/doc/__tests__/` (the tests that build a language mutation or write a localization root; part 01, A2, Files, names each)
-- `lib/preview/engine/__tests__/` (the tests that build a language mutation or write a localization root)
+- `lib/doc/__tests__/` (language mutations and localization roots; part 01, A2, Files)
+- `lib/preview/engine/__tests__/` (language mutations and localization roots)
 - `lib/db/__tests__/blueprintRows.test.ts`
 - `lib/case-store/migrations/__tests__/authoringCutover.postgres.test.ts`
 - `lib/deployment/__tests__/publishSequence.postgres.test.ts` (new)
 - `lib/deployment/__tests__/resources.test.ts` (new)
 - `lib/deployment/__tests__/downloadTargetsAction.postgres.test.ts` (new)
 - `lib/mcp/__tests__/` (the deployment tools' Postgres tests)
-- `e2e/lib/` (the Playwright clients that add a language or write a localization root)
+- `e2e/lib/` (the clients that add a language or write a root)
 - `e2e/tests/browser/publishing.spec.ts`
 
-The lane:
+**The lane**
 
 - `proof/corpus/publish.ts`
 - `proof/corpus/targetPeer.ts`
 - `proof/corpus/entryWriter.ts`
 - `proof/corpus/writePublishCaptures.ts`
-- `proof/corpus/emitCorpus.ts` (its layout comment; `inputs.json` names `import-file.zip`)
+- `proof/corpus/emitCorpus.ts` (the layout comment; `import-file.zip`)
 - `proof/corpus/inputs.ts` (the `content.` and `privileges.content.` roles)
 - `proof/corpus/footprint.ts`
 - `proof/corpus/entropy.mts`
@@ -432,89 +299,90 @@ The lane:
 - `proof/corpus/__tests__/entropy.test.ts`
 - `proof/corpus/__tests__/publish.postgres.test.ts`
 - `proof/corpus/__tests__/writePublishCaptures.test.ts`
-- `proof/corpus/__tests__/footprint.test.ts` (a caller of `compileCcz`, and a localization root)
-- `proof/hq/operations.py` (`with_runtime_app_id`, `api_request`, `seed_api_user` and `seed_api_key`, all new; `publish_capture` applies both imports)
+- `proof/corpus/__tests__/footprint.test.ts` (a `compileCcz` caller; a localization root)
+- `proof/hq/operations.py` (`with_runtime_app_id`, `api_request`, `seed_api_user`, `seed_api_key`, `publish_capture`)
 - `proof/hq/seams.py` (`api_rate_limits`, new)
 - `proof/hq/test_publish.py`
 - `proof/hq/test_publish_capture.py`
 - `proof/hq/test_import_file.py` (new)
-- `proof/hq/conftest.py` (`DOCUMENTS` becomes the package's key)
-- `proof/hq/test_retained_reads.py` (new: part 01's `publish` group and part 10's `cutover` group)
-- `proof/hq/test_branches.py` (`_create` calls `publish.create`; `DATABASE_CLOCK`, with a new case)
+- `proof/hq/conftest.py` (`DOCUMENTS`, the package's key)
+- `proof/hq/test_retained_reads.py` (new: the `publish` and `cutover` groups)
+- `proof/hq/test_branches.py` (`_create`; `DATABASE_CLOCK` and its case)
 - `proof/hq-reads/publish/` (new)
 - `proof/hq-reads/cutover/` (HQ's retained answers)
 - `proof/store/queue.py` (`PACKAGE_DATA`)
 - `proof/rules/runtime_url_app_id.py` (new)
-- `proof/rules/test_runtime_url_app_id.py` (new: the planning run kept as three tests)
-- `proof/rules/__init__.py` (`RULES`; `ARTIFACT_READERS` gains `request-url`)
-- `proof/rules/conftest.py` (`published` calls `publish.create`; `restore` reads the content import)
-- `proof/checks/android.py` (hands the rule the device's addresses)
-- `proof/checks/served.py` (hands the rule Formplayer's addresses; `TRACE_DATA_MAPS`, `_text_references`, `merged_text_ids`)
-- `proof/checks/proof3.py` (hands the rule both)
+- `proof/rules/test_runtime_url_app_id.py` (new: three tests)
+- `proof/rules/__init__.py` (`RULES`; `ARTIFACT_READERS`)
+- `proof/rules/conftest.py` (`published`, `restore`)
+- `proof/checks/android.py` (the rule's device addresses)
+- `proof/checks/served.py` (`TRACE_DATA_MAPS`, `_text_references`, `merged_text_ids`)
+- `proof/checks/proof3.py` (the rule's addresses)
 - `proof/checks/test_served.py`
 - `proof/checks/wireLanguages.ts`
 - `proof/checks/test_connect_unit.py` (its line for the local archive)
-- `proof/checks/test_record_determinism.py` (its media tests read the content import; the role parameters)
+- `proof/checks/test_record_determinism.py` (the media tests; the role parameters)
 - `proof/checks/corpus.py` (`_captured`, `Captured`, `Export.content`, `Document.import_file`)
-- `proof/checks/configurations.py` (`PRIVILEGE_CAPTURES` reads both imports)
+- `proof/checks/configurations.py` (`PRIVILEGE_CAPTURES`)
 - `proof/checks/manifest_usage.py`
-- `proof/checks/test_proof3_behavior.py` (reads the content import's workbook)
-- `proof/checks/test_alignment.py` (reads the content import)
-- `proof/checks/test_corpus.py` (the marker reader's new case; the roles of both imports)
+- `proof/checks/test_proof3_behavior.py` (reads `export.content`)
+- `proof/checks/test_alignment.py` (reads `export.content`)
+- `proof/checks/test_corpus.py` (the marker reader's case; both imports' roles)
 - `proof/checks/proof5.py` (a docstring)
 - `proof/checks/test_proof5_locality.py` (a docstring)
-- `proof/observe/publish.py` (`create` applies both imports; `update` holds the assumed source)
-- `proof/observe/unit.py` (`create_a`, `input_files`, and the content import's workbook and media)
-- `proof/observe/sessions.py` (the local archive given A's id)
-- `proof/observe/served.py` (the local archive given A's id)
-- `proof/observe/connect.py` (the local archive given A's id)
+- `proof/observe/publish.py` (`create`, `update`)
+- `proof/observe/unit.py` (`create_a`, `input_files`)
+- `proof/observe/sessions.py` (the archive takes A's id)
+- `proof/observe/served.py` (the archive takes A's id)
+- `proof/observe/connect.py` (the archive takes A's id)
 - `proof/observe/manifest.py` (`uploads_of`)
-- `proof/formplayer/apps.py` (`published` calls `publish.create`)
-- `proof/formplayer/observe.py` (`marked` writes the working app's id `@app`)
+- `proof/formplayer/apps.py` (`published`)
+- `proof/formplayer/observe.py` (`marked`)
 - `proof/formplayer/test_local_archive.py`
-- `proof/webapps/hq.py` (`project` calls `publish.create`)
-- `proof/connect/conftest.py` (reads the content import's workbook)
+- `proof/webapps/hq.py` (`project`)
+- `proof/connect/conftest.py` (reads `export.content`)
 - `proof/connect/test_receiver.py`
-- `proof/views/test_lookup_upload.py` (reads the content import's workbook)
+- `proof/views/test_lookup_upload.py` (reads `export.content`)
 - `proof/android/predicates.py` (the rule's device test)
 - `proof/android/hq.py`
-- `proof/native/producers/` (the 17 producers take `NATIVE_RUNTIME_TARGET`)
+- `proof/native/producers/` (the 17 producers' target)
 - `proof/native/producers/runtimeTarget.ts` (new)
 - `proof/native/core/LocalizationRuntimeTest.java`
 - `proof/native/steps/media_emission.py`
 - `proof/native/test_media_emission.py`
 - `proof/targeted/documents/hqSideState.ts`
 - `proof/targeted/documents/emptyListNoEnglish.ts`
-- `proof/controls/` (the ten controls retained in the two-import layout)
+- `proof/controls/` (ten controls in the two-import layout)
 - `proof/timings.json`
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
 - `scripts/lib/hqRoundTripCutover/matching.ts` (new)
 - `scripts/lib/hqRoundTripCutover/hqRead.ts` (new)
 - `scripts/lib/hqRoundTripCutover/legacyLanguageWireCodes.ts` (new)
 - `scripts/lib/hqRoundTripCutover/steps/languageWireCodes.ts` (new)
 - `scripts/lib/hqRoundTripCutover/transform.ts` (registers the step)
-- `scripts/lib/hqRoundTripCutover/behavior.ts` (the selection function of `ccz-needs-project-space`)
+- `scripts/lib/hqRoundTripCutover/behavior.ts` (`ccz-needs-project-space`)
 - `scripts/lib/hqRoundTripCutover/notice.ts` (the five deployment lines)
-- `scripts/lib/hqRoundTripCutover/prestep/prestepFold.entry.ts` (deleted, with the fold's inputs test)
+- `scripts/lib/hqRoundTripCutover/prestep/prestepFold.entry.ts` (deleted, with the inputs test)
 - `scripts/build-hq-round-trip-prestep-fold.mjs` (deleted)
 - `scripts/lib/languageIdentityRepair.ts` (mints through the planner)
-- `scripts/__tests__/selectOptionValueRepair.test.ts` (writes a localization root)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/__tests__/selectOptionValueRepair.test.ts` (a localization root)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-CI and config:
+**CI and config**
 
 - `biome.json` (the planner's entry)
 - `.github/workflows/proof-audit.yml`
 
-Docs:
+**Docs**
 
 - `proof/README.md`
+- `proof/CLAUDE.md` (the determinism rule; a new rule; a device's network)
 
 ### Pull request 4: Drift and baselines
 
-Nova source:
+**Nova source**
 
 - `lib/deployment/hqSourceBaseline.ts` (new)
 - `lib/deployment/hqResourceBaseline.ts` (new)
@@ -536,9 +404,9 @@ Nova source:
 - `app/api/commcare/upload/route.ts`
 - `lib/mcp/tools/uploadAppToHq.ts`
 - `lib/mcp/errors.ts`
-- `lib/notices/` (the two reasons and their renderers)
+- `lib/notices/` (two reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/__tests__/hqLookupTables.test.ts`
 - `lib/commcare/__tests__/hqLocations.test.ts`
@@ -547,14 +415,14 @@ Nova tests named outright:
 - `e2e/lib/publishing-boundary.ts`
 - `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`
 
-The lane:
+**The lane**
 
 - `proof/corpus/publish.ts`
-- `proof/corpus/writePublishCaptures.ts` (the ownership file beside each of the two bodies)
+- `proof/corpus/writePublishCaptures.ts` (the ownership file)
 - `proof/corpus/targetPeer.ts`
 - `proof/corpus/__tests__/publish.postgres.test.ts`
 - `proof/hq/test_retained_reads.py` (its drift groups)
-- `proof/hq/operations.py` (`CapturedResourcesNotHeld`, and the reads built on `api_request`)
+- `proof/hq/operations.py` (`CapturedResourcesNotHeld`; the `api_request` reads)
 - `proof/hq/test_publish.py` (the cached-verdict case)
 - `proof/hq/conftest.py`
 - `proof/editors/test_retained_reads.py` (new)
@@ -564,26 +432,48 @@ The lane:
 - `proof/formplayer/conftest.py`
 - `proof/observe/publish.py`
 - `proof/store/queue.py` (`PACKAGE_DATA`)
-- `proof/hq-reads/` (new under it: the drift answers by document, `lookup-upload/` and `places/`)
+- `proof/hq-reads/` (new under it: drift answers, `lookup-upload/`, `places/`)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/lib/hqRoundTripCutover/writer.ts` (the Job's baseline reads and writes)
+- `scripts/lib/hqRoundTripCutover/writer.ts` (the baseline reads and writes)
 - `scripts/lib/hqRoundTripCutover/notice.ts` (the two deployment lines)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests)
 
-Docs:
+**Docs**
 
 - `proof/README.md`
 
 ### Pull request 5: App-level emission
 
-Nova source:
+**Contains, in full**
+
+- Defects 2, 4, 7, 8, 9.
+- Findings 34, 39, 40, 62, 65.
+- `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`, and its edit-kind generator.
+- The overlay module `lib/commcare/targetOverlay.ts` (it absorbs `targetProfile.ts` and replaces `appOwnership.ts`: the overlay's `ownership` replaces pull request 4's `appOwnershipOf`, and the drift comparison narrows `translations` from whole to the owned-key predicate).
+- Finding 40's fifteen constants seeded on HQ only where the target holds no value.
+- Finding 65's texts, the publish's read of the empty-list text flag into `app_deployments.target_empty_case_list_text`, and one local archive per configuration in the corpus.
+- The bare `pollsensor` of a GPS question with its surface entry `questions/hq-generated-pollsensor` and the reader that takes `questions/authored-orx-pollsensor` out of `KNOWN_GAPS` (part 04, Finding 34).
+- The proof 3 and proof 1 judge changes for the form version and the Android update, whose record names each archive's `uniqueid` and `version`, and `settings_replaced`'s, which reads the state's own next build.
+- The manifest's reading of a target's value carried back (`manifest_usage.py`) and the footprint that reaches the app's record when the needed add-ons differ.
+- The four lane tests that hold the former bytes, rewritten (part 04, Defect 4).
+- Proof 5's version clause (`proof/checks/proof5.py` compares a local form without its data node's `version`, which is the sequence from this pull request).
+- `intent.py::profile_settings` and `::local_archive_versions`.
+- `manifest_value_classes.py::save_differing_from_vellum` as the comparison with Vellum's computation, which no form of the corpus reaches, `::setting_outside_choices`, the reader of the manifest's `outside-choices` class (out of `KNOWN_GAPS`), and `::android_verified_path_without_entry`'s decision for an app that stores `cc-content-valid` `no`.
+- The surface key family `profile-feature:` (`proof/surface/families/profile.py`, with `surface.json` regenerated) and the entry `application-and-settings/profile-feature-checkoff` for the local profile's `checkoff` feature (part 04, Defect 7, Files).
+- As the pull request's first commit, before any judge or emitter change, the control `connect-location-capture` retained from `targeted-invalid-connect-ids` (`--as`), which `d34-connect-location-trace-meta-location` takes as its `control`.
+- `d34-connect-location-capture-formplayer-local-ccz-data-meta-location` re-documented on `targeted-connect-deliver-rename` (part 04, Finding 34).
+- At its head, the control `targeted-invalid-question-ids-after-9` retained from `targeted-invalid-question-ids` (`--as`) for defect 15's three pinned proof 1 entries, the four form-version entries deleted with the proof 3 judge change, the two pull request 3 registers among them, and `proof/controls/targeted-hq-side-state-after-59/` removed with the one of them that names it (part 04, Defect 9).
+- Targeted documents `targeted-attribute-display-condition` and `targeted-gps-question`.
+- `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`).
+
+**Nova source**
 
 - `lib/domain/blueprint.ts`
 - `lib/domain/index.ts`
 - `lib/domain/kinds.ts`
-- `lib/domain/fields/` (each kind's metadata: `carriesValidation`, defect 8)
+- `lib/domain/fields/` (each kind's `carriesValidation`)
 - `lib/doc/types.ts`
 - `lib/doc/scaffolds.ts`
 - `lib/doc/mutations/app.ts`
@@ -597,7 +487,7 @@ Nova source:
 - `lib/doc/referenceIndex.ts`
 - `lib/doc/hooks/useBlueprintMutations.ts`
 - `lib/doc/hooks/useAppSettings.ts` (new)
-- `lib/case-store/migrations/` (new `<timestamp>_app_settings.ts`: `apps.app_settings` and the replaced `nova_current_app_change_fold_snapshot`)
+- `lib/case-store/migrations/` (new `<timestamp>_app_settings.ts`)
 - `lib/db/pg.ts`
 - `lib/db/blueprintRows.ts`
 - `lib/db/canonicalCommitKernel.ts`
@@ -613,11 +503,11 @@ Nova source:
 - `lib/commcare/appStringKeys.ts` (new)
 - `lib/commcare/addOns.ts` (new)
 - `lib/commcare/appProfileSettings.ts` (new)
-- `lib/commcare/expander.ts` (`expandDoc` and `expandAppShell`; `APP_SHELL_KEYS` loses `add_ons`)
+- `lib/commcare/expander.ts` (`APP_SHELL_KEYS` loses `add_ons`)
 - `lib/commcare/hqShells.ts`
 - `lib/commcare/types.ts`
 - `lib/commcare/constants.ts`
-- `lib/commcare/client.ts` (the probe's `readEmptyCaseListText` option)
+- `lib/commcare/client.ts` (`readEmptyCaseListText`)
 - `lib/commcare/hq/appSource.ts`
 - `lib/commcare/compiler.ts`
 - `lib/commcare/suite/displayConditions.ts`
@@ -647,25 +537,25 @@ Nova source:
 - `lib/models.ts`
 - `components/builder/detail/appSettings/AppSavedFormsSection.tsx` (new)
 - `components/builder/detail/appSettings/AppSettingsPanel.tsx`
-- `lib/notices/` (the six reasons and their renderers)
+- `lib/notices/` (six reasons and their renderers)
 - `lib/commcare/surface/entries/application-and-settings.json`
 - `lib/commcare/surface/entries/questions.json`
 - `lib/commcare/surface/surface.json`
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/domain/__tests__/fieldRegistry.test.ts`
 - `lib/__tests__/docHelpers.ts`
 - `lib/doc/__tests__/mutations-app.test.ts`
 - `lib/doc/__tests__/mutationAdmission.test.ts`
 - `lib/doc/__tests__/diffDocsToMutations.fuzz.test.ts`
-- `lib/commcare/__tests__/` (the tests of this pull request's `lib/commcare` files)
+- `lib/commcare/__tests__/` (these files' tests)
 - `lib/agent/__tests__/summarizeBlueprint-settings.test.ts` (new)
 - `lib/db/__tests__/commitGuardedBatch.postgres.test.ts`
 - `e2e/tests/app/app-settings.spec.ts` (new)
 - `lib/deployment/__tests__/publishSequence.postgres.test.ts` (the exact-key expectation)
 
-The lane:
+**The lane**
 
 - `proof/surface/families/profile.py`
 - `proof/surface/families/strings.py`
@@ -690,7 +580,7 @@ The lane:
 - `proof/checks/test_manifest.py`
 - `proof/checks/test_served.py`
 - `proof/checks/controls.py`
-- `proof/checks/corpus.py` (the archive compiled for each configuration)
+- `proof/checks/corpus.py` (an archive for each configuration)
 - `proof/android/observe.py`
 - `proof/android/predicates.py`
 - `proof/android/src/nova/proof/android/Location.java` (new)
@@ -702,8 +592,8 @@ The lane:
 - `proof/corpus/targetPeer.ts`
 - `proof/corpus/documents.ts` (`HqSideSaves`)
 - `proof/corpus/inputs.ts`
-- `proof/corpus/entropy.mts` (its prose alone: no ordinal changes)
-- `proof/corpus/__tests__/entropy.test.ts` (holds the profile's `uniqueid` draw; part 04, Defect 9, Files)
+- `proof/corpus/entropy.mts` (prose only)
+- `proof/corpus/__tests__/entropy.test.ts` (holds the `uniqueid` draw)
 - `proof/corpus/__tests__/emitCorpus.test.ts` (holds the `uniqueid` draw)
 - `proof/corpus/__tests__/writePublishCaptures.test.ts` (holds the `uniqueid` draw)
 - `proof/corpus/__tests__/publish.postgres.test.ts` (holds the `uniqueid` draw; the overlaid keys)
@@ -727,7 +617,7 @@ The lane:
 - `proof/targeted/documents/hqSideLookup.ts`
 - `proof/targeted/documents/formShapes.ts`
 - `proof/targeted/index.ts`
-- `proof/hq-reads/navigation-base/` (the read after the Add-ons save and its `ownership.json`, written again)
+- `proof/hq-reads/navigation-base/` (the read after the Add-ons save)
 - `proof/views/test_add_ons.py`
 - `proof/views/test_case_list_offers.py`
 - `proof/rules/test_add_ons.py`
@@ -743,30 +633,32 @@ The lane:
 - `proof/controls/targeted-hq-side-state-after-59/` (removed)
 - `proof/timings.json`
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/lib/loadPersistedBlueprint.ts` (a loader of the root's carriers; checklist item 5)
-- `scripts/inspect-app.ts` (a loader of the root's carriers)
-- `scripts/lib/persistedLookupReferenceScan.ts` (a loader of the root's carriers)
-- `scripts/lib/repairAuthoringBaselines.ts` (a loader of the root's carriers)
+- `scripts/lib/loadPersistedBlueprint.ts` (a root carrier loader; checklist item 5)
+- `scripts/inspect-app.ts` (a root carrier loader)
+- `scripts/lib/persistedLookupReferenceScan.ts` (a root carrier loader)
+- `scripts/lib/repairAuthoringBaselines.ts` (a root carrier loader)
 - `scripts/test-schema.ts`
 - `scripts/lib/hqRoundTripCutover/steps/appSettings.ts` (new)
 - `scripts/lib/hqRoundTripCutover/transform.ts` (registers the step)
 - `scripts/lib/hqRoundTripCutover/behavior.ts`
 - `scripts/lib/hqRoundTripCutover/notice.ts`
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-CI and config:
+**CI and config**
 
 - `.github/workflows/proof-audit.yml`
 
-Docs:
+**Docs**
 
 - `proof/android/README.md`
+- `proof/README.md`
+- `proof/CLAUDE.md` (the determinism rule)
 
 ### Pull request 6: XForm, first part
 
-Nova source:
+**Nova source**
 
 - `lib/commcare/xform/caseOps.ts`
 - `lib/commcare/xform/caseBlocks.ts`
@@ -774,7 +666,7 @@ Nova source:
 - `lib/commcare/xform/constraintCollections.ts`
 - `lib/commcare/xform/dataRootAttributes.ts`
 - `lib/commcare/xform/datetimeCaseValue.ts`
-- `lib/commcare/xform/formPath.ts` (`relativeXPath` and `originalContextPath` move here from `caseOps.ts`)
+- `lib/commcare/xform/formPath.ts` (takes `relativeXPath` and `originalContextPath`)
 - `lib/commcare/session.ts` (`newCaseIdDatumId`)
 - `lib/commcare/localization.ts`
 - `lib/commcare/formActions.ts` (a comment)
@@ -803,18 +695,18 @@ Nova source:
 - `lib/notices/` (`option-label-filled`)
 - `lib/commcare/surface/entries/questions.json`
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/__tests__/` (the emission tests and fixtures)
 - `lib/commcare/__tests__/editableEnvelope.test.ts` (new)
 - `lib/commcare/__tests__/defaultValueEmission.test.ts` (new)
-- `lib/commcare/xpath/__tests__/nativeXPathCorpus.ts` (its `attribute axis` row reads the form's name)
+- `lib/commcare/xpath/__tests__/nativeXPathCorpus.ts` (the `attribute axis` row)
 - `lib/domain/__tests__/localization.test.ts`
 - `e2e/tests/app/localization.spec.ts`
 - `lib/agent/translation/__tests__/translateLanguage.postgres.test.ts`
 - `lib/commcare/validator/__tests__/selectOptionLabel.test.ts` (new)
 
-The lane:
+**The lane**
 
 - `proof/checks/compare/versions.py`
 - `proof/checks/compare/build_files.py`
@@ -835,31 +727,31 @@ The lane:
 - `proof/lane/blocks.py` (`CORPUS_PACKAGES`)
 - `proof/connect/conftest.py`
 - `proof/connect/test_receiver.py` (the work area test)
-- `proof/native/core/CaseOperationRuntimeTest.java` (five datetime writes; a registration form's reads of its own id)
-- `proof/native/core/ExpanderRuntimeTest.java` (new cases: a default in each of the four placements; the registration reads)
-- `proof/native/steps/expander_emission.py` (HQ's regenerated form of each document those cases run)
+- `proof/native/core/CaseOperationRuntimeTest.java` (datetime writes; the registration reads)
+- `proof/native/core/ExpanderRuntimeTest.java` (new cases: the four defaults; the registration reads)
+- `proof/native/steps/expander_emission.py` (HQ's regenerated forms)
 - `proof/rules/` (the retired rules' modules and tests)
-- `proof/rules/test_vellum_hashtags.py` (turned to work from `standard-case-reads`)
+- `proof/rules/test_vellum_hashtags.py` (works from `standard-case-reads`)
 - `proof/controls/` (the new control)
 - `proof/targeted/documents/blankLabels.ts` (new)
-- `proof/timings.json` (the new document's groups and the new control's)
+- `proof/timings.json` (the new document's and control's groups)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
 - `scripts/lib/hqRoundTripCutover/steps/optionLabels.ts` (new)
 - `scripts/lib/hqRoundTripCutover/transform.ts` (registers the step)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-Docs:
+**Docs**
 
 - `proof/android/README.md`
-- `proof/README.md` (work item H's two rows)
+- `proof/README.md` (work item H's rows; the `expander` family's row)
 
 ### Pull request 7: XForm, second part
 
-Nova source:
+**Nova source**
 
-- `lib/commcare/xform/` (the emitters that take their node names from the plan)
+- `lib/commcare/xform/` (the emitters that read `generatedNodes.ts`)
 - `lib/commcare/xform/generatedNodes.ts` (new)
 - `lib/commcare/constants.ts`
 - `lib/commcare/formActions.ts`
@@ -867,11 +759,11 @@ Nova source:
 - `lib/commcare/validator/errors.ts`
 - `lib/commcare/validator/gate.ts`
 - `lib/commcare/validator/rules/field.ts`
-- `lib/commcare/validator/rules/caseOperations.ts` (`reservedFieldIdPrefix` and its code deleted)
+- `lib/commcare/validator/rules/caseOperations.ts` (`reservedFieldIdPrefix` deleted)
 - `lib/doc/identifierVerdicts.ts`
 - `lib/doc/userFacingErrors.ts`
 - `lib/doc/caseOperationOrder.ts`
-- `lib/preview/engine/formEngine.ts` (the count node's name from the plan)
+- `lib/preview/engine/formEngine.ts` (the count node's name)
 - `components/builder/editor/FieldIdentitySection.tsx`
 - `components/builder/editor/renameOutcome.ts`
 - `lib/agent/tools/case-operations/shared.ts`
@@ -882,15 +774,15 @@ Nova source:
 - `lib/commcare/surface/entries/questions.json`
 - `lib/commcare/surface/entries/forms-and-case-writes.json`
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/__tests__/` (the emission tests and fixtures)
 - `lib/commcare/__tests__/generatedNodes.test.ts` (new)
 - `lib/commcare/validator/__tests__/caseOperations.test.ts`
-- `lib/agent/tools/__tests__/` (the tests that pin the removed rule or the old names)
+- `lib/agent/tools/__tests__/` (tests of the removed rule and old names)
 - `lib/mcp/__tests__/compileApp.postgres.test.ts`
 
-The lane:
+**The lane**
 
 - `proof/checks/compare/names.py`
 - `proof/checks/compare/trace.py`
@@ -912,19 +804,19 @@ The lane:
 - `proof/controls/` (the controls this pull request retains)
 - `proof/timings.json`
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/lib/hqRoundTripCutover/notice.ts` (the per-deployment line)
+- `scripts/lib/hqRoundTripCutover/notice.ts` (the deployment line)
 - `scripts/lib/hqRoundTripCutover/report.ts` (the scan's two counts)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests)
 
-Docs:
+**Docs**
 
 - `proof/README.md`
 
 ### Pull request 8: Defect 3
 
-Nova source:
+**Nova source**
 
 - `lib/commcare/xform/caseSaveReferences.ts` (new)
 - `lib/commcare/xform/builder.ts`
@@ -934,33 +826,33 @@ Nova source:
 - `lib/commcare/expander.ts`
 - `lib/commcare/validator/hqJsonOracle.ts`
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/__tests__/caseSaveReferences.test.ts` (new)
-- `lib/commcare/__tests__/compilerEvidence.ts` (`checkCompilerEvidence` runs `checkCaseReferences` over both fuzz corpora)
+- `lib/commcare/__tests__/compilerEvidence.ts` (runs `checkCaseReferences`)
 
-The lane:
+**The lane**
 
 - `proof/checks/intent.py`
 - `proof/checks/test_intent.py`
 - `proof/controls/case-capture-multiple-after-3/` (new)
 - `proof/timings.json`
 
-Docs:
+**Docs**
 
 - `proof/README.md`
 - `content/docs/publishing.mdx`
 
 ### Pull request 9: Case writes through basic actions
 
-Nova source:
+**Nova source**
 
 - `lib/commcare/xform/caseBlocks.ts`
 - `lib/commcare/xform/caseOps.ts`
 - `lib/commcare/xform/generatedNodes.ts` (`trimmed`)
-- `lib/commcare/xform/builder.ts` (`buildFieldParts` writes `nova_trimmed_<question>`, `required` and the guard)
+- `lib/commcare/xform/builder.ts` (`buildFieldParts`: `nova_trimmed_<question>`)
 - `lib/commcare/formActions.ts`
-- `lib/commcare/validator/hqJsonOracle.ts` (refuses a non-null `open_case.external_id`)
+- `lib/commcare/validator/hqJsonOracle.ts` (refuses `open_case.external_id`)
 - `lib/commcare/surface/entries/forms-and-case-writes.json`
 - `lib/domain/caseScalarTextGuard.ts` (new)
 - `lib/domain/closeCondition.ts` (new)
@@ -971,9 +863,9 @@ Nova source:
 - `lib/agent/planningSchemas.ts` (`closeConditionInputSchema`)
 - `lib/agent/tools/updateForm.ts`
 - `lib/models.ts`
-- `lib/notices/` (this pull request's reasons and their renderers)
+- `lib/notices/` (the reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/__tests__/caseBlocks.test.ts`
 - `lib/commcare/__tests__/multiSelectEmission.test.ts`
@@ -982,37 +874,41 @@ Nova tests named outright:
 - `lib/commcare/__tests__/hqJsonOracle.test.ts`
 - `lib/case-store/__tests__/followupTouch.postgres.test.ts` (new)
 
-The lane:
+**The lane**
 
 - `proof/targeted/documents/closeConditions.ts`
 - `proof/targeted/documents/echo.ts`
-- `proof/targeted/documents/searchApps.ts` (passes a form's command and a case id to `answerHeld`)
-- `proof/targeted/documents/multiSelectDestinations.ts` (passes a command and a case id to `answerHeld`)
-- `proof/targeted/documents/stableWitnesses.ts` (passes a command and a case id to `answerHeld`)
-- `proof/targeted/documents/noMatchesReturnIdentity.ts` (passes a command and a case id to `answerHeld`)
+- `proof/targeted/documents/searchApps.ts` (`answerHeld` takes a command and a case id)
+- `proof/targeted/documents/multiSelectDestinations.ts` (`answerHeld` takes a command and a case id)
+- `proof/targeted/documents/stableWitnesses.ts` (`answerHeld` takes a command and a case id)
+- `proof/targeted/documents/noMatchesReturnIdentity.ts` (`answerHeld` takes a command and a case id)
 - `proof/rules/case_block_position.py` (deleted, with its test)
 - `proof/rules/update_never_beside_actions.py` (deleted, with its test)
-- `proof/rules/__init__.py` (the two retired rules leave `RULES`)
+- `proof/rules/__init__.py` (two rules leave `RULES`)
 - `proof/rules/conftest.py` (`DOCUMENTS` loses two documents)
 - `proof/formplayer/test_case_name_guard.py` (new)
 - `proof/webapps/test_case_name_guard.py` (new)
 - `proof/webapps/conftest.py` (`DOCUMENTS` gains `navigation-base`)
 - `proof/android/test_case_name_guard.py` (new)
 - `proof/android/conftest.py` (`DOCUMENTS` gains `navigation-base`)
-- `proof/native/core/CaseOperationRuntimeTest.java` (new cases: a hidden name, a whitespace-only and a 256-character name)
-- `proof/native/test_case_emission.py` (new assertions: the child order of the data node and of each `<update>`)
+- `proof/native/core/CaseOperationRuntimeTest.java` (new cases: hidden, blank and over-long names)
+- `proof/native/test_case_emission.py` (new assertions: child order)
 - `proof/controls/`
 - `proof/walk-stops.json`
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/test-schema.ts` (the `updateForm` entry, registered here)
+- `scripts/test-schema.ts` (registers `updateForm`)
 - `scripts/lib/hqRoundTripCutover/behavior.ts` (the four selection functions)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests)
+
+**Docs**
+
+- `proof/README.md`
 
 ### Pull request 10: Identifiers and form content
 
-Nova source:
+**Nova source**
 
 - `lib/domain/questionId.ts` (new)
 - `lib/domain/entryPoints.ts`
@@ -1032,11 +928,11 @@ Nova source:
 - `lib/commcare/validator/runner.ts`
 - `lib/commcare/validator/xpathValidator.ts`
 - `lib/commcare/xform/sourceCaseWrites.ts` (new)
-- `lib/commcare/xform/caseOps.ts` (calls the new module's predicates)
-- `lib/commcare/expander.ts` (calls the new module's predicates)
+- `lib/commcare/xform/caseOps.ts` (calls the new predicates)
+- `lib/commcare/expander.ts` (calls the new predicates)
 - `lib/commcare/connectSlugs.ts`
 - `lib/commcare/identifierValidation.ts`
-- `lib/commcare/xpath/expressionAst.ts` (`hasExplicitPathContext` exported)
+- `lib/commcare/xpath/expressionAst.ts` (`hasExplicitPathContext`)
 - `lib/preview/xpath/dependencies.ts` (`formRootReadPositions`)
 - `components/builder/detail/formSettings/LearnConfig.tsx`
 - `components/builder/detail/formSettings/DeliverConfig.tsx`
@@ -1053,17 +949,17 @@ Nova source:
 - `lib/agent/tools/entry-points.ts`
 - `lib/agent/tools/shared/connectIds.ts`
 - `lib/models.ts`
-- `lib/notices/` (this pull request's reasons and their renderers)
+- `lib/notices/` (the reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/__tests__/xformDocArbitrary.ts` (the generators map their draws)
-- `lib/commcare/__tests__/connectWireFixtures.ts` (new entities carry named uuids; part 09, Corpus changes)
-- `lib/commcare/__tests__/expander.test.ts` (two duplicate-option tests become refusals; the empty-group form gains a Label)
+- `lib/commcare/__tests__/connectWireFixtures.ts` (named uuids; part 09, Corpus changes)
+- `lib/commcare/__tests__/expander.test.ts` (two refusal tests; a Label in the empty-group form)
 - `lib/commcare/__tests__/connectSlugs.test.ts`
 - `lib/commcare/__tests__/connectDefaults.test.ts`
 
-The lane:
+**The lane**
 
 - `proof/native/producers/emit-connect-evidence.ts`
 - `proof/native/steps/form_emission.py`
@@ -1081,26 +977,27 @@ The lane:
 - `proof/hq/entryPointIdVerdicts.ts` (new)
 - `proof/formplayer/test_observe.py`
 - `proof/formplayer/apps.py` (`form_written`)
-- `proof/targeted/` (the documents this pull request rewrites and removes)
+- `proof/targeted/` (documents rewritten and removed)
 - `proof/walk-stops.json`
-- `proof/timings.json` (the groups of the eight documents that leave)
+- `proof/timings.json` (eight documents' groups leave)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/test-schema.ts` (`configureConnect`, `addEntryPoint` and `updateEntryPoint`, registered here)
-- `scripts/lib/hqRoundTripCutover/steps/` (this pull request's eight steps)
-- `scripts/lib/hqRoundTripCutover/steps/relativePaths.ts` (new: shared by the three id steps)
+- `scripts/test-schema.ts` (registers `configureConnect`, `addEntryPoint`, `updateEntryPoint`)
+- `scripts/lib/hqRoundTripCutover/steps/` (the eight steps)
+- `scripts/lib/hqRoundTripCutover/steps/relativePaths.ts` (new: the id steps' shared module)
 - `scripts/lib/hqRoundTripCutover/transform.ts` (registers the eight steps)
 - `scripts/lib/hqRoundTripCutover/report.ts`
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-Docs:
+**Docs**
 
 - `docs/plans/hq-round-trip/2-cutover-runbook.md` (the renamed Connect blocks of step 1(d))
+- `proof/README.md`
 
 ### Pull request 11: Case lists
 
-Nova source:
+**Nova source**
 
 - `lib/domain/caseListOrder.ts` (new)
 - `lib/domain/modules.ts`
@@ -1113,8 +1010,8 @@ Nova source:
 - `lib/commcare/suite/case-search/searchSession.ts`
 - `lib/commcare/suite/case-search/relatedCaseProjection.ts`
 - `lib/commcare/compiler.ts`
-- `lib/commcare/expander.ts` (finding 41's text on every short detail; finding 54's languages to `moduleShell`)
-- `lib/commcare/hqShells.ts` (`caseSearchConfigShell` and `moduleShell` take the app's languages)
+- `lib/commcare/expander.ts` (finding 41's text; finding 54's languages)
+- `lib/commcare/hqShells.ts` (`caseSearchConfigShell`, `moduleShell`)
 - `lib/commcare/types.ts`
 - `lib/commcare/lookup/naming.ts`
 - `lib/commcare/surface/entries/menus-and-case-lists.json`
@@ -1136,7 +1033,7 @@ Nova source:
 - `lib/preview/caseTileRendering.ts`
 - `components/preview/shared/listFilter.tsx`
 - `lib/case-store/store.ts` (`SortKey`)
-- `lib/case-store/postgres/store.ts` (the comparator and the blanks term)
+- `lib/case-store/postgres/store.ts` (the comparator; the blanks term)
 - `lib/case-store/sql/compileIntervalText.ts` (new)
 - `lib/case-store/sql/compileExpression.ts`
 - `lib/case-store/sql/index.ts`
@@ -1144,18 +1041,18 @@ Nova source:
 - `components/builder/shared/datePatternDraft.ts`
 - `components/builder/shared/primitives/CustomDatePatternInput.tsx`
 - `lib/agent/tools/case-list-config/`
-- `lib/agent/tools/updateModule.ts` (`case_list_columns` holds the same arms)
+- `lib/agent/tools/updateModule.ts` (`case_list_columns`)
 - `lib/agent/summarizeBlueprint.ts` (a comment)
 - `lib/models.ts`
-- `lib/notices/` (this pull request's reasons and their renderers)
+- `lib/notices/` (the reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/domain/__tests__/translationUnits.test.ts` (new)
 - `lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts`
 - `lib/commcare/__tests__/expander.test.ts` (eleven tests take new assertions)
-- `lib/commcare/__tests__/hqJsonOracle.test.ts` (the attribute-backed sort case, which produces the native oracle test's probes)
-- `lib/commcare/__tests__/suiteDocArbitrary.ts` (`lowerToDoc` rewrites a drawn list as the cutover does)
+- `lib/commcare/__tests__/hqJsonOracle.test.ts` (the attribute-backed sort case)
+- `lib/commcare/__tests__/suiteDocArbitrary.ts` (`lowerToDoc`)
 - `lib/commcare/__tests__/localizationWireFixture.ts` (`localization-bilingual`'s order rule)
 - `lib/commcare/__tests__/caseListOrderParity.test.ts` (new)
 - `lib/commcare/__tests__/hiddenCalculatedInstances.test.ts` (new)
@@ -1167,13 +1064,13 @@ Nova tests named outright:
 - `e2e/tests/browser/case-workspace-surface.spec.ts`
 - `e2e/tests/browser/preview-cases-audit.spec.ts`
 
-The lane:
+**The lane**
 
 - `proof/native/core/CaseListRuntimeTest.java`
 - `proof/native/core/TileSuiteRuntimeTest.java`
-- `proof/targeted/documents/` (the new documents and the rewritten ones)
+- `proof/targeted/documents/` (new and rewritten documents)
 - `proof/targeted/index.ts`
-- `proof/rules/` (the five retired rules' modules and tests)
+- `proof/rules/` (five retired rules' modules and tests)
 - `proof/rules/__init__.py`
 - `proof/rules/conftest.py`
 - `proof/controls/`
@@ -1186,30 +1083,30 @@ The lane:
 - `proof/native/families.py` (the new class's line)
 - `proof/webapps/test_search.py`
 - `proof/webapps/test_tiles.py`
-- `proof/webapps/test_empty_list.py` (rewritten to the fixed contract)
+- `proof/webapps/test_empty_list.py` (rewritten)
 - `proof/formplayer/test_search.py`
 - `proof/webapps/conftest.py` (`DOCUMENTS`)
 - `proof/android/conftest.py` (`DOCUMENTS`)
 - `proof/android/observe.py` (`app` takes `searches`)
-- `proof/android/predicates.py` (the predicate finding 67's rule names)
+- `proof/android/predicates.py` (finding 67's predicate)
 - `proof/corpus/footprint.ts` (takes `caseListColumnRuns`)
-- `proof/corpus/__tests__/footprint.test.ts` (its literal cell takes the three defaults)
-- `proof/timings.json` (the groups of the new documents and controls)
+- `proof/corpus/__tests__/footprint.test.ts` (its literal cell)
+- `proof/timings.json` (the new documents' and controls' groups)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/lib/hqRoundTripCutover/steps/` (this pull request's five steps)
+- `scripts/lib/hqRoundTripCutover/steps/` (the five steps)
 - `scripts/lib/hqRoundTripCutover/transform.ts`
-- `scripts/lib/hqRoundTripCutover/behavior.ts` (the four no-write reasons)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/lib/hqRoundTripCutover/behavior.ts` (four no-write reasons)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-Docs:
+**Docs**
 
 - `proof/README.md`
 
 ### Pull request 12: Menus, navigation and search settings
 
-Nova source:
+**Nova source**
 
 - `lib/domain/forms.ts`
 - `lib/domain/modules.ts`
@@ -1223,7 +1120,7 @@ Nova source:
 - `lib/domain/predicate/simplify.ts`
 - `lib/commcare/session.ts`
 - `lib/commcare/expander.ts`
-- `lib/commcare/compiler.ts` (the local suite reads a case type from `moduleCaseTypeForActions`)
+- `lib/commcare/compiler.ts` (`moduleCaseTypeForActions`)
 - `lib/commcare/formLinkProjection.ts`
 - `lib/commcare/previousTaskProjection.ts`
 - `lib/commcare/localeFile.ts`
@@ -1233,7 +1130,7 @@ Nova source:
 - `lib/commcare/hqShells.ts`
 - `lib/commcare/hqJson/caseList.ts`
 - `lib/commcare/types.ts`
-- `lib/commcare/validator/hqJsonOracle.ts` (block 10's spellings and the search button label)
+- `lib/commcare/validator/hqJsonOracle.ts` (block 10's spellings; the button label)
 - `lib/commcare/validator/errors.ts`
 - `lib/commcare/validator/gate.ts`
 - `lib/commcare/validator/rules/form.ts`
@@ -1307,20 +1204,21 @@ Nova source:
 - `lib/agent/authoring/output.ts`
 - `lib/agent/translation/translator.ts`
 - `lib/models.ts`
-- `lib/notices/` (this pull request's reasons and their renderers)
+- `lib/notices/` (the reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/commcare/surface/__tests__/reservedInputNames.test.ts` (new)
 - `lib/commcare/__tests__/` (the emission and rule tests)
 - `lib/commcare/__tests__/hiddenFromMenu.validation.test.ts` (new)
 - `lib/commcare/__tests__/searchEmissionFixture.ts`
 - `lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts` (moved to `postSubmitMenuShape.test.ts`)
-- `lib/doc/mutations/__tests__/postSubmitMenuShape.test.ts` (new: the renamed `searchFirstPostSubmit.test.ts`)
+- `lib/doc/mutations/__tests__/postSubmitMenuShape.test.ts` (new: the renamed test)
 - `lib/doc/__tests__/multiplayerMerge.test.ts`
 - `lib/doc/__tests__/mutations-modules.test.ts`
 - `lib/preview/app-tests/__tests__/journey.postgres.test.ts`
 - `components/preview/__tests__/formScreenAfterSubmit.test.ts`
+- `components/preview/screens/__tests__/noMatchesForm.test.ts`
 - `e2e/lib/formLinksSeed.ts`
 - `e2e/lib/caseChangesSeed.ts`
 - `e2e/lib/previousTaskSeed.ts`
@@ -1335,7 +1233,7 @@ Nova tests named outright:
 - `lib/agent/__tests__/lookupAuthorBoundary.test.ts`
 - `lib/agent/authoring/__tests__/schema.test.ts`
 
-The lane:
+**The lane**
 
 - `proof/targeted/documents/hiddenFromMenu.ts` (new)
 - `proof/targeted/documents/searchApps.ts` (loses the button-label maker)
@@ -1360,24 +1258,24 @@ The lane:
 - `proof/webapps/test_search.py`
 - `proof/webapps/conftest.py`
 - `proof/corpus/footprint.ts`
-- `proof/timings.json` (the new document's groups, and the deleted one's)
+- `proof/timings.json` (a document's groups enter, another's leave)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/test-schema.ts` (`addFormLinks` and `updateFormLink`, registered here; the `configureCaseList` prompt)
+- `scripts/test-schema.ts` (registers `addFormLinks`, `updateFormLink`; the `configureCaseList` prompt)
 - `scripts/lib/hqRoundTripCutover/steps/` (this pull request's steps)
 - `scripts/lib/hqRoundTripCutover/transform.ts` (registers the steps)
 - `scripts/lib/hqRoundTripCutover/behavior.ts`
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-Docs:
+**Docs**
 
 - `proof/android/README.md`
 - `proof/README.md`
 
 ### Pull request 13: Publish gates
 
-Nova source:
+**Nova source**
 
 - `lib/deployment/preflight.ts`
 - `lib/deployment/service.ts`
@@ -1393,7 +1291,7 @@ Nova source:
 - `lib/commcare/projectSpaceCompatibility.ts`
 - `lib/commcare/hqShells.ts`
 - `lib/commcare/types.ts`
-- `lib/commcare/expander.ts` (`APP_SHELL_KEYS` loses `build_spec`; `readsLocationsFixture` moves out)
+- `lib/commcare/expander.ts` (`APP_SHELL_KEYS` loses `build_spec`)
 - `lib/commcare/locations/readsLocationsFixture.ts` (new)
 - `lib/commcare/versionFloor.ts` (`compareToVersionFloor`)
 - `lib/commcare/hq/appSource.ts` (`cloudcareEnabled`, `logoRefs`)
@@ -1445,23 +1343,23 @@ Nova source:
 - `lib/models.ts`
 - `lib/notices/` (the three reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/deployment/__tests__/publishGates.postgres.test.ts` (new)
 - `lib/deployment/__tests__/confirmations.postgres.test.ts` (new)
 - `lib/deployment/__tests__/publishSequence.postgres.test.ts` (the exact-key expectation)
 - `lib/commcare/__tests__/targetLogoRefs.test.ts` (new)
-- `lib/commcare/__tests__/compilerEvidence.ts` (`checkCompilerEvidence` gains four assertions)
+- `lib/commcare/__tests__/compilerEvidence.ts` (four new assertions)
 - `lib/commcare/__tests__/hqJsonOracle.test.ts` (loses its `logo_refs` block)
 - `lib/commcare/__tests__/projectSpaceCompatibilityProbe.test.ts`
 - `lib/commcare/__tests__/projectSpaceCompatibilityTransport.test.ts`
-- `lib/commcare/surface/__tests__/gates.test.ts` (the new structural test of the flag probe)
+- `lib/commcare/surface/__tests__/gates.test.ts` (the new structural test)
 - `lib/domain/__tests__/mediaRefDescribe.test.ts` (loses that function's cases)
 - `e2e/tests/browser/publishing.spec.ts`
 - `e2e/lib/publishing-boundary.ts`
 - `lib/mcp/__tests__/` (the tools' Postgres tests)
 
-The lane:
+**The lane**
 
 - `proof/corpus/publish.ts`
 - `proof/corpus/targetPeer.ts` (`buildSpecVersion`)
@@ -1488,20 +1386,20 @@ The lane:
 - `proof/walk-stops.json`
 - `proof/fixed-defects.json`
 - `proof/controls/expander-form-links-emission-emits-hq-form-links-with-3555b968-0/` (removed)
-- `proof/timings.json` (the removed control's group leaves)
+- `proof/timings.json` (the removed control's group)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
-- `scripts/lib/hqRoundTripCutover/notice.ts` (the three deployment lines)
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
+- `scripts/lib/hqRoundTripCutover/notice.ts` (three deployment lines)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests)
 
-Docs:
+**Docs**
 
 - `proof/README.md`
 
 ### Pull request 14: Lookup, CSQL, media and the model clean-up
 
-Nova source:
+**Nova source**
 
 - `lib/lookup/` (the tag's rules)
 - `lib/deployment/lookupResourcePlan.ts`
@@ -1530,14 +1428,14 @@ Nova source:
 - `lib/domain/casePreload.ts`
 - `lib/domain/effectiveCaseTypes.ts`
 - `lib/domain/multimedia.ts`
-- `lib/domain/fields/` (the ten input kinds lose `validate_msg_media`)
+- `lib/domain/fields/` (ten kinds lose `validate_msg_media`)
 - `lib/domain/fields/base.ts`
 - `lib/domain/fields/hidden.ts`
 - `lib/domain/fields/file.ts`
 - `lib/domain/fields/index.ts`
 - `lib/commcare/predicate/` (the predicate emitters)
 - `lib/commcare/predicate/runtimeCsqlDateSafety.ts` (new)
-- `lib/commcare/suite/case-search/xpathQuery.ts` (no prompt validation for the blank-comparand obligation)
+- `lib/commcare/suite/case-search/xpathQuery.ts` (the blank-comparand obligation)
 - `lib/commcare/constants.ts`
 - `lib/commcare/hqShells.ts`
 - `lib/commcare/types.ts`
@@ -1559,9 +1457,9 @@ Nova source:
 - `lib/doc/mutations/fields.ts`
 - `lib/doc/hooks/useBlueprintMutations.ts`
 - `lib/preview/engine/searchInputValidation.ts`
-- `lib/preview/engine/caseDataBinding.ts` (a search under the blank-comparand obligation finds nothing)
+- `lib/preview/engine/caseDataBinding.ts` (the blank-comparand obligation)
 - `lib/preview/engine/formPresentation.ts`
-- `components/preview/form/` (the field and row components that drew the removed media)
+- `components/preview/form/` (the components that drew the removed media)
 - `components/preview/form/newFieldDefaults.ts`
 - `components/preview/form/InteractiveFormRenderer.tsx`
 - `components/builder/PublishDialog.tsx`
@@ -1591,9 +1489,9 @@ Nova source:
 - `lib/mcp/tools/uploadMediaAsset.ts`
 - `lib/mcp/errors.ts`
 - `lib/models.ts`
-- `lib/notices/` (this pull request's reasons and their renderers)
+- `lib/notices/` (the reasons and their renderers)
 
-Nova tests named outright:
+**Nova tests named outright**
 
 - `lib/case-store/migrations/__tests__/lookupTables.postgres.test.ts`
 - `lib/commcare/surface/__tests__/manifest.test.ts`
@@ -1603,18 +1501,18 @@ Nova tests named outright:
 - `lib/commcare/__tests__/constraintMessageEmission.test.ts`
 - `lib/commcare/__tests__/reservedInstanceTags.test.ts`
 - `lib/commcare/__tests__/mediaSuiteOracle.test.ts`
-- `lib/commcare/__tests__/hqLookupTables.test.ts` (its peer serves the lookup-upload answers pull request 4 retained)
-- `lib/media/__tests__/fixtures/` (one file per new format and each near miss)
+- `lib/commcare/__tests__/hqLookupTables.test.ts` (reads pull request 4's retained answers)
+- `lib/media/__tests__/fixtures/` (a file for each new format and near miss)
 - `lib/media/__tests__/bmpFixtures.ts` (new)
-- `lib/preview/engine/__tests__/constraintMessages.test.ts` (follows the constraint message fixture)
+- `lib/preview/engine/__tests__/constraintMessages.test.ts` (follows the fixture)
 - `e2e/tests/browser/media-play.spec.ts` (new)
 - `e2e/tests/browser/media-transport.spec.ts`
 - `e2e/tests/browser/publishing.spec.ts`
 
-The lane:
+**The lane**
 
 - `proof/targeted/documents/timeOrdering.ts` (deleted)
-- `proof/targeted/documents/` (the documents this pull request rewrites)
+- `proof/targeted/documents/` (the rewritten documents)
 - `proof/targeted/index.ts`
 - `proof/checks/manifest_value_classes.py` (`time_operand`; the protected-message reader)
 - `proof/checks/test_manifest_value_classes.py`
@@ -1631,7 +1529,7 @@ The lane:
 - `proof/formplayer/test_search.py`
 - `proof/formplayer/conftest.py`
 - `proof/formplayer/apps.py` (`with_the_media_slots`)
-- `proof/formplayer/media_slots/` (new: the two forms kept as the emitter wrote them before this pull request)
+- `proof/formplayer/media_slots/` (new: the two forms as emitted before)
 - `proof/webapps/test_media_slots.py`
 - `proof/android/predicates.py`
 - `proof/android/decode/DecodeProbe.java` (new)
@@ -1650,9 +1548,9 @@ The lane:
 - `proof/corpus/__tests__/publish.postgres.test.ts` (the lookup refusal's cases)
 - `proof/surface/families/authored.py`
 - `proof/walk-stops.json`
-- `proof/timings.json` (the groups of the documents and controls added or removed)
+- `proof/timings.json` (groups added and removed)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
 - `scripts/test-schema.ts` (the `attachFieldMedia` prompt)
 - `scripts/lib/hqRoundTripCutover/steps/` (this pull request's steps)
@@ -1663,60 +1561,168 @@ Scripts and the cutover:
 - `scripts/lib/hqRoundTripCutover/notice.ts`
 - `scripts/lib/hqRoundTripCutover/report.ts`
 - `scripts/rollout/verify-runtime-packages.mjs`
-- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (the modules' tests and fixture expectations)
 
-CI and config:
+**CI and config**
 
 - `playwright.config.ts` (the `browser-webkit` project)
-- `.github/workflows/ci.yml` (the smoke job installs WebKit and runs both projects)
+- `.github/workflows/ci.yml` (the smoke job runs WebKit too)
 
-Docs:
+**Docs**
 
 - `proof/README.md`
 
 ### Pull request 15: Contracts and public docs
 
-The lane:
+**The lane**
 
 - `proof/checks/registers.py` (`OPEN_DEFECTS`, new)
 - `proof/checks/test_registers.py` (`test_every_live_defect_is_a_later_steps`)
 - `proof/timings.json` (refreshed in both profiles)
 
-Docs:
+**Docs**
 
-- `CLAUDE.md` (the root file and the subtree files: every row of Contract sentences step 2 rewrites not already moved)
+- `CLAUDE.md` (root and subtree files; Contract sentences step 2 rewrites)
 - `docs/architecture/contracts.md`
 - `content/docs/` (Public docs that change)
-- `docs/plans/hq-round-trip/` (the sibling plans' edits)
+- `docs/plans/hq-round-trip/` (the sibling plans)
 
 ### Pull request 16: Removal of the cutover tooling
 
-The lane:
+**The lane**
 
 - `proof/hq/test_retained_reads.py` (the `cutover` group leaves)
 - `proof/hq-reads/cutover/` (deleted)
 
-Scripts and the cutover:
+**Scripts and the cutover**
 
 - `scripts/scan-hq-round-trip-cutover.ts` (deleted)
 - `scripts/migrate-hq-round-trip-cutover.ts` (deleted)
-- `scripts/lib/hqRoundTripCutover/` (deleted, with its tests and fixtures)
+- `scripts/lib/hqRoundTripCutover/` (deleted, with tests and fixtures)
 - `scripts/rollout/deploy-cloud-run.py` (the Job's arm)
 - `scripts/infra/` (the Job's cases)
 
-CI and config:
+**CI and config**
 
-- `biome.json` (the line that leaves the committed fold out of lint)
+- `biome.json` (the fold's lint exclusion leaves)
 - `Dockerfile` (the Job's `esbuild` line)
 - `config/deployment-jobs.json` (the Job)
 
-Docs:
+**Docs**
 
 - `scripts/README.md` (the Job's line)
 - `docs/architecture/deployment.md` (the Job's paragraph)
 - `docs/plans/hq-round-trip/2-cutover-runbook.md` (deleted)
 - `docs/plans/hq-round-trip/2-emission-and-publish.md` (deleted)
 - `docs/plans/hq-round-trip/2-emission-and-publish/` (deleted)
+- `proof/README.md` (the retained reads' `cutover` clause)
+
+## What every pull request of the stack does
+
+- A pull request that changes a stored shape adds its transform step under `scripts/lib/hqRoundTripCutover/steps/`, registers it in `transform.ts`, adds its notice reason and renderer, and adds its expectations over the frozen pre-step fixtures, all in that pull request. At every point of the stack the migrate script is therefore complete for the shape that point reads, which is how "a stored-shape change never merges without its migration" holds inside a stack that merges together. A pull request whose change stores nothing and still gets a line adds its reason's selection function to `scripts/lib/hqRoundTripCutover/behavior.ts` in the same way, and one whose reason is a deployment's adds its line to `notice.ts`. The Job's own steps land with their owners: the deployment reads and the matcher in pull request 3 (`hqRead.ts`, `matching.ts`), the baseline reads and writes in pull request 4 (`writer.ts`), and the lookup tag rename in pull request 14 (`lookupTags.ts`). Part 10, Scripts and their layout, gives each module's pull request.
+- `transform.ts` holds the steps in one fixed order, which is not the order of the pull requests: `language-wire-codes`, `media-slots`, `hidden-inert-default`, `search-button-label`, `question-ids`, `case-operation-ids`, `connect-ids`, `connect-task-forms`, `entry-point-ids`, `option-values`, `option-labels`, `empty-forms`, `unsupplied-session-reads`, `reserved-search-inputs`, `time-ordering`, `hidden-from-menu`, `post-submit`, `id-mapping-keys`, `date-patterns`, `tile-hidden-calculated-sort`, `sort-property-ownership`, `tile-cells`, `app-settings`. A pull request inserts its step at that position, never at the end. The order is identity additions, then removals, then renames (later steps name questions), then semantic moves, then case lists, then the one step that takes values read from HQ. That order is part 10's (The transform steps, in order), which is the registry; where the two lists ever differ, part 10's holds. `option-labels` follows `option-values`, so a filled label is the value the option keeps. `time-ordering` runs before `hidden-from-menu`: the first only replaces comparisons and writes no flag, and the second, the only step that sets the flag, must see every `match-none` the first wrote. The table's step column gives each step id with the notice reasons it mints in brackets; a "no-write" reason is a line for a change that stores nothing (part 10, Changes that write nothing and still get a line), and each reason's copy is where part 10's reason tables say it is.
+- A fix moves its entries to the fixed register and retires its rule (the module, its test, its reader tests, its import and its `RULES` line) in its own pull request. One reader test a retired rule names stays, because registered entries rest on it too (part 09, The spelling rules, row 20).
+- A pull request that removes a document, or whose fix removes the cause of a held walk stop, changes that stop's entry in `proof/walk-stops.json` in the same change: to the control that still shows it, or out of the list where none does. A pull request that retains a control under another name from a document that holds a stop adds that control's entry. The list names only documents the corpus holds and directories `proof/controls/` holds (part 09, The held walk stops, gives each of the 33 its disposition).
+- A validator narrowing runs the corpus emission first (no Docker), diffs `index.json`'s document ids before and after, and rewrites or removes each document it refuses (part 09, Corpus changes). An expander document's id is built from its test's title and its index among that test's documents (`proof/corpus/documents.ts::readExpanderCapture`), so retitling a test in `lib/commcare/__tests__/expander.test.ts` renames documents.
+- A pull request writes `lib/commcare/surface/entries/gates.json`'s `effects` again when its sensitivity check fails on a difference a flipped gate made that the effects do not name, and when it adds or removes a gate entry. Each pull request that changes an emitter, adds a corpus document or changes a gate entry therefore runs the sensitivity check whole and fresh on a proof machine before it pushes, and writes the effects from that run where the check fails so (`python3 -m proof.checks.sensitivity effects <output>/blocks/* --corpus <output>/corpus`), committing them with the diff reviewed; where the check passes it commits nothing. Part 09, Where the lane runs, gives the command and the two other routes. Pull request 13 is the one that also edits gate entries' `content`.
+- A pull request that adds or deletes a control directory, or a corpus document, updates `proof/timings.json` in each profile that holds the group: a new group is measured in, a deleted one removed (part 09, Corpus changes, names each). A document's groups are in both profiles. A control's is in the `readers` profile alone where every entry that names it is a served reader's, as 15 of the lane's 84 are. A test added to a package or taken out of one changes no group, since a module runs in its package's group unless `proof/checks/sharding.py::SPLIT` names it: so the `cutover` group of `proof/hq/test_retained_reads.py` edits nothing in `proof/timings.json` when it arrives in pull request 3 or leaves in pull request 16, and pull request 15's refresh measures the package with it (part 10, Block: the cutover, Files).
+- From pull request 3 the lane writes every file under `proof/hq-reads/` again on each run and holds the committed copy to it byte for byte (`proof/hq/test_retained_reads.py`, and from pull request 4 `proof/editors/test_retained_reads.py`). A pull request that changes a byte Nova publishes for a document those reads are made of, or the ownership descriptor beside them, therefore commits the files again in that pull request: it copies `.proof/out/blocks/<id>/hq-reads/` over `proof/hq-reads/` and reviews the diff against what its own change sends (part 09, The retained HQ reads for the drift comparator; part 02, The retained HQ reads). Pull request 5 is the first, with `navigation-base`'s read after the Add-ons save and its `ownership.json` (part 04, Defect 4). A difference the pull request's change does not explain is a failure to find, never a file to commit. The legacy upload bodies under `proof/hq-reads/cutover/<document>/legacy/` are the pre-step emitter's and are never written again (part 10, The proofs that carry the cutover).
+- A pull request that changes the name, the description or the input schema of a tool the Solutions Architect is offered, or the authoring guide, bumps `lib/models.ts::MODEL_CONTEXT_VERSION` in that pull request. Item 13 of the checklist below lists the nine that do and the value each sets.
+- A pull request that changes what the billed schema check sends says so in its fix's block. The check is `npm run test:schema`, which bills one live OpenAI request for each schema it sends, so no pull request of the stack runs it at its own head. It is asked for once for the stack, at the head of pull request 14 after the last tool edit, as one question that gives the number of billed requests and names each schema; on a yes the implementer runs `npm run test:schema -- <schema name>` once per named schema, which bills one request per named schema and none for any other. The model-addition checklist, item 14, is the one statement of what the check sends, of the 20 schemas the question names, of the pull request that registers each new one in `scripts/test-schema.ts`, and of the question's words. Reason: the stack deploys once, so only the tool definitions at its top reach the provider, and a per-pull-request ask would bill the same schemas again at each later head. A schema the provider refuses is fixed in the pull request that owns it and the question is asked again for that schema alone.
+- No pull request of this step adds an `/api` route (`/api/compile` and `/api/commcare/upload` gain inputs). A route added during implementation needs its `lib/hostnames.ts` allowlist entry in the same pull request, or the proxy answers 404 in production while localhost serves it.
+
+## Ordering constraints
+
+| Constraint | Reason |
+|---|---|
+| The proof lane's own pull request merges onto `main`, at `7b153dc3` or later, before the stack is cut | Every count of this plan is of the register that pull request merges, and its pull request lane, nightly, weekly and `proof/remote/` are how every pull request below proves itself |
+| Lane mechanics is first | A fix cannot move an entry to a register that does not exist, and a control must be retained from the pre-fix corpus. Findings 56's, 57's, 70's and 71's controls and finding 43's `parsererror` control can only be captured before the fixes that silence them, and so can the second menu of `targeted-shared-property-sort`, whose pre-fix bytes its control must hold |
+| `targeted-hq-side-state` is split in pull request 1 | Its entries need a republish (B) to land. Defect 5's refusal is the one stop with no discard, so with the table on its own document (`targeted-hq-side-lookup`) the other 14 entries never lose B. Defect 5 is still last among the fixes |
+| The frozen pre-step fixtures are captured in pull request 2, before any shape change | They are the only witnesses of the old shape once the tree's fixtures change. Pull request 1 changes no emitter, so capturing after it loses nothing. The frozen fold (`scripts/lib/hqRoundTripCutover/prestep/prestepFold.generated.mjs`) is built there too, from the last tree that holds the pre-step reducer and schema: pull request 3 changes the mutation dialect and deletes the fold's entry, build script and inputs test, and a rebase that changes one of the fold's inputs rebuilds it in pull request 2 (part 10, The matching algorithm, "The fold is the pre-step one, frozen") |
+| The source read and the floor's constant (3) before their readers (4, 5, 13) | `readHqAppSource` and `lib/commcare/versionFloor.ts` are created in pull request 3. Pull request 4 reads the source's `raw` for the comparison, pull request 5 adds the overlay's typed fields and reads the floor for the local profile, and pull request 13 adds `compareToVersionFloor` and, on `HqAppSource`, `logoRefs` and `cloudcareEnabled`. Each extends the one type; none makes a second read |
+| The shell's drift exemption lands with drift (4) | From pull request 4 a changed target stops the publish. The version floor's own next step is to raise the CommCare version on the shell in HQ, so without the exemption (origin `create` compares only `modules`) that step would always be followed by a discard prompt. A failed read after the create still records origin `unread`, which stops |
+| Ledger tables (2) before the behavior that reads them (3, 4, 5, 13) | `remote_missing_at` and its backfill must exist before any publish can create a shell: without it the retry of a failed first update takes the create path and makes a second HQ app (`lib/deployment/resources.ts::plannedInPlaceUpdate`). Pull request 4 reads and writes the baseline tables, pull request 5 reads the empty-list text flag into `app_deployments.target_empty_case_list_text`, and pull request 13 writes the confirmation store and `offered_logo_content_hash` |
+| Drift (4) carries the capture's confirmed discard for `hqSide` documents | From pull request 4 a republish over an HQ-side change stops; the documents that need B must confirm the discard in the same pull request or their entries stop showing |
+| Drift (4) before app-level emission (5), with the owned-key sets behind one descriptor | The comparison reads the baseline's own ownership descriptor (`lib/commcare/appOwnership.ts::appOwnershipOf`), so pull request 5 extending the owned keys changes no stored baseline's meaning. Pull request 4 writes the descriptor's producer with today's sets; pull request 5 replaces that producer with the `ownership` `lib/commcare/targetOverlay.ts::projectApplicationForTarget` returns, deletes `appOwnership.ts`, and narrows the comparison of `translations` from the whole map to the owned-key predicate. No consumer names the producer |
+| Wire codes (3) before the sort spellings (11) | A sort element's `display` is keyed by the first language's HQ code; `sort_display_empty` retires only once that code is stored |
+| Wire codes and the reached targets (3) before app-level emission (5) | The local profile's `cur_locale` is the first language's stored wire code (`localization.wireCodes`; part 04, Finding 39), and finding 65's download path hands the chosen target's empty-list flag through `lib/deployment/downloadTarget.ts::resolveDownloadTarget` and `lib/deployment/store.ts::readReachedDeploymentTargets`, both written in pull request 3 (part 04, Finding 65) |
+| The empty-list text (5) before finding 41 (11) | Finding 41's HQ JSON text reads the one constant `lib/commcare/suite/case-list/detailTexts.ts::EMPTY_CASE_LIST_TEXT`, which pull request 5 writes (part 04, Finding 65; part 06, 12. Finding 41) |
+| `setAppSettings` (5), the stack's one new mutation kind, as early as its feature allows | A new kind rebalances the fixed producers' edit batches (`proof/corpus/editKinds.ts::EDIT_KIND_GENERATORS`), and a document's configurations follow its edit. Executed during planning on the lane's branch with main merged: the kind moves the edits of 107 documents and changes no register outcome; pull request 10's removal of two documents then moves 28 documents' edits and one entry's document, `d14-logos-media-unmatched-logo-refs` (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds) |
+| The working submit (3) before the fixes that own what it shows (5, 6, 9, 11) | From pull request 3 the local archive's submit reaches HQ, and Formplayer's record then shows nineteen classes at paths the owners' entries do not name. No control that exists shows them, since a pre-fix archive cannot submit. So pull request 3 registers them and retains nine `-after-59` controls from its own corpus, after A5's bytes and before those fixes; each owner in this stack moves its entry with its own, pull request 5 deletes the two version entries, the first with `targeted-hq-side-state-after-59`, and defect 24's five stay live on their controls, step 5's (part 01, A5) |
+| Defect 9 (5) before defect 15 (10) | On `targeted-invalid-question-ids` defect 9's two unpinned proof 1 entries hold `/installs/*` and `/update` today, where HQ's build does not install on Android and the local archive does. Pull request 5 moves both to the fixed register, the update entry under its judge change, so it registers those paths as defect 15's, three entries pinned to their values, on `targeted-invalid-question-ids-after-9`, retained at its head. Pull request 10, where HQ's build of the document installs, moves them (part 04, Defect 9) |
+| Finding 34 (5) before defect 15 (10) | `d34-connect-location-trace-meta-location` sits on `targeted-invalid-connect-ids`, which defect 15 rewrites, and its control `connect-location-capture` is retained from that document's pre-fix bytes as pull request 5's first commit. The rewrite keeps it a Connect app |
+| Finding 62 (5) before defect 15 (10) | `d62-incomplete-forms-tile-webapps-app-settings-screens-tiles-incomplete` is pinned to `targeted-invalid-question-ids` and stops showing there once defect 15's rewrite lets the client's walks leave the first screen, so pull request 5 moves it before the document is rewritten (part 08, Defect 15, Lane) |
+| XForm first part (6) before the rename (7) | 18 of pull request 6's entries (12 leaf-constraint, 4 datetime-leaf and 2 shadow entries) hold `__nova_` in their paths. A fixed entry must show on its control, and a control keeps its pre-fix bytes, so each is fixed while its document still spells the old path |
+| The Android corpus package (6) before its users (7, 9, 11, 12) | Pull request 6 writes `proof/android/conftest.py` with `DOCUMENTS` and makes `proof/android` a package that reads the corpus (`proof/store/queue.py::PACKAGE_DATA`, `proof/lane/blocks.py::CORPUS_PACKAGES`). Pull requests 7, 9, 11 and 12 each add their documents to that list (part 05, Reader tests this part adds, "How the Android tests run") |
+| XForm first part (6) and the rename (7) before identifiers (10) | Pull request 6 deletes `proof/rules/test_connect_work_area_empty.py` with its rule, so finding 61 has no rule test to change. Pull request 7 deletes the `reserved_prefix` arm of `lib/doc/identifierVerdicts.ts::formatVerdict`, the code `RESERVED_FIELD_ID_PREFIX` and the `__nova_` refine of `operationIdInputSchema`, in whose place pull request 10's verdicts and refines stand (part 08, Defect 15, Finding 43 and Finding 61) |
+| The root keyed create (7) with the groups | Its one-row repeat's control sits inside the `nova_operations` control, which exists only once the containers are groups (part 05, Order the parts land in). `case-operation-key` keeps its root keyed create, and its 15 guard-block entries stay on it through pull request 6 and move in pull request 7 |
+| Finding 46 and defect 14's data node name share pull request 6 | Each fix needs the other: both write the default-language form name, one into `<h:title>` and one into the data node's `name` |
+| Defect 3 (8) after the restructure (7) | The keys of `case_references_data.save` are the wrapper paths the restructure moves, and proof 4's entry empties only once Vellum keeps the containers. Its two intent entries are unpinned and also hold `case-capture-multiple`, where an attachment under a Save to Case block stays unlearned after the fix, so pull request 8 registers those two classes as defect 23's on a control it retains (part 04, Defect 3) |
+| The comparison with Vellum's computation (5) before defect 3 (8) | `proof/checks/manifest_value_classes.py::save_differing_from_vellum` is written in pull request 5, where no form of the corpus reaches it, and first decides a form in pull request 8, where every form holding a Save to Case block stores its derived map (part 04, Defect 3) |
+| Work item H's entries move with findings 45 and 47 (6) | With no `#case/` hashtag in any export the warning cannot occur; the document, its control and its two entries are on the lane's branch, so nothing of work item H precedes pull request 6 in the stack. Pull request 6 also rewrites `proof/README.md`'s two rows for the clause, and no later pull request records anything for it. Defect 3's fix needs no order against finding 47's |
+| The rename (7) keeps later-step entries on `-after-13` controls | The six old control directories keep the pre-fix bytes that defect 13's, defect 14's, finding 33's and finding 37's fixed entries need, so they are never retained again. Defect 23's and 24's live entries move to six controls retained under new names, which no fixed entry names, and two of which, `case-extension-query-after-13` and `case-extension-repeat-after-13`, pull request 9 retains again in place |
+| The moved close (9) after the rename (7) | It writes into `nova_operations` and a `nova_condition_` group and takes its names from `planGeneratedNodes` |
+| Finding 33 (9) before the case-list sort rewrite (11) | Three of its entries sit on `expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0`, a document the sort tests produce. Pull request 11 also keeps that test's title and count, so findings 35 and 36 keep their document |
+| Case lists (11) before menus and search settings (12) | Both edit `lib/commcare/hqJson/caseList.ts`; the sort and carrier rewrite goes first so the later edits land on the plan-driven shape. Finding 41's entries move in 11 with the empty-list text, which `localization-optional` shows through pull request 10 |
+| Tiles and finding 42 (11) before the tile gate (13) | The gate removes `targeted-custom-tile`'s `CASE_LIST_TILE` named configuration (`proof/corpus/entryWriter.ts` throws for a configuration the verdict refuses). Pull request 11 moves defect 14's and finding 42's tile entries and registers the thirteen classes the Case List save under `CASE_LIST_TILE` still shows as defect 12's, on their own control, so pull request 13 moves defect 12's 48 entries together and strands nothing |
+| Emitters (7, 9, 11) before publish gates (13) | The plan-feature list reads the emitters' own predicates (which forms emit Save to Case, which lists are tiles), and moved close conditions widen who needs `save_to_case` |
+| Identifiers (10) before publish gates (13) and before the media slots (14) | Pull request 13 adds its section to `content/docs/commcare-connect.mdx`, the page pull request 10 creates (part 03, C8). Pull request 14's media-slot tests write a form over a published app through `proof/formplayer/apps.py`'s `form_written`, which pull request 10 adds (part 08, Defect 16: three media slots leave the model, Lane) |
+| Drift (4) and the republish statement (5) before defect 5 (14) | Defect 5's refusal reads the client changes and the retained upload answers pull request 4 wrote (`lib/commcare/hq/lookupTables.ts`, `proof/hq-reads/lookup-upload/`), and its document states `republish: "stops"` with a `stopCode`, the third value `proof/corpus/documents.ts::HqSideSaves.republish` declares from pull request 5 (part 02, Defect 5: the lookup push) |
+| `hiddenFromMenu` (12) before defect 6's migration (14) | `time-ordering` (registered by pull request 14 before `hidden-from-menu` in `transform.ts`) only replaces comparisons with `match-none` and writes no flag. The `hidden-from-menu` step, which pull request 12 adds, is the only step that sets the flag, and it then sets it on every display condition that is, or starts with, a `match-none` the earlier step wrote. That step and the `hiddenFromMenu` slot must therefore exist before pull request 14 lands, or defect 6's migration would leave a display condition the shape rule refuses |
+| `targeted-search-hq-compile` is edited three times, in 9, 12 and 14 | 20 entries of four fixes name it as their document (defect 14's non-writing follow-up 3 and search settings 5, defect 6's 9, finding 48's 3). Each pull request removes its part and keeps the document admitted. Pull request 12 removes its `include_closed` input with its case property and leaves its `owner_id` input as written, the one free-text input it keeps: finding 48's entries read that input's quote cascade until pull request 14, and pull request 14's witness keeps it. Its follow-up form stays through all three edits: pull request 9 moves the three non-writing follow-up entries and the form then stands as the passing witness |
+| `POST_SUBMIT_NOT_OFFERED` exempts a fallback beside form links until step 5 | Otherwise `targeted-form-links-hidden-and-fallback`, the document of defect 26's live entries, becomes inadmissible in pull request 12 |
+| `nova_count_` keeps reading as `*` in `proof/checks/compare/names.py` | Defect 30's four entries run through a count node; the rename must not start keeping that name literally |
+| Each pull request is green on its lanes at its own head | Removing one fix's entries can leave another entry holding nothing on its document, which `proof/checks/registers.py::reconcile` refuses |
+| The removal (16) differs from 15 only in tooling paths | The gate that migrated must be the gate the deploy's probe runs (`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`). It touches nothing under `lib/domain`, `lib/commcare/validator`, `lib/doc`, `lib/db` or `lib/case-store/migrations`, and under `proof` only the lane's `cutover` group, which it removes (row 16; part 10, Removal) |
+
+What the planning runs settled about the stack, each stated in its block:
+
+- **Finding 52's control** shows both classes with `vellum_alert` retired, so pull request 1 writes its two fixed entries (part 09, The fixed-defect register and finding 52's orphaned control).
+- **`d41-empty-list-text-app-no-items-text`** still shows on `localization-optional` after pull request 6's translation fill, which does not touch a stored short detail's `no_items_text`; it moves in pull request 11 with finding 41. From pull request 5, where Nova writes only the add-ons an app needs, finding 41's two entries that run without the readers already stop showing on four survey-menu documents, since HQ's menu page then shows a survey menu its Advanced panel only where the app needs one of two add-ons or the project space holds `CUSTOM_ASSERTIONS` or `MOBILE_UCR`, which no lane configuration does; neither entry goes unseen (part 04, Defect 4; part 05, Blank translations; part 06, 12).
+- **Later-step entries a step 2 fix touches.** Defect 27's three and defect 25's two stand at their paths at pull requests 6 and 9; defect 25 gains 62 classes once the saved form builds, registered live in pull request 6; defect 24's five trace and three Formplayer entries stand at pull request 9, which registers 6 new classes finding 37's block order draws and moves the one entry filed under defect 24 that is finding 37's own, `d24-inert-subcase-formplayer-local-ccz-item-id-order`; defect 23's 70 move path in pull request 7, read from its run's evidence; finding 68's 31 lose one in pull request 3, where one derived `xmlns` leaves two pinned entries one difference to hold, and the other 30 leave every corpus document in pull request 10 and move to the fixed register (part 09, The entries that remain).
+- **Every document at once.** Without the readers, over every document of the lane's branch with main merged, at one state holding pull request 5's edit kind and finding 65's emitter, pull requests 6, 7 and 9, and pull request 12's label: no class shows that this plan does not already assign, and no entry of a later step goes unseen (part 09, The entries that remain).
+- **The rebalancing with every reader.** On the merged branch, with pull request 5's edit kind, each of the 62 reader entries pinned to a document whose edit moves keeps showing, the four `setAppSettings` documents show no reader class, and no document whose configurations change shows a class no entry holds; with pull request 10's removal on top the same holds for its 13 documents, the logo entry apart. The moved documents no reader entry is pinned to are in no pull request's reader slice and are held with every reader at the stack's top (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds).
+- **The working submit.** Once the local archive's submit reaches HQ in pull request 3, Formplayer's record shows nineteen classes other fixes own. Pull request 3 registers them: twelve leave with their owner's fix, in pull requests 5, 6, 9 and 11, two are deleted with pull request 5's judge change, and defect 24's five stay live past the step. The submission's `path` differs by the app's id alone, which the rule pull request 3 adds reads as one (part 01, A5).
+- **Defect 15's proof 1 classes.** On `targeted-invalid-question-ids` HQ's build does not install on Android and the local archive does, so two proof 1 paths keep differing there once defect 9 is fixed. Pull request 5 registers them as three pinned defect 15 entries on a control of their own, and pull request 10 moves them (part 04, Defect 9).
+- **Pull request 11's emitter, written and run.** The order plan and both emitters were written from part 07 and run without the readers over the whole corpus. Of the 25 entries of part 07's that run without the readers, 23 leave every corpus document that showed their class and stay held on their controls (`d51-sort-keys-trace-rows-sortfields-removed` leaves 187 documents); the other two, `d14-tiles-app-font-size` and `d42-tile-alignment-app-horizontal-align`, keep showing on `targeted-custom-tile` under `CASE_LIST_TILE` alone, the classes pull request 11 files as defect 12's. No entry of another block goes unseen, and with the four sort rules retired proof 4 reports no sort element difference on any document. The emission refuses six fuzz documents until the arbitrary rewrites them, changes no document's edit kind, and changes one batch's target. Then every reader ran on the emitter's bytes over 23 documents and their 17 controls: of the 85 entries of part 07's that the scratch register holds, 75 show on no document of the slice and each is held on its control, and the other ten show on `targeted-custom-tile` under `CASE_LIST_TILE` alone, the ones pull request 11 files as defect 12's; all 17 control groups pass (part 07, What was executed during planning; part 09, Corpus changes).
+- **Pull request 10 over the whole corpus.** Each of its rules was held by the validator and run over every document and every document's edit, the corpus emitted, and all of `proof/checks` run without the readers. Outside the fuzz sample the rules refuse exactly the documents part 08 names, and no document for its edit alone; 23 of the fuzz sample's 24 documents change, each generator mapping its draw and removing none; no rule moves an edit. No entry goes unseen that was seen before, every moved entry that runs without the readers stays held on its control, and no moved class shows on a corpus document. One class showed that no entry held: HQ's form builder's "Unknown question: #form" on three fuzz documents, which is finding 71, fixed in the same pull request (part 08, Finding 71; part 09, Corpus changes).
+- **Pull request 14 over the whole corpus.** The same way, on pull request 10's state. Its rules refuse the six documents its blocks name, `media-only`, 13 of the fuzz sample, and `container-cousins` for its edit alone; no edit kind moves and no configuration changes. Its emitters reach 46 documents the blocks do not name. Without the readers no class shows that no entry holds, every moved entry that runs without the readers stays held on its control, and the mixed-quote class and `time-operand` show on no corpus document (part 08; part 09, Corpus changes).
+- **Pull request 5's three judge changes, written and run.** Each was written with its planted test and run with every reader, each document beside its control. The form-version mapping takes its class off the document and off every control, so its entries are deleted. The update comparison and `settings_replaced` take theirs off the document and leave them showing on the control, so `d9-android-proof1-local-ccz-update-changed` and finding 40's two worker-setting entries move to the fixed register like any other fixed entry (part 04, Defect 9 and Finding 40; part 09, What step 2 moves and deletes).
+- **The lane's packages at each fix's state.** The whole lane without the readers, packages included, ran at the states of pull requests 6 and 7 (together), 8, 12 and 13, and `proof/native` and `proof/rules` at the states of pull requests 10, 11 and 14. Every package run passes whole but eighteen tests, each holding bytes its fix changes and each named in the Files of its part and in its pull request's list under Files, by pull request; pull request 10 breaks none of its own, and pull request 14 breaks three, `CsqlQuoteRuntimeTest`, `proof/native/test_quote_payload.py` and `MediaRuntimeTest` (part 08, What every block below shares; part 09, Where the lane runs).
+- **The derived save map.** With defect 3's derivation implemented and the whole corpus run without the readers, 37 documents hold a save map and no local archive changes; the intent check needs `case_type` as a standard property; and `case-capture-multiple` keeps showing the two intent classes for its attachment, which pull request 8 registers as defect 23's (part 04, Defect 3).
+- **The exit state, every reader.** Planning made the run the stack's top makes, with every fix a scratch chain wrote stacked on the lane's head: every check with every reader over every document and control. Executed during planning, from commit `52a84499` of the scratch branch `proof/plan-settle-main-exit-lane` over its own corpus, with A5's, pull request 5's and finding 65's bytes written in: 360 documents and 93 controls, 5,714 items, every block once. Every entry of a later step, 282, shows on its document, and every fixed entry, 113, on its control. 557 entries of step 2 show on no document; the 19 that still show are held by fixes that run's tree lacked, part 01's A3 and A2 (pull request 3), defect 5's push (pull request 14) and pull request 1's closed allowances. Nine classes no entry holds: pull request 5's seven manifest keys, the local profile's `checkoff` feature and the build-injected `pollsensor`; Connect's `task-completed-nothing` on `targeted-connect-deliver-rename`, which pull request 10's widened allowance drops; and Formplayer's `response/exception` from the local archive of `fuzz-suite-20260930-8`, which shows from pull request 3 and which that pull request's judge change reads (part 01, A5, "What the working submit shows"; executed during planning, with Formplayer, on that document at the exit state with the change: proof 3 passes with no difference). Three live entries on `targeted-hq-side-state` go unseen on that control, which pull request 5 deletes or re-homes. The run's list of walk stops held 30 of the lane's 33 entries, without the two case-search expander documents', which the lane gained after the run's base, and `targeted-supply-point-read`'s, whose document the stack removes. 21 walk stops show, the 21 the list keeps on documents: 20 of the 30, and `targeted-datetime-ordering`'s, which appears and which pull request 1 adds. The other ten held stops no longer occur: nine of the twelve the stack moves or removes beside `fuzz-xform-20260930-10`'s, the three more being the ones the run's list lacked, and `fuzz-xform-20260930-10`'s, which pull request 10 removes. 44 package tests fail, and each has an owner: 39 are their fixes', two of `proof/checks/test_connect_unit.py` are pull request 10's (part 08, Finding 61, Files), two of `proof/lane/test_forkserver.py` are pull request 1's, which gives their nested runs the time two served documents take (part 09, Corpus changes), and the determinism test of `proof/checks/test_connect_unit.py` is pull request 1's: the fault is the lane's own, pull request 13's privilege oracle brings it to that test's document, and pull request 1's change to `proof/observe/unit.py::_build` mends it (part 09, "A build recreated under a stored part"). Executed during planning, the five run again by themselves at that state with every reader: the first four pass as their pull requests write them, and the fifth fails as before, on one leaf. Its cause is read from the code; the change and a test of it that needs no reader are written as scratch; and neither test has run with the change yet (the same block; the main file, "Written and not yet run"). What the run does not hold, and the runs that do, are in part 09, Where the lane runs. The same stack with part 01's A3 as the two imports HQ receives and its A2 as a scratch emitter writes it (commit `16dd7c29` of the scratch branch `proof/plan-settle-true-exit`; no chain wrote the publish sequence's code, A6's import file or A7's capture, so each first publish of the corpus is split by hand into the shell's create and the first update) has run without the readers. Executed during planning, without the readers, every check over its 360 documents and 81 controls, 5,265 items, 118 of them failing: no class shows that no entry holds; `d1-ids-app-unique-id-b812` shows on no document and the two `d1-language-codes-*` show nothing on `targeted-hq-side-state`, each held on its control; every later-step entry that is not a served reader's, 192, shows on its document, and every fixed entry that is not a served reader's, 71, on its control and none on a document; 390 entries of step 2 show on no document and 9 still show, defect 5's seven (pull request 14) and finding 50's two (pull request 1). Of the 118, 82 are a document's or a control's check naming an entry that no longer shows there, 22 are package tests that fail in the same stack without A3 and A2, and 14 arrive with the two imports: `proof/hq/test_branches.py::test_branches_of_one_unit_equal_fresh_states` on its seven documents under both configurations, where HQ stamps a deleted blob's row from Postgres's own clock, and part 01's A7 leaves that column out of the comparison ("This pull request's lane, run without the readers"). So A3 and A2 are held without the readers at that state and, with them, not yet beyond pull request 3's own slice. Its run with every reader is composed and not yet run (part 09, Where the lane runs; `2-emission-and-publish.md`, "Written and not yet run").
+- **The tile block.** Under `CASE_LIST_TILE` the Case List save drops `horizontal_align`, `vertical_align` and `font_size` from every cell with the custom tile. The explicit cell run read `vertical_align` as kept, because the lane then held the rule `tile_vertical_align_start`, which erases `start` against an absent value; pull request 11's emitter run, with the rule retired, shows it removed in the stored app and in Formplayer's styles, and not in the Web Apps client or on Android. So pull request 11 adds thirteen defect 12 entries and pull request 13 moves them (part 07, Tile cells and finding 42).
+
+## House rules for the stack
+
+1. The proof lane's pull request merges first, and the stack is one `gh stack` chain cut from the latest `origin/main` after it and rebased on it before the first pull request opens.
+2. Every pull request is undrafted.
+3. `/code-review medium` runs on each pull request and its findings are fixed there. Where the review's agents sit idle for about a minute with no notification, their findings are collected by hand.
+4. The stack merges together with `gh stack merge <top> --squash`: one push, one deploy. Never pull request by pull request, and never through the merge API. `gh stack merge --squash` lands one squash commit per pull request (observed on #704 to #707 and on #729 and #730), so each pull request, the cutover scripts among them, stays one commit in `main`'s history.
+5. The cutover runs before the merge. The maintenance image is built by hand (`docker build --target maintenance`) from the head commit of pull request 15, the pull request beneath the removal, and the Job is managed from a checkout of that same commit, because the Job contract and the allowlist arm exist only there. The scripts leave `main`'s tip with pull request 16 and stay in its history in pull request 15's commit. The runbook records pull request 15's head commit hash and the maintenance image's digest before the merge.
+6. `main` is frozen from the image build to the merge. A rebase after the image is built changes the tree, so the image is rebuilt and the dry run repeated.
+7. A rehearsal applies the stack's migrations for real (`runCaseStoreMigrationsWithReport` commits outside the rehearsal's rollback). After the first rehearsal a fix to any migration in the stack is a new migration file, never an edit.
+8. The advisory scan runs between 30 hours and three days before the window and writes nothing. It reads HQ with the same credential order as the execute run, so the members whose keys it uses are the same unless membership or a key changed in between. Only the execute run records each member whose key it used, and those rows are what a member is shown; a member whose key only the advisory run used gets no notice line. The runbook states both bounds; the 30 hours let HQ's day counter forget the advisory run's reads (part 10, Pacing).
+9. The capture-cleanup Scheduler job is resumed after the cutover Job commits and before the merge: `scripts/infra/manage-deployment.py::scheduler_findings` requires it enabled, and the deploy's `prerequisites` step fails otherwise.
+10. After the merge the deploy check-run is watched on the merge commit with `gh`: list the commit's check-runs first and build the watch from the app name observed there. Pull request CI being green is not a deploy, and this deploy runs the runtime probe because the stack changes `lib/domain` and the validator.
+11. The `../nova-plugin` change is its own pull request in that repository, cut after the stack's last tool change and merged only after the Nova deploy is live. `version` in `.claude-plugin/plugin.json` goes to the next minor from whatever it holds when the pull request is cut (it holds `2.1.2` at the plugin's `0976b10`, which makes `2.2.0`: new behavior, nothing removed from the plugin's own commands). What the pull request edits was read during planning at `0976b10`, over every prose file the repository tracks: the seven `skills/*/SKILL.md`, `agents/nova-architect-autonomous.md` and `README.md`. `.dev-plugin/` is a generated copy the repository ignores, and nothing there is edited.
+
+    - **`skills/upload_to_hq/SKILL.md`, the sentences step 2 makes false.** All three follow from pull request 3, where a first upload makes the app, empty, before it sends the Project data (part 01, A3. The publish sequence, steps 5 to 8).
+        - Under `hq_upload_failed`: "This also covers CommCare HQ refusing the app's Project data tables or its places, which happens before the app is sent, so the app never went up either." It becomes: "This also covers CommCare HQ refusing the app's Project data tables or its places. That happens before the app's content is sent. On a first upload Nova has by then made the app on the project space, empty, so `get_deployment` reports `hq_app_empty: true` and the next upload fills that same app."
+        - Under `hq_organization_mismatch`: "**Nothing was uploaded.**" holds where the check before the upload finds the mismatch. Where CommCare HQ refuses a place during the upload, a first upload has already made the empty app, so the sentence becomes: "**The app's content was not sent.** If the check before the upload found this, nothing was written. If CommCare HQ refused a place during the upload, a first upload has already made the empty app, and `get_deployment` says what is there."
+        - The paragraph that opens "A `retry_from: "resources"` does not mean nothing was created." gains, before its sentence on places: "On a first upload the app itself is already there, empty, and the next upload fills it."
+    - **The same file, what it gains.** Each is new prose for an answer the tool did not give before.
+        - Step 4, the compatibility check: `plan_features`, the plan features and project-space settings the upload will ask the person to confirm, relayed with their reasons before the upload; and the `not-a-member` issue, a project space the connected account has left, which stops the upload (part 03, C2 and C3).
+        - Step 5 and the failed-upload list, one entry per new `error_type`. `hq_confirmation_needed`: ask the person about each item of `confirmations_needed`, one at a time, as the skill already does for `adopt_resources`, and resend with `confirm_plan_features`, `confirm_flat_location_fixture` or `confirm_connect_forwarder` naming only what they confirmed; the two Connect questions are among them (part 03, C2, C5 and C8). `hq_app_version_below_floor`: relay the message and its `url`, the app's settings page in CommCare HQ where the person raises the CommCare version (part 03, C1). `hq_changed`: list every entry of `remote_changes` with its parts, ask before writing over each, and resend with `discard_hq_changes` carrying each confirmed entry's `observed_digest`; never send a digest the person did not see (part 02, Surfaces). `hq_table_content_unsupported`: a lookup table in CommCare HQ holds what Nova cannot keep yet, with the way out the message gives (part 02, Defect 5: the lookup push). A table or place CommCare HQ would not let Nova read reaches the tool as `hq_upload_failed` with its own sentence, as today, so it takes no entry. The entry for `hq_app_state_unknown`, "Nova could not safely read the current HQ app before updating it, so it left the existing app unchanged.", gains that on a first upload the type also covers an app Nova just made whose CommCare version it could not read, which is then on the project space, empty.
+        - Step 6, the report: `app_preview_note`, relayed as it is when present (part 02, The 7-day App Preview statement); `logo_step`, the one step in CommCare HQ that puts the app's logo in Web Apps (part 03, C6); `hq_app_gone` and `hq_app_empty` on `get_deployment` and `refresh_deployment`, each said plainly (part 01, A3); `deployment.confirmations` on the same two, with `withdraw_deployment_confirmation` for a confirmation the person takes back (part 03, C2); and a non-empty `notices` from `get_app`, relayed before the upload is confirmed, since a notice can say what the next upload there does (part 10, Work item F: the migration notice).
+    - **`skills/show/SKILL.md` and `skills/edit/SKILL.md`.** Each reads `get_app` ("Present its name, Project, workflows and languages in a readable overview."; "Read `get_app` for app `$0`, then inspect the modules, forms or fields relevant to the request.") and gains one sentence after it: "If `notices` is non-empty, tell the user what each one says before anything else, and offer `dismiss_app_notice` once they have read it."
+    - **`README.md`.** Beside "Version 2.1's retained-session, page-action, operation-feedback and navigation guidance requires the paired Nova server release.", one sentence for the new minor: its publishing guidance (confirmations, the CommCare version stop, changes made in CommCare HQ, notices) requires the Nova release that carries step 2.
+    - **No edit:** `skills/build/SKILL.md`, `skills/autobuild/SKILL.md`, `skills/list/SKILL.md`, `skills/find/SKILL.md` and `agents/nova-architect-autonomous.md`. None states an authoring rule. Each sends the model to `get_agent_prompt` and `get_authoring_guide`, which Nova serves and which change with the deploy. So for every authoring claim the parts name for the sweep, the plugin does not say it: what `get_languages` returns, and that `compile_app` takes only a server, returns bare JSON or compiles a CCZ for an app that is published nowhere (part 01; no file names either tool, and "compile" appears only in the one-line description of `README.md` and `plugin.json`); that the logo shows on the login and home screens (part 03; no file holds "logo"); that `update_app` sets the display name and nothing more (part 04); operation id rules (part 05); where a close is written, the list of after-submit destinations, `app_home` described as the list of menus, a search button label, the column a lookup-backed search input sorts its choices by, reserved search input names, an always-false display condition, and what a link to a hidden target opens (part 06; the one sentence on navigation, "After a submission, Previous resumes the preceding task or record selection.", in `build` and `edit`, with its like in `README.md`, stays true, since `previous` keeps its meaning); what a case list orders by, what its search matches, tile cell defaults and date patterns (part 07); question, Connect and entry-point id rules, media slot names, a hidden value needing a value, ordering a time, and the accepted media formats (part 08, which records its own sweep at the same commit). The one claim the plugin does hold is part 01's, that a deployment with an HQ app id holds the app: the three `upload_to_hq` sentences above.
+
+    The plugin's pull request runs the sweep again at the head the plugin then holds, by claim and never by this list of files, so a sentence added there since `0976b10` is found.
+12. Each pull request passes the pull request lane in CI at its own head; the lane has no time cap and runs every group the change invalidates, the lane's packages among them, and part 09, Where the lane runs, gives how long to expect and the local run of the packages (`PROOF_READERS=0 npm run proof`, no target) a pull request makes before it pushes. Before it is marked ready it runs its reader slice on a proof machine, as part 09, Where the lane runs, bounds it: the document and control of every served-reader entry it moves, registers, re-files or deletes and of every held walk stop it moves, removes or adds, plus its witnesses, with `PROOF_READERS` narrowed to the readers those entries name, and with them the reader package tests the pull request itself adds or changes, and nothing wider. No pull request runs every reader over the whole corpus; a pull request that changes an emitter, adds a corpus document or changes a gate entry also runs the sensitivity check whole and fresh there before it pushes, the run its sensitivity effects are written from where they must be written again. Pull request 14 makes one more run, on a machine that is neither CI nor a proof machine: its author runs the Android decode probe (`python3 -m unittest proof.android.decode.probe -v`) on an Apple-silicon Mac with the Android emulator and the arm64 system images of API 23, 29 and 35 before the pull request is marked ready, and so does any later pull request that changes the accepted media formats or a fixture (part 08, Defect 11, first half, "Lane"). Its description carries each run's gate summary. The whole lane with every reader runs once, from the stack's top, before the merge: 552 worker-hours on proof machines, as measured on the lane's own branch. The nightly runs on `main` after it, on its next scheduled night (Tuesday to Saturday, 03:23 UTC); the stack moves every key, so that night is a whole lane with the readers, about thirteen hours, and a merge on a Sunday or a Monday is read by Tuesday's. A night that fails opens an issue naming each failing group with the command that reruns it alone (`python3 -m proof.lane.report`; part 09, Where the lane runs). The implementer asks the person once, at the session's start, for the proof machine's use and budget (spot machines, each stopped when idle), and not again before each run. After the whole lane at the top, its `readers` timings are committed into pull request 15, and only then is the maintenance image built (rule 5).
+
+Removing the tooling at the top of the same stack, not in a follow-up pull request, is a stated choice: a later removal would be a second deploy that exists only because of the split. The habit it adjusts (run, confirm, then remove) is kept in substance because the run and its post-migration scan precede the merge.
 
 ## The model-addition checklist
 
@@ -1783,7 +1789,7 @@ Step 2's additions that follow it: `localization.wireCodes`; `BlueprintDoc.appSe
     A model addition after step 2 follows the same rules: a new Solutions Architect tool is registered in the script by the pull request that adds it, a changed one is named in that pull request's ask, and a tool only MCP serves is held by the served-schema test.
 15. **Docs**: the `content/docs` page for the task a reader does, `content/docs/mcp/tools.mdx` for the callable reference, the nearest subtree `CLAUDE.md`, and `docs/architecture/complex-apps.md` where the addition records a binding CommCare fact.
 16. **`../nova-plugin`**: sweep the skills' prose for the claim the change makes false; the change rides the plugin's one pull request (house rule 11).
-17. **Existing documents**: a step under `scripts/lib/hqRoundTripCutover/steps/`, its notice reason in `DOCUMENT_NOTICE_REASONS` (`lib/notices/migrationNotice.ts`) with its renderer (`lib/notices/migrationNoticeCopy.ts`), and its expectations over the frozen pre-step fixtures. The step is inserted at its place in `transform.ts`'s fixed order. A change that stores nothing and still gets a line has no step: its pull request adds the reason's selection function to `scripts/lib/hqRoundTripCutover/behavior.ts`, or, where the reason is a deployment's, its line to `scripts/lib/hqRoundTripCutover/notice.ts` and the reason to `DEPLOYMENT_NOTICE_REASONS`, each with its renderer and its test (part 10, Changes that write nothing and still get a line; The stack, "What every pull request of the stack does", says the same). Nothing under `lib` or `app` imports from `scripts/lib/hqRoundTripCutover/`: the reason lists and renderers live in `lib/notices/`, so pull request 16 removes the tooling without touching either tree.
+17. **Existing documents**: a step under `scripts/lib/hqRoundTripCutover/steps/`, its notice reason in `DOCUMENT_NOTICE_REASONS` (`lib/notices/migrationNotice.ts`) with its renderer (`lib/notices/migrationNoticeCopy.ts`), and its expectations over the frozen pre-step fixtures. The step is inserted at its place in `transform.ts`'s fixed order. A change that stores nothing and still gets a line has no step: its pull request adds the reason's selection function to `scripts/lib/hqRoundTripCutover/behavior.ts`, or, where the reason is a deployment's, its line to `scripts/lib/hqRoundTripCutover/notice.ts` and the reason to `DEPLOYMENT_NOTICE_REASONS`, each with its renderer and its test (part 10, Changes that write nothing and still get a line; What every pull request of the stack does says the same). Nothing under `lib` or `app` imports from `scripts/lib/hqRoundTripCutover/`: the reason lists and renderers live in `lib/notices/`, so pull request 16 removes the tooling without touching either tree.
 
 ## Contract sentences step 2 rewrites
 

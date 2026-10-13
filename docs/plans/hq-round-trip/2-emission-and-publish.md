@@ -12,7 +12,7 @@ cutover, the contracts and the exit. The detail (files, schemas, migrations,
 register entries, tests) is in eleven part files beside it,
 [`2-emission-and-publish/`](2-emission-and-publish/). A session implementing
 one pull request reads this file, that pull request's row in part 11's stack
-table, and every part "The stack" below names for it. Nothing here or there is left to decide during
+table with its list under "Files, by pull request" there, and every part "The stack" below names for it. Nothing here or there is left to decide during
 implementation. Every claim about what a CommCare reader does with Nova's
 export was observed by that reader in the lane, at the pins, during planning;
 where a fix's outcome mattered to the plan, the fix's bytes were written and
