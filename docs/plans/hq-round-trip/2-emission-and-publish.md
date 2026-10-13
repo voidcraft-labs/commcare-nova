@@ -139,9 +139,11 @@ empty when the plan is complete.
 
 - The whole lane with every reader at the exit state with the publish
   sequence in it. The every-reader run this plan cites read the stack
-  without part 01's A3 and A2. The same stack with both has run without the
-  readers and shows no class that no entry holds; its every-reader run is
-  composed and has not run (part 09, Where the lane runs).
+  without part 01's A3 and A2. The same stack with both (A3 as the two
+  imports HQ receives, A2 as a scratch emitter writes it; no chain wrote the
+  publish sequence's code, A6's import file or A7's capture) has run without
+  the readers and shows no class that no entry holds; its every-reader run
+  is composed and has not run (part 09, Where the lane runs).
 - The two-import capture layout under the file names part 01 gives it
   (`Export.content`): a six-document slice passes without the readers; the
   whole corpus, the other controls and the packages have not run under those
