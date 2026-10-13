@@ -314,8 +314,10 @@ Part 09 holds this in full.
   entries.** Step 2 moves 724 entries to the fixed register (669 of the base's
   and 55 the stack itself registers first), deletes 12 with a judge change or
   an allowance (11 of the base's and one the stack registers first), and adds
-  136 (2 written straight into the fixed register and 134 live). At the exit
-  the fixed register holds 726 and 283 stay live: the 205 later-step entries
+  136 (2 written straight into the fixed register and 134 live). Pull request
+  13 deletes 6 of the moved entries from the fixed register with their
+  control, which its own change to the lane's privileges stops showing them.
+  At the exit the fixed register holds 720 and 283 stay live: the 205 later-step entries
   of the base (defects 20, 21, 23 to 28 and 30), of which pull request 9
   re-files one from defect 14 to defect 26, and 78 the stack adds for later
   steps' symptoms its own fixes newly show (defect 25's 62, defect 24's 11,
@@ -323,7 +325,7 @@ Part 09 holds this in full.
   entry's disposition, by id and pull request, is in part 09; a script over
   the parts' register sections derives it and fails on an entry with none or
   two. The lane's list of held walk stops is accounted the same way: 33 as
-  the lane merges, 29 at the exit.
+  the lane merges, 30 at the exit.
 - **Where the lane runs.** The pull request lane in CI runs without the served
   readers and runs every group the change invalidates, with nothing dropped
   for time: about six minutes when a pull request leaves every group as
