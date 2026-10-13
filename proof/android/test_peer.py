@@ -7,7 +7,8 @@ answer reaches the client with a ``Date`` the server's clock wrote where the ans
 device's own reaches ``peer.control``; and what answers the network refusing a request ends the request with
 ``PeerFailed`` after the device is answered. Plausible failures: a tunnel whose inner request is read as the
 tunnel's (a lost path, a lost body), a body cut at a chunk, a certificate the client refuses, an answer the
-client never reads, a refusal that leaves the device waiting until its deadline. A device that runs past its
+client never reads, a refusal that leaves the device waiting until its deadline. The proxy speaks TLS 1.2 or
+later inside a tunnel and nothing earlier, whatever the Python it runs on would allow. A device that runs past its
 deadline is stopped and the request ends with ``PastDeadline``, which the reader's client reports as a request
 left unanswered, with how far the device had walked (``proof.android.client``); the failure there is a deadline
 read as a JVM that could not start, which a ``TimeoutError`` (an ``OSError``) was.
@@ -21,9 +22,11 @@ from __future__ import annotations
 
 import json
 import shutil
+import ssl
 import sys
 import tempfile
 import textwrap
+import warnings
 from pathlib import Path
 
 import pytest
@@ -158,3 +161,56 @@ def test_a_device_past_its_deadline_is_stopped_and_reported_as_unanswered_with_h
     assert "did not answer the app request within 3 s" in str(error)
     assert "It had ended 2 walks, the last m0/@case:patient-2 in 12 ms." in str(error)
     assert len(error.log) <= client.LOG_LIMIT
+
+
+def _handshake(server: ssl.SSLContext, client: ssl.SSLContext, host: str) -> str:
+    """The TLS version the two contexts agree on for ``host``, shaken hands in memory; an ``ssl.SSLError`` where
+    they agree on none."""
+    to_client, from_client, to_server, from_server = (ssl.MemoryBIO() for _ in range(4))
+    sides = {
+        "client": (client.wrap_bio(to_client, from_client, server_hostname=host), from_client, to_server),
+        "server": (server.wrap_bio(to_server, from_server, server_side=True), from_server, to_client),
+    }
+    done: set[str] = set()
+    for _ in range(20):
+        for name, (side, written, read_by_other) in sides.items():
+            if name not in done:
+                try:
+                    side.do_handshake()
+                    done.add(name)
+                except ssl.SSLWantReadError:
+                    pass
+            read_by_other.write(written.read())
+        if len(done) == 2:
+            return sides["client"][0].version()
+    raise AssertionError("The two contexts neither shook hands nor refused each other in twenty turns.")
+
+
+def test_the_proxy_offers_a_device_tls_1_2_or_later_and_nothing_earlier():
+    """Contract: inside a tunnel the proxy speaks TLS 1.2 or later for the host the app named. Failure it
+    catches: a context left at what its Python allows, which on an older one is TLS 1.0. A client as the app's
+    own (the authority its only trust, its versions its defaults) shakes hands at 1.2 or later; one that offers
+    nothing later than TLS 1.1 is refused, and the same client shakes hands with a server over the same
+    certificate that allows 1.1, so the refusal is the proxy's and not this OpenSSL's."""
+    host = "www.commcarehq.org"
+    with tempfile.TemporaryDirectory(prefix="proof-android-peer-") as directory:
+        authority = network.Authority(Path(directory))
+        served = authority.context(host)
+        device = ssl.create_default_context(cafile=str(authority.certificate))
+        assert _handshake(served, device, host) in {"TLSv1.2", "TLSv1.3"}
+
+        old = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        old.load_verify_locations(str(authority.certificate))
+        allowing = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        allowing.load_cert_chain(str(Path(directory) / "host-0.pem"), str(Path(directory) / "host-0.key"))
+        with warnings.catch_warnings():
+            # Python says of each of these versions that it is deprecated, which is why the proxy refuses them.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            for context in (old, allowing):
+                # OpenSSL keeps TLS 1.1 for its lowest security level alone.
+                context.set_ciphers("DEFAULT:@SECLEVEL=0")
+                context.minimum_version = ssl.TLSVersion.TLSv1
+            old.maximum_version = ssl.TLSVersion.TLSv1_1
+        assert _handshake(allowing, old, host) == "TLSv1.1"
+        with pytest.raises(ssl.SSLError):
+            _handshake(served, old, host)
