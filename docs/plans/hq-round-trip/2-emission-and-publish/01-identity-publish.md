@@ -1932,16 +1932,22 @@ request registers the ten live, all check `proof3`, artifact
   `search-hidden-link` under the same entry; on
   `targeted-connect-deliver-rename` the location 2, and 4 more on
   `targeted-hq-side-state`. Each class is held wherever it shows (the submit
-  message on every document of the slice whose walk submits a form), and no
-  document of the slice shows a class that no entry holds. Core's trace and
+  message on ten of the slice's eleven documents, all but
+  `case-list-browse`), and no document of the slice shows a class that no
+  entry holds. Core's trace and
   the device already show
   the close's fact through `d14-close-conditions-trace-case-close-7842`,
   `d14-close-conditions-blocks-case-close-937a` and
   `d14-android-proof3-local-ccz-form-saved-cases-changed`; Formplayer could
-  not while the archive's submit failed. From this pull request every A is HQ app version 2 or 3
-  (A3), and the archive's forms carry `version="1"`
-  (`lib/commcare/xform/dataRootAttributes.ts`) until pull request 5, so the
-  version class shows on every document whose walk submits a form.
+  not while the archive's submit failed. That slice ran with A5's bytes on
+  the lane's branch with main merged, where state A is still one import at
+  HQ app version 1, so the version class showed on `targeted-hq-side-state`
+  alone, where the saves made in HQ raise the app's version, which a form
+  with no version of its own takes (`models/forms.py::FormBase.get_version`). From this pull request
+  every A is HQ app version 2 or 3 (A3), and the archive's forms carry
+  `version="1"` (`lib/commcare/xform/dataRootAttributes.ts`) until pull
+  request 5. The entry pins no value, so it holds the class on every
+  document that shows it.
 - No control that exists shows any of the ten: a control's pre-fix archive
   cannot submit, `targeted-close-conditions`' own among them, which is why
   it keeps showing finding 59's submit status. So this pull request retains
@@ -2073,7 +2079,9 @@ URL (the suite's search and case fixture URLs, the profile's `PostURL` and
   On the device, the planning run of the Register is the same reading: the
   device on the archive and the device on HQ's release differ at the search
   URL and the form post URL by the id alone, each search is answered alike,
-  and each signs in at the same place.
+  and each signs in at the same place. The rule's device test holds the id
+  alone: the same archive under two ids gives the same answer but for the
+  id in each address ("Files").
 - **Its condition.** The two ids answer alike because a release is a copy
   of the working app as it stood. HQ answers a search under a release's id
   from that release's search configuration and under the working app's id
@@ -2184,8 +2192,9 @@ the result is under "Lane".
 **Lane.** Each of these runs the reader, on the archive Nova's compiler
 emits for the configuration's project space (A7). Each was run by hand
 during planning over an archive with the planned bytes written in, and the
-served rows again with every reader, over the four documents under
-"Register".
+served rows again with every reader as this pull request's reader slice,
+each of its eleven documents beside its control ("Register", "What the
+working submit shows").
 
 | Proof | Reader | Document | It must show |
 |---|---|---|---|
