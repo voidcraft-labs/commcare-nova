@@ -53,6 +53,19 @@ def with_property(archive: Path, target: Path, key: str, value: str) -> Path:
     return variant(archive, target, {"profile.ccpr": ElementTree.tostring(profile, encoding="utf-8")})
 
 
+def with_feature(archive: Path, target: Path, feature: str) -> Path:
+    """The archive with one more feature, active, in its profile's ``<features>``, as HQ's build writes its
+    ``checkoff``."""
+    ElementTree.register_namespace("", PROFILE_NAMESPACE)
+    with zipfile.ZipFile(archive) as zipped:
+        profile = ElementTree.fromstring(zipped.read("profile.ccpr"))
+    features = profile.find(f"{{{PROFILE_NAMESPACE}}}features")
+    if features is None:
+        features = ElementTree.SubElement(profile, f"{{{PROFILE_NAMESPACE}}}features")
+    ElementTree.SubElement(features, f"{{{PROFILE_NAMESPACE}}}{feature}", {"active": "true"})
+    return variant(archive, target, {"profile.ccpr": ElementTree.tostring(profile, encoding="utf-8")})
+
+
 def leaves(value, path=""):
     """Every leaf of a JSON value by its path."""
     if isinstance(value, dict):
@@ -110,6 +123,21 @@ class ReaderSelfCheck(unittest.TestCase):
                 self.assertEqual(differing(plain, changed), wanted)
                 for name, reading in expected.items():
                     self.assertEqual(changed["profile"]["readers"][name], reading)
+
+    def test_home_shows_saved_forms_only_for_a_profile_with_the_checkoff_feature(self):
+        """Contract: the home screen's buttons are what Android's own controller hides on the app the device
+        seated (StandardHomeActivityUIController.getHiddenButtons hides Saved for a profile whose checkoff
+        feature is not active). Failure it catches: a device whose current app holds no profile, as the test
+        application gives one (a new CommCareTestApp, its platform never initialized, on every call), which
+        reads Saved as shown whatever the profile says. Nova's local profile names no checkoff, so Saved is
+        hidden; the same archive with the feature HQ's build writes shows it."""
+        hidden = "StandardHomeActivityUIController.getHiddenButtons"
+        plain = self.reader.request("app", archive=str(SURVEY / "local.ccz"), commands=[])
+        self.assertIn("saved", plain["home"][hidden])
+        featured = with_feature(SURVEY / "local.ccz", self.work / "checkoff.ccz", "checkoff")
+        shown = self.reader.request("app", archive=str(featured), commands=[])
+        self.assertNotIn("saved", shown["home"][hidden])
+        self.assertEqual(shown["home"][hidden], [name for name in plain["home"][hidden] if name != "saved"])
 
     def test_android_refuses_an_archive_it_cannot_install_and_installs_one_it_can(self):
         """Contract: the install status is Android's own. Failure it catches: a reader that reports Installed
@@ -261,12 +289,13 @@ class ReaderSelfCheck(unittest.TestCase):
         handle's intrinsic, so the app raises where it first needs one; no answer of such a JVM is kept, and the
         request raises naming the code cache. Failure it catches: a record holding as the app's crash what was
         the JVM out of room (the 48 MB a JVM without tiers gets filled thirty seconds into a lane's request). The
-        cache reserved at 8 MB, which installing an app fills; a request after it, on the reader's own cache, is
+        cache reserved at 3 MB, which installing an app fills (at 8 MB the JVM, with both its compilers, throws out
+        cold code and stays under it for a request this short); a request after it, on the reader's own cache, is
         answered."""
         from proof.android import client
 
         options = client.JVM_OPTIONS
-        client.JVM_OPTIONS = (*options, "-XX:ReservedCodeCacheSize=8m")
+        client.JVM_OPTIONS = (*options, "-XX:ReservedCodeCacheSize=3m")
         try:
             with self.assertRaisesRegex(AndroidReaderError, "filled its code cache"):
                 self.reader.request("profile", archive=str(SURVEY / "local.ccz"))
@@ -333,6 +362,101 @@ class DetailSelfCheck(unittest.TestCase):
         self.assertTrue(any("First" in text for text in texts) and any("Second" in text for text in texts), texts)
 
 
+# A second case of the type basic_tests.ccz's case lists show: each case a list shows is a walk of its own.
+TWO_CASES_RESTORE = NODE_RESTORE.replace(
+    "</OpenRosaResponse>",
+    """<case xmlns="http://commcarehq.org/case/transaction/v2" case_id="parent-2"
+ date_modified="2026-01-15T10:30:00.000Z" user_id="proof-node-id"><create><case_type>coverage_basic</case_type>
+<case_name>Bea</case_name><owner_id>proof-node-id</owner_id></create></case>
+</OpenRosaResponse>""",
+)
+BILINGUAL = CONTROLS / "localization-optional"
+
+
+class WalkSelfCheck(unittest.TestCase):
+    """What the walks cover: every case a list shows, and every language the request names."""
+
+    @classmethod
+    def setUpClass(cls):
+        reason = unavailable()
+        if reason is not None:
+            raise AndroidReaderUnavailable(reason)
+
+    def test_each_case_a_list_shows_is_a_walk_of_its_own_named_by_it(self):
+        """Contract: a walk that reaches a list with nothing left to choose reads it and ends, and each case it
+        lists is a walk of its own, named by the case and opening it as a tap on its row does
+        (proof/observe/walks.py, cases_opened). A screen is read once: the case's walk opens the list the walk
+        before it read and records its choice alone, and reads the case's detail, which a walk that goes on
+        from the case only confirms. Failure it catches: only the first case opened, a walk named by one case
+        opening another, or a list or a detail read again by every walk that passes it. On a device holding two
+        cases of basic_tests.ccz's third menu, its list's walk ends at the list showing both, and each case's
+        walk opens that case."""
+        from proof.android.client import runtime_directory
+
+        runtime = runtime_directory()
+        workdir = Path(json.loads((runtime / "runtime.json").read_text(encoding="utf-8"))["workdir"])
+        archive = workdir / "instrumentation-tests" / "resources" / "basic_tests.ccz"
+        answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="proof-android-cases-") as scratch, AndroidReader() as reader:
+            restore = Path(scratch) / "restore.xml"
+            restore.write_text(TWO_CASES_RESTORE, encoding="utf-8")
+            app = reader.request("app", archive=str(archive), restore=str(restore), answers=answers)
+        walks = app["walks"]
+        cases = ("parent-1", "parent-2")
+
+        def ended_at(walk):
+            """The list the walk ended at showing both cases, having opened none."""
+            steps = walk.get("steps") or []
+            held = steps[-1].get("list") if steps else None
+            read = isinstance(held, dict) and set(held.get("order") or []) == set(cases)
+            return held if read and "took" not in held and "chose" not in held else None
+
+        branched = [name for name, walk in walks.items() if ended_at(walk) is not None]
+        self.assertTrue(branched, sorted(walks))
+        opened, confirmed = set(), 0
+        for name in branched:
+            at = len(walks[name]["steps"]) - 1
+            self.assertIn("rows", ended_at(walks[name]), name)
+            for case in cases:
+                passed = walks[f"{name}/@case:{case}"]["steps"][at]["list"]
+                self.assertNotIn("rows", passed, name)
+                self.assertNotIn("order", passed, name)
+                # A list a menu offers to view alone hands home no case.
+                self.assertIn(passed.get("chose"), (case, None), name)
+                opened.add(passed.get("chose"))
+                if isinstance(passed.get("detail"), dict):
+                    self.assertIn("tabs", passed["detail"], name)
+                for further, walk in walks.items():
+                    if further.startswith(f"{name}/@case:{case}/"):
+                        again = walk["steps"][at]["list"]
+                        self.assertEqual(again.get("chose"), passed.get("chose"), further)
+                        if isinstance(again.get("detail"), dict):
+                            self.assertNotIn("tabs", again["detail"], further)
+                            confirmed += 1
+        self.assertLessEqual(set(cases), opened, branched)
+        self.assertGreater(confirmed, 0, sorted(walks))
+
+    def test_a_walk_in_another_language_chooses_it_on_homes_own_dialog_and_the_form_opens_in_it(self):
+        """Contract: every walk is walked again in each language the request names, the language chosen first on
+        home's Change Language dialog, as a worker chooses one, and named by it. Failure it catches: a language
+        named and never chosen, or chosen where the app's screens never read it. localization-optional's local
+        archive starts in Spanish; its form's walk in English opens the form in English."""
+        answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
+        with AndroidReader() as reader:
+            app = reader.request("app", archive=str(BILINGUAL / "local.ccz"), answers=answers, languages=["en"])
+        walks = app["walks"]
+        default = next(name for name, walk in walks.items() if self._form(walk) is not None and "@" not in name)
+        english = walks[f"@language:en/{default}"]
+        self.assertEqual(english["language"]["chose"], "en")
+        self.assertEqual(english["language"]["Localization.getCurrentLocale"], "en")
+        self.assertEqual(self._form(walks[default])["language"], "es")
+        self.assertEqual(self._form(english)["language"], "en")
+
+    @staticmethod
+    def _form(walk):
+        return next((step["form"] for step in walk.get("steps") or [] if isinstance(step.get("form"), dict)), None)
+
+
 class JudgeSelfCheck(unittest.TestCase):
     """The judges, on what commcare-android's own code read: a planted difference Android must show."""
 
@@ -347,17 +471,19 @@ class JudgeSelfCheck(unittest.TestCase):
         archives, and nothing between two readings of one. Failure it catches: answers never compared, or
         compared with themselves, or a reading that differs from itself. With the same archive read twice the
         judge reports nothing; with one setting planted in the profile, it reports that setting's reader and
-        the home screen's button, nothing else."""
+        the home screen's button, nothing else. The archive holds the checkoff feature HQ's build writes, without
+        which Android hides the Saved button whatever the setting."""
         from proof.checks import android as judges
 
         answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="proof-android-judge-") as scratch, AndroidReader() as reader:
-            planted = with_property(SURVEY / "local.ccz", Path(scratch) / "planted.ccz", "cc-show-saved", "no")
+            featured = with_feature(SURVEY / "local.ccz", Path(scratch) / "checkoff.ccz", "checkoff")
+            planted = with_property(featured, Path(scratch) / "planted.ccz", "cc-show-saved", "no")
 
             def read(archive):
                 return reader.request("app", archive=str(archive), answers=answers)
 
-            first, again, other = read(SURVEY / "local.ccz"), read(SURVEY / "local.ccz"), read(planted)
+            first, again, other = read(featured), read(featured), read(planted)
 
             def found(before, after):
                 return [

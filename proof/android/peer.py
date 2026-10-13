@@ -59,6 +59,11 @@ class PeerFailed(Exception):
     answer (HQ's own views answer what they refuse)."""
 
 
+class PastDeadline(Exception):
+    """The device's JVM ran past its deadline and was stopped. Not a ``TimeoutError``: that is an ``OSError``,
+    which a caller reads as a JVM that could not start."""
+
+
 @dataclass(frozen=True)
 class DeviceRequest:
     """One request the device's network sent, as the app wrote it: ``scheme`` and ``host`` are the address the
@@ -342,7 +347,7 @@ class Proxy:
 
     def serve(self, command, *, timeout: float, cwd, log) -> int:
         """Runs the JVM to its end, answering each request its device makes as it comes; the JVM's exit status.
-        Past ``timeout`` the JVM is stopped and ``TimeoutError`` raised."""
+        Past ``timeout`` the JVM is stopped and ``PastDeadline`` raised."""
         deadline = time.perf_counter() + timeout
         selector = selectors.DefaultSelector()
         selector.register(self.listener, selectors.EVENT_READ, "accept")
@@ -355,7 +360,7 @@ class Proxy:
                 left = deadline - time.perf_counter()
                 if left <= 0:
                     process.stop()
-                    raise TimeoutError(f"The Android reader's JVM ran past {timeout} s.")
+                    raise PastDeadline(f"The Android reader's JVM ran past {timeout} s.")
                 if process.exited():
                     break
                 ready = selector.select(timeout=min(left, 0.25))

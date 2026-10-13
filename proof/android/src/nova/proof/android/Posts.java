@@ -15,7 +15,6 @@ import org.commcare.network.LocalReferencePullResponseFactory;
 import org.commcare.utils.RobolectricUtil;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
@@ -56,7 +55,7 @@ final class Posts {
         }
         Device.dirty = true;
         PostRequestActivity activity =
-                Robolectric.buildActivity(PostRequestActivity.class, started).create().start().resume().get();
+                Opened.build(PostRequestActivity.class, started).create().start().resume().get();
         RobolectricUtil.flushBackgroundThread(activity);
         ShadowLooper.idleMainLooper();
         RobolectricUtil.flushBackgroundThread(activity);

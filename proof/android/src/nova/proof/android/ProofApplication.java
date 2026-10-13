@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.google.common.collect.Multimap;
 
+import org.commcare.CommCareApp;
 import org.commcare.CommCareApplication;
 import org.commcare.CommCareTestApplication;
 import org.commcare.core.interfaces.HttpResponseProcessor;
@@ -39,6 +40,7 @@ public class ProofApplication extends CommCareTestApplication {
     private static final MethodHandle BUILD_HTTP_REQUESTER;
     private static final MethodHandle GET_DATA_PULL_REQUESTER;
     private static final MethodHandle GET_HEARTBEAT_REQUESTER;
+    private static final MethodHandle GET_CURRENT_APP;
 
     static {
         try {
@@ -53,6 +55,8 @@ public class ProofApplication extends CommCareTestApplication {
                     MethodType.methodType(DataPullRequester.class), CommCareTestApplication.class);
             GET_HEARTBEAT_REQUESTER = lookup.findSpecial(CommCareApplication.class, "getHeartbeatRequester",
                     MethodType.methodType(HeartbeatRequester.class), CommCareTestApplication.class);
+            GET_CURRENT_APP = lookup.findSpecial(CommCareApplication.class, "getCurrentApp",
+                    MethodType.methodType(CommCareApp.class), CommCareTestApplication.class);
         } catch (ReflectiveOperationException absent) {
             throw new ExceptionInInitializerError(absent);
         }
@@ -111,6 +115,28 @@ public class ProofApplication extends CommCareTestApplication {
         }
         try {
             return (HeartbeatRequester)GET_HEARTBEAT_REQUESTER.invoke(this);
+        } catch (RuntimeException | Error raised) {
+            throw raised;
+        } catch (Throwable raised) {
+            throw new IllegalStateException(raised);
+        }
+    }
+
+    /**
+     * The app the device has seated, as CommCareApplication's own method gives it: the app whose platform was
+     * initialized from its installed resources, holding its profile and its suites. The test application gives
+     * a new CommCareTestApp around that app's record on every call (CommCareTestApplication.getCurrentApp), whose
+     * platform is made anew and never initialized, so every reader of getCurrentApp().getCommCarePlatform() on
+     * the device read no profile and no suite: the home screen's Saved button, which Android hides for a profile
+     * without the checkoff feature (StandardHomeActivityUIController.getHiddenButtons), read as shown, and its
+     * training tile, which Android shows for a suite's training menu (CommCareApp.hasVisibleTrainingContent), as
+     * hidden. The reader's install seats a CommCareTestApp of its own, so the app given is still the test's,
+     * with its storage.
+     */
+    @Override
+    public CommCareApp getCurrentApp() {
+        try {
+            return (CommCareApp)GET_CURRENT_APP.invoke(this);
         } catch (RuntimeException | Error raised) {
             throw raised;
         } catch (Throwable raised) {

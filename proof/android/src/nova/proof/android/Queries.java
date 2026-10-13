@@ -20,7 +20,6 @@ import org.javarosa.core.model.instance.ExternalDataInstance;
 import org.javarosa.model.xform.DataModelSerializer;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
@@ -132,7 +131,7 @@ final class Queries {
 
     private static QueryRequestActivity open(Intent started) {
         QueryRequestActivity activity =
-                Robolectric.buildActivity(QueryRequestActivity.class, started).setup().get();
+                Opened.build(QueryRequestActivity.class, started).setup().get();
         ShadowLooper.idleMainLooper();
         return activity;
     }

@@ -73,7 +73,10 @@ The requests (`Reader.java`):
   (`FormSubmissionHelper.getFormPostURL`), the current locale and what the language picker
   offers, and which of the recorded settings Android's own settings screen
   lets a worker change); the home screen's hidden buttons
-  (`StandardHomeActivityUIController.getHiddenButtons`, `Home.java`); and
+  (`StandardHomeActivityUIController.getHiddenButtons`, `Home.java`, read
+  on the app the device seated, whose platform holds its profile and
+  suites: the test application's own `getCurrentApp` hands out a new app
+  whose platform holds neither, `ProofApplication.getCurrentApp`); and
   every walk (`Screens.java`).
 
   A walk is one session from the app's first menu, driven as the project's
@@ -81,7 +84,50 @@ The requests (`Reader.java`):
   each next activity built from the intent home started). Every item a menu
   offers is a walk of its own, so every path the app's own menus offer is
   walked and no other: an item a display condition hides is reached by no
-  walk. On the way:
+  walk. Every case a list shows is a walk of its own too, as every reader's
+  walk opens them (`proof/observe/walks.py`, `cases_opened`): a walk that
+  reaches a list with nothing left to choose reads it and ends there, and
+  each case it lists, in its order, is a walk named by the case
+  (`<path>/@case:<the value a tap on its row hands the session>`) that opens
+  it. A list that can name none of its rows' cases has no case to name a
+  walk by, and the walk opens its first row. Then the app is walked again in
+  each other language it holds (the request's `languages`, `walks.chosen`:
+  every one but the one the app starts in), each walk named by its language
+  (`@language:<code>/<path>`): the worker first chooses the language as a
+  worker does, on home's own Change Language dialog (`Languages.java`: the
+  options menu Android makes and prepares, its item tapped, and the dialog's
+  own row listener given the language's row), which sets it for every screen
+  after, a form's among them (each form records the language it opened in);
+  a language the installed app does not offer is that walk's end. Each
+  language's walks are its own, down what its menus and lists offer in it.
+  Once they have run, the language and the worker's setting for it are put
+  back as the app started (the picker cannot always: an app whose profile
+  names no locale starts in `default`, which the picker does not offer), for
+  what the request reads after its walks. All of it is one device, one JVM.
+
+  A screen is read once where the device is the same. The walk that ends at
+  a menu or a list reads it; each walk that goes on from there opens the
+  same screen on the same device and records only what it chooses (`chose`
+  for a menu's item or a list's case, `took` for a list's action). The walk
+  that ends its choices with a case reads the case's detail, and a walk that
+  goes on from the case opens the detail and presses its confirm button
+  without reading its tabs again. A list a form leads to is read in full
+  where the walk reaches it, since the form changed the device. So one
+  difference of a list or a detail is reported at the walk that read it,
+  not again at every walk that passed it.
+
+  Each walk's screens end with it, as Android ends a screen the worker has
+  left (`Opened.java`: every screen the reader builds is built there, and
+  the walk's end closes each, the newest first, through pause, stop and
+  destroy). Robolectric holds an activity it built, its window and every
+  theme its views were made with until its controller is closed, and lists
+  every dialog a test showed, so a device that left them open would hold
+  hundreds of screens no worker has open. A form the walk left unfinished
+  is paused and stopped as one a worker leaves is, which saves it
+  incomplete where the app's setting says so
+  (`cc-auto-form-save-on-pause`), so the next walk starts on a device made
+  again.
+  On the way:
 
   - a **menu** (`MenuActivity`, `Menus.java`): each item its adapter holds,
     as its own row view shows it, with the media it names and whether the
@@ -98,10 +144,14 @@ The requests (`Reader.java`):
     search finds (`EntityListAdapter.filterByString`) for every word any row
     shows, in the words' own order, each also misspelled, with fuzzy search
     as installed, on and off (a sort's or a search's rows each by the first
-    text it shows). A filter that has not finished within two minutes fails
-    the request. The first case is opened as a tap opens it, and
-    the case the list hands home is recorded; where the list has a case
-    detail the detail screen's tabs and fields are read (`Details.java`; a
+    text it shows), once a list in each language. A filter that has not
+    finished within two minutes fails the request. The walk's case is opened
+    as a tap on its row opens it (a walk whose case the list does not show
+    ends there, `unlisted`; a list a form leads to opens the walk's own case
+    where it shows it, else its first), and the case the list hands home is
+    recorded; where the list has a case
+    detail the detail screen's tabs and fields are read by the walk that
+    ends with the case (`Details.java`; a
     tab that lists a row a node is the app's own fragment for it, made by the
     screen's own pager adapter, shown, and its header and rows read and
     drawn) and its own button confirms; on a tablet the detail is the list
@@ -312,11 +362,16 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
   moves exactly the reader that reads it; an archive Android cannot install
   is refused and the one it was made from installs; one device refuses the
   same app twice and each request is a device of its own; a walk opens the
-  forms the suite names; a request the reader cannot answer raises; an
-  A detail tab that lists a row a node shows a row for each node the
+  forms the suite names; a request the reader cannot answer raises. A
+  detail tab that lists a row a node shows a row for each node the
   nodeset gives in the chosen case's context (`basic_tests.ccz`, an archive
   HQ built that the project's instrumentation tests install, over a restore
-  of one case and its two children). And it holds proof 3's judge on the
+  of one case and its two children). Each case a list shows is a walk of
+  its own that opens that case, the list read by the walk that ends there
+  and the detail by the walk that ends with the case (the same archive over
+  two cases); a walk in another language chooses it on home's own dialog
+  and its form opens in it (`localization-optional`'s archive, which starts
+  in Spanish, walked again in English). And it holds proof 3's judge on the
   real reader with a planted difference: two readings of one archive differ in nothing, and with one
   setting planted in the profile the judge reports that setting's reader and
   the home screen's button, nothing else.
@@ -343,11 +398,14 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
   breaking its constraint, and shown as its text), while a question label's
   image is laid out (defect 16's media slots).
 
-`test_peer.py` and `proof/checks/test_android.py` run in the lane: the
-proxy's transport (a request through it, plain or tunnelled, reaches the
-harness as the client wrote it, its answer the client, and a request the
-harness cannot answer ends the request), and the judges over planted
-differences and the records a shard keeps.
+`test_peer.py`, `test_screens.py` and `proof/checks/test_android.py` run in
+the lane: the proxy's transport (a request through it, plain or tunnelled,
+reaches the harness as the client wrote it, its answer the client, a request
+the harness cannot answer ends the request, and a device past its deadline
+is stopped and reported as a request left unanswered, with how far it had
+walked), that every screen the reader builds is built where its end is kept
+(`Opened.java`), and the judges over planted differences and the records a
+shard keeps.
 
 `proof/checks/test_device_archive.py` runs in the lane too: the archive a
 state keeps is HQ's own download with the media its suite names, and a
@@ -355,4 +413,9 @@ document without media keeps exactly its index files.
 
 ## What the reader does not show
 
-- **A language other than the one the app starts in.**
+- **A case a form leads to past its first list.** A walk opens each case of
+  the list it reaches before any form, each in a walk of its own; a list a
+  form leads to (its end of form's navigation) opens the walk's own case
+  where it shows it, else its first, so the cases of such a list are not
+  each walked. Formplayer's and the Web Apps client's walks end at the
+  form's submission, so no reader walks them.

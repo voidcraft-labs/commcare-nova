@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import resource
 import shutil
 import signal
 import subprocess
@@ -59,7 +60,10 @@ SOURCE_DIR = Path(__file__).resolve().parent / "src"
 # request's key names what it reads, and the reader's fingerprint names the files (records.fingerprint).
 CAPTURES_DIR = Path(__file__).resolve().parents[1] / "core" / "captures"
 COMPILE_SECONDS = 300.0
-REQUEST_SECONDS = 300.0
+# A device walks every path of the app, every case of each list and every language (Screens.java) in one JVM:
+# a second or two a walk beside HQ, and the longest request of the slices that proved it took 139 s on a machine
+# running twice its processors' load. A request past this says how far it walked (``_unanswered``).
+REQUEST_SECONDS = 900.0
 LOG_LIMIT = 256 * 1024
 # How much of that a failure's message carries, and the header Runner.java prints JUnit's report of the reader's
 # own failure under (``Failure.getTestHeader``: the test method and its class).
@@ -78,20 +82,51 @@ CLOCK_READ = "new Date()"
 CLOCK_REPLACEMENT = "nova.proof.android.ProofClock.now()"
 # The project runs its unit tests with -noverify and a 2 GB heap (app/build.gradle, testOptions.unitTests.all).
 # The zone and locale are fixed so nothing Android formats depends on the machine, and Robolectric reads its
-# Android runtime from the runtime's own directory, never the network. Stopping at the client compiler leaves the
-# code cache at the 48 MB HotSpot gives a JVM without tiers, which a device fills about thirty seconds into a
-# request: the JVM then compiles nothing more, and cannot make a method handle's intrinsic either, so the app
-# raised an InternalError ("no such method: MethodHandle.linkToStatic") wherever it first needed one, which a
-# record kept as a crash of the app, or the JVM ended the request. The cache is reserved at the size HotSpot gives
-# a tiered JVM (as the runners' is, proof/core/client.py), and a request whose JVM filled it all the same is
-# refused (``CODE_CACHE_FULL``): what such a JVM read is not what Android does.
+# Android runtime from the runtime's own directory, never the network.
+#
+# The code cache is reserved at 240 MB, the size HotSpot gives a JVM with both compilers (as the runners' is,
+# proof/core/client.py), whatever compilers run. At the 48 MB a JVM that stops at the client compiler gets, a
+# device filled it about thirty seconds into a request: the JVM then compiles nothing more, and cannot make a
+# method handle's intrinsic either, so the app raised an InternalError ("no such method:
+# MethodHandle.linkToStatic") wherever it first needed one, which a record kept as a crash of the app, or the JVM
+# ended the request. A request whose JVM filled it all the same is refused (``CODE_CACHE_FULL``): what such a JVM
+# read is not what Android does.
+#
+# A document has some fifty device requests. Most are short (an install, an update, an app of a few walks: twelve
+# to fifteen seconds, most of it the JVM and Robolectric starting), and a few walk every path, case and language
+# of an app with lists and languages: dozens of walks, a minute and more of the same code. Two settings are for
+# both, each measured on a short request (the survey control's app, 4 walks) and a long one (basic_tests.ccz
+# with two cases, 106 walks, selfcheck.py's own):
+#
+# - The second compiler only for what a long request keeps hot, on one thread. With the client compiler alone
+#   (-XX:TieredStopAtLevel=1, which a JVM that lives seconds wants) the long request took twice the time (273 s
+#   and 477 CPU-seconds against 124 and 263). With both compilers as the JVM sets them, a short request took
+#   the same 15 s and 48 CPU-seconds against 21: the second compiler's threads compile for the whole of a
+#   request too short to gain from it. With its thresholds ten times the defaults and one thread for each
+#   compiler (-XX:Tier4*, -XX:CICompilerCount=2), a short request takes 22 CPU-seconds and the long one 131 s
+#   and 197. Measured side by side on a proof machine running other lanes (60 to 90 of its 128 processors
+#   busy), so the seconds are slower than a quiet machine's and the CPU-seconds are the comparison.
+# - A young generation of 1200 MB with survivor spaces of 300 MB each. Every theme a screen's views are made
+#   with is a table Robolectric keeps outside the Java object that owns it and frees once the collector has
+#   found the owner dead (its resources are a port of Android's native ones), some 200 KB each and several a
+#   screen. With the default young generation (a third of the heap, survivors a tenth of that) those tables
+#   overflow the survivor space and are promoted, and the serial collector empties the old generation only by
+#   stopping the device: a full collection of a second or more every five, 35 s of the long request's 96 on a
+#   quiet machine. With this one they die young: 75 s, 13 of them collecting, and no full collection for want
+#   of room.
 JVM_OPTIONS = (
     "-noverify",
     "-Xmx2g",
+    "-Xmn1200m",
+    "-XX:SurvivorRatio=2",
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+UseSerialGC",
-    "-XX:TieredStopAtLevel=1",
     "-XX:ReservedCodeCacheSize=240m",
+    "-XX:CICompilerCount=2",
+    "-XX:Tier4InvocationThreshold=50000",
+    "-XX:Tier4MinInvocationThreshold=6000",
+    "-XX:Tier4CompileThreshold=150000",
+    "-XX:Tier4BackEdgeThreshold=400000",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
     "-Duser.country=US",
@@ -221,6 +256,10 @@ class AndroidReader:
         self._lock = threading.Lock()
         # What each request took, in seconds, for the lane's budget.
         self.seconds: list[float] = []
+        # And the processor seconds of the children this process reaped while each ran: the request's JVM, and
+        # whatever else of the process ended in that time, so a sum over a session is what its devices cost
+        # whatever else the machine was running.
+        self.cpu_seconds: list[float] = []
         # The authority the devices given a network trust (proof.android.peer), made once a reader.
         self._network_authority = None
 
@@ -340,13 +379,6 @@ class AndroidReader:
                 self._network_authority = network.Authority(self._work / "authority")
             return self._network_authority
 
-    @staticmethod
-    def _unanswered(op, deadline, log_path) -> AndroidReaderError:
-        return AndroidReaderError(
-            f"The Android reader did not answer the {op} request within {deadline} s and was stopped.",
-            log=_tail(log_path),
-        )
-
     def request(self, op: str, *, deadline: float = REQUEST_SECONDS, peer=None, drawn=None, **arguments) -> dict:
         """One request's answer: what Android read, on a device of its own, with ``peer`` its network where one
         is given (the module's docstring), and each picture it draws written into the directory ``drawn`` names,
@@ -365,6 +397,7 @@ class AndroidReader:
         try:
             with _slot(), open(log_path, "wb") as log:
                 started = time.perf_counter()
+                reaped = _reaped_cpu_seconds()
                 try:
                     if proxy is None:
                         status = _run(command, timeout=deadline, cwd=workdir, log=log)
@@ -372,14 +405,13 @@ class AndroidReader:
                         status = proxy.serve(command, timeout=deadline, cwd=workdir, log=log)
                 except network.PeerFailed as error:
                     raise PeerFailed(str(error), log=_tail(log_path)) from error
-                except (TimeoutError, subprocess.TimeoutExpired) as error:
-                    # Ahead of OSError, which the peer's TimeoutError also is: a JVM that ran past its deadline
-                    # started, and its log says how far it got.
-                    raise self._unanswered(op, deadline, log_path) from error
                 except OSError as error:
                     raise AndroidReaderError(f"The Android reader could not start java: {error}.") from error
-                except Exception as error:  # the deadline, as the Linux runner raises it (proof.processes.TimedOut)
-                    raise self._unanswered(op, deadline, log_path) from error
+                except Exception as error:
+                    # The deadline, as each runner raises it, none of them an OSError (the peer's PastDeadline,
+                    # subprocess.TimeoutExpired, proof.processes.TimedOut): a JVM that ran past its deadline
+                    # started, and its log says how far it got.
+                    raise _unanswered(op, deadline, log_path) from error
             if _wrote(log_path, CODE_CACHE_FULL):
                 raise AndroidReaderError(
                     f"The Android reader's JVM filled its code cache answering the {op} request, after which it"
@@ -389,6 +421,7 @@ class AndroidReader:
                 )
             with self._lock:
                 self.seconds.append(round(time.perf_counter() - started, 3))
+                self.cpu_seconds.append(round(_reaped_cpu_seconds() - reaped, 3))
                 # What the JVM wrote answering the last request (Android's own log among it), for a person
                 # reading why Android gave the answer it did.
                 self.last_log = _tail(log_path)
@@ -432,6 +465,31 @@ def _wrote(path: Path, marker: bytes) -> bool:
             return any(marker in line for line in log)
     except OSError:
         return False
+
+
+def _reaped_cpu_seconds() -> float:
+    """The processor seconds, user and system, of every child this process has waited for."""
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
+
+
+# The line the JVM writes as it ends each walk (Screens.java, guarded): the walk and how long it took.
+WALKED = "nova-proof walk "
+
+
+def _unanswered(op: str, deadline: float, log_path: Path) -> AndroidReaderError:
+    """The error for a request the JVM did not answer by its deadline, naming how far it had walked."""
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    walked = [line[len(WALKED) :] for line in lines if line.startswith(WALKED)]
+    reached = f" It had ended {len(walked)} walks, the last {walked[-1]}." if walked else ""
+    return AndroidReaderError(
+        f"The Android reader did not answer the {op} request within {deadline} s and was stopped.{reached}"
+        " The end of its output is this error's log.",
+        log=_tail(log_path),
+    )
 
 
 def _tail(path: Path) -> str:

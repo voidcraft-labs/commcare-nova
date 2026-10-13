@@ -19,7 +19,6 @@ import org.commcare.tasks.ResourceEngineTask;
 import org.commcare.tasks.ResultAndError;
 import org.commcare.utils.RobolectricUtil;
 import org.javarosa.core.util.PropertyUtils;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowLooper;
 
@@ -76,10 +75,18 @@ final class Device {
      * the activity has handed back its result or finished, as the app's own looper would run on a device.
      */
     static String archiveReference(String path) {
+        try {
+            return unzipped(path);
+        } finally {
+            Opened.end();
+        }
+    }
+
+    private static String unzipped(String path) {
         Intent intent = new Intent(ApplicationProvider.getApplicationContext(), InstallArchiveActivity.class);
         intent.putExtra(InstallArchiveActivity.ARCHIVE_FILEPATH, path);
         InstallArchiveActivity activity =
-                Robolectric.buildActivity(InstallArchiveActivity.class, intent).setup().get();
+                Opened.build(InstallArchiveActivity.class, intent).setup().get();
         long deadline = System.nanoTime() + UNZIP_MILLIS * 1_000_000L;
         Intent result = null;
         while (true) {

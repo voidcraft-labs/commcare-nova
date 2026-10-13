@@ -755,6 +755,71 @@ def test_the_local_archives_device_is_compared_with_the_same_configurations_a():
     assert _paths(found) == [("android@local.ccz", "/walks/*/steps/*/query/errorText", "added")]
 
 
+def test_a_walk_in_a_language_one_device_does_not_offer_is_that_one_difference():
+    """Contract: a walk named by a language (``@language:<code>/...``) is compared with the same language's walk
+    of the other device, and where one device's app does not offer the language the walk goes no further there, so
+    that is its one difference. Failure it catches: a language walk paired with another language's, or a missing
+    language reported again as every screen the other device showed."""
+    offered = {"chose": "fra", "offered": ["en", "fra"], "Localization.getCurrentLocale": "fra"}
+    walked = _app()["walks"]["m0/m0-f0"]
+    a, local = _app(), _app()
+    a["walks"]["@language:fra/m0/m0-f0"] = {"language": offered, **copy.deepcopy(walked)}
+    local["walks"]["@language:fra/m0/m0-f0"] = {"language": offered, **copy.deepcopy(walked)}
+    assert _proof3(copy.deepcopy(local), a=a) == []
+    local["walks"]["@language:fra/m0/m0-f0"] = {
+        "language": {"chose": "fra", "offered": ["en"], "unoffered": True},
+        "steps": [],
+    }
+    found = _proof3(local, a=a)
+    assert _paths(found) == [("android@local.ccz", "/walks/*/language/offered", "changed")]
+    assert (found[0].before, found[0].after) == ("en | fra", "en")
+
+
+def _case_walks(cases):
+    """An app whose first menu leads to a list of ``cases``: the walk that ends at the list, and each case's
+    walk on to the form."""
+    answer = _app()
+    del answer["walks"]["m0/m0-f0"]
+    held = {**_list(rows=cases), "order": list(cases)}
+    del held["finishing"]
+    answer["walks"]["m0"] = {
+        "steps": [{"screen": "MenuActivity", "chose": "m0"}, {"screen": "EntitySelectActivity", "list": held}]
+    }
+    for case in cases:
+        answer["walks"][f"m0/@case:{case}"] = {
+            "steps": [
+                {"screen": "MenuActivity", "chose": "m0"},
+                {"screen": "EntitySelectActivity", "list": {"chose": case, "detail": None, "finishing": True}},
+                {"screen": "FormEntryActivity", "form": _form()},
+                {"screen": "home", "alert": None},
+            ]
+        }
+    return answer
+
+
+def test_a_case_only_one_devices_list_shows_is_the_lists_difference_and_its_walk_is_no_other():
+    """Contract: each case a list shows is a walk of its own, named by the case, compared with the other device's
+    walk of the same case; a case only one device's list shows is that list's one difference (its order, and the
+    row only it holds), and that case's walk is not reported again as a walk one device lacks. A walk one device
+    lacks for any other reason still is. Failure it catches: a list that shows another set of cases reported
+    once for the list and once more for every case and every screen past it; or every missing walk left out,
+    so a path one archive never offers goes unreported."""
+    assert _proof3(_case_walks(("ada", "bo")), a=_case_walks(("ada", "bo"))) == []
+    found = _proof3(_case_walks(("ada",)), a=_case_walks(("ada", "bo")))
+    assert ("android@local.ccz", "/walks/*/steps/*/list/order", "changed") in _paths(found)
+    assert not [difference for difference in found if difference.path == "/walks/*"]
+    # The same case's walk differing is its own difference, at that walk.
+    local = _case_walks(("ada", "bo"))
+    local["walks"]["m0/@case:bo"]["steps"][2]["form"]["title"] = "Follow up"
+    assert _paths(_proof3(local, a=_case_walks(("ada", "bo")))) == [
+        ("android@local.ccz", "/walks/*/steps/*/form/title", "changed")
+    ]
+    # A walk of a case both lists show that one device lacks is reported.
+    local = _case_walks(("ada", "bo"))
+    del local["walks"]["m0/@case:bo"]
+    assert _paths(_proof3(local, a=_case_walks(("ada", "bo")))) == [("android@local.ccz", "/walks/*", "removed")]
+
+
 def test_the_judges_read_a_tablet_from_the_keys_a_tablet_is_kept_under():
     """Contract: ``document_record(records, tablet=True)`` reads every state's tablet (``androidTablet``, the
     local archive's ``androidDeliveredTablet``), and never a phone's, and leaves the installs, the update and

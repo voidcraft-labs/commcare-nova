@@ -34,8 +34,9 @@ import java.nio.file.Files;
  * <li>{@code profile}: install {@code archive}; the install status, and what each profile reader gives.</li>
  * <li>{@code installs}: install each of {@code archives} in turn on one device; each status and the apps the
  * device then holds.</li>
- * <li>{@code app}: install {@code archive}, apply {@code restore}, and read the screens {@code screens} names
- * (Screens).</li>
+ * <li>{@code app}: install {@code archive}, apply {@code restore}, and walk the app (Screens): every path its
+ * menus offer and every case each list shows, then all of it again in each of {@code languages}, chosen on home's
+ * own Change Language dialog; or, with {@code commands}, the forms they name.</li>
  * <li>{@code update}: install {@code archive}, then update the device to {@code update} (Updates).</li>
  * </ul>
  */
