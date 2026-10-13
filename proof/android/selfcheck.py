@@ -26,6 +26,8 @@ from proof.android.client import AndroidReader, AndroidReaderError, AndroidReade
 
 CONTROLS = Path(__file__).resolve().parents[1] / "controls"
 SURVEY = CONTROLS / "targeted-survey-menu"
+# A form whose field list holds a question and a repeat (defect 27's shape), which the form tests build on.
+REPEAT_IN_FIELD_LIST = CONTROLS / "targeted-labelled-group-repeat" / "local.ccz"
 PROFILE_NAMESPACE = "http://cihi.commcarehq.org/jad"
 
 
@@ -41,6 +43,16 @@ def variant(source: Path, target: Path, edits: dict) -> Path:
             elif edits[info.filename] is not None:
                 copy.writestr(info, edits[info.filename])
     return target
+
+
+def edited(archive: Path, target: Path, name: str, replacements) -> Path:
+    """The archive with ``name`` rewritten by exact replacements, each of which its text must hold."""
+    with zipfile.ZipFile(archive) as zipped:
+        text = zipped.read(name).decode("utf-8")
+    for old, new in replacements:
+        assert old in text, f"{archive}'s {name} does not hold {old!r}"
+        text = text.replace(old, new)
+    return variant(archive, target, {name: text.encode("utf-8")})
 
 
 def with_property(archive: Path, target: Path, key: str, value: str) -> Path:
@@ -283,6 +295,65 @@ class ReaderSelfCheck(unittest.TestCase):
             # No JVM starts and installs an app in a twentieth of a second.
             self.reader.request("profile", archive=str(SURVEY / "local.ccz"), deadline=0.05)
         self.assertEqual(self.reader.request("profile", archive=str(SURVEY / "local.ccz"))["install"], "Installed")
+
+    def _with_a_repeat_first(self, name: str, repeat: str, more_binds: str = "", more_data: str = "", keep=True):
+        """The labelled-repeat control's form with a repeat of one question ahead of its field list (``repeat``
+        the repeat element's own attributes), and without the field list's own question where ``keep`` is off."""
+        address = (
+            '<input ref="/data/household/address"><label ref="jr:itext(&apos;household-address-label&apos;)"/></input>'
+        )
+        visits = (
+            f'<group ref="/data/visits"><label>Visits</label><repeat nodeset="/data/visits"{repeat}>'
+            '<input ref="/data/visits/note"><label>Note</label></input></repeat></group>'
+        )
+        bind = '<bind nodeset="/data/household/address" type="xsd:string"/>'
+        return edited(
+            REPEAT_IN_FIELD_LIST,
+            self.work / name,
+            "modules-0/forms-0.xml",
+            [
+                ("<household><address/>", f'{more_data}<visits jr:template=""><note/></visits><household><address/>'),
+                (bind, f'{more_binds}<bind nodeset="/data/visits/note" type="xsd:string"/>{bind}'),
+                ("<h:body>", f"<h:body>{visits}"),
+                (address, address if keep else ""),
+            ],
+        )
+
+    def test_a_form_that_brings_the_worker_back_to_a_repeat_they_declined_ends_there(self):
+        """Contract: a form's walk ends where Android ends it or holds it, and a form that brings the worker
+        back to a repeat's dialog they declined, with its data as it was, is held in that cycle and recorded as
+        that (``ended: "cycle"``) at the dialog's second showing. Failure it catches: the cycle walked to a
+        count of screens and recorded as an end like any other, alike on two builds, so two archives' devices
+        agree on a form no worker can leave and nothing says so. A repeat followed by a field list that holds
+        only a repeat (defect 27's shape) is such a form: declining another row reaches the form's end with no
+        screen left, and Android shows the question before the dialog again
+        (``FormEntryActivityUIController.showNextView``, ``refreshCurrentView``)."""
+        answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
+        archive = self._with_a_repeat_first("cycle.ccz", "", keep=False)
+        answer = self.reader.request("app", archive=str(archive), answers=answers, commands=["m0-f0"])
+        form = answer["walks"]["m0-f0"]["steps"][0]["form"]
+        self.assertEqual(form["ended"], "cycle")
+        shown = [(screen["event"], screen["index"], screen.get("chose")) for screen in form["screens"]]
+        declined = ("PROMPT_NEW_REPEAT", "/data/visits[2]", "Do Not Add")
+        self.assertEqual(shown.count(declined), 1, shown)
+        self.assertEqual(shown[-1], ("PROMPT_NEW_REPEAT", "/data/visits[2]", None), shown)
+        self.assertEqual(shown[-2], shown[shown.index(declined) - 1], shown)
+        self.assertIs(form["saved"]["finishing"], False)
+
+    def test_a_form_the_reader_sees_no_end_of_fails_the_request_and_is_no_record(self):
+        """Contract: no answer holds a form cut short by the reader's own bound: a form that shows ``MAX_SCREENS``
+        screens (Forms.java) without ending, held or in a cycle, fails the request by name. Failure it catches:
+        the bound recorded as the form's end, which two builds reach alike, so every check passes over a form
+        whose rest no device was shown. A repeat of 500 rows of one question is 500 screens."""
+        answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
+        archive = self._with_a_repeat_first(
+            "counted.ccz",
+            ' jr:count="/data/total" jr:noAddRemove="true()"',
+            more_binds='<bind nodeset="/data/total" calculate="500"/>',
+            more_data="<total/>",
+        )
+        with self.assertRaisesRegex(AndroidReaderError, r"FormNeverEnds.*showed 400 screens without ending"):
+            self.reader.request("app", archive=str(archive), answers=answers, commands=["m0-f0"])
 
     def test_a_request_whose_jvm_filled_its_code_cache_is_refused(self):
         """Contract: a device's JVM that fills its code cache compiles nothing more and cannot make a method

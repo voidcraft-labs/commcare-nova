@@ -194,7 +194,7 @@ final class Screens {
     }
 
     /** A walk the reader followed past MAX_STEPS: the reader cannot answer the request, so it raises. */
-    static final class WalkNeverEnds extends RuntimeException {
+    static class WalkNeverEnds extends RuntimeException {
         WalkNeverEnds(String message) {
             super(message);
         }

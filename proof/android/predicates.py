@@ -32,7 +32,7 @@ import zipfile
 from pathlib import Path
 
 from proof.android.client import AndroidReader, AndroidReaderUnavailable, unavailable
-from proof.android.selfcheck import CONTROLS, differing, variant, with_property
+from proof.android.selfcheck import CONTROLS, differing, edited, variant, with_property
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ANSWERS = Path(__file__).resolve().parents[1] / "core" / "answers.json"
@@ -84,16 +84,6 @@ SAME = (
 
 PROFILE_VERSION_1 = '<profile xmlns="http://cihi.commcarehq.org/jad" version="1"'
 PROFILE_VERSION_2 = '<profile xmlns="http://cihi.commcarehq.org/jad" version="2"'
-
-
-def edited(archive: Path, target: Path, name: str, replacements) -> Path:
-    """The archive with ``name`` rewritten by exact replacements, each of which its text must hold."""
-    with zipfile.ZipFile(archive) as zipped:
-        text = zipped.read(name).decode("utf-8")
-    for old, new in replacements:
-        assert old in text, f"{archive}'s {name} does not hold {old!r}"
-        text = text.replace(old, new)
-    return variant(archive, target, {name: text.encode("utf-8")})
 
 
 def with_entries(archive: Path, target: Path, entries: dict) -> Path:

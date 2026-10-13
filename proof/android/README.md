@@ -181,11 +181,20 @@ The requests (`Reader.java`):
     handler, and Robolectric's location service handing the app's own
     location controller the fix the lane's Connect proofs give a visit, at
     the lane's instant); each screen
-    `FormEntryActivityUIController.showNextView` moves to (up to eighty,
-    `ended: "screens"` past them: the corpus's one form that reaches them,
-    in `fuzz-xform-20260930-10`, goes back from a repeat's dialog to the
-    question before it, beside a repeat inside a field list, defect 27, which
-    the manifest check reports there), each question
+    `FormEntryActivityUIController.showNextView` moves to, to the form's own
+    end or to where Android holds the worker. One hold is a cycle
+    (`ended: "cycle"`): a form that brings the worker back to a repeat's
+    dialog they declined, with its data as it was, is recorded to that
+    dialog's second showing and no further. The corpus's one such form, in
+    `fuzz-xform-20260930-10`, has a repeat followed by field lists that hold
+    only repeats (defect 27's shape, which the manifest check reports there):
+    declining another row reaches the form's end with no screen left, and
+    Android shows the question before the dialog again
+    (`showNextView`, `refreshCurrentView`), so no worker leaves it, on HQ's
+    build and Nova's alike. The reader's own bound is no end: a form that
+    shows four hundred screens (`Forms.MAX_SCREENS`, Formplayer's count)
+    with neither fails the request by name, so no record holds a form cut
+    short; each question
     answered from the lane's answer table (`proof/core/answers.json`, as the
     Core runner reads it) through the form's own controller and read back by
     its own widget (a question the form holds no answer for is recorded
@@ -362,7 +371,10 @@ every CI run, on the runner's own Python); neither is a `test_*.py`.
   moves exactly the reader that reads it; an archive Android cannot install
   is refused and the one it was made from installs; one device refuses the
   same app twice and each request is a device of its own; a walk opens the
-  forms the suite names; a request the reader cannot answer raises. A
+  forms the suite names; a request the reader cannot answer raises; a form
+  that brings the worker back to a repeat they declined ends there as a
+  cycle, and a form of five hundred screens fails the request by name
+  (both built from the labelled-repeat control's form). A
   detail tab that lists a row a node shows a row for each node the
   nodeset gives in the chosen case's context (`basic_tests.ccz`, an archive
   HQ built that the project's instrumentation tests install, over a restore
