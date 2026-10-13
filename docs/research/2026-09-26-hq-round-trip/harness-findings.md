@@ -953,6 +953,125 @@ writes (defect 3, `targeted-save-to-case-read`); and no document can hold a
 basic child case of its own menu's case type, since a write of the menu's
 own type is the menu's own case (`unproducedInputs.test.ts`).
 
+### Found by holding every walk to its end
+
+Proofs 3 and 4 compare two states' walks of an app, so a run that ended
+early on both sides alike passed every comparison with the rest of it unseen.
+The stops check (`proof/checks/stops.py`) reads each walk on its own:
+Formplayer's walk of every state ends where the app ends it, or at a stop
+`proof/walk-stops.json` holds by name (`proof/README.md`, "Walk stops"). Most
+of the stops it holds are the refusal a numbered defect already is (5, 6, 12,
+13, 14, 15 and 20). Three are not, and each ends a form no check had seen
+past. Numbers 70 and 71 belong to two findings step 2's first pull request
+registers.
+
+72. **Nova admits a choice question whose default is none of its options,
+    and Web Apps cannot open the form.** A single or multiple choice field
+    may carry a default value that no option of it holds: the fuzz
+    generator draws the options and the default apart, so
+    `fuzz-xform-20260930-1`'s question offers `no`, `yes` and `c` with the
+    default `'a'`. Nothing in Nova refuses it, HQ's import and build take
+    it, and Nova writes the default as it writes any other
+    (`<setvalue event="xforms-ready" ... value="'a'"/>`, or `jr-insert`
+    where a repeat holds the question). *Harm:* Formplayer writes every
+    question's answer into the form it hands the client, and for a stored
+    choice it has Core find the option (formplayer
+    `api/json/PromptToJson.java::parseQuestionAnswer`, commcare-core
+    `core/model/data/helper/Selection.java::attachChoice`), which raises
+    "value a could not be loaded into question ... Check to see if value a
+    is a valid option". Formplayer answers the form's opening with that
+    error on the five documents below, and Web Apps shows it and stays on
+    the menu, so no worker there opens the form. On
+    `fuzz-xform-20260930-10`, where a repeat a worker adds to holds such a
+    question, Formplayer answers the request that adds the repetition with
+    it, and the client shows the error and goes on without the repetition.
+    Core's own session of the same forms (the lane's Core runner) and
+    CommCare Android answer the question and finish the form, on a phone
+    and a tablet, so the harm is Web Apps' alone. It is the same on Nova's
+    export and on HQ's build of it (A, B and B-edit alike), which is why no
+    comparison showed it, and Formplayer reads the form whoever wrote it,
+    so an app built in HQ with the same default does the same. It is
+    Nova's to refuse at authoring where the default is a literal and the
+    options are the field's own; a default an expression computes is not
+    decidable there. *Documents:* `fuzz-suite-20260930-5`,
+    `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`,
+    `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`; each holds the stop
+    Formplayer, `notification:value-could-not-be-loaded-into-question`.
+
+73. **A date question filled from a case property that holds text opens on
+    no reader.** A field that writes a case property is filled from the case
+    as a follow-up form opens (`<setvalue event="xforms-ready"
+    ref="/data/start_date" value="instance('casedb')/casedb/case[...]/
+    start_date"/>`), and a date field is bound `xsd:date`. Where the case
+    holds text that is no date, Core refuses the cast as the form loads
+    (`core/model/actions/SetValueAction.java::processAction`: "Invalid data
+    type in setvalue event targetting |/data/start_date| ... Invalid cast of
+    data [10] to type Date"). *Harm:* the form opens nowhere for that case:
+    Core's session ends before the form (`form-did-not-open`), Formplayer
+    answers the form's opening with the error and Web Apps stays on the
+    menu, and CommCare Android does not load the form, on a phone and a
+    tablet. It is the same on Nova's export and on HQ's build of it, and
+    Core refuses such a setvalue whoever wrote the form, so an app built in
+    HQ that loads a case property into a date question does the same on the
+    same case: it is no difference of Nova's emission.
+    The document shows it because its case type declares the two
+    properties with no data type, so the lane's case holds the text values
+    it gives an untyped property (`proof/observe/casedata.py`, "10" here).
+    What is Nova's to settle at authoring is the catalog: a property a date
+    field writes and reads back could be held to the date type, and the
+    lane's cases would then hold dates. What no authoring rule reaches is
+    the case a project space already holds, written by another app, an
+    import or HQ's API. *Documents:*
+    `expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`;
+    it holds the stop Formplayer,
+    `notification:invalid-data-type-in-setvalue-event-targetting`.
+
+74. **Web Apps submits its own placeholder for a date and time question in
+    a repetition added last, and the form can then never be submitted.**
+    HQ's client draws no widget for a date and time: the question reads
+    "Sorry, web entry cannot support this type of question."
+    (`form_entry/entries.js::getEntry`, `UnsupportedEntry`), and as the
+    client draws it the entry sets the question's answer to the text "Not
+    Supported by Web Entry". Formplayer's next answer to any request puts
+    the form's own value back (`form_ui.js`, `Container.fromJS`), so a
+    question on the form as it opens is harmless once a worker answers
+    anything. A question the client first draws in the last answer before
+    Submit keeps the text: a worker who adds a repetition that holds a date
+    and time question, and has nothing after it to answer, submits "Not
+    Supported by Web Entry" as that question's answer
+    (`web_form_session.js::submitForm`). *Harm:* Formplayer refuses the
+    submission (`validation-error`, the question an `illegal-argument`),
+    and by the client's code the question then keeps the error and no later
+    answer clears it, so every later Submit goes without it as not
+    prevalidated and is refused too: the worker loses what they entered.
+    Core's own session submits the same form, and a device has a widget for
+    the question. It is the same on Nova's export and on HQ's build of it,
+    and the client does it to any form that holds such a question in a
+    repeat, so it is HQ's client's and not Nova's emission. Whether Nova
+    refuses a date and time field at authoring is a product choice, since a
+    device runs it; what Nova can say at authoring is that Web Apps has no
+    widget for it. The lane's Formplayer walk now submits what the client
+    holds (`proof/formplayer/walk.py::UNSUPPORTED`,
+    `proof/webapps/observe.py::submitted_alike` holds the two alike).
+    *Documents:* `fuzz-xform-20260930-10`; it holds the stop Formplayer,
+    `submit-refused:validation-error`.
+
+The same check found that Formplayer's walk had never pressed the Add of a
+repeat a worker adds to, so no repetition, nor the case it creates, was ever
+submitted to Formplayer or shown by the client. The walk now adds one
+(`proof/formplayer/walk.py::addable`), which is what showed defect 23's
+dropped attachment in Formplayer's submissions on the two repeat documents
+(two register entries) and what showed finding 74. It also found two things
+of HQ's own that hold on any app and are no defect of Nova's: on Web Apps a
+list with grouped tiles draws each group as one tile whose click takes the
+group's first case (`menus/views.js::CaseTileGroupedListView`), so a worker
+there opens no other case of the group (the four `tile-grouped-*`
+documents, whose visits hold no parent index and so make one group); and
+App Preview's one-question form cannot show a repeat a worker adds to, nor
+a form with no question, which its "Use one question per screen" setting
+answers (38 documents; the lane's replay switches it off there, as a person
+does).
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's
