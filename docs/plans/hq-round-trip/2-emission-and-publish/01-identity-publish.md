@@ -831,7 +831,19 @@ location in `suite.xml`, and the form's `lang` attribute) holds `en`, `zho`
 and `cmn-hant`, one preferred spelling and one suffixed code, as A2 emits
 the edit. Both install, and `ChangeLocaleUtil.getLocaleCodes` and
 `getLocaleNames` offer each code with its own name.
-<<EXIT-STATE-RUN: Android, `test_every_language_code_an_archive_holds_is_offered` over the two archives above; the first was read during planning as `localization-mandarin`'s, the `zho` one is not yet run>>
+Executed during planning, on a proof machine, with Android, on the lane's
+head (`c3eff982`) with the predicate written into `predicates.py`: both
+archives answer `Installed`. The control's archive offers `en`, `cmn-hans`
+and `cmn-hant`, named `English`, `简体中文` and `繁體中文`, and the archive
+with `zho` offers `en`, `zho` and `cmn-hant` under the same three names. In
+that run the second archive also names the language `zho` where every
+`app_strings.txt` keys its name (`zho=简体中文` in all four members, and
+`lang.current=zho` in its own) and in the suite's resource id
+(`app_strings_zho`), as Nova's emitter writes each language's name under its
+code (`lib/commcare/compiler.ts`). With only the member, the suite's
+`<locale language>` and location and the form's `lang` rewritten, and the
+name key left as `cmn-hans`, the archive installs and offers `zho`, and
+`getLocaleNames` gives it the name `zho`.
 
 ## A3. The publish sequence
 
