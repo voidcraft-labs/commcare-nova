@@ -20,7 +20,7 @@ to correct:
 | A2 | `localization.wireCodes` (defect 1, two register entries) |
 | A3 | The publish sequence: the shell create, `readHqAppSource`, `remote_missing_at` |
 | A4 | No `multimedia_map` (finding 49) |
-| A5 | A `.ccz` is made for one project space (findings 32 and 59: twenty-three register entries move, eighteen entries the working submit shows are added live, and one spelling rule is added) |
+| A5 | A `.ccz` is made for one project space (findings 32 and 59: twenty-three register entries move, nineteen entries the working submit shows are added live, and one spelling rule is added) |
 | A6 | The HQ import file as a ZIP with its guide |
 | A7 | The proof capture and the comments, in the same pull request |
 
@@ -201,8 +201,8 @@ Reasons:
   (`models/applications.py::ApplicationBase.save_attachments`). Today every
   publish draws a new form id and so a new key; from step 2 the key is the
   same on every republish. Executed during planning, over a form whose id
-  two updates kept, with HQ's own `validate_app()` and Core's form check
-  behind it:
+  two updates kept, with HQ's own `validate_app()` on the app the updates
+  wrote and Core's form check behind it:
 
   | Step | HQ's `validate_app()` |
   |---|---|
@@ -213,23 +213,47 @@ Reasons:
   | Six days later | the same validation error |
   | Seven days after the verdict was kept | no error: HQ checks the form again |
 
-  So HQ's check of an app (`validate_app()`, which `make_build` runs before
-  it builds) can answer for an earlier version of a form for up to 7 days
-  after a republish, or until someone saves the form in HQ. Nova cannot clear the key. Two
-  consequences, each stated where a person meets it:
-  - A form HQ judged broken before Nova wrote over it keeps reading as
-    broken there, and HQ refuses to build the app for it. That needs an
-    earlier form HQ refused, which is an edit made in HQ's form builder:
-    `content/docs/publishing.mdx` says it in this pull request, and the line
-    on a publish outcome is work item B's (part 02, The 7-day App Preview
-    statement).
-  - HQ does not check a republished form it already judged valid. Every form
-    Nova sends is one Core accepts (the bar, on every export), so nothing
-    HQ would have refused reaches a build this way.
+  So HQ's check of the app Nova writes to, the unbuilt app read by its own
+  id, can answer for an earlier version of a form for up to 7 days after a
+  republish, or until someone saves the form in HQ. Nova cannot clear the
+  key. A new version does not read it:
+  `models/applications.py::ApplicationBase.make_build` validates a copy
+  under a new id, which has no kept verdict, so it checks every form afresh
+  before it builds. Part 02 executed both, in HQ and through Formplayer
+  (part 02, The 7-day App Preview statement). Two consequences, each stated
+  where a person meets it:
+  - A form that failed HQ's check before Nova wrote over it keeps reading as
+    failing on the unbuilt app. What answers stale is what reads that app by
+    its id: its download (`views/cli.py::direct_ccz` with `latest=save`),
+    which answers 400, "Cannot make new version", with the old form's error,
+    and so App Preview, which installs the unbuilt app through that download
+    and shows the error and no menu. Making a new version checks the app
+    afresh and builds, and a build is what a worker installs. All of it
+    needs an earlier form HQ refused, which is an edit made in HQ's form
+    builder. `content/docs/publishing.mdx` says so in this pull request,
+    under "On CommCare HQ", in part 02's own sentences as far as they are
+    true before pull request 4's check: "CommCare HQ keeps each form's last
+    check for up to 7 days. If a form had failed that check in CommCare HQ
+    before this publish replaced it, App Preview there can keep refusing to
+    open the app for that long, with the old error. Making a new version in
+    CommCare HQ checks the app afresh. Saving the form once in CommCare HQ's
+    form builder clears the old check." Work item B, in pull request 4, ends
+    the last sentence with ", and Nova's next publish then asks before
+    replacing that form", moves the four into the page's section on
+    publishing over HQ's changes, and shows them on the landed outcome of
+    the publishes it names (part 02, The 7-day App Preview statement, "The
+    statement").
+  - The unbuilt app's check does not look again at a republished form it
+    already judged valid, so App Preview can open an app on a pass kept for
+    an earlier form. A new version checks every form, so none reaches a
+    build unchecked, and every form Nova sends is one Core accepts (the bar,
+    on every export).
 
-  The lane's own builds are not affected: `proof/observe/build.py::build_state`
-  clears each form's verdict before it validates, so B's and B-edit's forms
-  are each checked for themselves although they now share A's form ids.
+  The lane's own builds are not affected:
+  `proof/observe/build.py::build_state` validates the app by its own id,
+  where a kept verdict would answer, and clears each form's verdict before
+  it does, so B's and B-edit's forms are each checked for themselves
+  although they now share A's form ids.
 
 **Files.**
 
@@ -250,8 +274,9 @@ Reasons:
 - SA and MCP tools: none.
 - Docs: `content/docs/publishing.mdx` (a CCZ built before this change does
   not reopen forms saved incomplete under it; what names a form by id in HQ
-  after the one-time change; HQ can show a 7 day old check of a form after a
-  republish).
+  after the one-time change; the four sentences on the check of a form that
+  CommCare HQ keeps for up to 7 days, under "On CommCare HQ", as "Stable
+  form ids keep HQ's validation verdict" above gives them).
 - CLAUDE.md: root `CLAUDE.md` (a form's `xmlns` and its HQ ids follow from
   its identity); `lib/commcare/CLAUDE.md` ("After-submit links", "HQ shape");
   `lib/deployment/CLAUDE.md` (a new "Identities" section: the derivation, the
@@ -368,7 +393,14 @@ pinned, the document passes whole (9 of 9) and so does its control (3 of
 3), which still shows every other entry that names it and that a run
 without the readers can show. Eight entries that name the control are a
 served reader's, so the document and the control retained again are in this
-pull request's reader slice (A5, "Lane").
+pull request's reader slice (A5, "Lane"). Executed during planning, at that
+state with the control retained so, under the Web Apps client and Android:
+the document passes whole (9 of 9) and so does its control (3 of 3). The 30
+entries naming the document are each held on the document and on the
+control with one count on both: the eight of a served reader among them
+(the Web Apps client's seven, 18 or 36 differences each, and Android's one,
+6), and the pinned entry, 2 on each. Neither shows a class that no entry
+holds.
 
 **Spelling rule.** None. No rule under `proof/rules/` erases an id or an
 `xmlns`.
@@ -826,24 +858,41 @@ the control's committed archive and writes the other spelling into it, as
 every predicate does: `proof/controls/targeted-hq-side-state/edit/local.ccz`,
 the edit's pre-fix archive, holds `en`, `cmn-hans` and `cmn-hant` (today's
 two suffixed codes), and the same archive with `cmn-hans` written as `zho`
-(the member `cmn-hans/app_strings.txt`, its `<locale language>` and resource
-location in `suite.xml`, and the form's `lang` attribute) holds `en`, `zho`
+in every place the archive names the language by its code holds `en`, `zho`
 and `cmn-hant`, one preferred spelling and one suffixed code, as A2 emits
-the edit. Both install, and `ChangeLocaleUtil.getLocaleCodes` and
+the edit. Those places are five kinds, and the predicate's helper rewrites
+each and then requires that no member still holds `cmn-hans`:
+
+- the member `cmn-hans/app_strings.txt`, renamed `zho/app_strings.txt`;
+- in `suite.xml`, the language's `<locale language="cmn-hans">`, its
+  resource id `app_strings_cmn-hans` and its location
+  `./cmn-hans/app_strings.txt`;
+- in the form (`modules-0/forms-0.xml`), `<translation lang="cmn-hans">`;
+- in each of the four `app_strings.txt` members (`default`, `en`,
+  `cmn-hans` and `cmn-hant`), the line `cmn-hans=简体中文`, the key that
+  names the language, written `zho=简体中文`;
+- in the language's own member, `lang.current=cmn-hans`, written
+  `lang.current=zho`.
+
+The name key is what gives a code its name: Android's picker names each
+code by the app string whose key is the code
+(commcare-android `ChangeLocaleUtil.translateLocales`, `Localization.get`
+of the code), and shows the code itself where no string has that key.
+Nova's emitter writes that key under the wire code
+(`lib/commcare/compiler.ts`), so an archive A2 emits holds `zho=` wherever
+it holds the language `zho`.
+
+Both archives install, and `ChangeLocaleUtil.getLocaleCodes` and
 `getLocaleNames` offer each code with its own name.
 Executed during planning, on a proof machine, with Android, on the lane's
 head (`c3eff982`) with the predicate written into `predicates.py`: both
 archives answer `Installed`. The control's archive offers `en`, `cmn-hans`
 and `cmn-hant`, named `English`, `简体中文` and `繁體中文`, and the archive
-with `zho` offers `en`, `zho` and `cmn-hant` under the same three names. In
-that run the second archive also names the language `zho` where every
-`app_strings.txt` keys its name (`zho=简体中文` in all four members, and
-`lang.current=zho` in its own) and in the suite's resource id
-(`app_strings_zho`), as Nova's emitter writes each language's name under its
-code (`lib/commcare/compiler.ts`). With only the member, the suite's
-`<locale language>` and location and the form's `lang` rewritten, and the
-name key left as `cmn-hans`, the archive installs and offers `zho`, and
-`getLocaleNames` gives it the name `zho`.
+with `zho` offers `en`, `zho` and `cmn-hant` under the same three names.
+Run again with the name key left as `cmn-hans=` (only the member, the
+suite's `<locale language>` and location and the form's `lang` rewritten),
+the archive installs and offers `zho`, and `getLocaleNames` gives it the
+name `zho`: the paired refusal that shows the key is read.
 
 ## A3. The publish sequence
 
@@ -2224,12 +2273,12 @@ device that updates, Connect's post and forward):
 **What the working submit shows.** Before this pull request the local
 archive's submit fails for want of a `PostURL`, so nothing past it is
 compared. Once it reaches HQ, Formplayer's record of the submit and of the
-screen after it shows eighteen classes other fixes own, at paths their
+screen after it shows nineteen classes other fixes own, at paths their
 entries do not name. (It also shows the submission's `path`, which differs by the
 app's id alone and which the spelling rule below reads as one.) This pull
-request registers the eighteen live, all check `proof3`, artifact
+request registers the nineteen live, all check `proof3`, artifact
 `formplayer@local.ccz`. Twelve move with their owner's fix in this step,
-one is deleted with a judge change, and defect 24's five stay live past the
+two are deleted with a judge change, and defect 24's five stay live past the
 step, as defect 24's other entries do:
 
 | Id | Path | What differs | Owner, and the pull request that moves it | Document | Control |
@@ -2252,12 +2301,14 @@ step, as defect 24's other entries do:
 | `d37-case-order-formplayer-local-ccz-submissions-data-order` | `/runs/*/steps/*/submissions/*/instance/data/order()` (`changed`) | the order of the data node's children: `subcase_1` then `case` from HQ's build, `case` then `subcase_1` from the archive | finding 37 (part 05, Finding 37), 9 | `case-extension-registration` | `case-extension-registration-after-59` |
 | `d37-case-order-formplayer-local-ccz-submissions-data-group-order` | `/runs/*/steps/*/submissions/*/instance/data/*/order()` (`changed`) | the same order inside a repetition: `case` first from HQ's build, last from the archive | finding 37, 9 | `case-capture-repeat` | `case-capture-repeat-after-59` |
 | `d33-trimmed-case-names-and-exter-formplayer-local-ccz-submissions-group-create-case-name-text` | `/runs/*/steps/*/submissions/*/instance/data/*/case[*]/create[*]/case_name[*]/text()` (`changed`) | the trimmed case name inside a repetition: `"  proof  "` from HQ's build, `"proof"` from the archive | finding 33 (part 05, Finding 33: `nova_trimmed` and the source-question guard), 9 | `case-capture-repeat` | `case-capture-repeat-after-59` |
+| `d9-form-version-formplayer-local-ccz-submit-nextscreen-output-data-version` | `/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@version` (`changed`) | the form version again, in the instance of the form a submit opens next: `"2"` from HQ's build and `"1"` from the archive. It shows only once state A is past HQ app version 1, which A3's two imports make it on every document, and only where a walk's submit lands in another form: on `targeted-form-link-hidden-target`, `search-hidden-link` and `case-extension-registration`, the three documents that show the submit label | defect 9's form version; deleted in 5 with the sixth row's entry and the lane's two, by the same judge change, which reads the version in every instance Formplayer hands back (part 04, Defect 9: the local profile identifies nothing stable) | `targeted-form-link-hidden-target` | `targeted-form-link-hidden-target-after-59` |
 
 - Executed during planning, as this pull request's reader slice ("Lane"),
-  with the eighteen registered and the nine controls below retained, under
-  Formplayer, on the lane's head, whose walk submits every form it finishes
-  and presses a repeat's Add: all fifteen documents, each beside its
-  control. Each entry shows on its document and on its control,
+  with the first eighteen registered and the nine controls below retained,
+  under Formplayer, on the lane's head with A5's bytes, where state A is
+  still one import at HQ app version 1, and whose walk submits every form
+  it finishes and presses a repeat's Add: all fifteen documents, each
+  beside its control. Each entry shows on its document and on its control,
   the same number of differences on both. On `targeted-custom-tile` the
   submit message shows 12, `noItemsText` 3, `selectText` 9, the sort keys 9
   and the trimmed case name 3; on `targeted-hq-side-state` the version 4
@@ -2272,11 +2323,46 @@ step, as defect 24's other entries do:
   12; on `case-capture-repeat` the order 6 and the name 6. Each class is
   held wherever it shows, and no document of the slice shows a class that
   no entry holds: 164 items, none failing.
+- Executed during planning again at this pull request's whole state, where
+  A3's two imports leave every A at HQ app version 2: the slice's first run
+  ("Lane") under Formplayer and Android, the fifteen documents and their 24
+  controls, 210 items in 39 groups. The eighteen are each held on their
+  document and on their control with the counts above (the version on
+  `targeted-hq-side-state` is `"5"` against `"1"` there, 4 differences),
+  and every one of the twenty fixed entries of a served reader is unseen on
+  its document and held on its control. Fourteen of the fifteen documents
+  now show the form version at the two paths the lane's entry and the sixth
+  row name, the same count at both on each (2 to 18), and both entries hold
+  it. One class more shows, the nineteenth row: 2 differences on each of
+  `targeted-form-link-hidden-target`, `search-hidden-link` and
+  `case-extension-registration`, which no entry of the eighteen names, so
+  proof 3 failed on those three. No control showed it: that run's nine
+  `-after-59` controls had been retained before the two imports were
+  written, in the one-import layout, so their state A sat at version 1,
+  where HQ's build and the archive both say `1`. (The run's fourth failing
+  item is proof 1 on `case-capture-followup`, whose register still held
+  `d1-android-proof1-b-update-reopened-changed` live: with A1's derived
+  `xmlns` the device reopens the form after the update, which is why A1
+  moves that entry to the fixed register.)
+- Executed during planning at that whole state once more, under Formplayer,
+  with the nineteenth entry registered and
+  `targeted-form-link-hidden-target-after-59` and
+  `case-extension-registration-after-59` retained again from that state's
+  corpus, in the two-import layout this pull request retains all nine in:
+  the three documents and their four controls, 40 items in 7 groups, none
+  failing. The entry shows 2 differences on its document and 2 on its
+  control, and holds 2 on `search-hidden-link` and 2 on
+  `case-extension-registration`. Each control retained again shows what its
+  document shows at every version path: on
+  `targeted-form-link-hidden-target` and its control 8 at the instance, 8
+  at the submission, 2 at the next screen and 8 in Core's trace, and on
+  `case-extension-registration` and its control 8, 8, 2 and 4. No document
+  or control of that run shows a class that no entry holds.
 - The first ten were first read with every reader, on the lane before its
   walk submitted every form it finishes: eleven of the fifteen documents
-  (all but the four the last eight name), each beside its control, showed
+  (all but the four the next eight name), each beside its control, showed
   the same counts for the ten, and no class of the Web Apps client's, the
-  device's or Connect's that no entry holds. The last eight need that walk:
+  device's or Connect's that no entry holds. The next eight need that walk:
   a repetition added and submitted, and every finished form submitted. They
   are each the submission's half of a difference Formplayer's instance
   already shows, and the Web Apps client and Android add none of their own
@@ -2290,12 +2376,28 @@ step, as defect 24's other entries do:
   the lane's branch with main merged, where state A is still one import at
   HQ app version 1, so the version class showed on `targeted-hq-side-state`
   alone, where the saves made in HQ raise the app's version, which a form
-  with no version of its own takes (`models/forms.py::FormBase.get_version`). From this pull request
-  every A is HQ app version 2 or 3 (A3), and the archive's forms carry
+  with no version of its own takes
+  (`models/forms.py::FormBase.get_version`). From this pull request every A
+  is HQ app version 2 or 3 (A3), and the archive's forms carry
   `version="1"` (`lib/commcare/xform/dataRootAttributes.ts`) until pull
-  request 5. The entry pins no value, so it holds the class on every
-  document that shows it.
-- No control that exists shows any of the eighteen: a control's pre-fix
+  request 5. So the version shows on every document whose walk opens a
+  form, at up to three paths of Formplayer's record: the instance
+  Formplayer hands back (the lane's
+  `d9-form-version-formplayer-local-ccz-output-data-version`), the
+  submission (the sixth row) and, where a submit lands in another form,
+  that form's instance (the nineteenth row). None of the three pins a
+  value, so each holds its class on every document that shows it. The
+  nineteenth needs the whole state: with A at version 1 both sides say `1`
+  wherever a submit opens a form, and `targeted-hq-side-state`, the one
+  document past version 1 there, submits into no form. It is not the lone
+  version of part 05, though the path's text is one of that passage's six:
+  that class is `formplayer@vellum@*` under proof 4, a form's version after
+  a save in HQ's form builder, and pull request 6's version clause reads it
+  (part 05, "The form version after a save"). This one is the local archive
+  against HQ's build under proof 3, and pull request 5's mapping of a local
+  form's version to `build(A)`'s reads it, as it reads the other two
+  (part 04, Defect 9, "The judge change for the form-version entry").
+- No control that exists shows any of the nineteen: a control's pre-fix
   archive cannot submit, `targeted-close-conditions`' own among them, which
   is why it keeps showing finding 59's submit status. So this pull request
   retains nine controls from its own corpus, after A5's bytes and before the
@@ -2313,7 +2415,14 @@ step, as defect 24's other entries do:
   `case-extension-registration-after-59`, `case-extension-repeat-after-59`,
   `case-extension-query-after-59` and `case-capture-repeat-after-59` (the
   name argument arrives in pull request 1, as part 05's `-after-13` controls
-  use it). `proof/timings.json` gains the nine `control:` groups.
+  use it). `proof/timings.json` gains the nine `control:` groups. Each of
+  the nine is this pull request's own emission, so it holds the two-import
+  layout (`"layout": 2`; part 09, "The layout marker"), its state A sits at
+  its document's HQ app version, and it shows what its document shows. In
+  planning's first run at the whole state the nine were of an earlier
+  corpus, in the one-import layout: their state A sat at version 1, and
+  none but `targeted-hq-side-state-after-59`, whose saves in HQ raise the
+  version, showed a version class.
 - **The submit label's path takes its structural form here.** Formplayer's
   record keys a screen's translations by the app's own ids
   (`forms.m1f0.submit_label`), so as recorded the class is another for each
@@ -2323,16 +2432,20 @@ step, as defect 24's other entries do:
   This pull request adds `/runs/*/steps/*/submit/nextScreen/translations` to
   it, with its case in `proof/checks/test_served.py`, so the one entry above
   holds the class on every form and document that shows it.
-- **Pull request 3 registers what its reader slice shows.** The eighteen
-  are every class with no entry that the slice showed when planning ran it
-  at this pull request's state: the fifteen documents its working-submit
-  and search entries name, each beside its control ("Lane"). The slice's
-  sixteenth document, `targeted-supply-point-read`, is there for the entry
-  A1 re-files, and ran at this state without the readers (A1, "Register").
+- **Pull request 3 registers what its reader slice shows.** The nineteen
+  are every class with no entry that the slice showed in planning's runs of
+  it, over the fifteen documents its working-submit and search entries
+  name, each beside its control ("Lane"): the first eighteen with A5's
+  bytes where state A is one import, and the nineteenth at this pull
+  request's whole state, where the eighteen showed again (above). The
+  slice's sixteenth document, `targeted-supply-point-read`, is there for
+  the entry A1 re-files, and ran at the whole state without the readers and
+  under the two readers its control's entries name (A1, "Register").
   Its seventeenth, `fuzz-suite-20260930-8`, is there for the judge change
   below, registers nothing, and ran at this state by itself.
-  Six documents outside the slice were read at that state
-  and showed none but classes among the eighteen: `case-list-inline` with
+  Six documents outside the slice were read with A5's bytes, where state A
+  is one import, and not at the whole state. They
+  showed none but classes among the first eighteen: `case-list-inline` with
   every reader and `case-choice-attendance` and `container-live-count-entry`
   under Formplayer, before the lane's walk submitted every form it
   finishes, and `case-capture-multiple`, `case-extension-multiple` and
@@ -2641,9 +2754,11 @@ nine controls this pull request retains, `targeted-custom-tile-after-59`,
 `targeted-connect-deliver-rename-after-59`,
 `case-extension-registration-after-59`, `case-extension-repeat-after-59`,
 `case-extension-query-after-59` and `case-capture-repeat-after-59`, keep an
-archive that names its server and submits, and show the eighteen classes of
-"What the working submit shows": the twelve that move after their owner's
-fix as before it, and defect 24's five beside their documents.
+archive that names its server and submits and a first publish of two
+imports, and show the nineteen classes of "What the working submit shows":
+the twelve that move after their owner's fix as before it, defect 24's five
+beside their documents, and the form version's two until pull request 5's
+judge change reads the version on every archive and deletes both entries.
 Executed during planning, every reader, with every fix's bytes stacked on
 the lane (the exit state): the five entries on
 `targeted-custom-tile-after-59`, the two on
@@ -2689,7 +2804,7 @@ shows").
 | The device on the local archive in every served state (`proof/android`, beside HQ's live unit), proof 3 | Android, then HQ | every document; `targeted-survey-menu`, the planning run's | The device's profile readers (`ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL`, `HiddenPreferences.getUserDomain`) give the profile's four values; each form a walk saves complete is sent by Android's own `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, taken by HQ's receiver under A's id, and leaves the unsent list. The device's network and requester are the lane's: every request it makes is answered by HQ's own views (`proof/android/src/nova/proof/android/Peer.java`, `proof/android/hq.py`), through Android's own requester (`ProofApplication.java`), so the reader gains no request and nothing but HQ answers the send. The paired refusal is the control's pre-fix archive, whose device meets Android's built-in defaults. |
 | `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The paired refusal is `proof/controls/targeted-connect-deliver-rename/local.ccz`, the control's pre-fix archive, which names no `PostURL`: its submission reaches HQ's receiver with no app named, is forwarded with a null app id, and Connect answers 400 and writes nothing. No register entry holds that refusal; this case does. |
 | `proof/checks/test_connect_unit.py::test_every_state_of_a_connect_app_reaches_the_one_opportunity` | Formplayer, Android, then Connect | `targeted-connect-deliver-rename` | Its line for the local archive turns over. It holds today that the device given HQ's input is the only reader whose forms reach Connect from the archive (`sorted(states["local"]["runs"]) == ["android"]`), because Formplayer cannot submit from it. From this pull request the local state's Connect record holds Formplayer's run beside the device's: the runs are `["android", "formplayer"]`, Formplayer's one post is answered 200 and every post of the device is answered 200. Executed during planning, every reader, with A5's bytes: under both configurations the record holds one Formplayer run and three device runs, each with one post answered 200. |
-| Proof 3 over the served states: finding 59's three fixed entries and finding 32's seventeen served ones, and the eighteen this pull request adds | Formplayer with HQ's own views answering it, and commcare-android beside HQ's live unit, its sign-in, its searches and each form it sends answered by HQ's views | every document | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, and its searches are answered as `formplayer@A`'s (`asked/*/*`, `response/type`); `android@local.ccz` signs in where `android@A` does, its searches are answered, with every walk past them taken, as `android@A`'s are, and its search URL, its form post address and Formplayer's submission path differ from A's by the app's id alone, which the spelling rule reads as one. The twenty fixed entries reproduce on their controls, and the eighteen classes of "What the working submit shows" are held on every document that shows them and on the nine controls this pull request retains. |
+| Proof 3 over the served states: finding 59's three fixed entries and finding 32's seventeen served ones, and the nineteen this pull request adds | Formplayer with HQ's own views answering it, and commcare-android beside HQ's live unit, its sign-in, its searches and each form it sends answered by HQ's views | every document | `formplayer@local.ccz` submits with `status` equal to `formplayer@A`'s, and its searches are answered as `formplayer@A`'s (`asked/*/*`, `response/type`); `android@local.ccz` signs in where `android@A` does, its searches are answered, with every walk past them taken, as `android@A`'s are, and its search URL, its form post address and Formplayer's submission path differ from A's by the app's id alone, which the spelling rule reads as one. The twenty fixed entries reproduce on their controls, and the nineteen classes of "What the working submit shows" are held on every document that shows them and on the nine controls this pull request retains. |
 
 Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
 run proof -- proof/hq/test_publish.py`, `PROOF_READERS=0 npm run proof --
@@ -2738,7 +2853,7 @@ are the ones no document term holds: `case-capture-multiple`, which
 That is the document and control of every served reader's entry this pull
 request moves or registers: A1's one on the device, the seventeen of
 finding 32 and the three of finding 59 that Formplayer and the device hold,
-and the eighteen of "What the working submit shows"; the document and the
+and the nineteen of "What the working submit shows"; the document and the
 control of the entry A1 re-files, `targeted-supply-point-read`, whose
 control eight reader entries name; `search-hidden-link`, the second
 document the submit-label entry shows on; and `fuzz-suite-20260930-8`, the
@@ -3019,10 +3134,10 @@ something production does not.
 | `proof/checks/wireLanguages.ts`, `proof/corpus/footprint.ts` | A2's `planLanguageWire` signature. |
 | `proof/targeted/documents/hqSideState.ts` | A2's `wireCodes` in its two roots and its module comment (A2, "Files"). |
 | `proof/checks/served.py`, `proof/checks/test_served.py` | A5's judge changes, each with its case in the test file: a submission's `path` is handed to the rule `runtime_url_app_id`; `TRACE_DATA_MAPS` gains the translations of the screen after a submit; and `_text_references` and `merged_text_ids` read a question's own label alone, with the constant `NOT_A_QUESTION` (A5, "What the working submit shows"). |
-| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Thirty-one entries move: A1's six, A2's two, A5's twenty-three. Eighteen are added live, on the nine controls this pull request retains, `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (A5, "What the working submit shows"). Two of defect 20's entries that pin a form's `xmlns` are re-filed as one, and their control `targeted-supply-point-read` is retained again in place (A1, "Register"). |
+| `proof/known-defects.json`, `proof/fixed-defects.json`, `proof/controls/` | Thirty-one entries move: A1's six, A2's two, A5's twenty-three. Nineteen are added live, on the nine controls this pull request retains, `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (A5, "What the working submit shows"). Two of defect 20's entries that pin a form's `xmlns` are re-filed as one, and their control `targeted-supply-point-read` is retained again in place (A1, "Register"). |
 | `proof/README.md`, `proof/CLAUDE.md` | State A is a shell create and an update; ids are derived; the placeholder app id alignment; a local archive is compiled for the configuration's project space and Formplayer submits from it, so the three README passages that say Nova's local archive names no server ("Android in the unit"), no address ("Connect in the unit") and no submission URL ("What the package's tests hold"), and `proof/CLAUDE.md`'s paragraph on finding 59, say it of the controls' pre-fix archives alone; the import file is imported through HQ's import page; "Served states" says the judge pairs the text ids of a message that names a question from each question's own label alone (A5, "What the working submit shows"). |
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
-| Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |
+| Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`, as the two this pull request registers for the form version pin none. What the new version does change is where the form version of defect 9 shows: on every document whose walk opens a form, where before it showed only where a save in HQ had raised the app's version, and at one path more, which is why this pull request registers the second of those two (A5, "What the working submit shows"). Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls retained before this pull request keep version 1 through their legacy layout, so no fixed entry and no byte of theirs moves; the ten this pull request retains (the nine `-after-59` controls and `targeted-supply-point-read`) hold the two-import layout and sit at their documents' version. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |
 
 **The determinism sentences, at this pull request.** Five places say the
 entropy ordinals keep defects 1 and 9 visible, or that both still show. From this pull request a

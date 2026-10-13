@@ -335,11 +335,12 @@ Part 09 holds this in full.
   gives each rule's verdict and the pull request that retires or adds it.
 - **The register step 2 starts from is the proof lane's as it merges: 885
   entries.** Step 2 moves 724 entries to the fixed register (669 of the base's
-  and 55 the stack itself registers first), deletes 13 (12 of the base's and
-  one the stack registers first: eleven with a judge change or an allowance,
-  and one in pull request 3 where the entry beside it comes to hold its
-  difference), and adds
-  136 (2 written straight into the fixed register and 134 live). Pull request
+  and 55 the stack itself registers first), deletes 14 (12 of the base's: eleven
+  with a judge change or an allowance, and one in pull request 3 where the
+  entry beside it comes to hold its difference; and two the stack registers
+  first, in pull request 3, which pull request 5's form-version judge change
+  stops showing), and adds
+  137 (2 written straight into the fixed register and 135 live). Pull request
   13 deletes 6 of the moved entries from the fixed register with their
   control, which its own change to the lane's privileges stops showing them.
   At the exit the fixed register holds 720 and 282 stay live: the 204 later-step entries
