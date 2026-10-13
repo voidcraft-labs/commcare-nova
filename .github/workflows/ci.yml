@@ -706,6 +706,11 @@ jobs:
     # hold is the gate's.
     name: Proof ${{ matrix.shard }}/${{ matrix.total }}
     needs: proof-plan
+    # Whenever the plan gave a matrix. Without a condition of its own a job is
+    # skipped when any job behind the ones it needs failed, however the plan
+    # itself ended: a failure of a job the plan waits for would skip every
+    # shard, "Proofs" would fail on "skipped", and nothing would be observed.
+    if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     # A failure deadline only: twice what the plan expects the longest shard
     # to take from its start, never under twenty minutes (proof.lane.plan).
