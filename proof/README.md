@@ -3725,6 +3725,15 @@ workflow on the branch and record its digest in `proof/image.lock`. The image
 the lock records changes only when its inputs do; the workflow's weekly build
 proves the recipe still builds and that its variants observe alike.
 
+The lock names the built image and the pins it was built from, and nothing
+holds it to the recipe's own files (CI holds its pins to `proof/pins.json`,
+`scripts/ci/check-proof-image-lock.mjs`, and the store's `image` fingerprint
+is its digest), so a change under `proof/image/` that leaves what the image
+holds byte for byte the same needs no new image, which is shown by running
+the changed step in the pinned image as the Dockerfile runs it, comparing
+every file it writes with the one the image already holds, and saying in the
+commit what was run and compared.
+
 ## Step 1's decisions
 
 The harness is step 1 of the HQ round trip
