@@ -185,7 +185,9 @@ jobs:
       store: pack
 
   # One snapshot of both profiles' records over main's, saved whatever either
-  # verdict (as a single lane's save is), when every shard of both ran.
+  # verdict (as a single lane's save is). A profile one of whose shards could
+  # not run packed nothing and is left out: main's records for it stay, and
+  # the other profile's are saved all the same.
   save:
     name: Save main's store
     needs: [nightly, nightly-no-readers]

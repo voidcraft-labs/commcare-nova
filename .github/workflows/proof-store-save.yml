@@ -11,10 +11,15 @@ name: Proof store save
 # so the two never hold one key) and saves the result under a key of its own:
 # the run's, its attempt's, and the labels this call merges
 # (proof/ci/store-keys.mjs --save), since a cache entry is never written over
-# and a second save under one key is dropped with only a warning. Where a
-# call left no packed store (one of its shards could not run), nothing is
-# saved and main's previous snapshot stays, as a single call's save would
-# keep it.
+# and a second save under one key is dropped with only a warning.
+#
+# A call that left no packed store (one of its shards could not run) has
+# nothing to give. Over main's snapshot (`base`) it is left out and the rest
+# are saved: main's own records for that profile stay as they were, so a
+# failed shard with the readers does not keep back the records without them
+# that every pull request reads. A save that replaces the snapshot whole
+# needs every call, or it would drop the missing profile's records: it then
+# saves nothing and main's previous snapshot stays.
 on:
   workflow_call:
     inputs:
@@ -87,15 +92,25 @@ jobs:
           sources=()
           # Main's snapshot first, so each call's newer records are read over it (an absent one holds nothing).
           if [ "$BASE" = true ]; then sources+=("$RUNNER_TEMP/store/main"); fi
+          packed_stores=0
           while IFS= read -r label; do
             [ -n "$label" ] || continue
             packed="$RUNNER_TEMP/packed/proof-store-$label-$GITHUB_RUN_ATTEMPT"
             if [ ! -d "$packed" ]; then
-              echo "::notice::The $label lane packed no store (one of its shards could not run), so main's previous snapshot stays."
+              if [ "$BASE" = true ]; then
+                echo "::notice::The $label lane packed no store (one of its shards could not run), so the snapshot keeps main's records for it as they were."
+                continue
+              fi
+              echo "::notice::The $label lane packed no store (one of its shards could not run), and this save replaces main's snapshot whole, so nothing is saved and main's previous snapshot stays."
               exit 0
             fi
             sources+=("$packed")
+            packed_stores=$((packed_stores + 1))
           done <<< "$LABELS"
+          if [ "$packed_stores" = 0 ]; then
+            echo "::notice::No lane packed a store, so nothing is saved and main's previous snapshot stays."
+            exit 0
+          fi
           python3 -m proof.store.pack merge --into "$RUNNER_TEMP/store/next" "${sources[@]}"
           echo "merged=true" >> "$GITHUB_OUTPUT"
       - name: Save main's newest snapshot

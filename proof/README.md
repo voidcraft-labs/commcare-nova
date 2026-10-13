@@ -2481,7 +2481,10 @@ reused is only what a key names whole, and the reuse is audited:
   pull request's is, against main's newest snapshot: every group whose key
   changed since it was saved is observed, the audit sample afresh, and the
   rest read. The two are merged over main's snapshot into the newest one
-  every pull request reads. A scheduled night that fails in either profile
+  every pull request reads; a profile one of whose shards could not run
+  packs nothing and is left out of the merge, where main's records for it
+  stay, so a failed shard with the readers never keeps back the records
+  without them. A scheduled night that fails in either profile
   opens an issue. A merge to main writes nothing to main's store (only the
   nightly, the weekly audit and the pin pull request's prewarm do, "Changing
   a pin", below), so a pull request opened right after a large merge is
