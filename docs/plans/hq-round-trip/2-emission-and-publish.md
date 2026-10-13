@@ -34,15 +34,23 @@ run, and the part states what the run showed.
 
 ## The baseline this plan was written against
 
-**Nova.** `main` at `e7f74de1`. The research reads Nova at `982d2630`; the
-README's "Nova since the research" lists what landed between. Every defect 1
-to 16 and every finding 31 to 55 still reproduces as the research and
+**Nova.** `main` at `7b153dc3` with the proof lane's pull request (#738) on
+it. That pull request merges before step 2 and is the stack's base: it adds
+the four readers "Findings the lane's readers showed" names, the list of held
+walk stops, and the register of 885 entries this plan accounts. The research
+reads Nova at `982d2630`; the README's "Nova since the research" lists what
+landed between. Every defect 1 to 16 and every finding 31 to 55 still
+reproduces as the research and
 [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md)
-describe, but finding 52, which #712 fixed. The evidence is the lane itself:
-the Proofs gate passed on #716, at the pins below, with all 613 entries of
-`proof/known-defects.json` unchanged, and the register is strict, so an entry
-that stopped showing would have failed it. The parts re-read each defect's
-code and state, block by block, where it has moved. What a fix must know:
+describe, but finding 52, which #712 fixed. Findings 54 and 55 reproduce as
+two spellings every reader reads alike, so the lane's branch holds each by a
+spelling rule in place of entries, and the fix retires the rule (parts 05 and
+06). The evidence is the lane itself: the whole lane with every reader ran
+fresh on that branch, saw every entry of `proof/known-defects.json` on its
+document and on its control, and its gate held; the register is strict, so an
+entry that stopped showing would have failed it. The parts re-read each
+defect's code and state, block by block, where it has moved. What a fix must
+know:
 
 - What a publish sends is assembled only in
   `lib/deployment/importApplication.ts::hqImportApplication`, which
@@ -61,6 +69,13 @@ code and state, block by block, where it has moved. What a fix must know:
   finding 52's two entries and left its control,
   `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`, named by no
   entry.
+- #730 added a third kind of choice question, one whose choices are cases
+  (`lib/commcare/caseOptions.ts`, an `<itemset>` over `casedb`), and two
+  corpus documents, `case-choice-attendance` and
+  `targeted-no-matches-return-identity`. HQ's own model asks the Lookup Tables
+  privilege for any `<itemset>`, so the plan-privilege gate counts it (part
+  03), and part 06's close conditions state the third kind. #729, #732 and
+  #733 change no byte an export carries.
 - Inert, as the outline said: `lib/commcare/constants.ts`'s comment on
   `RESERVED_XFORM_NODE_PREFIX` still describes count snapshots, and
   `lib/commcare/xform/builder.ts::isRepeatCountSnapshot` orders setvalues no
@@ -70,8 +85,8 @@ code and state, block by block, where it has moved. What a fix must know:
 doubt executed, at the commits `proof/pins.json` names: commcare-hq
 `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android `7a5584475580`,
 commcare-connect `046c7fd78081`; Vellum `01215f251c57`, the build HQ vendors at
-that pin; and formplayer `24383ac71bfb`, which the lane does not pin. HQ,
-Android and Connect moved since the research. No fact the plan relies on
+that pin; and formplayer `24383ac71bfb`, which the lane's pull request adds to
+the pins. HQ, Android and Connect moved since the research. No fact the plan relies on
 changed. One cited symbol moved: `cloudcare/views.py::_format_app_doc` is now
 `cloudcare/utils.py::format_app_doc`. HQ gained the `AI_APP_TRANSLATION` toggle
 and privilege and `OCS_CONNECT_INTEGRATION`, and `COMMCARE_CONNECT` now names
@@ -251,7 +266,9 @@ The proof lane's pull request, which merges before step 2, runs every reader the
 - **Defect 15's Connect forwarding**: HQ never resends a delivery Connect refused, so the rename notice and the runbook ask for the new payment unit before the next publish, and Connect's reading of a renamed block is what Connect does itself (part 08; part 09).
 - **Data Forwarding and a Connect forwarder**: publish asks the person to confirm both for a Connect app, since no API key reads either (part 03, C8).
 
-Finding 70 is planning's: question names HQ's editors warn about (part 08).
+Findings 70 and 71 are planning's: question names HQ's editors warn about, and a read of the form's root in form logic, which the validator refuses with a migration (part 08).
+
+Findings 72, 73 and 74 are the lane's, found by holding every walk to its end: a choice question whose default is none of its options, a date question filled from a case property that holds text, and a date and time question the Web Apps client has no widget for. None is step 2's. The lane holds each by name in its list of walk stops, step 3 removes the first two and step 4 the third (part 09, The held walk stops).
 
 ## Model additions
 
@@ -285,7 +302,7 @@ in this step, against the outline: `Form.xmlns`, `uiStringOverrides` and
 | D. Emission inside HQ's editable envelope | Defects 2, 3, 4, 7, 8, 9, 10, 13, 14, 15, 16 | 04 to 08 |
 | E. Lookup data, CSQL and media | Defects 5, 6, 11 (first half) | 02, 08 |
 | F. The migration notice | Its tables, surfaces and copy | 10 |
-| G. The harness's findings | 31 to 57, each in the part that owns its code | 01 to 08 |
+| G. The harness's findings | 31 to 71, each in the part that owns its code; 56 is held for step 3, and 72 to 74 are held as walk stops for steps 3 and 4 | 01 to 09 |
 | H. Step 1's open clause | Registered on the lane's branch; closed with findings 45 and 47 in pull request 6 | 04, 09 |
 
 Every gate is checked at publish, never at commit; the commit gate still reads
@@ -332,9 +349,10 @@ Part 09 holds this in full.
   readers and runs every group the change invalidates, with nothing dropped
   for time: about six minutes when a pull request leaves every group as
   stored, and ten to thirteen when it changes the register and an emitter, as
-  each of this stack's does (part 09 gives the model). The nightly runs every
-  reader over main and opens an issue on a failure, and the weekly runs the
-  whole lane fresh. So each pull request of the stack runs, on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
+  each of this stack's does (part 09 gives the model, and the one run that
+  measured its long end). The scheduled nights, Tuesday to Saturday, run every
+  reader over main against main's store and open an issue on a failure, and
+  the week's lane runs everything fresh. So each pull request of the stack runs, on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
   the readers their entries name before it is marked ready, and the whole lane
   with every reader runs once at the stack's top before the merge (part 09,
   part 11's house rules). The implementer asks the person once, at the start,
@@ -443,6 +461,10 @@ Part 11 gives each sentence as it reads today and its replacement. In brief:
   reading of a renamed block leave as what HQ does itself, by their allowances.
 - Every control directory is named by a register, and every fixed entry shows
   on its control.
+- Every walk reaches its end or one of the 30 stops the list holds by name:
+  22 on a document, each what a reader does itself, what the app says, or a
+  later step's (findings 72 and 73 for step 3, finding 74 for step 4), and 8
+  on the control of a fix that removed the stop from its document.
 - Publish refuses a target below the floor or without a confirmed plan
   feature, and a second publish stops when HQ's copy changed since the first.
 - Every existing app is valid under the new schema and validator, and carries
