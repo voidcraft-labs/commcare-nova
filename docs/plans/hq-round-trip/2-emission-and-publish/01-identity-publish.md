@@ -3484,12 +3484,16 @@ media upload from `export.create` in many more. From this pull request
   source under its name.
 
 Executed during planning, without the readers, at this pull request's
-state written as scratch (the next paragraph gives the state). Its files
-keep the first update under `create` and name the shell's body in that
-sidecar, so these runs hold the sequence, two of the four callers and the
-comparison. They hold nothing of the Formplayer and Web Apps callers,
-whose packages need a reader, and nothing of the readers turned to
-`export.content`, whose list above is read from the lane's head.
+state written as scratch (the next paragraph gives the state), in two
+forms. The first keeps the first update under `create` and names the
+shell's body in that sidecar, so its runs, the first two bullets below,
+hold the sequence, two of the four callers and the comparison, and nothing
+of the readers turned to `export.content`. The second is the same state
+on the lane's head, with every first publish of its corpus and of its ten
+two-import controls under this layout's file names, every reader above
+turned, and all four callers calling `publish.create`: the third bullet.
+No run holds the Formplayer and Web Apps callers, whose packages need a
+reader.
 
 - With `proof/rules/conftest.py::published` unchanged, HQ answers its one
   import with 404, "Application not found", since the body it sends names
@@ -3505,6 +3509,26 @@ whose packages need a reader, and nothing of the readers turned to
   is a form's source (`<form id>.xml`, type code 5, under the app's id).
   With the column left out the file passes 71 of 71. The comparison's five
   hand-written states gave the five verdicts above.
+- Under this layout's file names, on the lane's head: `proof/checks` over
+  `arithmetic`, `lookup-app` and `targeted-hq-side-state` (a workbook),
+  `media-rich` (media), `targeted-form-link-hidden-target` and
+  `targeted-supply-point-read`, with the two controls of those names (one
+  in each layout), passes whole, 68 items in 9 groups. Called by
+  themselves over all 357 documents, outside the lane's harness, these
+  pass: the reader's own test (part 09, "The layout marker"),
+  `test_the_input_manifest_names_the_bytes_each_part_reads`,
+  `test_the_written_manifest_and_the_files_give_the_same_inputs`,
+  `proof/checks/test_manifest.py::test_each_publish_the_observation_reads_keys_the_local_part`,
+  and the part-key cases for `content.request.body` and
+  `content.media.body`. Before the privilege roles named both imports,
+  every corpus document failed ("The privileges", above). The whole corpus
+  and the lane's packages have not run under these file names: of the
+  readers listed above, the slice does not reach
+  `proof/checks/test_proof3_behavior.py`'s two tests,
+  `proof/checks/test_record_determinism.py`'s three,
+  `proof/checks/test_alignment.py`, `proof/views/test_lookup_upload.py`,
+  the privilege test's new case or any package, and it is the first thing
+  this pull request's own lane shows.
 
 **This pull request's lane, run without the readers.** Executed during
 planning, on a proof machine, at this pull request's state as its registers
@@ -3518,7 +3542,18 @@ thirty-one this pull request moves less A2's two. It holds none of Nova's
 own code and no byte the emitter wrote; A2's codes and A6's import file are
 not in it (A2, "Lane", gives the runs of the codes); the tests this pull
 request adds to the lane are not written in it; and its base is the lane's
-branch at `e368cb1e`, before the lane's last 35 commits. So these runs hold
+branch at `e368cb1e`, before the lane's last 35 commits. Those commits
+carry the result over: they change no document and no emitter (one comment
+in `proof/corpus/emit.ts`), so the lane's head emits the same 357
+documents; no judge, rule, register or control; and one file the scratch
+also changes, `proof/store/queue.py`, in its comments and one message.
+Their other changes are the lane's own mechanics (how a document is cut
+into pieces, the gate's reading of a slice and its count of walk stops,
+a session's end, the editors' build, the native producer and the
+workflows), and two more held walk stops, which a served reader shows.
+The scratch chain rebases
+onto the lane's head with no conflict, and the slice of "The lane's
+readers of a first publish", above, ran there. So these runs hold
 what HQ and Core read of this pull request's bytes over the whole corpus
 and what the lane's own packages do with them, and they leave the emitter,
 A2 and A6 to the pull request's own lane in CI.
