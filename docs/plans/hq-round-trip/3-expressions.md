@@ -53,6 +53,26 @@ typed model is what knows each operand's type: a lowering chosen per operand
 that compares instants in every device zone, or a refusal where none exists.
 This step's exit removes its entries.
 
+Findings 72 and 73 (`harness-findings.md`; `2-emission-and-publish/09-proof.md`,
+"The held walk stops"): two shapes Nova admits whose form no reader opens.
+Finding 72 is a select question whose default is a value none of its options
+carries: Core refuses to load it (`commcare-core`
+`Selection.java::attachChoice`). Finding 73 is a default that copies a text
+case property into a date question:
+Core refuses the cast in the form's setvalue. HQ's build and Nova's local
+archive fail alike, so the register holds neither. The lane holds each as a
+walk stop in `proof/walk-stops.json`: finding 72's five, Formplayer's
+`notification:value-could-not-be-loaded-into-question` on
+`fuzz-suite-20260930-5`, `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`,
+`fuzz-xform-20260930-1` and `fuzz-xform-20260930-7`, and finding 73's one,
+`notification:invalid-data-type-in-setvalue-event-targetting` on
+`expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`. This
+step fixes both, because the typed model is what knows a select's choices and
+the type of each value a default copies: a default is typed against the
+question it fills, and one the question cannot take is refused, or lowered
+through a conversion where one exists. This step's exit removes those six
+entries from the list.
+
 ## Contracts
 
 No row of the research's contracts table belongs to step 3. `lib/domain`,
