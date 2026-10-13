@@ -54,6 +54,12 @@
 		"reason": "Formplayer answers the form's opening with Core's refusal of a stored choice that is none of the question's options (Selection.java::attachChoice), on every state, so no reader opens the form."
 	},
 	{
+		"document": "fuzz-xform-20260930-10",
+		"reader": "formplayer",
+		"cause": "submit-refused:validation-error",
+		"reason": "The client holds \"Not Supported by Web Entry\" as the answer of the date and time question in the repetition a worker adds last, which it draws no widget for, and submits it (entries.js::UnsupportedEntry); Formplayer refuses the submission as an illegal argument."
+	},
+	{
 		"document": "fuzz-xform-20260930-4",
 		"reader": "formplayer",
 		"cause": "submit-refused:validation-error",
