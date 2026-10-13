@@ -96,8 +96,12 @@ change, on a few documents (proof-audit.yml's ``mechanics`` dispatch), never a
 verdict on the corpus: the queue names the documents and every group it
 leaves out beside the other documents (``selection``: each other control,
 and the packages that read the corpus), so a shard counts those as accounted
-for and the gate holds the entries naming a selected document alone, saying
-so (``proof.lane.gate``). The corpus's index is rewritten as for a sample.
+for and the gate asks to see the entries naming a selected document alone,
+saying so (``proof.lane.gate``). One of the documents must carry an edit:
+proof 5's check is collected over the edited documents, and the lane refuses
+to collect a check with none. The corpus's index is rewritten as for a sample.
+One of the documents named must carry an edit: proof 5's check runs over the
+edited documents, and a lane collects no check with none to run over.
 
 Each queued group names its key (``key``): a document's document key, a
 package's or the surface block's outcome key, which ``proof.store.pack``
@@ -309,6 +313,13 @@ def selected(corpus: Path, identifiers: list[str]) -> list[str]:
             f" {corpus} holds no {', '.join(unknown) or 'document named so'}."
         )
     kept = set(identifiers)
+    if not any((corpus / identifier / "edit").is_dir() for identifier in kept):
+        raise QueueBuildError(
+            f"--documents only:{','.join(identifiers)} names no document that carries an edit (an edit/ directory"
+            " beside its export/). Proof 5's check runs over the edited documents, and the lane refuses to collect a"
+            " check that has none to run over (proof/pytest.ini, empty_parameter_set_mark), so no shard would start"
+            " its documents. Name one edited document among them."
+        )
     left = [entry for entry in index["documents"] if entry["id"] not in kept]
     index["documents"] = [entry for entry in index["documents"] if entry["id"] in kept]
     index["unsampled"] = [*index.get("unsampled", []), *left]

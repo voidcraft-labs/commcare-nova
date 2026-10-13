@@ -334,7 +334,7 @@ def test_a_run_over_documents_named_by_hand_holds_their_entries_alone_and_says_i
     entry = {"defect": 1, "part": "a part", "check": "bar", "artifact": "upload", "path": "/x"}
     register = [
         {**entry, "id": "selected", "document": "a", "control": control},
-        {**entry, "id": "elsewhere", "document": "b", "control": another},
+        {**entry, "id": "elsewhere", "document": "b", "control": another, "path": "/elsewhere"},
     ]
     own_register.write_text(json.dumps(register), encoding="utf-8")
     shown = {"check": "bar", "artifact": "upload", "path": "/x", "at": "/x", "kind": "changed", "before": 1, "after": 2}
@@ -361,6 +361,20 @@ def test_a_run_over_documents_named_by_hand_holds_their_entries_alone_and_says_i
         " the lane on those documents, and is no verdict on the corpus."
     ]
     assert "Note: This run checked the documents named by hand (a)" in gate._markdown(selected)
+    # An entry naming another document is still a class a selected document's differences may fall in: a
+    # difference of its class on a is held by it, and one of no entry's class fails the run.
+    evidence_path = document_dir / "checks" / "bar" / "corpus-a.json"
+    evidence = json.loads(evidence_path.read_text())
+
+    def also(path):
+        found = [*evidence["differences"], {**shown, "path": path, "at": path, "document": "a"}]
+        lane_blocks.write_json(evidence_path, {**evidence, "differences": found})
+        return _run(output, queue, committed)["sections"]["register"]
+
+    assert also("/elsewhere")["holds"]
+    unclassed = also("/nowhere")
+    assert not unclassed["holds"] and "no known-defect entry names" in unclassed["problems"][0]
+    lane_blocks.write_json(evidence_path, evidence)
     # The entries naming a selected document are held in full: one its control no longer shows fails the run.
     (document_dir / "checks" / "bar" / f"control-{control}.json").unlink()
     unseen = _run(output, queue, committed)["sections"]["register"]

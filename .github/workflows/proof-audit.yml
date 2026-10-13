@@ -58,8 +58,9 @@ name: Proof audit
 # of the corpus, to show the lane's mechanics on GitHub's runners in minutes:
 # the queue with its pieces, the matrix, each shard and its artifacts, the
 # gate, and the report a failed night would open as an issue, written to the
-# run's summary. It is no verdict on the corpus, and its verdict says so; it
-# saves no store.
+# run's summary. One of the documents must be an edited one (proof 5's check
+# is collected over those). It is no verdict on the corpus, and its verdict
+# says so; it saves no store.
 on:
   schedule:
     - cron: "23 3 * * *"
@@ -79,7 +80,7 @@ on:
         type: string
         default: ''
       mechanics:
-        description: Document ids, comma-separated, to run the lane over with their controls alone, showing its mechanics (untick nightly); none when empty
+        description: Document ids, comma-separated and one of them an edited document, to run the lane over with their controls alone, showing its mechanics (untick nightly); none when empty
         type: string
         default: ''
       mechanics_split:
@@ -115,7 +116,8 @@ jobs:
 
   # The lane's mechanics on a few documents named by hand, with every reader: minutes, not hours. Its queue
   # holds those documents and their controls (python3 -m proof.store.queue --documents only:), in pieces as
-  # `mechanics_split` says, and its gate holds the register's entries naming them and says what it left.
+  # `mechanics_split` says; its gate holds their differences to the register, asks to see the entries naming
+  # them alone, and says what it left.
   mechanics:
     name: Mechanics, on documents named by hand
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mechanics != '' }}

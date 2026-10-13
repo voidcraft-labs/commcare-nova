@@ -3133,9 +3133,13 @@ written from where a pull request's own run read documents from the store
   failed night's issue would say into the run's summary: it shows the queue,
   the matrix, the shards and their artifacts, the gate and the report on
   GitHub's runners in minutes (`gh workflow run proof-audit.yml --ref
-  <branch> -f nightly=false -f mechanics=<id>,<id>`). It saves no store and
-  is no verdict on the corpus; its gate holds the entries naming its
-  documents and says what it left.
+  <branch> -f nightly=false -f mechanics=<id>,<id>`). One of the documents
+  named must be an edited one, because proof 5's check is collected over
+  those and the lane refuses to collect a check with nothing to run over;
+  the queue builder refuses a selection without one. It saves no store and
+  is no verdict on the corpus: its gate holds every difference on its
+  documents to the whole register, asks to see only the entries naming
+  them, on the document and on the control, and says what it left.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
   weekly, and for the weekly pin pull request.
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",

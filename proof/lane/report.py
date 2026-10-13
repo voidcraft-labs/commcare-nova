@@ -203,8 +203,8 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str], run: str = "
     if selection:
         sampled += [
             f"It checked the documents named by hand ({', '.join(selection['documents'])}) and their controls, and"
-            f" left {len(selection.get('left') or [])} other groups out: it shows the lane on those documents, and"
-            " is no verdict on the corpus.",
+            f" left {_count(len(selection.get('left') or []), 'other group')} out: it shows the lane on those"
+            " documents, and is no verdict on the corpus.",
             "",
         ]
     effects = _effects(label, verdict.get("effects"), run)
@@ -266,20 +266,20 @@ def body(
         if verdict is not None and not lane_readers.from_record(verdict["sections"]["register"].get("readers"))
         for entry in verdict.get("failing") or []
     }
-    lines = [
-        OPENINGS[kind].format(commit=commit),
-        "",
-        f"The run: {run}",
-        "",
-        "## Rerunning what failed",
-        "",
-        f"Check out the commit the run checked (`git fetch origin && git checkout {commit}`). Each command below"
-        " reruns one group alone: every check of one document or control, one configuration of a document that"
-        " was observed in pieces, or one package's failing tests, on one worker. The gate command after it holds"
-        " that slice to the lane's verdict; a slice's gate also reports the register's entries on documents it did"
-        " not run as not run, so read the problems that name your group.",
-        "",
-    ]
+    lines = [OPENINGS[kind].format(commit=commit), "", f"The run: {run}", ""]
+    # A dispatch's report is written whether or not its lane held (the nightly's and the weekly's open an issue
+    # only on a failure), and one in which every lane held has nothing to rerun.
+    if not all(verdict is not None and verdict.get("holds") for _, verdict in lanes):
+        lines += [
+            "## Rerunning what failed",
+            "",
+            f"Check out the commit the run checked (`git fetch origin && git checkout {commit}`). Each command"
+            " below reruns one group alone: every check of one document or control, one configuration of a"
+            " document that was observed in pieces, or one package's failing tests, on one worker. The gate"
+            " command after it holds that slice to the lane's verdict; a slice's gate also reports the register's"
+            " entries on documents it did not run as not run, so read the problems that name your group.",
+            "",
+        ]
     if sample_seed:
         lines += [
             f"The comparison lanes checked the corpus sample the seed `{sample_seed}` chooses, which turns each"

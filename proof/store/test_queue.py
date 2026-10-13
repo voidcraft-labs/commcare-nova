@@ -734,6 +734,12 @@ def test_a_run_over_documents_named_by_hand_queues_them_and_their_controls_and_n
     base = ["--root", str(checkout), "--out", out]
     assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:two,gone"]) == 2
     assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:"]) == 2
+    # A selection with no edited document would leave proof 5's check with nothing to run over, which the lane's
+    # collection refuses: the builder says so before any shard starts.
+    shutil.rmtree(corpus / "one" / "edit")
+    assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:one"]) == 2
+    assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:one,two"]) == 0
+    (corpus / "index.json").write_bytes(index)
     assert queue.main(["early", *base, "--documents", "only:two"]) == 2
     assert (
         queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:two", "--sample-seed", "2026-W42"])

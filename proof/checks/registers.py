@@ -408,7 +408,7 @@ def _evidence(directories):
     return records, problems
 
 
-def held_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
+def held_evidence(directories, entries, *, unsampled=frozenset(), readers=True, selected=None):
     """``verify_evidence``'s problems, each with the lane's groups a rerun of which shows it again: the document's
     (``corpus:<id>``) where a check's differences on it do not hold or an entry was not seen on it, the control's
     (``control:<id>``) where an entry's control did not run or no longer shows it; none where no one group does."""
@@ -422,6 +422,10 @@ def held_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
             if not result.holds:
                 problems.append((result.explain(), (f"corpus:{document}",)))
     for entry in entries:
+        if selected is not None and entry.document not in selected:
+            # A class a selected document's differences may fall in (above); its own document and control are no
+            # part of this run.
+            continue
         shown = (entry.check, "corpus", entry.document) in records
         if not shown and entry.document not in unsampled:
             problems.append(
@@ -451,7 +455,7 @@ def held_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
     return problems
 
 
-def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True):
+def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True, selected=None):
     """Why a whole run of the lane does not hold to the register (decision 12), as person-readable problems.
 
     Read from the evidence every check wrote (``$PROOF_OUT/checks/<check>/``
@@ -463,9 +467,13 @@ def verify_evidence(directories, entries, *, unsampled=frozenset(), readers=True
     one is held on its control alone, and none ran on its document. Without
     ``readers`` (a run that served no state to the readers) the served
     readers' entries are left out (``held_entries``): no check of that run
-    could show one, and the nightly holds them.
+    could show one, and the nightly holds them. ``selected`` names the
+    documents of a run over documents named by hand (``proof.store.queue``,
+    ``--documents only:``): every entry is still a class their differences
+    may fall in, and only an entry naming one of them must have been seen, on
+    it and on its control; the others' documents and controls did not run.
     """
-    found = held_evidence(directories, entries, unsampled=unsampled, readers=readers)
+    found = held_evidence(directories, entries, unsampled=unsampled, readers=readers, selected=selected)
     return [problem for problem, _ in found]
 
 

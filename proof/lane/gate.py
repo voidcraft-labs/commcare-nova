@@ -30,10 +30,12 @@ output. Four sections, each with its problems:
    other, and the section says how many it left; every shard must have run
    in the profile its queues were built for (``serve.json``'s ``readers``).
    A run over documents named by hand (its main queue's ``selection``,
-   ``proof.store.queue --documents only:``) holds the entries naming one of
-   them, on it and on its control, leaves every other to the nightly and the
-   weekly, and says so with what else it left out: it shows the lane on those
-   documents, and is no verdict on the corpus.
+   ``proof.store.queue --documents only:``) holds every difference on them
+   to the whole register (an entry holds its class on every document), asks
+   to see only the entries naming one of them, on it and on its control,
+   leaves every other to the nightly and the weekly, and says so with what
+   else it left out: it shows the lane on those documents, and is no verdict
+   on the corpus.
 4. Surface: the surface block's extraction (``blocks/<id>/surface/
    surface.json``), or the store's when the queues cache the surface, is byte
    for byte the committed ``lib/commcare/surface/surface.json``. The
@@ -168,13 +170,17 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE) ->
     selection = next((queue.selection for _, queue in queues if queue.selection is not None), None)
     readers, problems = _profile(queues, outputs)
     register = registers.load_known_defects()
-    # A run over documents named by hand holds the entries naming one of them, and no other.
-    entries = register if selection is None else [entry for entry in register if entry.document in selection.documents]
+    # A run over documents named by hand must see the entries naming one of them, and no other: every entry is
+    # still a class its documents' differences may fall in.
+    selected = None if selection is None else frozenset(selection.documents)
+    entries = register if selected is None else [entry for entry in register if entry.document in selected]
     records, read_problems = reader.cached_evidence(cached, store)
     problems += read_problems
     with tempfile.TemporaryDirectory(prefix="proof-gate-") as scratch:
         directories = [*verdict.chosen.values(), _cached_dir(records, Path(scratch))]
-        for problem, groups in registers.held_evidence(directories, entries, unsampled=unsampled, readers=readers):
+        for problem, groups in registers.held_evidence(
+            directories, register, unsampled=unsampled, readers=readers, selected=selected
+        ):
             problems.append(problem)
             for group in groups:
                 fails(group, problem)

@@ -257,11 +257,13 @@ def test_a_dispatch_over_documents_named_by_hand_is_reported_as_that_and_never_a
     assert body.startswith("A dispatch ran the proof lane over main at `abc123` on documents named by hand")
     assert "It is no verdict on the corpus; the nightly and the weekly are." in body
     assert (
-        "It checked the documents named by hand (tile, list) and their controls, and left 1 other groups out: it"
+        "It checked the documents named by hand (tile, list) and their controls, and left 1 other group out: it"
         " shows the lane on those documents, and is no verdict on the corpus."
     ) in body
-    assert "Its verdict held." in body
+    # It is written whether or not the lane held, and one that held names nothing to rerun.
+    assert "Its verdict held." in body and "Rerunning what failed" not in body
     # A failing one names its groups and their lines as any lane's does.
     failed = {**_verdict(True, [PIECE]), "selection": {"documents": ["tile"], "left": []}}
     body = report.body(report.MECHANICS, "https://example.test/run/2", "abc123", [("mechanics", failed)])
     assert "- `corpus:tile@maximum`: 1 of its 1 items failed" in body and "It is a piece" in body
+    assert "## Rerunning what failed" in body
