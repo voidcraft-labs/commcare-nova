@@ -27,7 +27,7 @@ run, and the part states what the run showed.
 | [05](2-emission-and-publish/05-xform.md) | XForms: defect 13; findings 33, 37, 45, 46, 47, 55, 66 |
 | [06](2-emission-and-publish/06-settings-navigation.md) | Menus, forms, navigation and search settings: defect 14; findings 41, 50, 54, 58 |
 | [07](2-emission-and-publish/07-case-lists.md) | Case lists: defects 10 and 16 (hidden columns); findings 35, 36, 38, 42, 51, 57, 67 |
-| [08](2-emission-and-publish/08-ids-data-media.md) | Identifiers, form content, CSQL, media and the model clean-up: defects 6, 11, 15 (with its Connect forwarding), 16; findings 31, 43, 44, 48, 56, 60, 61, 68, 70 |
+| [08](2-emission-and-publish/08-ids-data-media.md) | Identifiers, form content, CSQL, media and the model clean-up: defects 6, 11, 15 (with its Connect forwarding), 16; findings 31, 43, 44, 48, 56, 60, 61, 68, 70, 71 |
 | [09](2-emission-and-publish/09-proof.md) | Proving the fixes on the lane: the fixed-defect register, the rules, the entry accounting, the capture, the corpus; findings 63 and 67 and Connect's reading of a renamed block, as what HQ does itself |
 | [10](2-emission-and-publish/10-cutover-notice.md) | The cutover and work item F (the migration notice) |
 | [11](2-emission-and-publish/11-stack-contracts.md) | The stack in full, the model-addition checklist, contracts and docs |
@@ -311,11 +311,11 @@ Part 09 holds this in full.
   request 3 adds one (`runtime_url_app_id`), so 25 stand at the exit. Part 09
   gives each rule's verdict and the pull request that retires or adds it.
 - **The register step 2 starts from is the proof lane's as it merges: 883
-  entries.** Step 2 moves 709 entries to the fixed register (666 of the base's
-  and 43 the stack itself registers first), deletes 15 with a judge change or
+  entries.** Step 2 moves 711 entries to the fixed register (666 of the base's
+  and 45 the stack itself registers first), deletes 15 with a judge change or
   an allowance (14 of the base's and one the stack registers first), and adds
-  116 (2 written straight into the fixed register and 114 live). At the exit
-  the fixed register holds 711 and 273 stay live: the 203 later-step entries
+  118 (2 written straight into the fixed register and 116 live). At the exit
+  the fixed register holds 713 and 273 stay live: the 203 later-step entries
   of the base (defects 20, 21, 23 to 28 and 30), of which pull request 9
   re-files one from defect 14 to defect 26, and 70 the stack adds for later
   steps' symptoms its own fixes newly show (defect 25's 61, defect 24's 6 and
@@ -347,7 +347,7 @@ files, entries, rules, transform steps and ordering constraints.
 
 | # | Pull request | Parts |
 |---|---|---|
-| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for findings 56, 57 and 70; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 06 (finding 50), 07 (finding 57), 08 (findings 56 and 70) |
+| 1 | Lane mechanics: the fixed-defect register; `vellum_alert` retired; finding 50's allowance; targeted documents and controls for findings 56, 57, 70 and 71; `targeted-hq-side-state` split; controls replayed in their capture layout | 09, with 02 (the split), 06 (finding 50), 07 (finding 57), 08 (findings 56, 70 and 71) |
 | 2 | The cutover's skeleton, the notice, frozen pre-step fixtures, every ledger table | 10, 02 |
 | 3 | Identity and the publish sequence | 01, 09 (the capture) |
 | 4 | Drift and baselines | 02, 09 (the retained reads) |
@@ -356,7 +356,7 @@ files, entries, rules, transform steps and ordering constraints.
 | 7 | XForms, second part: groups, the rename, guards, conditions; defect 23's and 24's entries re-pathed | 05, 09 |
 | 8 | Defect 3 and work item H's closure | 04 |
 | 9 | Case writes through basic actions: findings 33 and 37, `update_case`, close conditions | 05 (findings 33, 37), 06 (`update_case`, close conditions) |
-| 10 | Identifiers and form content: defect 15; findings 31, 43, 44 | 08 |
+| 10 | Identifiers and form content: defect 15 with its Connect forwarding; findings 31, 43, 44, 60, 61, 68, 70, 71 | 08 |
 | 11 | Case lists, with findings 41 and 54 | 07, 06 (findings 41, 54) |
 | 12 | Menus, navigation and search settings, with finding 53 | 06, 03 (finding 53) |
 | 13 | Publish gates | 03, 01 (the shell's keys), 02 (the confirmation store) |

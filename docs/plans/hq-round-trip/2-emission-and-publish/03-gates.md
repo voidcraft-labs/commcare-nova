@@ -620,7 +620,7 @@ What the change showed, each now held by the lane: with Web Apps on, HQ's Case L
 
 | Fact | Observed by |
 |---|---|
-| With Data Forwarding and a Connect forwarder, a device's form reaches Connect through HQ's own receiver and repeater, and Connect makes its rows | `proof/connect/test_forwarding.py::test_a_devices_form_reaches_connect_through_hqs_own_receiver_and_repeater`, and the Connect unit on every Connect document (`connect@…`) |
+| With Data Forwarding and a Connect forwarder, a device's form reaches Connect through HQ's own receiver and repeater, and Connect makes its rows | `proof/connect/test_forwarding.py::test_a_devices_form_reaches_connect_through_hqs_own_receiver_and_repeater`, and the Connect unit on every Connect document (`connect@*`) |
 | Without the privilege, HQ's receiver takes the form (201) and nothing reaches Connect: no forward, no post, no visit | `proof/connect/test_forwarding.py::test_a_project_space_without_data_forwarding_forwards_nothing` |
 | The forwarder is made through HQ's own Connection Settings and Add Forwarder pages, by a signed-in project space admin (`motech/views.py::ConnectionSettingsDetailView`, `repeaters/views/repeaters.py::AddFormRepeaterView`) | `proof/connect/hq.py` |
 
