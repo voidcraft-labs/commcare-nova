@@ -37,7 +37,7 @@ this directory. What endures lives where it is read:
   CommCare Core's runtime; Formplayer's own application; HQ's Web Apps client
   in Chromium; CommCare Connect's own server; and commcare-android's own
   code, beside HQ's live unit. Every pull request runs it without the served
-  readers, each night runs every reader over what changed, and each week runs
+  readers, each scheduled night runs every reader over what changed, and each week runs
   it whole (`proof/README.md`, "The lane in CI").
   `proof/README.md` holds what it proves (the bar, the intent, manifest and
   sensitivity checks, proofs 1 to 5, each judged over every reader), the

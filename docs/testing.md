@@ -431,7 +431,7 @@ observed afresh, as modelled). It runs without the readers
 (`PROOF_READERS=0`: HQ, Core and HQ's editors over every document, nothing
 handed to Formplayer, the Web Apps client, CommCare Android or Connect), its
 shards running blocks of groups packed from each profile's measured costs
-(`proof/timings.json`) on four-vCPU amd64 runners. Each night runs the lane
+(`proof/timings.json`) on four-vCPU amd64 runners. Each scheduled night runs the lane
 with every reader over what changed since main's last store snapshot, each
 week runs it whole and fresh (the run that proves the store's keys), a
 document too heavy for one worker observed in pieces, each opening an issue
