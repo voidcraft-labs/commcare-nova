@@ -192,11 +192,12 @@ REFINE_SEARCH = "#search-more[aria-expanded='false']"
 CLEAR_BUTTON = "#query-clear-button"
 
 
-def clear_prompts() -> list[dict]:
+def clear_prompts(*, within=None, or_skip_to=None) -> list[dict]:
     """The search screen's prompts emptied as a worker empties them, by the screen's own Clear, then the client's
     arrival: where the search runs again once it is cleared (``searchOnClear``), the client asks Formplayer at
-    once, and the step waits for the answer to be drawn."""
-    [step, _settle] = click(CLEAR_BUTTON, visible=True)
+    once, and the step waits for the answer to be drawn. With ``within`` and ``or_skip_to``, a screen that shows
+    no Clear ends the replayed run there, as any choice the client shows nothing to click for does (``click``)."""
+    [step, _settle] = click(CLEAR_BUTTON, visible=True, within=within, or_skip_to=or_skip_to)
     return [step, *arrive(any_screen=True)]
 
 

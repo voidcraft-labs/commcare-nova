@@ -408,7 +408,7 @@ def plan(
             # answer table's search answers typed in, each field that changes in the screen's order.
             displays = [each for each in (screen or {}).get("displays") or () if isinstance(each, dict)]
             if choice.get(walks.PROMPTS) == walks.CLEARED:
-                add(steps.clear_prompts())
+                add(steps.clear_prompts(within=within, or_skip_to=end))
             elif choice.get(walks.PROMPTS) == walks.TYPED:
                 fields = [each.get("id") for each in displays]
                 for prompt, value in _typed(run, position):
