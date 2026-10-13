@@ -3428,9 +3428,8 @@ media upload from `export.create` in many more. From this pull request
   Executed during planning, without the readers, with the roles naming the
   content's files alone: the evidence store's guard refuses the read of
   `export/minimum/create.json` under `maximum`
-  (`proof.store.guard.UndeclaredRead`), and each corpus document's group
-  the run finished before it was stopped failed, with no more than two
-  of its items passing.
+  (`proof.store.guard.UndeclaredRead`), and every corpus document's
+  group that ran failed, with no more than two of its items passing.
   `proof/checks/test_corpus.py::test_privileges_are_refused_for_an_unknown_configuration_or_a_lost_capture`
   gains the case of a marked directory that lost its `content.json`.
 - *What part `a` reads.* Part `a` reads both imports, so a changed shell
@@ -3521,23 +3520,20 @@ reader.
   `proof/checks/test_manifest.py::test_each_publish_the_observation_reads_keys_the_local_part`,
   and the part-key cases for `content.request.body` and
   `content.media.body`. Before the privilege roles named both imports,
-  every corpus document failed ("The privileges", above). The whole corpus
-  and the lane's packages have not run under these file names: every run
-  on a proof machine is on hold (the planning notes, `AFTER-EXIT-RUNS.md`,
-  item 17, which holds the command, the scratch and what the run is
-  expected to show). The layout and its readers above are the plan's
-  design; the scratch for them is written, on the branch `proof/fix01-p3x`
-  at `acb0a021`; and its run over the whole lane is queued. Of the readers
-  listed above, the slice does not reach
+  every corpus document failed ("The privileges", above). Not yet run
+  under these file names: the whole corpus, the other controls, the lane's
+  packages, and the two callers that need a reader. So of the readers
+  listed above, no run has reached
   `proof/checks/test_proof3_behavior.py`'s two tests,
   `proof/checks/test_record_determinism.py`'s three,
-  `proof/checks/test_alignment.py`, `proof/views/test_lookup_upload.py`,
-  the privilege test's new case or any package. This bullet takes the
-  outcome: "executed during planning, without the readers, on the lane's
-  head, the whole pull request lane under this layout's file names: every
-  document's group, every control's and every package pass", with the
-  run's counts; or what the run shows in its place, with each reader it
-  finds unturned added to the list above.
+  `proof/checks/test_alignment.py`, `proof/views/test_lookup_upload.py`
+  or the privilege test's new case. The layout and its readers are the
+  plan's design, written as scratch and held so far by the slice and the
+  tests named in this bullet; the run of the whole pull request lane
+  without the readers over them is outstanding
+  (`2-emission-and-publish.md`, "Written and not yet run"). This pull
+  request's own lane in CI makes that run at its head, and a reader it
+  finds unturned is turned there.
 
 **This pull request's lane, run without the readers.** Executed during
 planning, on a proof machine, at this pull request's state as its registers
