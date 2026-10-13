@@ -597,9 +597,11 @@ In it:
 - `workers/w<n>.log` and `workers/w<n>/`: each worker's output;
 - `timings/`: each group's seconds per worker, which
   `node proof/run.mjs --timings <output>...` turns into `proof/timings.json`;
-- `blocks/<id>/connect-unit/`: the logs of the Connect runtime a Connect
-  document's observation started (its fetch, its services, its migrations
-  and each served session);
+- `blocks/<id>/connect-unit/w<n>/`: the logs of the Connect runtime worker
+  n started for the first Connect document it observed, in that document's
+  block (its fetch, its services, its migrations and each served session of
+  the run; each worker's are its own, since two workers may start theirs in
+  one block, as the two pieces of a Connect document do);
 - `store/`: what the run observed for the evidence store, and `audit/`, any
   record the audit sample observed differently from the store;
 - `corpus/`: the corpus the run emitted, and `corpus.log`.
@@ -2625,8 +2627,9 @@ carry the edit renaming their Connect ids), and, for finding 60,
 Each run leaves, under its block's `connect/`: each document's archive as
 HQ's view served it, each
 path's submission and HQ's payload for it (`<document>/`), every scenario's
-steps with the rows after each (`scenario.<name>.json`) and its timings; the
-runtime's logs, with each session's, are under `connect-unit/`.
+steps with the rows after each (`scenario.<name>.json`) and its timings. A
+document's observation in the lane leaves its runtime's logs, with each
+session's, under `connect-unit/w<n>/` ("Where a run writes").
 
 ## Native proofs
 
