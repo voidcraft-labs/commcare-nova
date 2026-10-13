@@ -201,8 +201,75 @@ Executed during planning:
   - Three of the 45 are the merged walk's. Before it merged, Formplayer showed `submitted/answers/0` changed and `tree/*/answer` changed, and the client `screens/*/form/questions/*/errors/*` removed (39 and six); on the lane as it merged those three show nowhere, on the document or on the control, and `asked/*/*` changed, `resent/*/after` changed and `submissions/*/instance/data/*` added show in their place, 8, 4 and 4.
   - Five of the 45 are classes that defect 13's five blank-translation reader entries hold until this pull request moves them: Formplayer's `caption` and `caption_markdown` under `response/tree/*` and under `tree/*`, and the Web Apps client's `label`. On this form they are another question at that place (`Check this answer` where the build without the save shows `Choices`), not a blank translation, so they are registered here as defect 25's with the rest.
   - Android's walk shows one class on the saved form too, `android@vellum@*` `/walks/*/steps/*/form/path`, changed. `d25-android-proof4-vellum-form-path-changed`, which the lane's register already holds, holds it, so it is no new entry.
-  - They are defect 25's, step 5's. Pull request 6 registers all 62 live from its own run, one entry per class, document `container-query-conditional`, on control `container-query-conditional-after-13`, which it retains from its own corpus's `container-query-conditional`. Executed during planning: with the control retained from pull request 6's state for proof 4 and the 62 registered on it, each is held on `container-query-conditional` and on the control with one count (452 differences on each), the control's group passes, and the document shows no other class. That was on the lane before its walk merged, with its three classes. Executed during planning at the exit state, with every reader: with the control retained from that state's corpus and the 62 as listed above, each is held on the document and on the control.
+  - They are defect 25's, step 5's. Pull request 6 registers all 62 live from its own run, one entry per class, under the ids of the table below, document `container-query-conditional`, on control `container-query-conditional-after-13`, which it retains from its own corpus's `container-query-conditional`. Executed during planning: with the control retained from pull request 6's state for proof 4 and the 62 registered on it, each is held on `container-query-conditional` and on the control with one count (452 differences on each), the control's group passes, and the document shows no other class. That was on the lane before its walk merged, with its three classes. Executed during planning at the exit state, with every reader: with the control retained from that state's corpus and the 62 as listed above, each is held on the document and on the control.
   - Defect 25's two entries on `container-query-conditional-relative`, `d25-query-repeat-vellum-parse-warning-bind-node-found` and `d25-query-repeat-source-bind-nodeset`, show at the same paths at both states, on B and B-edit under `minimum` and `maximum`. They stand.
+
+**Defect 25's 62 entries, by id.** Each is an entry of defect 25, part `saved query repeat`, check `proof4`, document `container-query-conditional`, control `container-query-conditional-after-13`, with the artifact, path and kind of its row. An id is `d25-saved-query-repeat-`, then the reader's name where a served reader writes the artifact (`formplayer`, `webapps`), then the path's named segments in order, then the kind, joined by hyphens. In the path a segment that is a wildcard alone and a `[*]` are dropped, `[@id=*]` reads `id`, `[@nodeset=/data/*]` reads `nodeset-data`, each `@`, `_` and `,` is a break, and capitals are lowered. The rule gives 62 ids, no two alike, and none is an id of the lane's register, of another entry this plan adds, or of a planning register. The planning registers held 60 of the 62 under these ids. The other two they held under a name cut short on the left (`…formplayer-eps-response-instancexml-output-data-item-id-added` and `…formplayer-sponse-instancexml-output-data-current-index-changed`), which the rule spells whole; the class each holds is the same.
+
+| Id | Artifact | Path | Kind |
+|---|---|---|---|
+| `d25-saved-query-repeat-html-head-model-bind-nodeset-data-removed` | `form:*@vellum@*` | `/html/head[*]/model[*]/bind[@nodeset=/data/*]` | removed |
+| `d25-saved-query-repeat-runs-trace-events-added` | `trace@vellum@*` | `/runs/*/trace/*/events/*` | added |
+| `d25-saved-query-repeat-runs-trace-events-attempts-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/attempts` | removed |
+| `d25-saved-query-repeat-runs-trace-events-audio-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/audio` | removed |
+| `d25-saved-query-repeat-runs-trace-events-control-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/control` | removed |
+| `d25-saved-query-repeat-runs-trace-events-datapath-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/dataPath` | removed |
+| `d25-saved-query-repeat-runs-trace-events-datatype-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/dataType` | removed |
+| `d25-saved-query-repeat-runs-trace-events-event-changed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/event` | changed |
+| `d25-saved-query-repeat-runs-trace-events-help-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/help` | removed |
+| `d25-saved-query-repeat-runs-trace-events-hint-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/hint` | removed |
+| `d25-saved-query-repeat-runs-trace-events-image-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/image` | removed |
+| `d25-saved-query-repeat-runs-trace-events-path-changed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/path` | changed |
+| `d25-saved-query-repeat-runs-trace-events-readonly-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/readOnly` | removed |
+| `d25-saved-query-repeat-runs-trace-events-required-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/required` | removed |
+| `d25-saved-query-repeat-runs-trace-events-text-changed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/text` | changed |
+| `d25-saved-query-repeat-runs-trace-events-unanswerable-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/unanswerable` | removed |
+| `d25-saved-query-repeat-runs-trace-events-valuesfrom-removed` | `trace@vellum@*` | `/runs/*/trace/*/events/*/valuesFrom` | removed |
+| `d25-saved-query-repeat-formplayer-runs-steps-answers-added` | `formplayer@vellum@*` | `/runs/*/steps/*/answers/*` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-answers-ix-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/answers/*/ix` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-answers-status-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/answers/*/status` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-answers-type-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/answers/*/type` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-answers-value-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/answers/*/value` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-asked-added` | `formplayer@vellum@*` | `/runs/*/steps/*/asked/*` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-asked-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/asked/*/*` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-resent-added` | `formplayer@vellum@*` | `/runs/*/steps/*/resent/*` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-resent-after-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/resent/*/after` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-instancexml-output-data-current-index-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/instanceXml/output/data/*/@current_index` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-instancexml-output-data-item-id-added` | `formplayer@vellum@*` | `/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-added` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-binding-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/binding` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-caption-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/caption` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-caption-markdown-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/caption_markdown` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-children-added` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/children` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-control-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/control` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-datatype-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/datatype` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-exists-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/exists` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-ix-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/ix` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-question-id-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/question_id` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-repeatable-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/repeatable` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-style-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/style` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-response-tree-type-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/response/tree/*/type` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-submissions-instance-data-added` | `formplayer@vellum@*` | `/runs/*/steps/*/submissions/*/instance/data/*` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-submitted-answers-1-0-0-added` | `formplayer@vellum@*` | `/runs/*/steps/*/submitted/answers/1_0,0` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-submitted-answers-1-1-0-added` | `formplayer@vellum@*` | `/runs/*/steps/*/submitted/answers/1_1,0` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-added` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-binding-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/binding` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-caption-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/caption` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-caption-markdown-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/caption_markdown` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-children-added` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/children` | added |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-control-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/control` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-datatype-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/datatype` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-exists-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/exists` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-ix-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/ix` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-question-id-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/question_id` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-repeatable-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/repeatable` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-style-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/style` | changed |
+| `d25-saved-query-repeat-formplayer-runs-steps-tree-type-changed` | `formplayer@vellum@*` | `/runs/*/steps/*/tree/*/type` | changed |
+| `d25-saved-query-repeat-webapps-runs-answers-added` | `webapps@vellum@*` | `/runs/*/answers/*` | added |
+| `d25-saved-query-repeat-webapps-runs-screens-form-groups-added` | `webapps@vellum@*` | `/runs/*/screens/*/form/groups/*` | added |
+| `d25-saved-query-repeat-webapps-runs-screens-form-questions-added` | `webapps@vellum@*` | `/runs/*/screens/*/form/questions/*` | added |
+| `d25-saved-query-repeat-webapps-runs-screens-form-questions-answer-changed` | `webapps@vellum@*` | `/runs/*/screens/*/form/questions/*/answer` | changed |
+| `d25-saved-query-repeat-webapps-runs-screens-form-questions-label-changed` | `webapps@vellum@*` | `/runs/*/screens/*/form/questions/*/label` | changed |
 
 **Spelling rule.** None retires. `vellum_attributes`, `vellum_hashtags` and `case_references_load` still erase what Vellum's own save adds for a listed property.
 
