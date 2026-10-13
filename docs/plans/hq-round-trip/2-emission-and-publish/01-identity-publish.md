@@ -3004,6 +3004,46 @@ something production does not.
 | `proof/timings.json` | Regenerated: every state A costs one more import. |
 | Records that hold state A's HQ version | State A is HQ app version 2 (3 after media) where it was 1 (2). No register entry quotes a version, so none is rewritten: an entry holds `id`, `defect`, `part`, `check`, `artifact`, `path`, `document`, `control` and optionally `kind` and `values`, and the four entries whose path names a version (`d9-form-version-trace-version`, `d9-required-version-trace-requiredversion-requiredmajor` and `-requiredminor`, `d9-form-version-formplayer-local-ccz-output-data-version`) pin no `values`. Every retained record of a corpus document that holds the version (the `suite version`, a resource `version`, a form's `version` attribute) is regenerated in this pull request. The controls keep version 1 through their legacy layout, so no fixed entry and no control byte moves. A missed one shows in `proof/checks/test_registers.py` and in the whole lane as a live entry that no longer reproduces or a difference no entry names, which the gate fails. |
 
+**The determinism sentences, at this pull request.** Five places say the
+entropy ordinals keep defects 1 and 9 visible, or that both still show. From this pull request a
+publish draws no id, while a local archive still draws its profile's
+`uniqueid`, so each takes defect 1's half here and keeps defect 9's until
+pull request 5 rewrites it (part 04, Defect 9: the local profile identifies
+nothing stable, which starts from these texts):
+
+- `proof/README.md`, "Emitting it". Today: "the entropy preload answers
+  every identity Nova's exports mint (`lib/commcare/ids.ts`, the `.ccz`
+  profile's `uniqueid`, `lib/doc`'s `crypto.randomUUID`) from a generator
+  seeded by the corpus seed, the operation's ordinal and the configuration
+  (`proof/corpus/entropy.mts`). The seed names no document, so two documents
+  with the same content export the same bytes; the ordinals keep apart what
+  Nova keeps apart, so A and B mint different ids (defect 1 stays visible)
+  and so do the two local exports (defect 9)." From this pull request: "the
+  entropy preload answers every identity Nova's exports still draw (the
+  `.ccz` profile's `uniqueid`, `lib/doc`'s `crypto.randomUUID`) from a
+  generator seeded by the corpus seed, the operation's ordinal and the
+  configuration (`proof/corpus/entropy.mts`). The seed names no document, so
+  two documents with the same content export the same bytes. A publish draws
+  no id: it derives its menu ids, form ids and `xmlns` from the document, as
+  a local archive derives its `xmlns`, so A and B carry the same ones. The
+  ordinals keep apart what Nova keeps apart, so the two local exports draw
+  different profile `uniqueid`s (defect 9), and they keep a regression
+  visible: a change that mints an id per publish again draws another value
+  at each ordinal, and proof 1 reports it."
+- `proof/CLAUDE.md`, the determinism rule: "and the ordinals keep defects 1
+  and 9 visible" becomes "and the ordinals keep defect 9 visible and keep
+  apart what a regression of defect 1's fix would mint apart".
+- The weekly unseeded comparison's expectation, in the two places that state
+  it: `.github/workflows/proof-audit.yml` (job `weekly-compare`, the comment
+  above its step "Seeding changes nothing observed"), whose "and defects 1
+  and 9 must still show in both" becomes "and defect 9 must still show in
+  both"; and `proof/README.md`'s "weekly" bullet, whose "with defects 1 and
+  9 still showing" becomes "with defect 9 still showing". The step's command
+  does not change.
+- `proof/corpus/entropy.mts`'s header comment, which says a document's
+  create and its next publish mint different ids, says a publish draws no id
+  and its two local exports draw different profile `uniqueid`s (defect 9).
+
 No Nova TypeScript runs inside a proof shard: the capture runs at emission,
 and the shards apply its bytes.
 
