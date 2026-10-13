@@ -343,9 +343,7 @@ def test_the_audit_keeps_a_section_hqs_view_raised_on_as_the_sections_answer(
 # The deadline -------------------------------------------------------------------------------------
 
 
-def test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_deadline(
-    hq, core_runner, editor_driver
-):
+def test_what_the_harness_does_at_a_section_is_never_counted_against_the_views_deadline(hq, core_runner, editor_driver):
     """The lane serves each save's state to every reader inside that save's fork, between the page's steps (proof
     4's ``section_fork``), which can take longer than the page's whole deadline. The deadline stops a stuck page,
     never one whose harness observed more between its sections: here the harness's work at the sections together

@@ -209,9 +209,9 @@ jobs:
           LANE_ENV: ${{ inputs.lane-env }}
           FRESH: ${{ inputs.fresh }}
         run: |
-          lane_env=(--lane-env "PROOF_READERS=$PROOF_READERS")
+          lane_arguments=(--lane-env "PROOF_READERS=$PROOF_READERS")
           while IFS= read -r assignment; do
-            [ -n "$assignment" ] && lane_env+=(--lane-env "$assignment")
+            [ -n "$assignment" ] && lane_arguments+=(--lane-env "$assignment")
           done <<< "$LANE_ENV"
           # Fresh: every group observed again, nothing shared. Otherwise as a pull request's: against main's
           # store, documents sharing a part's inputs in one block, the audit sample chosen by the run's id.
@@ -228,9 +228,9 @@ jobs:
           # The pieces' threshold, where the caller names one in the profile's place.
           if [ -n "$SPLIT_ABOVE" ]; then main+=(--split-above "$SPLIT_ABOVE"); fi
           python3 -m proof.store.queue early "${early[@]}" --timings proof/timings.json --arch "$ARCH" \
-            "${lane_env[@]}" --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
+            "${lane_arguments[@]}" --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           python3 -m proof.store.queue main "${main[@]}" --documents "$DOCUMENTS" \
-            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_env[@]}" \
+            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" "${lane_arguments[@]}" \
             --out "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
           tar -C "$RUNNER_TEMP/corpus" -cf - . |
             zstd -q -3 -T0 -o "$RUNNER_TEMP/lane/proof-corpus-$LABEL-$GITHUB_RUN_ATTEMPT.tar.zst"
@@ -260,17 +260,17 @@ jobs:
           SHARDS: ${{ inputs.shards }}
           RUNNER: ${{ inputs.runner }}
         run: |
-          shards="$SHARDS"
+          count="$SHARDS"
           deadline=()
-          if [ "$shards" = auto ]; then
+          if [ "$count" = auto ]; then
             plan="$(python3 -m proof.lane.plan size \
               "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
               "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json")"
             echo "$plan"
-            shards="$(jq -r .shards <<< "$plan")"
+            count="$(jq -r .shards <<< "$plan")"
             deadline=(--deadline "$(jq -r .deadline <<< "$plan")")
           fi
-          matrix="$(node proof/run.mjs --matrix "$shards" "${deadline[@]}" |
+          matrix="$(node proof/run.mjs --matrix "$count" "${deadline[@]}" |
             jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
