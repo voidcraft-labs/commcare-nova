@@ -304,7 +304,7 @@ matcher could not tell from another included, or whose HQ id is another
 entity's derived id),
 `form-ids-change-once` (no API access, or every credential refused the form
 ids), `ids-change-once-unreadable` (no credential read the source),
-`ended-app-deleted` (HQ reports the app gone). A fifth deployment reason of
+`hq-app-deleted` (HQ reports the app gone). A fifth deployment reason of
 this pull request, `hq-app-not-nova-made` (the source read answered
 `unsupported`), is A3's. All five are spelled as part 10, Work item F: the
 migration notice, registers them, which is the one registry of the step's
@@ -323,7 +323,7 @@ entities; the last two carry none, because they are about the whole app.
 | `menu-id-changes-once` | each menu and form the cutover could not pair, and each whose HQ id is another entity's derived id | "At the next publish to field-ops, CommCare HQ gets new IDs for Register and Visit, once, because Nova couldn't match them to what that project space holds." When a form is among them, two sentences follow: "Forms submitted before then stay under each form's earlier ID in CommCare HQ. If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish." |
 | `form-ids-change-once` | each form whose stored form id no credential read | "At the next publish to field-ops, the CommCare HQ IDs of Register and Visit change once, because Nova couldn't read the ones that project space holds. Their submissions stay together. If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish." |
 | `ids-change-once-unreadable` | none | "Nova couldn't read the app on field-ops during this update, so the next publish there asks before it writes over that copy. Once you confirm, every menu and form of the app there gets a new ID in CommCare HQ, once. Forms submitted before then stay under each form's earlier ID in CommCare HQ. If an SMS keyword or a scheduled message opens one of its forms, you can point it at the form again in CommCare HQ once you release a build made after that publish." |
-| `ended-app-deleted` | none | "The app Nova made on field-ops was deleted in CommCare HQ, so the next publish there makes a new app in its place. If it was deleted by mistake, you can restore it in CommCare HQ and then choose Check status for field-ops, and the next publish updates it again." |
+| `hq-app-deleted` | none | "The app Nova made on field-ops was deleted in CommCare HQ, so the next publish there makes a new app in its place. If it was deleted by mistake, you can restore it in CommCare HQ and then choose Check status for field-ops, and the next publish updates it again." |
 
 What each line states is what "Identity" below states: the keyword and the
 scheduled message rest on the facts table's release rows, the earlier
@@ -1464,7 +1464,7 @@ when it is not zero, under the blocker
 registers it. For a deployment whose HQ app
 the cutover's read finds gone, the cutover sets `remote_missing_at` and the
 folded `remote_app_missing` failure, and writes notice reason
-`ended-app-deleted`, naming the deployment and saying the next publish makes
+`hq-app-deleted`, naming the deployment and saying the next publish makes
 a new app there (its line is A1's, "The notice lines"). A deployment found
 deleted then gets no identity row, since no app is left to read ids from, so
 the new app holds derived ids and derived `xmlns`; a deployment whose app is
