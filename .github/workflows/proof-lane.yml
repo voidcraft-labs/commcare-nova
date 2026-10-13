@@ -441,7 +441,8 @@ jobs:
         id: store
         env:
           ARCH: ${{ inputs.arch }}
-        run: node proof/ci/store-keys.mjs --arch "$ARCH"
+        # The key a `store: save` writes names this call, so two calls that save in one run keep two snapshots.
+        run: node proof/ci/store-keys.mjs --arch "$ARCH" --save "$LABEL"
       - name: Restore main's evidence store
         if: ${{ inputs.store != 'none' || !inputs.fresh }}
         uses: actions/cache/restore@v6

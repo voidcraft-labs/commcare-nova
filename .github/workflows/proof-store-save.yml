@@ -8,10 +8,13 @@ name: Proof store save
 # whole, so a key no current run reads is dropped once a week. Each call
 # packed what it observed as an artifact (proof-store-<label>-<attempt>); this
 # merges them (python3 -m proof.store.pack merge: every key names its profile,
-# so the two never hold one key) and saves the result under the run's key,
-# the one snapshot a run writes (proof/ci/store-keys.mjs). Where a call left
-# no packed store (one of its shards could not run), nothing is saved and
-# main's previous snapshot stays, as a single call's save would keep it.
+# so the two never hold one key) and saves the result under a key of its own:
+# the run's, its attempt's, and the labels this call merges
+# (proof/ci/store-keys.mjs --save), since a cache entry is never written over
+# and a second save under one key is dropped with only a warning. Where a
+# call left no packed store (one of its shards could not run), nothing is
+# saved and main's previous snapshot stays, as a single call's save would
+# keep it.
 on:
   workflow_call:
     inputs:
@@ -56,7 +59,12 @@ jobs:
         run: node proof/ci/candidate.mjs --image "$CANDIDATE"
       - name: Name the store's snapshots
         id: store
-        run: node proof/ci/store-keys.mjs --arch amd64
+        env:
+          LABELS: ${{ inputs.labels }}
+        run: |
+          # Which of the run's saves this is: the labels it merges, so two calls in one run keep two snapshots.
+          save="$(sed '/^[[:space:]]*$/d' <<< "$LABELS" | paste -sd+ -)"
+          node proof/ci/store-keys.mjs --arch amd64 --save "$save"
       - name: Restore main's evidence store
         if: ${{ inputs.base }}
         uses: actions/cache/restore@v6
