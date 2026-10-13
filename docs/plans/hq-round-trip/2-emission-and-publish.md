@@ -153,12 +153,20 @@ empty when the plan is complete.
   and the lane's, the fault is read to be there at the lane's head, and
   neither of the two tests of the change has run with it (part 09, A build
   recreated under a stored part).
-- The four placements of a default that reads a form answer, on Core (pull
-  request 6): the three fields on the container fixture's `init-add` form
-  and `ContainerRuntimeTest.java::defaultsReadTheAnswerTheirPlacementNames`
-  are written and have not run through HQ or Core. Emission with and without
-  the fields has run: no document, edit kind or configuration moves outside
-  `container-init-add` (part 05, Default values read relatively).
+- Pull request 6's Core tests of a default and a calculation that read a
+  form answer or the form's own new case id (part 05, Default values read
+  relatively; The registration case-id read and reads between case blocks): the five Hidden Values on the
+  container fixture (three on `init-add` for the four default placements,
+  two on `registration` for the own-id default and calculation),
+  `ContainerRuntimeTest.java::defaultsReadTheAnswerTheirPlacementNames` and
+  `::registrationFormReadsItsOwnNewCaseId` with the empty `casedb` the
+  class's environment gains, and
+  `CaseCaptureRuntimeTest.java::extensionParents` and `hqExtensionParents`
+  with the whole extension registration form (`registration.whole.hq.xml`)
+  that `proof/native/steps/case_emission.py` writes for them, are written
+  and have not run through HQ or Core. Emission with and without the five
+  fields has run: no document, edit kind or configuration moves, and files
+  differ only under `container-init-add` and `container-registration`.
 
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
