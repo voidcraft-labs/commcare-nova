@@ -1,6 +1,6 @@
 """``python3 -m proof.lane.plan``: how many shards run a lane, and when it is expected to end.
 
-    python3 -m proof.lane.plan size QUEUE... [--timings FILE] [--budget SECONDS]
+    python3 -m proof.lane.plan size QUEUE... [--timings FILE] [--budget SECONDS] [--parallel N]
     python3 -m proof.lane.plan fit --early FILE [--main FILE] [--shards fit|default|N] [--timings FILE]
 
 Standard library only: it runs on the runner's own Python before any shard
@@ -15,12 +15,24 @@ blocks with ``proof.checks.sharding.static_bins``, then the main queue's
 starting from the early bins' loads), so a count of shards fixes what each
 shard runs. A shard is expected to take its bin's box-seconds, or, where it
 is longer, the longest group in it run on one of its workers (a group runs on
-one worker: its box-seconds times the box's workers), ``spans``.
+one worker: its box-seconds times the box's workers), ``spans``. A group that
+follows pieces (a heavy document's own group, which judges what each
+configuration's piece observed on a worker of its own, ``proof.lane.blocks``)
+starts when its longest piece ends, so it counts with that piece: the longest
+run of work a shard cannot divide is a piece and the judging after it.
 
 ``size`` is the lanes with the readers (the nightly, the weekly): the fewest
-shards over which no shard is expected past ``SHARD_BUDGET_SECONDS``, each
-given a deadline of twice its expected work. A group that alone is expected
-past the budget fails the plan, naming it.
+shards over which no shard is expected past the budget, each given a deadline
+of twice its expected work. The budget is the profile's
+(``proof/timings.json``, ``profiles.<profile>.execution.budget``, set from
+the lane's measured seconds), ``SHARD_BUDGET_SECONDS`` where it names none.
+A group that alone is expected past the budget fails the plan, naming it: a
+configuration is the smallest piece a document is observed in. Past
+``PARALLEL_SHARDS`` shards the count is rounded up to a multiple of it (never
+past the number of blocks, so no shard starts with nothing to run): that
+many run at once (proof-lane.yml's ``max-parallel``), so the lane takes as
+many rounds either way, and the same work over a full last round ends
+sooner.
 
 ``fit`` is the pull request lane. A lane of N shards is expected to end when
 its N-th runner frees (``execution.slots``, measured, sorted; every shard is
@@ -58,9 +70,12 @@ from proof.checks import sharding
 from proof.lane import blocks as lane_blocks
 from proof.lane import readers as lane_readers
 
-# What one shard of a lane with the readers is expected to run at most: GitHub ends a job at six hours, and a
-# shard's setup, its JVMs' first starts and a stretch of slow runners take the rest.
+# What one shard of a sized lane is expected to run at most where its profile names no budget
+# (``execution.budget``): GitHub ends a job at six hours, and a shard's setup, its JVMs' first starts and a
+# stretch of slow runners take the rest.
 SHARD_BUDGET_SECONDS = 9000.0
+# How many shards of a sized lane run at once (proof-lane.yml's max-parallel, which test_plan holds this to).
+PARALLEL_SHARDS = 14
 # A sized shard's deadline, twice what it is expected to take, within these bounds, in minutes.
 DEADLINE_MINUTES = (60, 345)
 # The most shards a lane with the readers is sized to.
@@ -81,9 +96,20 @@ class Lane:
 
     early: list[list[tuple[str, float]]] = field(default_factory=list)
     main: list[list[tuple[str, float]]] = field(default_factory=list)
+    # The pieces each group that follows any runs after (``proof.lane.blocks.QueuedGroup.after``).
+    after: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     def groups(self) -> dict[str, float]:
         return {name: seconds for queue in (self.early, self.main) for block in queue for name, seconds in block}
+
+    def runs(self) -> dict[str, float]:
+        """Each group's box-seconds from when the first of its work starts to its end: its own, after the longest
+        of the pieces it follows."""
+        seconds = self.groups()
+        return {
+            name: own + max((seconds.get(piece, 0.0) for piece in self.after.get(name, ())), default=0.0)
+            for name, own in seconds.items()
+        }
 
 
 def _group_estimates(block: Mapping, estimate: Callable[[str], float]) -> list[tuple[str, float]]:
@@ -103,6 +129,13 @@ def lane_of(early: Mapping | None, main: Mapping | None, estimate: Callable[[str
     return Lane(
         [_group_estimates(block, estimate) for block in (early or {}).get("blocks", [])],
         [_group_estimates(block, estimate) for block in (main or {}).get("blocks", [])],
+        {
+            queued["group"]: tuple(queued["after"])
+            for value in (early, main)
+            for block in (value or {}).get("blocks", [])
+            for queued in block["groups"]
+            if queued.get("after")
+        },
     )
 
 
@@ -119,7 +152,7 @@ def _blocks(queue: list[list[tuple[str, float]]]) -> list[lane_blocks.Block]:
 
 def spans(lane: Lane, count: int, workers: int) -> list[float]:
     """What each of ``count`` shards is expected to run, in seconds of its wall time (the module's docstring)."""
-    seconds = lane.groups()
+    runs = lane.runs()
     early = sharding.static_bins(_blocks(lane.early), count)
     loads = [sum(block.estimate for block in members) for members in early]
     main = sharding.static_bins(_blocks(lane.main), count, loads)
@@ -127,32 +160,65 @@ def spans(lane: Lane, count: int, workers: int) -> list[float]:
     for shard in range(count):
         held = early[shard] + main[shard]
         load = sum(block.estimate for block in held)
-        longest = max((seconds[name] * workers for block in held for name in block.names), default=0.0)
+        longest = max((runs[name] * workers for block in held for name in block.names), default=0.0)
         found.append(max(load, longest))
     return found
 
 
-def _longest_group(lane: Lane, workers: int) -> tuple[str | None, float]:
-    seconds = lane.groups()
-    name = max(seconds, key=lambda group: (seconds[group], group), default=None)
-    return name, (seconds[name] * workers if name is not None else 0.0)
+def _longest_run(lane: Lane, workers: int) -> tuple[str | None, float]:
+    runs = lane.runs()
+    name = max(runs, key=lambda group: (runs[group], group), default=None)
+    return name, (runs[name] * workers if name is not None else 0.0)
 
 
-def size(lane: Lane, *, workers: int, budget: float = SHARD_BUDGET_SECONDS) -> dict:
-    """The fewest shards over which no shard is expected past ``budget`` seconds, and each one's deadline."""
-    name, longest = _longest_group(lane, workers)
-    if longest > budget:
-        raise PlanError(
-            f"The group {name} is expected to run {longest:.0f} s on one worker of a shard, past the {budget:.0f} s"
-            " a shard is given within GitHub's six-hour job limit. Split it (proof.checks.sharding.SPLIT), or"
-            " refresh proof/timings.json if its measure is stale."
+def _past_budget(lane: Lane, name: str, longest: float, budget: float) -> str:
+    """Why no plan holds the group ``name``, whose work a shard cannot divide runs ``longest`` seconds."""
+    given = f"past the {budget:.0f} s a shard is given within GitHub's six-hour job limit"
+    stale = "refresh proof/timings.json if its measure is stale"
+    pieces = lane.after.get(name, ())
+    if pieces:
+        seconds = lane.groups()
+        piece = max(pieces, key=lambda group: (seconds.get(group, 0.0), group))
+        return (
+            f"The piece {piece} and the judging of {name} that follows it are expected to run {longest:.0f} s on"
+            f" one worker of a shard, {given}. A configuration is the smallest piece a document is observed in"
+            ' (proof/README.md, "Documents observed in pieces"), so no split holds this one: raise the profile\'s'
+            f" budget where the limit leaves room (proof/timings.json, execution.budget), or {stale}."
         )
-    for count in range(1, MOST_SHARDS + 1):
-        expected = max(spans(lane, count, workers), default=0.0)
+    if name.startswith(lane_blocks.DOCUMENT_KINDS):
+        return (
+            f"The group {name} is expected to run {longest:.0f} s on one worker of a shard, {given}. A document"
+            " or control is observed in pieces, one configuration a worker, where its whole measure is past the"
+            " profile's split threshold (proof/timings.json, execution.split; python3 -m proof.store.queue"
+            " --split-above), and this one was queued whole: it is exported under one configuration, the store"
+            f" holds its records, or the threshold is above it. Lower the threshold, or {stale}."
+        )
+    return (
+        f"The group {name} is expected to run {longest:.0f} s on one worker of a shard, {given}. Split it"
+        f" (proof.checks.sharding.SPLIT), or {stale}."
+    )
+
+
+def size(lane: Lane, *, workers: int, budget: float = SHARD_BUDGET_SECONDS, parallel: int = PARALLEL_SHARDS) -> dict:
+    """The fewest shards over which no shard is expected past ``budget`` seconds, rounded up past ``parallel`` to a
+    multiple of it (the module's docstring), and each one's deadline."""
+    name, longest = _longest_run(lane, workers)
+    if longest > budget:
+        raise PlanError(_past_budget(lane, name, longest, budget))
+    for fewest in range(1, MOST_SHARDS + 1):
+        expected = max(spans(lane, fewest, workers), default=0.0)
         if expected <= budget:
+            count = fewest
+            blocks = len(lane.early) + len(lane.main)
+            filled = min(math.ceil(fewest / parallel) * parallel, max(fewest, blocks)) if parallel > 0 else fewest
+            if parallel < fewest < filled <= MOST_SHARDS:
+                # The greedy bins of more shards are almost always no heavier; the fewest stand where they are.
+                refilled = max(spans(lane, filled, workers), default=0.0)
+                if refilled <= budget:
+                    count, expected = filled, refilled
             low, high = DEADLINE_MINUTES
             deadline = min(high, max(low, math.ceil(2 * expected / 60)))
-            return {"shards": count, "deadline": deadline, "expected": round(expected, 3)}
+            return {"shards": count, "fewest": fewest, "deadline": deadline, "expected": round(expected, 3)}
     raise PlanError(
         f"No count of shards up to {MOST_SHARDS} keeps every shard's expected work within {budget:.0f} s; the"
         " queues' estimates say why (proof/timings.json)."
@@ -248,13 +314,25 @@ def _profile_execution(timings: Path, readers: bool) -> Mapping:
     return profile.get("execution", {})
 
 
+def _budget(execution: Mapping) -> float:
+    """The seconds the profile gives a shard (``execution.budget``), ``SHARD_BUDGET_SECONDS`` where it names none."""
+    named = execution.get("budget", SHARD_BUDGET_SECONDS)
+    if isinstance(named, bool) or not isinstance(named, (int, float)) or named <= 0:
+        raise PlanError(
+            "proof/timings.json's execution.budget is the seconds a shard of the profile's sized lanes is expected"
+            f" to run at most; got {named!r}."
+        )
+    return float(named)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python3 -m proof.lane.plan", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     sized = commands.add_parser("size", help="the shards of a lane with the readers")
     sized.add_argument("queues", nargs="+", type=Path, help="the early queue, then the main queue")
     sized.add_argument("--timings", type=Path, default=sharding.TIMINGS)
-    sized.add_argument("--budget", type=float, default=SHARD_BUDGET_SECONDS)
+    sized.add_argument("--budget", type=float, help="the seconds a shard is expected to run at most (the profile's)")
+    sized.add_argument("--parallel", type=int, default=PARALLEL_SHARDS, help="how many shards run at once")
     fit = commands.add_parser("fit", help="the pull request lane's shards and when it is expected to end")
     fit.add_argument("--early", type=Path, required=True, help="the early queue")
     fit.add_argument("--main", type=Path, help="the main queue (absent when emission failed)")
@@ -267,12 +345,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         execution = _profile_execution(arguments.timings, readers)
         if arguments.command == "size":
             values = [_read(path) for path in arguments.queues]
+            lanes = [lane_of(value, None, estimate) for value in values[:1]]
+            lanes += [lane_of(None, value, estimate) for value in values[1:]]
             lane = Lane(
-                [block for value in values[:1] for block in lane_of(value, None, estimate).early],
-                [block for value in values[1:] for block in lane_of(None, value, estimate).main],
+                [block for held in lanes for block in held.early],
+                [block for held in lanes for block in held.main],
+                {name: pieces for held in lanes for name, pieces in held.after.items()},
             )
             workers = int(execution.get("workers", 4))
-            print(json.dumps(size(lane, workers=workers, budget=arguments.budget)))
+            budget = arguments.budget if arguments.budget is not None else _budget(execution)
+            print(json.dumps(size(lane, workers=workers, budget=budget, parallel=arguments.parallel)))
             return 0
         early, main_value = _read(arguments.early), _read(arguments.main)
         if early is None:

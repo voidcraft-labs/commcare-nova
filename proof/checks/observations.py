@@ -23,6 +23,13 @@ records through a view:
   as that check's difference, so the register classifies it. HQ notes them
   and goes on, as production does (``proof.hq.boot``), so each is evidence.
 
+A document heavy enough is observed in pieces (``proof.lane.blocks``):
+``observe_piece`` observes one of its configurations whole into the run's
+evidence store, on a worker of its own, and ``records_for`` in the document's
+own group, which runs after them, reads every part from that store and
+observes nothing, so each check judges the same records as on a document
+observed whole.
+
 Nothing here imports HQ: the observation is imported where records are made.
 ``observe_republish``, ``observe_edit``, ``_create`` and ``_update`` give the
 same views (and the publish steps) to the checks whose judges still read
@@ -274,13 +281,16 @@ def _owned(document):
         _CACHE["owner"] = owner
 
 
-def _write_timings(document, found):
+def _write_timings(document, found, piece=None):
+    """What the observation observed and how long each part took, beside the block's evidence: a document's as
+    ``observe/<kind>-<id>.json``, and a piece's under its configuration's name too (``@<configuration>``)."""
     out = os.environ.get("PROOF_OUT")
     if not out:
         return
     directory = Path(out, "observe")
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{document.kind}-{document.id}.json").write_text(
+    name = f"{document.kind}-{document.id}" + (f"@{piece}" if piece is not None else "")
+    (directory / f"{name}.json").write_text(
         json.dumps(
             {"document": document.id, "observed": found.observed, "timings": found.timings},
             indent="\t",
@@ -300,6 +310,12 @@ def records_for(document, core_runner, *, editor_driver=None, store=None):
     through the evidence store the lane runs with
     (``proof.store.runtime.session_store``) unless ``store`` names another,
     which then keeps which parts the document's observation made.
+
+    In a group that follows pieces (``proof.store.runtime.pieces``) the
+    records are read from that store and nothing is observed: each piece
+    kept its configuration's parts there, and a part none kept fails the
+    check that asks (``proof.observe.unit.PartsNotHeld``) rather than being
+    observed here in the pieces' place.
     """
     _owned(document)
     if "records" not in _CACHE:
@@ -313,6 +329,7 @@ def records_for(document, core_runner, *, editor_driver=None, store=None):
             editor_driver=editor_driver,
             store=store,
             same_as=runtime.same_as(store),
+            held_only=bool(runtime.pieces()),
         )
         runtime.recorded(store, document, found)
         _write_timings(document, found)
@@ -320,8 +337,49 @@ def records_for(document, core_runner, *, editor_driver=None, store=None):
     return _CACHE["records"]
 
 
+def observe_piece(document, configuration, core_runner, *, editor_driver=None, store=None):
+    """One configuration of the document observed whole, in a unit of its own, into the run's evidence store, with
+    the document's ``local`` part: what one piece does (``proof.checks.pieces``), for the document's own group to
+    read (``records_for``). Returns what it observed (``proof.observe.record.DocumentRecords``).
+
+    It keeps no document entry (``proof.store.runtime.recorded``): that names every configuration's parts, which
+    the document's own group holds once every piece has run. In a lane whose queue names pieces
+    (``proof.checks.sharding.PIECES_ENVIRONMENT``) a run that keeps no store is refused, since the piece would
+    observe for no one; a piece run by itself, to see one fail again, observes all the same.
+    """
+    from proof.checks.sharding import PIECES_ENVIRONMENT
+    from proof.observe.record import NULL_STORE
+    from proof.observe.unit import observe_document
+    from proof.store import runtime
+
+    if configuration not in document.exports:
+        raise AssertionError(
+            f"The piece {document.group}@{configuration} names a configuration {document.group} is not exported"
+            f" under ({', '.join(sorted(document.exports))}); the queue that names it was built over another corpus."
+        )
+    _CACHE.clear()
+    store = runtime.session_store(document) if store is None else store
+    if store is NULL_STORE and os.environ.get(PIECES_ENVIRONMENT):
+        raise AssertionError(
+            f"The piece {document.group}@{configuration} observes into the run's evidence store, where"
+            f" {document.group} reads it, and this run keeps none (PROOF_STORE=off, or no PROOF_FINGERPRINTS or"
+            " PROOF_OUT). Run the lane with its store, or build its queue without pieces (--split-above none)."
+        )
+    found = observe_document(
+        document,
+        core_runner=core_runner,
+        editor_driver=editor_driver,
+        store=store,
+        configurations=(configuration,),
+        same_as=runtime.same_as(store),
+    )
+    _write_timings(document, found, piece=configuration)
+    return found
+
+
 def local_records_for(document, core_runner):
-    """The document's records with its ``local`` part at least: the whole records where made, else that part."""
+    """The document's records with its ``local`` part at least: the whole records where made, else that part,
+    read from the store alone in a group that follows pieces, as ``records_for`` reads there."""
     _owned(document)
     if "records" in _CACHE:
         return _CACHE["records"]
@@ -332,7 +390,11 @@ def local_records_for(document, core_runner):
 
         found = DocumentRecords(document.id, document.kind)
         found.local, found.local_key, _ = observe_local(
-            document, core_runner=core_runner, store=runtime.session_store(document), blobs=found.blobs
+            document,
+            core_runner=core_runner,
+            store=runtime.session_store(document),
+            blobs=found.blobs,
+            held_only=bool(runtime.pieces()),
         )
         _CACHE["local"] = found
     return _CACHE["local"]

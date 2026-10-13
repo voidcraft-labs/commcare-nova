@@ -5,7 +5,11 @@
 			"execution": {
 				"shards": 16,
 				"runner": "ubuntu-24.04",
-				"workers": 4
+				"workers": 4,
+				"budget": 10800,
+				"split": 5400,
+				"judged": 0.005,
+				"basis": "execution.budget: the seconds a shard of a lane with the readers is expected to run at most (python3 -m proof.lane.plan size), three hours. Set from the whole lane with every reader run at head dd12db6b on the proof machines (2026-10-13, 469 groups, 2,041,473 worker-seconds as run): the longest document took 15,711 s on one worker, so its heavier configuration is counted at 10,212 s (0.65 of it, proof.checks.sharding.PIECE_SHARE) and fits the budget with its judging; at 1.7 times, the spread one document's seconds showed between a hosted runner and a proof machine, it is 17,361 s, inside the 345-minute deadline (20,700 s). execution.split: the seconds of one worker past which an observed document or control is queued in pieces, one configuration a worker (python3 -m proof.store.queue), half the budget, so no document queued whole takes more than half a shard: 152 of that run's 441 documents and controls are past it. execution.judged: the share of a document's whole measure its judging costs where no run measured that alone; case-list-inline's judging took 8.7 s of 5,871 and connect-deliver-default's 2.4 s of 2,292 with every reader, counted here at five in a thousand."
 			},
 			"measured": {
 				"at": "2026-10-09",

@@ -12,6 +12,23 @@ claiming the whole queue at once (one shard hoarding the tail), claiming
 nothing ahead (workers idle while a claim runs), handing out short groups
 first, running a group twice or never after a worker dies, and reporting a
 block before its last group ends.
+
+Contract (pieces): a group that follows pieces (a heavy document's own
+group, after the groups that each observed one of its configurations) is
+handed out only once every piece has ended with every item passed, and a
+worker with nothing else to run waits meanwhile. When a piece fails, runs no
+item, or is lost with its worker, the group that follows it fails at once
+by the piece's name and is never handed out. A worker that holds a piece is
+handed nothing ahead of it. The plausible failures: the
+document's group handed out first (it is the name the timings know as the
+heaviest) and observing the document whole while its pieces observe it
+again; a worker told nothing is left while a piece still runs, so the
+judging never happens; a failed piece's document observed whole on one
+worker in its place, past the shard's deadline; a block never reported
+because its last group could not be handed out; and a worker that takes a
+piece and, asking ahead at once (a piece is one item), is handed the
+document's other piece too, so one worker observes the whole document while
+the others stand idle.
 """
 
 from __future__ import annotations
@@ -124,3 +141,151 @@ def test_a_phase_whose_queue_never_arrives_runs_nothing():
     assert broker.exhausted("main")
     assert broker.next_for("main", 1) is None
     assert broker.demand("main") == 0
+
+
+# Pieces --------------------------------------------------------------------------------------------
+
+PIECES = ("corpus:heavy@maximum", "corpus:heavy@minimum")
+
+
+def _split(*others, estimates=(60.0, 40.0, 2.0)):
+    """A block of one document in pieces (and ``others``): its two pieces and its own group after them."""
+    groups = (
+        QueuedGroup(PIECES[0], True, (), estimates[0]),
+        QueuedGroup(PIECES[1], True, (), estimates[1]),
+        QueuedGroup("corpus:heavy", False, PIECES, estimates[2]),
+        *(QueuedGroup(name, False, (), SECONDS[name]) for name in others),
+    )
+    return Block(block_id(group.group for group in groups), 102.0, groups)
+
+
+PASSED = {"outcomes": {"checks/pieces.py::test[x]": "passed"}}
+
+
+def test_a_group_that_follows_pieces_is_handed_out_once_each_has_passed_and_a_worker_waits_meanwhile():
+    block = _split()
+    # The timings know the document's own name as its whole cost, far past either piece: the queue's estimates,
+    # and its pieces still running, are what order it last.
+    broker = Broker({"corpus:heavy": 500.0}.get)
+    broker.add_phase("main", static=True)
+    broker.offer("main", [block])
+    first, second = broker.next_for("main", 1), broker.next_for("main", 2)
+    assert (first.group, second.group) == PIECES
+    assert first.fresh and first.after == ()
+    # Both pieces are out, and the document's group waits on them: a third worker waits, and is not sent away.
+    assert broker.next_for("main", 3) == WAIT
+    assert not broker.exhausted("main") and broker.demand("main") == 1
+    broker.started(first)
+    broker.started(second)
+    broker.ended(first, PASSED)
+    assert broker.next_for("main", 3) == WAIT  # one piece still runs
+    broker.ended(second, PASSED)
+    judging = broker.next_for("main", 3)
+    assert (judging.group, judging.fresh, judging.after) == ("corpus:heavy", False, PIECES)
+    assert broker.next_for("main", 1) is None and broker.exhausted("main")
+    assert broker.take_completed() == []
+    broker.started(judging)
+    broker.ended(judging, {"outcomes": {"checks/test_bar.py::test[heavy]": "passed"}})
+    [(_, run)] = broker.take_completed()
+    assert {name: state.status for name, state in run.groups.items()} == dict.fromkeys(
+        (*PIECES, "corpus:heavy"), "finished"
+    )
+
+
+def test_a_worker_takes_other_groups_while_a_documents_pieces_run():
+    block = _split("corpus:a", "corpus:d")
+    broker = _broker(static=True, blocks=[block])
+    handed = [broker.next_for("main", worker).group for worker in (1, 2, 3, 4)]
+    assert handed == [*PIECES, "corpus:a", "corpus:d"]  # longest first, the document's own group passed over
+    assert broker.next_for("main", 5) == WAIT
+
+
+def test_a_claiming_shard_starts_its_reserved_block_for_a_worker_the_pieces_would_keep_waiting():
+    split, other = _split(), _block("corpus:c")
+    broker = _broker(blocks=[split, other])
+    broker.claims_to_start()
+    broker.claimed("main", split.id, "claimed")
+    assert [broker.next_for("main", worker).group for worker in (1, 2)] == list(PIECES)
+    broker.claims_to_start()
+    broker.claimed("main", other.id, "claimed")
+    # Nothing of the started block can be handed out, so the reserved one is started for the third worker.
+    assert broker.next_for("main", 3).group == "corpus:c"
+
+
+def test_a_failed_piece_fails_the_group_that_follows_it_by_name_and_it_is_never_handed_out():
+    for record, why in (
+        ({"outcomes": {"checks/pieces.py::test[x]": "failed"}}, "did not pass (checks/pieces.py::test[x]: failed)"),
+        ({"outcomes": {"checks/pieces.py::test[x]": "skipped"}}, "did not pass (checks/pieces.py::test[x]: skipped)"),
+        ({"outcomes": {}}, "ran no item"),
+    ):
+        broker = _broker(static=True, blocks=[_split()])
+        first, second = broker.next_for("main", 1), broker.next_for("main", 2)
+        broker.started(first)
+        broker.started(second)
+        broker.ended(first, record)
+        # The other piece still runs; the document's group has already failed, and no worker is given it.
+        assert broker.next_for("main", 3) is None
+        assert broker.take_completed() == []
+        broker.ended(second, PASSED)
+        assert broker.next_for("main", 3) is None
+        [(_, run)] = broker.take_completed()
+        whole = run.groups["corpus:heavy"]
+        assert whole.status == "failed" and whole.worker is None and whole.record == {}
+        assert whole.failure == (
+            f"its piece {PIECES[0]} {why}, so it was not run: it judges what its pieces observed, and never"
+            " observes the document whole in their place"
+        )
+        assert run.groups[PIECES[1]].status == "finished"
+
+
+def test_a_piece_lost_with_its_worker_fails_the_group_that_follows_it_and_one_only_handed_runs_again():
+    broker = _broker(static=True, blocks=[_split()])
+    first, second = broker.next_for("main", 1), broker.next_for("main", 1)
+    broker.started(first)
+    reason = "worker w1 exited with status -9 while running it"
+    broker.lost(first, reason)
+    broker.lost(second, reason)
+    assert broker.status(first) == "failed"
+    # The piece the worker had only been handed goes to another worker; the document's group is already failed.
+    again = broker.next_for("main", 2)
+    assert again.group == PIECES[1]
+    assert broker.next_for("main", 3) is None
+    broker.started(again)
+    broker.ended(again, PASSED)
+    [(_, run)] = broker.take_completed()
+    assert run.groups["corpus:heavy"].status == "failed"
+    assert f"its piece {PIECES[0]} did not finish ({reason}), so it was not run" in run.groups["corpus:heavy"].failure
+
+
+def test_a_worker_that_holds_a_piece_is_handed_nothing_ahead_of_it():
+    """A worker asks ahead before its group's last item, so pytest knows what runs next. A piece is one item, as
+    long as its observation: what its worker were handed at its start would wait behind it for hours."""
+    broker = _broker(static=True, blocks=[_split("corpus:a")])
+    first = broker.next_for("main", 1)
+    assert first.group == PIECES[0]
+    # Asking ahead, the piece's worker is handed nothing, though the other piece and a document wait: it is
+    # told to ask again, which it does when the piece ends.
+    assert broker.next_for("main", 1, ahead=True) == WAIT
+    broker.started(first)
+    assert broker.next_for("main", 1, ahead=True) == WAIT
+    # A free worker takes the other piece, and a third the document beside them.
+    second = broker.next_for("main", 2)
+    assert second.group == PIECES[1]
+    third = broker.next_for("main", 3)
+    assert third.group == "corpus:a"
+    broker.started(second)
+    broker.started(third)
+    broker.ended(first, PASSED)
+    assert broker.next_for("main", 1) == WAIT  # the document's own group waits on the piece still running
+    broker.ended(second, PASSED)
+    # A worker that holds no piece is handed ahead as ever: the document's own group, to the one finishing beside.
+    assert broker.next_for("main", 3, ahead=True).group == "corpus:heavy"
+
+
+def test_a_worker_finishing_another_group_is_handed_a_piece_ahead():
+    broker = _broker(static=True, blocks=[_split("corpus:e")])  # corpus:e is longer than either piece
+    assert broker.next_for("main", 1).group == PIECES[0]
+    document = broker.next_for("main", 2)
+    assert document.group == "corpus:e"
+    # Before its last item it asks ahead, and the piece it is handed starts as that item ends.
+    assert broker.next_for("main", 2, ahead=True).group == PIECES[1]

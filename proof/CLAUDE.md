@@ -286,11 +286,22 @@ harness keeps, each with its reason.
     again). The whole run without the readers also holds the committed
     sensitivity effects to its own flips both ways, so an effect no flip
     shows any longer fails the week by name.
-  The lane with every reader costs about 300 worker-hours whole, against
+  The lane with every reader costs hundreds of worker-hours whole, against
   GitHub's free plan of twenty jobs at once and six hours a job, so each
   lane with the readers sizes its shards from its queue
-  (`python3 -m proof.lane.plan size`: within two and a half hours a shard,
-  fourteen at once). A scheduled night or week that fails opens an issue
+  (`python3 -m proof.lane.plan size`: within the profile's budget a shard,
+  `proof/timings.json`'s `execution.budget`, fourteen at once). A document
+  or control too heavy for one worker is observed in pieces
+  (`proof/README.md`, "Documents observed in pieces"): each configuration
+  by a group of its own into the run's store, and the document's own group
+  after them judges it whole, reading every part and observing nothing. A
+  configuration is the smallest piece: it is the observation's own unit,
+  with its own keys and no shared state, so a piece needs no new key and no
+  recreated state. Never divide an observation finer (by part, by reader,
+  by walk) without proving the divided observation keeps the same bytes;
+  never let a document's group observe in a failed piece's place; and a
+  configuration that alone outgrows the budget is refused by name, not
+  truncated. A scheduled night or week that fails opens an issue
   that names each failing group, why, and the command that reruns that
   group alone at the commit the run checked (`python3 -m proof.lane.report`:
   `PROOF_READERS=0 npm run proof -- <its items>` where it failed without the

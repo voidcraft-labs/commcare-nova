@@ -946,6 +946,20 @@ class _TimedRunner:
         return getattr(self._runner, name)
 
 
+class PartsNotHeld(AssertionError):
+    """A document read from the store alone (``held_only``) lacks a part an observation of it keeps."""
+
+    def __init__(self, document, parts):
+        self.parts = list(parts)
+        super().__init__(
+            f"{document.group} was read from the evidence store alone, with nothing observed, and the store holds"
+            f" no {', '.join(self.parts)} of it. Its own group reads so where each of its configurations was observed"
+            " by a piece before it (proof.checks.pieces), which keeps every part in the run's store. Look at the"
+            " pieces' outcomes in this block's manifest, and at whether the run keeps a store at all (PROOF_STORE=off"
+            " and a run without PROOF_FINGERPRINTS keep none)."
+        )
+
+
 def _held(store, key, blobs):
     """The record the store holds under ``key`` (its blobs merged into ``blobs``), or None."""
     held = store.lookup(key)
@@ -986,13 +1000,16 @@ def observe_configuration(
     timings,
     same_as=True,
     hooks=None,
+    held_only=False,
 ):
     """One configuration's parts, from the store where it holds them and observed in one unit otherwise.
 
     With ``same_as`` (the default) a ``b_edit`` keyed as ``b`` is recorded as
     the same and not observed; without it, it is observed all the same.
     ``hooks`` is what the observation hooks declare they read
-    (``hook_inputs``), which the guard allows each part's hooks.
+    (``hook_inputs``), which the guard allows each part's hooks. With
+    ``held_only`` nothing is observed: a part an observation of the
+    configuration keeps and the store does not hold raises ``PartsNotHeld``.
     """
     from proof.hq.state import hq_unit
     from proof.store import guard
@@ -1011,6 +1028,14 @@ def observe_configuration(
     if same:
         records.b_edit = {"same_as": keys["b"].hex()}
     if not wanted:
+        return []
+    if held_only:
+        # What an observation of the configuration keeps: its ``a``, and every other part where A holds an app
+        # (below: nothing is observed past a create HQ refused).
+        a = held.get("a")
+        unkept = [part for part in wanted if a is None or a.get("state") is not None]
+        if unkept:
+            raise PartsNotHeld(document, [f"{name}/{part}" for part in unkept])
         return []
     started = time.perf_counter()
     observed = []
@@ -1123,10 +1148,11 @@ def local_archives(document):
     return found
 
 
-def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None):
+def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None, held_only=False):
     """Core's admission of each local archive the document carries, its reading of each stack step value in
     its suite (``read_stack_values``), and each local hook's record (``observe_local(ctx)``, ``LocalContext``),
-    as the ``local`` record, and its key. ``hooks`` is ``hook_inputs(document)``, computed where not given."""
+    as the ``local`` record, and its key. ``hooks`` is ``hook_inputs(document)``, computed where not given. With
+    ``held_only`` nothing is observed: a record the store does not hold raises ``PartsNotHeld``."""
     from proof.observe.build import admit
     from proof.store import guard
 
@@ -1137,6 +1163,8 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     held = _held(store, key, blobs)
     if held is not None and not store.fresh:
         return held, key, False
+    if held_only:
+        raise PartsNotHeld(document, [LOCAL])
     started = time.perf_counter()
     reports, readings = {}, {}
     archives = local_archives(document)
@@ -1170,6 +1198,7 @@ def observe_document(
     store=NULL_STORE,
     configurations=None,
     same_as=True,
+    held_only=False,
 ):
     """Every part of one document's tree, each configuration in a unit of its own, and its local archives.
 
@@ -1177,7 +1206,11 @@ def observe_document(
     document is exported under by default); ``same_as`` is
     ``observe_configuration``'s. Each state is also served to the session's
     Formplayer (``proof.observe.services``) and, with ``editor_driver``, shown
-    in the Web Apps client (``proof.observe.served``).
+    in the Web Apps client (``proof.observe.served``). With ``held_only``
+    every part is read from the store and nothing is observed
+    (``PartsNotHeld`` where the store lacks one an observation keeps): how a
+    document's own group reads what its pieces observed, one configuration
+    each (``proof.checks.observations``).
     """
     from proof.store import guard
 
@@ -1207,11 +1240,18 @@ def observe_document(
             timings=timings,
             same_as=same_as,
             hooks=hooks,
+            held_only=held_only,
         )
         found.observed += [f"{name}/{part}" for part in observed]
         found.configurations[name] = held
     found.local, found.local_key, observed = observe_local(
-        document, core_runner=core_runner, store=store, blobs=found.blobs, timings=found.timings, hooks=hooks
+        document,
+        core_runner=core_runner,
+        store=store,
+        blobs=found.blobs,
+        timings=found.timings,
+        hooks=hooks,
+        held_only=held_only,
     )
     if observed:
         found.observed.append("local")

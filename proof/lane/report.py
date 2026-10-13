@@ -22,7 +22,15 @@ The selection is the group's own items, by their node ids: every item of a
 document's or a control's group (they share one observation, and the register
 is held over all of them), and the failing items of a package's group. A
 group that never ran left no items to name, so it is selected by its path and
-``-k``, and its line says that may select more than the group. Each lane's
+``-k``, and its line says that may select more than the group.
+
+A document heavy enough is observed in pieces (``proof.lane.blocks``): each
+configuration by a group of its own, and the document's own group after them.
+A failed piece is named as that, with the line that observes that one
+configuration again, alone (its one item, ``proof.checks.sharding
+.piece_item``, which a run with no queue collects by the path the line
+names); the document's group, which was not run because its piece failed,
+reruns as any document's does, observing the document whole on one worker. Each lane's
 section opens with the gate's sections that failed and their first problems,
 so a problem that names no one group is still read. A lane that uploaded no
 verdict is named as that. Past ``MOST_GROUPS`` groups a lane's list stops and
@@ -51,6 +59,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from proof.checks import sharding
+from proof.lane import blocks as lane_blocks
 from proof.lane import gate
 from proof.lane import readers as lane_readers
 
@@ -63,7 +72,14 @@ SECTION_PROBLEMS = 3
 # The most differences between the committed effects and a run's that one lane lists.
 MOST_EFFECTS = 80
 
+# A run a person dispatched over documents they named, to see the lane run on them (proof-audit.yml's mechanics).
+MECHANICS = "mechanics"
 OPENINGS = {
+    MECHANICS: (
+        "A dispatch ran the proof lane over main at `{commit}` on documents named by hand, to show the lane's"
+        " mechanics on them: the shards and their pieces, the artifacts, the gate and this report. It is no verdict"
+        " on the corpus; the nightly and the weekly are."
+    ),
     "nightly": (
         "The nightly ran the proof lane over main at `{commit}`, with every reader and without them, observing every"
         " group main's store did not hold, and it did not hold: a lane failed, or main's store could not be saved."
@@ -88,8 +104,11 @@ def selection(entry: Mapping, proof_dir: Path = sharding.PROOF_DIR) -> tuple[lis
     if kind in ("corpus", "control") and identifier:
         if items:
             return [f"proof/{node}" for node in items], True
-        document = identifier.partition("@")[0]
-        return ["proof/checks", "-k", document if kind == "corpus" else f"control-{document}"], False
+        piece = sharding.piece_item(group)
+        if piece is not None:
+            # A piece is one item, named by its group alone: its configuration observed again, with no queue.
+            return [f"proof/{piece}"], True
+        return ["proof/checks", "-k", identifier if kind == "corpus" else f"control-{identifier}"], False
     if failed and len(failed) <= MOST_ITEMS:
         return [f"proof/{node}" for node in failed], True
     if failed:
@@ -180,6 +199,14 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str], run: str = "
         seed = f"seed `{sample['seed']}`" if sample.get("seed") else "no seed, the ranking's first"
         documents = ", ".join(sample["documents"])
         sampled = [f"It checked a sample of {len(sample['documents'])} documents ({seed}): {documents}.", ""]
+    selection = verdict.get("selection")
+    if selection:
+        sampled += [
+            f"It checked the documents named by hand ({', '.join(selection['documents'])}) and their controls, and"
+            f" left {len(selection.get('left') or [])} other groups out: it shows the lane on those documents, and"
+            " is no verdict on the corpus.",
+            "",
+        ]
     effects = _effects(label, verdict.get("effects"), run)
     if verdict.get("holds"):
         return [title, "", *sampled, "Its verdict held.", "", *effects]
@@ -208,6 +235,12 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str], run: str = "
         reasons = "; ".join(_reason(why) for why in entry.get("why", [])[:3])
         more = len(entry.get("why", [])) - 3
         lines.append(f"- `{entry['group']}`: {reasons}{f' (and {more} more)' if more > 0 else ''}")
+        piece = lane_blocks.piece_of(entry["group"])
+        if piece is not None:
+            lines.append(
+                f"  It is a piece: `{piece[0]}` observed under `{piece[1]}` alone, for `{piece[0]}` to judge, which"
+                " was not run without it. The line below observes that configuration again."
+            )
         if readers and entry["group"] in elsewhere:
             lines.append("  It fails without the readers too, so rerun it there first (that lane's list).")
         commands, alone = command(entry, readers)
@@ -241,9 +274,10 @@ def body(
         "## Rerunning what failed",
         "",
         f"Check out the commit the run checked (`git fetch origin && git checkout {commit}`). Each command below"
-        " reruns one group alone: every check of one document or control, or one package's failing tests, on one"
-        " worker. The gate command after it holds that slice to the lane's verdict; a slice's gate also reports the"
-        " register's entries on documents it did not run as not run, so read the problems that name your group.",
+        " reruns one group alone: every check of one document or control, one configuration of a document that"
+        " was observed in pieces, or one package's failing tests, on one worker. The gate command after it holds"
+        " that slice to the lane's verdict; a slice's gate also reports the register's entries on documents it did"
+        " not run as not run, so read the problems that name your group.",
         "",
     ]
     if sample_seed:

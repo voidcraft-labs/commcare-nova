@@ -10,17 +10,18 @@ for a run without one, by the server from its own collection
     {"version": 1,
      "fingerprints": {"observation": ..., "browser": ..., "judge": ..., "image": ..., "postgres": ..., "arch": ...},
      "blocks": [{"id": <block_id of its groups>, "estimate": <box-seconds>,
-                 "groups": [{"group": <group>, "fresh": <bool>}, ...]}, ...],
+                 "groups": [{"group": <group>, "fresh": <bool>, "after": [<piece>, ...]}, ...]}, ...],
      "cached": [{"group": <group>, "judgments": {<check>: <judgment key>}}, ...],
      "unsampled": [<document id>, ...],
      "sample": {"seed": <ISO year and week> | null, "documents": [<document id>, ...]},
+     "selection": {"documents": [<document id>, ...], "left": [<group>, ...]},
      "readers": false | [<reader>, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
 (from ``proof-plan``), and the main queue (from ``quality``, once the corpus
-is emitted). A group is every item of one corpus document (``corpus:<id>``), of
-one document under one configuration (``corpus:<id>@<configuration>``, for a
-document heavy enough to split), of one control (``control:<id>``), of one
+is emitted). A group is every item of one corpus document (``corpus:<id>``) or
+control (``control:<id>``), one piece of either (``corpus:<id>@<configuration>``,
+``control:<id>@<configuration>``: one configuration of it observed, below), of one
 package (``proof``, ``proof/<package>``), of one test module a package's
 group splits off (``proof/<package>/<module>.py``) or one test of it
 (``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``),
@@ -31,13 +32,36 @@ what the block holds. A cached group is one whose every judgment the store
 holds: it runs nowhere, and the gate reads its judgments from the store. A
 block's groups may carry their own ``estimate`` (the queue builder writes
 it), which the planner reads for the longest group a shard holds
-(``proof.lane.plan``).
+(``proof.lane.plan``) and a shard hands its groups out by, longest first
+(``proof.lane.broker``).
+
+Pieces. A document or control heavy enough is observed in pieces
+(``proof.store.queue``): each configuration it is exported under is a group
+of its own, one item that observes that configuration whole into the run's
+evidence store (``proof.checks.pieces``), and the document's own group names
+them (``after``) and runs once each has passed, reading every part they kept
+and observing nothing, so its checks judge the document whole as they do
+unsplit. The pieces run on different workers of the shard that holds their
+block, so no one worker carries the whole document. ``parse_queue`` holds a
+queue to that shape: a piece is in its document's block, the document's group
+follows every piece of it the block holds, a piece follows nothing, and a
+group that follows pieces is never fresh (it reads what they observed; they
+carry the freshness).
+
 ``unsampled``, only in the queue of a run over a sample of the corpus
 (``proof.store.queue.sampled``), names the corpus documents the sample
 leaves out (``unsampled_documents``): none of them runs, and the gate holds
 the register's entries naming one on their controls alone. ``sample``, in
 the same queue, names the documents the sample kept and the seed that chose
-them, so a verdict says which sample it judged and how to run it again. ``readers``, only
+them, so a verdict says which sample it judged and how to run it again.
+``selection``, only in the queue of a run over documents named by hand
+(``proof.store.queue``, ``--documents only:<ids>``: a run that shows the lane's
+mechanics or one change on a few documents, never a verdict on the corpus),
+names those documents and the groups the run leaves out beside the other
+documents (``left``: every other control, and the packages that read the
+corpus): a shard counts those as accounted for, and the gate holds only the
+register's entries naming a selected document, on it and on its control,
+saying how many it left. ``readers``, only
 in the queue of a run that observes not every reader (``PROOF_READERS``,
 ``proof.lane.readers``), is false for none or the list of those it observes:
 the server refuses a queue built for another set than its own, and the gate
@@ -136,13 +160,23 @@ def group_problem(name) -> str | None:
             document, _, configuration = rest.partition("@")
             if not document or any(character.isspace() for character in rest):
                 return f"{name!r} names no document"
-            if "@" in rest and (kind != "corpus:" or not configuration or "@" in configuration):
-                return f"{name!r} names a configuration where only one corpus document's may be named"
+            if "@" in rest and (not configuration or "@" in configuration):
+                return f"{name!r} names no one configuration of its document ({kind}<id>@<configuration>)"
             return None
     return (
-        f"{name!r} is none of corpus:<id>, corpus:<id>@<configuration>, control:<id>, proof, proof/<package>,"
-        " proof/<package>/<module>.py[::<test>], surface or hq-selfchecks"
+        f"{name!r} is none of corpus:<id>, control:<id>, a piece of one (corpus:<id>@<configuration>,"
+        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>], surface or"
+        " hq-selfchecks"
     )
+
+
+def piece_of(name: str) -> tuple[str, str] | None:
+    """The document's or control's group and the configuration a piece names (``corpus:<id>@<configuration>``), or
+    None for any other group."""
+    if not isinstance(name, str) or not name.startswith(DOCUMENT_KINDS):
+        return None
+    whole, at, configuration = name.partition("@")
+    return (whole, configuration) if at else None
 
 
 def package_of(name: str) -> str:
@@ -169,6 +203,10 @@ class QueuedGroup:
     group: str
     # The store recomputes this group's records rather than reading them (the audit sample).
     fresh: bool = False
+    # The pieces of its document this group follows: it runs once each has passed, and reads what they observed.
+    after: tuple[str, ...] = ()
+    # What the queue's builder expects the group to cost, in box-seconds; None where it wrote none.
+    estimate: float | None = None
 
 
 @dataclass(frozen=True)
@@ -197,6 +235,14 @@ class Sample:
 
 
 @dataclass(frozen=True)
+class Selection:
+    """The documents a run was asked for by name, and the groups it leaves out beside the other documents."""
+
+    documents: tuple[str, ...]
+    left: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Queue:
     blocks: tuple[Block, ...]
     cached: tuple[CachedGroup, ...] = ()
@@ -207,6 +253,8 @@ class Queue:
     readers: frozenset = lane_readers.EVERY
     # The sample a sampled run checks; None for a run over the whole corpus.
     sample: Sample | None = None
+    # The documents and what it leaves out, for a run over documents named by hand; None for any other.
+    selection: Selection | None = None
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
@@ -249,6 +297,8 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
         for raw_group in raw_groups:
             name = raw_group.get("group") if isinstance(raw_group, dict) else None
             fresh = raw_group.get("fresh", False) if isinstance(raw_group, dict) else None
+            after = raw_group.get("after", []) if isinstance(raw_group, dict) else None
+            expected = raw_group.get("estimate") if isinstance(raw_group, dict) else None
             problem = group_problem(name) if check_names else (None if isinstance(name, str) and name else "no name")
             if problem is not None:
                 problems.append(f"block {index}: {problem}")
@@ -256,11 +306,21 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
             if not isinstance(fresh, bool):
                 problems.append(f"block {index}: {name}'s fresh is {fresh!r}, not true or false")
                 continue
+            if not isinstance(after, list) or not all(isinstance(piece, str) and piece for piece in after):
+                problems.append(f"block {index}: {name}'s after is {after!r}, not a list of the pieces it follows")
+                continue
             if name in seen_groups:
                 problems.append(f"{name} is in block {seen_groups[name]} and block {index}; a group runs once")
                 continue
+            if expected is not None and (isinstance(expected, bool) or not isinstance(expected, (int, float))):
+                problems.append(f"block {index}: {name}'s estimate is {expected!r}, not a number of box-seconds")
+                continue
             seen_groups[name] = index
-            groups.append(QueuedGroup(name, fresh))
+            groups.append(QueuedGroup(name, fresh, tuple(after), None if expected is None else float(expected)))
+        if check_names:
+            # A queue a lane is given holds each piece with the group that follows it; the queue a run of one
+            # selection writes for itself may hold a piece alone, observed again by hand.
+            problems += [f"block {index}: {problem}" for problem in piece_problems(groups)]
         if isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or estimate < 0:
             problems.append(f"block {index}'s estimate is {estimate!r}, not a number of box-seconds")
             estimate = 0.0
@@ -283,6 +343,9 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
             continue
         if name in seen_groups:
             problems.append(f"{name} is both in block {seen_groups[name]} and cached; a group is run or read, not both")
+            continue
+        if check_names and piece_of(name) is not None:
+            problems.append(f"the cached group {name} is a piece; a piece observes, and is never read from the store")
             continue
         if not isinstance(judgments, dict) or not all(isinstance(key, str) for key in judgments.values()):
             problems.append(f"the cached group {name}'s judgments are not an object of judgment keys")
@@ -312,9 +375,57 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
             problems.append(f"its sample's seed is {seed!r}, not the text that chose it")
         else:
             sample = Sample(tuple(documents), seed)
+    selection = None
+    raw_selection = value.get("selection")
+    if raw_selection is not None:
+        documents = raw_selection.get("documents") if isinstance(raw_selection, dict) else None
+        left = raw_selection.get("left", []) if isinstance(raw_selection, dict) else None
+        if not isinstance(documents, list) or not all(isinstance(name, str) and name for name in documents):
+            problems.append("its selection names no list of document ids")
+        elif not isinstance(left, list) or not all(isinstance(name, str) and name for name in left):
+            problems.append("its selection's left is not a list of the groups it leaves out")
+        else:
+            both = sorted(set(left) & set(seen_groups))
+            if both:
+                problems.append(f"{', '.join(both[:5])} is run or read, and the selection names it as left out")
+            selection = Selection(tuple(documents), tuple(left))
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample)
+    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample, selection)
+
+
+def piece_problems(groups: Iterable[QueuedGroup]) -> list[str]:
+    """Why one block's groups do not hold their pieces as a lane runs them (the module's docstring); none when
+    they do."""
+    groups = list(groups)
+    by_name = {queued.group: queued for queued in groups}
+    problems = []
+    for queued in groups:
+        piece = piece_of(queued.group)
+        if piece is not None:
+            whole = by_name.get(piece[0])
+            if queued.after:
+                problems.append(f"the piece {queued.group} follows {', '.join(queued.after)}; a piece follows nothing")
+            if whole is None or queued.group not in whole.after:
+                problems.append(
+                    f"the piece {queued.group} is followed by no group: {piece[0]}, which judges what it observes,"
+                    " belongs in this block, naming the piece in its after"
+                )
+        for name in queued.after:
+            if name not in by_name:
+                problems.append(f"{queued.group} follows {name}, which is not in its block")
+            elif (piece_of(name) or (None,))[0] != queued.group:
+                problems.append(
+                    f"{queued.group} follows {name}, which is no piece of it ({queued.group}@<configuration>)"
+                )
+        if len(set(queued.after)) != len(queued.after):
+            problems.append(f"{queued.group} names a piece twice in its after")
+        if queued.after and queued.fresh:
+            problems.append(
+                f"{queued.group} follows its pieces and is fresh; it reads what they observed, and they carry the"
+                " freshness"
+            )
+    return problems
 
 
 def load_queue(path: Path, *, check_names: bool = True) -> Queue:
@@ -336,7 +447,15 @@ def queue_json(queue: Queue) -> dict:
             {
                 "id": block.id,
                 "estimate": block.estimate,
-                "groups": [{"group": group.group, "fresh": group.fresh} for group in block.groups],
+                "groups": [
+                    {
+                        "group": group.group,
+                        "fresh": group.fresh,
+                        **({"after": list(group.after)} if group.after else {}),
+                        **({} if group.estimate is None else {"estimate": group.estimate}),
+                    }
+                    for group in block.groups
+                ],
             }
             for block in queue.blocks
         ],
@@ -345,6 +464,11 @@ def queue_json(queue: Queue) -> dict:
         **(
             {"sample": {"seed": queue.sample.seed, "documents": list(queue.sample.documents)}}
             if queue.sample is not None
+            else {}
+        ),
+        **(
+            {"selection": {"documents": list(queue.selection.documents), "left": list(queue.selection.left)}}
+            if queue.selection is not None
             else {}
         ),
         **({} if queue.readers == lane_readers.EVERY else {"readers": lane_readers.to_record(queue.readers)}),

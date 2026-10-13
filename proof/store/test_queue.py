@@ -23,6 +23,16 @@ blob the gate will read for it whole (each judgment, the surface block's
 extraction), and judged only where it holds every part the document entry
 names with the record digest it names; a damaged or missing one is a miss.
 
+A document or control that is observed, is exported under more than one
+configuration, and whose whole measure on one worker is past the split
+threshold (the profile's, or ``--split-above``) is queued in pieces: each
+configuration a group of its own with its own estimate, and the document's
+own group after them in the same block, never fresh, at what judging costs.
+A document the store holds the records of, one under a single
+configuration, and every document where no threshold is named are queued
+whole. A document measured in pieces is measured whole by its pieces' sum
+with its own group's.
+
 The plausible failures: a cached document whose edit the queue missed (its
 key reads too little of its files), a judged document queued as cached
 because its records are held, a document cached over the browser's old code
@@ -31,8 +41,13 @@ group cached over a damaged judgment (the gate then cannot read it), a
 document judged over a part the store no longer holds as named, a package
 cached over a sample its tests no longer keep to, a block split between two
 documents that share a part (so neither reads the other's), an audit sample
-that changes between two builds of one run, and an early queue that holds a
-group the early phase cannot run.
+that changes between two builds of one run, an early queue that holds a
+group the early phase cannot run, a document's pieces in another block than
+its own group (another shard would run them, and its own group would never
+find what they kept), a judged document split (its pieces would observe what
+the store already holds), a document measured in pieces read as light by its
+own group's measure and queued whole, and a fresh group after its pieces
+(observing the document again in their place).
 """
 
 from __future__ import annotations
@@ -554,3 +569,174 @@ def test_a_package_keyed_on_a_sample_reads_the_corpus_only_where_it_names_the_sa
 
 def test_the_queue_reads_b_edits_unread_roles_as_the_observation_does():
     assert queue.B_UNREAD == unit.B_UNREAD_ROLES
+
+
+# Pieces ------------------------------------------------------------------------------------------
+
+
+def _two_configurations(corpus, identifier):
+    """Export the corpus document under a second configuration, as the emitter writes it, and name its inputs."""
+    root = corpus / identifier
+    for kind, files in (("export", ("create", "republish")), ("edit/export", ("update",))):
+        for name in files:
+            for suffix in ("body", "json"):
+                source = root / kind / "minimum" / f"{name}.{suffix}"
+                target = root / kind / "maximum" / f"{name}.{suffix}"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(source.read_bytes())
+    write_inputs(root)
+
+
+def _queued(value):
+    return {queued["group"]: queued for block in value["blocks"] for queued in block["groups"]}
+
+
+def test_a_heavy_observed_document_is_queued_in_pieces_with_its_own_group_after_them(tmp_path, lane):
+    checkout, corpus = lane
+    _two_configurations(corpus, "two")
+    # No threshold named, and none in the profile: every document is queued whole, as it always was.
+    whole = _build(checkout, tmp_path / "whole.json", "--no-dedupe", corpus=corpus)
+    assert "pieces" not in whole and "corpus:two@maximum" not in _queued(whole)
+    assert _queued(whole)["corpus:two"] == {"group": "corpus:two", "fresh": False, "estimate": 6.0} | {
+        "key": _queued(whole)["corpus:two"]["key"]
+    }
+    # Past 20 s on one worker: two is 6 box-seconds, 24 s on a worker of the four its profile's box holds; one is
+    # 16 s, and is exported under one configuration besides.
+    timings = json.loads((checkout / "proof" / "timings.json").read_text())
+    timings["profiles"]["readers"]["execution"] = {"workers": 4, "split": 20}
+    (checkout / "proof" / "timings.json").write_text(json.dumps(timings))
+    split = _build(checkout, tmp_path / "split.json", "--no-dedupe", "--fresh", corpus=corpus)
+    assert split["pieces"] == ["corpus:two@maximum", "corpus:two@minimum"]
+    assert split["classes"]["observed"] == ["corpus:one", "corpus:two", "proof/checks", "proof/editors"]
+    queued = _queued(split)
+    share = round(6.0 * 0.65, 3)
+    assert queued["corpus:two@maximum"] == {"group": "corpus:two@maximum", "fresh": True, "estimate": share}
+    assert queued["corpus:two@minimum"] == {"group": "corpus:two@minimum", "fresh": True, "estimate": share}
+    # Its own group follows them, is never fresh though the lane is, keeps the document's key, and costs judging.
+    assert queued["corpus:two"] == {
+        "group": "corpus:two",
+        "fresh": False,
+        "after": ["corpus:two@maximum", "corpus:two@minimum"],
+        "estimate": round(6.0 * queue.JUDGED_SHARE, 3),
+        "key": _queued(whole)["corpus:two"]["key"],
+    }
+    assert queued["corpus:one"]["fresh"] is True and "after" not in queued["corpus:one"]
+    assert split["fresh"] == ["corpus:one", "corpus:two@maximum", "corpus:two@minimum", "proof/checks", "proof/editors"]
+    # One block holds the three, though nothing is shared between documents (--no-dedupe), and the lane reads it.
+    [block] = [block for block in split["blocks"] if any(g["group"] == "corpus:two" for g in block["groups"])]
+    assert [g["group"] for g in block["groups"]] == ["corpus:two", "corpus:two@maximum", "corpus:two@minimum"]
+    assert block["estimate"] == round(2 * share + 6.0 * queue.JUDGED_SHARE, 3)
+    parsed = lane_blocks.parse_queue(split)
+    assert parsed.block(block["id"]).groups[0].after == ("corpus:two@maximum", "corpus:two@minimum")
+    # The threshold named by hand stands in the profile's place: none splits nothing, and nothing past it does.
+    assert "pieces" not in _build(checkout, tmp_path / "none.json", "--split-above", "none", corpus=corpus)
+    assert "pieces" not in _build(checkout, tmp_path / "high.json", "--split-above", "24", corpus=corpus)
+    forced = _build(checkout, tmp_path / "forced.json", "--split-above", "0", corpus=corpus)
+    assert forced["pieces"] == ["corpus:two@maximum", "corpus:two@minimum"]  # one has a single configuration
+    out = tmp_path / "bad.json"
+    assert (
+        queue.main(["main", "--root", str(checkout), "--corpus", str(corpus), "--out", str(out), "--split-above", "x"])
+        == 2
+    )
+    # The same inputs write the same bytes.
+    again = _build(checkout, tmp_path / "again.json", "--no-dedupe", "--fresh", corpus=corpus)
+    assert (tmp_path / "again.json").read_bytes() == (tmp_path / "split.json").read_bytes() and again == split
+
+
+def test_a_document_the_store_holds_is_not_split_and_the_audit_sample_is(tmp_path, lane):
+    checkout, corpus = lane
+    _two_configurations(corpus, "two")
+    cold = _build(checkout, tmp_path / "cold.json", "--split-above", "0", corpus=corpus)
+    assert cold["pieces"] == ["corpus:two@maximum", "corpus:two@minimum"]
+    _build(checkout, tmp_path / "whole.json", corpus=corpus)
+    output = _ran(checkout, corpus, tmp_path / "out", tmp_path / "whole.json", failing={"corpus:two"})
+    store = pack.write(pack.gather([output], [tmp_path / "whole.json"]), tmp_path / "store")
+    # Its records are held, so it is judged from them, whole: no piece would have anything to observe.
+    warm = _build(checkout, tmp_path / "warm.json", "--split-above", "0", corpus=corpus, stores=[store])
+    assert warm["classes"]["judged"] == ["corpus:two"] and "pieces" not in warm
+    # The audit sample observes it again, so there it is in pieces, fresh, its own group reading what they keep.
+    seeds = {}
+    for seed in ("1", "2", "3", "4", "5", "6"):
+        arguments = ["--split-above", "0", "--audit-seed", seed, "--audit-units", "1"]
+        seeds[seed] = _build(checkout, tmp_path / f"audit-{seed}.json", *arguments, corpus=corpus, stores=[store])
+    sampled = next(value for value in seeds.values() if "corpus:two@maximum" in value["fresh"])
+    assert sampled["fresh"] == ["corpus:two@maximum", "corpus:two@minimum"]
+    assert _queued(sampled)["corpus:two"]["fresh"] is False
+    assert _queued(sampled)["corpus:two"]["after"] == ["corpus:two@maximum", "corpus:two@minimum"]
+
+
+def test_a_document_measured_in_pieces_is_split_by_its_whole_measure_and_each_group_costs_what_it_measured(
+    tmp_path, lane
+):
+    checkout, corpus = lane
+    _two_configurations(corpus, "two")
+    groups = {"corpus:one": 4.0, "corpus:two": 0.5, "corpus:two@maximum": 3.5, "corpus:two@minimum": 2.5}
+    profile = {"groups": groups, "execution": {"workers": 4, "split": 20}}
+    (checkout / "proof" / "timings.json").write_text(json.dumps({"profiles": {"readers": profile}}))
+    # Its own group measured 0.5 box-seconds, judging; with its pieces it is 6.5, 26 s on a worker, past 20.
+    split = _queued(_build(checkout, tmp_path / "split.json", corpus=corpus))
+    assert (split["corpus:two@maximum"]["estimate"], split["corpus:two@minimum"]["estimate"]) == (3.5, 2.5)
+    assert split["corpus:two"]["estimate"] == 0.5
+    # Under a threshold it does not pass, it is queued whole at its whole measure, never at its judging's.
+    whole = _queued(_build(checkout, tmp_path / "whole.json", "--split-above", "30", corpus=corpus))
+    assert whole["corpus:two"]["estimate"] == 6.5 and "corpus:two@maximum" not in whole
+    # A document no run measured in pieces costs its profile's judged share of its whole to judge: with every
+    # reader an observation is hours and its judging is not 15% of them, so that profile names its own.
+    profile = {"groups": {"corpus:one": 4.0, "corpus:two": 6.0}, "execution": {"workers": 4, "split": 20}}
+    (checkout / "proof" / "timings.json").write_text(json.dumps({"profiles": {"readers": profile}}))
+    default = _queued(_build(checkout, tmp_path / "default.json", corpus=corpus))
+    assert default["corpus:two"]["estimate"] == round(6.0 * queue.JUDGED_SHARE, 3)
+    profile["execution"]["judged"] = 0.01
+    (checkout / "proof" / "timings.json").write_text(json.dumps({"profiles": {"readers": profile}}))
+    named = _queued(_build(checkout, tmp_path / "named.json", corpus=corpus))
+    assert named["corpus:two"]["estimate"] == 0.06 and named["corpus:two@maximum"]["estimate"] == round(6.0 * 0.65, 3)
+    profile["execution"]["judged"] = 0
+    (checkout / "proof" / "timings.json").write_text(json.dumps({"profiles": {"readers": profile}}))
+    arguments = ["main", "--root", str(checkout), "--corpus", str(corpus), "--out", str(tmp_path / "bad.json")]
+    assert queue.main([*arguments, "--timings", str(checkout / "proof" / "timings.json")]) == 2
+
+
+def test_a_run_over_documents_named_by_hand_queues_them_and_their_controls_and_names_what_it_leaves_out(tmp_path, lane):
+    checkout, corpus = lane
+    _two_configurations(corpus, "two")
+    control = copied_control(checkout / "proof" / "controls")
+    other = "elsewhere"
+    shutil.copytree(control.root, checkout / "proof" / "controls" / other)
+    entry = {"id": "d1", "defect": 1, "part": "p", "check": "bar", "artifact": "upload", "path": "/x"}
+    register = [
+        {**entry, "document": "two", "control": control.id},
+        {**entry, "id": "d2", "document": "one", "control": other},
+    ]
+    (checkout / "proof" / "known-defects.json").write_text(json.dumps(register))
+    whole = _build(checkout, tmp_path / "whole.json", corpus=corpus)
+    assert "selection" not in whole and f"control:{other}" in _queued(whole)
+    index = (corpus / "index.json").read_bytes()
+    named = _build(checkout, tmp_path / "named.json", "--documents", "only:two", "--split-above", "0", corpus=corpus)
+    # The document in pieces (its threshold forced), the control of the entry naming it, and nothing else.
+    assert sorted(_queued(named)) == [
+        f"control:{control.id}",
+        *(f"control:{control.id}@{name}" for name in queue.configuration_names(control.root)),
+        "corpus:two",
+        "corpus:two@maximum",
+        "corpus:two@minimum",
+    ]
+    assert named["selection"] == {"documents": ["two"], "left": [f"control:{other}", "proof/checks", "proof/editors"]}
+    assert "unsampled" not in named and "sample" not in named
+    parsed = lane_blocks.parse_queue(named)
+    assert parsed.selection.documents == ("two",) and parsed.unsampled == ()
+    # The corpus's index lists the named documents alone, so the lane collects only them; the rest stay on disk.
+    listed = json.loads((corpus / "index.json").read_text())
+    assert [entry["id"] for entry in listed["documents"]] == ["two"] and (corpus / "one" / "inputs.json").is_file()
+    assert [entry["id"] for entry in listed["unsampled"]] == ["one"]
+    # A document the corpus does not hold, a selection in the early queue and a seed with no sample are refused.
+    (corpus / "index.json").write_bytes(index)
+    out = str(tmp_path / "bad.json")
+    base = ["--root", str(checkout), "--out", out]
+    assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:two,gone"]) == 2
+    assert queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:"]) == 2
+    assert queue.main(["early", *base, "--documents", "only:two"]) == 2
+    assert (
+        queue.main(["main", *base, "--corpus", str(corpus), "--documents", "only:two", "--sample-seed", "2026-W42"])
+        == 2
+    )
+    assert (corpus / "index.json").read_bytes() == index

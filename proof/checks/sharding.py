@@ -8,9 +8,16 @@ Groups. Items are grouped so what one group shares (a document's
 observations, a package's session services) is built once, by one worker:
 
 - every item of one corpus document or control is one group, the ``group``
-  its parameter carries (``corpus:<id>``, ``corpus:<id>@<configuration>``,
-  ``control:<id>``): each check's item on it, and HQ's branch proof of it
-  (``proof/hq/test_branches.py``);
+  its parameter carries (``corpus:<id>``, ``control:<id>``): each check's
+  item on it, and HQ's branch proof of it (``proof/hq/test_branches.py``);
+- a piece of a document or control is a group of one item
+  (``corpus:<id>@<configuration>``, ``control:<id>@<configuration>``): that
+  configuration observed whole into the run's evidence store, for the
+  document's own group to judge (``proof.checks.pieces``,
+  ``proof.lane.blocks``). Its item is collected only where a queue names
+  pieces (``PIECES_MODULE``, which is no ``test_*.py``: the lane's server
+  names it a test module for that run, ``PIECES_FILES``), so a lane whose
+  queue names none collects none;
 - ``proof/surface``'s items are the surface block's group, ``surface``;
 - every other item belongs to its package under ``proof/`` (``proof/native``,
   ``proof/editors``, ``proof/core``, ``proof/hq``, ``proof/checks``,
@@ -39,7 +46,10 @@ proof/run.mjs --timings`` writes them). ``load_timings`` reads the run's own
 profile. A group it does not list is counted high, at the 90th percentile of
 those it lists of its kind (documents and controls, or the rest), so a stale or
 partial profile oversizes a lane rather than overrunning its shards
-(``estimate``).
+(``estimate``). A document a run observed in pieces is measured as it ran: each
+piece under its own name, and the document's own group judging alone; its
+whole measure is their sum (``documents``), and a piece no run has measured is
+counted at ``PIECE_SHARE`` of it.
 
 Blocks. A lane runs the blocks of its queues (``proof.lane.blocks``), each
 claimed by one shard. ``static_bins`` splits the blocks across ``n`` shards
@@ -71,6 +81,23 @@ TIMINGS = PROOF_DIR / "timings.json"
 DEFAULT_SECONDS = 8.0
 DOCUMENT_KINDS = lane_blocks.DOCUMENT_KINDS
 SURFACE = "surface"
+# The module whose items are the pieces a queue names, and the variable that names that queue to it: the lane's
+# server sets it and has its main phase collect the module where its main queue names pieces (proof.lane.serve).
+PIECES_MODULE = PROOF_DIR / "checks" / "pieces.py"
+PIECES_ENVIRONMENT = "PROOF_LANE_PIECES"
+# What pytest collects as test modules (proof/pytest.ini's ``python_files``, which test_sharding holds this to), and
+# with the pieces' module: pytest's arguments for a collection that takes it in (``-o python_files=...``). Naming
+# the module's path beside ``proof/`` does not: pytest drops an argument another one holds, and then the module
+# is no test module by its name.
+PYTHON_FILES = "test_*.py"
+PIECES_FILES = ("-o", f"python_files={PYTHON_FILES} {PIECES_MODULE.name}")
+# The one test of that module, which each piece is an item of (proof/checks/test_pieces.py holds the name to it).
+PIECE_TEST = "test_a_configuration_is_observed_into_the_runs_store"
+# What share of a document's whole measure each of its two configurations' pieces is counted at until a run has
+# measured the piece: the heavier configuration took 0.50 to 0.64 of its document in three runs with every reader
+# (hosted run 38152876104 and two proof machine slices of 2026-10-12, 225 documents past 1,500 s between them).
+# A document under more configurations than two counts each at the same share of its even split.
+PIECE_SHARE = 0.65
 
 
 class ShardError(ValueError):
@@ -116,10 +143,22 @@ SPLIT: dict[str, tuple[str, ...]] = {
     ),
     "hq/test_branches.py": (),
     "lane/test_forkserver.py": (
+        "test_a_document_observed_in_pieces_is_judged_from_the_records_of_one_observed_whole",
         "test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings",
         "test_two_forked_workers_write_the_evidence_one_unforked_session_writes",
     ),
 }
+
+
+def piece_item(group: str) -> str | None:
+    """The node id (under ``proof/``) of the item a piece's group holds, as ``proof.checks.pieces`` names it: the
+    document's id, ``control-`` before a control's, and the configuration; None for a group that is no piece."""
+    piece = lane_blocks.piece_of(group)
+    if piece is None:
+        return None
+    kind, _, identifier = piece[0].partition(":")
+    name = f"{'control-' if kind == 'control' else ''}{identifier}@{piece[1]}"
+    return f"{PIECES_MODULE.relative_to(PROOF_DIR).as_posix()}::{PIECE_TEST}[{name}]"
 
 
 def split_groups(module: str) -> tuple[str, ...]:
@@ -220,30 +259,55 @@ def _percentile(values, share):
     return values[min(len(values) - 1, int(share * len(values)))] if values else None
 
 
+def load_execution(path: Path = TIMINGS, *, readers: bool | None = None) -> dict:
+    """How CI runs a profile, as ``proof/timings.json`` says (its ``profiles.<profile>.execution``): the run's own
+    profile unless ``readers`` names one; empty where the file or the profile holds none."""
+    if not path.exists():
+        return {}
+    value = json.loads(path.read_text(encoding="utf-8"))
+    profiles = value.get("profiles") if isinstance(value, dict) else None
+    name = lane_readers.profile(lane_readers.served() if readers is None else readers)
+    profile = profiles.get(name, {}) if isinstance(profiles, dict) else None
+    execution = profile.get("execution", {}) if isinstance(profile, dict) else None
+    return dict(execution) if isinstance(execution, dict) else {}
+
+
+def documents(timings) -> dict[str, float]:
+    """Each measured document's and control's whole box-seconds, by its group: its own group's measure and each of
+    its pieces', which are one observation's cost however a run divided it."""
+    whole: dict[str, float] = {}
+    for group, seconds in timings.items():
+        if group.startswith(DOCUMENT_KINDS):
+            name = group.partition("@")[0]
+            whole[name] = whole.get(name, 0.0) + float(seconds)
+    return whole
+
+
+def piece_share(configurations: int) -> float:
+    """The share of a document's whole measure one unmeasured piece is counted at, for a document under
+    ``configurations`` of them (``PIECE_SHARE`` for two), never more than the whole."""
+    return min(1.0, PIECE_SHARE * 2 / max(1, configurations))
+
+
 def estimate(timings):
     """Each group's box-seconds: measured where ``timings`` lists it, else counted high: a document or control at
-    the 90th percentile of the measured documents (``UNMEASURED_PERCENTILE``), any other group at that of the
+    the 90th percentile of the measured documents' whole measures (``documents``, ``UNMEASURED_PERCENTILE``), a
+    piece no run measured at ``PIECE_SHARE`` of its document's, any other group at the 90th percentile of the
     measured groups that are not documents, each at least ``DEFAULT_SECONDS``."""
-    measured = [(group, float(seconds)) for group, seconds in timings.items()]
-    document = max(
-        DEFAULT_SECONDS,
-        _percentile([s for g, s in measured if g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE) or 0.0,
-    )
+    whole = documents(timings)
+    document = max(DEFAULT_SECONDS, _percentile(whole.values(), UNMEASURED_PERCENTILE) or 0.0)
     other = max(
         DEFAULT_SECONDS,
-        _percentile([s for g, s in measured if not g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE) or 0.0,
+        _percentile([float(s) for g, s in timings.items() if not g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE)
+        or 0.0,
     )
 
     def seconds(group):
         if group in timings:
             return float(timings[group])
         if group.startswith(DOCUMENT_KINDS):
-            # A document split by configuration: half its whole measure, since every document is exported under
-            # two configurations (its minimum and its maximum).
-            whole, _, configuration = group.partition("@")
-            if configuration and whole in timings:
-                return float(timings[whole]) / 2
-            return document
+            name, piece, _ = group.partition("@")
+            return PIECE_SHARE * whole.get(name, document) if piece else document
         return other
 
     return seconds

@@ -11,6 +11,10 @@ than the group (a ``-k`` another document's name contains) or one the reader can
 sent to a machine with no reader, and a lane that died before its gate passing for one that held. The weekly's
 comparison lanes check a sample that turns each week, so its issue names the seed and each sampled lane's
 documents, and the dispatch that runs the same sample again; a failure on a sample no one can name again is one.
+A failed piece (one configuration of a document observed by a group of its own) is named as that, with the line
+that observes that configuration again alone, whether or not its item ran; the document's group it kept from
+running reruns every item of the document. The plausible failure: a piece's failure sent to rerun the whole
+document, or named with a line that selects nothing.
 """
 
 from __future__ import annotations
@@ -198,3 +202,66 @@ def test_a_package_with_more_failures_than_a_command_names_reruns_the_modules_th
     body = report.body("nightly", "u", "c", [("audit-no-readers", _verdict(False, groups))])
     assert body.count("PROOF_READERS=0 npm run proof --") == report.MOST_GROUPS
     assert "And 3 more groups: the lane's verdict artifact (`proof-lane-verdict-audit-no-readers-<attempt>`" in body
+
+
+PIECE = {
+    "group": "corpus:tile@maximum",
+    "why": ["1 of its 1 items failed"],
+    "failed": ["checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[tile@maximum]"],
+    "items": ["checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[tile@maximum]"],
+}
+FOLLOWER = {
+    "group": "corpus:tile",
+    "why": [
+        "it did not finish: its piece corpus:tile@maximum did not pass, so it was not run: it judges what its pieces"
+        " observed, and never observes the document whole in their place"
+    ],
+    "failed": [],
+    "items": DOCUMENT["items"],
+}
+
+
+def test_a_failed_piece_is_named_as_one_with_the_line_that_observes_its_configuration_again():
+    body = report.body(
+        "nightly", "https://example.test/run/1", "abc123", [("audit", _verdict(True, [PIECE, FOLLOWER]))]
+    )
+    assert "one configuration of a document that was observed in pieces" in body
+    piece, follower = body.split("- `corpus:tile`:")
+    assert "- `corpus:tile@maximum`: 1 of its 1 items failed" in piece
+    assert (
+        "  It is a piece: `corpus:tile` observed under `maximum` alone, for `corpus:tile` to judge, which was not run"
+        " without it. The line below observes that configuration again."
+    ) in piece
+    item = "'proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[tile@maximum]'"
+    assert f"  proof/remote/run.sh <host> -- {item}\n" in piece
+    assert "could not be named one by one" not in piece
+    # The document's own group names its piece as why, and reruns every item of the document.
+    assert "its piece corpus:tile@maximum did not pass, so it was not run" in follower
+    assert (
+        "  proof/remote/run.sh <host> -- 'proof/checks/test_bar.py::test_every_export_meets_the_bar[tile]'"
+        " 'proof/hq/test_branches.py::test_a_documents_branches_hold[tile]'"
+    ) in follower
+    # A piece that never ran left no item to name: its one item is named from its group alone, a control's too.
+    unrun = {"group": "control:tile@minimum", "why": ["no shard's output holds its block"], "failed": [], "items": []}
+    assert report.selection(unrun) == (
+        ["proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[control-tile@minimum]"],
+        True,
+    )
+    assert report.selection({**unrun, "group": "corpus:tile"}) == (["proof/checks", "-k", "tile"], False)
+    assert report.selection({**unrun, "group": "control:tile"}) == (["proof/checks", "-k", "control-tile"], False)
+
+
+def test_a_dispatch_over_documents_named_by_hand_is_reported_as_that_and_never_as_a_verdict_on_the_corpus():
+    verdict = {**_verdict(True, [], problems=()), "selection": {"documents": ["tile", "list"], "left": ["proof/hq"]}}
+    body = report.body(report.MECHANICS, "https://example.test/run/2", "abc123", [("mechanics", verdict)])
+    assert body.startswith("A dispatch ran the proof lane over main at `abc123` on documents named by hand")
+    assert "It is no verdict on the corpus; the nightly and the weekly are." in body
+    assert (
+        "It checked the documents named by hand (tile, list) and their controls, and left 1 other groups out: it"
+        " shows the lane on those documents, and is no verdict on the corpus."
+    ) in body
+    assert "Its verdict held." in body
+    # A failing one names its groups and their lines as any lane's does.
+    failed = {**_verdict(True, [PIECE]), "selection": {"documents": ["tile"], "left": []}}
+    body = report.body(report.MECHANICS, "https://example.test/run/2", "abc123", [("mechanics", failed)])
+    assert "- `corpus:tile@maximum`: 1 of its 1 items failed" in body and "It is a piece" in body

@@ -145,11 +145,52 @@ def test_a_group_the_timings_do_not_list_counts_high_among_those_of_its_kind():
     seconds = sharding.estimate(timings)
     assert seconds("corpus:3") == 3.0
     assert seconds("corpus:new") == seconds("control:new") == 10.0
-    # A document split by configuration counts half its whole measure.
-    assert seconds("corpus:6@minimum") == 3.0
-    assert seconds("corpus:new@maximum") == 10.0
+    # A piece no run measured counts high too: at the share the heavier of two configurations takes of its
+    # document's whole measure, never an even half.
+    assert sharding.PIECE_SHARE > 0.5
+    assert seconds("corpus:6@minimum") == pytest.approx(6.0 * sharding.PIECE_SHARE)
+    assert seconds("corpus:new@maximum") == pytest.approx(10.0 * sharding.PIECE_SHARE)
     assert seconds("proof/new") == 100.0
     assert sharding.estimate({})("corpus:new") == sharding.estimate({})("proof/new") == sharding.DEFAULT_SECONDS
+    assert sharding.piece_share(2) == sharding.PIECE_SHARE and sharding.piece_share(1) == 1.0
+    assert sharding.piece_share(4) == sharding.PIECE_SHARE / 2
+
+
+def test_a_document_measured_in_pieces_is_measured_whole_by_their_sum():
+    """A run that observed a document in pieces measured each piece and, under the document's own name, its
+    judging alone. Read as the document's whole cost, that name would say a heavy document is light: it would be
+    queued whole on one worker, and would pull the measure unmeasured documents are counted at down with it."""
+    timings = {f"corpus:{n}": 100.0 for n in range(1, 10)}
+    timings |= {"corpus:heavy": 2.0, "corpus:heavy@maximum": 600.0, "corpus:heavy@minimum": 400.0}
+    assert sharding.documents(timings)["corpus:heavy"] == 1002.0
+    assert sharding.documents(timings)["corpus:1"] == 100.0
+    seconds = sharding.estimate(timings)
+    # Each group as it ran: the pieces their own, the document's own group its judging.
+    assert (seconds("corpus:heavy@maximum"), seconds("corpus:heavy")) == (600.0, 2.0)
+    # An unmeasured document counts at the 90th percentile of the documents' whole measures, the heavy one's
+    # among them, and no piece's or judging's alone.
+    assert seconds("corpus:new") == 1002.0
+    assert sharding.documents({"control:c@only": 5.0, "proof/hq": 9.0}) == {"control:c": 5.0}
+
+
+def test_a_piece_is_one_item_named_by_its_group_alone():
+    module = sharding.PIECES_MODULE.relative_to(sharding.PROOF_DIR).as_posix()
+    assert sharding.piece_item("corpus:a@maximum") == f"{module}::{sharding.PIECE_TEST}[a@maximum]"
+    assert sharding.piece_item("control:a@minimum") == f"{module}::{sharding.PIECE_TEST}[control-a@minimum]"
+    assert sharding.piece_item("corpus:a") is None and sharding.piece_item("proof/hq") is None
+    # The module is no test module by its name, so only a run that names it collects it, and it holds that test.
+    assert not sharding.PIECES_MODULE.name.startswith("test_")
+    assert f"def {sharding.PIECE_TEST}(" in sharding.PIECES_MODULE.read_text(encoding="utf-8")
+    # A lane whose queue names pieces collects it beside what pytest.ini names a test module, and nothing more.
+    configured = [
+        line.partition("=")[2].strip()
+        for line in (sharding.PROOF_DIR / "pytest.ini").read_text(encoding="utf-8").splitlines()
+        if line.startswith("python_files")
+    ]
+    assert configured == [sharding.PYTHON_FILES]
+    assert sharding.PIECES_FILES == ("-o", f"python_files={sharding.PYTHON_FILES} pieces.py")
+    named = [path.name for path in sharding.PROOF_DIR.rglob("pieces.py") if "node_modules" not in path.parts]
+    assert named == ["pieces.py"], "Another pieces.py under proof/ would be collected with the pieces' module."
 
 
 def test_the_timings_file_holds_each_profiles_groups_and_a_run_reads_its_own(tmp_path, monkeypatch):

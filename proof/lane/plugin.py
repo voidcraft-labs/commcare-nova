@@ -30,8 +30,10 @@ carry the error.
 While an item runs, ``PROOF_OUT`` names its block's directory
 (``<output>/blocks/<id>``), so the evidence its checks write is the block's;
 ``PROOF_GROUP``, ``PROOF_BLOCK`` and ``PROOF_GROUP_FRESH`` (``1`` for a group
-the store recomputes) name what runs. Outside the run loop ``PROOF_OUT`` is the
-worker's own directory.
+the store recomputes) name what runs, and ``PROOF_GROUP_PIECES`` the pieces a
+group follows, comma-separated (a document's own group, which then reads what
+they observed and observes nothing: ``proof.store.runtime.pieces``). Outside
+the run loop ``PROOF_OUT`` is the worker's own directory.
 
 The plugin tells the server when a group starts and when it ends, with each
 item's outcome (``passed``, ``failed``, ``error`` for a failed setup or
@@ -197,10 +199,12 @@ class LanePlugin:
         os.environ["PROOF_GROUP"] = assignment["group"]
         os.environ["PROOF_BLOCK"] = assignment["block"]
         os.environ["PROOF_GROUP_FRESH"] = "1" if assignment.get("fresh") else "0"
+        if assignment.get("after"):
+            os.environ["PROOF_GROUP_PIECES"] = ",".join(assignment["after"])
 
     def _leave(self):
         os.environ["PROOF_OUT"] = str(self._worker_out)
-        for name in ("PROOF_GROUP", "PROOF_BLOCK", "PROOF_GROUP_FRESH"):
+        for name in ("PROOF_GROUP", "PROOF_BLOCK", "PROOF_GROUP_FRESH", "PROOF_GROUP_PIECES"):
             os.environ.pop(name, None)
 
     @pytest.hookimpl(tryfirst=True)
