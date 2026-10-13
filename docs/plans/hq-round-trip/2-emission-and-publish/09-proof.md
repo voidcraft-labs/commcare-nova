@@ -370,7 +370,7 @@ Every count below is computed by id from the register the stack is cut over, and
 
 ### What step 2 moves and deletes
 
-A moved entry leaves `proof/known-defects.json` with id, class and control unchanged, but where its block names a new control (`d34-connect-location-trace-meta-location` takes `connect-location-capture`, and `d34-connect-location-capture-formplayer-local-ccz-data-meta-location` takes `targeted-connect-deliver-rename` as document and control, both in pull request 5; part 04, Finding 34).
+The table counts the entries of the base register; an entry the stack itself registers and a later pull request moves or deletes is in the next table, and the row of its block says so. A moved entry leaves `proof/known-defects.json` with id, class and control unchanged, but where its block names a new control (`d34-connect-location-trace-meta-location` takes `connect-location-capture`, and `d34-connect-location-capture-formplayer-local-ccz-data-meta-location` takes `targeted-connect-deliver-rename` as document and control, both in pull request 5; part 04, Finding 34).
 
 | Defect or finding | Block | Entries | Checks | Pull request |
 |---|---|---|---|---|
@@ -383,11 +383,11 @@ A moved entry leaves `proof/known-defects.json` with id, class and control uncha
 | 7 | part 04, Defect 7 and finding 62 | 6 | proof 3 6 | 5 |
 | 62 | part 04, Defect 7 and finding 62 | 2 | proof 4 2 | 5 |
 | 8 | part 04, Defect 8 | 2 | intent 2 | 5 |
-| 9 | part 04, Defect 9 | 4 moved, 3 deleted | moved: proof 3 2, proof 1 2; deleted: proof 3 2, proof 1 1 | 5 |
+| 9 | part 04, Defect 9 (its Register counts 4 deleted: these 3 and the one pull request 3 adds, below) | 4 moved, 3 deleted | moved: proof 3 2, proof 1 2; deleted: proof 3 2, proof 1 1 | 5 |
 | 34 | part 04, Finding 34 | 7 | proof 3 7 | 5 |
 | 39 | part 04, Finding 39 | 2 | proof 3 2 | 5 |
 | 40 | part 04, Finding 40 | 80 moved, 2 deleted | proof 4 | 5 |
-| 65 | part 04, Finding 65 | 5 | proof 3 5 | 5 |
+| 65 | part 04, Finding 65 (its Register counts 7: these and the two pull request 3 adds, below) | 5 | proof 3 5 | 5 |
 | 13 | part 05, Leaf constraints | 13 | proof 4 12, manifest 1 | 6 |
 | 13 | part 05, Shadows | 8 | proof 4 8 | 6 |
 | 13 | part 05, Datetime leaves | 5 | proof 4 4, manifest 1 | 6 |
@@ -397,7 +397,7 @@ A moved entry leaves `proof/known-defects.json` with id, class and control uncha
 | 45 | part 05, Shadows | 5 | proof 4 5 | 6 |
 | 47 | part 05, Shadows | 4 | proof 4 4 | 6 |
 | 46 | part 05, Finding 46 and defect 14's data node name | 6 | proof 4 6 | 6 |
-| 14 | part 05, Finding 46 and defect 14's data node name | 6 | proof 4 6 | 6 |
+| 14 | part 05, Finding 46 and defect 14's data node name (its Register counts 13: finding 46's 6, these 6 and the one pull request 3 adds, below) | 6 | proof 4 6 | 6 |
 | 13 | part 05, Guard blocks | 80 | proof 4 76, manifest 4 | 7 |
 | 13 | part 05, Reserved names and wrapper containers | 31 | manifest 17, proof 4 14 | 7 |
 | 13 | part 05, Wrapper conditions | 32 | proof 4 31, manifest 1 | 7 |
@@ -406,10 +406,10 @@ A moved entry leaves `proof/known-defects.json` with id, class and control uncha
 | 3 | part 04, Defect 3 | 3 | intent 2, proof 4 1 | 8 |
 | 14 | part 06, 1. `update_case` is `always` | 21 | proof 4 18, manifest 3 | 9 |
 | 14 | part 06, 2. Close conditions | 29 | proof 4 14, manifest 7, proof 3 7, bar 1 | 9 |
-| 33 | part 05, Finding 33 | 17 | proof 3 17 | 9 |
+| 33 | part 05, Finding 33 (its Register counts 18: these and the one pull request 3 adds, below) | 17 | proof 3 17 | 9 |
 | 37 | part 05, Finding 37 | 3 | proof 3 3 | 9 |
 | 66 | part 05, Finding 66 | 1 | proof 3 1 | 9 |
-| 15 | part 08, Defect 15 | 13 | proof 4 8, manifest 3, proof 3 1, bar 1 | 10 |
+| 15 | part 08, Defect 15 (its Register counts 16: these and the three proof 1 entries pull request 5 adds, below) | 13 | proof 4 8, manifest 3, proof 3 1, bar 1 | 10 |
 | 20 (finding 68) | part 08, Finding 68 | 31 | proof 4 30, manifest 1 | 10 |
 | 31 | part 08, Finding 31 | 1 | bar 1 | 10 |
 | 43 | part 08, Finding 43 | 5 | proof 4 4, manifest 1 | 10 |
@@ -417,7 +417,7 @@ A moved entry leaves `proof/known-defects.json` with id, class and control uncha
 | 60 | part 08, Finding 60 | 1 | proof 3 1 | 10 |
 | 61 | part 08, Finding 61 | 1 | proof 3 1 | 10 |
 | 10 | part 07, Defect 10 | 6 | proof 3 6 | 11 |
-| 51 | part 07, Finding 51 | 5 | proof 3 5 | 11 |
+| 51 | part 07, Finding 51 (its Register counts 6: these and the one pull request 3 adds, below) | 5 | proof 3 5 | 11 |
 | 16 | part 07, Hidden columns | 1 | intent 1 | 11 |
 | 35 | part 07, Hidden columns | 2 | proof 3 2 | 11 |
 | 36 | part 07, Hidden columns | 6 | proof 3 6 | 11 |
