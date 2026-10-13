@@ -406,7 +406,7 @@ Nova tests named outright:
 - `lib/commcare/suite/case-search/__tests__/` (two callers of `compileCcz`)
 - `lib/commcare/validator/__tests__/localization.test.ts`
 - `lib/doc/__tests__/` (the tests that build a language mutation or write a localization root; part 01, A2, Files, names each)
-- `lib/preview/engine/__tests__/` (the same)
+- `lib/preview/engine/__tests__/` (the tests that build a language mutation or write a localization root)
 - `lib/db/__tests__/blueprintRows.test.ts`
 - `lib/case-store/migrations/__tests__/authoringCutover.postgres.test.ts`
 - `lib/deployment/__tests__/publishSequence.postgres.test.ts` (new)
@@ -494,12 +494,14 @@ Scripts and the cutover:
 - `scripts/lib/hqRoundTripCutover/hqRead.ts` (new)
 - `scripts/lib/hqRoundTripCutover/legacyLanguageWireCodes.ts` (new)
 - `scripts/lib/hqRoundTripCutover/steps/languageWireCodes.ts` (new)
+- `scripts/lib/hqRoundTripCutover/transform.ts` (registers the step)
 - `scripts/lib/hqRoundTripCutover/behavior.ts` (the selection function of `ccz-needs-project-space`)
 - `scripts/lib/hqRoundTripCutover/notice.ts` (the five deployment lines)
 - `scripts/lib/hqRoundTripCutover/prestep/prestepFold.entry.ts` (deleted, with the fold's inputs test)
 - `scripts/build-hq-round-trip-prestep-fold.mjs` (deleted)
 - `scripts/lib/languageIdentityRepair.ts` (mints through the planner)
 - `scripts/__tests__/selectOptionValueRepair.test.ts` (writes a localization root)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 CI and config:
 
@@ -568,6 +570,7 @@ Scripts and the cutover:
 
 - `scripts/lib/hqRoundTripCutover/writer.ts` (the Job's baseline reads and writes)
 - `scripts/lib/hqRoundTripCutover/notice.ts` (the two deployment lines)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
 
 Docs:
 
@@ -618,7 +621,9 @@ Nova source:
 - `lib/commcare/hq/appSource.ts`
 - `lib/commcare/compiler.ts`
 - `lib/commcare/suite/displayConditions.ts`
+- `lib/commcare/suite/case-list/` (the short detail writer)
 - `lib/commcare/suite/case-list/detailTexts.ts` (new)
+- `lib/commcare/suite/case-list/columns.ts` (the image-map field's `<alt_text>`)
 - `lib/commcare/suite/formStrings.ts` (new)
 - `lib/commcare/xform/metaBlock.ts`
 - `lib/commcare/xform/formVersion.ts` (new)
@@ -654,10 +659,11 @@ Nova tests named outright:
 - `lib/doc/__tests__/mutations-app.test.ts`
 - `lib/doc/__tests__/mutationAdmission.test.ts`
 - `lib/doc/__tests__/diffDocsToMutations.fuzz.test.ts`
-- `lib/commcare/__tests__/` (the tests of the files above)
+- `lib/commcare/__tests__/` (the tests of this pull request's `lib/commcare` files)
 - `lib/agent/__tests__/summarizeBlueprint-settings.test.ts` (new)
 - `lib/db/__tests__/commitGuardedBatch.postgres.test.ts`
 - `e2e/tests/app/app-settings.spec.ts` (new)
+- `lib/deployment/__tests__/publishSequence.postgres.test.ts` (the exact-key expectation)
 
 The lane:
 
@@ -698,9 +704,9 @@ The lane:
 - `proof/corpus/inputs.ts`
 - `proof/corpus/entropy.mts` (its prose alone: no ordinal changes)
 - `proof/corpus/__tests__/entropy.test.ts` (holds the profile's `uniqueid` draw; part 04, Defect 9, Files)
-- `proof/corpus/__tests__/emitCorpus.test.ts` (holds the draw)
-- `proof/corpus/__tests__/writePublishCaptures.test.ts` (holds the draw)
-- `proof/corpus/__tests__/publish.postgres.test.ts` (holds the draw; the overlaid keys)
+- `proof/corpus/__tests__/emitCorpus.test.ts` (holds the `uniqueid` draw)
+- `proof/corpus/__tests__/writePublishCaptures.test.ts` (holds the `uniqueid` draw)
+- `proof/corpus/__tests__/publish.postgres.test.ts` (holds the `uniqueid` draw; the overlaid keys)
 - `proof/observe/served.py`
 - `proof/observe/sessions.py`
 - `proof/observe/proof4.py`
@@ -745,8 +751,10 @@ Scripts and the cutover:
 - `scripts/lib/repairAuthoringBaselines.ts` (a loader of the root's carriers)
 - `scripts/test-schema.ts`
 - `scripts/lib/hqRoundTripCutover/steps/appSettings.ts` (new)
+- `scripts/lib/hqRoundTripCutover/transform.ts` (registers the step)
 - `scripts/lib/hqRoundTripCutover/behavior.ts`
 - `scripts/lib/hqRoundTripCutover/notice.ts`
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 CI and config:
 
@@ -804,6 +812,7 @@ Nova tests named outright:
 - `lib/domain/__tests__/localization.test.ts`
 - `e2e/tests/app/localization.spec.ts`
 - `lib/agent/translation/__tests__/translateLanguage.postgres.test.ts`
+- `lib/commcare/validator/__tests__/selectOptionLabel.test.ts` (new)
 
 The lane:
 
@@ -838,6 +847,8 @@ The lane:
 Scripts and the cutover:
 
 - `scripts/lib/hqRoundTripCutover/steps/optionLabels.ts` (new)
+- `scripts/lib/hqRoundTripCutover/transform.ts` (registers the step)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 Docs:
 
@@ -905,6 +916,7 @@ Scripts and the cutover:
 
 - `scripts/lib/hqRoundTripCutover/notice.ts` (the per-deployment line)
 - `scripts/lib/hqRoundTripCutover/report.ts` (the scan's two counts)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
 
 Docs:
 
@@ -975,9 +987,9 @@ The lane:
 - `proof/targeted/documents/closeConditions.ts`
 - `proof/targeted/documents/echo.ts`
 - `proof/targeted/documents/searchApps.ts` (passes a form's command and a case id to `answerHeld`)
-- `proof/targeted/documents/multiSelectDestinations.ts` (the same)
-- `proof/targeted/documents/stableWitnesses.ts` (the same)
-- `proof/targeted/documents/noMatchesReturnIdentity.ts` (the same)
+- `proof/targeted/documents/multiSelectDestinations.ts` (passes a command and a case id to `answerHeld`)
+- `proof/targeted/documents/stableWitnesses.ts` (passes a command and a case id to `answerHeld`)
+- `proof/targeted/documents/noMatchesReturnIdentity.ts` (passes a command and a case id to `answerHeld`)
 - `proof/rules/case_block_position.py` (deleted, with its test)
 - `proof/rules/update_never_beside_actions.py` (deleted, with its test)
 - `proof/rules/__init__.py` (the two retired rules leave `RULES`)
@@ -996,6 +1008,7 @@ Scripts and the cutover:
 
 - `scripts/test-schema.ts` (the `updateForm` entry, registered here)
 - `scripts/lib/hqRoundTripCutover/behavior.ts` (the four selection functions)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
 
 ### Pull request 10: Identifiers and form content
 
@@ -1077,7 +1090,9 @@ Scripts and the cutover:
 - `scripts/test-schema.ts` (`configureConnect`, `addEntryPoint` and `updateEntryPoint`, registered here)
 - `scripts/lib/hqRoundTripCutover/steps/` (this pull request's eight steps)
 - `scripts/lib/hqRoundTripCutover/steps/relativePaths.ts` (new: shared by the three id steps)
+- `scripts/lib/hqRoundTripCutover/transform.ts` (registers the eight steps)
 - `scripts/lib/hqRoundTripCutover/report.ts`
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 Docs:
 
@@ -1186,6 +1201,7 @@ Scripts and the cutover:
 - `scripts/lib/hqRoundTripCutover/steps/` (this pull request's five steps)
 - `scripts/lib/hqRoundTripCutover/transform.ts`
 - `scripts/lib/hqRoundTripCutover/behavior.ts` (the four no-write reasons)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 Docs:
 
@@ -1300,6 +1316,7 @@ Nova tests named outright:
 - `lib/commcare/__tests__/hiddenFromMenu.validation.test.ts` (new)
 - `lib/commcare/__tests__/searchEmissionFixture.ts`
 - `lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts` (moved to `postSubmitMenuShape.test.ts`)
+- `lib/doc/mutations/__tests__/postSubmitMenuShape.test.ts` (new: the renamed `searchFirstPostSubmit.test.ts`)
 - `lib/doc/__tests__/multiplayerMerge.test.ts`
 - `lib/doc/__tests__/mutations-modules.test.ts`
 - `lib/preview/app-tests/__tests__/journey.postgres.test.ts`
@@ -1312,8 +1329,8 @@ Nova tests named outright:
 - `e2e/tests/browser/case-workspace-surface.spec.ts`
 - `e2e/tests/app/authed.spec.ts`
 - `lib/agent/tools/case-search-config/__tests__/setCaseSearchDisplay.test.ts` (loses its cases on the button label)
-- `lib/agent/tools/case-search-config/__tests__/schema.test.ts` (the same)
-- `lib/agent/tools/case-search-config/__tests__/setCaseSearchAdvanced.test.ts` (the same)
+- `lib/agent/tools/case-search-config/__tests__/schema.test.ts` (loses its cases on the button label)
+- `lib/agent/tools/case-search-config/__tests__/setCaseSearchAdvanced.test.ts` (loses its cases on the button label)
 - `lib/agent/tools/case-list-config/__tests__/configureCaseList.test.ts`
 - `lib/agent/__tests__/lookupAuthorBoundary.test.ts`
 - `lib/agent/authoring/__tests__/schema.test.ts`
@@ -1349,7 +1366,9 @@ Scripts and the cutover:
 
 - `scripts/test-schema.ts` (`addFormLinks` and `updateFormLink`, registered here; the `configureCaseList` prompt)
 - `scripts/lib/hqRoundTripCutover/steps/` (this pull request's steps)
+- `scripts/lib/hqRoundTripCutover/transform.ts` (registers the steps)
 - `scripts/lib/hqRoundTripCutover/behavior.ts`
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 Docs:
 
@@ -1474,6 +1493,7 @@ The lane:
 Scripts and the cutover:
 
 - `scripts/lib/hqRoundTripCutover/notice.ts` (the three deployment lines)
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests)
 
 Docs:
 
@@ -1636,12 +1656,14 @@ Scripts and the cutover:
 
 - `scripts/test-schema.ts` (the `attachFieldMedia` prompt)
 - `scripts/lib/hqRoundTripCutover/steps/` (this pull request's steps)
+- `scripts/lib/hqRoundTripCutover/transform.ts` (registers the steps)
 - `scripts/lib/hqRoundTripCutover/lookupTags.ts` (new)
 - `scripts/lib/hqRoundTripCutover/plan.ts`
 - `scripts/lib/hqRoundTripCutover/writer.ts`
 - `scripts/lib/hqRoundTripCutover/notice.ts`
 - `scripts/lib/hqRoundTripCutover/report.ts`
 - `scripts/rollout/verify-runtime-packages.mjs`
+- `scripts/lib/hqRoundTripCutover/__tests__/` (these modules' tests; each step's expectations over the frozen fixtures)
 
 CI and config:
 
