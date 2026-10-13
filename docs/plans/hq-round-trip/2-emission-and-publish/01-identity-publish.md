@@ -2479,8 +2479,13 @@ step, as defect 24's other entries do:
   stack's top (part 09; part 11). So a class that would show at this pull
   request's state only on a document outside the slice is observed by no run
   the stack requires, and the exit state's whole run is what holds every
-  document. Planning makes that run with every fix's bytes stacked, and parts
-  09 and 11 state its outcome.
+  document. Planning made that run with every fix's bytes stacked but this
+  pull request's A3 and A2, so it read every document with every reader where
+  state A is one import. The same stack with both has run without the readers
+  over all 360 documents and shows no class that no entry holds. Its run with
+  every reader, the one that reads the 345 documents outside the slice at a
+  state A two imports made, is composed and has not run (part 09, Where the
+  lane runs; part 11; the main file, "Written and not yet run").
 - **The exit-state run shows one more class from here, and a judge change
   reads it.** On `fuzz-suite-20260930-8`, Formplayer's record of the local
   archive shows `/runs/*/steps/*/response/exception`, changed, two

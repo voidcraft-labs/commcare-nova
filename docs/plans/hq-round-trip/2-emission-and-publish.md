@@ -385,8 +385,11 @@ Part 09 holds this in full.
   the week's lane runs everything fresh. So each pull request of the stack runs, on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
   the readers their entries name before it is marked ready, and the whole lane
   with every reader runs once at the stack's top before the merge (part 09,
-  part 11's house rules). The implementer asks the person once, at the start,
-  for the proof machine's use and budget.
+  part 11's house rules). Planning made that run over the stack without part
+  01's A3 and A2, and ran the stack with both without the readers: no class
+  shows that no entry holds. The run with every reader at that state is
+  composed and has not run ("Written and not yet run" above). The implementer
+  asks the person once, at the start, for the proof machine's use and budget.
 - **The harness keeps publishing as Nova publishes**: the capture and the
   publish sequence change in the same pull request, and retained controls are
   replayed in the layout they were captured in.
