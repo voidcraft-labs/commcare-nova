@@ -239,15 +239,16 @@ Reasons:
     CommCare HQ checks the app afresh. Saving the form once in CommCare HQ's
     form builder clears the old check." Work item B, in pull request 4, ends
     the last sentence with ", and Nova's next publish then asks before
-    replacing that form", moves the four into the page's section on
-    publishing over HQ's changes, and shows them on the landed outcome of
-    the publishes it names (part 02, The 7-day App Preview statement, "The
-    statement").
+    replacing that form", moves the four from "On CommCare HQ" into the
+    page's section on publishing over HQ's changes, which it adds, and
+    shows them on the landed outcome of the publishes it names (part 02,
+    The 7-day App Preview statement, "The statement").
   - The unbuilt app's check does not look again at a republished form it
-    already judged valid, so App Preview can open an app on a pass kept for
-    an earlier form. A new version checks every form, so none reaches a
-    build unchecked, and every form Nova sends is one Core accepts (the bar,
-    on every export).
+    already judged valid. Part 02 ran that direction too: over a verdict
+    kept as passing, an imported broken form still read as passing on the
+    unbuilt app, and a new version was refused. So a new version checks
+    every form and none reaches a build unchecked, and every form Nova
+    sends is one Core accepts (the bar, on every export).
 
   The lane's own builds are not affected:
   `proof/observe/build.py::build_state` validates the app by its own id,
@@ -3207,7 +3208,11 @@ derived. What each becomes:
   to equality: `expect(after, id).toEqual(before)`, with `before.length`
   still more than one. Its comment "Defect 1: the next publish of an
   unchanged document mints new ids." becomes "The next publish of an
-  unchanged document sends the ids the first sent." The title's "and keeps
+  unchanged document sends the ids the first sent." The comment line under
+  it, "Defect 9: so does the second local export, in its profile.", would
+  then say the local export sends the same ids, so it becomes "Defect 9:
+  the second local export draws another `uniqueid` for its profile.", which
+  still begins as part 04 names it for pull request 5. The title's "and keeps
   defects 1 and 9 visible" becomes "sends the first publish's ids on the
   republish, and keeps defect 9 visible". The assertions after it, on the
   profile `uniqueid` of `local.ccz` and `local-again.ccz`, stay until pull
