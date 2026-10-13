@@ -4,8 +4,8 @@ Part of [step 2's plan](../2-emission-and-publish.md), which holds the baseline,
 
 This work item is the third pull request of the step's stack (part 11, The
 stack). It lands after the lane mechanics (pull request 1, which adds
-`proof/fixed-defects.json`, replays controls in their legacy capture layout,
-and carries finding 50's allowance and the removal of its two entries) and
+`proof/fixed-defects.json` and carries finding 50's allowance and the removal
+of its two entries) and
 after the cutover skeleton, the notice and every additive ledger table (pull
 request 2). It lands before drift,
 the gates and every emission fix, because all of them read the one app source
@@ -3129,11 +3129,12 @@ something production does not.
 | `proof/corpus/publish.ts::localCcz` | Compiles for the configuration's project space with `PLACEHOLDER_APP_ID` and `DERIVED_WIRE_IDENTITY`, through `lib/deployment/runtimeTarget.ts::chooseDownloadTarget` with one reached target `{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }` and that `domain` (the pure layer; the capture stands in for the store). Every corpus archive is compiled for a project space, as every archive Nova serves is, and its profile holds the four server properties of A5. From pull request 5 the one reached target also carries `emptyCaseListText`, the configuration's own `USH_EMPTY_CASE_LIST_TEXT` (part 04, Finding 65). |
 | `proof/corpus/publish.ts::sendsTheSame` and the header comment | No longer cite `multimedia_map`: the media upload follows from the prepared assets. The header says ids are derived. |
 | `proof/corpus/entropy.mts` | `OPERATION_ORDINALS.create` and `.republish` no longer feed ids, and the rule that draws a later update twice, at the republish's ordinal and then at one of its own, goes with them: `proof/corpus/publish.ts::capturePublish` draws each update once, the republish at `.republish` and each later update at its own (`.update`, then one more for each), with no comparison between two draws. No key and no value changes. The reason is under "The corpus tests that hold a minted id, at this pull request" below. The local export ordinals stay, here and after: defect 9's fix in pull request 5 removes the profile `uniqueid` draw, the last a local export makes, and changes no ordinal (part 04, Defect 9, Files). The header comment changes. |
-| `proof/corpus/writePublishCaptures.ts` | Writes `create.import.body` (the shell), `content.import.body`, then the update bodies, with the assumed source in the sidecar. Controls keep their legacy layout (a full `create.body`), which the lane mechanics pull request already replays. |
+| `proof/corpus/writePublishCaptures.ts` | Writes `create.import.body` (the shell), `content.import.body`, then the update bodies, with the assumed source in the sidecar. Controls keep their legacy layout (a full `create.body`), which this pull request's reader replays as the lane replays it today (part 09, "The layout marker"). |
+| `proof/checks/corpus.py::_captured`, `::Captured`, `::Export`; `proof/checks/test_corpus.py` | The layout marker's reader and `Export.content`, new in this pull request with the writer: a sidecar without `layout` is read as the lane reads it today and its `content` is its `create`; one with `"layout": 2` gives the shell as `create` and the second import as `content`; any other value is refused by name. The new case in `test_corpus.py` holds each answer over one corpus document and one control retained earlier (part 09, "The layout marker"). |
 | `proof/hq/operations.py::publish_capture` | Applies the shell create, holds HQ's own `app_source` of the shell against the assumed source, applies `content` with A's id (`with_app_id`), then the captured update. `CapturedProfileNotHeld` becomes `CapturedSourceNotHeld` and names each differing field. |
 | `proof/hq/operations.py::with_runtime_app_id(archive, app_id)`, new | Returns the local archive with `PLACEHOLDER_APP_ID` replaced by A's id in the `suite.xml` member's search and case fixture URLs and in the `profile.ccpr` member's `PostURL` and `ota-restore-url` values, each parsed and written as XML, never by text substitution over the archive. The observation applies it to the local `.ccz` before every reader that takes the archive, so both sides name A's id: Core's local sessions (`proof/observe/sessions.py`, given the id by `proof/observe/unit.py`), Formplayer's local walk (`proof/formplayer/observe.py::local`), both devices on the archive and the device that updates (`proof/observe/served.py`), and Connect's post and forward (`proof/observe/connect.py`, `served.py`). The planning run of A5's Register applied it at exactly those places. It is the counterpart of `with_app_id`, which does the same for the update's `app_id` field. |
 | `proof/observe/publish.py::create` | Applies both imports of a first publish and returns A's id; HQ's refusal of either is the create's refusal. The module docstring says so, and that state A is HQ app version 2 (3 after media). |
-| `proof/observe/publish.py::update` | Holds the assumed source, not only the profile, before it applies an update. |
+| `proof/observe/publish.py::update` | Holds the assumed source, not only the profile, before it applies an update: every field the sidecar's `assumedSource` names, whichever they are, so a later pull request that adds a field to the capture (5, 13) edits nothing here. |
 | `proof/observe/publish.py::_unmatched` and its docstring | No longer describe a map Nova sent. |
 | `proof/hq/test_publish.py`, `proof/hq/test_publish_capture.py` | The HQ tests A1, A3, A4 and A5 name under "Lane"; the capture test follows the two-import layout. |
 | `proof/hq/test_retained_reads.py`, `proof/hq-reads/publish/` (both new) | HQ's own answers that Nova's publish tests are served (A3, "Lane"), regenerated and held byte for byte on every run. |
@@ -3350,8 +3351,11 @@ media upload from `export.create` in many more. From this pull request
   it (`lookups`, `media`), as `create.json` names them in the legacy layout,
   and `create.json` names neither: the workbook follows the shell's create,
   and the media follows the content. `proof/checks/corpus.py::Export` holds
-  the second import as `content`, read with the marker (part 09, "The
-  layout marker"). In the legacy layout `Export.content` is `create`
+  the second import as `content`, read with the marker. This pull request
+  adds the marker's reader and `Export.content` with the writer, and pull
+  request 1 adds none of it (part 09, "The layout marker", which gives what
+  a directory of each layout answers and the reader's test). In the legacy
+  layout `Export.content` is `create`
   itself, so no reader of state A's app asks which layout a directory
   holds: `create` is the import a first publish sends first, and `content`
   is the import whose body is the app state A holds.
