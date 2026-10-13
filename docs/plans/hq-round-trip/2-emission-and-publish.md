@@ -132,7 +132,7 @@ reading left doubt:
   project's key: accepted, decrypting within its window, refusing after it,
   and removed (part 10).
 
-**Written and not yet run.** Three runs are written as scratch on the lane and
+**Written and not yet run.** Four runs are written as scratch on the lane and
 have not been made. Each part states its design as the plan's and says in
 place that the run is outstanding; this list is every such place, and it is
 empty when the plan is complete.
@@ -153,6 +153,12 @@ empty when the plan is complete.
   and the lane's, the fault is read to be there at the lane's head, and
   neither of the two tests of the change has run with it (part 09, A build
   recreated under a stored part).
+- The four placements of a default that reads a form answer, on Core (pull
+  request 6): the three fields on the container fixture's `init-add` form
+  and `ContainerRuntimeTest.java::defaultsReadTheAnswerTheirPlacementNames`
+  are written and have not run through HQ or Core. Emission with and without
+  the fields has run: no document, edit kind or configuration moves outside
+  `container-init-add` (part 05, Default values read relatively).
 
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
