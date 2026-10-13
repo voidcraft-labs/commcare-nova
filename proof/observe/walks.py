@@ -23,6 +23,15 @@ the same runs on every reader:
   and a form or a list that reads it can show the worker something else. A
   run is named by the case it chose (``{"entity": <case id>}``), so the runs
   of two states line up case by case.
+- **Every search a worker can send.** A search screen's run branches as a
+  list's does, a run for each way a worker sends the search (a script's
+  choice ``{"search": <key>}``, with ``"prompts"`` where the worker changed
+  them first): the prompts as the screen shows them, which carries each
+  default as the client's Search sends it; ``"cleared"``, emptied by the
+  screen's own Clear, where a default fills a prompt; and ``"typed"``, with
+  the answer table's search answers typed in
+  (``proof.formplayer.walk.search_ways``). A default keeps cases out of the
+  list that a cleared search lists, and each case either lists is a run.
 - **Every location the client can give.** The Web Apps client answers a
   location question with its map's centre (``entries.js::GeoPointEntry``),
   which a worker moves by dragging the map toward the answer table's place,
@@ -55,6 +64,11 @@ from typing import Any, NamedTuple
 
 # A script's choice of a language, made at the app's first screen.
 LANGUAGE = "language"
+# How a script's choice of a search fills the screen's prompts before its Search: left out, as the screen shows
+# them; ``CLEARED``, emptied by the screen's own Clear; ``TYPED``, with the answer table's search answers typed in.
+PROMPTS = "prompts"
+CLEARED = "cleared"
+TYPED = "typed"
 # A script's last choice where its run reached a form with a location question: the place the client's map gave
 # each one, by the question's index, and beside them (``TOWARD``) the answer table's places the worker dragged the
 # map toward to give it, in order.

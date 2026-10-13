@@ -15,12 +15,16 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "case-capture-repeat",
     "case-operation-query",
     "media-rich",
+    "prompt-widgets",
     "search-hidden-link",
+    "search-remote-defaults",
     "targeted-form-link-hidden-target",
     "targeted-invalid-question-ids",
     "targeted-media-slots",
+    "targeted-save-to-case-read",
     "targeted-search-hq-compile",
 )
 

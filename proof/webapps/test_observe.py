@@ -34,6 +34,15 @@ Contracts:
 - **A choice the replay has no click for is refused by name**, never
   skipped, so a walk that grows a new kind of choice ends the observation
   instead of thinning it.
+- **The replay goes on wherever a worker goes on.** A search is sent the
+  way the walk sent it (as shown, cleared by the screen's Clear, or typed
+  into its prompts, a refused answer typed again), a question the walk
+  cleared is cleared through its widget, a repetition the walk added is
+  added by the repeat's own Add, and a form App Preview's one-question
+  screens cannot carry to its end is replayed with the form shown whole, as
+  a person there shows it. The plausible failure is a run that both states
+  end early alike, at a place a worker would get past, so every comparison
+  of it passes with the rest unseen.
 """
 
 from __future__ import annotations
@@ -216,3 +225,176 @@ def test_app_preview_chooses_a_language_in_its_settings_and_web_apps_from_its_me
     assert [step["arg"]["selector"] for step in desktop if step.get("until") == "webapps/click"][0] == (
         steps_module.MENU_DROPDOWN
     )
+
+
+def _search_run(choice, *steps, end):
+    """A run whose first screen is a search (two prompts, the first holding a default), then ``steps``."""
+    displays = [{"id": "name", "value": "Ana", "input": None}, {"id": "village", "value": None, "input": None}]
+    opened = {"type": "query", "queryKey": "k", "displays": displays, "selections": ["0"]}
+    return {
+        "script": [{"menu": 0}, choice],
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands"}},
+            {"request": {"selections": ["0"]}, "response": opened},
+            *steps,
+        ],
+        "end": end,
+    }
+
+
+def _clicked(made):
+    return [step["arg"]["selector"] for step in made if step.get("until") == "webapps/click"]
+
+
+def test_a_search_is_replayed_as_the_walk_sent_it_shown_cleared_or_typed():
+    """Each search a walk sends is one a worker can send, and the replay makes it the worker's way: Search
+    alone for the prompts as shown, the screen's Clear first for the prompts emptied, and each prompt the walk
+    typed filled in the walk's order, one it retyped (the screen refused the first answer) filled again."""
+    sent = {"request": {"selections": ["0"], "query_data": {"k": {"execute": True}}}, "response": {"type": "entities"}}
+    shown = observe.clicks(_search_run({"search": "k"}, sent, end="empty-list"))
+    assert _clicked(shown)[-1] == steps_module.SEARCH_BUTTON
+    assert steps_module.CLEAR_BUTTON not in _clicked(shown)
+    assert not [step for step in shown if step.get("until") == "webapps/prompt"]
+
+    cleared = observe.clicks(_search_run({"search": "k", "prompts": "cleared"}, sent, end="empty-list"))
+    assert _clicked(cleared)[-2:] == [steps_module.CLEAR_BUTTON, steps_module.SEARCH_BUTTON]
+
+    def validating(prompt, inputs):
+        asked = {"k": {"inputs": inputs, "execute": False}}
+        return {"request": {"selections": ["0"], "query_data": asked, "validating": prompt}, "response": {}}
+
+    typed = observe.clicks(
+        _search_run(
+            {"search": "k", "prompts": "typed"},
+            validating("name", {"name": "proof"}),
+            validating("village", {"name": "proof", "village": "proof"}),
+            validating("village", {"name": "proof", "village": "Proof"}),
+            sent,
+            end="empty-list",
+        )
+    )
+    filled = [step["arg"] for step in typed if step.get("until") == "webapps/prompt"]
+    assert filled == [
+        {"index": 0, "value": "proof"},
+        {"index": 1, "value": "proof"},
+        {"index": 1, "value": "Proof"},
+    ]
+    assert _clicked(typed)[-1] == steps_module.SEARCH_BUTTON
+
+
+def test_a_search_the_client_keeps_back_is_pressed_and_its_refusal_is_the_searchs_outcome():
+    """Where the walk holds that the client sends nothing (a required prompt left empty), Search is pressed all
+    the same and the step waits for the client's own refusal, never for an arrival the walk did not make."""
+    unsent = {"unsent": {"search": "k", "inputs": {}, "prompts": ["village"]}}
+    made, kinds = observe.plan(_search_run({"search": "k"}, unsent, end="search-refused"))
+    [refusal] = [step for step in made if step.get("until") == "webapps/arrived" and step["arg"].get("search")]
+    assert refusal["arg"]["queryData"] == {"k": {"execute": True}} and refusal["arg"]["selections"] == ["0"]
+    assert kinds[made.index(refusal)] == ("search",)
+
+
+def test_a_cleared_answer_and_a_repeats_add_are_replayed_through_the_forms_own_widgets():
+    """A question the walk cleared (the form refused every answer) is cleared through its widget, and a
+    repetition the walk added is added by the repeat's own Add, by its place among the Adds the form shows."""
+    add = {"type": "sub-group", "repeatable": "true", "exists": "false", "ix": "1_0"}
+    tree = [{"type": "question", "ix": "0", "datatype": "str"}, add]
+    run = {
+        "script": [{"menu": 0}],
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands"}},
+            {"request": {"selections": ["0"]}, "response": {"type": "form", "tree": tree}},
+            {
+                "answers": [
+                    {"ix": "0", "value": "proof", "response": {"status": "validation-error"}},
+                    {"ix": "0", "value": None, "response": {"status": "accepted", "tree": tree}},
+                    {"ix": "1_0", "repeat": "add", "response": {"tree": tree}},
+                ],
+                "submitted": {},
+            },
+        ],
+    }
+    made = observe.clicks(run)
+    answered = [step["arg"] for step in made if step.get("until") == "webapps/answer"]
+    assert [(arg["ix"], arg["value"]) for arg in answered] == [("0", "proof"), ("0", None)]
+    assert [step["arg"] for step in made if step.get("until") == "webapps/repeat"] == [{"index": 0}]
+
+
+def test_app_preview_shows_a_form_whole_once_the_person_switches_one_question_per_screen_off():
+    """With its forms shown whole, App Preview's replay switches "Use one question per screen" off in Settings
+    after the language, before Start, and then answers and submits the form as Web Apps' own page does: no Next,
+    and Submit in place of Complete."""
+    run = {
+        "script": [{"menu": 0}],
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands"}},
+            {"request": {"selections": ["0"]}, "response": {"type": "form", "tree": []}},
+            {"answers": [{"ix": "0", "value": "a"}], "submitted": {}},
+        ],
+    }
+    whole, kinds = observe.replay("App", [run], "/home", preview_as="worker", preview_language="en", preview_whole=True)
+    assert _clicked(whole)[3:9] == [
+        steps_module.SETTINGS,
+        steps_module.SETTINGS_DONE,
+        steps_module.SETTINGS,
+        steps_module.ONE_QUESTION_SETTING,
+        steps_module.SETTINGS_DONE,
+        steps_module.START_APP,
+    ]
+    assert not [step for step in whole if step.get("advance")]
+    assert [step["arg"] for step in whole if step.get("until") == "webapps/submit"] == [{"complete": False}]
+    assert not [kind for kind in kinds if kind and kind[0] == "held"]
+    # Each screen is placed by the choice it follows, and the form's two by the form.
+    assert [kind[2:] for kind in kinds if kind and kind[0] == "screen"] == [(), (0,), ("form",), ("form",)]
+
+
+def test_app_preview_replays_whole_a_form_its_one_question_screens_cannot_carry_to_its_end(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """A form with a repeat a worker adds to (``case-capture-repeat``). Shown one question a screen, Formplayer
+    answers the Next that reaches the repeat with an error, which is where that way of showing the form ends; a
+    person in App Preview switches "Use one question per screen" off, so the run is replayed with the form shown
+    whole. Its record keeps where the one-question form ended, and the whole replay follows the walk to its end
+    as a desktop's and a phone's do: the repetition added by the repeat's own Add, each answer given, the form
+    submitted, and the submission the walk's (``observe.submitted_alike`` holds it, in App Preview too)."""
+    from proof.formplayer.walk import REPEAT, Walk
+
+    with webapps_hq.project(webapps_documents["case-capture-repeat"]) as project:
+        with project.released(formplayer_runner) as release:
+            walked = Walk.of(release).run()
+            adding = next(
+                run
+                for run in walked["runs"]
+                if any(attempt.get(REPEAT) for step in run["steps"] for attempt in step.get("answers") or ())
+            )
+            shown = observe.shown(release, editor_driver, {**walked, "runs": [adding]})
+    evidence("observation", shown)
+    desktop, small, preview = shown["runs"]
+    assert (small.get("viewport"), preview.get("viewport")) == (observe.SMALL, observe.PREVIEW)
+    for run in (desktop, small, preview):
+        assert "stopped" not in run, run
+        assert run["submit"] == "submitted" and set(run["answers"]) == {"answered"}, run
+        assert len(run["screens"]) == observe._expected_screens(adding)
+    assert observe.ONE_QUESTION not in desktop and observe.ONE_QUESTION not in small
+    ended = preview[observe.ONE_QUESTION]["stopped"]
+    assert ended["at"] == observe.FORM
+    assert any("non-field-list group" in alert for alert in ended["screen"]["alerts"]), ended
+
+
+def test_the_one_question_form_ended_where_the_client_stopped_in_it_or_at_its_opening_with_formplayers_error():
+    """A run is replayed with its form shown whole where the one-question form is what ended it: the client
+    stopped in the form, or at the choice that opens it with Formplayer's error on the screen (a form whose first
+    screen is a repeat's Add). A case the client lists no row for ends the run whichever way a form is shown, so
+    it is not replayed again."""
+    walked = {
+        "script": [{"menu": 0}, {"entity": "c1"}, {"places": {}}],
+        "steps": [{"request": {}, "response": {}}, {"answers": [], "submitted": {}}],
+    }
+    assert observe.one_question_ended({"stopped": {"at": observe.FORM, "screen": {"alerts": []}}}, walked)
+    assert observe.one_question_ended(
+        {"stopped": {"at": 1, "screen": {"alerts": ["Cannot get question prompts"]}}}, walked
+    )
+    assert not observe.one_question_ended({"stopped": {"at": 1, "screen": {"alerts": []}}}, walked)
+    assert not observe.one_question_ended({"stopped": {"at": 0, "screen": {"alerts": ["An error"]}}}, walked)
+    assert not observe.one_question_ended({"screens": []}, walked)
+    # A run that reaches no form has no one-question form to end.
+    formless = {"script": [{"menu": 0}], "steps": [{"request": {}, "response": {}}]}
+    assert not observe.one_question_ended({"stopped": {"at": 0, "screen": {"alerts": ["An error"]}}}, formless)

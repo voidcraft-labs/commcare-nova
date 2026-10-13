@@ -91,6 +91,7 @@ def observed(hq, core_runner, formplayer_runner, editor_driver):
     return found
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_hqs_own_views_answer_formplayer_and_its_receiver_processes_each_submission(observed):
     first = observed["first"]
     asked = {(entry.url_name, entry.status) for entry in first["exchanges"]}
@@ -144,6 +145,7 @@ def test_a_session_hq_does_not_hold_is_refused_by_hq_where_the_workers_own_is_an
             assert (refused.url_name, refused.status) == ("session_details", 404)
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_a_run_leaves_hq_as_it_found_it(observed):
     before, after = observed["unit"]
     assert before == after
@@ -151,6 +153,7 @@ def test_a_run_leaves_hq_as_it_found_it(observed):
     assert observed["first"]["cases_while_served"] == observed["again"]["cases_while_served"] >= before[1]
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 @pytest.mark.under_determinism
 def test_a_state_served_twice_gives_the_same_bytes(observed):
     first, again = observed["first"], observed["again"]
@@ -166,6 +169,7 @@ def test_a_state_served_twice_gives_the_same_bytes(observed):
     )
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_each_reader_shows_a_planted_difference_and_only_it(observed):
     first, planted = observed["first"], observed["planted"]
     for found in (
@@ -187,6 +191,7 @@ def test_each_reader_shows_a_planted_difference_and_only_it(observed):
     assert PLANTED not in str(first["screens"])
 
 
+@pytest.mark.reader("webapps")  # ``observed`` keeps the client's screens beside Formplayer's trace
 def test_the_release_is_the_build_and_a_file_that_differs_is_named(observed):
     assert observed["first"]["release"] is None
     assert observed["first"]["planted_release"] == {"differing": ["suite.xml"]}
@@ -352,3 +357,35 @@ def test_a_question_named_by_a_text_hq_merged_is_the_same_question_and_another_q
     assert [d.path for d in compared("other-label", {"pick-label": "note-hint"})] == [
         "/runs/*/steps/*/response/exception"
     ]
+
+
+def test_a_run_that_left_the_walk_keeps_no_search_outcome_and_a_one_question_end_is_where_it_ended():
+    """What became of a run's search is compared where both sides made the run alike, and follows from where
+    the run went once one side left the walk; where App Preview's one-question form ended in a run then shown
+    whole, the two sides are compared by how far it came and what the client said there, the form's content
+    being the whole replay's to show."""
+
+    def screens(*shown, **run):
+        return {"runtime": {}, "build": {}, "home": None, "runs": [{"script": [], "screens": list(shown), **run}]}
+
+    def compared(before, after):
+        return _paths(compare.webapps_differences(before, after, check="proof3", document="d", artifact="a"))
+
+    menu, search, listed = {"commands": []}, {"query": {"prompts": []}}, {"list": {"rows": []}}
+    sent = screens(menu, search, listed, searches=["sent"])
+    assert compared(sent, screens(menu, search, listed, searches=["refused"])) == [("/runs/*/searches/*", "changed")]
+    # The other side opens the list at once: the run left the walk there, and its search with it.
+    left = compared(sent, screens(menu, listed, listed))
+    assert left and not [path for path, _ in left if "searches" in path]
+
+    def ended(alert, label):
+        form = {"form": {"title": "F", "questions": [{"label": label}]}, "alerts": [alert]}
+        return {"stopped": {"after": 2, "at": "form", "screen": form}, "answers": ["answered"]}
+
+    whole = {"form": {"title": "F", "questions": []}}
+    one = screens(menu, whole, oneQuestion=ended("Cannot go on", "A"))
+    assert compared(one, screens(menu, whole, oneQuestion=ended("Cannot go on", "B"))) == []
+    assert compared(one, screens(menu, whole, oneQuestion=ended("Index -1", "A"))) == [
+        ("/runs/*/oneQuestion/stopped/alerts/*", "changed")
+    ]
+    assert compared(one, screens(menu, whole)) == [("/runs/*/oneQuestion", "removed")]

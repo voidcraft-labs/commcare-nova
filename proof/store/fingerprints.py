@@ -25,10 +25,12 @@ directories the partitions cover (``walked_files``).
 - ``judge``: every file under ``proof/checks/`` the observation does not
   hold, ``proof/rules/**``, both registers (``proof/identity-moves.json``,
   and ``proof/known-defects.json``, which the sensitivity judge reads before
-  it writes its evidence: ``proof/checks/sensitivity.py::hold_flips``),
-  ``lib/commcare/surface/**``, and the test modules outside the checks whose
-  items run in documents' groups (``DOCUMENT_GROUP_TESTS``: HQ's branch
-  proof), whose outcomes a document's group keeps.
+  it writes its evidence: ``proof/checks/sensitivity.py::hold_flips``), the
+  walk-stops list (``proof/walk-stops.json``, which the stops check holds a
+  document's walks to), ``lib/commcare/surface/**``, and the test modules
+  outside the checks whose items run in documents' groups
+  (``DOCUMENT_GROUP_TESTS``: HQ's branch proof), whose outcomes a document's
+  group keeps.
 - ``harness``: every file under ``proof/`` and ``lib/commcare/surface/``, and
   Nova's package manifest, lock and Node version (``HARNESS_FILES``): what a
   package group's tests can read of the checkout.
@@ -69,7 +71,9 @@ JUDGE_DIRECTORIES = ("proof/checks/", "proof/rules/", "lib/commcare/surface/")
 # is in the observation's (``proof.observe.partition``). ``proof/checks/test_judge_purity.py`` holds every
 # collected item of a document's group to a module of this partition.
 DOCUMENT_GROUP_TESTS = frozenset({"proof/hq/test_branches.py"})
-JUDGE_FILES = frozenset({"proof/identity-moves.json", "proof/known-defects.json"}) | DOCUMENT_GROUP_TESTS
+JUDGE_FILES = (
+    frozenset({"proof/identity-moves.json", "proof/known-defects.json", "proof/walk-stops.json"}) | DOCUMENT_GROUP_TESTS
+)
 HARNESS_DIRECTORIES = ("proof/", "lib/commcare/surface/")
 HARNESS_FILES = frozenset({"package.json", "package-lock.json", ".nvmrc"})
 # The paths a walk of a copy without git reads: the partitions' directories and files.

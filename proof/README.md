@@ -330,6 +330,18 @@ client, Connect and CommCare Android ("Spelling rules", below). Every other
 difference is a symptom: it is held by an entry of the known-defect register
 or it fails the lane ("The registers", below).
 
+### Every walk reaches its end
+
+Proofs 3 and 4 compare two states' walks, so a run that ends early on both
+sides alike passes with the rest of it unseen. The `stops` check reads each
+walk on its own (`proof/checks/stops.py`, one item per document): on every
+state a document's unit serves as a baseline (A, and proof 4's B and
+B-edit), each run of Formplayer's walk ends where the app ends it, and the
+Web Apps client's replay follows it there in a desktop's window, a phone's
+and App Preview. A run that ends anywhere else is a stop, and
+`proof/walk-stops.json` holds every stop by name with the reason the reader
+ends there, strict both ways ("Walk stops", below).
+
 ### What the lane does not observe
 
 What the lane observes is bounded by what Nova emits: a behavior that
@@ -1126,7 +1138,10 @@ traces name each generated id by the first place both hold it. Each document's
 sessions run over its case database (`proof/observe/casedata.py`): cases of
 each of its case types with values whose text and numeric orders differ ("10"
 and "2"), written as a restore by HQ's own code; a remote search is answered
-with every case of the requested type.
+with every case of the requested type. A session's bounds (400 screens and 64
+choices of a run, 5,000 derived runs) are safety nets no app the lane walks
+comes near: a run that reaches one fails the request by the bound's name,
+and is never handed back as a run that ended there.
 
 ### The Formplayer runner
 
@@ -1207,21 +1222,34 @@ the caches left, the second omits the fetch).
   and Formplayer's CSRF cookie as a browser holds them.
 - **The walk** (`walk.py`): scripted sessions as the Core runner's, derived
   (every menu command, every case of each list, each list action once, each
-  search, each in every language the app holds: `proof/observe/walks.py`,
-  below) or replayed, each run starting as a worker starts after
+  search each way a worker can send it, each in every language the app
+  holds: `proof/observe/walks.py`, below) or replayed, each run starting as a
+  worker starts after
   clearing their data, with Formplayer's caches empty and no row of an earlier run's uploads (the lane seeds
   the ids Formplayer draws for uploads by a request's place in its run, so two runs draw the same ones, where
   production's never meet: `FormplayerRunner.forget_media`), each form answered from the Core runner's answer
   table (a file question, signature included, given the table's file for its kind from `proof/core/captures`,
   uploaded as the client uploads one to Formplayer's `answer_media`) and submitted as the client submits it,
   the files with it: a question the client draws no widget for (a date and time, `walk.py::answerable`) is
-  left as a worker in Web Apps leaves it, and the submission holds every question the client holds valid with
+  left as a worker in Web Apps leaves it, one that refuses every value the table holds for it is cleared, as
+  the client sends a cleared widget (`CLEARED`), a repeat a worker adds to is added to by the request the
+  client's Add sends (`new-repeat`, as many repetitions as the table's `repeats.add`), and the submission
+  holds every question the client holds valid with
   `prevalidated` only where it holds each one so (`walk.py::submission`), which the client's own submission of
   the same run is held to wherever the client replays it (`proof/webapps/observe.py::submitted_alike`: a
-  difference ends the observation as the harness's own). The trace is Formplayer's
-  own JSON for every request, with what it asked HQ during each, the
-  submission HQ received and the screen Formplayer's end of form navigation
-  names next.
+  difference ends the observation as the harness's own). A search screen gives each search a worker can send
+  a run of its own (`search_ways`): the prompts as the screen shows them, sent as the client's Search sends an
+  untouched screen, defaults and all (`shown_inputs`; an empty `inputs` would clear them in Formplayer, which
+  no click of the client does); cleared, as its Clear leaves them, where a default fills one and none is
+  required; and typed with the table's search answers, each prompt validated by the request the client sends
+  when a field changes (`execute` false) and one Formplayer refuses typed again with the table's next answer
+  (`searchPrompts.retyped`). Where the client would keep the search back (a prompt in error, a required one
+  left blank: `unsendable`), the walk sends none, records what held it (`unsent`) and ends the run
+  `search-refused`; the client's own refusal of the same search is its outcome in the replay, and every search
+  the client does send is held to the walk's (`proof/webapps/observe.py::searched_alike`). The trace is
+  Formplayer's own JSON for every request, with what it asked HQ during each, the submission HQ received and
+  the screen Formplayer's end of form navigation names next. A run's `end` names where it ended; every end but
+  the app's own is a stop the walk-stops list holds ("Walk stops"), and the walk's bounds raise by name.
 - **Canonical JSON** (`canonical.py`): each id Formplayer or its Core drew
   is marked by its first appearance, as the Core runner marks its traces, so
   the same inputs give the same bytes.
@@ -1363,8 +1391,22 @@ a step clicks what a worker clicks, or reads what the page shows.
   screen (`preview_app/main.js`), so each question is brought on screen by
   the form's own Next before it is answered and the form submitted by its
   Complete at its last screen (`driver/steps/webapps/advance.js`, the
-  driver's `advance`); a Next the client keeps from being pressed ends the
-  run there, recorded `held`.
+  driver's `advance`); a Next the client keeps from being pressed is
+  recorded `held`. Where the one-question form does not go on (the client
+  keeps its Next, or Formplayer answers it with an error: at a repeat a
+  worker adds to, "Cannot get question prompts from a non-field-list group",
+  and at a form that shows no question, "Index -1 out of bounds"), that way
+  of showing the form has ended, and the person switches "Use one question
+  per screen" off in App Preview's Settings (`settings_view.html`,
+  `DisplaySettingView`, offered to every person there): the run is replayed
+  from its start with that switched off after the language is set
+  (`steps.py::show_forms_whole`), its form answered and submitted as on Web
+  Apps' own page, and that replay is the run's record, with where the
+  one-question form ended kept beside it (`oneQuestion`). Its submission is
+  held to the walk's, as a desktop's and a phone's are, but where the run
+  gave a location question its place: the frame lays the map out at another
+  size, so the same drags bring it to a place of its own, and the walk holds
+  a desktop's places and a phone's.
 - **Stylesheets** (`static.py`). What a worker sees is the client's markup
   under HQ's stylesheets, so the page has them: HQ's own precompiler compiles
   the SCSS the page names (HQ's test settings switch it off, and HQ's own
@@ -1377,8 +1419,12 @@ a step clicks what a worker clicks, or reads what the page shows.
   a selector and a text name, an answer given through a question's own
   widget (`answer.js`: a text box typed into, an option or check box
   clicked, a drop-down's option chosen, a date or a time typed in the format
-  the client's picker reads), a form's Submit (`submit.js`, which reports a
-  Submit the client keeps disabled), and `screen.js`, which reads the screen
+  the client's picker reads; with no answer, the widget cleared as a worker
+  clears it, a select by its own Clear), a repetition added by the repeat's
+  own Add (`repeat.js`), a search prompt filled through its field
+  (`prompt.js`) and the search screen's own Clear, a form's Submit
+  (`submit.js`, which reports a Submit the client keeps disabled), and
+  `screen.js`, which reads the screen
   the client rendered: the home screen's tiles, a menu's rows, a case list
   (headers, rows, the empty-list message, and each tile cell's grid area,
   alignment and font size as the browser computed them), a case's detail
@@ -1453,10 +1499,15 @@ a step clicks what a worker clicks, or reads what the page shows.
   own check refuses it and sends nothing; `held` where App Preview's Next was
   kept from being pressed before it) and of Submit (`submitted`, `disabled`,
   `absent`, `held`),
-  each decided once the client is idle, never by a time. A search the client
-  refuses to send (a prompt it marks invalid) ends its run there. Where the client shows nothing to click
-  for a choice, its record of that run ends there, with `stopped` and the
-  screen it stood on. It holds no id Formplayer drew, no time and no path,
+  each decided once the client is idle, never by a time. A search is made
+  the way the walk made it (Search alone, the screen's Clear first, or each
+  prompt the walk typed filled in its order), and what became of it is
+  recorded (`searches`: `sent`, or `refused` where the client keeps it back,
+  as the walk holds it does). Where the client shows nothing to click
+  for a choice, its record of that run ends there, with `stopped`: the
+  screen it stood on and what the run was doing (`at`: the position of the
+  choice it was making, or `form`), which is a stop the walk-stops list
+  holds ("Walk stops"). It holds no id Formplayer drew, no time and no path,
   so the same inputs give the same bytes; `test_observe.py` holds two
   observations alike, and they hold alike with Chromium's processor slowed
   eightfold.
@@ -2098,6 +2149,84 @@ it corrects, if any.
 `proof/identity-moves.json` lists each identity change a migration decides,
 `{"defect", "entity", "path"}`; proof 1 accepts exactly those. It is empty
 until a step decides one.
+
+### Walk stops
+
+`proof/walk-stops.json` lists each place a reader's walk of a document ends
+short of the app's own end (`proof/checks/stops.py` loads and enforces it;
+`proof/checks/test_stops.py` is the check):
+
+```json
+{"document": "tile-grouped-one", "reader": "webapps", "cause": "case-not-listed",
+ "reason": "<one line a reviewer can check at the reader's source or in the record>"}
+```
+
+- **A run's end.** Formplayer's walk ends a run where the app ends it: a form
+  submitted (`submitted`), a menu that offers nothing (`empty-menu`), a list
+  that holds no case (`empty-list`). Every other end is a stop: Formplayer
+  answered with no screen (`notification`), did not take the form
+  (`submit-refused`), was sent no search because the client keeps it back
+  (`search-refused`), answered a search with the search screen again
+  (`search-not-run`), refused a request (`refused`), or the run could not
+  make a choice it was scripted (`unreplayable`, `language-unoffered`). The
+  client's replay reaches its end where it follows the walk to the walk's;
+  where it shows nothing to click for a choice, or holds a form from going
+  on, its record says where it `stopped`, and that is a stop.
+- **`reader`** is `formplayer`, `webapps` (the client on Web Apps' own page,
+  in a desktop's window and a phone's) or `preview` (the client in App
+  Preview).
+- **`cause`** is a class written from the reader's own words, never from a
+  name the app authored (`stops.py::said`): what Formplayer said
+  (`notification:unable-to-find-lookup-table`), the alert the client shows
+  where it stopped (`alert:...`), or, with no alert, what the client did not
+  show for the choice the run was making (`case-not-listed`,
+  `command-not-listed`, `action-not-offered`, `search-not-offered`) or that
+  it held its form (`form-held`).
+- **`reason`** is one line saying why the reader ends there.
+
+The list is strict both ways, as the known-defect register is: a stop no
+entry holds fails its document's check and the gate by name, and so does an
+entry whose stop no run of its document showed. One entry holds one
+document, reader and cause; a control's walks are held by its document's
+entries, and an entry must show on the corpus document. A run that hands its
+states to some readers holds the entries of those readers and leaves the
+rest to the run with every reader. An entry may name a fuzz document, since a
+reader's own limit shows wherever a form meets it; when the fuzz sample
+changes, the gate names each entry to remove and each stop to add.
+
+**An entry is the reader's own end, never an answer the lane failed to
+give.** Before adding one, read the run (the check's evidence,
+`checks/stops/<kind>-<document>.json`, names one of each class with its
+script). Where a worker at that screen would go on, the walk or the replay
+is to give what a worker gives, on Formplayer and the client alike, and the
+lane does:
+
+- a question that refuses every value the answer table holds is cleared, as
+  a worker leaves a question they cannot satisfy, so a validation message is
+  no end of a form (`walk.py::CLEARED`);
+- a repeat a worker adds to is added to, as many times as the table says
+  (`repeats.add`), so its repetition and the case it creates are submitted
+  (`walk.py::addable`);
+- a search is sent each way a worker can send it, each a run of its own: as
+  the screen shows it, which carries the prompts' defaults; cleared by the
+  screen's Clear, where a default fills a prompt; and typed, a refused
+  answer typed again with the table's next (`walk.py::search_ways`,
+  `retyped`). A search the client keeps back is never sent, and its run ends
+  `search-refused`;
+- App Preview shows a form one question a screen, and Formplayer answers
+  that form's Next with an error at a repeat a worker adds to, and at a form
+  that shows no question. A person there switches "Use one question per
+  screen" off in App Preview's Settings, so the replay does, and the run
+  goes on with its form shown whole (`proof/webapps/observe.py::shown`). The
+  run's record keeps where the one-question form ended (`oneQuestion`), and
+  the check's evidence lists those runs beside the stops (`replayedWhole`):
+  they are no stop, since nothing of the run is left unseen.
+
+A walk's bounds are safety nets, never an end, and none is a time (a loaded
+machine would reach one an idle machine does not): Formplayer's walk raises
+`WalkBound` past 500 derived runs, 400 screens of a run or 2,000 answers of
+a form, the Core runner fails its `session` request past 400 screens or 64
+choices of a run, and each failure names the bound.
 
 ## Spelling rules
 
@@ -3037,7 +3166,7 @@ outside the corpus's seeded operations.
 ### The gate
 
 `python3 -m proof.lane.gate` runs on the runner's own Python with no image and
-reads every shard's output, the queues and the store. Four sections, each with
+reads every shard's output, the queues and the store. Five sections, each with
 its problems:
 
 1. **Exactly once**: every queued block ran exactly once (a block two shards
@@ -3053,7 +3182,12 @@ its problems:
 3. **Register**: the evidence of every block that ran, with the cached groups'
    evidence read from the store, held to `proof/known-defects.json`, and
    every entry seen on its document and its control.
-4. **Surface**: the surface block's extraction, or the store's for this image
+4. **Walk stops**: the stops every document's and control's walks showed,
+   read as the register's evidence is, held to `proof/walk-stops.json`: a
+   stop no entry holds fails by name, and so does an entry whose document's
+   run showed no such stop. A run holds the entries of the readers it handed
+   its states to and says how many it left to the run with every reader.
+5. **Surface**: the surface block's extraction, or the store's for this image
    and extractor, is byte for byte the committed `surface.json`.
 
 It prints each section, writes the whole to `--summary` (uploaded as the

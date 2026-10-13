@@ -7136,6 +7136,26 @@
 		"control": "case-extension-registration"
 	},
 	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-7",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-multiple-repeat",
+		"control": "case-extension-multiple-repeat"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-8",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat"
+	},
+	{
 		"id": "d14-data-node-name-formplayer-vellum-output-data-name-2",
 		"defect": 14,
 		"part": "data node name",

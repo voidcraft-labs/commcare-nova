@@ -23,6 +23,13 @@
 //   twelve hours (`twelveHour`, from the question's style, which
 //   entries.js::TimeEntry reads).
 //
+// A `value` of null clears the question as a worker clears it (the walk
+// leaves a question unanswered where the form refused every answer it had
+// for it): a text box or a picker emptied, each checked box unchecked, a
+// drop-down set to its empty option, and the widget's own Clear pressed for
+// option buttons (entry_select.html) and for a map (entry_geo.html), each of
+// which the client sends Formplayer as no answer (entries.js, NO_ANSWER).
+//
 // It is a wait's predicate: false while the client has a request in flight
 // or has drawn no question of the form yet; true once it has answered; and,
 // "unchanged" where the widget already shows that answer (a default the
@@ -75,9 +82,15 @@
 		);
 	};
 	const pad = (number) => String(number).padStart(2, "0");
+	const clearing = value === null;
 
 	const picker = widget.querySelector("[data-td-target-input] input");
 	if (picker) {
+		if (clearing) {
+			if (picker.value === "") return "unchanged";
+			type(picker, "");
+			return true;
+		}
 		const format = picker.getAttribute("placeholder");
 		let typed;
 		if (format === "M/D/YYYY") {
@@ -101,6 +114,20 @@
 			"input.form-check-input[type=radio], input.form-check-input[type=checkbox]",
 		),
 	];
+	if (options.length && clearing) {
+		const checked = options.filter((option) => option.checked);
+		if (!checked.length) return "unchanged";
+		if (checked[0].type === "radio") {
+			// A radio stays checked when clicked; the widget's own Clear, which the
+			// client shows once one is (entry_select.html, `onClear`), unchecks it.
+			const clear = widget.querySelector(".sel > button");
+			if (!clear || clear.getClientRects().length === 0) return "unanswerable";
+			clear.click();
+			return true;
+		}
+		for (const option of checked) option.click();
+		return true;
+	}
 	if (options.length) {
 		// The client binds each option to its label (entry_select.html,
 		// `checkedValue: $data`, which knockout writes as the input's value),
@@ -133,6 +160,12 @@
 	}
 
 	const dropdown = widget.querySelector("select.form-select");
+	if (dropdown && !dropdown.multiple && clearing) {
+		if (dropdown.value === "") return "unchanged";
+		dropdown.value = "";
+		dropdown.dispatchEvent(new Event("change", { bubbles: true }));
+		return true;
+	}
 	if (dropdown && !dropdown.multiple) {
 		const index = Number(value) - 1;
 		const option = [...dropdown.options].filter((each) => each.value !== "")[
@@ -145,12 +178,20 @@
 		return true;
 	}
 
+	if (clearing && widget.querySelector(".map")) {
+		// A map's own Clear (entry_geo.html, `onClear`).
+		const clear = widget.querySelector("button.clear");
+		if (!clear) return "unanswerable";
+		clear.click();
+		return true;
+	}
 	const box = widget.querySelector(
 		"textarea.textfield, input.form-control[type=text], input.form-control[type=password]",
 	);
 	if (box && !widget.querySelector(".map")) {
-		if (box.value === value) return "unchanged";
-		type(box, value);
+		const text = clearing ? "" : value;
+		if (box.value === text) return "unchanged";
+		type(box, text);
 		return refusedHere() ? "refused" : true;
 	}
 	return "unanswerable";

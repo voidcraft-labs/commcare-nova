@@ -231,6 +231,18 @@ harness keeps, each with its reason.
   defect, never a rule. A rule that normalizes what one reader hands the
   next (Formplayer's answer, which the client reads) must name the test of
   the reader that reads it.
+- **A walk reaches its end or a held stop.** Proofs 3 and 4 compare two
+  states' walks, so a run cut short alike on both sides passes with the rest
+  of it unseen. `proof/checks/stops.py` reads each walk on its own, and
+  `walk-stops.json` holds every stop by its document, reader and cause,
+  strict both ways as the register is (`proof/README.md`, "Walk stops"). A
+  stop a worker would get past is never an entry: give the walk what a
+  worker gives (the table's next answer, a question cleared, a repeat's Add,
+  a search sent the way the client sends it, App Preview's own "Use one
+  question per screen" switched off), on Formplayer's walk and the client's
+  replay alike. An entry is a reader's own end, with a reason a reviewer can
+  check at the reader's source. A walk's bounds are safety nets: reaching
+  one fails by the bound's name, never ends a run, and none is a time.
 - **A precise witness writes its precise edit.** The fixed producers' edits
   are balanced together, so an unrelated document can change which admitted
   edit another gets. A harness test or registered symptom that needs one

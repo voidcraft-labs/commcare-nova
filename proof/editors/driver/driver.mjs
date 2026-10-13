@@ -2496,29 +2496,54 @@ async function runSteps(page, run, steps) {
 						// page's stylesheet may ask a scroll to glide), and then
 						// until the element stands in one place two frames running,
 						// so no scroll of the page's own still moves it.
-						await element.evaluate(async (target) => {
-							target.scrollIntoView({
-								block: "center",
-								inline: "center",
-								behavior: "instant",
+						const place = () =>
+							element.evaluate(async (target) => {
+								target.scrollIntoView({
+									block: "center",
+									inline: "center",
+									behavior: "instant",
+								});
+								const frame = () =>
+									new Promise((resolve) => requestAnimationFrame(resolve));
+								let last = null;
+								for (;;) {
+									await frame();
+									const { x, y, width, height } =
+										target.getBoundingClientRect();
+									const now = `${x} ${y} ${width} ${height}`;
+									if (now === last) return now;
+									last = now;
+								}
 							});
-							const frame = () =>
-								new Promise((resolve) => requestAnimationFrame(resolve));
-							let last = null;
+						// A scroll can set the page laying itself out again a
+						// moment later (a picture it brings on, a handler of the
+						// page's own it throttles), which two frames do not show:
+						// a map of a form shown whole stood 163 pixels lower by
+						// the time its stroke began. So the element is placed, the
+						// page let go quiet, and the element placed again, until it
+						// stands where it stood.
+						const counted =
+							(await pageValue(
+								run.cdp,
+								"typeof window.proofShortTimers === 'function'",
+							)) === true;
+						const placed = async () => {
+							let stood = await place();
 							for (;;) {
-								await frame();
-								const { x, y, width, height } = target.getBoundingClientRect();
-								const now = `${x} ${y} ${width} ${height}`;
-								if (now === last) return;
-								last = now;
+								await runQuiet(run, counted);
+								const now = await place();
+								if (now === stood) break;
+								stood = now;
 							}
-						});
-						const box = await element.boundingBox();
-						if (!box || box.width < 1 || box.height < 1)
-							throw new StepFailed(
-								"page",
-								`${name} found an element with no box to draw in for ${JSON.stringify(step.arg)}.`,
-							);
+							const box = await element.boundingBox();
+							if (!box || box.width < 1 || box.height < 1)
+								throw new StepFailed(
+									"page",
+									`${name} found an element with no box to draw in for ${JSON.stringify(step.arg)}.`,
+								);
+							return box;
+						};
+						let box = await placed();
 						// A point is a fraction of the box across and down, and
 						// optionally whole pixels more each way.
 						const at = ([x, y, dx = 0, dy = 0]) => [
@@ -2530,12 +2555,27 @@ async function runSteps(page, run, steps) {
 						// it and the window, as a person drags a map further than
 						// it shows in several strokes; after each, the page's
 						// answer to it ("answeredBy") and the page quiet again, so
-						// each stroke is one answer however fast the page is.
-						const strokes =
-							step.drag === undefined
+						// each stroke is one answer however fast the page is. The
+						// page's answer can move the element, so it is placed
+						// again before each stroke, and where it then stands
+						// elsewhere the strokes for what is left of the drag are
+						// laid out from there.
+						const left = step.drag === undefined ? null : [...step.drag];
+						let strokes =
+							left === null
 								? [step.stroke]
-								: dragStrokes(step.drag, box, page.viewportSize());
-						for (const stroke of strokes) {
+								: dragStrokes(left, box, page.viewportSize());
+						for (let first = true; strokes.length; first = false) {
+							if (!first) {
+								const now = await placed();
+								const moved = ["x", "y", "width", "height"].some(
+									(side) => now[side] !== box[side],
+								);
+								box = now;
+								if (moved && left !== null)
+									strokes = dragStrokes(left, box, page.viewportSize());
+							}
+							const stroke = strokes.shift();
 							// Every point of the stroke lands on the element itself:
 							// one that lands on something the page lays over it, or
 							// outside the window, would press or move nothing the
@@ -2545,16 +2585,25 @@ async function runSteps(page, run, steps) {
 								const covering = await element.evaluate(
 									(target, [left, top]) => {
 										const hit = document.elementFromPoint(left, top);
-										return hit === target || target.contains(hit)
-											? null
-											: (hit?.outerHTML ?? "nothing").slice(0, 200);
+										if (hit === target || target.contains(hit)) return null;
+										const stands = (element) => {
+											if (!element) return "nowhere";
+											const { x, y, width, height } =
+												element.getBoundingClientRect();
+											return `at (${x}, ${y}), ${width} by ${height}`;
+										};
+										return (
+											`${(hit?.outerHTML ?? "nothing").slice(0, 200)} (${stands(hit)}),` +
+											` not on the element (${stands(target)}, in a window ` +
+											`${window.innerWidth} by ${window.innerHeight})`
+										);
 									},
 									[x, y],
 								);
 								if (covering !== null)
 									throw new StepFailed(
 										"page",
-										`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, not on the element, so nothing would be drawn.`,
+										`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, so nothing would be drawn.`,
 									);
 							}
 							const since = run.answered.length;
@@ -2563,7 +2612,10 @@ async function runSteps(page, run, steps) {
 							await page.mouse.down();
 							for (const point of through) await page.mouse.move(...at(point));
 							await page.mouse.up();
-							if (step.drag !== undefined) {
+							if (left !== null) {
+								const [, [, , dx = 0, dy = 0]] = stroke;
+								left[0] -= dx;
+								left[1] -= dy;
 								await run.awaitRequest(step.answeredBy, since, null);
 								await runQuiet(run, true);
 							}
