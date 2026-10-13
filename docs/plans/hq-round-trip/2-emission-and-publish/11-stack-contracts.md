@@ -10,26 +10,26 @@ The stack is cut over the proof lane as its own pull request merges it onto `mai
 
 One `gh stack` chain of sixteen pull requests, merged together for one deploy. Each row's "Green alone" is in addition to the repo's ordinary checks at that pull request's own head: typecheck, lint, Vitest with Postgres, the production build, the pull request lane in CI, the Playwright smoke and the Python infra tests. Before it is marked ready, each row also runs its reader slice on a proof machine, which is exactly the document and control of every served-reader entry it moves, registers, re-files or deletes and of every held walk stop it moves, removes or adds, plus its witnesses, the targeted documents of a fix with no entry and the document of a judge change no entry names, and with them the reader package tests the pull request itself adds or changes (part 09, Where the lane runs, states the rule once), and, where it changes an emitter, adds a corpus document or changes a gate entry, the sensitivity check whole and fresh; the whole lane with every reader runs once, at row 16's head, before the merge (part 09, Where the lane runs). "Register" counts entries by id: "moves" are entries that leave `proof/known-defects.json` for `proof/fixed-defects.json`, "adds" are entries the pull request registers live, and "deletes" are entries that leave a register for neither: with a judge change or an allowance, in pull request 3 because the entry beside it comes to hold the one difference the two pinned, and in pull request 13, from the fixed register, because the lane's oracle grants a control a privilege under which it stops showing them (part 09, What step 2 moves and deletes).
 
-"Files" is the list an implementer holds a pull request's diff against, and no summary: it names every file the parts' Files, Nova tests and Lane sections give that pull request, by name or by the directory that holds it. A path is written from the repository root, and a name with no directory sits in the directory of the path before it. A file is named outright where the pull request creates, deletes or moves it and where it is a test the fix turns; a directory stands for the files under it that the parts name. Five kinds of file are given once, here, and are named in a row only where the edit is the row's own subject. A source file stands for its tests in the `__tests__` directory beside it. A row that moves, adds or deletes an entry edits `proof/known-defects.json` and `proof/fixed-defects.json`, and its Register cell says what. A row that adds or deletes a control directory or a corpus document edits `proof/timings.json` (the list below the table). A docs page under `content/docs/` and a `CLAUDE.md` file are given, each with its pull request, by Contract sentences step 2 rewrites and Public docs that change, below, and by the Files of the fix that changes them. Of the cutover modules under `scripts/lib/hqRoundTripCutover/` and the notice modules under `lib/notices/`, a row names the directory and what it adds there, and part 10, Scripts and their layout, gives each module's pull request.
+The files each pull request touches are under Files, by pull request, below, the list an implementer holds a diff against; the table's Files cell only points there. Pull requests 1, 2, 3 and 5 hold more than a cell reads well, so their Contains cell gives the headline and What pull requests 1, 2, 3 and 5 contain, below, gives the whole.
 
 | # | Title | Contains | Files | Register | Rules | Cutover steps, notice reasons and blockers | Green alone |
 |---|---|---|---|---|---|---|---|
-| 1 | Lane mechanics | `proof/fixed-defects.json` with its loader, gate, queue and fingerprint; a held walk stop that names a control (`proof/walk-stops.json`'s `control` key), so a stop moves to its control with its fix, with the stops check and the queue reading every control the list names and the gate carrying a `control` entry through a selection; the gate, told a slice's documents, holding the fixed entries and the `control` stop entries of the controls the run ran, with those stop entries counted beside the document entries in its walk-stops section, which already counts by entry on the lane (part 09, The fixed-defect register and The held walk stops); the test that every control directory is named by one of the two registers; the name argument (`--as`) on control retention; controls replayed in their legacy capture layout; `targeted-hq-side-state` split so its lookup table is `targeted-hq-side-lookup`; `targeted-shared-property-sort` given its second menu, with its control retained again in place (part 07, Finding 51); targeted documents, entries and controls for findings 56 (`targeted-datetime-ordering`), 57 (`targeted-case-id-column`), 70 (`targeted-reserved-question-names`), 71 (`targeted-form-root-read`) and finding 43's `parsererror` (`targeted-parsererror-node-name`); `proof/checks/hq_own_reports.py::HQ_OWN_REPORTS` with its three members, `registration_alert_child_case` (finding 50), `android_grouped_tile_reopen` (finding 67) and `connect_block_renamed` (defect 15's Connect forwarding), each with its proof over an app HQ's own editors made (part 09); findings 63 and 50 recorded under "What HQ does itself"; the report of finding 67, on commcare-core, which holds the reader commcare-android calls, drafted and filed only with the person's yes (part 07, Finding 67). No emitter change | `proof/checks/registers.py`, `cases.py`, `controls.py`, `stops.py`, `test_stops.py`, `proof4.py`, `android.py`, `connect.py`, `hq_own_reports.py` (new), `test_hq_own_reports.py` (new), `test_registers.py` (the fixed register's cases, and the test that every control directory is named), `test_controls.py` (`--as`), `corpus.py` (`_captured` reads the layout marker a capture's sidecar may carry); `proof/fixed-defects.json` (new), `proof/known-defects.json`; `proof/store/queue.py`, `test_queue.py`, `fingerprints.py`, `conftest.py`, `test_keys.py`; `proof/lane/gate.py`, `test_gate.py`, `test_forkserver.py` (a nested run's limit with the readers; part 09, Corpus changes); `proof/walk-stops.json`; `proof/observe/publish.py`, `unit.py`; the three proofs over an app HQ's own editors made, each a new file: `proof/editors/test_hq_own_registration_alert.py`, `proof/android/test_hq_own_grouped_tile_reopen.py`, `proof/connect/test_hq_own_rename.py`; `proof/rules/` (`vellum_alert.py` leaves with its test, its import and its `RULES` line); `proof/targeted/`; `proof/controls/`; `proof/timings.json` (`control:nested-menu-previous` removed from both profiles, `control:tile-grouped-one` and `control:targeted-connect-learn-rename` from the `readers` profile, the only one that holds them; the new groups measured in); `proof/CLAUDE.md`, `proof/README.md`; `docs/architecture/contracts.md` and root `CLAUDE.md` (the strict register's sentence in each); `docs/research/2026-09-26-hq-round-trip/harness-findings.md` | Writes finding 52's 2 straight into the fixed register on `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`. Adds 29 live: finding 56's 2, finding 57's 17, finding 70's 6, finding 71's 2 and finding 43's 2 (part 09, The entries step 2 adds). Re-documents defect 5's seven `d5-table-content-*` entries on `targeted-hq-side-lookup`, their control `targeted-hq-side-state` unchanged (part 02, Defect 5: the lookup push, Lane; part 09, Corpus changes). Walk stops: adds `targeted-datetime-ordering`'s, Formplayer's `submit-refused:validation-error`, with the document (part 09, The held walk stops). Deletes 9 with their members: finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries, with the controls `nested-menu-previous`, `tile-grouped-one` and `targeted-connect-learn-rename` | `vellum_alert` retires | none | Proof 4 shows no `alert` difference on any corpus document; the gate holds finding 52's two fixed entries on their control and every control directory is named; no product change |
-| 2 | Cutover skeleton, the notice and the ledger tables | The fold-horizon DDL and writer with an empty step list; the notice tables, store, builder chip and dialog, the Publishing card's note, home line, `get_app.notices`, `dismiss_app_notice`; the Job `commcare-nova-hq-round-trip-cutover`, its `esbuild` line in `Dockerfile` stage `maintenance-build` (`--outfile=hq-round-trip-cutover.cjs`), its arm in `scripts/rollout/deploy-cloud-run.py::_effective_execution_args`, their tests (`scripts/infra/tests/`, `scripts/infra/__tests__/containerArtifacts.test.ts`), the runbook `docs/plans/hq-round-trip/2-cutover-runbook.md` (completed as steps land), and the frozen fixtures under `scripts/lib/hqRoundTripCutover/__tests__/fixtures/pre-step/`; every additive ledger table and column (`app_deployment_identities`, `app_deployment_confirmations`, `app_deployment_baselines`, `project_space_resource_baselines`, `app_deployment_resources.remote_missing_at` with its backfill, `app_deployments.offered_logo_content_hash`, `app_deployments.target_empty_case_list_text`; the confirmation kind `connect-forwarder`); `app_deployment_baselines` has no form-id column, because no publish reads form ids back (part 02, The ledger schema); the notice tables include the key-reader rows the execute run writes for each member whose HQ key it used. These are three migrations (`<timestamp>_hq_round_trip_fold_horizon.ts`, `<timestamp>_app_migration_notices.ts`, `<timestamp>_hq_round_trip_deployment_ledger.ts`); the stack's fourth and last, `<timestamp>_app_settings.ts`, is pull request 5's. Also the three pre-horizon readers over `greatestFoldBaselineSeq` and the stream route's reload, `abandonPreAppDesignSessionInTransaction`, `RUNTIME_VERSION` 15, the frozen fold `prestepFold.generated.mjs` with its entry, build script and inputs test, the legacy bodies under `proof/hq-reads/cutover/<document>/legacy/`, and the two contract sentences of `docs/architecture/contracts.md` (part 10, Block: the cutover) | `lib/case-store/migrations/`, `lib/agent/change-set/baseLoader.ts`, `lib/agent/build/orchestrator.ts`, `lib/agent/change-set/materializeGenesis.ts`, `app/api/apps/[id]/stream/route.ts`, `lib/db/designSessions.ts`, `lib/db/appTests.ts`, `lib/db/apps.ts` (`commitAppProjectMoveInTransaction` copies an app's baseline rows to the destination) with `lib/db/__tests__/projectMove.postgres.test.ts`, `lib/log/types.ts`, `scripts/build-hq-round-trip-prestep-fold.mjs`, `biome.json`, `proof/hq-reads/cutover/`, `docs/architecture/contracts.md`, `lib/db/pg.ts`, `lib/db/privilegeConvergence.ts`, `lib/notices/` (new), `lib/deployment/store.ts`, `types.ts`; the notice's surfaces: `components/builder/notices/` (new: `AppNoticeChip.tsx`, `AppNoticeDialog.tsx`, `appNoticeModel.ts` with its test), `components/builder/BuilderHeader.tsx`, `BuilderProvider.tsx`, `components/builder/app-setup/PublishingSection.tsx`, `publishingSectionModel.ts`, `components/notices/KeyReaderNotice.tsx` (new), `app/(app)/(site)/page.tsx`, `app/(app)/build/[id]/[[...path]]/page.tsx`, `lib/mcp/tools/getApp.ts`, `dismissAppNotice.ts` (new), `lib/mcp/server.ts`, `lib/mcp/__tests__/appNotices.postgres.test.ts` (new), `e2e/tests/app/app-notices.spec.ts` (new); `scripts/scan-hq-round-trip-cutover.ts`, `scripts/migrate-hq-round-trip-cutover.ts`, `scripts/lib/hqRoundTripCutover/`, `Dockerfile`, `config/deployment-jobs.json`, `scripts/rollout/deploy-cloud-run.py`, `scripts/infra/`, `scripts/README.md`, `docs/plans/hq-round-trip/2-cutover-runbook.md`, `docs/architecture/deployment.md` | none | none | The transform runs zero steps: a horizon over an unchanged document. Document reason `unsaved-assistant-work-discarded`; deployment reason `deep-links-need-republish`. Blockers `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-change` | Writer Postgres tests over the frozen fixtures with zero steps; deployment store Postgres tests; the infra tests with the Job; nothing shows in the product |
-| 3 | Identity and the publish sequence | Defect 1; `localization.wireCodes`; the shell create then the in-place update; `lib/commcare/hq/appSource.ts::readHqAppSource` (new here, replacing `readHqAppSourceProfile`; its version field is `buildSpecVersion` and its size bound 64 MiB; later pull requests extend its type) and `lib/commcare/versionFloor.ts` (new here, the constant alone); the `target-app` preflight edge with its one source read; the `remote_missing_at` selectors; the proof capture's two-import first publish and its layout marker; downloads by project space and a `.ccz` made for one project space (findings 32 and 59); no `multimedia_map` (finding 49), with the oracle's check of it and its two codes, `HQJSON_BAD_MULTIMEDIA_MAP_KEY` and `HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE`, removed; the manual-import guide and the ZIP; the frozen fold's one-line entry, its build script (`scripts/build-hq-round-trip-prestep-fold.mjs`) and its inputs test deleted, with the committed fold, its declaration, its inputs list and its digest test kept (part 10, The matching algorithm, "The fold is the pre-step one, frozen"); the spelling rule `runtime_url_app_id` with its proof, which reads the release's id and the working app's id as one in a runtime URL; the nineteen classes Formplayer's record shows once the local archive's submit reaches HQ, one of them only because its two imports leave state A at HQ app version 2, registered live, with nine controls retained from this pull request's corpus in its two-import layout (`--as`): `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (part 01, A5); the judge's map of the text ids HQ's build merges, read from questions' own labels alone, which reads the one class the working walk shows on `fuzz-suite-20260930-8` and registers nothing (part 01, A5). `MODEL_CONTEXT_VERSION` does not move (item 13 of the checklist below) | `lib/commcare/wireIdentity.ts` (new), `ids.ts` (deleted), `index.ts`, `languageWire.ts`, `localization.ts`, `expander.ts` (`expandAppShell` and `APP_SHELL_KEYS`, both new, with the exact-key test), `hqShells.ts`, `types.ts`, `compiler.ts`, `client.ts` (`importApp` waits out a short `Retry-After`), `targetProfile.ts`, `runtimeTarget.ts`, `versionFloor.ts` (new, the constant), `lib/commcare/hq/appSource.ts`, `lib/commcare/hq/http.ts`, `lib/commcare/hq/readJson.ts` and `lib/commcare/hq/readCollection.ts` (`CommCareApiError.cause`); `lib/commcare/multimedia/` (`bundle.ts` loses `buildMultimediaMap`, `hqJsonExportArchive.ts` always writes the ZIP, `assetWirePath.ts`'s comment); `lib/commcare/validator/hqJsonOracle.ts`, `errors.ts`; `lib/commcare/__tests__/` (the emission tests of A1 to A6, `runtimeTargetFixture.ts` (new), which the 36 Vitest callers of `compileCcz` take their target from (31 in this directory, one under `lib/commcare/locations/__tests__/`, two under `lib/commcare/suite/case-search/__tests__/` and the two of `proof/corpus/__tests__/` named below), and the fixtures that write a localization root by hand), `lib/commcare/validator/__tests__/localization.test.ts`; `scripts/lib/hqRoundTripCutover/` (`matching.ts`, `hqRead.ts`, `legacyLanguageWireCodes.ts`, `scripts/lib/hqRoundTripCutover/steps/languageWireCodes.ts`, `scripts/lib/hqRoundTripCutover/behavior.ts` (the selection function of `ccz-needs-project-space`), `notice.ts` (the five deployment lines), and their tests); `lib/doc/types.ts` and `lib/doc/languageMutations.ts` (new: `addLanguage` and `relabelSourceLanguage` carry a required `wireCode` that every producer mints through this planner; the reducer stores it), `lib/doc/mutations/app.ts`, `lib/doc/diffDocsToMutations.ts`, `lib/doc/mutationTargetAdmission.ts`, `lib/domain/localization.ts` (the `wireCodes` schema), `biome.json` (the planner's entry); the producers `components/builder/app-setup/LanguagesSection.tsx`, `lib/agent/tools/localization.ts`, `lib/agent/translation/translateLanguage.ts`, `scripts/lib/languageIdentityRepair.ts`, `proof/corpus/editKinds.ts`, `proof/corpus/workforce.ts`, and `e2e/lib/` (the Playwright clients that add a language or write a localization root by hand); the tests that build one of the two mutations or write such a root, under `lib/doc/__tests__/`, `lib/preview/engine/__tests__/`, `lib/db/__tests__/blueprintRows.test.ts`, `lib/case-store/migrations/__tests__/authoringCutover.postgres.test.ts` and `scripts/__tests__/selectOptionValueRepair.test.ts` (part 01, A2, Files, names each); `lib/deployment/` (`service.ts`, `resources.ts`, `importApplication.ts`, `preflight.ts`, `store.ts`, `types.ts`, `index.ts`, `workers.ts`, `entryPointLinks.ts`, `entryPointManifest.ts`, `runtimeTarget.ts`, `attachmentTarget.ts`, `actions.ts`; `downloadTarget.ts` new; `attachmentSpace.ts` deleted; new under `lib/deployment/__tests__/`: `publishSequence.postgres.test.ts`, `resources.test.ts`, `downloadTargetsAction.postgres.test.ts`); `lib/export/localArchive.ts`; `lib/publish/manualImportGuide.ts` (new); `app/api/compile/`; `components/builder/PublishDialog.tsx`, `PublishPanel.tsx`, `DeploymentStatus.tsx`, `DeploymentWorkers.tsx`, `components/builder/app-setup/publishingSectionModel.ts`; `e2e/tests/browser/publishing.spec.ts`; `lib/mcp/tools/compileApp.ts`, `deploymentProjection.ts`, `uploadAppToHq.ts`, and the deployment tools' Postgres tests under `lib/mcp/__tests__/`; `lib/notices/` (this pull request's six reasons and their renderers); `proof/corpus/` (`publish.ts`, `targetPeer.ts`, `entryWriter.ts`, `writePublishCaptures.ts`, `footprint.ts`, `entropy.mts`, and under `proof/corpus/__tests__/` `emitCorpus.test.ts`, `entropy.test.ts`, `publish.postgres.test.ts`, `writePublishCaptures.test.ts`; part 01, A7); `proof/hq/operations.py` (new here: `with_runtime_app_id`, and part 10's `api_request`, `seed_api_user` and `seed_api_key`; `publish_capture` applies the two imports, and `CapturedProfileNotHeld` becomes `CapturedSourceNotHeld`); `proof/hq/seams.py` (`api_rate_limits`, new); `proof/hq/test_publish.py`, `test_publish_capture.py`, `test_import_file.py` (new), `conftest.py` (`DOCUMENTS`, which becomes the package's key) and `proof/store/queue.py` (`PACKAGE_DATA`); `proof/hq/test_retained_reads.py` (new, with part 01's `publish` group and part 10's `cutover` group), `proof/hq-reads/publish/` and the answers under `proof/hq-reads/cutover/`; `proof/rules/runtime_url_app_id.py` (new) with its test, the planning run kept as three tests, `proof/rules/__init__.py` (`RULES`, and `ARTIFACT_READERS` gains `request-url`), `proof/rules/conftest.py`; `proof/checks/android.py`, `proof/checks/served.py` and `proof/checks/proof3.py`, which hand the rule the device's and Formplayer's addresses (`served.py`'s `TRACE_DATA_MAPS` also gains the translations of the screen after a submit, and its `_text_references` and `merged_text_ids` read a question's own label alone, with the constant `NOT_A_QUESTION`), `proof/checks/test_served.py`, `wireLanguages.ts`, `test_connect_unit.py` (its line for the local archive), `test_record_determinism.py`, `corpus.py` (`Export.content` and `Document.import_file`), `configurations.py` (`PRIVILEGE_CAPTURES` reads the content import), `manifest_usage.py`, `test_proof3_behavior.py`, `test_alignment.py` and `test_corpus.py` (each reads `export.content` where it reads `export.create` today), `proof5.py` and `test_proof5_locality.py` (docstrings); `proof/observe/publish.py` (`create` applies both imports; `update` holds the assumed source), `unit.py`, `sessions.py`, `served.py` and `connect.py` (the local archive given A's id, and the content import's workbook and media), `manifest.py` (`uploads_of`); the callers of a first publish, each turned to `publish.create`: `proof/formplayer/apps.py`, `proof/webapps/hq.py`, `proof/connect/conftest.py`, and `proof/hq/test_branches.py` (whose comparison also leaves out the database's clock, `DATABASE_CLOCK`, with a new case); `proof/views/test_lookup_upload.py`; `proof/README.md`; `proof/formplayer/observe.py` (`marked` writes the working app's id `@app`), `test_local_archive.py`; `proof/connect/test_receiver.py`; `proof/android/predicates.py` (the rule's device test), `hq.py`; `proof/native/producers/` (`runtimeTarget.ts` new, which the 17 producers take their target from), `proof/native/core/LocalizationRuntimeTest.java`, `proof/native/steps/media_emission.py`, `proof/native/test_media_emission.py`; `proof/targeted/documents/hqSideState.ts`, `emptyListNoEnglish.ts`; `.github/workflows/proof-audit.yml`; `proof/controls/`; `proof/timings.json` | Moves 31: defect 1's 8, finding 32's 20, finding 59's 3; two of them, `d32-android-proof3-local-ccz-query-url-changed` and `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed`, leave by the new rule. Deletes 1: `d20-supply-point-proof4-trace-vellum-xmlns-removed-22`, one of the two entries of defect 20's that each pin a drawn `xmlns`; `-21` is pinned to the one derived `xmlns`, and their control `targeted-supply-point-read` is retained again in place (part 01, A1; part 09, What step 2 moves and deletes). Adds 19 live on `formplayer@local.ccz`. Fourteen leave with their owner's fix: defect 14's submit message (moved in 6), finding 65's 2 (5), finding 33's submitted case name (9) and finding 51's sort keys (11), all on `targeted-custom-tile-after-59`; defect 14's 2 close-condition entries (9) on `targeted-close-conditions-after-59`; finding 65's submit label (5) on `targeted-form-link-hidden-target-after-59`; finding 34's submitted location (5) on `targeted-connect-deliver-rename-after-59`; finding 37's 2 submitted block orders (9) on `case-extension-registration-after-59` and `case-capture-repeat-after-59`; finding 33's submitted case name inside a repetition (9) on `case-capture-repeat-after-59`; and defect 9's two form-version entries, its submission version on `targeted-hq-side-state-after-59` and its next-screen version on `targeted-form-link-hidden-target-after-59` (both deleted in 5, the first with its control). Defect 24's 5 stay live, step 5's, on `case-extension-registration-after-59`, `case-extension-repeat-after-59` and `case-extension-query-after-59` (part 09, The entries step 2 adds) | `runtime_url_app_id` is added | Step `language-wire-codes` (no reason: no deployed code moves). The Job's deployment reads write `app_deployment_identities` (the cutover's one `ApplicationResource` read writes nothing else), and a deployment whose HQ app they find gone takes `remote_missing_at` with the folded `remote_app_missing` failure; deployment reasons `menu-id-changes-once`, `form-ids-change-once`, `ids-change-once-unreadable`, `ended-app-deleted`, `hq-app-not-nova-made`; no-write document reason `ccz-needs-project-space`. Blocker `app-mapping-without-pushed-revision` | Proof 1 holds no defect 1 entry; Formplayer's submission from the local archive shows no class at its `path`; its reader slice is seventeen documents in two runs, each beside every control its entries name: sixteen under Formplayer and Android, `search-hidden-link` (the second document the submit-label entry shows on) and `fuzz-suite-20260930-8` (the witness of the judge change to `merged_text_ids`, which no entry names) among them, and `targeted-supply-point-read` with the control A1 retains again under Web Apps and Android (part 01, A5, Lane); `proof/corpus/__tests__/publish.postgres.test.ts` runs the real `publishAppToHq` three times and asserts the three send the same menu id, form id and `xmlns` in every import body (part 01, A3. The publish sequence, Nova tests) |
-| 4 | Drift and baselines | Work item B: the comparator, the `target-app`, `project-data` and `organization` comparisons, `hq_changed`, the bound discard, the shell's exemption (while a baseline's origin is `create` the app comparison reads only `modules`), the capture's confirmed discard for `hqSide` documents, `StepOutcome`'s `stopped`, the retained reads under `proof/hq-reads/`, written by `proof/hq/test_retained_reads.py`, which publishes five documents | `lib/deployment/` (new: `hqSourceBaseline.ts`, `hqResourceBaseline.ts`, `remoteChanges.ts`, each with its test; edited: `preflight.ts`, `service.ts`, `store.ts`, `types.ts`, `importApplication.ts`, `lookupResourcePlan.ts`, `locationResourcePlan.ts`, `index.ts`); `lib/commcare/appOwnership.ts` (new here, deleted in pull request 5), `lib/commcare/surface/schemaDefaults.ts` (new), `lib/commcare/hq/lookupTables.ts` (`readHqLookupTableRows`, new) and `locations.ts`, with `lib/commcare/__tests__/hqLookupTables.test.ts` and `hqLocations.test.ts`; `components/builder/PublishDialog.tsx`, `publishOutcome.ts`, `app/api/commcare/upload/route.ts`; `e2e/tests/browser/publishing.spec.ts`, `e2e/lib/publishing-client.tsx`, `publishing-boundary.ts`; `lib/mcp/tools/uploadAppToHq.ts`, `lib/mcp/errors.ts`, `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`; `scripts/lib/hqRoundTripCutover/` (`writer.ts`: the Job's baseline reads and writes; `notice.ts`: the two deployment lines) and `lib/notices/` (the two reasons); `proof/corpus/publish.ts`, `writePublishCaptures.ts` (the ownership file beside each of the two bodies), `targetPeer.ts`, `proof/corpus/__tests__/publish.postgres.test.ts`; `proof/hq/test_retained_reads.py` (its drift groups), `operations.py` (`CapturedResourcesNotHeld`, and the reads built on `api_request`), `test_publish.py` (the cached-verdict case), `conftest.py`; `proof/editors/test_retained_reads.py` (new), `conftest.py` (`DOCUMENTS`, new, the package's key), `test_vellum.py`; `proof/formplayer/test_preview_install.py` (new), `conftest.py`; `proof/observe/publish.py`; `proof/store/queue.py` (`PACKAGE_DATA`); `proof/README.md`; `proof/hq-reads/` | none: defect 5's seven table entries on `targeted-hq-side-lookup` stay live and still show | none | The Job's baseline reads, outside the per-app transform; deployment reasons `next-publish-overwrites-hq-edits`, `next-publish-asks-before-overwriting` | Comparator tests over the retained reads; the lane regenerates and byte-compares `proof/hq-reads/` |
-| 5 | App-level emission | Defects 2, 4, 7, 8, 9; findings 34, 39, 40, 62, 65; `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`, and its edit-kind generator; the overlay module `lib/commcare/targetOverlay.ts` (it absorbs `targetProfile.ts` and replaces `appOwnership.ts`: the overlay's `ownership` replaces pull request 4's `appOwnershipOf`, and the drift comparison narrows `translations` from whole to the owned-key predicate); finding 40's fifteen constants seeded on HQ only where the target holds no value; finding 65's texts, the publish's read of the empty-list text flag into `app_deployments.target_empty_case_list_text`, and one local archive per configuration in the corpus; the bare `pollsensor` of a GPS question with its surface entry `questions/hq-generated-pollsensor` and the reader that takes `questions/authored-orx-pollsensor` out of `KNOWN_GAPS` (part 04, Finding 34); the proof 3 and proof 1 judge changes for the form version and the Android update, whose record names each archive's `uniqueid` and `version`, and `settings_replaced`'s, which reads the state's own next build; the manifest's reading of a target's value carried back (`manifest_usage.py`) and the footprint that reaches the app's record when the needed add-ons differ; the four lane tests that hold the former bytes, rewritten (part 04, Defect 4); proof 5's version clause (`proof/checks/proof5.py` compares a local form without its data node's `version`, which is the sequence from this pull request); `intent.py::profile_settings` and `::local_archive_versions`; `manifest_value_classes.py::save_differing_from_vellum` as the comparison with Vellum's computation, which no form of the corpus reaches, `::setting_outside_choices`, the reader of the manifest's `outside-choices` class (out of `KNOWN_GAPS`), and `::android_verified_path_without_entry`'s decision for an app that stores `cc-content-valid` `no`; the surface key family `profile-feature:` (`proof/surface/families/profile.py`, with `surface.json` regenerated) and the entry `application-and-settings/profile-feature-checkoff` for the local profile's `checkoff` feature (part 04, Defect 7, Files); as the pull request's first commit, before any judge or emitter change, the control `connect-location-capture` retained from `targeted-invalid-connect-ids` (`--as`), which `d34-connect-location-trace-meta-location` takes as its `control`; `d34-connect-location-capture-formplayer-local-ccz-data-meta-location` re-documented on `targeted-connect-deliver-rename` (part 04, Finding 34); at its head, the control `targeted-invalid-question-ids-after-9` retained from `targeted-invalid-question-ids` (`--as`) for defect 15's three pinned proof 1 entries, the four form-version entries deleted with the proof 3 judge change, the two pull request 3 registers among them, and `proof/controls/targeted-hq-side-state-after-59/` removed with the one of them that names it (part 04, Defect 9); targeted documents `targeted-attribute-display-condition` and `targeted-gps-question`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`) | `lib/domain/blueprint.ts`, `lib/domain/index.ts`, `lib/domain/kinds.ts` and each kind's metadata under `lib/domain/fields/` (`carriesValidation`, defect 8) with `lib/domain/__tests__/fieldRegistry.test.ts`, `lib/__tests__/docHelpers.ts`; `lib/doc/types.ts`, `lib/doc/scaffolds.ts`, `lib/doc/mutations/app.ts`, `lib/doc/mutations/index.ts`, `lib/doc/store.ts`, `lib/doc/diffDocsToMutations.ts`, `lib/doc/mutationTargetAdmission.ts`, `lib/doc/mutationSequenceAdmission.ts`, `lib/doc/mutationIdentityAdmission.ts`, `lib/doc/incrementalValidationScope.ts`, `lib/doc/referenceIndex.ts`, `lib/doc/hooks/useBlueprintMutations.ts`, `lib/doc/hooks/useAppSettings.ts` (new), and under `lib/doc/__tests__/` `mutations-app.test.ts`, `mutationAdmission.test.ts` and `diffDocsToMutations.fuzz.test.ts`; `lib/case-store/migrations/` (`<timestamp>_app_settings.ts`: the `apps.app_settings` column and the replaced `nova_current_app_change_fold_snapshot`), `lib/db/pg.ts`, `lib/db/blueprintRows.ts`, `lib/db/canonicalCommitKernel.ts`, `lib/db/persistedJson.ts`, `lib/db/runtimeDatabaseProbe.ts`, `lib/db/mediaDeletion.ts`, `lib/db/appGenesis.ts`, `lib/db/apps.ts`, `lib/doc/hooks/useAutoSave.ts` and the four script loaders of the root's carriers, `scripts/lib/loadPersistedBlueprint.ts`, `scripts/inspect-app.ts`, `scripts/lib/persistedLookupReferenceScan.ts` and `scripts/lib/repairAuthoringBaselines.ts` (the model-addition checklist, item 5); `lib/commcare/targetOverlay.ts` (new), `targetProfile.ts` and `appOwnership.ts` (both deleted), `appStringKeys.ts`, `addOns.ts` and `appProfileSettings.ts` (all new), `expander.ts` (`expandDoc`, `expandAppShell`, and `APP_SHELL_KEYS` without `add_ons`, with its exact-key test), `hqShells.ts`, `types.ts`, `constants.ts`, `client.ts` (the probe's `readEmptyCaseListText` option), `versionFloor.ts` (read here; created in pull request 3), `lib/commcare/hq/appSource.ts`, `lib/commcare/compiler.ts`, `lib/commcare/suite/displayConditions.ts`, `lib/commcare/suite/case-list/` (`detailTexts.ts` new), `lib/commcare/suite/formStrings.ts` (new), `lib/commcare/xform/metaBlock.ts`, `lib/commcare/xform/formVersion.ts` (new), `lib/commcare/xform/builder.ts`, `lib/commcare/validator/rules/field.ts`, `lib/commcare/validator/suiteOracle.ts`, and their tests under `lib/commcare/__tests__/`; `lib/deployment/` (`importApplication.ts`, `service.ts`, `hqSourceBaseline.ts`, `preflight.ts`, `store.ts`, `types.ts`, `runtimeTarget.ts`, `downloadTarget.ts`); `lib/export/localArchive.ts`; `lib/agent/tools/updateApp.ts`, `lib/agent/tools/shared/toolCallSummary.ts`, `lib/chat/toolSummary.ts`, `lib/agent/appOverview.ts`, `lib/agent/summarizeBlueprint.ts` with `lib/agent/__tests__/summarizeBlueprint-settings.test.ts` (new), `lib/db/__tests__/commitGuardedBatch.postgres.test.ts`, `scripts/test-schema.ts`, `lib/models.ts`; `components/builder/detail/appSettings/AppSavedFormsSection.tsx` (new), `AppSettingsPanel.tsx`, `e2e/tests/app/app-settings.spec.ts` (new); `scripts/lib/hqRoundTripCutover/` (`scripts/lib/hqRoundTripCutover/steps/appSettings.ts` new, `scripts/lib/hqRoundTripCutover/behavior.ts`, `notice.ts`) and `lib/notices/` (the six reasons and their renderers); `lib/commcare/surface/entries/application-and-settings.json` and `questions.json`, `lib/commcare/surface/surface.json`, `proof/surface/families/profile.py`, `strings.py`, `authored.py`, `proof/surface/__init__.py`, `proof/surface/test_strings_and_profile.py`; `proof/checks/proof2.py`, `proof3.py`, `proof5.py`, `test_proof5_locality.py`, `served.py`, `android.py`, `intent.py`, `manifest_usage.py`, `manifest_value_classes.py`, `test_manifest_value_classes.py`, `test_hq_side.py`, `test_intent.py`, `test_proof2_build.py`, `test_proof3_behavior.py`, `test_android.py`, `test_manifest.py`, `test_served.py`, `controls.py` and `corpus.py` (the archive compiled for each configuration); `proof/android/observe.py`, `predicates.py`, `README.md`, `proof/android/src/nova/proof/android/Location.java` (new), `Reader.java`; `proof/corpus/editKinds.ts`, `footprint.ts`, `entryWriter.ts`, `publish.ts`, `targetPeer.ts`, `documents.ts` (`HqSideSaves`), `inputs.ts`, `entropy.mts` (its prose alone: no ordinal changes) and the four tests under `proof/corpus/__tests__/` that hold the profile's `uniqueid` draw (part 04, Defect 9, Files); `proof/observe/served.py`, `sessions.py`, `proof4.py`, `intent.py`, `hqside.py`, `unit.py`; `proof/store/guard.py`; `proof/formplayer/observe.py`, `test_settings.py` (rewritten), `test_validation.py`; `proof/webapps/test_app_list.py`; `proof/connect/conftest.py`, `test_receiver.py`; `proof/hq/test_empty_list_flag_read.py` (new); `proof/targeted/` (`proof/targeted/documents/attributeDisplayCondition.ts` and `proof/targeted/documents/gpsQuestion.ts` new; `hqSideState.ts`, `hqSideLookup.ts`, `formShapes.ts`, `proof/targeted/index.ts`); `proof/hq-reads/navigation-base/` (the read after the Add-ons save and its `ownership.json`, written again); `.github/workflows/proof-audit.yml`; `proof/views/test_add_ons.py`, `test_case_list_offers.py`; `proof/rules/test_add_ons.py`, `test_stored_position_keys.py` (new), `profile_required_minimal.py` with its test (both deleted), `profile_unread_properties.py` with its test, `__init__.py`; `proof/walk-stops.json`; `proof/controls/connect-location-capture/`, `proof/controls/targeted-invalid-question-ids-after-9/`, `proof/controls/targeted-hq-side-state-after-59/` (removed); `proof/timings.json` | Moves 126: defect 2's 1, defect 4's 10, defect 7's 6, defect 8's 2, defect 9's 5, finding 34's 8 (7 of the base and the one pull request 3 added), finding 39's 2, finding 40's 82, finding 62's 2, finding 65's 8 (5 of the base and the 3 pull request 3 added). Three of them move under a judge change that leaves each showing on its control: defect 9's Android update entry and finding 40's two worker-setting entries (part 09, What step 2 moves and deletes). Deletes 4 with the form-version judge change, which no control shows afterwards: defect 9's 2 of the base and the two pull request 3 added. Adds 3 live: defect 15's pinned proof 1 entries on `targeted-invalid-question-ids-after-9` (moved in 10). Adds none for the new edit kind, which changes no register outcome (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds). Walk stops: adds the control entry of `targeted-invalid-question-ids-after-9` (part 09, The held walk stops) | `profile_required_minimal` retires; `profile_unread_properties` widens to `app.json` | Step `app-settings` (`android-form-lists-setting-stored`). No-write document reasons `validation-now-enforced`, `local-archive-changes`; deployment reasons `setting-changes-at-next-publish`, `settings-unknown-unreadable`, `worker-settings-reset-at-next-publish` | The intent check holds the local versions to the document sequence; no `/profile/properties/<key>` difference on any document; each configuration's A matches its own local archive; proof 5 reports no form's data `version` outside an edit's footprint |
-| 6 | XForm, first part | Leaf `constraint` attributes removed; no `#case/` shadow (findings 45 and 47); the datetime leaf; relative defaults; the registration case-id read; Vellum's fill for blank translations, the leaf-label rule and `SELECT_OPTION_LABEL_EMPTY`; finding 55; the ref-less repeat group; finding 46 with the data node name, and proof 2's version clause reading a form's bytes, which leaves none of the lone version's six paths (the form's, the suite's and the trace's, and Formplayer's three); the emission test that closes work item H, with `proof/README.md`'s two rows for the clause (part 09, Work item H); the control `container-query-conditional-after-13`, retained from this pull request's corpus for defect 25's new classes; targeted document `targeted-blank-labels`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.6"` (the authoring guide's prose) | `lib/commcare/xform/caseOps.ts`, `caseBlocks.ts`, `builder.ts`, `constraintCollections.ts`, `dataRootAttributes.ts`, `datetimeCaseValue.ts`, `formPath.ts` (`relativeXPath` and `originalContextPath` move here from `caseOps.ts`); `lib/commcare/session.ts` (`newCaseIdDatumId`), `lib/commcare/localization.ts`, `lib/commcare/formActions.ts` (a comment), and the emission tests and fixtures under `lib/commcare/__tests__/` (`editableEnvelope.test.ts` and `defaultValueEmission.test.ts` new); `lib/commcare/xpath/selfSteps.ts` (new), `lib/commcare/xpath/__tests__/nativeXPathCorpus.ts` (the `attribute axis` row reads the data node's `name`, which becomes the form's name); `lib/commcare/hashtags.ts`, `lib/commcare/hashtags/formContext.ts`; `lib/domain/translationFill.ts` (new), `translationUnits.ts`, `formWireName.ts` (new), `localizedBlueprintProjection.ts` (the `filled` option), `lib/domain/__tests__/localization.test.ts`; `lib/commcare/validator/` (`errors.ts`, `gate.ts`, `lib/commcare/validator/rules/field.ts`: `SELECT_OPTION_LABEL_EMPTY`) and `lib/doc/userFacingErrors.ts` (its message); `lib/doc/hooks/useLocalization.ts` (`useFilledField`), `components/builder/app-setup/LanguagesSection.tsx` (the Missing badge); `lib/preview/engine/engineInput.ts`, `lib/preview/engine/formEngine.ts`, `lib/preview/hooks/useVisibleFieldOrder.ts`, `components/preview/form/virtual/rows/` (`FieldRow.tsx`, `GroupBracket.tsx`, `SectionHeaderRow.tsx`); `e2e/tests/app/localization.spec.ts`; `lib/agent/authoring/reference.ts`, `lib/agent/tools/localization.ts`, `lib/agent/translation/__tests__/translateLanguage.postgres.test.ts`, `lib/models.ts`; `scripts/lib/hqRoundTripCutover/` (`scripts/lib/hqRoundTripCutover/steps/optionLabels.ts` new) and `lib/notices/` (`option-label-filled`); `lib/commcare/surface/entries/questions.json`; `proof/checks/compare/versions.py`, `proof/checks/compare/build_files.py`, `proof/checks/proof4.py`, `manifest_value_classes.py` with its test (`_form_reads` resolves `current()`), `test_form_content.py` (new), `test_proof2_build.py`, `test_proof4_editability.py`; the Android corpus package: `proof/android/conftest.py` (new), `test_form_reads.py` (new), `observe.py`, `predicates.py`, `README.md`, `proof/android/src/nova/proof/android/Answers.java`, `Screens.java`, `Updates.java`, `proof/store/queue.py` (`PACKAGE_DATA`), `proof/lane/blocks.py` (`CORPUS_PACKAGES`); `proof/connect/conftest.py`, `test_receiver.py` (the work area test); `proof/native/core/CaseOperationRuntimeTest.java` (five writes to datetime properties, and a registration form's reads of its own id), `ExpanderRuntimeTest.java` (new cases: a default in each of the four placements, and a registration form's reads of its own id) with `proof/native/steps/expander_emission.py` (HQ's regenerated form of each document those cases run); `proof/rules/` (the retired rules' modules and tests; `test_vellum_hashtags.py`, turned to work from `standard-case-reads`); `proof/controls/`; `proof/targeted/documents/blankLabels.ts` (new); `proof/timings.json` (the new document's groups and the new control's); `proof/README.md` (work item H's two rows) | Moves 69: defect 13's 45 (13 leaf constraint, 8 shadows, 5 datetime, 4 defaults and case-id read, 15 translations), finding 45's 5, finding 47's 4, finding 46's 6, defect 14's 7 data node name entries (6 of the base and the submit message pull request 3 added), work item H's 2. Adds 62 live of defect 25's on `container-query-conditional-after-13` (step 5's) | `connect_work_area_empty` retires | Step `option-labels` (`option-label-filled`) | `d41-empty-list-text-app-no-items-text` still shows on `localization-optional`; defect 25's two entries and defect 27's three stand at their paths |
-| 7 | XForm, second part | Containers as groups; the rename, with the validator code `RESERVED_FIELD_ID_PREFIX` and its rule retired; `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`; guards as update-only Save to Case blocks; conditions in `nova_condition_` groups; reads between blocks through `current()`; the root keyed create inside its one-row repeat; six new controls, each retained from this pull request's corpus under `<document id>-after-13`: `case-capture-multiple-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13`, `case-extension-registration-after-13`, `case-extension-repeat-after-13`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.7"` (`operationIdInputSchema`) | `lib/commcare/xform/` (`generatedNodes.ts` new), `lib/commcare/constants.ts`, `lib/commcare/formActions.ts`, `lib/commcare/identifierValidation.ts` (`isReservedXFormNodeName` deleted), `lib/commcare/validator/errors.ts`, `gate.ts`, `lib/commcare/validator/rules/field.ts`, `lib/commcare/validator/rules/caseOperations.ts` (`reservedFieldIdPrefix` and its code deleted), the emission tests and fixtures under `lib/commcare/__tests__/` (`generatedNodes.test.ts` new), `lib/commcare/validator/__tests__/caseOperations.test.ts`, `lib/doc/identifierVerdicts.ts`, `lib/doc/userFacingErrors.ts`, `lib/doc/caseOperationOrder.ts`, `lib/preview/engine/formEngine.ts` (the count node's name from the plan), `components/builder/editor/FieldIdentitySection.tsx`, `renameOutcome.ts`, `lib/agent/tools/case-operations/shared.ts`, `lib/agent/tools/editField.ts`, `lib/agent/tools/shared/fieldAssembly.ts`, `lib/agent/tools/__tests__/`, `lib/mcp/__tests__/compileApp.postgres.test.ts`, `lib/models.ts`, `scripts/lib/hqRoundTripCutover/` (`notice.ts`: the per-deployment line; `report.ts`: the scan's two counts) and `lib/notices/` (`data-paths-move-once`), `lib/commcare/surface/entries/questions.json`, `forms-and-case-writes.json`, `proof/checks/compare/names.py`, `proof/checks/compare/trace.py`, `proof/checks/manifest_value_classes.py` with its test, `proof/checks/test_compare.py`, `proof3.py`, `differences.py`, `proof/native/core/CaseOperationRuntimeTest.java`, `CaseCaptureRuntimeTest.java`, `proof/native/test_case_emission.py`, the reader tests `proof/formplayer/test_case_blocks.py`, `proof/webapps/test_generated_groups.py` and `proof/android/test_case_blocks.py` (all new) with their packages' `conftest.py` (`DOCUMENTS`), `proof/views/test_exports.py` (reads the new name), `proof/README.md`, `proof/controls/`, `proof/timings.json` | Moves 158: guard blocks 80, reserved names 25, wrapper containers 6, wrapper conditions 32, the root create id 14, and the datetime leaves' Formplayer entry, which shows until the guards and wrapper conditions are fixed. Re-paths defect 23's 70 entries from this run's evidence, Formplayer's two among them, and points them, defect 23's manifest entry on those documents and defect 24's 15, at the `-after-13` controls | none | No document step; deployment reason `data-paths-move-once` | Every later-step entry still shows on its document, defects 23 and 24 on their `-after-13` controls and the rest on the controls they name today; `names.py` still reads `__nova_` names on the old controls |
-| 8 | Defect 3 | `lib/commcare/xform/caseSaveReferences.ts`; `save_differing_from_vellum` returns False for the derived map; the intent check reads `case_type` as a standard property, which HQ learns from every Save to Case create's list; the control `case-capture-multiple-after-3`, retained from this pull request's corpus (`--as`) for the two intent classes an attachment under a Save to Case block keeps showing; `proof/README.md`'s "Intent checks" gains that `case_type` is a standard property | `lib/commcare/xform/caseSaveReferences.ts` (new) with `lib/commcare/__tests__/caseSaveReferences.test.ts` (new), `lib/commcare/xform/builder.ts`, `lib/commcare/xform/index.ts`; `lib/commcare/types.ts`, `hqShells.ts`, `expander.ts`, `lib/commcare/validator/hqJsonOracle.ts`, `lib/commcare/__tests__/compilerEvidence.ts` (`checkCompilerEvidence` runs `checkCaseReferences` over both fuzz corpora); `proof/checks/intent.py`, `test_intent.py`; `proof/controls/case-capture-multiple-after-3/`; `proof/timings.json`; `proof/README.md`; `content/docs/publishing.mdx` | Moves 3: defect 3's. Adds 2 live of defect 23's on `case-capture-multiple-after-3`, `d23-attachment-form-case-updates-attachment-under-save-to-case` and `d23-attachment-data-dictionary-attachment-under-save-to-case` (step 5's; part 04, Defect 3) | none | none | Defect 3's proof 4 class shows on no document; its two intent classes show on `case-capture-multiple` alone, held there by defect 23's two new entries; the manifest check reports no `save-differing-from-vellum` use |
-| 9 | Case writes through basic actions | Finding 33 (`nova_trimmed_<question>`), finding 37, finding 66 (update properties in name order), `update_case` `always`, close conditions moved to Save to Case, `external_id` as an update row; `case-extension-query-after-13`, `case-extension-repeat-after-13` and `expander-form-links-emission-forwards-literal-condition-47c96355-0` retained again in place; `proof/targeted/documents/echo.ts::answerHeld` takes a session for the nine documents whose expectation answers a question in a write-free follow-up form (part 09, Corpus changes); `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.9"` (the `close_condition` descriptions) | `lib/commcare/xform/caseBlocks.ts`, `caseOps.ts`, `generatedNodes.ts` (`trimmed`), `builder.ts` (`buildFieldParts` writes `nova_trimmed_<question>`, `required` and the guard), `lib/commcare/formActions.ts`, `lib/commcare/validator/hqJsonOracle.ts` (refuses a non-null `open_case.external_id`), `lib/commcare/surface/entries/forms-and-case-writes.json`, the emission tests under `lib/commcare/__tests__/` (`caseBlocks.test.ts`, `multiSelectEmission.test.ts`, `extensionCaseEmission.test.ts`, `repeatContextSubcase.test.ts`, `hqJsonOracle.test.ts`), `lib/domain/caseScalarTextGuard.ts` (new), `lib/domain/closeCondition.ts` (new), `lib/domain/index.ts`, `lib/case-store/postgres/submissionEnvelope.ts`, `lib/case-store/__tests__/followupTouch.postgres.test.ts` (new), `lib/preview/engine/formEngine.ts`, `components/builder/detail/formSettings/CloseConditionSection.tsx`, `lib/agent/planningSchemas.ts` (`closeConditionInputSchema`), `lib/agent/tools/updateForm.ts`, `scripts/test-schema.ts` (the `updateForm` entry, registered here), `lib/models.ts`, `scripts/lib/hqRoundTripCutover/` (`behavior.ts`: the four selection functions) and `lib/notices/`, `proof/targeted/documents/` (`closeConditions.ts`, `echo.ts`, and the four makers that pass a form's command and a case id to `answerHeld`: `searchApps.ts`, `multiSelectDestinations.ts`, `stableWitnesses.ts`, `noMatchesReturnIdentity.ts`), `proof/rules/` (the two retired rules' modules and tests, `__init__.py`, and `conftest.py`, whose `DOCUMENTS` loses two documents), the reader tests `proof/formplayer/test_case_name_guard.py`, `proof/webapps/test_case_name_guard.py` and `proof/android/test_case_name_guard.py` (all new) with their packages' `conftest.py` (`DOCUMENTS`), `proof/native/core/CaseOperationRuntimeTest.java` (new cases: a hidden name question, and a whitespace-only and a 256-character name refused at the question), `proof/native/test_case_emission.py` (new assertions: the child order of the data node and of each `<update>`, the local form against HQ's regenerated one), `proof/controls/`, `proof/walk-stops.json` | Moves 78: defect 14's 52 (non-writing follow-up 21, close conditions 29 and the 2 pull request 3 added), finding 33's 19 (17 of the base and the two submitted case names pull request 3 added), finding 37's 6 (3 of the base, the two submitted block orders pull request 3 added, and `d24-inert-subcase-formplayer-local-ccz-item-id-order`, the repeat item's position on `case-capture-query`, which the lane files under defect 24), finding 66's 1. Re-files `d14-non-writing-followup-soft-assert-casedb-base-get-case-from-case-update` under defect 26 as `d26-a-link-names-no-case-soft-assert-casedb-base-get-case-from-case-update` and adds its proof 3 twin `d26-a-link-names-no-case-soft-assert-proof3-casedb-base-get-case-from-case-update`; both stay live, step 5's (part 06, 1; part 09, The entries that remain). Adds 6 live of defect 24's on the two `-after-13` controls (step 5's). Walk stops: `targeted-close-condition-unparsable`'s moves to its control | `case_block_position`, `update_never_beside_actions` retire | No document step. No-write document reasons `follow-up-now-touches-case`, `linked-follow-up-now-writes-case`, `close-moves-to-save-to-case`, `case-name-now-checked` | The lane passes without both rules; defect 24's five trace and three Formplayer entries stand at their paths, and the five pull request 3 added on Formplayer's submissions stand on their `-after-59` controls |
-| 10 | Identifiers and form content | Defect 15 with its Connect forwarding; findings 31, 43, 44, 60, 61, 68, 70, 71 (a read of the form's root, refused under `INVALID_REF`, and in a catalog property's `required` and `validation` under `CASE_PROPERTY_REFERENCE_INVALID`); case operation ids, link identifiers, the Connect id minter; `CONNECT_DELIVER_FORM_HOLDS_TASK`; the rename allowance `connect_block_renamed` widened to the renamed task's `task-completed-nothing`, which shows once the task has a form of its own (part 09, Connect's own reading of a renamed block); `SESSION_DATUM_NOT_SUPPLIED`; `CASE_PROPERTY_NAME_STOPS_FORM_BUILDER` (finding 43); `SELECT_OPTION_VALUE_DUPLICATE` and `CASE_PROPERTY_OPTION_VALUE_DUPLICATE` (finding 44); `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.10"` (the operation, link, entry-point and Connect id inputs) | `lib/domain/questionId.ts` (new), `entryPoints.ts`, `forms.ts` (`connectDeliverFormHoldsTask`), `selectOptionValue.ts`, `lib/doc/identifierVerdicts.ts`, `lib/doc/userFacingErrors.ts`, `lib/doc/connectConfig.ts`, `lib/commcare/validator/rules/` (`sourceCaseWrites.ts` and `sessionData.ts` new; `form.ts`, `field.ts`, `app.ts`, `caseOperations.ts`), `lib/commcare/validator/errors.ts`, `gate.ts`, `runner.ts`, `xpathValidator.ts`, `lib/commcare/xform/sourceCaseWrites.ts` (new), `lib/commcare/xform/caseOps.ts` and `lib/commcare/expander.ts` (they call its predicates), `lib/commcare/connectSlugs.ts`, `lib/commcare/identifierValidation.ts`, `lib/commcare/xpath/expressionAst.ts` (`hasExplicitPathContext` exported), `lib/preview/xpath/dependencies.ts` (`formRootReadPositions`), `components/builder/detail/formSettings/LearnConfig.tsx`, `DeliverConfig.tsx`, `components/builder/detail/appSettings/ConnectEnableDialog.tsx`, `connectDraft.ts`, `components/builder/app-setup/DeepLinksSection.tsx`, `PublishingSection.tsx`, `publishingSectionModel.ts`, `usePublishingRecords.ts` (new), `components/builder/editor/fields/optionsDraftModel.ts`, `lib/commcare/__tests__/xformDocArbitrary.ts` and `connectWireFixtures.ts` (the generators map their draws and the fixtures' new entities carry named uuids; part 09, Corpus changes), `lib/commcare/__tests__/expander.test.ts` (the two duplicate-option tests become refusal tests, and the empty-group test's form gains a Label), `connectSlugs.test.ts`, `connectDefaults.test.ts`, the native `connect` family's four files (`proof/native/producers/emit-connect-evidence.ts`, `proof/native/steps/form_emission.py`, `proof/native/test_connect_emission.py`, `proof/native/core/ConnectRuntimeTest.java`), `proof/checks/hq_own_reports.py`, `test_hq_own_reports.py` and `proof/checks/connect.py` (the widened member), `proof/checks/test_connect_unit.py` (its two tests over the task's form; part 08, Finding 61, Files), `proof/connect/test_hq_own_rename.py`, `conftest.py`, `test_receiver.py`, `test_forwarding.py`, `proof/hq/test_endpoint_ids.py` and `entryPointIdVerdicts.ts` (both new), `proof/formplayer/test_observe.py`, `apps.py` (`form_written`), `lib/agent/planningSchemas.ts`, `lib/agent/toolSchemaGenerator.ts` (the question id description), `lib/agent/tools/case-operations/shared.ts`, `lib/agent/tools/entry-points.ts`, `lib/agent/tools/shared/connectIds.ts`, `scripts/test-schema.ts` (`configureConnect`, `addEntryPoint` and `updateEntryPoint`, registered here), `lib/models.ts`, `scripts/lib/hqRoundTripCutover/` (the eight steps, `scripts/lib/hqRoundTripCutover/steps/relativePaths.ts`, `scripts/lib/hqRoundTripCutover/report.ts`) and `lib/notices/`, `docs/plans/hq-round-trip/2-cutover-runbook.md` (the renamed Connect blocks of step 1(d)), `proof/targeted/`, `proof/walk-stops.json`, `proof/timings.json` (the groups of the eight documents that leave) | Moves 68: defect 15's 16 (13 of the base and the 3 proof 1 entries pull request 5 added), finding 68's 30 (filed under defect 20; part 09's re-homing rule, fourth case; pull request 3 deleted the thirty-first), finding 31's 1, finding 43's 5 and the 2 pull request 1 added, finding 44's 4, finding 60's 1, finding 61's 1, finding 70's 6, finding 71's 2 (both findings' added in pull request 1). Walk stops: `targeted-invalid-question-ids`'s and `targeted-supply-point-read`'s move to their controls, and `fuzz-xform-20260930-10`'s is removed, since finding 71's draw puts rows after the repetition that holds its date and time question (part 09, The held walk stops). Re-documents `d14-logos-media-unmatched-logo-refs` on `expander-form-hashtag-expansion-keeps-an-unresolvable-f5cf70e7-0`, where the removal of the two duplicate-option documents moves `setAppLogo` | none | Steps `question-ids` (`question-renamed`), `case-operation-ids` (`case-operation-renamed`), `connect-ids` (`connect-block-renamed`), `connect-task-forms` (`connect-task-moved-to-own-form`), `entry-point-ids` (`entry-point-renamed`), `option-values` (`option-value-split`), `empty-forms` (`empty-form-label-added`), `unsupplied-session-reads` (`session-read-removed`). Blockers `unresolved-relative-path`, `link-identifier-reserved`, `reserved-property-write`, `form-root-read` | `targeted-invalid-connect-ids` stays a Connect app; `index.json` ids diffed: eight documents leave (part 09, Corpus changes) |
-| 11 | Case lists | Defects 10 and 16 (hidden columns); findings 35, 36, 38, 41, 42, 51, 54, 57; finding 67's builder, tool and docs copy; tiles; sort spellings; the straight apostrophe in a date pattern; `lib/domain/caseListOrder.ts::caseListOrderPlan`; `CASE_LIST_SORT_PROPERTY_AMBIGUOUS`; `CASE_TILE_HIDDEN_CALCULATED_SORT` (a hidden order rule on a calculated column or a column over `case_id` in a custom-tile list); `CASE_LIST_DATE_PATTERN_APOSTROPHE`; `CASE_LIST_ID_MAPPING_KEY_CHARACTERS` (an ID-mapping value holding `&`, `<`, `>`, `"` or `'`); the oracle's `HQJSON_BAD_SORT_ELEMENT` and `HQJSON_BAD_DETAIL_FIELD`; `lib/domain/modules.ts::caseListColumnIsEmitted` replaced by `caseListColumnRuns` and `caseListColumnTextShows`; targeted documents `targeted-attribute-columns`, `targeted-hidden-calculated-column` and `targeted-tile-hidden-order`; the control `targeted-custom-tile-explicit-cells`, retained from this pull request's corpus with the `CASE_LIST_TILE` configuration; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.11"` (the case-list-config schemas and `update_module`, which holds the same column arms, the date pattern description, `set_case_list_tile`, the `grouping` description) | `lib/domain/caseListOrder.ts` (new), `lib/domain/modules.ts`, `standardCaseProperties.ts` (`ATTRIBUTE_BACKED_COLUMN_PROPERTIES`), `translationUnits.ts`, `mediaRefs.ts`, `casePropertyTypes.ts` (a comment), `lib/domain/__tests__/translationUnits.test.ts` (new), `lib/commcare/hqJson/caseList.ts`, `lib/commcare/suite/case-list/`, `lib/commcare/suite/case-search/searchSession.ts`, `relatedCaseProjection.ts`, `lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts`, `lib/commcare/compiler.ts`, `lib/commcare/expander.ts` (finding 41's text on every menu's short detail; finding 54's languages, passed to `moduleShell`), `lib/commcare/hqShells.ts` (`caseSearchConfigShell` and `moduleShell` take the app's languages), `lib/commcare/types.ts`, `lib/commcare/lookup/naming.ts`, `lib/commcare/surface/entries/menus-and-case-lists.json`, `lib/doc/userFacingErrors.ts`, `lib/commcare/validator/rules/case-list/` (the four new rules, `idMappingKeyCharacters.ts`, `caseTileHiddenCalculatedSort.ts`, `dateColumnPattern.ts` and `sortPropertyOwnership.ts`, each with its test; `shared.ts`; the header comment of `caseTileLayout.ts`), `lib/commcare/validator/rules/module.ts` (registers them), `lib/commcare/validator/errors.ts`, `gate.ts`, `hqJsonOracle.ts` (the oracle's refusal of the former spellings), `lib/commcare/__tests__/expander.test.ts` (eleven tests take new assertions; each keeps its title and document count), `lib/commcare/__tests__/hqJsonOracle.test.ts` (the attribute-backed sort case, which produces the probes of `proof/native/test_hq_json_oracle.py`), `proof/native/core/CaseListRuntimeTest.java`, `TileSuiteRuntimeTest.java`, `lib/commcare/__tests__/suiteDocArbitrary.ts` (`lowerToDoc` rewrites a drawn list as the cutover does, for the six fuzz documents the new rules refuse), `lib/commcare/__tests__/localizationWireFixture.ts` (`localization-bilingual`'s order rule), `caseListOrderParity.test.ts` and `hiddenCalculatedInstances.test.ts` (both new), `casePropertyWire.test.ts`, `caseListEmissionFixture.ts`, `searchEmission.test.ts`, `tileEmissionParity.test.ts`, `lib/preview/engine/caseDataBindingHelpers.ts`, `lib/preview/engine/caseListOrder.ts` (new) and `caseDataBinding.ts`, `lib/preview/hooks/useCaseDataBinding.ts`, `lib/preview/caseTileRendering.ts`, `lib/preview/__tests__/caseTile.test.ts`, `components/preview/shared/listFilter.tsx`, `lib/case-store/store.ts` (`SortKey`), `lib/case-store/postgres/store.ts` (the comparator and the blanks term), `lib/case-store/sql/compileIntervalText.ts` (new, with its Postgres test), `compileExpression.ts`, `index.ts`, `components/builder/case-list-config/`, `components/builder/shared/datePatternDraft.ts`, `components/builder/shared/primitives/CustomDatePatternInput.tsx`, `e2e/tests/browser/case-workspace-surface.spec.ts`, `preview-cases-audit.spec.ts`, `lib/agent/tools/case-list-config/`, `lib/agent/tools/updateModule.ts` (`case_list_columns` holds the same arms), `lib/agent/summarizeBlueprint.ts` (a comment), `lib/models.ts`, `scripts/lib/hqRoundTripCutover/` (the five steps under `scripts/lib/hqRoundTripCutover/steps/`, `scripts/lib/hqRoundTripCutover/transform.ts`, `behavior.ts`: the four no-write reasons) and `lib/notices/`, `proof/targeted/documents/`, `proof/targeted/index.ts`, `proof/rules/` (the five retired rules' modules and tests, `__init__.py`, `conftest.py`), `proof/controls/`, the reader tests, new in this pull request: `proof/hq/test_fuzzy_sort_keys.py`, `proof/hq/test_date_pattern_characters.py`, `proof/editors/test_mapping_keys.py`, `proof/android/test_case_lists.py`, `proof/native/core/CaseListOrderRuntimeTest.java` with `proof/native/core/resources/case-list-order/orders.json` and its line in `proof/native/families.py`; the reader tests it edits: `proof/webapps/test_search.py`, `test_tiles.py`, `test_empty_list.py` (rewritten to the fixed contract), `proof/formplayer/test_search.py`, `proof/webapps/conftest.py` and `proof/android/conftest.py` (`DOCUMENTS`), `proof/android/observe.py` (`app` takes `searches`), `predicates.py` (the predicate finding 67's rule names); `proof/corpus/footprint.ts` with its test; `proof/README.md`; `proof/timings.json` (the groups of the new documents and controls) | Moves 91: defect 10's 6, defect 16's 1, findings 35 (2), 36 (6), 38 (6), 41 (5), 42 (9), 51 (6: 5 of the base and the sort keys pull request 3 added), defect 14's 33 tile entries (the tile clause's 18, tile cells' 15), and finding 57's 17 that pull request 1 added. Adds 13 live of defect 12's on `targeted-custom-tile-explicit-cells` (moved in 13): the ten classes defect 14's and finding 42's entries held under `CASE_LIST_TILE`, and the three vertical-alignment classes the retired rule erased there | `sort_display_empty`, `sort_type_plain`, `sort_blanks_default`, `sort_calculation_pair`, `search_title_empty`, `search_description_empty`, `tile_vertical_align_start` retire | Steps `id-mapping-keys` (`id-mapping-entry-removed`), `date-patterns` (`date-pattern-apostrophe-replaced`), `tile-hidden-calculated-sort` (`tile-order-rule-removed`), `sort-property-ownership` (`order-rule-removed-same-property`, `order-rule-moved-to-first-column`), `tile-cells` (`tile-cell-defaults-set`). No-write document reasons `case-list-order-changes`, `case-list-search-matches-hidden-fields`, `hidden-order-column-not-in-sort-menu`, `record-id-column-now-shows` | The test `keeps the positional calc join aligned for an off-Results sort carrier` of `lib/commcare/__tests__/expander.test.ts`'s `sort_elements` block, whose first document is `expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0`, keeps its title and its document count, so the document keeps its id; the lane passes with 25 rules |
-| 12 | Menus, navigation and search settings | `postSubmit: firstMenu` and `parentMenu` with `POST_SUBMIT_NOT_OFFERED`; `hiddenFromMenu` with `HIDDEN_MENU_NOT_A_DESTINATION` and `DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU`; finding 58's link copy; the search button label removed; lookup prompt sort; reserved input names (`CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER`, `CASE_LIST_SEARCH_INPUT_NAME_RESERVED`); survey menus; the codes `DISPLAY_CONDITION_ALWAYS_FALSE`, `POST_SUBMIT_MODULE_CASE_LIST_ONLY` and `SEARCH_FIRST_NO_PREVIOUS_WORKFLOW` retired; four of block 10's equivalent spellings (`no_vellum` and `custom_variables` omitted, a calculated column's format written `plain`, the one `name` column on an empty short list; part 06, 10. The equivalent spellings); finding 53's local sentinel; targeted document `targeted-hidden-from-menu`, and `targeted-search-button-label` deleted with its maker; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.12"` (`post_submit`, `hiddenFromMenu`, the search inputs and their `sortColumnId`, `set_case_search_display`, the `add_form_links` and `update_form_link` descriptions, the `displayCondition` description, the entry-point `ignoreDisplayConditions` descriptions with `add_entry_point`'s own, and `FORM_ENTRY_DESCRIPTION`) | `lib/domain/forms.ts`, `modules.ts`, `navigation.ts`, `postSubmit.ts`, `menuForms.ts`, `index.ts`, `translationUnits.ts`, `localizedBlueprintProjection.ts`, `referenceSlots.ts`, `lib/domain/predicate/simplify.ts`; `lib/commcare/session.ts`, `expander.ts`, `compiler.ts` (the local suite builds from `moduleCaseTypeForActions`, not from the uploaded case type, so a survey menu's own type changes no local archive), `formLinkProjection.ts`, `previousTaskProjection.ts`, `localeFile.ts`, `lib/commcare/suite/displayConditions.ts`, `lib/commcare/suite/case-search/` (`reservedInputNames.ts` new), `lib/commcare/hqShells.ts`, `lib/commcare/hqJson/caseList.ts`, `lib/commcare/types.ts`, `lib/commcare/validator/hqJsonOracle.ts` (block 10's spellings and the search button label), `lib/commcare/validator/errors.ts`, `lib/commcare/validator/gate.ts`, `lib/commcare/validator/rules/form.ts`, `module.ts`, `displayConditions.ts`, `hiddenFromMenu.ts` (new), `lib/commcare/validator/rules/case-search/searchFirst.ts` (`searchFirstNoPreviousWorkflow` deleted), `searchNoMatches.ts`, `lib/commcare/validator/rules/case-list/searchInputReservedName.ts` (new), `lib/commcare/surface/entries/case-search.json`, `forms-and-case-writes.json`, `menus-and-case-lists.json`, `lib/commcare/surface/__tests__/reservedInputNames.test.ts` (new), and the emission and rule tests under `lib/commcare/__tests__/` (`hiddenFromMenu.validation.test.ts` new, `searchEmissionFixture.ts`); `lib/doc/mutations/modules.ts`, `forms.ts` (the destination reconciliation), `lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts` (renamed `postSubmitMenuShape.test.ts`), `lib/doc/formLinkMutations.ts`, `searchNoMatchesForm.ts`, `displayConditionMutations.ts`, `caseSearchConfigPatchMutations.ts`, `projectBuilderLanguageMutations.ts`, `searchInputMutations.ts`, `lookupReferences.ts`, `diffDocsToMutations.ts`, `types.ts`, `userFacingErrors.ts`, `lib/doc/hooks/useFormLinkFacts.ts`, `useFormLinks.ts`, `lib/doc/__tests__/multiplayerMerge.test.ts`, `mutations-modules.test.ts`; `lib/preview/afterSubmitRouting.ts`, `noMatchesForm.ts`, `menuProjection.ts`, `screenProjection.ts`, `entryPointLaunch.ts`, `workerModule.ts`, `lib/preview/app-tests/submission.ts`, `navigation.ts`, `lib/preview/app-tests/__tests__/journey.postgres.test.ts`, `lib/preview/engine/navigationProjection.ts`, `postSubmissionEvaluation.ts`, `formLinkEvaluation.ts`, `previousTask.ts`, `displayConditionEvaluation.ts`, `lookupEvaluation.ts`, `searchExpressionEvaluation.ts`, `components/preview/screens/` (`FormScreen.tsx`, `HomeScreen.tsx`, `ModuleScreen.tsx`, `CaseListScreen.tsx`), `components/preview/__tests__/formScreenAfterSubmit.test.ts`; `components/builder/detail/formSettings/`, `components/builder/detail/moduleSettings/ModuleSettingsPanel.tsx`, `components/builder/form-links/`, `components/builder/conditions/`, `components/builder/case-list-config/` (`noMatchesFormReview.tsx`, `CaseListConfigWorkspace.tsx`, `components/builder/case-list-config/inspector/SearchPanelInspectorBody.tsx`, `components/builder/case-list-config/inspector/SearchChoiceSourceEditor.tsx`), `components/builder/app-setup/LanguagesSection.tsx`, `components/builder/shared/editorSchemas.ts`; `e2e/lib/` (`formLinksSeed.ts`, `caseChangesSeed.ts`, `previousTaskSeed.ts`, `caseWorkspaceSeed.ts`, `case-workspace-surface-client.tsx`), `e2e/tests/browser/case-workspace-surface.spec.ts`, `e2e/tests/app/authed.spec.ts`; `lib/agent/tools/createForm.ts`, `updateForm.ts`, `getForm.ts`, `updateModule.ts`, `getModule.ts`, `entry-points.ts`, `lib/agent/tools/shared/formEntry.ts`, `lib/agent/tools/form-links/`, `lib/agent/tools/case-search-config/shared.ts`, `lib/agent/tools/case-search-config/__tests__/` (`setCaseSearchDisplay.test.ts`, `schema.test.ts`, `setCaseSearchAdvanced.test.ts`, which lose their cases on the button label), `lib/agent/tools/case-list-config/shared.ts`, `addSearchInputs.ts`, `updateSearchInput.ts`, `lib/agent/tools/case-list-config/__tests__/configureCaseList.test.ts`, `lib/agent/__tests__/lookupAuthorBoundary.test.ts`, `lib/agent/authoring/__tests__/schema.test.ts`, `lib/agent/summarizeBlueprint.ts`, `lib/agent/blueprintHelpers.ts`, `lib/agent/identitySchema.ts`, `lib/agent/authoring/output.ts`, `lib/agent/translation/translator.ts`, `scripts/test-schema.ts` (`addFormLinks` and `updateFormLink`, registered here, and the `configureCaseList` prompt), `lib/models.ts`; `scripts/lib/hqRoundTripCutover/` (this pull request's steps under `scripts/lib/hqRoundTripCutover/steps/`, and `scripts/lib/hqRoundTripCutover/behavior.ts`) and `lib/notices/`; `proof/targeted/documents/` (`hiddenFromMenu.ts` new; `searchApps.ts` loses the button-label maker), `proof/targeted/index.ts`, `proof/targeted/__tests__/stableWitnesses.test.ts`; `proof/native/core/SearchRuntimeTest.java`, `SearchPromptRuntimeTest.java`, `proof/native/test_search_emission.py`; `proof/hq/test_case_search.py`; `proof/android/navigation.py` and `proof/android/test_navigation.py` (both new), `proof/android/conftest.py` (its `DOCUMENTS`, which pull request 6 creates, gains two documents), `proof/android/src/nova/proof/android/Nav.java` (new), `Reader.java` (the `nav` request), `Queries.java` (each dropdown's items), `proof/android/README.md`; `proof/formplayer/test_end_of_form.py`, `test_search.py`, `conftest.py`; `proof/webapps/test_links.py`, `test_search.py`, `conftest.py`; `proof/corpus/footprint.ts`; `proof/README.md`; `proof/timings.json` (the new document's groups, and the deleted one's) | Moves 26: defect 14's 21 (multi-select destinations 3, search button label 7, lookup prompt sort 3, reserved input names 7, survey menus 1) and finding 53's 5 | none | Steps `search-button-label` (`search-button-text-changed`), `reserved-search-inputs` (`search-input-renamed`, `search-input-removed`), `hidden-from-menu` (`hidden-from-menu-set`), `post-submit` (`after-submit-destination-moved`). No-write document reasons `lookup-choices-order-changes`, `survey-menu-takes-case-type`. Blocker `hidden-menu-is-a-destination` | `targeted-form-links-hidden-and-fallback` stays admitted, and defect 26's entries on it stay live |
-| 13 | Publish gates | Defect 12's probes; `lib/commcare/planPrivileges.ts::requiredPlanPrivileges` and `hq_confirmation_needed`, with `NovaPublishVerdict.planPrivileges` over D and D′ and the lane oracle's `user_case` arm over link and datum `xpath`; the version floor (`hq_app_version_below_floor`); the flat fixture with finding 69's copy; Data Forwarding and the Connect forwarder (C8), with the lane's `privilege/data_forwarding` rule in place of its seam; finding 64's equality-test exclusion (C7); logos, with the oracle's `checkLogoRefs` and its code `HQJSON_BAD_LOGO_REF` removed; `withdraw_deployment_confirmation`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.13"` (`set_app_logo`'s description) | `lib/deployment/preflight.ts`, `service.ts`, `store.ts`, `types.ts`, `actions.ts`, `importApplication.ts`, `setupArtifact.ts`, `workerRecordRequirements.ts` (`workerRecordRequirements` moves to `lib/domain/workerRecordRequirements.ts`, new), and under `lib/deployment/__tests__/` `publishGates.postgres.test.ts` and `confirmations.postgres.test.ts` (both new) and `publishSequence.postgres.test.ts` (the exact-key expectation); `lib/commcare/planPrivileges.ts` and `planPrivilegePlans.json` (both new), `lib/commcare/projectSpaceCompatibility.ts`, `hqShells.ts`, `types.ts`, `expander.ts` (`APP_SHELL_KEYS` loses `build_spec`; `readsLocationsFixture` moves to `lib/commcare/locations/readsLocationsFixture.ts`, new), `lib/commcare/versionFloor.ts` (`compareToVersionFloor`), `lib/commcare/hq/appSource.ts` (`cloudcareEnabled`, `logoRefs`), `lib/commcare/connectDefaults.ts`, `connectSlugs.ts`, `caseOptions.ts`, `lib/commcare/xform/caseOps.ts` (`formEmitsSaveToCase`), `lib/commcare/xform/builder.ts`, `lib/commcare/suite/case-search/searchPrompts.ts`, `xpathQuery.ts` with its test (new), `lib/commcare/formLinkProjection.ts`, `compiler.ts`, `client.ts`, `targetLogoRefs.ts` (new) with `lib/commcare/__tests__/targetLogoRefs.test.ts` (new), `compilerEvidence.ts` (`checkCompilerEvidence` gains four assertions: no `build_spec`, no child of its own menu's case type, `location_fixture_restore`, no `logo_refs`), `hqJsonOracle.test.ts` (loses its `logo_refs` block), `projectSpaceCompatibilityProbe.test.ts`, `projectSpaceCompatibilityTransport.test.ts`, `lib/commcare/multimedia/logoEntry.ts`, `lib/commcare/multimedia/hqJsonExportArchive.ts`, `lib/commcare/validator/hqJsonOracle.ts`, `lib/commcare/validator/errors.ts`, `lib/commcare/validator/gate.ts`, `lib/commcare/surface/entries/gates.json`, `application-and-settings.json`, `lib/commcare/surface/__tests__/gates.test.ts` (the new structural test of the flag probe); `lib/domain/mediaRefs.ts` (`uncarriedLogoAsset` removed, with its cases in `lib/domain/__tests__/mediaRefDescribe.test.ts`), `lib/doc/hooks/useUncarriedLogo.ts` (deleted), `lib/media/uploadOutcome.ts`, `lib/export/boundaryValidation.ts` (a comment); `lib/publish/planFeatures.ts` (new), `manualImportGuide.ts`, `projectSpaceCompatibility.ts`; `app/api/commcare/upload/route.ts`, `app/api/commcare/project-space-compatibility/route.ts`, `app/api/compile/json/route.ts`; `components/builder/PublishDialog.tsx`, `PublishPanel.tsx`, `publishOutcome.ts`, `DeploymentStatus.tsx`, `components/builder/app-setup/PublishingSection.tsx`, `publishingSectionModel.ts`, `components/builder/detail/appSettings/AppAppearanceSection.tsx`, `components/docs/ProjectSpaceCapabilityCatalog.tsx`; `e2e/tests/browser/publishing.spec.ts`, `e2e/lib/publishing-boundary.ts`; `lib/mcp/tools/` (`uploadAppToHq.ts`, `checkProjectSpaceCompatibility.ts`, `deploymentProjection.ts`, `deploymentTools.ts`, `compileApp.ts`, and `withdrawDeploymentConfirmation.ts`, new), `lib/mcp/server.ts`, `lib/mcp/errors.ts`, and the tools' Postgres tests under `lib/mcp/__tests__/`; `lib/agent/tools/media/setAppLogo.ts`, `lib/models.ts`; `scripts/lib/hqRoundTripCutover/notice.ts` (the three deployment lines) and `lib/notices/` (their reasons and renderers); `proof/corpus/publish.ts`, `targetPeer.ts` (`buildSpecVersion`), `proof/corpus/hq/test_privileges.py`, `proof/checks/configurations.py`, `proof/checks/test_corpus.py`, `proof/observe/unit.py` (`_build` asks the identities' HQ reads in every build), `proof/native/test_location_emission.py`, `proof/views/test_linked_logos.py`, `test_case_list_offers.py`, `test_location_fixture.py`, `proof/webapps/test_app_list.py`, `proof/connect/hq.py`, `test_forwarding.py`, `proof/hq/seams.py` (`withheld`), `proof/android/predicates.py` (one new test), the reader tests new in this pull request, `proof/hq/test_version_floor.py`, `test_plan_features.py`, `test_flag_probe.py`, `test_logos.py`, `proof/editors/test_version_raise.py`, `test_plan_features.py` and `test_gated_pages.py`, `proof/targeted/documents/customTile.ts`, `proof/README.md`, `proof/walk-stops.json`, `proof/fixed-defects.json`, `proof/controls/expander-form-links-emission-emits-hq-form-links-with-3555b968-0/` (removed), `proof/timings.json` (that control's group removed) | Moves 50: defect 12's 35 and the 13 pull request 11 added, defect 14's 2 logo entries. Deletes 6 from the fixed register, the `d14-android-proof4-case-management-*` entries pull request 9 moved on `expander-form-links-emission-emits-hq-form-links-with-3555b968-0`, and removes that control: the oracle's `user_case` arm now grants it `USERCASE`, and it stops showing them (part 09, What step 2 moves and deletes). Registers none for the soft assertion that `expander-form-links-emission-emits-hq-form-links-with-3555b968-0` shows in proof 3 and proof 4 once it runs with `USERCASE`: pull request 9's two entries of defect 26 hold it (part 09, The entries that remain). Walk stops: the seven related-lookups stops leave their documents, two to their controls (`targeted-search-related-lookups`, `expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0`) and five removed (`function-arguments`, `prompt-guards`, `search-parent` and the two `expander-expanddoc-hq-json-projection-case-search-` documents, `-4d53ba11-0` and `-cd8e0ffa-0`) | none | No document step; deployment reasons `next-publish-asks-more`, `commcare-version-below-floor`, `logo-upload-in-hq` | Defect 14's and finding 42's tile entries are fixed and defect 12's thirteen new entries hold on their own control, so removing `targeted-custom-tile`'s `CASE_LIST_TILE` configuration strands nothing; `NovaPublishVerdict.planPrivileges` equals the lane's oracle on every corpus document |
-| 14 | Lookup, CSQL, media and the model clean-up | Defects 5, 6, 11 (first half), 16; correction 15 (the 32-character cap pinned); finding 48; the Hidden Value with neither a calculate nor a default; the code `XPATH_TIME_ORDERING` added, and `HIDDEN_NO_VALUE`, `FIXTURE_REFERENCE_NOT_MODELED` and `LOOKUP_TAG_TOO_LONG_FOR_HQ` retired; targeted document `targeted-time-ordering` deleted, since no admitted document can order a time; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.14"` (`attach_field_media`'s slots, the authoring guide's File and Hidden Value lines, the search input description), the value the stack deploys | `lib/lookup/`, `lib/case-store/migrations/__tests__/lookupTables.postgres.test.ts`, `lib/deployment/lookupResourcePlan.ts`, `preflight.ts`, `service.ts`, `types.ts` (`hq_table_content_unsupported`), `remoteChanges.ts` (`LOOKUP_DISCARD_NOTE`), `lib/commcare/lookup/workbook.ts`, `lib/commcare/hq/lookupTables.ts` (the upload arm), `lib/export/boundaryValidation.ts`; `lib/commcare/validator/lookupReferences.ts`, `timeOrdering.ts` (new), `index.ts`, `errors.ts`, `gate.ts`, `xformOracle.ts`, `mediaSuiteOracle.ts`, `lib/commcare/validator/rules/app.ts`, `field.ts`, `lib/commcare/validator/rules/media/shared.ts`; `lib/domain/predicate/typeChecker.ts`, `lib/domain/standardCaseProperties.ts`, `modules.ts`, `mediaRefs.ts`, `referenceSlots.ts`, `casePreload.ts`, `effectiveCaseTypes.ts`, `multimedia.ts`, `lib/domain/fields/` (`base.ts`, `hidden.ts`, `file.ts`, `index.ts`, and the ten input kinds that lose `validate_msg_media`); `lib/commcare/predicate/` (`runtimeCsqlDateSafety.ts` new), `lib/commcare/suite/case-search/xpathQuery.ts` (no prompt validation for the blank-comparand obligation), `lib/commcare/constants.ts`, `hqShells.ts`, `types.ts`, `lib/commcare/xform/builder.ts`, `constraintMessage.ts`, `captureUpload.ts` (comments), `lib/commcare/multimedia/mediaSuiteXml.ts`, `assetWirePath.ts` (comments), `lib/commcare/surface/media-formats.json`, `surface.json`, `lib/commcare/surface/entries/questions.json`, `expressions-and-data.json`, `lib/commcare/surface/__tests__/manifest.test.ts`, and the fixtures and tests under `lib/commcare/__tests__/` (`mediaWireFixtures.ts`, `xformDocArbitrary.ts`, `constraintMessageFixture.ts`, `constraintMessageEmission.test.ts`, `reservedInstanceTags.test.ts`, `mediaSuiteOracle.test.ts`, and `hqLookupTables.test.ts`, whose peer serves the answers pull request 4 retained under `proof/hq-reads/lookup-upload/`, which this pull request reads and does not write); `lib/media/validate.ts`, `bmp.ts` and `webm.ts` (both new), `lib/media/__tests__/fixtures/` (one file per new format and each near miss), `lib/media/__tests__/bmpFixtures.ts` (new); `lib/doc/userFacingErrors.ts`, `types.ts` (`FIELD_MEDIA_SLOTS`), `diffDocsToMutations.ts`, `lib/doc/mutations/fields.ts`, `lib/doc/hooks/useBlueprintMutations.ts`; `lib/preview/engine/__tests__/constraintMessages.test.ts` (it reads the constraint message fixture above), `lib/preview/engine/searchInputValidation.ts` and `caseDataBinding.ts` (a search whose blank-comparand obligation applies finds nothing), `formPresentation.ts`, `components/preview/form/` (`newFieldDefaults.ts`, `InteractiveFormRenderer.tsx`, and the field and row components that drew a validation message's or a container label's media); `components/builder/PublishDialog.tsx`, `components/builder/editor/fieldEditorSchemas.ts`, `components/builder/editor/fields/hiddenValueModel.ts`, `HiddenValueEditor.tsx`, `MediaSlotEditor.tsx` (a comment), `components/builder/case-list-config/inspector/SearchInputEditor.tsx`, `components/builder/media/assetKindMeta.ts`, `components/builder/shared/checkErrorPresentation.ts`, `editorSchemas.ts`, `components/builder/shared/cards/PredicateVerbMenu.tsx`, `components/chat/ChatInput.tsx`, `app/(dev-only)/rejection-test/page.tsx`, `lib/codemirror/xpath-lint.ts`; `lib/agent/tools/media/shared.ts`, `attachFieldMedia.ts`, `lib/agent/tools/case-list-config/addSearchInputs.ts`, `shared.ts`, `lib/agent/tools/editField.ts`, `addFields.ts`, `lib/agent/toolSchemaGenerator.ts`, `documentExtraction.ts`, `resolveAttachments.ts`, `sources.server.ts`, `scripts/test-schema.ts` (the `attachFieldMedia` prompt), `lib/mcp/tools/uploadAppToHq.ts`, `uploadMediaAsset.ts`, `lib/mcp/errors.ts`, `lib/models.ts`; `scripts/lib/hqRoundTripCutover/` (`lookupTags.ts` new, `plan.ts`, `writer.ts`, `notice.ts`, `report.ts`, and this pull request's steps) and `lib/notices/`; `scripts/rollout/verify-runtime-packages.mjs`, `playwright.config.ts` (the `browser-webkit` project), `.github/workflows/ci.yml` (the smoke job installs WebKit and runs both projects), `e2e/tests/browser/media-play.spec.ts` (new), `media-transport.spec.ts`, `publishing.spec.ts`; `proof/targeted/documents/` (`timeOrdering.ts` deleted), `proof/targeted/index.ts`, `proof/checks/manifest_value_classes.py` with its test (`time_operand` reads the three system dates, without which the witness's comparison on the local suite is an undecided use; the protected-message reader takes a message that holds all four `__nova_mode;<medium>` forms or none, the same in every translation, because a retained control keeps the four). The gate refuses a time ordering and, on a system date, `is-blank` and the null literal; its rule for a date against a system date does not change, and the witness is authored as a date turned into a date and time (part 08, Defect 6, "The witness"); `proof/checks/test_hq_side.py`, `proof/hq/test_lookup_upload.py`, `test_publish.py`, `test_case_processing.py`, `test_build.py`, `proof/views/test_lookup_upload.py` (its docstring), `proof/views/__tests__/lookupUploadAnswer.test.ts` (turned over), `proof/core/test_evaluate.py`, `proof/formplayer/test_lookup_tags.py`, `test_media_slots.py`, `test_search.py`, `conftest.py`, `apps.py` (`with_the_media_slots`), `proof/formplayer/media_slots/` (new: the two forms kept as the emitter wrote them before this pull request), `proof/webapps/test_media_slots.py`, `proof/android/predicates.py`, `proof/android/decode/` (new: `DecodeProbe.java`, `run.sh`, `probe.py`), `proof/native/test_lookup_workbook.py`, `test_quote_payload.py`, `test_media_emission.py`, `proof/native/core/CsqlQuoteRuntimeTest.java`, `StaticQuoteRuntimeTest.java`, `MediaRuntimeTest.java`, `proof/native/producers/emit-media-evidence.ts`, `proof/native/steps/media_emission.py`, `proof/corpus/editBatches.ts` (a comment), `proof/corpus/__tests__/publishReadiness.test.ts`, `publish.postgres.test.ts` (the lookup refusal's cases), `proof/surface/families/authored.py`, `proof/README.md`, `proof/walk-stops.json`, `proof/timings.json` (the groups of the documents and controls this pull request adds or removes) | Moves 24: defect 5's 9, defect 6's 12, finding 48's 3. Walk stops: `targeted-lookup-reserved-tags`'s and `targeted-search-hq-compile`'s move to their controls | none | Steps `media-slots` (`media-slot-removed`), `hidden-inert-default` (`hidden-value-saves-blank`), `time-ordering` (`time-comparison-never-true`, `search-term-matches-nothing`; it migrates no search input, since no stored input can hold a time range, and it sets no flag). The Project-level lookup tag rename as a Job step (`lookup-tag-renamed`); deployment reason `lookup-table-content-unsupported`. Blockers `lookup-tag-unparsable`, `lookup-tag-rename-collision` | `targeted-search-hq-compile` takes its last edit and stays as a passing document. The one billed schema check of the stack is asked for at this head. Its smoke job in CI installs WebKit and runs `e2e/tests/browser/media-play.spec.ts` in both browser projects, and its author runs the Android decode probe (`python3 -m unittest proof.android.decode.probe -v`) on an Apple-silicon Mac with the emulator's arm64 images of API 23, 29 and 35 before it is marked ready, because no proof machine and no CI runner boots them (part 08, Defect 11, first half, "Lane") |
-| 15 | Contracts and public docs | Every row of "Contract sentences" below not already moved; `content/docs`; `proof/checks/test_registers.py::test_every_live_defect_is_a_later_steps` over the new `proof/checks/registers.py::OPEN_DEFECTS`; `proof/timings.json` refreshed in both profiles, `no-readers` from this head's fresh run without the readers and `readers` from the whole lane's run at the stack's top, committed here before the maintenance image is built (part 09, The lane's cost); the sibling plan edits below | `CLAUDE.md`, `docs/architecture/contracts.md`, subtree `CLAUDE.md` files, `content/docs/`, `proof/checks/registers.py` (`OPEN_DEFECTS`, new: each open defect and the step that owns it), `proof/checks/test_registers.py`, `proof/timings.json` | none | none | none | The docs build; `proof/known-defects.json` holds the 282 entries of defects 20, 21, 23 to 28 and 30 and finding 56, and nothing of a step 2 defect or finding; `proof/checks/registers.py::OPEN_DEFECTS`, which this pull request adds (part 09, How the exit is checked without a third HQ state), names 56 as the only key from 31 up |
-| 16 | Removal of the cutover tooling | The two scripts; `scripts/lib/hqRoundTripCutover/` with its tests and `fixtures/pre-step/`; the `biome.json` line that leaves the committed fold out of lint (`!!scripts/lib/hqRoundTripCutover/prestep/*.generated.mjs`, which pull request 2 adds and which names a directory this pull request removes); the `esbuild` line in `Dockerfile` stage `maintenance-build`; the Job `commcare-nova-hq-round-trip-cutover` in `config/deployment-jobs.json`; its arm in `scripts/rollout/deploy-cloud-run.py::_effective_execution_args`; their cases in `scripts/infra/tests/` and `scripts/infra/__tests__/containerArtifacts.test.ts`; the Job's paragraph in `docs/architecture/deployment.md` and its line in `scripts/README.md`; the runbook `docs/plans/hq-round-trip/2-cutover-runbook.md`; the lane's `cutover` group (its cases in `proof/hq/test_retained_reads.py` and `proof/hq-reads/cutover/`); and this plan, which is `docs/plans/hq-round-trip/2-emission-and-publish.md` with its part files under `docs/plans/hq-round-trip/2-emission-and-publish/` | `scripts/scan-hq-round-trip-cutover.ts`, `scripts/migrate-hq-round-trip-cutover.ts`, `scripts/lib/hqRoundTripCutover/`, `scripts/README.md`, `biome.json`, `Dockerfile`, `config/deployment-jobs.json`, `scripts/rollout/deploy-cloud-run.py`, `scripts/infra/`, `docs/architecture/deployment.md`, `docs/plans/hq-round-trip/`, `proof/hq/test_retained_reads.py`, `proof/hq-reads/cutover/` | none | none | none | Infra tests without the Job; `git diff --stat <15>..<16> -- lib app` prints nothing; the whole lane with every reader at this head, before the merge |
+| 1 | Lane mechanics | The lane's own mechanics: `proof/fixed-defects.json` with its loader, gate, queue and fingerprint; a held walk stop that names a control; the name argument (`--as`) on control retention; `targeted-hq-side-state` split, and `targeted-shared-property-sort` given its second menu; targeted documents, entries and controls for findings 43 (`parsererror`), 56, 57, 70 and 71; `HQ_OWN_REPORTS` with its three members; the build recreated under a stored part. No emitter change. In full under What pull requests 1, 2, 3 and 5 contain, below | Below | Writes finding 52's 2 straight into the fixed register on `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`. Adds 29 live: finding 56's 2, finding 57's 17, finding 70's 6, finding 71's 2 and finding 43's 2 (part 09, The entries step 2 adds). Re-documents defect 5's seven `d5-table-content-*` entries on `targeted-hq-side-lookup`, their control `targeted-hq-side-state` unchanged (part 02, Defect 5: the lookup push, Lane; part 09, Corpus changes). Walk stops: adds `targeted-datetime-ordering`'s, Formplayer's `submit-refused:validation-error`, with the document (part 09, The held walk stops). Deletes 9 with their members: finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries, with the controls `nested-menu-previous`, `tile-grouped-one` and `targeted-connect-learn-rename` | `vellum_alert` retires | none | Proof 4 shows no `alert` difference on any corpus document; the gate holds finding 52's two fixed entries on their control and every control directory is named; no product change |
+| 2 | Cutover skeleton, the notice and the ledger tables | The fold-horizon DDL and writer with an empty step list; the notice, in the builder, on the home line and over MCP; the Job `commcare-nova-hq-round-trip-cutover` with its runbook and its frozen pre-step fixtures; every additive ledger table and column, in three migrations; the three pre-horizon readers, `RUNTIME_VERSION` 15 and the frozen fold. In full under What pull requests 1, 2, 3 and 5 contain, below | Below | none | none | The transform runs zero steps: a horizon over an unchanged document. Document reason `unsaved-assistant-work-discarded`; deployment reason `deep-links-need-republish`. Blockers `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-change` | Writer Postgres tests over the frozen fixtures with zero steps; deployment store Postgres tests; the infra tests with the Job; nothing shows in the product |
+| 3 | Identity and the publish sequence | Defect 1 and findings 32, 49 and 59; `localization.wireCodes`; the shell create then the in-place update, with the `target-app` preflight edge and its one source read; downloads by project space; no `multimedia_map`; the manual-import guide and the ZIP; the proof capture's two-import first publish with its layout marker and the marker's reader; the spelling rule `runtime_url_app_id`; nineteen classes registered live, with nine controls. `MODEL_CONTEXT_VERSION` does not move. In full under What pull requests 1, 2, 3 and 5 contain, below | Below | Moves 31: defect 1's 8, finding 32's 20, finding 59's 3; two of them leave by the new rule. Deletes 1: one of defect 20's two entries that each pin a drawn `xmlns`; the other is pinned to the one derived `xmlns`, and their control `targeted-supply-point-read` is retained again in place (part 01, A1; part 09, What step 2 moves and deletes). Adds 19 live on `formplayer@local.ccz`, on the nine `-after-59` controls: fourteen leave with their owner's fix (six in pull request 5, two of them deleted there, one in 6, six in 9 and one in 11), and defect 24's 5 stay live, step 5's (part 09, The entries step 2 adds, which gives each entry with its control and its pull request) | `runtime_url_app_id` is added | Step `language-wire-codes` (no reason: no deployed code moves). The Job's deployment reads write `app_deployment_identities` (the cutover's one `ApplicationResource` read writes nothing else), and a deployment whose HQ app they find gone takes `remote_missing_at` with the folded `remote_app_missing` failure; deployment reasons `menu-id-changes-once`, `form-ids-change-once`, `ids-change-once-unreadable`, `ended-app-deleted`, `hq-app-not-nova-made`; no-write document reason `ccz-needs-project-space`. Blocker `app-mapping-without-pushed-revision` | Proof 1 holds no defect 1 entry; Formplayer's submission from the local archive shows no class at its `path`; its reader slice is seventeen documents in two runs, each beside every control its entries name: sixteen under Formplayer and Android, `search-hidden-link` (the second document the submit-label entry shows on) and `fuzz-suite-20260930-8` (the witness of the judge change to `merged_text_ids`, which no entry names) among them, and `targeted-supply-point-read` with the control A1 retains again under Web Apps and Android (part 01, A5, Lane); `proof/corpus/__tests__/publish.postgres.test.ts` runs the real `publishAppToHq` three times and asserts the three send the same menu id, form id and `xmlns` in every import body (part 01, A3. The publish sequence, Nova tests) |
+| 4 | Drift and baselines | Work item B: the comparator, the `target-app`, `project-data` and `organization` comparisons, `hq_changed`, the bound discard, the shell's exemption (while a baseline's origin is `create` the app comparison reads only `modules`), the capture's confirmed discard for `hqSide` documents, `StepOutcome`'s `stopped`, the retained reads under `proof/hq-reads/`, written by `proof/hq/test_retained_reads.py`, which publishes five documents | Below | none: defect 5's seven table entries on `targeted-hq-side-lookup` stay live and still show | none | The Job's baseline reads, outside the per-app transform; deployment reasons `next-publish-overwrites-hq-edits`, `next-publish-asks-before-overwriting` | Comparator tests over the retained reads; the lane regenerates and byte-compares `proof/hq-reads/` |
+| 5 | App-level emission | Defects 2, 4, 7, 8, 9; findings 34, 39, 40, 62, 65; `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`; the overlay module `lib/commcare/targetOverlay.ts`; one local archive per configuration in the corpus; the judge, manifest and surface changes these need; two controls retained and one removed; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`). In full under What pull requests 1, 2, 3 and 5 contain, below | Below | Moves 126: defect 2's 1, defect 4's 10, defect 7's 6, defect 8's 2, defect 9's 5, finding 34's 8 (7 of the base and the one pull request 3 added), finding 39's 2, finding 40's 82, finding 62's 2, finding 65's 8 (5 of the base and the 3 pull request 3 added). Three of them move under a judge change that leaves each showing on its control: defect 9's Android update entry and finding 40's two worker-setting entries (part 09, What step 2 moves and deletes). Deletes 4 with the form-version judge change, which no control shows afterwards: defect 9's 2 of the base and the two pull request 3 added. Adds 3 live: defect 15's pinned proof 1 entries on `targeted-invalid-question-ids-after-9` (moved in 10). Adds none for the new edit kind, which changes no register outcome (part 09, How the harness keeps publishing as Nova publishes, Mutation kinds). Walk stops: adds the control entry of `targeted-invalid-question-ids-after-9` (part 09, The held walk stops) | `profile_required_minimal` retires; `profile_unread_properties` widens to `app.json` | Step `app-settings` (`android-form-lists-setting-stored`). No-write document reasons `validation-now-enforced`, `local-archive-changes`; deployment reasons `setting-changes-at-next-publish`, `settings-unknown-unreadable`, `worker-settings-reset-at-next-publish` | The intent check holds the local versions to the document sequence; no `/profile/properties/<key>` difference on any document; each configuration's A matches its own local archive; proof 5 reports no form's data `version` outside an edit's footprint |
+| 6 | XForm, first part | Leaf `constraint` attributes removed; no `#case/` shadow (findings 45 and 47); the datetime leaf; relative defaults; the registration case-id read; Vellum's fill for blank translations, the leaf-label rule and `SELECT_OPTION_LABEL_EMPTY`; finding 55; the ref-less repeat group; finding 46 with the data node name, and proof 2's version clause reading a form's bytes, which leaves none of the lone version's six paths (the form's, the suite's and the trace's, and Formplayer's three); the emission test that closes work item H, with `proof/README.md`'s two rows for the clause (part 09, Work item H); the control `container-query-conditional-after-13`, retained from this pull request's corpus for defect 25's new classes; targeted document `targeted-blank-labels`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.6"` (the authoring guide's prose) | Below | Moves 69: defect 13's 45 (13 leaf constraint, 8 shadows, 5 datetime, 4 defaults and case-id read, 15 translations), finding 45's 5, finding 47's 4, finding 46's 6, defect 14's 7 data node name entries (6 of the base and the submit message pull request 3 added), work item H's 2. Adds 62 live of defect 25's on `container-query-conditional-after-13` (step 5's) | `connect_work_area_empty` retires | Step `option-labels` (`option-label-filled`) | `d41-empty-list-text-app-no-items-text` still shows on `localization-optional`; defect 25's two entries and defect 27's three stand at their paths |
+| 7 | XForm, second part | Containers as groups; the rename, with the validator code `RESERVED_FIELD_ID_PREFIX` and its rule retired; `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`; guards as update-only Save to Case blocks; conditions in `nova_condition_` groups; reads between blocks through `current()`; the root keyed create inside its one-row repeat; six new controls, each retained from this pull request's corpus under `<document id>-after-13`: `case-capture-multiple-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13`, `case-extension-registration-after-13`, `case-extension-repeat-after-13`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.7"` (`operationIdInputSchema`) | Below | Moves 158: guard blocks 80, reserved names 25, wrapper containers 6, wrapper conditions 32, the root create id 14, and the datetime leaves' Formplayer entry, which shows until the guards and wrapper conditions are fixed. Re-paths defect 23's 70 entries from this run's evidence, Formplayer's two among them, and points them, defect 23's manifest entry on those documents and defect 24's 15, at the `-after-13` controls | none | No document step; deployment reason `data-paths-move-once` | Every later-step entry still shows on its document, defects 23 and 24 on their `-after-13` controls and the rest on the controls they name today; `names.py` still reads `__nova_` names on the old controls |
+| 8 | Defect 3 | `lib/commcare/xform/caseSaveReferences.ts`; `save_differing_from_vellum` returns False for the derived map; the intent check reads `case_type` as a standard property, which HQ learns from every Save to Case create's list; the control `case-capture-multiple-after-3`, retained from this pull request's corpus (`--as`) for the two intent classes an attachment under a Save to Case block keeps showing; `proof/README.md`'s "Intent checks" gains that `case_type` is a standard property | Below | Moves 3: defect 3's. Adds 2 live of defect 23's on `case-capture-multiple-after-3`, `d23-attachment-form-case-updates-attachment-under-save-to-case` and `d23-attachment-data-dictionary-attachment-under-save-to-case` (step 5's; part 04, Defect 3) | none | none | Defect 3's proof 4 class shows on no document; its two intent classes show on `case-capture-multiple` alone, held there by defect 23's two new entries; the manifest check reports no `save-differing-from-vellum` use |
+| 9 | Case writes through basic actions | Finding 33 (`nova_trimmed_<question>`), finding 37, finding 66 (update properties in name order), `update_case` `always`, close conditions moved to Save to Case, `external_id` as an update row; `case-extension-query-after-13`, `case-extension-repeat-after-13` and `expander-form-links-emission-forwards-literal-condition-47c96355-0` retained again in place; `proof/targeted/documents/echo.ts::answerHeld` takes a session for the nine documents whose expectation answers a question in a write-free follow-up form (part 09, Corpus changes); `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.9"` (the `close_condition` descriptions) | Below | Moves 78: defect 14's 52 (non-writing follow-up 21, close conditions 29 and the 2 pull request 3 added), finding 33's 19 (17 of the base and the two submitted case names pull request 3 added), finding 37's 6 (3 of the base, the two submitted block orders pull request 3 added, and `d24-inert-subcase-formplayer-local-ccz-item-id-order`, the repeat item's position on `case-capture-query`, which the lane files under defect 24), finding 66's 1. Re-files `d14-non-writing-followup-soft-assert-casedb-base-get-case-from-case-update` under defect 26 as `d26-a-link-names-no-case-soft-assert-casedb-base-get-case-from-case-update` and adds its proof 3 twin `d26-a-link-names-no-case-soft-assert-proof3-casedb-base-get-case-from-case-update`; both stay live, step 5's (part 06, 1; part 09, The entries that remain). Adds 6 live of defect 24's on the two `-after-13` controls (step 5's). Walk stops: `targeted-close-condition-unparsable`'s moves to its control | `case_block_position`, `update_never_beside_actions` retire | No document step. No-write document reasons `follow-up-now-touches-case`, `linked-follow-up-now-writes-case`, `close-moves-to-save-to-case`, `case-name-now-checked` | The lane passes without both rules; defect 24's five trace and three Formplayer entries stand at their paths, and the five pull request 3 added on Formplayer's submissions stand on their `-after-59` controls |
+| 10 | Identifiers and form content | Defect 15 with its Connect forwarding; findings 31, 43, 44, 60, 61, 68, 70, 71 (a read of the form's root, refused under `INVALID_REF`, and in a catalog property's `required` and `validation` under `CASE_PROPERTY_REFERENCE_INVALID`); case operation ids, link identifiers, the Connect id minter; `CONNECT_DELIVER_FORM_HOLDS_TASK`; the rename allowance `connect_block_renamed` widened to the renamed task's `task-completed-nothing`, which shows once the task has a form of its own (part 09, Connect's own reading of a renamed block); `SESSION_DATUM_NOT_SUPPLIED`; `CASE_PROPERTY_NAME_STOPS_FORM_BUILDER` (finding 43); `SELECT_OPTION_VALUE_DUPLICATE` and `CASE_PROPERTY_OPTION_VALUE_DUPLICATE` (finding 44); `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.10"` (the operation, link, entry-point and Connect id inputs) | Below | Moves 68: defect 15's 16 (13 of the base and the 3 proof 1 entries pull request 5 added), finding 68's 30 (filed under defect 20; part 09's re-homing rule, fourth case; pull request 3 deleted the thirty-first), finding 31's 1, finding 43's 5 and the 2 pull request 1 added, finding 44's 4, finding 60's 1, finding 61's 1, finding 70's 6, finding 71's 2 (both findings' added in pull request 1). Walk stops: `targeted-invalid-question-ids`'s and `targeted-supply-point-read`'s move to their controls, and `fuzz-xform-20260930-10`'s is removed, since finding 71's draw puts rows after the repetition that holds its date and time question (part 09, The held walk stops). Re-documents `d14-logos-media-unmatched-logo-refs` on `expander-form-hashtag-expansion-keeps-an-unresolvable-f5cf70e7-0`, where the removal of the two duplicate-option documents moves `setAppLogo` | none | Steps `question-ids` (`question-renamed`), `case-operation-ids` (`case-operation-renamed`), `connect-ids` (`connect-block-renamed`), `connect-task-forms` (`connect-task-moved-to-own-form`), `entry-point-ids` (`entry-point-renamed`), `option-values` (`option-value-split`), `empty-forms` (`empty-form-label-added`), `unsupplied-session-reads` (`session-read-removed`). Blockers `unresolved-relative-path`, `link-identifier-reserved`, `reserved-property-write`, `form-root-read` | `targeted-invalid-connect-ids` stays a Connect app; `index.json` ids diffed: eight documents leave (part 09, Corpus changes) |
+| 11 | Case lists | Defects 10 and 16 (hidden columns); findings 35, 36, 38, 41, 42, 51, 54, 57; finding 67's builder, tool and docs copy; tiles; sort spellings; the straight apostrophe in a date pattern; `lib/domain/caseListOrder.ts::caseListOrderPlan`; `CASE_LIST_SORT_PROPERTY_AMBIGUOUS`; `CASE_TILE_HIDDEN_CALCULATED_SORT` (a hidden order rule on a calculated column or a column over `case_id` in a custom-tile list); `CASE_LIST_DATE_PATTERN_APOSTROPHE`; `CASE_LIST_ID_MAPPING_KEY_CHARACTERS` (an ID-mapping value holding `&`, `<`, `>`, `"` or `'`); the oracle's `HQJSON_BAD_SORT_ELEMENT` and `HQJSON_BAD_DETAIL_FIELD`; `lib/domain/modules.ts::caseListColumnIsEmitted` replaced by `caseListColumnRuns` and `caseListColumnTextShows`; targeted documents `targeted-attribute-columns`, `targeted-hidden-calculated-column` and `targeted-tile-hidden-order`; the control `targeted-custom-tile-explicit-cells`, retained from this pull request's corpus with the `CASE_LIST_TILE` configuration; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.11"` (the case-list-config schemas and `update_module`, which holds the same column arms, the date pattern description, `set_case_list_tile`, the `grouping` description) | Below | Moves 91: defect 10's 6, defect 16's 1, findings 35 (2), 36 (6), 38 (6), 41 (5), 42 (9), 51 (6: 5 of the base and the sort keys pull request 3 added), defect 14's 33 tile entries (the tile clause's 18, tile cells' 15), and finding 57's 17 that pull request 1 added. Adds 13 live of defect 12's on `targeted-custom-tile-explicit-cells` (moved in 13): the ten classes defect 14's and finding 42's entries held under `CASE_LIST_TILE`, and the three vertical-alignment classes the retired rule erased there | `sort_display_empty`, `sort_type_plain`, `sort_blanks_default`, `sort_calculation_pair`, `search_title_empty`, `search_description_empty`, `tile_vertical_align_start` retire | Steps `id-mapping-keys` (`id-mapping-entry-removed`), `date-patterns` (`date-pattern-apostrophe-replaced`), `tile-hidden-calculated-sort` (`tile-order-rule-removed`), `sort-property-ownership` (`order-rule-removed-same-property`, `order-rule-moved-to-first-column`), `tile-cells` (`tile-cell-defaults-set`). No-write document reasons `case-list-order-changes`, `case-list-search-matches-hidden-fields`, `hidden-order-column-not-in-sort-menu`, `record-id-column-now-shows` | The test `keeps the positional calc join aligned for an off-Results sort carrier` of `lib/commcare/__tests__/expander.test.ts`'s `sort_elements` block, whose first document is `expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0`, keeps its title and its document count, so the document keeps its id; the lane passes with 25 rules |
+| 12 | Menus, navigation and search settings | `postSubmit: firstMenu` and `parentMenu` with `POST_SUBMIT_NOT_OFFERED`; `hiddenFromMenu` with `HIDDEN_MENU_NOT_A_DESTINATION` and `DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU`; finding 58's link copy; the search button label removed; lookup prompt sort; reserved input names (`CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER`, `CASE_LIST_SEARCH_INPUT_NAME_RESERVED`); survey menus; the codes `DISPLAY_CONDITION_ALWAYS_FALSE`, `POST_SUBMIT_MODULE_CASE_LIST_ONLY` and `SEARCH_FIRST_NO_PREVIOUS_WORKFLOW` retired; four of block 10's equivalent spellings (`no_vellum` and `custom_variables` omitted, a calculated column's format written `plain`, the one `name` column on an empty short list; part 06, 10. The equivalent spellings); finding 53's local sentinel; targeted document `targeted-hidden-from-menu`, and `targeted-search-button-label` deleted with its maker; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.12"` (`post_submit`, `hiddenFromMenu`, the search inputs and their `sortColumnId`, `set_case_search_display`, the `add_form_links` and `update_form_link` descriptions, the `displayCondition` description, the entry-point `ignoreDisplayConditions` descriptions with `add_entry_point`'s own, and `FORM_ENTRY_DESCRIPTION`) | Below | Moves 26: defect 14's 21 (multi-select destinations 3, search button label 7, lookup prompt sort 3, reserved input names 7, survey menus 1) and finding 53's 5 | none | Steps `search-button-label` (`search-button-text-changed`), `reserved-search-inputs` (`search-input-renamed`, `search-input-removed`), `hidden-from-menu` (`hidden-from-menu-set`), `post-submit` (`after-submit-destination-moved`). No-write document reasons `lookup-choices-order-changes`, `survey-menu-takes-case-type`. Blocker `hidden-menu-is-a-destination` | `targeted-form-links-hidden-and-fallback` stays admitted, and defect 26's entries on it stay live |
+| 13 | Publish gates | Defect 12's probes; `lib/commcare/planPrivileges.ts::requiredPlanPrivileges` and `hq_confirmation_needed`, with `NovaPublishVerdict.planPrivileges` over D and D′ and the lane oracle's `user_case` arm over link and datum `xpath`; the version floor (`hq_app_version_below_floor`); the flat fixture with finding 69's copy; Data Forwarding and the Connect forwarder (C8), with the lane's `privilege/data_forwarding` rule in place of its seam; finding 64's equality-test exclusion (C7); logos, with the oracle's `checkLogoRefs` and its code `HQJSON_BAD_LOGO_REF` removed; `withdraw_deployment_confirmation`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.13"` (`set_app_logo`'s description) | Below | Moves 50: defect 12's 35 and the 13 pull request 11 added, defect 14's 2 logo entries. Deletes 6 from the fixed register, the `d14-android-proof4-case-management-*` entries pull request 9 moved on `expander-form-links-emission-emits-hq-form-links-with-3555b968-0`, and removes that control: the oracle's `user_case` arm now grants it `USERCASE`, and it stops showing them (part 09, What step 2 moves and deletes). Registers none for the soft assertion that `expander-form-links-emission-emits-hq-form-links-with-3555b968-0` shows in proof 3 and proof 4 once it runs with `USERCASE`: pull request 9's two entries of defect 26 hold it (part 09, The entries that remain). Walk stops: the seven related-lookups stops leave their documents, two to their controls (`targeted-search-related-lookups`, `expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0`) and five removed (`function-arguments`, `prompt-guards`, `search-parent` and the two `expander-expanddoc-hq-json-projection-case-search-` documents, `-4d53ba11-0` and `-cd8e0ffa-0`) | none | No document step; deployment reasons `next-publish-asks-more`, `commcare-version-below-floor`, `logo-upload-in-hq` | Defect 14's and finding 42's tile entries are fixed and defect 12's thirteen new entries hold on their own control, so removing `targeted-custom-tile`'s `CASE_LIST_TILE` configuration strands nothing; `NovaPublishVerdict.planPrivileges` equals the lane's oracle on every corpus document |
+| 14 | Lookup, CSQL, media and the model clean-up | Defects 5, 6, 11 (first half), 16; correction 15 (the 32-character cap pinned); finding 48; the Hidden Value with neither a calculate nor a default; the code `XPATH_TIME_ORDERING` added, and `HIDDEN_NO_VALUE`, `FIXTURE_REFERENCE_NOT_MODELED` and `LOOKUP_TAG_TOO_LONG_FOR_HQ` retired; targeted document `targeted-time-ordering` deleted, since no admitted document can order a time; the gate refuses a time ordering and, on a system date, `is-blank` and the null literal, while its rule for a date against a system date does not change, and the witness is authored as a date turned into a date and time (part 08, Defect 6, "The witness"); the judge's `time_operand` reads the three system dates, without which the witness's comparison on the local suite is an undecided use, and its protected-message reader takes a message that holds all four `__nova_mode;<medium>` forms or none, the same in every translation, because a retained control keeps the four; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.14"` (`attach_field_media`'s slots, the authoring guide's File and Hidden Value lines, the search input description), the value the stack deploys | Below | Moves 24: defect 5's 9, defect 6's 12, finding 48's 3. Walk stops: `targeted-lookup-reserved-tags`'s and `targeted-search-hq-compile`'s move to their controls | none | Steps `media-slots` (`media-slot-removed`), `hidden-inert-default` (`hidden-value-saves-blank`), `time-ordering` (`time-comparison-never-true`, `search-term-matches-nothing`; it migrates no search input, since no stored input can hold a time range, and it sets no flag). The Project-level lookup tag rename as a Job step (`lookup-tag-renamed`); deployment reason `lookup-table-content-unsupported`. Blockers `lookup-tag-unparsable`, `lookup-tag-rename-collision` | `targeted-search-hq-compile` takes its last edit and stays as a passing document. The one billed schema check of the stack is asked for at this head. Its smoke job in CI installs WebKit and runs `e2e/tests/browser/media-play.spec.ts` in both browser projects, and its author runs the Android decode probe (`python3 -m unittest proof.android.decode.probe -v`) on an Apple-silicon Mac with the emulator's arm64 images of API 23, 29 and 35 before it is marked ready, because no proof machine and no CI runner boots them (part 08, Defect 11, first half, "Lane") |
+| 15 | Contracts and public docs | Every row of "Contract sentences" below not already moved; `content/docs`; `proof/checks/test_registers.py::test_every_live_defect_is_a_later_steps` over the new `proof/checks/registers.py::OPEN_DEFECTS`; `proof/timings.json` refreshed in both profiles, `no-readers` from this head's fresh run without the readers and `readers` from the whole lane's run at the stack's top, committed here before the maintenance image is built (part 09, The lane's cost); the sibling plan edits below | Below | none | none | none | The docs build; `proof/known-defects.json` holds the 282 entries of defects 20, 21, 23 to 28 and 30 and finding 56, and nothing of a step 2 defect or finding; `proof/checks/registers.py::OPEN_DEFECTS`, which this pull request adds (part 09, How the exit is checked without a third HQ state), names 56 as the only key from 31 up |
+| 16 | Removal of the cutover tooling | The two scripts; `scripts/lib/hqRoundTripCutover/` with its tests and `fixtures/pre-step/`; the `biome.json` line that leaves the committed fold out of lint (`!!scripts/lib/hqRoundTripCutover/prestep/*.generated.mjs`, which pull request 2 adds and which names a directory this pull request removes); the `esbuild` line in `Dockerfile` stage `maintenance-build`; the Job `commcare-nova-hq-round-trip-cutover` in `config/deployment-jobs.json`; its arm in `scripts/rollout/deploy-cloud-run.py::_effective_execution_args`; their cases in `scripts/infra/tests/` and `scripts/infra/__tests__/containerArtifacts.test.ts`; the Job's paragraph in `docs/architecture/deployment.md` and its line in `scripts/README.md`; the runbook `docs/plans/hq-round-trip/2-cutover-runbook.md`; the lane's `cutover` group (its cases in `proof/hq/test_retained_reads.py` and `proof/hq-reads/cutover/`); and this plan, which is `docs/plans/hq-round-trip/2-emission-and-publish.md` with its part files under `docs/plans/hq-round-trip/2-emission-and-publish/` | Below | none | none | none | Infra tests without the Job; `git diff --stat <15>..<16> -- lib app` prints nothing; the whole lane with every reader at this head, before the merge |
 
 Totals the stack reaches: 724 entries move to `proof/fixed-defects.json` (31 + 126 + 69 + 158 + 3 + 78 + 68 + 91 + 26 + 50 + 24): 669 of the base register and 55 the stack itself registered. 14 are deleted from the live register: 12 of the base register (finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries in pull request 1, with their allowances; one of finding 68's two `xmlns` entries in pull request 3, where the other comes to hold its difference; defect 9's 2 form-version entries in pull request 5, with their judge change) and the two pull request 3 registered for defect 9's form version (pull request 5). 2 are written straight into the fixed register (finding 52's). The stack registers 135 live entries: 55 of them move, 2 are deleted, and 78 stay live (finding 56's 2, defect 25's 62, defect 24's 11, defect 23's 2, defect 26's 1). One entry is re-filed from defect 14 to defect 26 in pull request 9 and stays live. Pull request 13 deletes 6 of the moved entries from the fixed register, with their control. At the exit `proof/fixed-defects.json` holds 720 and `proof/known-defects.json` holds 282: the 204 later-step entries of the base, the re-filed one among them, and those 78. 12 spelling rules retire, 1 is added (pull request 3) and 25 stand at the exit, one of them widened. `proof/controls/` goes from 85 directories to 105, every one named. `proof/walk-stops.json` goes from 33 held stops to 29: 20 stay on their documents, 7 move to a control, 6 are removed and 2 are added, one on a document in pull request 1 and one on a control in pull request 5, so 21 are on a document and 8 on a control at the exit (part 09, The held walk stops).
 
@@ -139,6 +139,1562 @@ What the planning runs settled about the stack, each stated in its block:
 12. Each pull request passes the pull request lane in CI at its own head; the lane has no time cap and runs every group the change invalidates, the lane's packages among them, and part 09, Where the lane runs, gives how long to expect and the local run of the packages (`PROOF_READERS=0 npm run proof`, no target) a pull request makes before it pushes. Before it is marked ready it runs its reader slice on a proof machine, as part 09, Where the lane runs, bounds it: the document and control of every served-reader entry it moves, registers, re-files or deletes and of every held walk stop it moves, removes or adds, plus its witnesses, with `PROOF_READERS` narrowed to the readers those entries name, and with them the reader package tests the pull request itself adds or changes, and nothing wider. No pull request runs every reader over the whole corpus; a pull request that changes an emitter, adds a corpus document or changes a gate entry also runs the sensitivity check whole and fresh there before it pushes, the run its sensitivity effects are written from where they must be written again. Pull request 14 makes one more run, on a machine that is neither CI nor a proof machine: its author runs the Android decode probe (`python3 -m unittest proof.android.decode.probe -v`) on an Apple-silicon Mac with the Android emulator and the arm64 system images of API 23, 29 and 35 before the pull request is marked ready, and so does any later pull request that changes the accepted media formats or a fixture (part 08, Defect 11, first half, "Lane"). Its description carries each run's gate summary. The whole lane with every reader runs once, from the stack's top, before the merge: 552 worker-hours on proof machines, as measured on the lane's own branch. The nightly runs on `main` after it, on its next scheduled night (Tuesday to Saturday, 03:23 UTC); the stack moves every key, so that night is a whole lane with the readers, about thirteen hours, and a merge on a Sunday or a Monday is read by Tuesday's. A night that fails opens an issue naming each failing group with the command that reruns it alone (`python3 -m proof.lane.report`; part 09, Where the lane runs). The implementer asks the person once, at the session's start, for the proof machine's use and budget (spot machines, each stopped when idle), and not again before each run. After the whole lane at the top, its `readers` timings are committed into pull request 15, and only then is the maintenance image built (rule 5).
 
 Removing the tooling at the top of the same stack, not in a follow-up pull request, is a stated choice: a later removal would be a second deploy that exists only because of the split. The habit it adjusts (run, confirm, then remove) is kept in substance because the run and its post-migration scan precede the merge.
+
+## What pull requests 1, 2, 3 and 5 contain
+
+These four hold more than a table cell reads well. Each list is the whole of that row's Contains cell, one item to a line; the cell in the table gives the headline.
+
+### Pull request 1, in full
+
+- `proof/fixed-defects.json` with its loader, gate, queue and fingerprint.
+- A held walk stop that names a control (`proof/walk-stops.json`'s `control` key), so a stop moves to its control with its fix, with the stops check and the queue reading every control the list names and the gate carrying a `control` entry through a selection.
+- The gate, told a slice's documents, holding the fixed entries and the `control` stop entries of the controls the run ran, with those stop entries counted beside the document entries in its walk-stops section, which already counts by entry on the lane (part 09, The fixed-defect register and The held walk stops).
+- The test that every control directory is named by one of the two registers.
+- The name argument (`--as`) on control retention.
+- `targeted-hq-side-state` split so its lookup table is `targeted-hq-side-lookup`.
+- `targeted-shared-property-sort` given its second menu, with its control retained again in place (part 07, Finding 51).
+- Targeted documents, entries and controls for findings 56 (`targeted-datetime-ordering`), 57 (`targeted-case-id-column`), 70 (`targeted-reserved-question-names`), 71 (`targeted-form-root-read`) and finding 43's `parsererror` (`targeted-parsererror-node-name`).
+- `proof/checks/hq_own_reports.py::HQ_OWN_REPORTS` with its three members, `registration_alert_child_case` (finding 50), `android_grouped_tile_reopen` (finding 67) and `connect_block_renamed` (defect 15's Connect forwarding), each with its proof over an app HQ's own editors made (part 09).
+- Findings 63 and 50 recorded under "What HQ does itself".
+- The report of finding 67, on commcare-core, which holds the reader commcare-android calls, drafted and filed only with the person's yes (part 07, Finding 67).
+- A build recreated under a stored part asks HQ what the build first observed asked (`proof/observe/unit.py::_build`), with its test that needs no reader (part 09, A build recreated under a stored part).
+- `proof/timings.json` loses `control:nested-menu-previous` from both profiles, and `control:tile-grouped-one` and `control:targeted-connect-learn-rename` from the `readers` profile, the only one that holds them; the new groups are measured in.
+- No emitter change.
+
+### Pull request 2, in full
+
+- The fold-horizon DDL and writer with an empty step list.
+- The notice tables, store, builder chip and dialog, the Publishing card's note, home line, `get_app.notices`, `dismiss_app_notice`.
+- The Job `commcare-nova-hq-round-trip-cutover`, its `esbuild` line in `Dockerfile` stage `maintenance-build` (`--outfile=hq-round-trip-cutover.cjs`), its arm in `scripts/rollout/deploy-cloud-run.py::_effective_execution_args`, their tests (`scripts/infra/tests/`, `scripts/infra/__tests__/containerArtifacts.test.ts`), the runbook `docs/plans/hq-round-trip/2-cutover-runbook.md` (completed as steps land), and the frozen fixtures under `scripts/lib/hqRoundTripCutover/__tests__/fixtures/pre-step/`.
+- Every additive ledger table and column (`app_deployment_identities`, `app_deployment_confirmations`, `app_deployment_baselines`, `project_space_resource_baselines`, `app_deployment_resources.remote_missing_at` with its backfill, `app_deployments.offered_logo_content_hash`, `app_deployments.target_empty_case_list_text`; the confirmation kind `connect-forwarder`).
+- `app_deployment_baselines` has no form-id column, because no publish reads form ids back (part 02, The ledger schema).
+- The notice tables include the key-reader rows the execute run writes for each member whose HQ key it used.
+- These are three migrations (`<timestamp>_hq_round_trip_fold_horizon.ts`, `<timestamp>_app_migration_notices.ts`, `<timestamp>_hq_round_trip_deployment_ledger.ts`); the stack's fourth and last, `<timestamp>_app_settings.ts`, is pull request 5's.
+- The three pre-horizon readers over `greatestFoldBaselineSeq` and the stream route's reload, `abandonPreAppDesignSessionInTransaction`, `RUNTIME_VERSION` 15, the frozen fold `prestepFold.generated.mjs` with its entry, build script and inputs test, the legacy bodies under `proof/hq-reads/cutover/<document>/legacy/`, and the two contract sentences of `docs/architecture/contracts.md` (part 10, Block: the cutover).
+
+### Pull request 3, in full
+
+- Defect 1.
+- `localization.wireCodes`: `addLanguage` and `relabelSourceLanguage` carry a required `wireCode` that every producer mints through the planner `lib/doc/languageMutations.ts`, and the reducer stores it.
+- The shell create then the in-place update.
+- `lib/commcare/hq/appSource.ts::readHqAppSource` (new here, replacing `readHqAppSourceProfile`; its version field is `buildSpecVersion` and its size bound 64 MiB; later pull requests extend its type) and `lib/commcare/versionFloor.ts` (new here, the constant alone).
+- The `target-app` preflight edge with its one source read.
+- The `remote_missing_at` selectors.
+- The proof capture's two-import first publish, its layout marker, the marker's reader and `proof/checks/corpus.py::Export.content`, with every lane reader of state A's app, workbook and media turned to `content`, and the controls retained earlier replayed in their legacy layout.
+- Downloads by project space and a `.ccz` made for one project space (findings 32 and 59).
+- No `multimedia_map` (finding 49), with the oracle's check of it and its two codes, `HQJSON_BAD_MULTIMEDIA_MAP_KEY` and `HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE`, removed.
+- The manual-import guide and the ZIP.
+- The frozen fold's one-line entry, its build script (`scripts/build-hq-round-trip-prestep-fold.mjs`) and its inputs test deleted, with the committed fold, its declaration, its inputs list and its digest test kept (part 10, The matching algorithm, "The fold is the pre-step one, frozen").
+- The spelling rule `runtime_url_app_id` with its proof, which reads the release's id and the working app's id as one in a runtime URL.
+- The nineteen classes Formplayer's record shows once the local archive's submit reaches HQ, one of them only because its two imports leave state A at HQ app version 2, registered live, with nine controls retained from this pull request's corpus in its two-import layout (`--as`): `targeted-custom-tile-after-59`, `targeted-hq-side-state-after-59`, `targeted-close-conditions-after-59`, `targeted-form-link-hidden-target-after-59`, `targeted-connect-deliver-rename-after-59`, `case-extension-registration-after-59`, `case-extension-repeat-after-59`, `case-extension-query-after-59` and `case-capture-repeat-after-59` (part 01, A5).
+- The judge's map of the text ids HQ's build merges, read from questions' own labels alone, which reads the one class the working walk shows on `fuzz-suite-20260930-8` and registers nothing (part 01, A5).
+- `MODEL_CONTEXT_VERSION` does not move (item 13 of the checklist below).
+
+### Pull request 5, in full
+
+- Defects 2, 4, 7, 8, 9.
+- Findings 34, 39, 40, 62, 65.
+- `BlueprintDoc.appSettings` with `setAppSettings` and `apps.app_settings`, and its edit-kind generator.
+- The overlay module `lib/commcare/targetOverlay.ts` (it absorbs `targetProfile.ts` and replaces `appOwnership.ts`: the overlay's `ownership` replaces pull request 4's `appOwnershipOf`, and the drift comparison narrows `translations` from whole to the owned-key predicate).
+- Finding 40's fifteen constants seeded on HQ only where the target holds no value.
+- Finding 65's texts, the publish's read of the empty-list text flag into `app_deployments.target_empty_case_list_text`, and one local archive per configuration in the corpus.
+- The bare `pollsensor` of a GPS question with its surface entry `questions/hq-generated-pollsensor` and the reader that takes `questions/authored-orx-pollsensor` out of `KNOWN_GAPS` (part 04, Finding 34).
+- The proof 3 and proof 1 judge changes for the form version and the Android update, whose record names each archive's `uniqueid` and `version`, and `settings_replaced`'s, which reads the state's own next build.
+- The manifest's reading of a target's value carried back (`manifest_usage.py`) and the footprint that reaches the app's record when the needed add-ons differ.
+- The four lane tests that hold the former bytes, rewritten (part 04, Defect 4).
+- Proof 5's version clause (`proof/checks/proof5.py` compares a local form without its data node's `version`, which is the sequence from this pull request).
+- `intent.py::profile_settings` and `::local_archive_versions`.
+- `manifest_value_classes.py::save_differing_from_vellum` as the comparison with Vellum's computation, which no form of the corpus reaches, `::setting_outside_choices`, the reader of the manifest's `outside-choices` class (out of `KNOWN_GAPS`), and `::android_verified_path_without_entry`'s decision for an app that stores `cc-content-valid` `no`.
+- The surface key family `profile-feature:` (`proof/surface/families/profile.py`, with `surface.json` regenerated) and the entry `application-and-settings/profile-feature-checkoff` for the local profile's `checkoff` feature (part 04, Defect 7, Files).
+- As the pull request's first commit, before any judge or emitter change, the control `connect-location-capture` retained from `targeted-invalid-connect-ids` (`--as`), which `d34-connect-location-trace-meta-location` takes as its `control`.
+- `d34-connect-location-capture-formplayer-local-ccz-data-meta-location` re-documented on `targeted-connect-deliver-rename` (part 04, Finding 34).
+- At its head, the control `targeted-invalid-question-ids-after-9` retained from `targeted-invalid-question-ids` (`--as`) for defect 15's three pinned proof 1 entries, the four form-version entries deleted with the proof 3 judge change, the two pull request 3 registers among them, and `proof/controls/targeted-hq-side-state-after-59/` removed with the one of them that names it (part 04, Defect 9).
+- Targeted documents `targeted-attribute-display-condition` and `targeted-gps-question`.
+- `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission"` (`update_app`).
+
+## Files, by pull request
+
+This is the list an implementer holds a pull request's diff against, and no summary. Under each pull request it names every file the parts' Files, Nova tests and Lane sections give that pull request, by name or by the directory that holds it. Every path is written from the repository root, one to a line, in six lists: Nova source, Nova tests named outright, the lane, scripts and the cutover, CI and config, and docs. A file is named outright where the pull request creates, deletes or moves it and where it is a test the fix turns, and its line says "new", "deleted" or "moved"; a directory stands for the files under it that the parts name. A line says at most what changes in the file. What the change is for is in the row's Contains cell and in the part.
+
+Five kinds of file are given once, here, and are named under a pull request only where the edit is that pull request's own subject. A source file stands for its tests in the `__tests__` directory beside it. A pull request that moves, adds or deletes an entry edits `proof/known-defects.json` and `proof/fixed-defects.json`, and its Register cell says what. A pull request that adds or deletes a control directory or a corpus document edits `proof/timings.json` (The stack, What every pull request of the stack does). A docs page under `content/docs/` and a `CLAUDE.md` file are given, each with its pull request, by Contract sentences step 2 rewrites and Public docs that change, below, and by the Files of the fix that changes them. Of the cutover modules under `scripts/lib/hqRoundTripCutover/` and the notice modules under `lib/notices/`, a list names the module or the directory and what the pull request adds there, and part 10, Scripts and their layout, gives the pull request that creates each module.
+
+### Pull request 1: Lane mechanics
+
+The lane:
+
+- `proof/checks/registers.py`
+- `proof/checks/cases.py`
+- `proof/checks/controls.py`
+- `proof/checks/stops.py`
+- `proof/checks/test_stops.py`
+- `proof/checks/proof4.py`
+- `proof/checks/android.py`
+- `proof/checks/connect.py`
+- `proof/checks/hq_own_reports.py` (new)
+- `proof/checks/test_hq_own_reports.py` (new)
+- `proof/checks/test_registers.py` (the fixed register's cases; every control directory is named by a register)
+- `proof/checks/test_controls.py` (`--as`)
+- `proof/fixed-defects.json` (new)
+- `proof/known-defects.json`
+- `proof/store/queue.py`
+- `proof/store/test_queue.py`
+- `proof/store/fingerprints.py`
+- `proof/store/conftest.py`
+- `proof/store/test_keys.py`
+- `proof/lane/gate.py`
+- `proof/lane/test_gate.py`
+- `proof/lane/test_forkserver.py` (a nested run's limit with the readers)
+- `proof/walk-stops.json`
+- `proof/observe/unit.py` (`_build` asks the identities in every build)
+- `proof/checks/test_record_determinism.py` (the stored-part test, which needs no reader)
+- `proof/editors/test_hq_own_registration_alert.py` (new)
+- `proof/android/test_hq_own_grouped_tile_reopen.py` (new)
+- `proof/connect/test_hq_own_rename.py` (new)
+- `proof/rules/vellum_alert.py` (deleted)
+- `proof/rules/test_vellum_alert.py` (deleted)
+- `proof/rules/__init__.py` (the rule's import and its `RULES` line leave)
+- `proof/targeted/documents/datetimeOrdering.ts` (new)
+- `proof/targeted/documents/caseIdColumn.ts` (new)
+- `proof/targeted/documents/hqSideLookup.ts` (new)
+- `proof/targeted/documents/hqSideState.ts` (loses its lookup table)
+- `proof/targeted/documents/formShapes.ts` (the documents of findings 43, 70 and 71)
+- `proof/targeted/documents/sortKeys.ts` (`sharedPropertySort`'s second menu)
+- `proof/targeted/index.ts`
+- `proof/controls/` (the controls this pull request retains and deletes)
+- `proof/timings.json` (three control groups leave, the new groups are measured in)
+
+Docs:
+
+- `proof/CLAUDE.md`
+- `proof/README.md`
+- `docs/architecture/contracts.md` (the strict register's sentence)
+- `CLAUDE.md` (the strict register's sentence)
+- `docs/research/2026-09-26-hq-round-trip/harness-findings.md`
+
+### Pull request 2: Cutover skeleton, the notice and the ledger tables
+
+Nova source:
+
+- `lib/case-store/migrations/` (the three new migrations Contains names)
+- `lib/agent/change-set/baseLoader.ts`
+- `lib/agent/build/orchestrator.ts`
+- `lib/agent/change-set/materializeGenesis.ts`
+- `app/api/apps/[id]/stream/route.ts`
+- `lib/db/designSessions.ts`
+- `lib/db/appTests.ts`
+- `lib/db/apps.ts` (`commitAppProjectMoveInTransaction` copies an app's baseline rows)
+- `lib/log/types.ts`
+- `lib/db/pg.ts`
+- `lib/db/privilegeConvergence.ts`
+- `lib/notices/` (new: the reason lists, the store and the renderers)
+- `lib/deployment/store.ts`
+- `lib/deployment/types.ts`
+- `components/builder/notices/AppNoticeChip.tsx` (new)
+- `components/builder/notices/AppNoticeDialog.tsx` (new)
+- `components/builder/notices/appNoticeModel.ts` (new)
+- `components/builder/BuilderHeader.tsx`
+- `components/builder/BuilderProvider.tsx`
+- `components/builder/app-setup/PublishingSection.tsx`
+- `components/builder/app-setup/publishingSectionModel.ts`
+- `components/notices/KeyReaderNotice.tsx` (new)
+- `app/(app)/(site)/page.tsx`
+- `app/(app)/build/[id]/[[...path]]/page.tsx`
+- `lib/mcp/tools/getApp.ts`
+- `lib/mcp/tools/dismissAppNotice.ts` (new)
+- `lib/mcp/server.ts`
+
+Nova tests named outright:
+
+- `lib/db/__tests__/projectMove.postgres.test.ts`
+- `lib/mcp/__tests__/appNotices.postgres.test.ts` (new)
+- `e2e/tests/app/app-notices.spec.ts` (new)
+
+The lane:
+
+- `proof/hq-reads/cutover/` (new: the legacy upload bodies)
+
+Scripts and the cutover:
+
+- `scripts/build-hq-round-trip-prestep-fold.mjs` (new; pull request 3 deletes it)
+- `scripts/scan-hq-round-trip-cutover.ts` (new)
+- `scripts/migrate-hq-round-trip-cutover.ts` (new)
+- `scripts/lib/hqRoundTripCutover/` (new: the skeleton, with the frozen fixtures)
+- `scripts/rollout/deploy-cloud-run.py`
+- `scripts/infra/` (the Job's tests)
+
+CI and config:
+
+- `biome.json`
+- `Dockerfile`
+- `config/deployment-jobs.json`
+
+Docs:
+
+- `docs/architecture/contracts.md` (its two contract sentences)
+- `scripts/README.md`
+- `docs/plans/hq-round-trip/2-cutover-runbook.md` (new)
+- `docs/architecture/deployment.md`
+
+### Pull request 3: Identity and the publish sequence
+
+Nova source:
+
+- `lib/commcare/wireIdentity.ts` (new)
+- `lib/commcare/ids.ts` (deleted)
+- `lib/commcare/index.ts`
+- `lib/commcare/languageWire.ts`
+- `lib/commcare/localization.ts`
+- `lib/commcare/expander.ts` (`expandAppShell` and `APP_SHELL_KEYS`, both new)
+- `lib/commcare/hqShells.ts`
+- `lib/commcare/types.ts`
+- `lib/commcare/compiler.ts`
+- `lib/commcare/client.ts` (`importApp` waits out a short `Retry-After`)
+- `lib/commcare/targetProfile.ts`
+- `lib/commcare/runtimeTarget.ts`
+- `lib/commcare/versionFloor.ts` (new: the constant alone)
+- `lib/commcare/hq/appSource.ts`
+- `lib/commcare/hq/http.ts`
+- `lib/commcare/hq/readJson.ts`
+- `lib/commcare/hq/readCollection.ts` (`CommCareApiError.cause`)
+- `lib/commcare/multimedia/bundle.ts` (loses `buildMultimediaMap`)
+- `lib/commcare/multimedia/hqJsonExportArchive.ts` (always writes the ZIP)
+- `lib/commcare/multimedia/assetWirePath.ts` (a comment)
+- `lib/commcare/validator/hqJsonOracle.ts`
+- `lib/commcare/validator/errors.ts`
+- `lib/doc/types.ts`
+- `lib/doc/languageMutations.ts` (new: the planner that mints a language's `wireCode`)
+- `lib/doc/mutations/app.ts`
+- `lib/doc/diffDocsToMutations.ts`
+- `lib/doc/mutationTargetAdmission.ts`
+- `lib/domain/localization.ts` (the `wireCodes` schema)
+- `components/builder/app-setup/LanguagesSection.tsx` (mints through the planner)
+- `lib/agent/tools/localization.ts` (mints through the planner)
+- `lib/agent/translation/translateLanguage.ts` (mints through the planner)
+- `lib/deployment/service.ts`
+- `lib/deployment/resources.ts`
+- `lib/deployment/importApplication.ts`
+- `lib/deployment/preflight.ts`
+- `lib/deployment/store.ts`
+- `lib/deployment/types.ts`
+- `lib/deployment/index.ts`
+- `lib/deployment/workers.ts`
+- `lib/deployment/entryPointLinks.ts`
+- `lib/deployment/entryPointManifest.ts`
+- `lib/deployment/runtimeTarget.ts`
+- `lib/deployment/attachmentTarget.ts`
+- `lib/deployment/actions.ts`
+- `lib/deployment/downloadTarget.ts` (new)
+- `lib/deployment/attachmentSpace.ts` (deleted)
+- `lib/export/localArchive.ts`
+- `lib/publish/manualImportGuide.ts` (new)
+- `app/api/compile/`
+- `components/builder/PublishDialog.tsx`
+- `components/builder/PublishPanel.tsx`
+- `components/builder/DeploymentStatus.tsx`
+- `components/builder/DeploymentWorkers.tsx`
+- `components/builder/app-setup/publishingSectionModel.ts`
+- `lib/mcp/tools/compileApp.ts`
+- `lib/mcp/tools/deploymentProjection.ts`
+- `lib/mcp/tools/uploadAppToHq.ts`
+- `lib/notices/` (this pull request's six reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/` (the emission tests of A1 to A6, 31 callers of `compileCcz`, the fixtures that write a localization root)
+- `lib/commcare/__tests__/runtimeTargetFixture.ts` (new: the target of the 36 Vitest callers of `compileCcz`)
+- `lib/commcare/locations/__tests__/` (one caller of `compileCcz`)
+- `lib/commcare/suite/case-search/__tests__/` (two callers of `compileCcz`)
+- `lib/commcare/validator/__tests__/localization.test.ts`
+- `lib/doc/__tests__/` (the tests that build a language mutation or write a localization root; part 01, A2, Files, names each)
+- `lib/preview/engine/__tests__/` (the same)
+- `lib/db/__tests__/blueprintRows.test.ts`
+- `lib/case-store/migrations/__tests__/authoringCutover.postgres.test.ts`
+- `lib/deployment/__tests__/publishSequence.postgres.test.ts` (new)
+- `lib/deployment/__tests__/resources.test.ts` (new)
+- `lib/deployment/__tests__/downloadTargetsAction.postgres.test.ts` (new)
+- `lib/mcp/__tests__/` (the deployment tools' Postgres tests)
+- `e2e/lib/` (the Playwright clients that add a language or write a localization root)
+- `e2e/tests/browser/publishing.spec.ts`
+
+The lane:
+
+- `proof/corpus/publish.ts`
+- `proof/corpus/targetPeer.ts`
+- `proof/corpus/entryWriter.ts`
+- `proof/corpus/writePublishCaptures.ts`
+- `proof/corpus/emitCorpus.ts` (its layout comment; `inputs.json` names `import-file.zip`)
+- `proof/corpus/inputs.ts` (the `content.` and `privileges.content.` roles)
+- `proof/corpus/footprint.ts`
+- `proof/corpus/entropy.mts`
+- `proof/corpus/editKinds.ts` (mints through the planner)
+- `proof/corpus/workforce.ts` (mints through the planner)
+- `proof/corpus/__tests__/emitCorpus.test.ts`
+- `proof/corpus/__tests__/entropy.test.ts`
+- `proof/corpus/__tests__/publish.postgres.test.ts`
+- `proof/corpus/__tests__/writePublishCaptures.test.ts`
+- `proof/corpus/__tests__/footprint.test.ts` (a caller of `compileCcz`, and a localization root)
+- `proof/hq/operations.py` (`with_runtime_app_id`, `api_request`, `seed_api_user` and `seed_api_key`, all new; `publish_capture` applies both imports)
+- `proof/hq/seams.py` (`api_rate_limits`, new)
+- `proof/hq/test_publish.py`
+- `proof/hq/test_publish_capture.py`
+- `proof/hq/test_import_file.py` (new)
+- `proof/hq/conftest.py` (`DOCUMENTS` becomes the package's key)
+- `proof/hq/test_retained_reads.py` (new: part 01's `publish` group and part 10's `cutover` group)
+- `proof/hq/test_branches.py` (`_create` calls `publish.create`; `DATABASE_CLOCK`, with a new case)
+- `proof/hq-reads/publish/` (new)
+- `proof/hq-reads/cutover/` (HQ's retained answers)
+- `proof/store/queue.py` (`PACKAGE_DATA`)
+- `proof/rules/runtime_url_app_id.py` (new)
+- `proof/rules/test_runtime_url_app_id.py` (new: the planning run kept as three tests)
+- `proof/rules/__init__.py` (`RULES`; `ARTIFACT_READERS` gains `request-url`)
+- `proof/rules/conftest.py` (`published` calls `publish.create`; `restore` reads the content import)
+- `proof/checks/android.py` (hands the rule the device's addresses)
+- `proof/checks/served.py` (hands the rule Formplayer's addresses; `TRACE_DATA_MAPS`, `_text_references`, `merged_text_ids`)
+- `proof/checks/proof3.py` (hands the rule both)
+- `proof/checks/test_served.py`
+- `proof/checks/wireLanguages.ts`
+- `proof/checks/test_connect_unit.py` (its line for the local archive)
+- `proof/checks/test_record_determinism.py` (its media tests read the content import; the role parameters)
+- `proof/checks/corpus.py` (`_captured`, `Captured`, `Export.content`, `Document.import_file`)
+- `proof/checks/configurations.py` (`PRIVILEGE_CAPTURES` reads both imports)
+- `proof/checks/manifest_usage.py`
+- `proof/checks/test_proof3_behavior.py` (reads the content import's workbook)
+- `proof/checks/test_alignment.py` (reads the content import)
+- `proof/checks/test_corpus.py` (the marker reader's new case; the roles of both imports)
+- `proof/checks/proof5.py` (a docstring)
+- `proof/checks/test_proof5_locality.py` (a docstring)
+- `proof/observe/publish.py` (`create` applies both imports; `update` holds the assumed source)
+- `proof/observe/unit.py` (`create_a`, `input_files`, and the content import's workbook and media)
+- `proof/observe/sessions.py` (the local archive given A's id)
+- `proof/observe/served.py` (the local archive given A's id)
+- `proof/observe/connect.py` (the local archive given A's id)
+- `proof/observe/manifest.py` (`uploads_of`)
+- `proof/formplayer/apps.py` (`published` calls `publish.create`)
+- `proof/formplayer/observe.py` (`marked` writes the working app's id `@app`)
+- `proof/formplayer/test_local_archive.py`
+- `proof/webapps/hq.py` (`project` calls `publish.create`)
+- `proof/connect/conftest.py` (reads the content import's workbook)
+- `proof/connect/test_receiver.py`
+- `proof/views/test_lookup_upload.py` (reads the content import's workbook)
+- `proof/android/predicates.py` (the rule's device test)
+- `proof/android/hq.py`
+- `proof/native/producers/` (the 17 producers take `NATIVE_RUNTIME_TARGET`)
+- `proof/native/producers/runtimeTarget.ts` (new)
+- `proof/native/core/LocalizationRuntimeTest.java`
+- `proof/native/steps/media_emission.py`
+- `proof/native/test_media_emission.py`
+- `proof/targeted/documents/hqSideState.ts`
+- `proof/targeted/documents/emptyListNoEnglish.ts`
+- `proof/controls/` (the ten controls retained in the two-import layout)
+- `proof/timings.json`
+
+Scripts and the cutover:
+
+- `scripts/lib/hqRoundTripCutover/matching.ts` (new)
+- `scripts/lib/hqRoundTripCutover/hqRead.ts` (new)
+- `scripts/lib/hqRoundTripCutover/legacyLanguageWireCodes.ts` (new)
+- `scripts/lib/hqRoundTripCutover/steps/languageWireCodes.ts` (new)
+- `scripts/lib/hqRoundTripCutover/behavior.ts` (the selection function of `ccz-needs-project-space`)
+- `scripts/lib/hqRoundTripCutover/notice.ts` (the five deployment lines)
+- `scripts/lib/hqRoundTripCutover/prestep/prestepFold.entry.ts` (deleted, with the fold's inputs test)
+- `scripts/build-hq-round-trip-prestep-fold.mjs` (deleted)
+- `scripts/lib/languageIdentityRepair.ts` (mints through the planner)
+- `scripts/__tests__/selectOptionValueRepair.test.ts` (writes a localization root)
+
+CI and config:
+
+- `biome.json` (the planner's entry)
+- `.github/workflows/proof-audit.yml`
+
+Docs:
+
+- `proof/README.md`
+
+### Pull request 4: Drift and baselines
+
+Nova source:
+
+- `lib/deployment/hqSourceBaseline.ts` (new)
+- `lib/deployment/hqResourceBaseline.ts` (new)
+- `lib/deployment/remoteChanges.ts` (new)
+- `lib/deployment/preflight.ts`
+- `lib/deployment/service.ts`
+- `lib/deployment/store.ts`
+- `lib/deployment/types.ts`
+- `lib/deployment/importApplication.ts`
+- `lib/deployment/lookupResourcePlan.ts`
+- `lib/deployment/locationResourcePlan.ts`
+- `lib/deployment/index.ts`
+- `lib/commcare/appOwnership.ts` (new; pull request 5 deletes it)
+- `lib/commcare/surface/schemaDefaults.ts` (new)
+- `lib/commcare/hq/lookupTables.ts` (`readHqLookupTableRows`, new)
+- `lib/commcare/hq/locations.ts`
+- `components/builder/PublishDialog.tsx`
+- `components/builder/publishOutcome.ts`
+- `app/api/commcare/upload/route.ts`
+- `lib/mcp/tools/uploadAppToHq.ts`
+- `lib/mcp/errors.ts`
+- `lib/notices/` (the two reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/hqLookupTables.test.ts`
+- `lib/commcare/__tests__/hqLocations.test.ts`
+- `e2e/tests/browser/publishing.spec.ts`
+- `e2e/lib/publishing-client.tsx`
+- `e2e/lib/publishing-boundary.ts`
+- `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`
+
+The lane:
+
+- `proof/corpus/publish.ts`
+- `proof/corpus/writePublishCaptures.ts` (the ownership file beside each of the two bodies)
+- `proof/corpus/targetPeer.ts`
+- `proof/corpus/__tests__/publish.postgres.test.ts`
+- `proof/hq/test_retained_reads.py` (its drift groups)
+- `proof/hq/operations.py` (`CapturedResourcesNotHeld`, and the reads built on `api_request`)
+- `proof/hq/test_publish.py` (the cached-verdict case)
+- `proof/hq/conftest.py`
+- `proof/editors/test_retained_reads.py` (new)
+- `proof/editors/conftest.py` (`DOCUMENTS`, new, the package's key)
+- `proof/editors/test_vellum.py`
+- `proof/formplayer/test_preview_install.py` (new)
+- `proof/formplayer/conftest.py`
+- `proof/observe/publish.py`
+- `proof/store/queue.py` (`PACKAGE_DATA`)
+- `proof/hq-reads/` (new under it: the drift answers by document, `lookup-upload/` and `places/`)
+
+Scripts and the cutover:
+
+- `scripts/lib/hqRoundTripCutover/writer.ts` (the Job's baseline reads and writes)
+- `scripts/lib/hqRoundTripCutover/notice.ts` (the two deployment lines)
+
+Docs:
+
+- `proof/README.md`
+
+### Pull request 5: App-level emission
+
+Nova source:
+
+- `lib/domain/blueprint.ts`
+- `lib/domain/index.ts`
+- `lib/domain/kinds.ts`
+- `lib/domain/fields/` (each kind's metadata: `carriesValidation`, defect 8)
+- `lib/doc/types.ts`
+- `lib/doc/scaffolds.ts`
+- `lib/doc/mutations/app.ts`
+- `lib/doc/mutations/index.ts`
+- `lib/doc/store.ts`
+- `lib/doc/diffDocsToMutations.ts`
+- `lib/doc/mutationTargetAdmission.ts`
+- `lib/doc/mutationSequenceAdmission.ts`
+- `lib/doc/mutationIdentityAdmission.ts`
+- `lib/doc/incrementalValidationScope.ts`
+- `lib/doc/referenceIndex.ts`
+- `lib/doc/hooks/useBlueprintMutations.ts`
+- `lib/doc/hooks/useAppSettings.ts` (new)
+- `lib/case-store/migrations/` (new `<timestamp>_app_settings.ts`: `apps.app_settings` and the replaced `nova_current_app_change_fold_snapshot`)
+- `lib/db/pg.ts`
+- `lib/db/blueprintRows.ts`
+- `lib/db/canonicalCommitKernel.ts`
+- `lib/db/persistedJson.ts`
+- `lib/db/runtimeDatabaseProbe.ts`
+- `lib/db/mediaDeletion.ts`
+- `lib/db/appGenesis.ts`
+- `lib/db/apps.ts`
+- `lib/doc/hooks/useAutoSave.ts`
+- `lib/commcare/targetOverlay.ts` (new)
+- `lib/commcare/targetProfile.ts` (deleted)
+- `lib/commcare/appOwnership.ts` (deleted)
+- `lib/commcare/appStringKeys.ts` (new)
+- `lib/commcare/addOns.ts` (new)
+- `lib/commcare/appProfileSettings.ts` (new)
+- `lib/commcare/expander.ts` (`expandDoc` and `expandAppShell`; `APP_SHELL_KEYS` loses `add_ons`)
+- `lib/commcare/hqShells.ts`
+- `lib/commcare/types.ts`
+- `lib/commcare/constants.ts`
+- `lib/commcare/client.ts` (the probe's `readEmptyCaseListText` option)
+- `lib/commcare/hq/appSource.ts`
+- `lib/commcare/compiler.ts`
+- `lib/commcare/suite/displayConditions.ts`
+- `lib/commcare/suite/case-list/detailTexts.ts` (new)
+- `lib/commcare/suite/formStrings.ts` (new)
+- `lib/commcare/xform/metaBlock.ts`
+- `lib/commcare/xform/formVersion.ts` (new)
+- `lib/commcare/xform/builder.ts`
+- `lib/commcare/validator/rules/field.ts`
+- `lib/commcare/validator/suiteOracle.ts`
+- `lib/deployment/importApplication.ts`
+- `lib/deployment/service.ts`
+- `lib/deployment/hqSourceBaseline.ts`
+- `lib/deployment/preflight.ts`
+- `lib/deployment/store.ts`
+- `lib/deployment/types.ts`
+- `lib/deployment/runtimeTarget.ts`
+- `lib/deployment/downloadTarget.ts`
+- `lib/export/localArchive.ts`
+- `lib/agent/tools/updateApp.ts`
+- `lib/agent/tools/shared/toolCallSummary.ts`
+- `lib/chat/toolSummary.ts`
+- `lib/agent/appOverview.ts`
+- `lib/agent/summarizeBlueprint.ts`
+- `lib/models.ts`
+- `components/builder/detail/appSettings/AppSavedFormsSection.tsx` (new)
+- `components/builder/detail/appSettings/AppSettingsPanel.tsx`
+- `lib/notices/` (the six reasons and their renderers)
+- `lib/commcare/surface/entries/application-and-settings.json`
+- `lib/commcare/surface/entries/questions.json`
+- `lib/commcare/surface/surface.json`
+
+Nova tests named outright:
+
+- `lib/domain/__tests__/fieldRegistry.test.ts`
+- `lib/__tests__/docHelpers.ts`
+- `lib/doc/__tests__/mutations-app.test.ts`
+- `lib/doc/__tests__/mutationAdmission.test.ts`
+- `lib/doc/__tests__/diffDocsToMutations.fuzz.test.ts`
+- `lib/commcare/__tests__/` (the tests of the files above)
+- `lib/agent/__tests__/summarizeBlueprint-settings.test.ts` (new)
+- `lib/db/__tests__/commitGuardedBatch.postgres.test.ts`
+- `e2e/tests/app/app-settings.spec.ts` (new)
+
+The lane:
+
+- `proof/surface/families/profile.py`
+- `proof/surface/families/strings.py`
+- `proof/surface/families/authored.py`
+- `proof/surface/__init__.py`
+- `proof/surface/test_strings_and_profile.py`
+- `proof/checks/proof2.py`
+- `proof/checks/proof3.py`
+- `proof/checks/proof5.py`
+- `proof/checks/test_proof5_locality.py`
+- `proof/checks/served.py`
+- `proof/checks/android.py`
+- `proof/checks/intent.py`
+- `proof/checks/manifest_usage.py`
+- `proof/checks/manifest_value_classes.py`
+- `proof/checks/test_manifest_value_classes.py`
+- `proof/checks/test_hq_side.py`
+- `proof/checks/test_intent.py`
+- `proof/checks/test_proof2_build.py`
+- `proof/checks/test_proof3_behavior.py`
+- `proof/checks/test_android.py`
+- `proof/checks/test_manifest.py`
+- `proof/checks/test_served.py`
+- `proof/checks/controls.py`
+- `proof/checks/corpus.py` (the archive compiled for each configuration)
+- `proof/android/observe.py`
+- `proof/android/predicates.py`
+- `proof/android/src/nova/proof/android/Location.java` (new)
+- `proof/android/src/nova/proof/android/Reader.java`
+- `proof/corpus/editKinds.ts`
+- `proof/corpus/footprint.ts`
+- `proof/corpus/entryWriter.ts`
+- `proof/corpus/publish.ts`
+- `proof/corpus/targetPeer.ts`
+- `proof/corpus/documents.ts` (`HqSideSaves`)
+- `proof/corpus/inputs.ts`
+- `proof/corpus/entropy.mts` (its prose alone: no ordinal changes)
+- `proof/corpus/__tests__/entropy.test.ts` (holds the profile's `uniqueid` draw; part 04, Defect 9, Files)
+- `proof/corpus/__tests__/emitCorpus.test.ts` (holds the draw)
+- `proof/corpus/__tests__/writePublishCaptures.test.ts` (holds the draw)
+- `proof/corpus/__tests__/publish.postgres.test.ts` (holds the draw; the overlaid keys)
+- `proof/observe/served.py`
+- `proof/observe/sessions.py`
+- `proof/observe/proof4.py`
+- `proof/observe/intent.py`
+- `proof/observe/hqside.py`
+- `proof/observe/unit.py`
+- `proof/store/guard.py`
+- `proof/formplayer/observe.py`
+- `proof/formplayer/test_settings.py` (rewritten)
+- `proof/formplayer/test_validation.py`
+- `proof/webapps/test_app_list.py`
+- `proof/connect/conftest.py`
+- `proof/connect/test_receiver.py`
+- `proof/hq/test_empty_list_flag_read.py` (new)
+- `proof/targeted/documents/attributeDisplayCondition.ts` (new)
+- `proof/targeted/documents/gpsQuestion.ts` (new)
+- `proof/targeted/documents/hqSideState.ts`
+- `proof/targeted/documents/hqSideLookup.ts`
+- `proof/targeted/documents/formShapes.ts`
+- `proof/targeted/index.ts`
+- `proof/hq-reads/navigation-base/` (the read after the Add-ons save and its `ownership.json`, written again)
+- `proof/views/test_add_ons.py`
+- `proof/views/test_case_list_offers.py`
+- `proof/rules/test_add_ons.py`
+- `proof/rules/test_stored_position_keys.py` (new)
+- `proof/rules/profile_required_minimal.py` (deleted)
+- `proof/rules/test_profile_required_minimal.py` (deleted)
+- `proof/rules/profile_unread_properties.py`
+- `proof/rules/test_profile_unread_properties.py`
+- `proof/rules/__init__.py`
+- `proof/walk-stops.json`
+- `proof/controls/connect-location-capture/` (new)
+- `proof/controls/targeted-invalid-question-ids-after-9/` (new)
+- `proof/controls/targeted-hq-side-state-after-59/` (removed)
+- `proof/timings.json`
+
+Scripts and the cutover:
+
+- `scripts/lib/loadPersistedBlueprint.ts` (a loader of the root's carriers; checklist item 5)
+- `scripts/inspect-app.ts` (a loader of the root's carriers)
+- `scripts/lib/persistedLookupReferenceScan.ts` (a loader of the root's carriers)
+- `scripts/lib/repairAuthoringBaselines.ts` (a loader of the root's carriers)
+- `scripts/test-schema.ts`
+- `scripts/lib/hqRoundTripCutover/steps/appSettings.ts` (new)
+- `scripts/lib/hqRoundTripCutover/behavior.ts`
+- `scripts/lib/hqRoundTripCutover/notice.ts`
+
+CI and config:
+
+- `.github/workflows/proof-audit.yml`
+
+Docs:
+
+- `proof/android/README.md`
+
+### Pull request 6: XForm, first part
+
+Nova source:
+
+- `lib/commcare/xform/caseOps.ts`
+- `lib/commcare/xform/caseBlocks.ts`
+- `lib/commcare/xform/builder.ts`
+- `lib/commcare/xform/constraintCollections.ts`
+- `lib/commcare/xform/dataRootAttributes.ts`
+- `lib/commcare/xform/datetimeCaseValue.ts`
+- `lib/commcare/xform/formPath.ts` (`relativeXPath` and `originalContextPath` move here from `caseOps.ts`)
+- `lib/commcare/session.ts` (`newCaseIdDatumId`)
+- `lib/commcare/localization.ts`
+- `lib/commcare/formActions.ts` (a comment)
+- `lib/commcare/xpath/selfSteps.ts` (new)
+- `lib/commcare/hashtags.ts`
+- `lib/commcare/hashtags/formContext.ts`
+- `lib/domain/translationFill.ts` (new)
+- `lib/domain/translationUnits.ts`
+- `lib/domain/formWireName.ts` (new)
+- `lib/domain/localizedBlueprintProjection.ts` (the `filled` option)
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/validator/rules/field.ts` (`SELECT_OPTION_LABEL_EMPTY`)
+- `lib/doc/userFacingErrors.ts` (its message)
+- `lib/doc/hooks/useLocalization.ts` (`useFilledField`)
+- `components/builder/app-setup/LanguagesSection.tsx` (the Missing badge)
+- `lib/preview/engine/engineInput.ts`
+- `lib/preview/engine/formEngine.ts`
+- `lib/preview/hooks/useVisibleFieldOrder.ts`
+- `components/preview/form/virtual/rows/FieldRow.tsx`
+- `components/preview/form/virtual/rows/GroupBracket.tsx`
+- `components/preview/form/virtual/rows/SectionHeaderRow.tsx`
+- `lib/agent/authoring/reference.ts`
+- `lib/agent/tools/localization.ts`
+- `lib/models.ts`
+- `lib/notices/` (`option-label-filled`)
+- `lib/commcare/surface/entries/questions.json`
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/` (the emission tests and fixtures)
+- `lib/commcare/__tests__/editableEnvelope.test.ts` (new)
+- `lib/commcare/__tests__/defaultValueEmission.test.ts` (new)
+- `lib/commcare/xpath/__tests__/nativeXPathCorpus.ts` (its `attribute axis` row reads the form's name)
+- `lib/domain/__tests__/localization.test.ts`
+- `e2e/tests/app/localization.spec.ts`
+- `lib/agent/translation/__tests__/translateLanguage.postgres.test.ts`
+
+The lane:
+
+- `proof/checks/compare/versions.py`
+- `proof/checks/compare/build_files.py`
+- `proof/checks/proof4.py`
+- `proof/checks/manifest_value_classes.py` (`_form_reads` resolves `current()`)
+- `proof/checks/test_manifest_value_classes.py`
+- `proof/checks/test_form_content.py` (new)
+- `proof/checks/test_proof2_build.py`
+- `proof/checks/test_proof4_editability.py`
+- `proof/android/conftest.py` (new: `DOCUMENTS`)
+- `proof/android/test_form_reads.py` (new)
+- `proof/android/observe.py`
+- `proof/android/predicates.py`
+- `proof/android/src/nova/proof/android/Answers.java`
+- `proof/android/src/nova/proof/android/Screens.java`
+- `proof/android/src/nova/proof/android/Updates.java`
+- `proof/store/queue.py` (`PACKAGE_DATA`)
+- `proof/lane/blocks.py` (`CORPUS_PACKAGES`)
+- `proof/connect/conftest.py`
+- `proof/connect/test_receiver.py` (the work area test)
+- `proof/native/core/CaseOperationRuntimeTest.java` (five datetime writes; a registration form's reads of its own id)
+- `proof/native/core/ExpanderRuntimeTest.java` (new cases: a default in each of the four placements; the registration reads)
+- `proof/native/steps/expander_emission.py` (HQ's regenerated form of each document those cases run)
+- `proof/rules/` (the retired rules' modules and tests)
+- `proof/rules/test_vellum_hashtags.py` (turned to work from `standard-case-reads`)
+- `proof/controls/` (the new control)
+- `proof/targeted/documents/blankLabels.ts` (new)
+- `proof/timings.json` (the new document's groups and the new control's)
+
+Scripts and the cutover:
+
+- `scripts/lib/hqRoundTripCutover/steps/optionLabels.ts` (new)
+
+Docs:
+
+- `proof/android/README.md`
+- `proof/README.md` (work item H's two rows)
+
+### Pull request 7: XForm, second part
+
+Nova source:
+
+- `lib/commcare/xform/` (the emitters that take their node names from the plan)
+- `lib/commcare/xform/generatedNodes.ts` (new)
+- `lib/commcare/constants.ts`
+- `lib/commcare/formActions.ts`
+- `lib/commcare/identifierValidation.ts` (`isReservedXFormNodeName` deleted)
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/validator/rules/field.ts`
+- `lib/commcare/validator/rules/caseOperations.ts` (`reservedFieldIdPrefix` and its code deleted)
+- `lib/doc/identifierVerdicts.ts`
+- `lib/doc/userFacingErrors.ts`
+- `lib/doc/caseOperationOrder.ts`
+- `lib/preview/engine/formEngine.ts` (the count node's name from the plan)
+- `components/builder/editor/FieldIdentitySection.tsx`
+- `components/builder/editor/renameOutcome.ts`
+- `lib/agent/tools/case-operations/shared.ts`
+- `lib/agent/tools/editField.ts`
+- `lib/agent/tools/shared/fieldAssembly.ts`
+- `lib/models.ts`
+- `lib/notices/` (`data-paths-move-once`)
+- `lib/commcare/surface/entries/questions.json`
+- `lib/commcare/surface/entries/forms-and-case-writes.json`
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/` (the emission tests and fixtures)
+- `lib/commcare/__tests__/generatedNodes.test.ts` (new)
+- `lib/commcare/validator/__tests__/caseOperations.test.ts`
+- `lib/agent/tools/__tests__/` (the tests that pin the removed rule or the old names)
+- `lib/mcp/__tests__/compileApp.postgres.test.ts`
+
+The lane:
+
+- `proof/checks/compare/names.py`
+- `proof/checks/compare/trace.py`
+- `proof/checks/manifest_value_classes.py` (with its test)
+- `proof/checks/test_manifest_value_classes.py`
+- `proof/checks/test_compare.py`
+- `proof/checks/proof3.py`
+- `proof/checks/differences.py`
+- `proof/native/core/CaseOperationRuntimeTest.java`
+- `proof/native/core/CaseCaptureRuntimeTest.java`
+- `proof/native/test_case_emission.py`
+- `proof/formplayer/test_case_blocks.py` (new)
+- `proof/formplayer/conftest.py` (`DOCUMENTS`)
+- `proof/webapps/test_generated_groups.py` (new)
+- `proof/webapps/conftest.py` (`DOCUMENTS`)
+- `proof/android/test_case_blocks.py` (new)
+- `proof/android/conftest.py` (`DOCUMENTS`)
+- `proof/views/test_exports.py` (reads the new name)
+- `proof/controls/` (the controls this pull request retains)
+- `proof/timings.json`
+
+Scripts and the cutover:
+
+- `scripts/lib/hqRoundTripCutover/notice.ts` (the per-deployment line)
+- `scripts/lib/hqRoundTripCutover/report.ts` (the scan's two counts)
+
+Docs:
+
+- `proof/README.md`
+
+### Pull request 8: Defect 3
+
+Nova source:
+
+- `lib/commcare/xform/caseSaveReferences.ts` (new)
+- `lib/commcare/xform/builder.ts`
+- `lib/commcare/xform/index.ts`
+- `lib/commcare/types.ts`
+- `lib/commcare/hqShells.ts`
+- `lib/commcare/expander.ts`
+- `lib/commcare/validator/hqJsonOracle.ts`
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/caseSaveReferences.test.ts` (new)
+- `lib/commcare/__tests__/compilerEvidence.ts` (`checkCompilerEvidence` runs `checkCaseReferences` over both fuzz corpora)
+
+The lane:
+
+- `proof/checks/intent.py`
+- `proof/checks/test_intent.py`
+- `proof/controls/case-capture-multiple-after-3/` (new)
+- `proof/timings.json`
+
+Docs:
+
+- `proof/README.md`
+- `content/docs/publishing.mdx`
+
+### Pull request 9: Case writes through basic actions
+
+Nova source:
+
+- `lib/commcare/xform/caseBlocks.ts`
+- `lib/commcare/xform/caseOps.ts`
+- `lib/commcare/xform/generatedNodes.ts` (`trimmed`)
+- `lib/commcare/xform/builder.ts` (`buildFieldParts` writes `nova_trimmed_<question>`, `required` and the guard)
+- `lib/commcare/formActions.ts`
+- `lib/commcare/validator/hqJsonOracle.ts` (refuses a non-null `open_case.external_id`)
+- `lib/commcare/surface/entries/forms-and-case-writes.json`
+- `lib/domain/caseScalarTextGuard.ts` (new)
+- `lib/domain/closeCondition.ts` (new)
+- `lib/domain/index.ts`
+- `lib/case-store/postgres/submissionEnvelope.ts`
+- `lib/preview/engine/formEngine.ts`
+- `components/builder/detail/formSettings/CloseConditionSection.tsx`
+- `lib/agent/planningSchemas.ts` (`closeConditionInputSchema`)
+- `lib/agent/tools/updateForm.ts`
+- `lib/models.ts`
+- `lib/notices/` (this pull request's reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/caseBlocks.test.ts`
+- `lib/commcare/__tests__/multiSelectEmission.test.ts`
+- `lib/commcare/__tests__/extensionCaseEmission.test.ts`
+- `lib/commcare/__tests__/repeatContextSubcase.test.ts`
+- `lib/commcare/__tests__/hqJsonOracle.test.ts`
+- `lib/case-store/__tests__/followupTouch.postgres.test.ts` (new)
+
+The lane:
+
+- `proof/targeted/documents/closeConditions.ts`
+- `proof/targeted/documents/echo.ts`
+- `proof/targeted/documents/searchApps.ts` (passes a form's command and a case id to `answerHeld`)
+- `proof/targeted/documents/multiSelectDestinations.ts` (the same)
+- `proof/targeted/documents/stableWitnesses.ts` (the same)
+- `proof/targeted/documents/noMatchesReturnIdentity.ts` (the same)
+- `proof/rules/case_block_position.py` (deleted, with its test)
+- `proof/rules/update_never_beside_actions.py` (deleted, with its test)
+- `proof/rules/__init__.py` (the two retired rules leave `RULES`)
+- `proof/rules/conftest.py` (`DOCUMENTS` loses two documents)
+- `proof/formplayer/test_case_name_guard.py` (new)
+- `proof/webapps/test_case_name_guard.py` (new)
+- `proof/webapps/conftest.py` (`DOCUMENTS` gains `navigation-base`)
+- `proof/android/test_case_name_guard.py` (new)
+- `proof/android/conftest.py` (`DOCUMENTS` gains `navigation-base`)
+- `proof/native/core/CaseOperationRuntimeTest.java` (new cases: a hidden name, a whitespace-only and a 256-character name)
+- `proof/native/test_case_emission.py` (new assertions: the child order of the data node and of each `<update>`)
+- `proof/controls/`
+- `proof/walk-stops.json`
+
+Scripts and the cutover:
+
+- `scripts/test-schema.ts` (the `updateForm` entry, registered here)
+- `scripts/lib/hqRoundTripCutover/behavior.ts` (the four selection functions)
+
+### Pull request 10: Identifiers and form content
+
+Nova source:
+
+- `lib/domain/questionId.ts` (new)
+- `lib/domain/entryPoints.ts`
+- `lib/domain/forms.ts` (`connectDeliverFormHoldsTask`)
+- `lib/domain/selectOptionValue.ts`
+- `lib/doc/identifierVerdicts.ts`
+- `lib/doc/userFacingErrors.ts`
+- `lib/doc/connectConfig.ts`
+- `lib/commcare/validator/rules/sourceCaseWrites.ts` (new)
+- `lib/commcare/validator/rules/sessionData.ts` (new)
+- `lib/commcare/validator/rules/form.ts`
+- `lib/commcare/validator/rules/field.ts`
+- `lib/commcare/validator/rules/app.ts`
+- `lib/commcare/validator/rules/caseOperations.ts`
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/validator/runner.ts`
+- `lib/commcare/validator/xpathValidator.ts`
+- `lib/commcare/xform/sourceCaseWrites.ts` (new)
+- `lib/commcare/xform/caseOps.ts` (calls the new module's predicates)
+- `lib/commcare/expander.ts` (calls the new module's predicates)
+- `lib/commcare/connectSlugs.ts`
+- `lib/commcare/identifierValidation.ts`
+- `lib/commcare/xpath/expressionAst.ts` (`hasExplicitPathContext` exported)
+- `lib/preview/xpath/dependencies.ts` (`formRootReadPositions`)
+- `components/builder/detail/formSettings/LearnConfig.tsx`
+- `components/builder/detail/formSettings/DeliverConfig.tsx`
+- `components/builder/detail/appSettings/ConnectEnableDialog.tsx`
+- `components/builder/detail/appSettings/connectDraft.ts`
+- `components/builder/app-setup/DeepLinksSection.tsx`
+- `components/builder/app-setup/PublishingSection.tsx`
+- `components/builder/app-setup/publishingSectionModel.ts`
+- `components/builder/app-setup/usePublishingRecords.ts` (new)
+- `components/builder/editor/fields/optionsDraftModel.ts`
+- `lib/agent/planningSchemas.ts`
+- `lib/agent/toolSchemaGenerator.ts` (the question id description)
+- `lib/agent/tools/case-operations/shared.ts`
+- `lib/agent/tools/entry-points.ts`
+- `lib/agent/tools/shared/connectIds.ts`
+- `lib/models.ts`
+- `lib/notices/` (this pull request's reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/commcare/__tests__/xformDocArbitrary.ts` (the generators map their draws)
+- `lib/commcare/__tests__/connectWireFixtures.ts` (new entities carry named uuids; part 09, Corpus changes)
+- `lib/commcare/__tests__/expander.test.ts` (two duplicate-option tests become refusals; the empty-group form gains a Label)
+- `lib/commcare/__tests__/connectSlugs.test.ts`
+- `lib/commcare/__tests__/connectDefaults.test.ts`
+
+The lane:
+
+- `proof/native/producers/emit-connect-evidence.ts`
+- `proof/native/steps/form_emission.py`
+- `proof/native/test_connect_emission.py`
+- `proof/native/core/ConnectRuntimeTest.java`
+- `proof/checks/hq_own_reports.py` (the widened member)
+- `proof/checks/test_hq_own_reports.py` (its case)
+- `proof/checks/connect.py` (the widened member)
+- `proof/checks/test_connect_unit.py` (its two tests over the task's form)
+- `proof/connect/test_hq_own_rename.py`
+- `proof/connect/conftest.py`
+- `proof/connect/test_receiver.py`
+- `proof/connect/test_forwarding.py`
+- `proof/hq/test_endpoint_ids.py` (new)
+- `proof/hq/entryPointIdVerdicts.ts` (new)
+- `proof/formplayer/test_observe.py`
+- `proof/formplayer/apps.py` (`form_written`)
+- `proof/targeted/` (the documents this pull request rewrites and removes)
+- `proof/walk-stops.json`
+- `proof/timings.json` (the groups of the eight documents that leave)
+
+Scripts and the cutover:
+
+- `scripts/test-schema.ts` (`configureConnect`, `addEntryPoint` and `updateEntryPoint`, registered here)
+- `scripts/lib/hqRoundTripCutover/steps/` (this pull request's eight steps)
+- `scripts/lib/hqRoundTripCutover/steps/relativePaths.ts` (new: shared by the three id steps)
+- `scripts/lib/hqRoundTripCutover/report.ts`
+
+Docs:
+
+- `docs/plans/hq-round-trip/2-cutover-runbook.md` (the renamed Connect blocks of step 1(d))
+
+### Pull request 11: Case lists
+
+Nova source:
+
+- `lib/domain/caseListOrder.ts` (new)
+- `lib/domain/modules.ts`
+- `lib/domain/standardCaseProperties.ts` (`ATTRIBUTE_BACKED_COLUMN_PROPERTIES`)
+- `lib/domain/translationUnits.ts`
+- `lib/domain/mediaRefs.ts`
+- `lib/domain/casePropertyTypes.ts` (a comment)
+- `lib/commcare/hqJson/caseList.ts`
+- `lib/commcare/suite/case-list/` (the list emitters)
+- `lib/commcare/suite/case-search/searchSession.ts`
+- `lib/commcare/suite/case-search/relatedCaseProjection.ts`
+- `lib/commcare/compiler.ts`
+- `lib/commcare/expander.ts` (finding 41's text on every short detail; finding 54's languages to `moduleShell`)
+- `lib/commcare/hqShells.ts` (`caseSearchConfigShell` and `moduleShell` take the app's languages)
+- `lib/commcare/types.ts`
+- `lib/commcare/lookup/naming.ts`
+- `lib/commcare/surface/entries/menus-and-case-lists.json`
+- `lib/doc/userFacingErrors.ts`
+- `lib/commcare/validator/rules/case-list/idMappingKeyCharacters.ts` (new)
+- `lib/commcare/validator/rules/case-list/caseTileHiddenCalculatedSort.ts` (new)
+- `lib/commcare/validator/rules/case-list/dateColumnPattern.ts` (new)
+- `lib/commcare/validator/rules/case-list/sortPropertyOwnership.ts` (new)
+- `lib/commcare/validator/rules/case-list/shared.ts`
+- `lib/commcare/validator/rules/case-list/caseTileLayout.ts` (its header comment)
+- `lib/commcare/validator/rules/module.ts` (registers the four rules)
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/validator/hqJsonOracle.ts` (refuses the former spellings)
+- `lib/preview/engine/caseDataBindingHelpers.ts`
+- `lib/preview/engine/caseListOrder.ts` (new)
+- `lib/preview/engine/caseDataBinding.ts`
+- `lib/preview/hooks/useCaseDataBinding.ts`
+- `lib/preview/caseTileRendering.ts`
+- `components/preview/shared/listFilter.tsx`
+- `lib/case-store/store.ts` (`SortKey`)
+- `lib/case-store/postgres/store.ts` (the comparator and the blanks term)
+- `lib/case-store/sql/compileIntervalText.ts` (new)
+- `lib/case-store/sql/compileExpression.ts`
+- `lib/case-store/sql/index.ts`
+- `components/builder/case-list-config/`
+- `components/builder/shared/datePatternDraft.ts`
+- `components/builder/shared/primitives/CustomDatePatternInput.tsx`
+- `lib/agent/tools/case-list-config/`
+- `lib/agent/tools/updateModule.ts` (`case_list_columns` holds the same arms)
+- `lib/agent/summarizeBlueprint.ts` (a comment)
+- `lib/models.ts`
+- `lib/notices/` (this pull request's reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/domain/__tests__/translationUnits.test.ts` (new)
+- `lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts`
+- `lib/commcare/__tests__/expander.test.ts` (eleven tests take new assertions)
+- `lib/commcare/__tests__/hqJsonOracle.test.ts` (the attribute-backed sort case, which produces the native oracle test's probes)
+- `lib/commcare/__tests__/suiteDocArbitrary.ts` (`lowerToDoc` rewrites a drawn list as the cutover does)
+- `lib/commcare/__tests__/localizationWireFixture.ts` (`localization-bilingual`'s order rule)
+- `lib/commcare/__tests__/caseListOrderParity.test.ts` (new)
+- `lib/commcare/__tests__/hiddenCalculatedInstances.test.ts` (new)
+- `lib/commcare/__tests__/casePropertyWire.test.ts`
+- `lib/commcare/__tests__/caseListEmissionFixture.ts`
+- `lib/commcare/__tests__/searchEmission.test.ts`
+- `lib/commcare/__tests__/tileEmissionParity.test.ts`
+- `lib/preview/__tests__/caseTile.test.ts`
+- `e2e/tests/browser/case-workspace-surface.spec.ts`
+- `e2e/tests/browser/preview-cases-audit.spec.ts`
+
+The lane:
+
+- `proof/native/core/CaseListRuntimeTest.java`
+- `proof/native/core/TileSuiteRuntimeTest.java`
+- `proof/targeted/documents/` (the new documents and the rewritten ones)
+- `proof/targeted/index.ts`
+- `proof/rules/` (the five retired rules' modules and tests)
+- `proof/rules/__init__.py`
+- `proof/rules/conftest.py`
+- `proof/controls/`
+- `proof/hq/test_fuzzy_sort_keys.py` (new)
+- `proof/hq/test_date_pattern_characters.py` (new)
+- `proof/editors/test_mapping_keys.py` (new)
+- `proof/android/test_case_lists.py` (new)
+- `proof/native/core/CaseListOrderRuntimeTest.java` (new)
+- `proof/native/core/resources/case-list-order/orders.json` (new)
+- `proof/native/families.py` (the new class's line)
+- `proof/webapps/test_search.py`
+- `proof/webapps/test_tiles.py`
+- `proof/webapps/test_empty_list.py` (rewritten to the fixed contract)
+- `proof/formplayer/test_search.py`
+- `proof/webapps/conftest.py` (`DOCUMENTS`)
+- `proof/android/conftest.py` (`DOCUMENTS`)
+- `proof/android/observe.py` (`app` takes `searches`)
+- `proof/android/predicates.py` (the predicate finding 67's rule names)
+- `proof/corpus/footprint.ts` (takes `caseListColumnRuns`)
+- `proof/corpus/__tests__/footprint.test.ts` (its literal cell takes the three defaults)
+- `proof/timings.json` (the groups of the new documents and controls)
+
+Scripts and the cutover:
+
+- `scripts/lib/hqRoundTripCutover/steps/` (this pull request's five steps)
+- `scripts/lib/hqRoundTripCutover/transform.ts`
+- `scripts/lib/hqRoundTripCutover/behavior.ts` (the four no-write reasons)
+
+Docs:
+
+- `proof/README.md`
+
+### Pull request 12: Menus, navigation and search settings
+
+Nova source:
+
+- `lib/domain/forms.ts`
+- `lib/domain/modules.ts`
+- `lib/domain/navigation.ts`
+- `lib/domain/postSubmit.ts`
+- `lib/domain/menuForms.ts`
+- `lib/domain/index.ts`
+- `lib/domain/translationUnits.ts`
+- `lib/domain/localizedBlueprintProjection.ts`
+- `lib/domain/referenceSlots.ts`
+- `lib/domain/predicate/simplify.ts`
+- `lib/commcare/session.ts`
+- `lib/commcare/expander.ts`
+- `lib/commcare/compiler.ts` (the local suite reads a case type from `moduleCaseTypeForActions`)
+- `lib/commcare/formLinkProjection.ts`
+- `lib/commcare/previousTaskProjection.ts`
+- `lib/commcare/localeFile.ts`
+- `lib/commcare/suite/displayConditions.ts`
+- `lib/commcare/suite/case-search/` (the search emitters)
+- `lib/commcare/suite/case-search/reservedInputNames.ts` (new)
+- `lib/commcare/hqShells.ts`
+- `lib/commcare/hqJson/caseList.ts`
+- `lib/commcare/types.ts`
+- `lib/commcare/validator/hqJsonOracle.ts` (block 10's spellings and the search button label)
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/validator/rules/form.ts`
+- `lib/commcare/validator/rules/module.ts`
+- `lib/commcare/validator/rules/displayConditions.ts`
+- `lib/commcare/validator/rules/hiddenFromMenu.ts` (new)
+- `lib/commcare/validator/rules/case-search/searchFirst.ts` (`searchFirstNoPreviousWorkflow` deleted)
+- `lib/commcare/validator/rules/case-search/searchNoMatches.ts`
+- `lib/commcare/validator/rules/case-list/searchInputReservedName.ts` (new)
+- `lib/commcare/surface/entries/case-search.json`
+- `lib/commcare/surface/entries/forms-and-case-writes.json`
+- `lib/commcare/surface/entries/menus-and-case-lists.json`
+- `lib/doc/mutations/modules.ts`
+- `lib/doc/mutations/forms.ts` (the destination reconciliation)
+- `lib/doc/formLinkMutations.ts`
+- `lib/doc/searchNoMatchesForm.ts`
+- `lib/doc/displayConditionMutations.ts`
+- `lib/doc/caseSearchConfigPatchMutations.ts`
+- `lib/doc/projectBuilderLanguageMutations.ts`
+- `lib/doc/searchInputMutations.ts`
+- `lib/doc/lookupReferences.ts`
+- `lib/doc/diffDocsToMutations.ts`
+- `lib/doc/types.ts`
+- `lib/doc/userFacingErrors.ts`
+- `lib/doc/hooks/useFormLinkFacts.ts`
+- `lib/doc/hooks/useFormLinks.ts`
+- `lib/preview/afterSubmitRouting.ts`
+- `lib/preview/noMatchesForm.ts`
+- `lib/preview/menuProjection.ts`
+- `lib/preview/screenProjection.ts`
+- `lib/preview/entryPointLaunch.ts`
+- `lib/preview/workerModule.ts`
+- `lib/preview/app-tests/submission.ts`
+- `lib/preview/app-tests/navigation.ts`
+- `lib/preview/engine/navigationProjection.ts`
+- `lib/preview/engine/postSubmissionEvaluation.ts`
+- `lib/preview/engine/formLinkEvaluation.ts`
+- `lib/preview/engine/previousTask.ts`
+- `lib/preview/engine/displayConditionEvaluation.ts`
+- `lib/preview/engine/lookupEvaluation.ts`
+- `lib/preview/engine/searchExpressionEvaluation.ts`
+- `components/preview/screens/FormScreen.tsx`
+- `components/preview/screens/HomeScreen.tsx`
+- `components/preview/screens/ModuleScreen.tsx`
+- `components/preview/screens/CaseListScreen.tsx`
+- `components/builder/detail/formSettings/`
+- `components/builder/detail/moduleSettings/ModuleSettingsPanel.tsx`
+- `components/builder/form-links/`
+- `components/builder/conditions/`
+- `components/builder/case-list-config/noMatchesFormReview.tsx`
+- `components/builder/case-list-config/CaseListConfigWorkspace.tsx`
+- `components/builder/case-list-config/inspector/SearchPanelInspectorBody.tsx`
+- `components/builder/case-list-config/inspector/SearchChoiceSourceEditor.tsx`
+- `components/builder/app-setup/LanguagesSection.tsx`
+- `components/builder/shared/editorSchemas.ts`
+- `lib/agent/tools/createForm.ts`
+- `lib/agent/tools/updateForm.ts`
+- `lib/agent/tools/getForm.ts`
+- `lib/agent/tools/updateModule.ts`
+- `lib/agent/tools/getModule.ts`
+- `lib/agent/tools/entry-points.ts`
+- `lib/agent/tools/shared/formEntry.ts`
+- `lib/agent/tools/form-links/`
+- `lib/agent/tools/case-search-config/shared.ts`
+- `lib/agent/tools/case-list-config/shared.ts`
+- `lib/agent/tools/case-list-config/addSearchInputs.ts`
+- `lib/agent/tools/case-list-config/updateSearchInput.ts`
+- `lib/agent/summarizeBlueprint.ts`
+- `lib/agent/blueprintHelpers.ts`
+- `lib/agent/identitySchema.ts`
+- `lib/agent/authoring/output.ts`
+- `lib/agent/translation/translator.ts`
+- `lib/models.ts`
+- `lib/notices/` (this pull request's reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/commcare/surface/__tests__/reservedInputNames.test.ts` (new)
+- `lib/commcare/__tests__/` (the emission and rule tests)
+- `lib/commcare/__tests__/hiddenFromMenu.validation.test.ts` (new)
+- `lib/commcare/__tests__/searchEmissionFixture.ts`
+- `lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts` (moved to `postSubmitMenuShape.test.ts`)
+- `lib/doc/__tests__/multiplayerMerge.test.ts`
+- `lib/doc/__tests__/mutations-modules.test.ts`
+- `lib/preview/app-tests/__tests__/journey.postgres.test.ts`
+- `components/preview/__tests__/formScreenAfterSubmit.test.ts`
+- `e2e/lib/formLinksSeed.ts`
+- `e2e/lib/caseChangesSeed.ts`
+- `e2e/lib/previousTaskSeed.ts`
+- `e2e/lib/caseWorkspaceSeed.ts`
+- `e2e/lib/case-workspace-surface-client.tsx`
+- `e2e/tests/browser/case-workspace-surface.spec.ts`
+- `e2e/tests/app/authed.spec.ts`
+- `lib/agent/tools/case-search-config/__tests__/setCaseSearchDisplay.test.ts` (loses its cases on the button label)
+- `lib/agent/tools/case-search-config/__tests__/schema.test.ts` (the same)
+- `lib/agent/tools/case-search-config/__tests__/setCaseSearchAdvanced.test.ts` (the same)
+- `lib/agent/tools/case-list-config/__tests__/configureCaseList.test.ts`
+- `lib/agent/__tests__/lookupAuthorBoundary.test.ts`
+- `lib/agent/authoring/__tests__/schema.test.ts`
+
+The lane:
+
+- `proof/targeted/documents/hiddenFromMenu.ts` (new)
+- `proof/targeted/documents/searchApps.ts` (loses the button-label maker)
+- `proof/targeted/documents/multiSelectDestinations.ts`
+- `proof/targeted/documents/stableWitnesses.ts`
+- `proof/targeted/index.ts`
+- `proof/targeted/__tests__/stableWitnesses.test.ts`
+- `proof/native/core/SearchRuntimeTest.java`
+- `proof/native/core/SearchPromptRuntimeTest.java`
+- `proof/native/test_search_emission.py`
+- `proof/hq/test_case_search.py`
+- `proof/android/navigation.py` (new)
+- `proof/android/test_navigation.py` (new)
+- `proof/android/conftest.py` (`DOCUMENTS` gains two documents)
+- `proof/android/src/nova/proof/android/Nav.java` (new)
+- `proof/android/src/nova/proof/android/Reader.java` (the `nav` request)
+- `proof/android/src/nova/proof/android/Queries.java` (each dropdown's items)
+- `proof/formplayer/test_end_of_form.py`
+- `proof/formplayer/test_search.py`
+- `proof/formplayer/conftest.py`
+- `proof/webapps/test_links.py`
+- `proof/webapps/test_search.py`
+- `proof/webapps/conftest.py`
+- `proof/corpus/footprint.ts`
+- `proof/timings.json` (the new document's groups, and the deleted one's)
+
+Scripts and the cutover:
+
+- `scripts/test-schema.ts` (`addFormLinks` and `updateFormLink`, registered here; the `configureCaseList` prompt)
+- `scripts/lib/hqRoundTripCutover/steps/` (this pull request's steps)
+- `scripts/lib/hqRoundTripCutover/behavior.ts`
+
+Docs:
+
+- `proof/android/README.md`
+- `proof/README.md`
+
+### Pull request 13: Publish gates
+
+Nova source:
+
+- `lib/deployment/preflight.ts`
+- `lib/deployment/service.ts`
+- `lib/deployment/store.ts`
+- `lib/deployment/types.ts`
+- `lib/deployment/actions.ts`
+- `lib/deployment/importApplication.ts`
+- `lib/deployment/setupArtifact.ts`
+- `lib/deployment/workerRecordRequirements.ts` (its function moves to `lib/domain/`)
+- `lib/domain/workerRecordRequirements.ts` (new)
+- `lib/commcare/planPrivileges.ts` (new)
+- `lib/commcare/planPrivilegePlans.json` (new)
+- `lib/commcare/projectSpaceCompatibility.ts`
+- `lib/commcare/hqShells.ts`
+- `lib/commcare/types.ts`
+- `lib/commcare/expander.ts` (`APP_SHELL_KEYS` loses `build_spec`; `readsLocationsFixture` moves out)
+- `lib/commcare/locations/readsLocationsFixture.ts` (new)
+- `lib/commcare/versionFloor.ts` (`compareToVersionFloor`)
+- `lib/commcare/hq/appSource.ts` (`cloudcareEnabled`, `logoRefs`)
+- `lib/commcare/connectDefaults.ts`
+- `lib/commcare/connectSlugs.ts`
+- `lib/commcare/caseOptions.ts`
+- `lib/commcare/xform/caseOps.ts` (`formEmitsSaveToCase`)
+- `lib/commcare/xform/builder.ts`
+- `lib/commcare/suite/case-search/searchPrompts.ts`
+- `lib/commcare/suite/case-search/xpathQuery.ts` (with a new test)
+- `lib/commcare/formLinkProjection.ts`
+- `lib/commcare/compiler.ts`
+- `lib/commcare/client.ts`
+- `lib/commcare/targetLogoRefs.ts` (new)
+- `lib/commcare/multimedia/logoEntry.ts`
+- `lib/commcare/multimedia/hqJsonExportArchive.ts`
+- `lib/commcare/validator/hqJsonOracle.ts`
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/surface/entries/gates.json`
+- `lib/commcare/surface/entries/application-and-settings.json`
+- `lib/domain/mediaRefs.ts` (`uncarriedLogoAsset` removed)
+- `lib/doc/hooks/useUncarriedLogo.ts` (deleted)
+- `lib/media/uploadOutcome.ts`
+- `lib/export/boundaryValidation.ts` (a comment)
+- `lib/publish/planFeatures.ts` (new)
+- `lib/publish/manualImportGuide.ts`
+- `lib/publish/projectSpaceCompatibility.ts`
+- `app/api/commcare/upload/route.ts`
+- `app/api/commcare/project-space-compatibility/route.ts`
+- `app/api/compile/json/route.ts`
+- `components/builder/PublishDialog.tsx`
+- `components/builder/PublishPanel.tsx`
+- `components/builder/publishOutcome.ts`
+- `components/builder/DeploymentStatus.tsx`
+- `components/builder/app-setup/PublishingSection.tsx`
+- `components/builder/app-setup/publishingSectionModel.ts`
+- `components/builder/detail/appSettings/AppAppearanceSection.tsx`
+- `components/docs/ProjectSpaceCapabilityCatalog.tsx`
+- `lib/mcp/tools/uploadAppToHq.ts`
+- `lib/mcp/tools/checkProjectSpaceCompatibility.ts`
+- `lib/mcp/tools/deploymentProjection.ts`
+- `lib/mcp/tools/deploymentTools.ts`
+- `lib/mcp/tools/compileApp.ts`
+- `lib/mcp/tools/withdrawDeploymentConfirmation.ts` (new)
+- `lib/mcp/server.ts`
+- `lib/mcp/errors.ts`
+- `lib/agent/tools/media/setAppLogo.ts`
+- `lib/models.ts`
+- `lib/notices/` (the three reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/deployment/__tests__/publishGates.postgres.test.ts` (new)
+- `lib/deployment/__tests__/confirmations.postgres.test.ts` (new)
+- `lib/deployment/__tests__/publishSequence.postgres.test.ts` (the exact-key expectation)
+- `lib/commcare/__tests__/targetLogoRefs.test.ts` (new)
+- `lib/commcare/__tests__/compilerEvidence.ts` (`checkCompilerEvidence` gains four assertions)
+- `lib/commcare/__tests__/hqJsonOracle.test.ts` (loses its `logo_refs` block)
+- `lib/commcare/__tests__/projectSpaceCompatibilityProbe.test.ts`
+- `lib/commcare/__tests__/projectSpaceCompatibilityTransport.test.ts`
+- `lib/commcare/surface/__tests__/gates.test.ts` (the new structural test of the flag probe)
+- `lib/domain/__tests__/mediaRefDescribe.test.ts` (loses that function's cases)
+- `e2e/tests/browser/publishing.spec.ts`
+- `e2e/lib/publishing-boundary.ts`
+- `lib/mcp/__tests__/` (the tools' Postgres tests)
+
+The lane:
+
+- `proof/corpus/publish.ts`
+- `proof/corpus/targetPeer.ts` (`buildSpecVersion`)
+- `proof/corpus/hq/test_privileges.py`
+- `proof/checks/configurations.py`
+- `proof/checks/test_corpus.py`
+- `proof/native/test_location_emission.py`
+- `proof/views/test_linked_logos.py`
+- `proof/views/test_case_list_offers.py` (rewritten)
+- `proof/views/test_location_fixture.py` (rewritten)
+- `proof/webapps/test_app_list.py`
+- `proof/connect/hq.py`
+- `proof/connect/test_forwarding.py`
+- `proof/hq/seams.py` (`withheld`)
+- `proof/android/predicates.py` (one new test)
+- `proof/hq/test_version_floor.py` (new)
+- `proof/hq/test_plan_features.py` (new)
+- `proof/hq/test_flag_probe.py` (new)
+- `proof/hq/test_logos.py` (new)
+- `proof/editors/test_version_raise.py` (new)
+- `proof/editors/test_plan_features.py` (new)
+- `proof/editors/test_gated_pages.py` (new)
+- `proof/targeted/documents/customTile.ts`
+- `proof/walk-stops.json`
+- `proof/fixed-defects.json`
+- `proof/controls/expander-form-links-emission-emits-hq-form-links-with-3555b968-0/` (removed)
+- `proof/timings.json` (the removed control's group leaves)
+
+Scripts and the cutover:
+
+- `scripts/lib/hqRoundTripCutover/notice.ts` (the three deployment lines)
+
+Docs:
+
+- `proof/README.md`
+
+### Pull request 14: Lookup, CSQL, media and the model clean-up
+
+Nova source:
+
+- `lib/lookup/` (the tag's rules)
+- `lib/deployment/lookupResourcePlan.ts`
+- `lib/deployment/preflight.ts`
+- `lib/deployment/service.ts`
+- `lib/deployment/types.ts` (`hq_table_content_unsupported`)
+- `lib/deployment/remoteChanges.ts` (`LOOKUP_DISCARD_NOTE`)
+- `lib/commcare/lookup/workbook.ts`
+- `lib/commcare/hq/lookupTables.ts` (the upload arm)
+- `lib/export/boundaryValidation.ts`
+- `lib/commcare/validator/lookupReferences.ts`
+- `lib/commcare/validator/timeOrdering.ts` (new)
+- `lib/commcare/validator/index.ts`
+- `lib/commcare/validator/errors.ts`
+- `lib/commcare/validator/gate.ts`
+- `lib/commcare/validator/xformOracle.ts`
+- `lib/commcare/validator/mediaSuiteOracle.ts`
+- `lib/commcare/validator/rules/app.ts`
+- `lib/commcare/validator/rules/field.ts`
+- `lib/commcare/validator/rules/media/shared.ts`
+- `lib/domain/predicate/typeChecker.ts`
+- `lib/domain/standardCaseProperties.ts`
+- `lib/domain/modules.ts`
+- `lib/domain/mediaRefs.ts`
+- `lib/domain/referenceSlots.ts`
+- `lib/domain/casePreload.ts`
+- `lib/domain/effectiveCaseTypes.ts`
+- `lib/domain/multimedia.ts`
+- `lib/domain/fields/` (the ten input kinds lose `validate_msg_media`)
+- `lib/domain/fields/base.ts`
+- `lib/domain/fields/hidden.ts`
+- `lib/domain/fields/file.ts`
+- `lib/domain/fields/index.ts`
+- `lib/commcare/predicate/` (the predicate emitters)
+- `lib/commcare/predicate/runtimeCsqlDateSafety.ts` (new)
+- `lib/commcare/suite/case-search/xpathQuery.ts` (no prompt validation for the blank-comparand obligation)
+- `lib/commcare/constants.ts`
+- `lib/commcare/hqShells.ts`
+- `lib/commcare/types.ts`
+- `lib/commcare/xform/builder.ts`
+- `lib/commcare/xform/constraintMessage.ts`
+- `lib/commcare/xform/captureUpload.ts` (a comment)
+- `lib/commcare/multimedia/mediaSuiteXml.ts`
+- `lib/commcare/multimedia/assetWirePath.ts` (a comment)
+- `lib/commcare/surface/media-formats.json`
+- `lib/commcare/surface/surface.json`
+- `lib/commcare/surface/entries/questions.json`
+- `lib/commcare/surface/entries/expressions-and-data.json`
+- `lib/media/validate.ts`
+- `lib/media/bmp.ts` (new)
+- `lib/media/webm.ts` (new)
+- `lib/doc/userFacingErrors.ts`
+- `lib/doc/types.ts` (`FIELD_MEDIA_SLOTS`)
+- `lib/doc/diffDocsToMutations.ts`
+- `lib/doc/mutations/fields.ts`
+- `lib/doc/hooks/useBlueprintMutations.ts`
+- `lib/preview/engine/searchInputValidation.ts`
+- `lib/preview/engine/caseDataBinding.ts` (a search under the blank-comparand obligation finds nothing)
+- `lib/preview/engine/formPresentation.ts`
+- `components/preview/form/` (the field and row components that drew the removed media)
+- `components/preview/form/newFieldDefaults.ts`
+- `components/preview/form/InteractiveFormRenderer.tsx`
+- `components/builder/PublishDialog.tsx`
+- `components/builder/editor/fieldEditorSchemas.ts`
+- `components/builder/editor/fields/hiddenValueModel.ts`
+- `components/builder/editor/fields/HiddenValueEditor.tsx`
+- `components/builder/editor/fields/MediaSlotEditor.tsx` (a comment)
+- `components/builder/case-list-config/inspector/SearchInputEditor.tsx`
+- `components/builder/media/assetKindMeta.ts`
+- `components/builder/shared/checkErrorPresentation.ts`
+- `components/builder/shared/editorSchemas.ts`
+- `components/builder/shared/cards/PredicateVerbMenu.tsx`
+- `components/chat/ChatInput.tsx`
+- `app/(dev-only)/rejection-test/page.tsx`
+- `lib/codemirror/xpath-lint.ts`
+- `lib/agent/tools/media/shared.ts`
+- `lib/agent/tools/media/attachFieldMedia.ts`
+- `lib/agent/tools/case-list-config/addSearchInputs.ts`
+- `lib/agent/tools/case-list-config/shared.ts`
+- `lib/agent/tools/editField.ts`
+- `lib/agent/tools/addFields.ts`
+- `lib/agent/toolSchemaGenerator.ts`
+- `lib/agent/documentExtraction.ts`
+- `lib/agent/resolveAttachments.ts`
+- `lib/agent/sources.server.ts`
+- `lib/mcp/tools/uploadAppToHq.ts`
+- `lib/mcp/tools/uploadMediaAsset.ts`
+- `lib/mcp/errors.ts`
+- `lib/models.ts`
+- `lib/notices/` (this pull request's reasons and their renderers)
+
+Nova tests named outright:
+
+- `lib/case-store/migrations/__tests__/lookupTables.postgres.test.ts`
+- `lib/commcare/surface/__tests__/manifest.test.ts`
+- `lib/commcare/__tests__/mediaWireFixtures.ts`
+- `lib/commcare/__tests__/xformDocArbitrary.ts`
+- `lib/commcare/__tests__/constraintMessageFixture.ts`
+- `lib/commcare/__tests__/constraintMessageEmission.test.ts`
+- `lib/commcare/__tests__/reservedInstanceTags.test.ts`
+- `lib/commcare/__tests__/mediaSuiteOracle.test.ts`
+- `lib/commcare/__tests__/hqLookupTables.test.ts` (its peer serves the lookup-upload answers pull request 4 retained)
+- `lib/media/__tests__/fixtures/` (one file per new format and each near miss)
+- `lib/media/__tests__/bmpFixtures.ts` (new)
+- `lib/preview/engine/__tests__/constraintMessages.test.ts` (follows the constraint message fixture)
+- `e2e/tests/browser/media-play.spec.ts` (new)
+- `e2e/tests/browser/media-transport.spec.ts`
+- `e2e/tests/browser/publishing.spec.ts`
+
+The lane:
+
+- `proof/targeted/documents/timeOrdering.ts` (deleted)
+- `proof/targeted/documents/` (the documents this pull request rewrites)
+- `proof/targeted/index.ts`
+- `proof/checks/manifest_value_classes.py` (`time_operand`; the protected-message reader)
+- `proof/checks/test_manifest_value_classes.py`
+- `proof/checks/test_hq_side.py`
+- `proof/hq/test_lookup_upload.py`
+- `proof/hq/test_publish.py`
+- `proof/hq/test_case_processing.py`
+- `proof/hq/test_build.py`
+- `proof/views/test_lookup_upload.py` (its docstring)
+- `proof/views/__tests__/lookupUploadAnswer.test.ts` (turned over)
+- `proof/core/test_evaluate.py`
+- `proof/formplayer/test_lookup_tags.py` (new)
+- `proof/formplayer/test_media_slots.py`
+- `proof/formplayer/test_search.py`
+- `proof/formplayer/conftest.py`
+- `proof/formplayer/apps.py` (`with_the_media_slots`)
+- `proof/formplayer/media_slots/` (new: the two forms kept as the emitter wrote them before this pull request)
+- `proof/webapps/test_media_slots.py`
+- `proof/android/predicates.py`
+- `proof/android/decode/DecodeProbe.java` (new)
+- `proof/android/decode/run.sh` (new)
+- `proof/android/decode/probe.py` (new)
+- `proof/native/test_lookup_workbook.py`
+- `proof/native/test_quote_payload.py`
+- `proof/native/test_media_emission.py`
+- `proof/native/core/CsqlQuoteRuntimeTest.java`
+- `proof/native/core/StaticQuoteRuntimeTest.java`
+- `proof/native/core/MediaRuntimeTest.java`
+- `proof/native/producers/emit-media-evidence.ts`
+- `proof/native/steps/media_emission.py`
+- `proof/corpus/editBatches.ts` (a comment)
+- `proof/corpus/__tests__/publishReadiness.test.ts`
+- `proof/corpus/__tests__/publish.postgres.test.ts` (the lookup refusal's cases)
+- `proof/surface/families/authored.py`
+- `proof/walk-stops.json`
+- `proof/timings.json` (the groups of the documents and controls added or removed)
+
+Scripts and the cutover:
+
+- `scripts/test-schema.ts` (the `attachFieldMedia` prompt)
+- `scripts/lib/hqRoundTripCutover/steps/` (this pull request's steps)
+- `scripts/lib/hqRoundTripCutover/lookupTags.ts` (new)
+- `scripts/lib/hqRoundTripCutover/plan.ts`
+- `scripts/lib/hqRoundTripCutover/writer.ts`
+- `scripts/lib/hqRoundTripCutover/notice.ts`
+- `scripts/lib/hqRoundTripCutover/report.ts`
+- `scripts/rollout/verify-runtime-packages.mjs`
+
+CI and config:
+
+- `playwright.config.ts` (the `browser-webkit` project)
+- `.github/workflows/ci.yml` (the smoke job installs WebKit and runs both projects)
+
+Docs:
+
+- `proof/README.md`
+
+### Pull request 15: Contracts and public docs
+
+The lane:
+
+- `proof/checks/registers.py` (`OPEN_DEFECTS`, new)
+- `proof/checks/test_registers.py` (`test_every_live_defect_is_a_later_steps`)
+- `proof/timings.json` (refreshed in both profiles)
+
+Docs:
+
+- `CLAUDE.md` (the root file and the subtree files: every row of Contract sentences step 2 rewrites not already moved)
+- `docs/architecture/contracts.md`
+- `content/docs/` (Public docs that change)
+- `docs/plans/hq-round-trip/` (the sibling plans' edits)
+
+### Pull request 16: Removal of the cutover tooling
+
+The lane:
+
+- `proof/hq/test_retained_reads.py` (the `cutover` group leaves)
+- `proof/hq-reads/cutover/` (deleted)
+
+Scripts and the cutover:
+
+- `scripts/scan-hq-round-trip-cutover.ts` (deleted)
+- `scripts/migrate-hq-round-trip-cutover.ts` (deleted)
+- `scripts/lib/hqRoundTripCutover/` (deleted, with its tests and fixtures)
+- `scripts/rollout/deploy-cloud-run.py` (the Job's arm)
+- `scripts/infra/` (the Job's cases)
+
+CI and config:
+
+- `biome.json` (the line that leaves the committed fold out of lint)
+- `Dockerfile` (the Job's `esbuild` line)
+- `config/deployment-jobs.json` (the Job)
+
+Docs:
+
+- `scripts/README.md` (the Job's line)
+- `docs/architecture/deployment.md` (the Job's paragraph)
+- `docs/plans/hq-round-trip/2-cutover-runbook.md` (deleted)
+- `docs/plans/hq-round-trip/2-emission-and-publish.md` (deleted)
+- `docs/plans/hq-round-trip/2-emission-and-publish/` (deleted)
 
 ## The model-addition checklist
 
