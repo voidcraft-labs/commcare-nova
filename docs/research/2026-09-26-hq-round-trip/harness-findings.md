@@ -8,15 +8,31 @@ is held by a register entry (`proof/known-defects.json`), whose `defect` is
 the research's number or one of these, or erased by a spelling rule
 (`proof/rules`); the register holds no entry for an equivalence.
 
-The sources are the lane's whole-corpus runs (316 documents, two
-configurations each) after the register round's phase A, sorted at source by
-four classifiers and four checkers, and the run of the targeted documents
-(`proof/targeted/`), each built to show one symptom with fixed values. Every
-fact was read in, or executed against, the pins the research uses:
-commcare-hq `f57e85e02913`, formplayer `24383ac71bfb`, commcare-core
-`8e9ba8d908e9`, commcare-android `fd79cac4a0f1`, Vellum `01215f251c57`,
-commcare-connect `4a200c9d9`. Citations use `file::symbol`; documents are the
-corpus ids that show the symptom.
+Findings 31 to 55 and corrections 1 to 11 came from the lane's whole-corpus
+runs (316 documents, two configurations each) after the register round's
+phase A, sorted at source by four classifiers and four checkers, and the run
+of the targeted documents (`proof/targeted/`), each built to show one symptom
+with fixed values. Every fact of theirs was read in, or executed against, the
+pins the research uses: commcare-hq `f57e85e02913`, formplayer
+`24383ac71bfb`, commcare-core `8e9ba8d908e9`, commcare-android
+`fd79cac4a0f1`, Vellum `01215f251c57`, commcare-connect `4a200c9d9`.
+`proof/pins.json` named those commits of HQ, Core, Android and Connect until
+#716 moved it.
+
+Everything added since was read in, or executed against, the commits
+`proof/pins.json` names now, most of it by running a reader's own code:
+findings 58 to 69 and 72 to 74 ("Found by running the other readers" on),
+corrections 12 to 15, the readers' runs behind the equivalences, and what a
+later run added to an earlier finding. #716 moved `proof/pins.json` to them
+before any of that was written, and Formplayer's pin joined it with the
+first run of Formplayer. Those commits are commcare-hq `d6c6e16d8ae1`, commcare-core
+`8e9ba8d908e9`, commcare-android `7a5584475580`, commcare-connect
+`046c7fd78081` and formplayer `24383ac71bfb`, with the Vellum HQ vendors at
+its pin, still `01215f251c57` (`proof/hq/test_boot.py`). Core, Formplayer
+and Vellum are where the research read them; HQ, Android and Connect moved.
+
+Citations use `file::symbol`; documents are the corpus ids that show the
+symptom.
 
 ---
 
