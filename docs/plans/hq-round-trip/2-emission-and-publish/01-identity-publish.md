@@ -1873,19 +1873,21 @@ device that updates, Connect's post and forward):
   entry, none is A5's: none names a URL, a server property or an app id.
   `d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status` is
   Formplayer's, which that run does not serve.
-- Executed during planning, every reader, as this pull request's reader
-  slice ("Lane"): A5's bytes in every local archive, the spelling rule, the
-  record's `@app` and the data map written into the lane, the twenty-three
-  in the fixed register, each document beside its control. Every one of the
-  twenty that Formplayer and the device hold shows nothing on its document
-  and stays held on its control: the two Formplayer search entries on
+- Executed during planning, as this pull request's reader slice ("Lane"),
+  under Formplayer and Android, on the lane's head: A5's bytes in the local
+  archives, the spelling rule, the record's `@app` and the data map written
+  into the lane, the twenty-three in the fixed register, and the six
+  documents that hold one of the twenty served entries, each beside its
+  control. Every one of the twenty shows nothing on its document and stays
+  held on its control: the two Formplayer search entries on
   `targeted-sync-on-form-entry` (six differences each on the control), the
   submit status on `targeted-close-conditions` (eighteen), and the seventeen
   Android entries on `targeted-sync-on-form-entry`,
   `no-matches-multiple-home`, `search-automatic`, `case-list-browse` and
-  `case-capture-followup` (two each). No document of the slice shows a
-  class that no entry holds once the entries of "What the working submit
-  shows" are registered.
+  `case-capture-followup`. 75 items, none failing. The twenty had held the
+  same way with every reader, on the lane before its walk submitted every
+  form it finishes. No document of the slice shows a class that no entry
+  holds once the entries of "What the working submit shows" are registered.
 - Executed during planning, every reader, with A5's bytes written into the
   local archives of the entries' own documents, each beside its control:
   `d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status`
@@ -2061,14 +2063,15 @@ step, as defect 24's other entries do:
   submission path shows no class. Their controls keep showing them: a
   pre-fix archive's search URL names `__APP_ID__` and its device gives
   Android's built-in form post address, neither of which the rule reads as
-  an app's id. Executed during planning, every reader, with the rule
-  written into the lane and A5's bytes in the archives, each entry's
-  document beside its control: `d32-android-proof3-local-ccz-query-url-changed`
-  shows nothing on `case-list-browse` and
+  an app's id. Executed during planning, under Formplayer and Android on the
+  lane's head, with the rule written into the lane and A5's bytes in the
+  archives, each entry's document beside its control:
+  `d32-android-proof3-local-ccz-query-url-changed` shows nothing on
+  `case-list-browse` and
   `d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed`
-  nothing on `case-capture-followup`, each stays held on its control (two
-  differences each), and Formplayer's submission path shows on none of the
-  fifteen documents of this pull request's reader slice.
+  nothing on `case-capture-followup`, each stays held on its control (four
+  differences and two), and Formplayer's submission path shows on none of
+  the fifteen documents of this pull request's reader slice.
 - **One Formplayer class on `targeted-sync-on-form-entry` stays after A5,
   and it is defect 20's.** The lane's branch registers it under defect 20 as
   `d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked`
