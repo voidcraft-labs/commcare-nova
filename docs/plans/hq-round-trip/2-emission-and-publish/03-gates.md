@@ -12,7 +12,7 @@ This work item moves 55 register entries to `proof/fixed-defects.json`: 5 in pul
 
 **The one early source read.** Today the only read of the target app is `lib/commcare/hq/appSource.ts::readHqAppSourceProfile`, made in `lib/deployment/service.ts::publishAppToHq` after the lookup tables and places have been pushed, and it keeps only `profile`. From step 2 `lib/commcare/hq/appSource.ts::readHqAppSource` replaces it (pull request 3 creates it, with its result type `HqAppSource`: part 01, A3. The publish sequence). Before the import the source is read once, in the new blocking preflight edge `target-app`, which exists only when `lib/deployment/resources.ts::plannedInPlaceUpdate` names an app, and again only when a lookup or place push ran in between. A new app's source is read after the shell create, which from step 2 comes before the lookup and place pushes, and every publish reads it back after the import (part 01, A3. The publish sequence; part 02, Work item B: the drift check and its baselines). The `target-app` read serves the version floor (`HqAppSource.buildSpecVersion`, from `build_spec.version`), the drift check (part 02, Work item B: the drift check and its baselines), and every overlay computed on HQ's current value: the profile, `translations`, `add_ons`, `auto_gps_capture` and the `logo_refs` cleanup (`HqAppSource.logoRefs`, which C6 adds). It also serves the Web Apps line (`HqAppSource.cloudcareEnabled`, which C2 adds). A missing or non-object `build_spec`, or one with no string `version`, already fails `readHqAppSource`'s shape check (part 01, A3. The publish sequence); C6 adds the same for a `logo_refs` that is present and not an object. Either refuses with `hq_app_state_unknown`; neither is ever read as "fine" or "empty".
 
-**Preflight order from step 2** (`PREFLIGHT_CHECK_IDS` gains `plan-features` and `target-app`):
+**Preflight order from step 2** (`PREFLIGHT_CHECK_IDS` gains `plan-features`, `target-app` and, in pull request 4, `hq-changes`):
 
 | Order | Edge | Kind | Asks HQ | Refuses with |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ This work item moves 55 register entries to `proof/fixed-defects.json`: 5 in pul
 | 5 | `organization` | blocking | yes | as today |
 | 6 | `project-space-compatibility` | blocking | yes | `project_space_incompatible` |
 | 7 | `target-app` (new) | blocking | yes | `remote_app_missing`, `hq_app_state_unknown`, `hq_app_version_below_floor` |
-| 8 | the drift verdict over what edges 4, 5 and 7 collected (part 02, Work item B: the drift check and its baselines; a step, not an edge) | blocking | no | `hq_changed` |
+| 8 | the drift verdict over what edges 4, 5 and 7 collected (part 02, Work item B: the drift check and its baselines; a step, not an edge, with its own check `hq-changes`, pushed whenever preflight reaches it) | blocking | no | `hq_changed` |
 | 9 | `required-worker-data`, `worker-record-access` | attention | no | never |
 
 `plan-features` asks HQ nothing, so both facts about what this publish pushes come from Nova's own data, before HQ is listed:
