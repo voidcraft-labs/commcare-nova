@@ -104,8 +104,11 @@ reading left doubt:
   media upload, builds the same media suite, and draws no missing-media
   warning (part 01).
 - Two reads of an unchanged app's source differ only in form ids and the
-  references to them, and each form's bytes are the bytes Nova uploaded (part
-  02).
+  references to them, and each form's bytes are the bytes Nova uploaded. The
+  reference paths and uuids no Nova export holds (a shadow form's parent id,
+  a visit schedule's form ids, a report menu's config uuids) are read twice
+  too, on an app HQ's own models build, and both reads are retained under
+  `proof/hq-reads/hq-built/` (part 02).
 - A `replace=false` lookup upload re-creates a table that holds no rows, so it
   cannot serve as a harmless probe (part 02).
 - A datetime compared for order on a device never orders by instant (finding
@@ -135,10 +138,6 @@ CommCare version for a new app is 2.64 on the production server read (October
 2026), above the 2.57 floor, and publish reads each app's own version, so
 nothing depends on any server's default (part 03); the HQ-keys KMS key's decrypt
 holders were read, and the migration identity holds no role on it (part 10).
-Two reads of an app source differ only where Nova's export holds the thing
-read: a shadow form's parent id, schedule phase form ids and report config
-uuids are not in any Nova export, so no control exercises them across two
-reads (part 02).
 
 ## What changed from the outline, and why
 
@@ -367,8 +366,10 @@ Part 09 holds this in full.
 - **The harness keeps publishing as Nova publishes**: the capture and the
   publish sequence change in the same pull request, and retained controls are
   replayed in the layout they were captured in.
-- **The cutover is outside what the lane observes**: its A and B come from one
-  revision and it holds no Nova database. Nova's own tests carry it (part 10).
+- **The cutover is proven in two halves**: the lane runs HQ over pre-step
+  upload bodies and retains what HQ answers (its `cutover` group, there until
+  pull request 16), and Nova's own tests over real Postgres carry the stored
+  shape, since the lane holds no Nova database (part 10).
 
 ## The stack
 
