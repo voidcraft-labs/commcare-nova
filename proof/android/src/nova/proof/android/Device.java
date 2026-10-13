@@ -288,15 +288,22 @@ final class Device {
      * The worker the restore registered becomes the device's worker, as the worker who logged in is on a real
      * device: there the first restore brings the worker's own record and the session starts with it
      * (DataPullTask, CommCareApplication.startUserSession reads the user by the key record's name). The test
-     * application makes its worker before any restore, under a name of its own, so the session is started
-     * again with the worker the restore brought, by the app's own call.
+     * application makes its worker before any restore, under a name of its own, so the session is given the
+     * worker the restore brought by the app's own call for it, the one its data pull makes once a restore has
+     * written the worker's record (DataPullTask.updateCurrentUser, CommCareSessionService.setCurrentUser).
+     *
+     * Never by starting the session again: the app starts a session once on a service, and a second start under
+     * the service's own maintenance timer can end the session at once. Each second the timer reads the time,
+     * waits for the lock a start holds, then expires a session that ends further ahead of that time than its
+     * length ("the system's clock is altered", CommCareSessionService.timeToExpireSession), which is what a
+     * start that moved the end while the timer waited leaves. Home then finds no session and makes no session
+     * navigator, and the request's one walk is what the reader raised reading it. On a machine at twice its
+     * processors that was one request in seven.
      */
     private static void become() {
         for (User user : CommCareApplication.instance().getUserStorage("USER", User.class)) {
             if (!USERNAME.equals(user.getUsername())) {
-                user.setCachedPwd(PASSWORD);
-                CommCareApplication.instance().getSession().startSession(user,
-                        CommCareApplication.instance().getRecordForCurrentUser());
+                CommCareApplication.instance().getSession().setCurrentUser(user, PASSWORD);
                 return;
             }
         }

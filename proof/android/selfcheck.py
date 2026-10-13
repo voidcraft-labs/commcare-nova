@@ -472,8 +472,16 @@ class WalkSelfCheck(unittest.TestCase):
             restore = Path(scratch) / "restore.xml"
             restore.write_text(TWO_CASES_RESTORE, encoding="utf-8")
             app = reader.request("app", archive=str(archive), restore=str(restore), answers=answers)
+            log = reader.last_log
         walks = app["walks"]
         cases = ("parent-1", "parent-2")
+        # No walk is what the reader raised: every walk of this app has steps.
+        self.assertEqual([name for name, walk in walks.items() if "steps" not in walk], [])
+        # The device's session is started once on its service, for the worker the reader made, and given the
+        # worker the restore brought without another start (Device.java, become): a session started again under
+        # its service's own timer can be expired at once, which left a request one raised walk on a busy machine.
+        starts = {line.split("login|", 1)[1].split("|")[0] for line in log.splitlines() if "user: login|" in line}
+        self.assertEqual(starts, {"nova-proof-device"}, log[-2000:])
 
         def ended_at(walk):
             """The list the walk ended at showing both cases, having opened none."""
