@@ -146,10 +146,11 @@ empty when the plan is complete.
   (`Export.content`): a six-document slice passes without the readers; the
   whole corpus, the other controls and the packages have not run under those
   names (part 01, A7).
-- The build recreated under a stored part (pull request 13): the cause of
+- The build recreated under a stored part (pull request 1): the cause of
   the one package test that fails at the exit state is read from HQ's code
-  and the lane's, and neither of the two tests of the change has run with
-  it (part 03, C2).
+  and the lane's, the fault is read to be there at the lane's head, and
+  neither of the two tests of the change has run with it (part 09, A build
+  recreated under a stored part).
 
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
