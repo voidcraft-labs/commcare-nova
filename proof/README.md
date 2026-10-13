@@ -3915,8 +3915,9 @@ module) and every entity whose wire Nova derives from what the batch edits;
 the lane's shards run on amd64, where Android runs beside HQ; the input of one defect row ("12, same-type child")
 cannot come from a Nova document, which a test of Nova's planner and gate
 shows, so it is not reproduced (the same was said of "20, CommTrack", whose
-read Nova's gate admits: it is a row again, "What the lane does not
-observe"); the `hq-api` family records each view's decorators
+read Nova's gate admits: it is a row again, "The defect rows", and "Claims
+held outside a document's checks" names what holds it); the `hq-api` family
+records each view's decorators
 with their arguments and the module constants a view returns; and the weekly
 pin pull request is opened with the workflow's own token, and the workflow
 never merges.
