@@ -16,11 +16,27 @@ name: Proof image
 # them.
 #
 # Weekly, and by hand (with no ref), it also proves the image's variants
-# observe what the lane observes: the whole lane runs fresh on the slim image
-# and on the full image, on amd64 (proof-lane.yml), where CI's shards run and
-# the Android reader runs beside HQ, and the records are compared (python3 -m
-# proof.store.audit compare): full against slim. The arm64 build serves a
-# person's arm64 machine, where every reader but Android runs. It also
+# observe alike (proof-lane.yml, each lane fresh; python3 -m proof.store.audit
+# compare pairs two runs' records by what they are):
+#
+# - without the readers, the whole lane on the slim image and on the full
+#   image on amd64, and on the slim image on arm64: full against slim, and
+#   arm64 against amd64. The arm64 image is published for a person's arm64
+#   machine, and this is the run that holds the lane on it. The Android
+#   reader runs on amd64 alone (its native runtime ships for no other
+#   Linux), so the architectures are compared in the profile both run whole;
+# - with every reader, on amd64, the slim image against the full one over
+#   this week's sample of the corpus (python3 -m proof.store.queue
+#   --sample-seed: 24 documents, turning each week, so every document is
+#   compared within fifteen weeks), as the weekly audit's seeding and seam
+#   comparisons are. The whole lane with every reader costs about 550
+#   worker-hours, and the nightly and the weekly already run it on the slim
+#   image; what this adds is the full image beside it.
+#
+# The lanes run one after another where they hold many runners, so the run
+# never holds more than fourteen (the three without the readers are four
+# shards each and run together). A scheduled run that fails opens an issue
+# written from the lanes' verdicts (python3 -m proof.lane.report). It also
 # emits the proof corpus and produces the native proofs' products (python3 -m
 # proof.native.produce) on each architecture, on the runner and inside the
 # pinned image, and holds the four alike, each to what CI ships (amd64, on
@@ -34,6 +50,11 @@ name: Proof image
 # here, at build time, and nothing the image runs later reaches the network.
 on:
   workflow_dispatch:
+    inputs:
+      sample_seed:
+        description: The ISO year and week whose sample the readers' comparison checks (2026-W42); this week's when empty
+        type: string
+        default: ''
   schedule:
     - cron: "17 5 * * 1"
   workflow_call:
@@ -185,8 +206,28 @@ jobs:
             echo "Record the digest in proof/image.lock with the pins above."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The comparison's sample turns each week, as the weekly audit's does: the seed is the run's ISO year and
+  # week, or the one a dispatch names to run a past week's sample again.
+  sample:
+    name: This week's comparison sample
+    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+    steps:
+      - id: seed
+        env:
+          NAMED: ${{ inputs.sample_seed }}
+        run: |
+          seed="${NAMED:-$(date -u +%G-W%V)}"
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "The readers' comparison checks the corpus sample the seed \`$seed\` chooses; each sampled lane's summary lists its documents. Dispatch this workflow with \`sample_seed=$seed\` to run the same sample again." >> "$GITHUB_STEP_SUMMARY"
+
+  # Without the readers the whole lane is about four and a half worker-hours: the three run together, four
+  # shards each, twelve runners.
   lane-slim:
-    name: Lane on the slim image
+    name: Lane on the slim image, without the readers
     needs: publish
     if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     permissions:
@@ -195,9 +236,11 @@ jobs:
     with:
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
       label: image-slim
+      readers: false
+      shards: '4'
 
   lane-full:
-    name: Lane on the full image
+    name: Lane on the full image, without the readers
     needs: publish
     if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     permissions:
@@ -206,10 +249,56 @@ jobs:
     with:
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.full-digest }}
       label: image-full
+      readers: false
+      shards: '4'
+
+  # The arm64 image, on an arm64 runner: the corpus is emitted on x64, as CI emits it, and read here.
+  lane-arm64:
+    name: Lane on the slim image on arm64, without the readers
+    needs: publish
+    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
+      label: image-arm64
+      readers: false
+      shards: '4'
+      runner: ubuntu-24.04-arm
+      arch: arm64
+
+  # With every reader, over the week's sample, one lane after the other and both after the three above: each
+  # may hold fourteen runners. They run whatever the lanes before them found.
+  lane-readers-slim:
+    name: Lane on the slim image, every reader, over the week's sample
+    needs: [publish, sample, lane-slim, lane-full, lane-arm64]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.sample.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
+      label: image-readers-slim
+      documents: sample:24
+      sample-seed: ${{ needs.sample.outputs.seed }}
+
+  lane-readers-full:
+    name: Lane on the full image, every reader, over the week's sample
+    needs: [publish, sample, lane-readers-slim]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.sample.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.full-digest }}
+      label: image-readers-full
+      documents: sample:24
+      sample-seed: ${{ needs.sample.outputs.seed }}
 
   lanes-compare:
     name: The image's variants observe alike
-    needs: [lane-slim, lane-full]
+    needs: [lane-slim, lane-full, lane-arm64, lane-readers-slim, lane-readers-full]
     if: ${{ always() && needs.lane-slim.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -224,14 +313,28 @@ jobs:
           pattern: proof-out-image-*
           path: ${{ runner.temp }}/lanes
       # Each side is one lane run: --left and --right each take every shard
-      # output that run uploaded, one directory per shard.
+      # output that run uploaded, one directory per shard. No label is the
+      # start of another's, so each pattern takes one lane's.
       - name: The slim image observes what the full one does
         if: ${{ needs.lane-full.result == 'success' }}
         run: |
           python3 -m proof.store.audit compare \
             --left "$RUNNER_TEMP"/lanes/proof-out-image-full-* \
             --right "$RUNNER_TEMP"/lanes/proof-out-image-slim-*
+      - name: arm64 observes what amd64 does
+        if: ${{ !cancelled() && needs.lane-arm64.result == 'success' }}
+        run: |
+          python3 -m proof.store.audit compare \
+            --left "$RUNNER_TEMP"/lanes/proof-out-image-slim-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-image-arm64-*
+      - name: The slim image's readers observe what the full one's do
+        if: ${{ !cancelled() && needs.lane-readers-slim.result == 'success' && needs.lane-readers-full.result == 'success' }}
+        run: |
+          python3 -m proof.store.audit compare \
+            --left "$RUNNER_TEMP"/lanes/proof-out-image-readers-full-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-image-readers-slim-*
       - name: Every variant's lane held
+        if: ${{ !cancelled() }}
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
@@ -352,3 +455,41 @@ jobs:
             fi
           done
           exit $status
+
+  # A scheduled comparison that fails says so where it is seen, as a failed night or week of the audit does:
+  # each lane's failing groups and the command that reruns each alone (python3 -m proof.lane.report). A call
+  # for a ref (the pin pull request's build) runs no lane and never reaches this.
+  report:
+    name: Report a failed image comparison
+    needs: [sample, lanes-compare, emission-compare]
+    if: ${{ always() && inputs.ref == '' && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || needs.lanes-compare.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - name: Download the lanes' verdicts
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: proof-lane-verdict-image-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verdicts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SAMPLE_SEED: ${{ needs.sample.outputs.seed }}
+        run: |
+          lanes=()
+          for label in image-slim image-full image-arm64 image-readers-slim image-readers-full; do
+            lanes+=(--lane "$label=$RUNNER_TEMP/verdicts/proof-lane-verdict-$label-$GITHUB_RUN_ATTEMPT/verdict/verdict.json")
+          done
+          seed=()
+          if [ -n "$SAMPLE_SEED" ]; then seed=(--sample-seed "$SAMPLE_SEED"); fi
+          python3 -m proof.lane.report --kind image --run "$RUN_URL" --commit "$GITHUB_SHA" "${lanes[@]}" \
+            "${seed[@]}" --out "$RUNNER_TEMP/issue.md"
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "The proof image's weekly comparison failed" --body-file "$RUNNER_TEMP/issue.md"

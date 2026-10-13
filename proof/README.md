@@ -3365,7 +3365,23 @@ written from where a pull request's own run read documents from the store
   documents to the whole register, asks to see only the entries naming
   them, on the document and on the control, and says what it left.
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
-  weekly, and for the weekly pin pull request.
+  weekly, and for the weekly pin pull request. Weekly and by hand it also
+  holds the image's variants to each other, each lane fresh on the images
+  that run built (`python3 -m proof.store.audit compare`, which pairs two
+  runs' records by what they are, since their keys name different images
+  and architectures). Without the readers the whole lane runs on the slim
+  image and on the full one on amd64, and on the slim image on arm64: full
+  against slim, and arm64 against amd64, which is the run that holds the
+  lane on the arm64 image the workflow publishes for a person's arm64
+  machine. The Android reader runs on amd64 alone, so the architectures are
+  compared in the profile both run whole. With every reader, on amd64, the
+  slim image is held to the full one over the week's sample of 24 documents,
+  the one the weekly audit's comparisons turn through, so every document is
+  compared within fifteen weeks: the whole lane with every reader already
+  runs on the slim image each night and week, and what this adds beside it
+  is the full image. A scheduled comparison that fails opens an issue from
+  the lanes' verdicts (`python3 -m proof.lane.report --kind image`), which
+  says how a rerun names the image a lane ran (`PROOF_IMAGE`).
 - **`upstream-pins.yml`**: the weekly pin pull request ("Changing a pin",
   below). Its prewarm runs the pull request lane's profile on the candidate
   image and saves it for the pin pull request's CI; beside it the lane runs

@@ -267,3 +267,26 @@ def test_a_dispatch_over_documents_named_by_hand_is_reported_as_that_and_never_a
     body = report.body(report.MECHANICS, "https://example.test/run/2", "abc123", [("mechanics", failed)])
     assert "- `corpus:tile@maximum`: 1 of its 1 items failed" in body and "It is a piece" in body
     assert "## Rerunning what failed" in body
+
+
+def test_a_failed_image_comparison_is_reported_with_how_a_rerun_names_the_image_the_lane_ran():
+    """The image workflow's weekly comparison runs its lanes on the images that run built, on amd64 and arm64.
+    Reported as a night's, a rerun would be made on the image the lock records, which is another image; and the
+    readers' comparison is over a sample that turns each week, which the issue has to name to be run again."""
+    failed = _verdict(False, [PIECE])
+    body = report.body(
+        report.IMAGE,
+        "https://example.test/run/3",
+        "abc123",
+        [("image-arm64", failed), ("image-slim", _verdict(False, [], problems=())), ("image-readers-full", None)],
+        sample_seed="2026-W42",
+    )
+    assert body.startswith("The weekly image comparison built the proof image from main's pins and recipe at `abc123`")
+    assert "`PROOF_IMAGE=<image>` before a command below reruns a group on one of them." in body
+    assert "arm64 against amd64 without the readers, the Android reader running on amd64 alone" in body
+    assert "dispatch the image workflow with that seed:" in body
+    assert "gh workflow run proof-image.yml -f sample_seed=2026-W42" in body
+    assert "### Lane `image-arm64`" in body and "## Rerunning what failed" in body
+    # The weekly audit's own line is unchanged.
+    weekly = report.body("weekly", "u", "c", [("weekly-baseline", failed)], sample_seed="2026-W42")
+    assert "gh workflow run proof-audit.yml -f nightly=false -f weekly=true -f sample_seed=2026-W42" in weekly

@@ -74,9 +74,13 @@ jobs:
     name: Build the image at the new pins
     needs: plan
     if: ${{ needs.plan.outputs.action == 'update' }}
+    # A call's grant bounds every job of the workflow it calls. The build pushes the image (packages); the
+    # called workflow's report job opens an issue when its own weekly comparison fails, which a call for a ref
+    # never reaches, and GitHub refuses the call at startup unless that job's scope is granted here too.
     permissions:
       contents: read
       packages: write
+      issues: write
     uses: ./.github/workflows/proof-image.yml
     with:
       ref: upstream/pins

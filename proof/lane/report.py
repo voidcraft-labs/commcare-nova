@@ -1,6 +1,7 @@
 """``python3 -m proof.lane.report``: the issue a failed night or week opens, naming each group and how to rerun it.
 
-    python3 -m proof.lane.report --kind nightly|weekly --run URL --commit SHA --lane LABEL=VERDICT.json... [--out FILE]
+    python3 -m proof.lane.report --kind nightly|weekly|image|mechanics --run URL --commit SHA
+        --lane LABEL=VERDICT.json... [--sample-seed SEED] [--out FILE]
 
 Standard library only: it runs on the runner's own Python, with no image, over
 the verdicts the lanes' gates wrote (``proof.lane.gate --summary``).
@@ -39,7 +40,10 @@ says how many more the verdict names, since an issue's body is bounded.
 The weekly's comparison lanes check a sample of the corpus that turns each
 week (``proof.store.queue.sampled``), so the issue names the seed that chose
 it (``--sample-seed``, and each sampled lane's verdict) and the sample's
-documents, and how to run the week again on the same sample.
+documents, and how to run the week again on the same sample. The image
+workflow's weekly comparison of the image's variants (proof-image.yml,
+``--kind image``) is reported the same way; its lanes ran the images that
+run built, so its issue says how a rerun names one.
 
 A whole fresh lane also holds the committed sensitivity effects to what its
 own flips showed (``python3 -m proof.checks.sensitivity held``, which writes
@@ -74,7 +78,19 @@ MOST_EFFECTS = 80
 
 # A run a person dispatched over documents they named, to see the lane run on them (proof-audit.yml's mechanics).
 MECHANICS = "mechanics"
+# The image workflow's weekly comparison of the image's variants (proof-image.yml).
+IMAGE = "image"
 OPENINGS = {
+    IMAGE: (
+        "The weekly image comparison built the proof image from main's pins and recipe at `{commit}` and held its"
+        " variants to each other, and it did not hold: the image did not build, a lane failed on one of them, two"
+        ' of them observed differently (the "The image\'s variants observe alike" job says which: the full image'
+        " against the slim one, without the readers over the whole corpus and with every reader over this week's"
+        " sample, and arm64 against amd64 without the readers, the Android reader running on amd64 alone), or the"
+        " corpus or the native products came out differently on an architecture. Each lane ran an image this run"
+        " built, never the one `proof/image.lock` records: the run's summary gives their digests, and"
+        " `PROOF_IMAGE=<image>` before a command below reruns a group on one of them."
+    ),
     MECHANICS: (
         "A dispatch ran the proof lane over main at `{commit}` on documents named by hand, to show the lane's"
         " mechanics on them: the shards and their pieces, the artifacts, the gate and this report. It is no verdict"
@@ -93,6 +109,13 @@ OPENINGS = {
         ' store" step uploads both), a comparison failed (the "Weekly comparisons" job says which), the committed'
         " sensitivity effects are not what the whole fresh run's flips showed, or main's store could not be saved."
     ),
+}
+
+
+# How a week's sampled comparison is run again on the same sample: what is dispatched, and the line that does it.
+SAMPLED = {
+    "weekly": ("the audit", "gh workflow run proof-audit.yml -f nightly=false -f weekly=true -f sample_seed={seed}"),
+    IMAGE: ("the image workflow", "gh workflow run proof-image.yml -f sample_seed={seed}"),
 }
 
 
@@ -281,12 +304,13 @@ def body(
             "",
         ]
     if sample_seed:
+        workflow, dispatch = SAMPLED.get(kind, SAMPLED["weekly"])
         lines += [
             f"The comparison lanes checked the corpus sample the seed `{sample_seed}` chooses, which turns each"
-            " week. To run the week again on the same sample, dispatch the audit with that seed:",
+            f" week. To run the week again on the same sample, dispatch {workflow} with that seed:",
             "",
             "```bash",
-            f"gh workflow run proof-audit.yml -f nightly=false -f weekly=true -f sample_seed={sample_seed}",
+            dispatch.format(seed=sample_seed),
             "```",
             "",
         ]
