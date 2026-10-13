@@ -151,6 +151,22 @@ def set_preview_language(code: str, *, within=None, or_skip_to=None) -> list[dic
     return [settings, *arrive(any_screen=True), chosen, SETTLE, done, *arrive(any_screen=True)]
 
 
+# App Preview's "Use one question per screen" switch (``partials/settings_view.html``, ``display-setting-template``;
+# ``layout/views/settings.js::DisplaySettingView``), which its Settings offers every person.
+ONE_QUESTION_SETTING = "input.js-one-question-per-screen"
+
+
+def show_forms_whole(*, within=None, or_skip_to=None) -> list[dict]:
+    """From App Preview's first screen, "Use one question per screen" switched off as a person there switches it
+    off: its Settings, the switch (the client keeps it among its display options and opens every later form with
+    its questions on one screen, as Web Apps shows one), then Done, and the client's arrival back at the app's
+    first screen."""
+    [settings, _settle] = click(SETTINGS, visible=True, within=within, or_skip_to=or_skip_to)
+    [switch, _settle] = click(ONE_QUESTION_SETTING, visible=True, within=within, or_skip_to=or_skip_to)
+    [done, _settle] = click(SETTINGS_DONE, visible=True, within=within, or_skip_to=or_skip_to)
+    return [settings, *arrive(any_screen=True), switch, SETTLE, done, *arrive(any_screen=True)]
+
+
 def choose_preview_language(code: str, arrival: list[dict], *, within=None, or_skip_to=None) -> list[dict]:
     """A language chosen in App Preview as a person there chooses it: the breadcrumb's home to the app's first
     screen, the language set in its Settings (``set_preview_language``), then the app entered again by its Start
@@ -170,6 +186,48 @@ def choose_preview_language(code: str, arrival: list[dict], *, within=None, or_s
 # the search a list shows beside it (``case_list/menu_header.html``: the sidebar, folded under the large width).
 SEARCH_BUTTON = "#query-submit-button"
 REFINE_SEARCH = "#search-more[aria-expanded='false']"
+
+
+# The search screen's Clear (``query/list.html``), which empties every prompt (``query.js::clearAction``).
+CLEAR_BUTTON = "#query-clear-button"
+
+
+def clear_prompts() -> list[dict]:
+    """The search screen's prompts emptied as a worker empties them, by the screen's own Clear, then the client's
+    arrival: where the search runs again once it is cleared (``searchOnClear``), the client asks Formplayer at
+    once, and the step waits for the answer to be drawn."""
+    [step, _settle] = click(CLEAR_BUTTON, visible=True)
+    return [step, *arrive(any_screen=True)]
+
+
+def type_prompt(index: int, value: str) -> list[dict]:
+    """One prompt of the search screen filled as a worker fills it (``steps/webapps/prompt.js``; ``index`` its
+    place among the screen's fields, from 0), then Formplayer's answer to what the client asks once a field
+    changes, whether the prompts hold (``query.js::_updateModelsForValidation``), then the page quiet. Where the
+    field already holds the value, or the screen shows no such field, nothing is asked and nothing waited for."""
+    return [
+        {"mark": True},
+        {"until": "webapps/prompt", "arg": {"index": index, "value": value}, "within": ANSWERED_WITHIN_MS},
+        {"awaitRequest": {"method": "POST", "pathname": NAVIGATE}, "sinceMark": True, "unlessMissed": True},
+        SETTLE,
+    ]
+
+
+def search_refused(selections: list, key: str) -> list[dict]:
+    """A click on a search's Search button where the client keeps the search from being sent (a prompt it marks
+    in error, a required one left empty): the click, then the client's own refusal shown (``arrived.js``, with
+    ``search``: the prompts it marks and nothing in flight, where its route does not come to hold the search as
+    run), then the page quiet. The wait's answer is the search's outcome: ``refused``, or true where the client
+    sent the search after all (its route then holds it, under ``selections`` and ``key``)."""
+    [step, _settle] = click(SEARCH_BUTTON, visible=True)
+    arg = {
+        "selections": selections,
+        "queryData": {key: {"execute": True}},
+        "form": None,
+        "any": False,
+        "search": True,
+    }
+    return [step, {"until": "webapps/arrived", "arg": arg, "within": ANSWERED_WITHIN_MS}, SETTLE]
 
 
 def open_sidebar() -> list[dict]:
@@ -218,11 +276,12 @@ ANSWER = "/formplayer/answer"
 SUBMIT = "/formplayer/submit-all"
 
 
-def answer(ix: str, value: str, *, twelve_hour: bool = False) -> list[dict]:
+def answer(ix: str, value: str | None, *, twelve_hour: bool = False) -> list[dict]:
     """One question answered through its widget (``steps/webapps/answer.js``), then Formplayer's answer to the
     request the client sent for it, then the page quiet. The client sends an answer a moment after the widget
     changes (its knockout bindings, then a throttle), so the step waits for that request's answer; where the
-    client drew no widget a worker can answer with ``value``, nothing is sent and nothing is waited for."""
+    client drew no widget a worker can answer with ``value``, nothing is sent and nothing is waited for. With no
+    ``value`` the widget is cleared, as a worker leaves a question the form refused every answer to."""
     return [
         {"mark": True},
         {
@@ -231,6 +290,23 @@ def answer(ix: str, value: str, *, twelve_hour: bool = False) -> list[dict]:
             "within": ANSWERED_WITHIN_MS,
         },
         {"awaitRequest": {"method": "POST", "pathname": ANSWER}, "sinceMark": True, "unlessMissed": True},
+        SETTLE,
+    ]
+
+
+# Where the client asks Formplayer for a repeat's next repetition (``web_form_session.js::newRepeat``).
+NEW_REPEAT = "/formplayer/new-repeat"
+
+
+def add_repeat(index: int) -> list[dict]:
+    """A repetition added to a repeat as a worker adds one: the repeat's own Add button pressed
+    (``steps/webapps/repeat.js``; ``index`` its place among the form's Add buttons, from 0), then Formplayer's
+    answer to the request the client sends for it, then the page quiet. Where the form shows no such button
+    nothing is sent and nothing is waited for."""
+    return [
+        {"mark": True},
+        {"until": "webapps/repeat", "arg": {"index": index}, "within": ANSWERED_WITHIN_MS},
+        {"awaitRequest": {"method": "POST", "pathname": NEW_REPEAT}, "sinceMark": True, "unlessMissed": True},
         SETTLE,
     ]
 

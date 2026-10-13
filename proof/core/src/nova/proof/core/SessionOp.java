@@ -184,13 +184,18 @@ final class SessionOp {
 
         screens:
         for (int screens = 0; end == null; screens++) {
+            // Safety nets, never a run's end: no app the lane walks comes near either, so a run that reaches one
+            // is a session that does not end, and the request fails by the bound's name in place of handing back
+            // a run cut short, whose every check would pass with the rest unseen.
             if (screens > MAX_SCREENS) {
-                end = "too-many-screens";
-                break;
+                throw new IllegalStateException("A session's run met more than " + MAX_SCREENS
+                        + " screens (MAX_SCREENS) after the choices " + script
+                        + "; the runner stopped walking it, and the run has no end to record.");
             }
             if (script.size() > MAX_SCRIPT_STEPS) {
-                end = "too-deep";
-                break;
+                throw new IllegalStateException("A session's run made more than " + MAX_SCRIPT_STEPS
+                        + " choices (MAX_SCRIPT_STEPS): " + script
+                        + "; the runner stopped walking it, and the run has no end to record.");
             }
             String next;
             try {

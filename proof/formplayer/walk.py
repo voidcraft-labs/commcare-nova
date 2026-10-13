@@ -6,10 +6,19 @@ sequence of the requests the Web Apps client sends (``proof.formplayer.
 webapps``). Without a script one is derived: every command of every menu,
 depth first in menu order; at each case list every case Formplayer lists, each
 a run of its own (``proof.observe.walks.cases_opened``); at each search
-screen the search a worker sends after typing the answer table's search
-answers into its prompts (``typed_inputs``, a step of its own
-that HQ's search view answers), then the search sent with the prompts as
-Formplayer shows them, which the run goes on with. Every derived run is then walked again in each other
+screen each search a worker can send, each a run of its own
+(``search_ways``): the prompts as Formplayer shows them, which is what the
+client's Search sends of a screen no one touched (``shown_inputs``); the
+prompts cleared (the client's Clear), where a default fills one and none is
+required; and the prompts typed with the answer table's search answers
+(``typed_inputs``), where that changes what is sent. Typing asks Formplayer
+to validate each prompt as the client does (a request with ``execute``
+false, marked ``validating``), and a prompt whose answer Formplayer refuses
+is typed again with the table's next one (``retyped``), as a worker corrects
+what the screen marks. A search the client would keep back, a prompt in
+error or a required one left blank (``unsendable``), is never sent: the run
+records what it held (``unsent``) and ends ``search-refused``.
+Every derived run is then walked again in each other
 language the app holds, the language chosen at the app's first screen as a
 worker chooses it in Web Apps (``proof.observe.walks``): the client then
 sends that locale on every request. With a script, each run replays it, and
@@ -18,11 +27,23 @@ questions from the lane's fixed answer table (``proof/core/answers.json``,
 whose values are already in the encoding Web Apps sends Formplayer; a file
 question, signature included, is given the table's file for its kind from
 ``proof/core/captures``, uploaded as the client uploads one, ``media_kind``
-and ``WebApps.answer_media``), submits
+and ``WebApps.answer_media``), clears a question that refused every value
+the table holds for it, as a worker who cannot satisfy it leaves it blank
+(``CLEARED``), adds to each repeat a worker adds to as many instances as the
+table says (``addable``, the table's ``repeats.add``, the count Core's and
+Android's walks add), submits
 it as the client does (``submission``: every question the client holds valid,
 with the answer Formplayer last handed it, and ``prevalidated`` only where it
 holds every one valid), and records Formplayer's answer, the submission HQ
 received and the screen Formplayer's end of form navigation names next.
+
+A run's ``end`` says where it ended. Three are the app's own: ``submitted``,
+``empty-menu`` and ``empty-list``. Every other (``notification``,
+``submit-refused``, ``search-refused``, ``search-not-run``, ``refused``,
+``unreplayable``, ``language-unoffered``) is a stop, which
+``proof.checks.stops`` holds to ``proof/walk-stops.json`` by name. The
+walk's bounds (``MAX_RUNS``, ``MAX_SCREENS``, ``MAX_QUESTIONS``) are no end:
+reaching one raises ``WalkBound``.
 
 Every run starts as a worker starts after clearing their data in Web Apps
 (Formplayer's ``clear_user_data``), so each reads the restore afresh and none
@@ -46,7 +67,6 @@ is what the Web Apps client is handed.
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -60,12 +80,14 @@ from proof.formplayer.webapps import FormplayerRefused, WebApps
 from proof.observe import walks
 
 ANSWERS_PATH = Path(__file__).resolve().parents[1] / "core" / "answers.json"
+# The walk's bounds: safety nets against a session that does not end, far past what any app the lane walks
+# reaches (runs of a derived walk, screens of a run, answers of a form). Reaching one raises ``WalkBound``; none is
+# a run's end, and none is a time, which a loaded machine would reach where an idle one does not.
 MAX_RUNS = 500
 MAX_SCREENS = 400
-# A walk's whole budget; a document's sessions take seconds.
-MAX_SECONDS = 300.0
-MAX_TRIES = 3
 MAX_QUESTIONS = 2000
+# The answers the walk tries a question with before it leaves it unanswered.
+MAX_TRIES = 3
 # Formplayer's name for a question's data type (api/json/PromptToJson.java) to the answer table's.
 DATA_TYPES = {
     "str": "text",
@@ -95,6 +117,86 @@ MEDIA_CONTROLS = {10: "image", 12: "audio", 13: "video", 14: "file"}
 # What Web Apps sends in a multi-select list's selection once the cases are chosen
 # (commcare-core MultiSelectEntityScreen.USE_SELECTED_VALUES).
 USE_SELECTED_VALUES = "use_selected_values"
+# The answer the client sends for a question a worker cleared (``form_entry/const.js``, ``NO_ANSWER``: every
+# entry's cleared widget, ``entries.js``): no answer, which a trace keeps as JSON's null.
+CLEARED = None
+
+
+# How the client joins a prompt's several values, and writes a date range (``menus/views/query.js``:
+# ``selectDelimiter``, which Formplayer uses too, ``serverPrefix``, ``serverSeparator`` and the picker's own
+# separator between the two dates of a default).
+SELECT_DELIMITER = "#,#"
+RANGE_PREFIX = "__range__"
+RANGE_SEPARATOR = "__"
+RANGE_SHOWN = " to "
+
+
+def shown_inputs(displays) -> dict[str, str]:
+    """What the client sends of a search screen a worker has not touched (``query_data`` inputs), from the
+    prompts as Formplayer hands them: each prompt's value as the client reads it into its field and writes it
+    back (``menus/views/query.js``, ``decodeValue`` then ``encodeValue``, which ``getAnswers`` sends for every
+    prompt, a hidden one too): a default as it stands, a select's or a checkbox's several joined as Formplayer
+    joins them, a date range as the range the server reads, and nothing for a prompt that holds none (or an
+    address, which the client never sends)."""
+    sent: dict[str, str] = {}
+    for display in displays or ():
+        if not isinstance(display, dict) or not display.get("id"):
+            continue
+        value, name = display.get("value"), display.get("input")
+        if name == "address" or not isinstance(value, str):
+            continue
+        held = [part for part in value.split(SELECT_DELIMITER) if part != ""]
+        if name in ("select", "checkbox"):
+            if held:
+                sent[display["id"]] = SELECT_DELIMITER.join(held)
+        elif len(held) == 1:
+            if name == "daterange":
+                dates = held[0].replace(RANGE_PREFIX, "").replace(RANGE_SHOWN, RANGE_SEPARATOR)
+                sent[display["id"]] = RANGE_PREFIX + dates
+            else:
+                sent[display["id"]] = held[0]
+    return sent
+
+
+def unsendable(displays, inputs: Mapping[str, str]) -> list[str]:
+    """The prompts for which the client keeps a search from being sent, by id (``menus/views/query.js``,
+    ``inputsHaveErrors`` over each prompt's ``getError``): one Formplayer's last answer marks in error, and a
+    required one that holds nothing (or blank space alone). The client then shows "Please check the following
+    fields" and asks Formplayer nothing."""
+    kept = []
+    for display in displays or ():
+        if not isinstance(display, dict) or not display.get("id"):
+            continue
+        answer = inputs.get(display["id"])
+        blank = answer is None or (answer != "" and "".join(answer.split()) == "")
+        if display.get("error") or (display.get("required") and blank):
+            kept.append(display["id"])
+    return kept
+
+
+def search_ways(key: str, displays, answers) -> list[dict]:
+    """The searches a worker can send from a search screen, each a choice of a script: the prompts as the screen
+    shows them (``{"search": key}``, a default left in its prompt); where a prompt holds a default and none is
+    required, the screen's own Clear first (``walks.CLEARED``); and where the answer table types something the
+    screen does not already show, its search answers typed in (``walks.TYPED``)."""
+    shown = shown_inputs(displays)
+    ways = [{"search": key}]
+    required = any(isinstance(display, dict) and display.get("required") for display in displays or ())
+    if shown and not required:
+        ways.append({"search": key, walks.PROMPTS: walks.CLEARED})
+    if {**shown, **typed_inputs(displays, answers)} != shown:
+        ways.append({"search": key, walks.PROMPTS: walks.TYPED})
+    return ways
+
+
+def retyped(display: Mapping[str, Any], answers) -> list[str]:
+    """What a worker types next into a prompt whose answer the screen refused (Formplayer's validation of it, the
+    error the client shows under the field): the answer table's ``searchPrompts.retyped`` for the prompt's input,
+    in order, as a form's question is tried with the table's next value. Only a text prompt has another answer
+    to give (a capitalised text, a whole number, a place: what a prompt's validation asks for); an option is the
+    one the screen offers."""
+    name = display.get("input") or "text"
+    return [str(value) for value in ((answers or {}).get("retyped") or {}).get(name) or ()]
 
 
 def typed_inputs(displays, answers) -> dict[str, str]:
@@ -187,12 +289,43 @@ def chosen_as_the_client_answers(question: Mapping[str, Any], value: str) -> str
     return " ".join(found)
 
 
-def submission(tree: Sequence[Mapping[str, Any]], refused: set[str]) -> dict[str, Any]:
+# An attempt of a form's step that is no answer: a repeat's Add pressed (``{"ix": ..., "repeat": "add"}``).
+REPEAT = "repeat"
+
+
+def addable(node: Mapping[str, Any], adds: int) -> bool:
+    """Whether ``node`` is a repeat's Add a worker presses: where a repeat a worker adds to ends, Formplayer hands
+    the client a group that does not exist yet with the text of its Add button (``add-choice``), at the index the
+    next repetition takes (``<repeat>_<n>``), and the walk presses it while the repeat holds fewer than the
+    answer table adds (``repeats.add``, as the Core runner adds them)."""
+    if node.get("type") != "sub-group" or node.get("repeatable") != "true" or node.get("exists") != "false":
+        return False
+    _, _, held = str(node.get("ix") or "").rpartition("_")
+    return held.isdigit() and int(held) < adds
+
+
+# What the client holds as the answer of a question it draws no widget for, from the moment it draws the question
+# until Formplayer's next answer brings the form's own (``entries.js::UnsupportedEntry`` sets it as the entry is
+# made; ``form_ui.js``, ``Container.fromJS`` then maps Formplayer's answer over it on every later answer).
+UNSUPPORTED = "Not Supported by Web Entry"
+
+
+def drawn_with(question: Mapping[str, Any]) -> Any:
+    """What the client holds of a question as it first draws it: Formplayer's answer, or, for a question it draws
+    no widget for (``answerable``), the text its unsupported entry puts there (``UNSUPPORTED``)."""
+    return question.get("answer") if answerable(question) else UNSUPPORTED
+
+
+def submission(
+    tree: Sequence[Mapping[str, Any]], refused: set[str], held: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """What the Web Apps client submits of a form (``web_form_session.js::submitForm``, ``accumulateAnswers``):
     each question it holds valid, by its index, with the answer Formplayer last handed it (a label's as ``OK``),
     and ``prevalidated`` only where it holds every question valid. A question is not valid while Formplayer's
     last answer to it was a validation error (``form_ui.js``, ``session.reconcile`` sets its ``serverError``, and
-    the next answer it takes clears it): ``refused`` holds those, by index."""
+    the next answer it takes clears it): ``refused`` holds those, by index. A question the client drew no widget
+    for after Formplayer's last answer still holds its unsupported entry's text, which the client submits as its
+    answer: ``held`` is what the client holds of each question (``Walk._fill``), and names those."""
     answers, prevalidated = {}, True
     for node in questions(tree):
         if node.get("type") != "question":
@@ -200,7 +333,12 @@ def submission(tree: Sequence[Mapping[str, Any]], refused: set[str]) -> dict[str
         if str(node.get("ix")) in refused:
             prevalidated = False
             continue
-        answers[node["ix"]] = "OK" if node.get("datatype") == "info" else node.get("answer")
+        if node.get("datatype") == "info":
+            answers[node["ix"]] = "OK"
+        elif held is not None and not answerable(node) and held.get(str(node.get("ix"))) == UNSUPPORTED:
+            answers[node["ix"]] = UNSUPPORTED
+        else:
+            answers[node["ix"]] = node.get("answer")
     return {"answers": answers, "prevalidated": prevalidated}
 
 
@@ -237,6 +375,20 @@ def _held_after(tree, ix, sent, kind, held):
     if kind is not None or _sent_alike(echo, sent):
         return echo
     return sent
+
+
+class WalkBound(AssertionError):
+    """A run of the walk reached one of the walk's own bounds. A bound is a safety net against a session that does
+    not end, and reaching one fails the observation by its name: a run cut short at one would have every check
+    pass with the rest of it unseen."""
+
+
+def _search(inputs: Mapping[str, str], selections: Sequence[str]) -> dict[str, Any]:
+    """A search's entry of ``query_data`` as Web Apps writes it, but whether it is run (``utils.js::
+    CloudcareUrl.setQueryData``): the prompts' values, the search forced to wait for the worker's Search (every
+    search Web Apps shows beside its list is: ``router.js``, ``menu:query``, and ``query.js``'s own question of
+    whether the prompts hold), and the selections that led to the screen."""
+    return {"inputs": dict(inputs), "force_manual_search": True, "selections": list(selections)}
 
 
 def load_answer_table(path: Path = ANSWERS_PATH) -> dict[str, Any]:
@@ -379,37 +531,66 @@ class Walk:
 
     def _fill(
         self, web: WebApps, form: Mapping[str, Any], given: Mapping[str, Any] | None = None, toward=None
-    ) -> tuple[list[dict], list[Mapping[str, Any]], set[str], list[dict]]:
-        """Answers each question once from the table, in the order Formplayer lists them as they become relevant;
-        with the attempts, the form's tree as the last accepted answer left it, the questions whose last answer
-        Formplayer refused as invalid (``submission``), and what the client sent of its own along the way
-        (``_reconcile``). A location question ``given`` a place is answered with it, its attempt keeping the table's
-        places the client's map was dragged ``toward`` to give it."""
+    ) -> tuple[list[dict], list[Mapping[str, Any]], set[str], list[dict], dict[str, Any]]:
+        """Answers each question once from the table, in the order Formplayer lists them as they become relevant,
+        clears one that refused every value the table holds for it (``CLEARED``), and presses each repeat's Add
+        where a worker reaches it (``addable``); with the attempts, the form's tree as the last accepted answer
+        left it, the questions whose last answer Formplayer refused as invalid (``submission``), what the
+        client sent of its own along the way (``_reconcile``), and what the client holds of each question at the
+        end. A location question ``given`` a place is answered
+        with it, its attempt keeping the table's places the client's map was dragged ``toward`` to give it."""
         session, tree = form["session_id"], form["tree"]
         tried: set[str] = set()
         refused: set[str] = set()
         attempts: list[dict] = []
         # What the client holds of each question it has drawn: the answer Formplayer last handed it, or the one it
-        # last sent while that request is in flight (``form_ui.js``, ``pendingAnswer``).
-        held = {str(node.get("ix")): node.get("answer") for node in questions(tree) if node.get("type") == "question"}
+        # last sent while that request is in flight (``form_ui.js``, ``pendingAnswer``); as it opens the form,
+        # what it draws each question with (``drawn_with``).
+        held = {str(node.get("ix")): drawn_with(node) for node in questions(tree) if node.get("type") == "question"}
         resent: list[dict] = []
+        adds = int((self.answer_table.get("repeats") or {}).get("add") or 0)
         for _ in range(MAX_QUESTIONS):
             pending = next(
                 (
                     node
                     for node in questions(tree)
-                    if node.get("type") == "question"
-                    and node.get("datatype") != "info"
-                    and node.get("ix") not in tried
-                    and self._values(node, given)
+                    if node.get("ix") not in tried
+                    and (
+                        addable(node, adds)
+                        or (
+                            node.get("type") == "question"
+                            and node.get("datatype") != "info"
+                            and self._values(node, given)
+                        )
+                    )
                 ),
                 None,
             )
             if pending is None:
                 break
             tried.add(pending["ix"])
+            if addable(pending, adds):
+                # The repeat's own Add, pressed where a worker reaches it (``form_ui.js``, ``Group.newRepeat``;
+                # ``web_form_session.js::newRepeat``): Formplayer hands back the form with the new repetition,
+                # whose questions are then answered in their turn, and the client reconciles it as any answer.
+                added = web.form_request("new-repeat", session, ix=pending["ix"])
+                attempts.append({"ix": pending["ix"], REPEAT: "add", "response": added})
+                if isinstance(added.get("tree"), list):
+                    tree = self._reconcile(
+                        web, session, added["tree"], held, refused, resent, pending, len(attempts) - 1
+                    )
+                continue
             kind = media_kind(pending)
-            for value in self._values(pending, given)[:MAX_TRIES]:
+            values = list(self._values(pending, given)[:MAX_TRIES])
+            if kind is None:
+                # Where the form refuses every answer the table holds for the question, a worker leaves it
+                # unanswered: the widget cleared (``CLEARED``), which the client sends as no answer and Formplayer
+                # takes unless the question is required. The form's validation then stands in the way of nothing
+                # else, and the run goes on to what the form does once it is submitted.
+                values.append(CLEARED)
+            for value in values:
+                if value is CLEARED and str(pending["ix"]) not in refused:
+                    break
                 if kind is None:
                     answered = web.answer(session, pending["ix"], value)
                     attempt = {"ix": pending["ix"], "value": value, "response": answered}
@@ -432,7 +613,12 @@ class Walk:
                         web, session, answered.get("tree", tree), held, refused, resent, pending, len(attempts) - 1
                     )
                     break
-        return attempts, tree, refused, resent
+        else:
+            raise WalkBound(
+                f"The form {form.get('title')!r} still held a question to answer after {MAX_QUESTIONS} of them"
+                " (proof/formplayer/walk.py::MAX_QUESTIONS); the walk stopped, and the form has no end to record."
+            )
+        return attempts, tree, refused, resent, held
 
     def _reconcile(self, web, session, tree, held, refused, resent, answered_node, after):
         """The client's own answers after Formplayer's answer to one of its requests (``form_ui.js``,
@@ -453,8 +639,9 @@ class Walk:
                     continue
                 ix = str(node.get("ix"))
                 if ix not in held:
-                    # A question the client draws now for the first time is made with Formplayer's answer.
-                    held[ix] = node.get("answer")
+                    # A question the client draws now for the first time is made with Formplayer's answer, or,
+                    # with no widget for it, with its unsupported entry's text.
+                    held[ix] = drawn_with(node)
                     continue
                 if ix == just or ix in refused or node.get("answer") == held[ix]:
                     continue
@@ -472,7 +659,10 @@ class Walk:
                 return tree
             tree = answered.get("tree", tree)
             held[ix] = _held_after(tree, ix, sent, None, held)
-        return tree
+        raise WalkBound(
+            f"Formplayer went on changing the form's answers after the client had sent {MAX_QUESTIONS} of them back"
+            " (proof/formplayer/walk.py::MAX_QUESTIONS); the walk stopped, and the form has no end to record."
+        )
 
     @staticmethod
     def _resends(node: Mapping[str, Any]) -> bool:
@@ -481,9 +671,9 @@ class Walk:
         label, an unsupported question or a file, whose widget ignores what Formplayer hands back."""
         return answerable(node) and node.get("datatype") != "info" and media_kind(node) is None
 
-    def _submit(self, web: WebApps, form: Mapping[str, Any], tree, refused: set[str]) -> tuple[dict, Any]:
+    def _submit(self, web: WebApps, form: Mapping[str, Any], tree, refused: set[str], held) -> tuple[dict, Any]:
         """The submission as the client makes it (``submission``), and Formplayer's answer to it."""
-        sent = submission(tree, refused)
+        sent = submission(tree, refused, held)
         return sent, web.submit(form["session_id"], sent["answers"], prevalidated=sent["prevalidated"])
 
     def execute(self, script: Sequence[Mapping[str, Any]], derive: bool):
@@ -599,31 +789,67 @@ class Walk:
                 elif kind == "query":
                     key = response.get("queryKey") or ""
                     if key in searched:
+                        # Formplayer answered the search with the search screen again (its own check of the
+                        # prompts refused it).
                         end = "search-not-run"
                         break
                     searched.add(key)
+                    displays = response.get("displays") or ()
+                    ways = search_ways(key, displays, self.answer_table.get("searchPrompts"))
                     if cursor < len(script):
-                        if script[cursor].get("search") != key:
+                        choice = script[cursor]
+                        cursor += 1
+                        if choice.get("search") != key:
                             end = "unreplayable"
                             break
-                        cursor += 1
-                    ran.append({"search": key})
-                    typed = typed_inputs(response.get("displays") or (), self.answer_table.get("searchPrompts"))
-                    if typed:
-                        # First the search a worker sends after typing into its prompts (each a step of its
-                        # own, which HQ's search view answers), then the search as Formplayer shows it.
-                        probe = {**query_data, key: {"inputs": typed, "execute": True}}
-                        try:
-                            answered = web.navigate(selections, query_data=probe)
-                        except FormplayerRefused as refused:
-                            answered = {
-                                "refused": {
-                                    "status": refused.exchange.response.status,
-                                    "body": refused.exchange.response.body.decode("utf-8", "replace"),
+                    elif derive and len(ways) > 1:
+                        # A search screen branches: each search a worker can send from it is a run of its own.
+                        return None, ways, ran
+                    else:
+                        choice = ways[0]
+                    ran.append(choice)
+                    # What the client sends for the search: the prompts as it shows them, emptied by the
+                    # screen's Clear, or with the answer table's search answers typed over them, each typed
+                    # prompt followed by the client's own question to Formplayer of whether the prompts hold
+                    # (``query.js::_updateModelsForValidation``), whose answer it reads each prompt's error from.
+                    inputs = shown_inputs(displays)
+                    selected = list(selections)
+                    if choice.get(walks.PROMPTS) == walks.CLEARED:
+                        # Clear empties every prompt and forgets each one's error (``QueryView.clear``).
+                        inputs = {}
+                        displays = [{**display, "error": None} for display in displays if isinstance(display, dict)]
+                    elif choice.get(walks.PROMPTS) == walks.TYPED:
+                        answers = self.answer_table.get("searchPrompts")
+                        prompts = {each.get("id"): each for each in displays if isinstance(each, dict)}
+                        for prompt, first in typed_inputs(displays, answers).items():
+                            # The table's answer, then, while the screen refuses what was typed, its next one.
+                            for value in (first, *retyped(prompts[prompt], answers)):
+                                if inputs.get(prompt) == value:
+                                    # A field that already holds the answer does not change, and the client
+                                    # asks nothing for it.
+                                    break
+                                inputs = {**inputs, prompt: value}
+                                asking = {
+                                    **query_data,
+                                    key: {**_search(inputs, selected), "execute": False},
                                 }
-                            }
-                        record({"selections": list(selections), "query_data": probe, "typed": True}, answered)
-                    query_data = {**query_data, key: {"inputs": {}, "execute": True}}
+                                checked = web.navigate(selections, query_data=asking)
+                                record({"selections": selected, "query_data": asking, "validating": prompt}, checked)
+                                if screen_kind(checked) != "query":
+                                    break
+                                displays = checked.get("displays") or ()
+                                if not any(
+                                    isinstance(each, dict) and each.get("id") == prompt and each.get("error")
+                                    for each in displays
+                                ):
+                                    break
+                    kept = unsendable(displays, inputs)
+                    if kept:
+                        # The client sends nothing: it marks the prompts and stays (``query.js::performSubmit``).
+                        steps.append({"unsent": {"search": key, "inputs": inputs, "prompts": kept}})
+                        end = "search-refused"
+                        break
+                    query_data = {**query_data, key: {**_search(inputs, selected), "execute": True}}
                     response = navigate()
                 elif kind == "form":
                     # The places the client's map gave the form's location questions, with the table's places it
@@ -639,8 +865,8 @@ class Walk:
                         given, toward = self.places.get(key), self.toward.get(key, {})
                         if given:
                             ran.append(walks.places_choice(given, toward))
-                    attempts, tree, refused, resent = self._fill(web, response, given, toward)
-                    sent, submitted = self._submit(web, response, tree, refused)
+                    attempts, tree, refused, resent, held = self._fill(web, response, given, toward)
+                    sent, submitted = self._submit(web, response, tree, refused, held)
                     steps.append(
                         {
                             "answers": attempts,
@@ -660,7 +886,11 @@ class Walk:
                     end = "notification"
                     break
             else:
-                end = "too-many-screens"
+                # A safety net, never a run's end: no app the lane walks comes near it.
+                raise WalkBound(
+                    f"Formplayer's run of the choices {list(ran)!r} met more than {MAX_SCREENS} screens"
+                    " (proof/formplayer/walk.py::MAX_SCREENS); the walk stopped, and the run has no end to record."
+                )
         except FormplayerRefused as refused:
             exchange = refused.exchange
             steps.append(
@@ -681,7 +911,6 @@ class Walk:
         language the app holds (``proof.observe.walks.in_every_language``), and each run a phone gives other places
         walked again with them (``small_places``); else each of the script's runs replayed."""
         runs = []
-        started = time.perf_counter()
         with self.scope("forget-app"):
             self._forget_app()
         if script is not None:
@@ -690,10 +919,10 @@ class Walk:
         else:
             pending: list[list[Mapping[str, Any]]] = [[]]
             while pending:
-                if len(runs) + len(pending) > MAX_RUNS or time.perf_counter() - started > MAX_SECONDS:
-                    raise AssertionError(
-                        f"Formplayer's derived script grew past {MAX_RUNS} runs or {MAX_SECONDS} s"
-                        f" ({len(runs)} run, {len(pending)} pending); the walk stopped exploring this app."
+                if len(runs) + len(pending) > MAX_RUNS:
+                    raise WalkBound(
+                        f"Formplayer's derived script grew past {MAX_RUNS} runs (proof/formplayer/walk.py::MAX_RUNS;"
+                        f" {len(runs)} run, {len(pending)} pending); the walk stopped exploring this app."
                     )
                 run, branches, ran = self.execute(pending.pop(), derive=True)
                 if branches is not None:

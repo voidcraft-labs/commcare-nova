@@ -352,3 +352,35 @@ def test_a_question_named_by_a_text_hq_merged_is_the_same_question_and_another_q
     assert [d.path for d in compared("other-label", {"pick-label": "note-hint"})] == [
         "/runs/*/steps/*/response/exception"
     ]
+
+
+def test_a_run_that_left_the_walk_keeps_no_search_outcome_and_a_one_question_end_is_where_it_ended():
+    """What became of a run's search is compared where both sides made the run alike, and follows from where
+    the run went once one side left the walk; where App Preview's one-question form ended in a run then shown
+    whole, the two sides are compared by how far it came and what the client said there, the form's content
+    being the whole replay's to show."""
+
+    def screens(*shown, **run):
+        return {"runtime": {}, "build": {}, "home": None, "runs": [{"script": [], "screens": list(shown), **run}]}
+
+    def compared(before, after):
+        return _paths(compare.webapps_differences(before, after, check="proof3", document="d", artifact="a"))
+
+    menu, search, listed = {"commands": []}, {"query": {"prompts": []}}, {"list": {"rows": []}}
+    sent = screens(menu, search, listed, searches=["sent"])
+    assert compared(sent, screens(menu, search, listed, searches=["refused"])) == [("/runs/*/searches/*", "changed")]
+    # The other side opens the list at once: the run left the walk there, and its search with it.
+    left = compared(sent, screens(menu, listed, listed))
+    assert left and not [path for path, _ in left if "searches" in path]
+
+    def ended(alert, label):
+        form = {"form": {"title": "F", "questions": [{"label": label}]}, "alerts": [alert]}
+        return {"stopped": {"after": 2, "at": "form", "screen": form}, "answers": ["answered"]}
+
+    whole = {"form": {"title": "F", "questions": []}}
+    one = screens(menu, whole, oneQuestion=ended("Cannot go on", "A"))
+    assert compared(one, screens(menu, whole, oneQuestion=ended("Cannot go on", "B"))) == []
+    assert compared(one, screens(menu, whole, oneQuestion=ended("Index -1", "A"))) == [
+        ("/runs/*/oneQuestion/stopped/alerts/*", "changed")
+    ]
+    assert compared(one, screens(menu, whole)) == [("/runs/*/oneQuestion", "removed")]

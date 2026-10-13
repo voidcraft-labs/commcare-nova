@@ -4,8 +4,9 @@ Where ``proof.formplayer.observe`` keeps what Formplayer answers on a walk
 of a build, this keeps what the Web Apps client then shows a worker on the
 same walk. The walk is Formplayer's own, derived on the released build
 (``proof.formplayer.walk``: every menu command, every case of each list,
-each list action once, each search, each form answered and submitted, in
-every language the app holds); each of its runs is then replayed whole in the browser by what a
+each list action once, each search each way a worker can send it, each form
+answered and submitted, in every language the app holds); each of its runs
+is then replayed whole in the browser by what a
 worker does (``plan``), and the page is read after every step that leads
 somewhere (``steps.SCREEN``):
 
@@ -17,13 +18,21 @@ somewhere (``steps.SCREEN``):
   opening; a multi-select list's case is its row's checkbox and the list's
   Continue;
 - a list action is a click on its button, and a search a click on Search
-  with the prompts as the client shows them;
+  with the prompts as the walk's choice filled them: as the client shows
+  them, emptied by the screen's own Clear (``steps.clear_prompts``), or each
+  prompt the walk typed filled through its field in the walk's order
+  (``steps.type_prompt``, a refused answer filled again); where the walk
+  holds that the client keeps the search back, Search is pressed all the
+  same and the client's own refusal is the search's outcome
+  (``steps.search_refused``);
 - a form the run reaches is answered question by question through the
   widgets the client draws, with each answer the walk gave, in its order
   (``steps.answer``; a file question with the file the walk uploaded, chosen
   through the widget's own file input, and a signature with a stroke drawn
-  on its pad, ``steps.answer_media``), read as the worker leaves it,
-  submitted, and the screen the client lands on read.
+  on its pad, ``steps.answer_media``; a question the walk cleared cleared
+  through its widget, and a repetition the walk added added by the repeat's
+  own Add, ``steps.add_repeat``), read as the worker leaves it, submitted,
+  and the screen the client lands on read.
 
 Every step waits for the client's own arrival where it leads
 (``steps.arrive``, ``driver/steps/webapps/arrived.js``), never a time. Each
@@ -37,9 +46,13 @@ What is recorded (``shown``):
 - ``build``: the released build's version;
 - ``home``: the home screen;
 - ``runs``: per run of the walk, its ``script``, the ``screens`` read, what
-  became of each answer (``answers``) and of Submit (``submit``), and, where
-  the client did not follow the walk to its end, where it ``stopped``, each
-  screen as ``proof.webapps.session.recorded`` keeps it;
+  became of each answer (``answers``), of each search (``searches``) and of
+  Submit (``submit``), and, where the client did not follow the walk to its
+  end, where it ``stopped`` (the screen it stood on, and ``at``: the position
+  of the choice it was making, or ``FORM``), each screen as
+  ``proof.webapps.session.recorded`` keeps it; and, for a run App Preview's
+  one-question form did not carry to its end, which is then replayed with
+  its form shown whole, where that form ended (``oneQuestion``);
 - ``pageErrors``: what the client's own script raised.
 
 The record holds no id Formplayer drew, no time and no path: HQ's ids in it
@@ -60,7 +73,13 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from proof.formplayer.walk import CAPTURES_DIR, CONTENT_TYPES, Walk
+from proof.formplayer.walk import (
+    CAPTURES_DIR,
+    CONTENT_TYPES,
+    REPEAT,
+    Walk,
+    questions,
+)
 from proof.observe import walks
 from proof.webapps import steps
 from proof.webapps.session import Session
@@ -75,6 +94,12 @@ class Unreplayable(AssertionError):
 class SubmittedOtherwise(AssertionError):
     """The client submitted a run's form otherwise than Formplayer's walk of the same run: the walk is to submit
     exactly what the client submits (``proof.formplayer.walk.submission``), so a difference is the harness's."""
+
+
+class SearchedOtherwise(AssertionError):
+    """The client sent a run's search otherwise than Formplayer's walk of the same run, or sent one the walk holds
+    the client keeps back: the walk sends the searches the client sends (``proof.formplayer.walk.shown_inputs``,
+    ``unsendable``), so a difference is the harness's."""
 
 
 def _same_sent(walked, sent) -> bool:
@@ -118,6 +143,40 @@ def submitted_alike(served, walk_run: Mapping[str, Any], run) -> None:
         )
 
 
+def _searches(entries) -> dict[str, list]:
+    """Each search run among a series of ``query_data`` (a request's, in the order sent), by its key: the prompts'
+    values of each time it was run, a repeat of the last left out (every later request carries the search
+    again)."""
+    found: dict[str, list] = {}
+    for query_data in entries:
+        for key, entry in (query_data or {}).items():
+            if not isinstance(entry, dict) or not entry.get("execute"):
+                continue
+            inputs = entry.get("inputs") or {}
+            if not found.get(key) or found[key][-1] != inputs:
+                found.setdefault(key, []).append(inputs)
+    return found
+
+
+def searched_alike(walk_run: Mapping[str, Any], run) -> None:
+    """Holds each search the client ran in a run (the ``query_data`` of its requests to Formplayer's
+    ``navigate_menu``) to the one Formplayer's walk of the same run ran: the same searches, each with the same
+    prompts' values, and none where the walk holds that the client keeps the search back (its ``unsent`` step);
+    ``SearchedOtherwise`` where they differ. Nothing is held for a run the client stopped following."""
+    walked = _searches(
+        step["request"].get("query_data")
+        for step in walk_run["steps"]
+        if "request" in step and step["request"].get("route") != "get_details"
+    )
+    sent = _searches((exchange.request_json() or {}).get("query_data") for exchange in run.answered("navigate_menu"))
+    if not _same_sent(walked, sent):
+        raise SearchedOtherwise(
+            f"The Web Apps client ran the searches {sent!r} in the run {list(walk_run['script'])!r}, where Formplayer's"
+            f" walk of it ran {walked!r}. The walk sends the searches the client sends"
+            " (proof/formplayer/walk.py::shown_inputs, unsendable): find what the client's screen holds otherwise."
+        )
+
+
 # A multi-select list's Continue below its cases (``partials/case_list/list.html``); the list's header holds a
 # second one that does the same (``menu_header.html``).
 MULTI_SELECT_CONTINUE = "#menu-region .case-list-actions.d-md-block > .multi-select-continue-btn"
@@ -128,15 +187,51 @@ TWELVE_HOUR = "12-hour"
 
 def _navigations(run: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """Each navigation of a run as Formplayer's walk made it, in order: what it sent (its ``request``) and, where
-    Formplayer answered, its ``response``; a case's detail, asked beside one, and the search the walk sends with
-    its prompts typed into, beside the one it goes on with, left out."""
+    Formplayer answered, its ``response``; a case's detail, asked beside one, and what the client asks as a search
+    prompt is typed into (whether the prompts hold), left out."""
     return [
         step
         for step in run["steps"]
         if "request" in step
         and step.get("request", {}).get("route") != "get_details"
-        and not step.get("request", {}).get("typed")
+        and not step.get("request", {}).get("validating")
     ]
+
+
+def _typed(run: Mapping[str, Any], position: int) -> list[tuple[str, str]]:
+    """What the walk typed into the search screen the run's ``position``-th navigation answered with, in order:
+    each prompt's id and the text or the option's key typed into it (each of its ``validating`` requests, which
+    carries the prompts as they then stood), a prompt the screen refused typed again with the walk's next
+    answer."""
+    typed: list[tuple[str, str]] = []
+    at = -1
+    for step in run["steps"]:
+        request = step.get("request") if isinstance(step.get("request"), dict) else None
+        if request is None or request.get("route") == "get_details":
+            continue
+        if not request.get("validating"):
+            at += 1
+            continue
+        if at == position:
+            prompt = request["validating"]
+            asked = [entry for entry in (request.get("query_data") or {}).values() if not entry.get("execute")]
+            typed.append((prompt, next(entry["inputs"][prompt] for entry in asked if prompt in entry["inputs"])))
+    return typed
+
+
+def _unsent(run: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The search the walk holds the client keeps from being sent, where the run ended at one (its ``unsent``
+    step, ``proof.formplayer.walk.unsendable``)."""
+    return next((step["unsent"] for step in run["steps"] if "unsent" in step), None)
+
+
+def _tree_before(opened: Any, attempts: Sequence[Mapping[str, Any]], position: int) -> Sequence[Mapping[str, Any]]:
+    """The form's tree as Formplayer last handed it before an attempt: the latest answer before it that holds
+    one, else the form as it opened."""
+    for response in [*(attempt.get("response") for attempt in reversed(attempts[:position])), opened]:
+        if isinstance(response, dict) and isinstance(response.get("tree"), list):
+            return response["tree"]
+    return ()
 
 
 def _form_step(run: Mapping[str, Any]) -> Mapping[str, Any] | None:
@@ -223,11 +318,23 @@ def _page_of(screen: Any, case: str, small: bool) -> int:
     return ids.index(case) // steps.SMALL_SCREEN_PAGE if case in ids else 0
 
 
+# Where a run's screen is read, beside the positions of its script's choices: in its form, and, for the app's
+# first screen, before any choice.
+FORM = "form"
+START = "start"
+
+
 def plan(
-    run: Mapping[str, Any], *, end: str | None = None, small: bool = False, preview: bool = False
+    run: Mapping[str, Any],
+    *,
+    end: str | None = None,
+    small: bool = False,
+    preview: bool = False,
+    whole: bool = False,
 ) -> tuple[list[dict], list[tuple | None]]:
     """The steps that replay one run of Formplayer's walk in the browser, whole, and beside each what it reads:
-    ``("screen",)`` for each screen read, ``("answer", position)`` for each answer's outcome, ``("submit",)``
+    ``("screen", place)`` for each screen read (``place`` the position of the choice it follows, or ``FORM`` for
+    the form's), ``("answer", position)`` for each answer's outcome, ``("submit",)``
     for the submission's, ``("held", position)`` (``position`` None for the submission) for a form shown one
     question a screen whose Next the client kept from being pressed before it, or None.
 
@@ -242,7 +349,9 @@ def plan(
     replay is on a small screen, where a case on a later page of its list is reached by that page's button. With
     ``preview`` the replay is in App Preview: a language is chosen in its Settings (``steps.choose_preview_language``),
     and a form shows one question a screen, each question brought onto the screen by the form's own Next before it
-    is answered, and the form to its last screen before its Complete (``steps.advance``).
+    is answered, and the form to its last screen before its Complete (``steps.advance``); with ``whole`` too, the
+    person has switched that off (``steps.show_forms_whole``), and the form is answered and submitted as in Web
+    Apps.
     """
     made: list[dict] = []
     what: list[tuple | None] = []
@@ -253,6 +362,7 @@ def plan(
 
     navigations = _navigations(run)
     within = None if end is None else steps.WITHIN_MS
+    one_question = preview and not whole
     for position, choice in enumerate(walks.navigation(run["script"])):
         # The screen the choice is made on is Formplayer's answer before it; where it leads, the request after it.
         screen = navigations[position].get("response") if position < len(navigations) else None
@@ -283,28 +393,50 @@ def plan(
             opened = steps.open_case(row, selections, arrival, within=within, or_skip_to=end)
             # The screen read once the client has answered the row's click: its detail, where it opened one.
             add(opened, None)
-            what[len(what) - len(opened) + opened.index(steps.SCREEN)] = ("screen",)
+            what[len(what) - len(opened) + opened.index(steps.SCREEN)] = ("screen", position)
         elif "entity" in choice:
             add(steps.navigate(f"#menu-region [id='row-{choice['entity']}']", arrival, within=within, or_skip_to=end))
         elif "action" in choice:
             action = f"{steps.LIST_ACTION}[data-index='{choice['action']}']"
             add(steps.navigate(action, arrival, within=within, or_skip_to=end))
         elif "search" in choice:
-            searching = steps.searched(
-                _arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end
-            )
             if small:
                 # On a small screen a search beside its list is folded away, and a worker opens it by the list's
                 # Refine search before its Search is there to press (``case_list/menu_header.html``).
                 add(steps.open_sidebar())
-            add(steps.navigate(steps.SEARCH_BUTTON, searching, visible=True, within=within, or_skip_to=end))
+            # The prompts as the choice fills them: left as the screen shows them, emptied by its Clear, or the
+            # answer table's search answers typed in, each field that changes in the screen's order.
+            displays = [each for each in (screen or {}).get("displays") or () if isinstance(each, dict)]
+            if choice.get(walks.PROMPTS) == walks.CLEARED:
+                add(steps.clear_prompts())
+            elif choice.get(walks.PROMPTS) == walks.TYPED:
+                fields = [each.get("id") for each in displays]
+                for prompt, value in _typed(run, position):
+                    add(steps.type_prompt(fields.index(prompt), value))
+            if _unsent(run) is not None and position == len(navigations) - 1:
+                # The walk holds that the client keeps this search back: Search is pressed all the same, and the
+                # client's own refusal is the search's outcome.
+                selections = [str(value) for value in (screen or {}).get("selections") or ()]
+                searching = steps.search_refused(selections, choice["search"])
+            else:
+                searching = steps.navigate(
+                    steps.SEARCH_BUTTON,
+                    steps.searched(
+                        _arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end
+                    ),
+                    visible=True,
+                    within=within,
+                    or_skip_to=end,
+                )
+            add(searching)
+            what[len(what) - len(searching) + 1] = ("search",)
         else:
             raise Unreplayable(
                 f"Formplayer's walk made the choice {choice!r}, which the Web Apps replay has no click for"
                 " (proof/webapps/observe.py::plan knows a language, a menu row, a case, a list action and a"
                 " search)."
             )
-        add([steps.SCREEN], ("screen",))
+        add([steps.SCREEN], ("screen", position))
     form = _form_step(run)
     if form is not None:
         opened = navigations[-1].get("response") if navigations else None
@@ -315,11 +447,25 @@ def plan(
             question = _question(opened, form["answers"], position)
             # Gestures made before the one whose answer is the attempt's.
             before: list[dict] = []
-            if attempt.get("media"):
+            if attempt.get(REPEAT) == "add":
+                # The repeat's Add, by its place among the Add buttons the form shows: one for each repeat's
+                # next repetition Formplayer last handed the client, in the form's order.
+                adds = [
+                    str(node.get("ix"))
+                    for node in questions(_tree_before(opened, form["answers"], position))
+                    if node.get("type") == "sub-group"
+                    and node.get("repeatable") == "true"
+                    and node.get("exists") == "false"
+                ]
+                answering = steps.add_repeat(adds.index(ix) if ix in adds else len(adds))
+            elif attempt.get("media"):
                 name = str(attempt["value"])
                 answering = steps.answer_media(
                     ix, attempt["media"], name, (CAPTURES_DIR / name).read_bytes(), CONTENT_TYPES[name]
                 )
+            elif attempt["value"] is None:
+                # The widget cleared, as a worker leaves a question the form refused every answer to.
+                answering = steps.answer(ix, None)
             elif question.get("datatype") == "geo":
                 # The map is dragged from where it stands so that its centre comes to the walk's place, to the
                 # nearest pixel: the client's answer is the map's centre, so it is the place as near as a drag
@@ -344,23 +490,23 @@ def plan(
                     answering = steps.answer_place(ix, offset)
             else:
                 answering = steps.answer(ix, str(attempt["value"]), twelve_hour=_twelve_hour(question))
-            if preview:
+            if one_question:
                 bringing = steps.advance(ix, or_skip_to=end)
                 add(bringing)
                 what[len(what) - len(bringing)] = ("held", position)
             add(before)
             add(answering)
             what[len(what) - len(answering) + 1] = ("answer", position)
-        if preview:
+        if one_question:
             bringing = steps.advance(None, or_skip_to=end)
             add(bringing)
             what[len(what) - len(bringing)] = ("held", None)
         # The form as the worker leaves it, then where Submit takes them.
-        add([steps.SCREEN], ("screen",))
-        submitting = steps.submit_and_land(one_question_per_screen=preview)
+        add([steps.SCREEN], ("screen", FORM))
+        submitting = steps.submit_and_land(one_question_per_screen=one_question)
         add(submitting)
         what[len(what) - len(submitting) + 1] = ("submit",)
-        add([steps.SCREEN], ("screen",))
+        add([steps.SCREEN], ("screen", FORM))
     return made, what
 
 
@@ -377,6 +523,7 @@ def replay(
     small: bool = False,
     preview_as: str | None = None,
     preview_language: str | None = None,
+    preview_whole: bool = False,
 ) -> tuple[list[dict], list[tuple | None]]:
     """Every run of a walk as one list of steps (``plan``, on a small screen with ``small``), each from the home
     screen into the app, and beside
@@ -391,7 +538,9 @@ def replay(
     screen) in which a form shows one question a screen. App Preview opens an app in the person's own language,
     or English where they have none (``cloudcare/preview_app.html``, ``request.user.language|default:'en'``),
     where Web Apps opens it in the worker's or the app's first, so the language is set to the app's first, from
-    which a run's own choice of another then moves it as in Web Apps."""
+    which a run's own choice of another then moves it as in Web Apps. With ``preview_whole`` the person also
+    switches "Use one question per screen" off there before entering the app (``steps.show_forms_whole``), and
+    each form is shown whole."""
     made: list[dict] = []
     kinds: list[tuple | None] = []
 
@@ -411,11 +560,19 @@ def replay(
             add(steps.log_in_as(preview_as))
             if preview_language is not None:
                 add(steps.set_preview_language(preview_language, within=steps.WITHIN_MS, or_skip_to=end))
+            if preview_whole:
+                add(steps.show_forms_whole(within=steps.WITHIN_MS, or_skip_to=end))
             add(steps.navigate(steps.START_APP, first, within=steps.WITHIN_MS, or_skip_to=end))
         else:
             add(steps.navigate(steps.APP_TILE, first, app_name, within=steps.WITHIN_MS, or_skip_to=end))
         add([steps.SCREEN], ("screen", index))
-        run_steps, run_kinds = plan(run, end=end, small=small or preview_as is not None, preview=preview_as is not None)
+        run_steps, run_kinds = plan(
+            run,
+            end=end,
+            small=small or preview_as is not None,
+            preview=preview_as is not None,
+            whole=preview_whole,
+        )
         made.extend(run_steps)
         kinds.extend(None if kind is None else (kind[0], index, *kind[1:]) for kind in run_kinds)
         add([{"label": end}])
@@ -490,7 +647,11 @@ def _record(runner, driver, version, walk, run, kinds) -> dict[str, Any]:
         "runs": [{"script": list(each["script"]), "screens": []} for each in walk["runs"]],
         "pageErrors": sorted({_first_line(error) for error in run.page_errors}),
     }
-    expected = {index: _expected_screens(each) for index, each in enumerate(walk["runs"])}
+    # Where each screen a whole replay of a run reads is read (``plan``): the app's first, then each choice's.
+    places: dict[int, list] = {index: [] for index in range(len(walk["runs"]))}
+    for what in kinds:
+        if what is not None and what[0] == "screen":
+            places[what[1]].append(what[2] if len(what) > 2 else START)
     for what, outcome in zip(kinds, run.outcomes, strict=True):
         if what is None or outcome.get("skipped"):
             continue
@@ -504,11 +665,13 @@ def _record(runner, driver, version, walk, run, kinds) -> dict[str, Any]:
                 else:
                     held.setdefault("answers", []).append("held")
             continue
-        if what[0] in ("answer", "submit"):
+        if what[0] in ("answer", "submit", "search"):
             held = found["runs"][what[1]]
             said = "missed" if outcome.get("missed") else outcome.get("value")
             if what[0] == "answer":
                 held.setdefault("answers", []).append("answered" if said is True else said)
+            elif what[0] == "search":
+                held.setdefault("searches", []).append("sent" if said is True else said)
             else:
                 held["submit"] = "submitted" if said is True else said
             continue
@@ -521,15 +684,17 @@ def _record(runner, driver, version, walk, run, kinds) -> dict[str, Any]:
             found["runs"][what[1]]["screens"].append(screen)
         else:
             held = found["runs"][what[1]]
-            if len(held["screens"]) != expected[what[1]]:
-                # The client did not follow the walk to its end: where it stood when the run ended.
-                held["stopped"] = {"after": len(held["screens"]), "screen": screen}
+            read = len(held["screens"])
+            if read != len(places[what[1]]):
+                # The client did not follow the walk to its end: where it stood when the run ended, and what the
+                # run was doing there (``at``: the position of the choice it was making, or in its form).
+                held["stopped"] = {"after": read, "screen": screen, "at": places[what[1]][read]}
     return _marked(found, _drawn_selections(run))
 
 
 def _expected_screens(run: Mapping[str, Any]) -> int:
     """How many screens a whole replay of ``run`` reads (``plan``), the app's first one with them."""
-    return 1 + sum(1 for kind in plan(run)[1] if kind == ("screen",))
+    return 1 + sum(1 for kind in plan(run)[1] if kind is not None and kind[0] == "screen")
 
 
 def observe(served, driver) -> dict[str, Any]:
@@ -550,7 +715,9 @@ def location_questions(run: Mapping[str, Any]) -> dict[str, list]:
     opened = navigations[-1].get("response") if navigations else None
     found: dict[str, list] = {}
     for position, attempt in enumerate(form["answers"]):
-        if not attempt.get("media") and _question(opened, form["answers"], position).get("datatype") == "geo":
+        if attempt.get("media") or attempt.get(REPEAT) or attempt.get("value") is None:
+            continue
+        if _question(opened, form["answers"], position).get("datatype") == "geo":
             found.setdefault(str(attempt["ix"]), []).append(attempt["value"])
     return found
 
@@ -582,7 +749,8 @@ def places_given(served, driver, walk: Mapping[str, Any]) -> walks.Places:
             given: dict[str, Any] = {}
             for exchange in run.answered("answer"):
                 sent = exchange.request_json() or {}
-                if str(sent.get("ix")) in asked:
+                # A map cleared sends no place.
+                if str(sent.get("ix")) in asked and sent.get("answer") is not None:
                     given[str(sent["ix"])] = sent.get("answer")
             if given:
                 found[window][walks.run_key(each["script"])] = given
@@ -643,6 +811,22 @@ def asks_location(archive: bytes) -> bool:
 # those, marked ``"viewport": "preview"``.
 SMALL = "small"
 PREVIEW = "preview"
+# Where App Preview's one-question form ended, in the record of a run then replayed with its form shown whole.
+ONE_QUESTION = "oneQuestion"
+
+
+def one_question_ended(run: Mapping[str, Any], walk_run: Mapping[str, Any]) -> bool:
+    """Whether App Preview's one-question form is where the client stopped following a run (``run`` its record,
+    ``walk_run`` Formplayer's walk of it): in the form, or at the choice that opens it, where the client shows
+    Formplayer's error and stays (Formplayer answers the form's first screen with one where that screen is a
+    repeat's own Add, or the form shows no question). A choice the client shows nothing to click for is no such
+    end: its stop is the screen's, whichever way a form is shown."""
+    stopped = run.get("stopped") if isinstance(run.get("stopped"), dict) else {}
+    if stopped.get("at") == FORM:
+        return True
+    screen = stopped.get("screen") if isinstance(stopped.get("screen"), dict) else {}
+    opening = len(walks.navigation(walk_run["script"])) - 1
+    return bool(screen.get("alerts")) and _form_step(walk_run) is not None and stopped.get("at") == opening
 
 
 def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
@@ -656,8 +840,16 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     space's admin, who logs in as the worker there, over the app as it stands (HQ's download makes its archive from
     the stored app, where Web Apps runs the release), in the builder's phone-sized frame, where the client shows a
     form one question a screen to a person who is not Dimagi's (``preview_app/main.js``). App Preview's submission
-    holds only the last screen's answers (the client accumulates what its form shows), so it is not held to the
-    walk's; HQ's receiver processes it all the same, and the record keeps where the client landed.
+    of such a form holds only the last screen's answers (the client accumulates what its form shows), so it is
+    not held to the walk's; HQ's receiver processes it all the same, and the record keeps where the client landed.
+
+    Where App Preview's one-question form does not go on (the client keeps its Next from being pressed, or
+    Formplayer answers it with an error, as it does at a repeat a worker adds to and at a form that shows no
+    question), that way of showing the form has ended. A person there switches "Use one question per screen" off
+    in App Preview's Settings, which it offers everyone, so the run is replayed with that switched off
+    (``replay``'s ``preview_whole``): its form is answered and submitted as on Web Apps' own page, its submission
+    is held to the walk's, and that replay is the run's record, with where the one-question form ended beside it
+    (``ONE_QUESTION``: its ``stopped``, and what became of its answers and its Next).
 
     A run the client shows nothing to click for at some choice (once it has arrived, within ``steps.WITHIN_MS``)
     is recorded as far as it went, with ``stopped`` and the screen it ended on; each answer the client could not
@@ -671,27 +863,48 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     windows = ((None, Session(served, driver), None), (SMALL, Session(served, driver), SMALL_SCREEN))
     windows += ((PREVIEW, Session(served, driver, preview=True), PREVIEW_FRAME),)
     found = None
+
+    def replayed(window, session, viewport, index, each, *, whole=False):
+        """One run replayed in one window, as its record; ``whole`` in App Preview with its forms shown whole."""
+        made, kinds = replay(
+            served.doc["name"],
+            [each],
+            session.home,
+            small=window == SMALL,
+            preview_as=raw_username(served.username) if window == PREVIEW else None,
+            preview_language=walks.default_language(served.languages) if window == PREVIEW else None,
+            preview_whole=whole,
+        )
+        # The run's deadline grows with its steps: a whole walk of a large form is many screens and answers.
+        run = session.run(
+            made,
+            name=f"webapps-{window or 'desktop'}{'-whole' if whole else ''}-{index}",
+            deadline=180.0 + 2.0 * len(made),
+            viewport=viewport,
+        )
+        if window != PREVIEW or whole:
+            # A form the client shows whole it submits whole, in App Preview as in Web Apps.
+            submitted_alike(served, each, run)
+        one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
+        if not any("stopped" in held for held in one["runs"]):
+            searched_alike(each, run)
+        return one
+
     for window, session, viewport in windows:
         # A phone replays the runs given its own places in place of those given a desktop's (``walks.runs_for``).
         for index, each in walks.runs_for(walk["runs"], window if window == SMALL else None):
-            made, kinds = replay(
-                served.doc["name"],
-                [each],
-                session.home,
-                small=window == SMALL,
-                preview_as=raw_username(served.username) if window == PREVIEW else None,
-                preview_language=walks.default_language(served.languages) if window == PREVIEW else None,
-            )
-            # The run's deadline grows with its steps: a whole walk of a large form is many screens and answers.
-            run = session.run(
-                made,
-                name=f"webapps-{window or 'desktop'}-{index}",
-                deadline=180.0 + 2.0 * len(made),
-                viewport=viewport,
-            )
-            if window != PREVIEW:
-                submitted_alike(served, each, run)
-            one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
+            one = replayed(window, session, viewport, index, each)
+            if window == PREVIEW and one_question_ended(one["runs"][0], each):
+                # App Preview's one-question form did not go on (the client kept its Next, or Formplayer answered
+                # it with an error), which is where that way of showing a form ends. A person there switches
+                # "Use one question per screen" off in Settings, so the run is replayed with its form shown
+                # whole, and that replay is the run's record, with where the one-question form ended beside it.
+                first = one
+                one = replayed(window, session, viewport, index, each, whole=True)
+                [ended] = first["runs"]
+                ended = {key: ended[key] for key in ("stopped", "answers", "submit") if key in ended}
+                one["runs"] = [{**held, ONE_QUESTION: ended} for held in one["runs"]]
+                one["pageErrors"] = sorted({*one["pageErrors"], *first["pageErrors"]})
             if window is not None:
                 one["runs"] = [{**held, "viewport": window} for held in one["runs"]]
             if found is None:

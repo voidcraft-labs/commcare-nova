@@ -339,7 +339,8 @@ def _screen_kind(screen):
 def one_screen(before, after):
     """Two comparable screen records with each symptom one difference: where the two sides show screens of two
     kinds at one place of a run, each side's kind and alerts stand for the screen (``kind``), and the run has
-    left the walk, so its later screens are not compared; a run one side stopped following is where it stopped."""
+    left the walk, so its later screens are not compared; a run one side stopped following is where it stopped,
+    and so is where App Preview's one-question form ended in a run then shown whole (``oneQuestion``)."""
     for run_a, run_b in zip(before.get("runs") or [], after.get("runs") or [], strict=False):
         screens_a, screens_b = run_a.get("screens") or [], run_b.get("screens") or []
         left = "stopped" in run_a or "stopped" in run_b
@@ -354,15 +355,31 @@ def one_screen(before, after):
                 break
         if left:
             # A run that left the walk (or that one side stopped following) never reached the form the walk
-            # answers there: what became of its answers and its Submit follows from where it went.
+            # answers there, nor the search it sends: what became of its answers, its Submit and its searches
+            # follows from where it went.
             for run in (run_a, run_b):
                 run.pop("answers", None)
                 run.pop("submit", None)
+                run.pop("searches", None)
         for run in (run_a, run_b):
             if isinstance(run.get("stopped"), dict):
                 run["stopped"] = {
                     "after": run["stopped"].get("after"),
                     "kind": _screen_kind(run["stopped"].get("screen")),
+                }
+            # Where App Preview's one-question form ended in a run then replayed with its form shown whole
+            # (``proof.webapps.observe.shown``): how far it came and what the client said there. What the form
+            # shows is the whole replay's to compare, in the run's own screens.
+            ended = run.get("oneQuestion")
+            if isinstance(ended, dict) and isinstance(ended.get("stopped"), dict):
+                screen = ended["stopped"].get("screen")
+                run["oneQuestion"] = {
+                    **ended,
+                    "stopped": {
+                        "after": ended["stopped"].get("after"),
+                        "kind": _screen_kind(screen),
+                        "alerts": (screen.get("alerts") or []) if isinstance(screen, dict) else [],
+                    },
                 }
     return before, after
 

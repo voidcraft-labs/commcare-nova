@@ -51,8 +51,11 @@
 		"label": ["OK"]
 	},
 	"searchPrompts": {
-		"description": "What a walk that types into a search screen gives each prompt, by the prompt's input as the suite names it: a text prompt (no input) its text, a single select (select1) the 1-based index of its option, a checkbox prompt the indices of the options it ticks. Formplayer is sent each value as Web Apps sends a typed answer, and Android's search screen is given it through its own views (the text box, the spinner, the check boxes).",
+		"description": "What a walk that types into a search screen gives each prompt, by the prompt's input as the suite names it: a text prompt (no input) its text, a single select (select1) the 1-based index of its option, a checkbox prompt the indices of the options it ticks. Formplayer is sent each value as Web Apps sends a typed answer, and Android's search screen is given it through its own views (the text box, the spinner, the check boxes). retyped holds what a walk types next into a prompt whose answer the screen refuses (its validation's message under the field), in order, as a form's question is tried with its next value: a text that starts with a capital letter, a whole number, and a place as latitude and longitude, which are what the validations Nova writes for a prompt ask of a worker.",
 		"text": "proof",
+		"retyped": {
+			"text": ["Proof", "7", "12.5 -8.25"]
+		},
 		"select1": "1",
 		"checkbox": "1"
 	}

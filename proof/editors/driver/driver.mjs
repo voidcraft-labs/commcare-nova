@@ -2545,16 +2545,25 @@ async function runSteps(page, run, steps) {
 								const covering = await element.evaluate(
 									(target, [left, top]) => {
 										const hit = document.elementFromPoint(left, top);
-										return hit === target || target.contains(hit)
-											? null
-											: (hit?.outerHTML ?? "nothing").slice(0, 200);
+										if (hit === target || target.contains(hit)) return null;
+										const stands = (element) => {
+											if (!element) return "nowhere";
+											const { x, y, width, height } =
+												element.getBoundingClientRect();
+											return `at (${x}, ${y}), ${width} by ${height}`;
+										};
+										return (
+											`${(hit?.outerHTML ?? "nothing").slice(0, 200)} (${stands(hit)}),` +
+											` not on the element (${stands(target)}, in a window ` +
+											`${window.innerWidth} by ${window.innerHeight})`
+										);
 									},
 									[x, y],
 								);
 								if (covering !== null)
 									throw new StepFailed(
 										"page",
-										`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, not on the element, so nothing would be drawn.`,
+										`${name}'s stroke for ${JSON.stringify(step.arg)} would land at (${x}, ${y}) on ${covering}, so nothing would be drawn.`,
 									);
 							}
 							const since = run.answered.length;
