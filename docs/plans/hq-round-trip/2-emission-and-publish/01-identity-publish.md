@@ -56,7 +56,10 @@ Departures from the research and the outline, all decided:
   submission: for a file that names no server, Formplayer sends nothing,
   Android holds its own built-in default addresses, and a submission that
   reaches HQ names no app, which Connect refuses). A5 gives the runs and the
-  design.
+  design. One consequence is stated there and accepted: an app that holds a
+  selection CommCare HQ cannot take, and is published nowhere, has no
+  export of any kind and runs in Preview alone (A5, "An app CommCare HQ
+  cannot take").
 
 The ledger tables this work item reads and writes are
 `app_deployment_resources` (its new `remote_missing_at`),
@@ -2031,7 +2034,10 @@ from it.
     `.ccz` downloads. This pull request withdraws that file with every
     other `.ccz` for no project space ("Fix", above), and the notice
     `ccz-needs-project-space` reaches every such app ("Stored shape and
-    migration").
+    migration"). That notice is written from the ledger alone, so its line
+    says a CCZ can be downloaded once the app is published and does not say
+    that this app cannot be published as it stands. The dialog's state and
+    the publish's refusal say that, each where the person next acts.
   - *Published before it gained the selection.* The publish is refused, so
     HQ's app stays as the last publish left it. Its `.ccz` for that
     project space is made from the document as it stands and carries the
