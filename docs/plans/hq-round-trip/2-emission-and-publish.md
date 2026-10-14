@@ -160,6 +160,16 @@ empty when the plan is complete.
   there with the change and every reader (part 09, A build recreated under
   a stored part).
 
+One more reading rests on code and on no run, and its tests are specified
+and not written: an archive ahead of its HQ app (part 01, A5). What HQ and
+Core answer such an archive from is read from their code at the pins. Pull
+request 3 writes the two tests of it,
+`proof/hq/test_publish.py::test_hq_answers_an_archive_ahead_of_its_app_from_what_it_holds`
+and
+`proof/native/core/LookupRuntimeTest.java::restoredTableIsReadBeforeTheArchivesOwn`.
+No served reader reads an edited document's archive beside the unedited
+app, and the plan adds no such walk.
+
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
 CommCare version for a new app is 2.64 on the production server read (October
