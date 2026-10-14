@@ -879,6 +879,7 @@ jobs:
         with:
           name: proof-out-${{ github.run_attempt }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/proof-out/
+          if-no-files-found: error
           retention-days: 14
 
   proof-lane-sample:

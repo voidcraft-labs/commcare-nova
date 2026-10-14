@@ -1224,7 +1224,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	if (command === "--surface") {
 		surface().then(done, failed);
 	} else if (command === "--lane") {
-		shard(rest).then(done, failed);
+		// Exit 1 belongs to completed checks; CI leaves their verdict to the gate.
+		// A runner exception is infrastructure failure and must fail the shard itself.
+		shard(rest).then(done, (error) => {
+			console.error(error.message);
+			process.exit(2);
+		});
 	} else if (command === "--matrix") {
 		readFile(TIMINGS_FILE, "utf8")
 			.then((text) => {

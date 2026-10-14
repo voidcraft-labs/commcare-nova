@@ -356,6 +356,12 @@ jobs:
           path: ${{ runner.temp }}/store/main
           key: ${{ steps.store.outputs.main }}none
           restore-keys: ${{ steps.store.outputs.main }}
+      - name: Prepare the shard's evidence store
+        if: ${{ !inputs.fresh }}
+        run: |
+          # A cache miss is an empty store, including the first night for an image.
+          # Keep a restored snapshot intact; run.mjs deliberately refuses a missing named directory.
+          mkdir -p "$RUNNER_TEMP/store/main"
       - name: Proof lane
         env:
           PROOF_CORPUS: ${{ runner.temp }}/corpus
@@ -389,6 +395,7 @@ jobs:
         with:
           name: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/proof-out/
+          if-no-files-found: error
           retention-days: 14
 
   # The Android reader's runtime (proof/android/README.md), kept under the

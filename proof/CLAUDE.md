@@ -300,7 +300,10 @@ harness keeps, each with its reason.
   - **Nightly** (`proof-audit.yml`, Tuesday to Saturday): both profiles over
     main against main's store, without the readers and then with them, so
     every group main's store lacks is observed, and each is merged into the
-    snapshot every pull request reads as its lane ends.
+    snapshot every pull request reads as its lane ends. A cache miss is an
+    empty store, never a missing-directory refusal. Runner exceptions fail
+    the shard; only the server's check statuses 0 and 1 defer to the gate,
+    and an absent shard output fails its upload.
   - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
     that proves the store's keys and replaces the snapshot, beside the
     comparisons over a 24-document sample that turns each week (its seed
