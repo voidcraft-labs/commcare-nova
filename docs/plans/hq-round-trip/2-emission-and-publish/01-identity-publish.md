@@ -2384,7 +2384,15 @@ from it.
 
 **Files.**
 
-- Domain, doc and mutations, validator, Preview: none.
+- Domain, mutations, validator rules, Preview: none.
+- Findings and their copy: `lib/commcare/hqNestedSelection.ts` (the two menu
+  names in a finding's details, and its two messages),
+  `lib/commcare/lookup/hqCellText.ts` (its message),
+  `lib/doc/userFacingErrors.ts` (the two sentences of
+  `HQ_NESTED_SELECTION_UNREPRESENTABLE` and the one of
+  `LOOKUP_CELL_TEXT_CHANGED_BY_HQ`), each as "An app CommCare HQ cannot
+  take" gives it. No finding's code, class or scope changes, and the check
+  still runs for the two HQ modes alone.
 - Emitters: `lib/commcare/runtimeTarget.ts` (the required target,
   `profileServerProperties`), `lib/commcare/compiler.ts` (`generateProfile`
   writes the four properties; `compileCcz` requires the target),
@@ -2402,10 +2410,12 @@ from it.
   "`runtimeUrls` has two shapes": the 36 Vitest files with
   `lib/commcare/__tests__/runtimeTargetFixture.ts` (new), and the 17 native
   producers with `proof/native/producers/runtimeTarget.ts` (new).
-- Builder: `components/builder/PublishDialog.tsx`,
+- Builder: `components/builder/PublishDialog.tsx` (the project-space
+  select and the four states),
   `components/builder/PublishPanel.tsx` (`onDownloadCcz` takes
   `{ server, domain }`), `app/api/compile/prepareCompileRequest.ts` (reads
-  `domain` beside `server` and calls `resolveDownloadTarget` before
+  `domain` beside `server` and calls `resolveDownloadTarget`, handing it
+  the loaded document, before
   `prepareExportBoundary`, as it calls `attachmentDeploymentTargetFor`
   today; a `domain` that is not a non-empty string answers 400, "Choose a
   project space by its name.", as an invalid `server` answers today),
@@ -2431,20 +2441,32 @@ from it.
     file's alone (no link, advisory `attachment_links_without_target`), and
     the `.ccz` case asserts its links name the deployment it is made for.
   - "requires a server choice when deployment state does not identify one"
-    is replaced by four cases: the mock answers each `.ccz` refusal
+    is replaced by five cases: the mock answers each `.ccz` refusal
     (`needs-published-project-space`, `pick-project-space`,
-    `unknown-project-space`) and the route answers 422 with its message and
-    one detail line per listed deployment, having read no lookup data; and
-    `/api/compile/json` with a `domain` answers 422 with
+    `unknown-project-space`, `selection-held-from-hq`) and the route answers
+    422 with its message and one detail line per listed deployment, or for
+    `selection-held-from-hq` one per line of `heldFromHq`, having read no
+    lookup data; and `/api/compile/json` with a `domain` answers 422 with
     `domain-not-for-import-file`'s message.
+  - "propagates the real HQ-only nested selection refusal for %s"
+    (`parent-multiple`, `same-smaller`). Its `.ccz` arm answers 200 with
+    `suite.xml` today for an app with no deployment. From here the mock
+    answers a `ccz` target for that arm, so it holds that an app with a
+    reached deployment still gets the archive, and the case also holds that
+    the route handed `resolveDownloadTarget` the loaded document. Its two
+    HQ arms keep their 422, and the detail each reads becomes the new
+    line's: it names "Parents" and "Child care", holds "several cases
+    selected" for `parent-multiple` and "4 selected cases" for
+    `same-smaller`, and holds no "download".
   - "refuses an invalid server before export resource reads" gains the
     invalid `domain` shapes (`42`, `""`, `{}`) and their 400.
   - Every other case is unchanged: the missing app id, the private
-    not-found refusal, the nested selection refusal, the media gate, the
-    operational lookup failure, the image bundle and the workbook.
+    not-found refusal, the media gate, the operational lookup failure, the
+    image bundle and the workbook.
 - SA and MCP tools: `lib/mcp/tools/compileApp.ts` (`domain`, the
   `nova/target` meta, the description, which says a CCZ needs a project space
-  the app is published to). This changes the input schema of a tool only
+  the app is published to; it hands `resolveDownloadTarget` the document it
+  loaded). This changes the input schema of a tool only
   MCP serves, so the billed schema check does not send it: `npm run
   test:schema` sends the Solutions Architect's tool definitions alone, and
   `lib/mcp/__tests__/servedSchemas.test.ts` holds `compile_app`'s schema as
@@ -2461,13 +2483,24 @@ from it.
   has no chosen project space" are rewritten for the project-space choice: a
   CommCare HQ app file is always there for a valid app, a CommCare mobile app
   file once the app is published, and neither download checks a project
-  space).
+  space), `content/docs/nested-menus.mdx` (the paragraph that opens
+  "Downloaded apps preserve these selections": a CCZ carries both
+  selections, CommCare HQ takes neither, and an app that uses one and has
+  never been published runs in Preview alone; part 11's public docs table
+  gives the paragraph).
 - CLAUDE.md: `lib/commcare/CLAUDE.md` "Runtime request destinations",
   rewritten: a full target or none, no portable placeholders, every `.ccz`
   is made for one project space and its profile names that space's
   addresses, and its sentence "JSON and CCZ have no target project space, so
   compatibility is `not_checked`"; `lib/export/CLAUDE.md` (the same report
-  sentence, and that `compileLocalArchive` requires the target);
+  sentence, and that `compileLocalArchive` requires the target; and the
+  paragraph on `hqNestedSelection.ts`, whose "Local CCZ emits the
+  set-membership parent filter and distinct child selection" gains that a
+  `.ccz` is made for a reached deployment alone, so an app that holds one
+  of the two selections and is published nowhere has no export);
+  `lib/commcare/CLAUDE.md` (the paragraph on the two HQ limitations, whose
+  "Both shapes remain admitted and downloadable as CCZ" gains the same
+  condition);
   `lib/deployment/CLAUDE.md` ("What the record answers besides publishing":
   `resolveDownloadTarget` in place of the deleted `attachmentSpace.ts`);
   `components/builder/CLAUDE.md` (the download options). Part 11's second
@@ -3117,15 +3150,17 @@ the result is under "Lane".
 |---|---|
 | `runtimeUrls` has no partial-target shape (a type test and the two value shapes); `profileServerProperties` gives the four keys in order for each server of `COMMCARE_SERVERS`, and encodes a domain and an app id as `runtimeUrls` does | pure (`lib/commcare/__tests__/runtimeTarget.test.ts`, new) |
 | The profile of a compiled archive holds the four properties, each `force="true"`, and none of `heartbeat-url`, `PostTestURL`, `ota-restore-url-testing`, `BackupMode`, `backup-url`, `restore-url`, `jr_openrosa_api`; no member of a compiled archive holds `__COMMCARE_HOST__`, `__DOMAIN__` or `__APP_ID__` | pure, production emitter, the archive read through an XML parser (`lib/commcare/__tests__/compiler.test.ts`) |
-| `chooseDownloadTarget` over every row of the input table, for both formats: `domain` with and without `server`, one name on two servers, `server` alone narrowing to one, to none and to several, and each of the four refusal reasons with its listed deployments | pure (`lib/deployment/__tests__/runtimeTarget.test.ts`, rewritten) |
+| `chooseDownloadTarget` over every row of the input table, for both formats: `domain` with and without `server`, one name on two servers, `server` alone narrowing to one, to none and to several, and each of the five refusal reasons with its listed deployments; with no reached deployment, `heldFromHq` lines give `selection-held-from-hq` carrying them and an absent or empty `heldFromHq` gives `needs-published-project-space`; with a reached deployment `heldFromHq` changes nothing | pure (`lib/deployment/__tests__/runtimeTarget.test.ts`, rewritten) |
+| A nested selection finding names both menus in its details and in both its sentences, for each of the two reasons; neither sentence, and neither sentence of the lookup whitespace finding, holds "download" | the production check over `nestedMenuWireFixture("parent-multiple")` and `("same-smaller")`, and the production lookup check over a table with a padded cell (`lib/export/__tests__/boundaryValidation.test.ts`, its two cases "preserves admission and local export for %s while refusing only proven HQ losses" and the lookup cell text case, which read the finding's line today; `lib/doc/__tests__/userFacingErrors.test.ts` for the fallbacks where a name is missing) |
 | A `.ccz` compiled twice for one deployment is equal in its ids, names that deployment's server, project space and HQ app id in its profile and its search URL, and carries its override `xmlns` | real Postgres plus the production emitter (`lib/mcp/__tests__/compileApp.postgres.test.ts`) |
 | `domain` naming an unreached, shell-only or gone deployment is refused, listing the ones that qualify; an app with no deployment is refused with the first copy, whether or not it searches | real Postgres (`compileApp.postgres.test.ts`, and the route through `prepareCompileRequest`) |
+| An app whose stored document is `nestedMenuWireFixture("parent-multiple")`: with no deployment, `format: "ccz"` is refused with `selection-held-from-hq`'s copy and the one line naming "Parents" and "Child care", and `format: "json"` with the boundary's refusal; with one reached deployment seeded in the ledger, `format: "ccz"` compiles for it, `nova/target` names it, and the archive's suite holds the child list's filter over the selected parents (`selected(join(`), the local projection's. The same two answers for `("same-smaller")`, whose archive holds the child's own selection datum with its maximum of 4 | real Postgres plus the production emitter (`compileApp.postgres.test.ts`) |
 | An app published to two project spaces and compiled with no `domain` is refused with the second copy and both spaces listed; with `domain` naming one it compiles for that one | same |
 | `format: "json"` with a `domain` is refused; with no `server` and one reached deployment it carries that deployment's attachment links, and with two it carries none; an app with no deployment still gets its import file | same |
 | `readReachedDeploymentTargets` returns a deployment that displays as reached with a live mapping that is not missing, and leaves out a shell-only one, a gone one and one that never reached | real Postgres (`lib/deployment/__tests__/store.postgres.test.ts`) |
-| `readDownloadTargetsAction` refuses a caller who is not a member of the app's Project with the not-found refusal, reading no deployment, and returns a viewer the reached targets as `{ server, domain }` | real Postgres for the access and the read, the session given as `app/api/compile/__tests__/route.test.ts` gives it (`lib/deployment/__tests__/downloadTargetsAction.postgres.test.ts`, new) |
+| `readDownloadTargetsAction` refuses a caller who is not a member of the app's Project with the not-found refusal, reading no deployment, and returns a viewer the reached targets as `{ server, domain }`; `heldFromHq` holds the line for an app with no reached deployment whose stored document holds one of the two selections, and is empty where a deployment is reached or the document holds neither | real Postgres for the access and the read, the session given as `app/api/compile/__tests__/route.test.ts` gives it (`lib/deployment/__tests__/downloadTargetsAction.postgres.test.ts`, new) |
 | The cutover writes one `ccz-needs-project-space` line for a live app with no reached deployment (one whose only deployment the cutover finds `deleted` among them) and none for an app with one, or for a deleted Nova app | pure over deployment plans, the row of `notice.ts` in part 10, The proofs that carry the cutover (`scripts/lib/hqRoundTripCutover/__tests__/notice.test.ts`) |
-| The dialog's three states, and a download for a chosen space sending that `server` and `domain` | Playwright, the browser component suite (`e2e/tests/browser/publishing.spec.ts`, with `e2e/lib/publishing-boundary.ts` answering `readDownloadTargetsAction`) |
+| The dialog's four states, and a download for a chosen space sending that `server` and `domain`; in the state with `heldFromHq` lines the dialog shows the copy and each line and offers neither a download nor "Publish to CommCare HQ" | Playwright, the browser component suite (`e2e/tests/browser/publishing.spec.ts`, with `e2e/lib/publishing-boundary.ts` answering `readDownloadTargetsAction`) |
 
 **Lane.** Each of these runs the reader, on the archive Nova's compiler
 emits for the configuration's project space (A7). Each was run by hand
@@ -3142,6 +3177,8 @@ shows").
 |---|---|---|---|
 | Proof 3, the three fixed classes | Core | every document | No difference at `/runs/*/trace/*/requests/*/url`, `/runs/*/trace/*/url` or `/runs/*/trace/*/stackAfterSubmit/steps/*/value` between the local archive and HQ's build, and the three fixed entries reproducing on their controls. |
 | `proof/hq/test_publish.py::test_a_working_app_serves_what_a_ccz_names`, new | HQ | `case-list-inline` | For a working app with no build: HQ's URLconf resolves the profile's three URLs and the suite's search and case fixture URLs to their views; `get_app_cached` and `get_app_context_by_case_type` answer for the working app's id and raise `Http404` for `__APP_ID__`; `get_app_and_build_ids` gives the app with no build; after an update that adds a related-case column the context holds the new relationship at once; and the four profile strings Nova's archive holds are the strings HQ's own `create_all_files()` writes for that app. |
+| `proof/hq/test_publish.py::test_hq_answers_an_archive_ahead_of_its_app_from_what_it_holds`, new. Written from the code read under "A `.ccz` holds the document as it stands"; not yet run | HQ | `case-list-inline` | HQ holds the shell of the document's first publish and nothing more (the capture's `create` import without its `content` import), which is an app that holds none of the archive's menus, forms or searches. Under that app's id, for a worker who owns one case of the document's case type: HQ's restore answers 200 and carries the case; HQ's receiver takes a form of the document, whose `xmlns` no form of that app holds, records it with that app id and no build, and applies its case block; and `get_app_context_by_case_type` holds no relationship path and no child case type, where after the `content` import it holds the document's. |
+| `proof/native/core/LookupRuntimeTest.java::restoredTableIsReadBeforeTheArchivesOwn`, new. Written from the same reading; not yet run | Core | the lookup family's `lookup-app` and `lookup-reversed` evidence, which the class reads today | With `lookup-app` installed, whose embedded table's first row is "Northland": a fixture of the same id holding `lookup-reversed`'s rows, written to the sandbox's user fixture storage as a restore writes it, makes the form read "Eastland"; with that storage empty the form reads "Northland". |
 | `proof/formplayer/test_local_archive.py`, rewritten from the reader's "cannot submit" | Formplayer, then HQ | `targeted-form-link-hidden-target`, `targeted-search-hq-compile` | The local archive's submit answers `success`, HQ receives one form at `/a/<domain>/receiver/<A's id>/`, the path HQ's build posts to; its search reaches HQ at `/a/<domain>/phone/search/<A's id>/`. The paired refusal is `proof/controls/targeted-search-hq-compile/local.ccz`, the control's pre-fix archive, whose profile names no `PostURL` and whose search URL names `__APP_ID__`: its submit answers an error and HQ receives nothing, and its search reaches HQ at `__APP_ID__`, which HQ answers with a 404. `targeted-form-link-hidden-target` has no control of its own (its `-after-59` control is retained after A5's bytes and submits), so its document's archive is the test's only one. |
 | The device on the local archive in every served state (`proof/android`, beside HQ's live unit), proof 3 | Android, then HQ | every document; `targeted-survey-menu`, the planning run's | The device's profile readers (`ServerUrls.getDataServerKey`, `ServerUrls.getKeyServer`, `FormSubmissionHelper.getFormPostURL`, `HiddenPreferences.getUserDomain`) give the profile's four values; each form a walk saves complete is sent by Android's own `ProcessAndSendTask` as one `POST` to the profile's `PostURL` path with the credential `<worker>@<domain>.commcarehq.org`, taken by HQ's receiver under A's id, and leaves the unsent list. The device's network and requester are the lane's: every request it makes is answered by HQ's own views (`proof/android/src/nova/proof/android/Peer.java`, `proof/android/hq.py`), through Android's own requester (`ProofApplication.java`), so the reader gains no request and nothing but HQ answers the send. The paired refusal is the control's pre-fix archive, whose device meets Android's built-in defaults. |
 | `proof/connect/test_receiver.py` | Connect | `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` (the reader's deliver and learn apps) | `test_a_local_archives_submission_names_no_app_and_connect_refuses_it` becomes its opposite, read from the emitted archive's own `PostURL`: the local archive's submission names the app and Connect writes the rows it writes for HQ's build. The paired refusal is `proof/controls/targeted-connect-deliver-rename/local.ccz`, the control's pre-fix archive, which names no `PostURL`: its submission reaches HQ's receiver with no app named, is forwarded with a null app id, and Connect answers 400 and writes nothing. No register entry holds that refusal; this case does. |
