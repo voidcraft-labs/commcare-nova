@@ -276,11 +276,26 @@ Reasons:
 - Preview: none (the client engine reads no HQ id).
 - Builder: none.
 - SA and MCP tools: none.
-- Docs: `content/docs/publishing.mdx` (a CCZ built before this change does
-  not reopen forms saved incomplete under it; what names a form by id in HQ
-  after the one-time change; the four sentences on the check of a form that
-  CommCare HQ keeps for up to 7 days, under "On CommCare HQ", as "Stable
-  form ids keep HQ's validation verdict" above gives them).
+- Docs: `content/docs/publishing.mdx`, which says what is so and holds no
+  sentence on what a file or an app held before step 2. Three things:
+  - In the download section: "A newer CCZ for the same project space keeps
+    every form's identity, so a phone that updates to it reopens the forms
+    a worker saved incomplete."
+  - Under "On CommCare HQ": "Each publish keeps every menu's and every
+    form's ID in CommCare HQ. So anything there that opens a form by its
+    ID, such as an SMS keyword or a scheduled message, keeps opening it."
+  - The four sentences on the check of a form that CommCare HQ keeps for up
+    to 7 days, under "On CommCare HQ", as "Stable form ids keep HQ's
+    validation verdict" above gives them.
+
+  What moves once, for a deployment made before step 2, is a notice's to
+  say and never the page's. The ids are the three deployment reasons'
+  (`menu-id-changes-once`, `form-ids-change-once`,
+  `ids-change-once-unreadable`), each of whose lines names the keyword and
+  the scheduled message wherever a form is among what moves ("The notice
+  lines"). A phone that holds a CCZ
+  built before step 2 gets no notice of its own, for the reason
+  "Identity" gives below.
 - CLAUDE.md: root `CLAUDE.md` (a form's `xmlns` and its HQ ids follow from
   its identity); `lib/commcare/CLAUDE.md` ("After-submit links", "HQ shape";
   "Client-safe barrel", which names the deleted `./ids`: part 11, Contract
@@ -444,8 +459,16 @@ its first publish after the cutover:
   saved incomplete under the old archive does not reopen under the new one
   (on Android it does not load, and Android says "No XForm definition
   defined for this form": the facts table above). From then on two archives
-  of one app carry one `xmlns` for each form, and a saved form reopens. The
-  public docs say so.
+  of one app for one project space carry one `xmlns` for each form, and a
+  saved form reopens. The page says that standing fact, in the present
+  tense (Files, Docs). Nothing says the one-time effect, neither the page
+  nor a notice, and none is needed: an archive built before step 2 names no
+  server, so a phone that holds one reaches Android's built-in default
+  addresses and never the person's project space (A5, finding 59). No
+  worker of that project space signed in with it, so no form a worker
+  collected was saved under one. For an app that is published nowhere, the
+  notice `ccz-needs-project-space` says of such a file that a phone holding
+  it cannot sign in or send forms (A5, "Stored shape and migration").
 
 `proof/identity-moves.json` gains no entry. Proof 1 compares two exports of
 one document by one revision of Nova, so an emitter change moves both sides
@@ -986,12 +1009,25 @@ answers 200 for it and the update answers 400.
    Reason: with no form there is no id for HQ to re-mint, and HQ refuses to
    build an app with no menus, so "no build can hold HQ-minted ids" holds by
    HQ's rule and not by timing.
-2. **One reader of the app's source, `readHqAppSource`,** replaces
-   `readHqAppSourceProfile`. Every read of the source a publish makes goes
-   through it, and a publish makes more than one ("Requests per publish,
-   and which read each decision uses", under "What the sequence settles").
-   It serves this work item, the drift check, the version floor and the
-   overlays. This pull request lands `readHqAppSource`, deletes
+2. **One source reader, `readHqAppSource`,** replaces
+   `readHqAppSourceProfile`. It is one function and not one read: a publish
+   calls it two or three times ("Requests per publish, and which read each
+   decision uses", under "What the sequence settles"), and each of its
+   users takes its own read.
+   - This work item: every one of them. The first read decides `gone`,
+     `unsupported` and a failed shape, and the import is built on the last
+     read before it.
+   - The drift check, from pull request 4: the `target-app` read, which it
+     compares with the stored baseline, and the second read, which it
+     compares with this publish's first. It also stores the read back as
+     the new baseline.
+   - The version floor, from pull request 13: the first read only.
+   - The overlays, `profile` here and `translations` and `add_ons` from
+     pull request 5: the last read before the import. Part 04 has the
+     table (Shared: the overlays' read and one overlay module, "Which
+     read").
+
+   This pull request lands `readHqAppSource`, deletes
    `readHqAppSourceProfile` and rewrites
    `lib/commcare/__tests__/appSource.test.ts`. Work items B, C and D (parts
    02, 03 and 04) extend it and read its result (D adds its own cases to that
@@ -2524,8 +2560,9 @@ from it.
   `lib/commcare/CLAUDE.md` (the paragraph on the two HQ limitations, whose
   "Both shapes remain admitted and downloadable as CCZ" gains the same
   condition);
-  `lib/deployment/CLAUDE.md` ("What the record answers besides publishing":
-  `resolveDownloadTarget` in place of the deleted `attachmentSpace.ts`);
+  `lib/deployment/CLAUDE.md` ("Two things the record answers besides
+  publishing": `resolveDownloadTarget` in place of the deleted
+  `attachmentSpace.ts`);
   `components/builder/CLAUDE.md` (the download options). Part 11's second
   contract table gives each sentence.
 
