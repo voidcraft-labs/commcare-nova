@@ -160,6 +160,14 @@ empty when the plan is complete.
   there with the change and every reader (part 09, A build recreated under
   a stored part).
 
+A fourth is written and cannot run where planning ran it, since the Android
+reader needs a Linux machine: pull request 5's predicate
+`proof/android/predicates.py::test_an_update_from_a_file_takes_a_file_made_for_another_project_space`,
+which holds that Offline Update takes a file made for another project space
+together with that space's addresses (part 04, Defect 9). Two of its three
+steps are executed separately: an update across two `uniqueid`s, and an
+update rewriting forced settings.
+
 One more reading rests on code and on no run, and its tests are specified
 and not written: an archive ahead of its HQ app (part 01, A5). What HQ and
 Core answer such an archive from is read from their code at the pins. Pull
