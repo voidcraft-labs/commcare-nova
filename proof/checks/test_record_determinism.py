@@ -206,6 +206,43 @@ def test_a_stored_part_is_read_and_what_is_observed_under_it_is_unchanged(
     assert sorted(key for key, _, _ in fresh.puts) == sorted(fresh.held)
 
 
+# A document whose configurations grant USERCASE (its form saves to the worker's record), so HQ's case property map
+# writes the project space's user field definition the first time a build's identities ask it.
+USER_CASE_DOCUMENT = "case-worker-survey"
+
+
+@pytest.mark.under_determinism
+def test_a_build_recreated_under_a_stored_part_leaves_hq_as_the_build_first_observed_left_it(
+    hq, core_runner, editor_driver
+):
+    """A's first build asks HQ for its identities and, under USERCASE, HQ writes as it answers. A's and B's
+    recreation under a stored part ask the same, so every part observed under them is the part first observed."""
+    from proof.checks import configurations
+
+    document = next(found for found in cases.load_corpus().emitted if found.id == USER_CASE_DOCUMENT)
+    assert "USERCASE" in configurations.privileges_for(document.root, "minimum")
+    first = unit.observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
+    # The premise: A's build wrote, so there is a write for a recreated A to make or miss.
+    builds = {
+        name: [entry["wrote"] for entry in held.a["operations"] if entry["label"] == "build"]
+        for name, held in first.configurations.items()
+    }
+    assert all(wrote == [True] for wrote in builds.values()), builds
+    a_parts = {f"{name}/a" for name in first.configurations}
+    under = unit.observe_document(
+        document, core_runner=core_runner, editor_driver=editor_driver, store=DictStore(_store_of(first, a_parts))
+    )
+    differing = sorted(name for name, held in first.digests().items() if under.digests().get(name) != held)
+    assert not differing, f"Under a stored a these parts came out other bytes: {differing}"
+    held_b = a_parts | {f"{name}/b" for name in first.configurations} | {"local"}
+    held_b |= {f"{name}/b_edit" for name in first.configurations}
+    under_b = unit.observe_document(
+        document, core_runner=core_runner, editor_driver=editor_driver, store=DictStore(_store_of(first, held_b))
+    )
+    assert sorted(under_b.observed) == sorted(f"{name}/b_aligned" for name in first.configurations)
+    assert under_b.digests() == first.digests()
+
+
 def _inputs():
     """A document's inputs as ``inputs.json`` holds them, in miniature: one configuration, every part, every role."""
     return {

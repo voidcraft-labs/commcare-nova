@@ -545,10 +545,16 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
             built = sensitivity.build(unit, unit.record, app_id, name, previous)
             flags = sorted({read.symbol or read.slug for read in unit.record.flags[first:]})
         found = archive = None
-        if identities:
-            with build_seams(previous=previous):
+        with build_seams(previous=previous):
+            if identities:
                 admit_build(core_runner, built.app, built.outcome)
-                found = app_identity(built.app, built.outcome.files, unit.domain)
+            # HQ's reads for the identities are made whether or not the unit keeps them, so a build recreated
+            # under a stored part leaves HQ's state as the build first observed left it: under USERCASE, HQ's
+            # case property map creates the project space's user field definition the first time it is asked
+            # (app_schemas/case_properties.py::_get_usercase_default_properties).
+            read = app_identity(built.app, built.outcome.files, unit.domain)
+            if identities:
+                found = read
                 archive = device_archive(built.outcome, built.app)
         doc = _json(built.app.to_json())
     return _Built(built.outcome, built.hq_build, found, doc, archive), flags, settings

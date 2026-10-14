@@ -203,6 +203,16 @@ harness keeps, each with its reason.
   system's entropy inside an operation, and wait with `time.perf_counter` or a
   C-level wait: `time.monotonic` is frozen there, so its timeouts never
   arrive.
+- **A state made again under a stored part is made by every call of the first
+  observation that can write to HQ.** A part the store lacks is observed over
+  A or B made again (`proof/observe/unit.py::recreate_a`, `recreate_b`), and
+  its bytes are the first observation's only where HQ's state is. HQ writes
+  inside some reads: with `USERCASE`, the first read of its case property map
+  creates the project space's user field definition. So a build made again
+  asks for its identities as the first did and keeps none of the answer
+  (`_build`), and `proof/checks/test_record_determinism.py` holds it on a
+  document granted the privilege. Before leaving a call out of a state made
+  again, read whether HQ can write inside it, and leave out only what cannot.
 - **The register is strict, and the spelling rules are a closed set.** Every
   difference a check reports is held by an entry of `known-defects.json` or
   erased by a spelling rule, and every entry must hold some difference no

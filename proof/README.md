@@ -1074,6 +1074,21 @@ each under a key that names exactly the inputs it reads
 JSON with no timing, path or clock in them; bytes (every built file, stored
 app, restore and trace) are blobs named by their sha256.
 
+Before a part is observed the store is asked for it, and a part the store
+holds is not observed again ("The evidence store and its audits"). A part it
+lacks is observed over the state the held parts stand for, made again by the
+same operations: A under a held `a` (its create, media, HQ-side saves and
+build), and B under a held `b` (the republish, its media and its build). A
+build made again asks HQ for its identities as the first build did and keeps
+none of the answer, because HQ can write as it answers: with the `USERCASE`
+privilege, its case property map creates the project space's user field
+definition the first time it is asked
+(`app_schemas/case_properties.py::_get_usercase_default_properties`). A build
+that left the question out would leave that write to the next build, whose
+record would then say it wrote where the first observation's says it did
+not. Core's admission and the device archive are read only where a build is
+first observed.
+
 ### HQ, booted offline
 
 `proof/hq` is the one HQ package every HQ-side check imports
@@ -2561,6 +2576,7 @@ reused is only what a key names whole, and the reuse is audited:
 | A reused page and a warm Vellum host save as fresh ones | state one view or form leaves for the next | `proof/editors/test_view_equivalence.py`, `test_vellum_warm_equivalence.py`, and the in-band audit |
 | Judges are pure | a judge that runs HQ, so a stored record no longer stands for its observation | `proof/checks/test_judge_purity.py` |
 | A stored record stands for a fresh one | a key that misses an input | `proof/store/test_keys.py`, `test_guard.py`, the per-pull-request audit sample and the nightly audit |
+| A state made again under a stored part is the state first observed | a build made again that leaves out a read HQ writes on (with `USERCASE`, the first read of its case property map creates the project space's user field definition), so the builds after it write what the first observation's did not | `proof/checks/test_record_determinism.py`: a document that writes a worker record, observed whole, then under a stored `a`, then under a stored `a`, `b`, `b_edit` and `local` |
 | Forked workers observe what one session does | state a fork shares | `proof/lane/test_forkserver.py` |
 | Connect runs at the pin, each scenario alone | a virtualenv from another commit's lock; a row or queued task one scenario leaves the next | `proof/connect/test_runtime.py` |
 | What reaches Connect is what HQ's own receiver and repeater sent | a payload built beside HQ's repeater; a forward acknowledged without reaching Connect; an opportunity made from an archive HQ did not serve; a project space forwarding without Data Forwarding | `proof/connect/test_forwarding.py` |
