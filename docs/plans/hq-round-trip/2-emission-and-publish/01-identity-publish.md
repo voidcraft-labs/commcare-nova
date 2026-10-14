@@ -1963,7 +1963,12 @@ from it.
   | `key_server` | `<base>/a/<domain>/phone/keys/` | Android's key server address, `ServerUrls.getKeyServer` |
   | `cc_user_domain` | `<domain>.commcarehq.org` | `HiddenPreferences.getUserDomain`, and the name Android sends with a worker's credential |
 
-  These are the values HQ's own profile holds for the same app. Executed
+  The profile's `uniqueid` follows the same target.
+  `lib/commcare/runtimeTarget.ts::profileUniqueId`, which pull request 5
+  adds (part 04, Defect 9), gives one id for an app on one project space,
+  so the files for two project spaces are two apps on a phone.
+
+  The four server values are the ones HQ's own profile holds for the same app. Executed
   during planning: `Application.create_all_files()` of a published working
   app writes exactly these four strings for its own id
   (`templates/app_manager/profile.xml`, `models/applications.py::ApplicationBase.post_url`,
@@ -1996,7 +2001,7 @@ from it.
   | HQ's property | Nova | Why |
   |---|---|---|
   | `BackupMode`, `backup-url`, `restore-url`, `ota-restore-url-testing`, `PostTestURL`, `jr_openrosa_api` | not written | Executed during planning. On Android, an archive holding all six beside the four and one holding the four alone give the same answer from every profile reader of the Android reader, the same home walk and form screens, and the same server URLs. On Formplayer, HQ's build, which holds all six, and the planned archive, which holds none, submit to the same path and search alike. |
-  | `heartbeat-url` | not written | The heartbeat asks HQ about its released builds of an HQ app, named by the installed profile's `uniqueid`. A `.ccz` is not one of HQ's builds, and its `uniqueid` is the Nova app's id (part 04, Defect 9: the local profile identifies nothing stable). Executed during planning: HQ's `corehq/apps/ota/views.py::heartbeat`, asked with a `uniqueid` that is not an HQ app id, notes "Received an invalid heartbeat request" as an error on every call, where the same call with HQ's app id notes nothing. With the property absent, Android's installed app holds no heartbeat URL. The cost, accepted: a phone on a `.ccz` is not told of HQ's builds of the app. |
+  | `heartbeat-url` | not written | The heartbeat asks HQ about its released builds of an HQ app, named by the installed profile's `uniqueid`. A `.ccz` is not one of HQ's builds, and its `uniqueid` is Nova's own for the app and its project space, never an HQ app's id (part 04, Defect 9: the local profile identifies nothing stable). Executed during planning: HQ's `corehq/apps/ota/views.py::heartbeat`, asked with a `uniqueid` that is not an HQ app id, notes "Received an invalid heartbeat request" as an error on every call, where the same call with HQ's app id notes nothing. With the property absent, Android's installed app holds no heartbeat URL. The cost, accepted: a phone on a `.ccz` is not told of HQ's builds of the app. |
   | `cur_locale`, the seventeen settings, `cc-persistent-menu`, `cc-breadcrumbs-enabled` | part 04's | Part 04, The local profile from step 2. |
   | The `update` attribute, the suite resources' remote `location` | as today | A `.ccz` is installed from the file and updated by installing a newer file (part 04, Defect 9). |
 
@@ -2020,7 +2025,9 @@ from it.
   at the moment of the download, as today's is
   (`app/api/compile/prepareCompileRequest.ts` loads the app's blueprint,
   and so does `compile_app`). The deployment gives it its addresses, its HQ
-  app id and its recorded ids, and nothing else: no rule ties the archive
+  app id, its recorded ids and, from pull request 5, the `uniqueid` its
+  profile carries, which is the app's on that project space (part 04,
+  Defect 9). It gives nothing else: no rule ties the archive
   to the document the last publish sent. So a document changed since that
   publish gives an archive ahead of the HQ app it names. This is the plan's
   design. Reason: it is what the download is today and what Preview runs, a
@@ -2539,10 +2546,29 @@ from it.
   there; an app that is published nowhere has no CCZ yet),
   `content/docs/mcp/tools.mdx`, `content/docs/project-space-compatibility.mdx`
   ("Downloads stay available", whose "You can always create" and "A download
-  has no chosen project space" are rewritten for the project-space choice: a
-  CommCare HQ app file is always there for a valid app, a CommCare mobile app
-  file once the app is published, and neither download checks a project
-  space), `content/docs/nested-menus.mdx` (the paragraph that opens
+  has no chosen project space" are rewritten for the project-space choice.
+  What the section holds is that a project space's support never holds back
+  a download, and no more than that: a CommCare HQ app file is there for
+  every app CommCare HQ can take, a CommCare mobile app file for each
+  project space the app is published to, and neither download checks a
+  project space. An app that holds one of the two selections of "An app
+  CommCare HQ cannot take" has no CommCare HQ app file and is told which
+  menus. The paragraph: "A project space's support never holds back a
+  download. You can create a **CommCare HQ app file** for any app CommCare
+  HQ can take, and a **CommCare mobile app file** for each project space
+  the app is already published to. Neither download checks a project
+  space, so its compatibility report says which capabilities the
+  destination needs without claiming they were checked there. An app that
+  uses one of the two submenu selections CommCare HQ cannot yet preserve
+  has no CommCare HQ app file, and Nova names the menus involved. See
+  [Organize an app with submenus](/docs/nested-menus)."),
+  `content/docs/case-workspace.mdx` (its "Downloads stay available so you
+  can choose and check the destination later." follows a sentence on the
+  Case search check and becomes "That check never holds back a download:
+  the CommCare HQ app file stays available for any app CommCare HQ can
+  take, so you can choose and check the destination later, and a CommCare
+  mobile app file is there for each project space the app is already
+  published to."), `content/docs/nested-menus.mdx` (the paragraph that opens
   "Downloaded apps preserve these selections": a CCZ carries both
   selections, CommCare HQ takes neither, and an app that uses one and has
   never been published runs in Preview alone; part 11's public docs table
@@ -3216,7 +3242,7 @@ the result is under "Lane".
 | `domain` naming an unreached, shell-only or gone deployment is refused, listing the ones that qualify; an app with no deployment is refused with the first copy, whether or not it searches | real Postgres (`compileApp.postgres.test.ts`, and the route through `prepareCompileRequest`) |
 | An app whose stored document is `nestedMenuWireFixture("parent-multiple")`: with no deployment, `format: "ccz"` is refused with `selection-held-from-hq`'s copy and the one line naming "Parents" and "Child care", and `format: "json"` with the boundary's refusal; with one reached deployment seeded in the ledger, `format: "ccz"` compiles for it, `nova/target` names it, and the archive's suite holds the child list's filter over the selected parents (`selected(join(`), the local projection's. The same two answers for `("same-smaller")`, whose archive holds the child's own selection datum with `max-select-value="4"` beside the parent's with 5. Executed during planning at the lane's head, the two fixtures compiled with `compileCcz`: each suite holds exactly that | real Postgres plus the production emitter (`compileApp.postgres.test.ts`) |
 | An app published to two project spaces and compiled with no `domain` is refused with the second copy and both spaces listed; with `domain` naming one it compiles for that one | same |
-| `format: "json"` with a `domain` is refused; with no `server` and one reached deployment it carries that deployment's attachment links, and with two it carries none; an app with no deployment still gets its import file | same |
+| `format: "json"` with a `domain` is refused; with no `server` and one reached deployment it carries that deployment's attachment links, and with two it carries none; an app with no deployment that CommCare HQ can take still gets its import file | same |
 | `readReachedDeploymentTargets` returns a deployment that displays as reached with a live mapping that is not missing, and leaves out a shell-only one, a gone one and one that never reached | real Postgres (`lib/deployment/__tests__/store.postgres.test.ts`) |
 | `readDownloadTargetsAction` refuses a caller who is not a member of the app's Project with the not-found refusal, reading no deployment, and returns a viewer the reached targets as `{ server, domain }`; `heldFromHq` holds the line for an app with no reached deployment whose stored document holds one of the two selections, and is empty where a deployment is reached or the document holds neither | real Postgres for the access and the read, the session given as `app/api/compile/__tests__/route.test.ts` gives it (`lib/deployment/__tests__/downloadTargetsAction.postgres.test.ts`, new) |
 | The cutover writes one `ccz-needs-project-space` line for a live app with no reached deployment (one whose only deployment the cutover finds `deleted` among them) and none for an app with one, or for a deleted Nova app | pure over deployment plans, the row of `notice.ts` in part 10, The proofs that carry the cutover (`scripts/lib/hqRoundTripCutover/__tests__/notice.test.ts`) |
@@ -4027,8 +4053,11 @@ with the comparison changed.
   request adds (A3. The publish sequence, "A stop at step 7 or 8 says what
   the project space then holds"): pull request 14 (part 02, Defect 5: the
   lookup push).
-- The profile `uniqueid` and versions of a `.ccz` (defect 9), which share
-  `wireIdentity.ts`'s derivation family, and the profile keys of finding 40:
+- The profile `uniqueid` of a `.ccz`, which is Nova's own id for the app on
+  one project space (`lib/commcare/runtimeTarget.ts::profileUniqueId`,
+  beside this pull request's `profileServerProperties`, and no part of
+  `wireIdentity.ts`), the versions of a `.ccz` (defect 9), and the profile
+  keys of finding 40:
   work item D (part 04). Part 04, The local profile from step 2, lists the
   whole profile; its table takes A5's four server properties as one row,
   written after `cc-app-version`.
