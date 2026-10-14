@@ -3,11 +3,13 @@
 This replaces Dependabot #725, #726, #735, #736 and #737 against main
 `4436ba2e`. The upstream proof-pins PR #734 is a separate source update.
 The selected versions come from the five PRs, with two necessary alignments:
-Fumadocs core/UI 16.17.1 and MCP client 2.3.1.
+Fumadocs core/UI 16.17.1 and MCP client 2.3.1. The review also includes
+sharp 0.35.5 to address the existing image-library advisory, using a release
+from September 27 that clears the same cooldown.
 
 ## Publication age and installation
 
-Registry `time[version]` was checked for all **154 changed or added lockfile
+Registry `time[version]` was checked for all **181 changed or added lockfile
 resolutions** against October 14 at 16:00 UTC. Every patch clears three full
 days; every minor/major and newly resolved package clears five. This includes
 transitives, not just package.json. The earliest audit cutoff is intentionally
@@ -35,6 +37,7 @@ The profiling packages and ignored Workflow 2.x remain outside the update set.
 | fumadocs-mdx | 15.4.6 | 15.4.7 | Oct 9 10:12 |
 | motion | 13.4.6 | 14.0.0 | Oct 2 13:15 |
 | music-metadata | 11.16.1 | 12.0.0 | Oct 3 13:42 |
+| sharp | 0.35.4 | 0.35.5 | Sep 27 13:46 |
 | shadcn | 4.21.1 | 4.21.4 | Oct 7 11:12 |
 | @iconify-icons/tabler | 2.0.3 | 2.0.4 | Oct 7 20:22 |
 | @types/node | 24.19.1 | 24.19.2 | Oct 9 18:44 |
@@ -154,6 +157,32 @@ needed. Preserve the existing parser deadline, real-byte validation and narrow
 MP3/WAV acceptance. The release also fixes prototype-named tags, picture
 selection and omitted-tokenizer APEv2 metadata. Media tests parse real audio
 and video bytes through the updated package.
+
+### Sharp and existing advisories
+
+GitHub reported five open advisory roots when the branch was pushed. This
+refresh fixes the SDK OAuth-issuer binding and shell-quote command-injection
+advisories through the existing transitive PRs. It additionally moves sharp and
+its override to 0.35.5, whose matching @img packages carry updated libvips/librsvg.
+Sources: [release](https://github.com/lovell/sharp/releases/tag/v0.35.5) and
+[advisory](https://github.com/advisories/GHSA-wq5f-xc86-pv6w).
+
+Review includes array bounds, failure reporting, removed nonexistent type
+exports and image-extension/gain-map behavior. Nova uses the supported default
+sharp import, with real image-byte parsing, dimensions and encoding. It does
+not use the removed named export, GIF delay arrays or JXL frame options. Real
+media validation was rerun after the bump (18 tests); production-image CI owns
+the Linux native-package overlay and deployed artifact probe. The existing
+install-script denial remains valid for prebuilt binaries.
+
+Two advisory roots have no patched upstream version: braces <=3.0.3 (through
+shadcn's CLI fast-glob/micromatch/ts-morph) and sprintf-js <=1.1.3 (through
+mammoth's argparse CLI). Nova has no runtime shadcn glob consumer and imports
+mammoth's conversion library, whose argparse import lives only in bin/mammoth.
+Neither package is traced into the inspected standalone build. npm audit's
+suggested fixes downgrade shadcn to 1.0.0 and mammoth to 0.3.29; those do not
+constitute moving with packages and are not applied. These upstream advisories
+remain explicitly recorded, rather than claiming zero vulnerabilities.
 
 ### Radix primitives
 
