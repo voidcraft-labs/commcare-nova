@@ -983,7 +983,10 @@ answers 200 for it and the update answers 400.
    Reason: with no form there is no id for HQ to re-mint, and HQ refuses to
    build an app with no menus, so "no build can hold HQ-minted ids" holds by
    HQ's rule and not by timing.
-2. **One source read, `readHqAppSource`,** replaces `readHqAppSourceProfile`.
+2. **One reader of the app's source, `readHqAppSource`,** replaces
+   `readHqAppSourceProfile`. Every read of the source a publish makes goes
+   through it, and a publish makes more than one ("Requests per publish,
+   and which read each decision uses", under "What the sequence settles").
    It serves this work item, the drift check, the version floor and the
    overlays. This pull request lands `readHqAppSource`, deletes
    `readHqAppSourceProfile` and rewrites
@@ -1211,9 +1214,20 @@ already there nothing moves: its floor is read in preflight, at 2g.
 
 What the sequence settles:
 
-- **Requests per publish.** First publish: create, source read, update, source
-  read. Republish with nothing to push: source read, update, source read.
-  Either one with tables or places to push: one more source read (step 10).
+- **Requests per publish, and which read each decision uses.** A publish
+  reads the app's source up to three times, each through `readHqAppSource`:
+  the first read (2g's `target-app` read for an app that is there, step 5's
+  read after the create for an app this publish makes), the second read
+  (step 10, only when step 7 or 8 pushed a table or a place) and the read
+  back (step 12). The steps are built over four pull requests, and each
+  one's head holds this:
+
+  | Head | The source reads of one publish | What reads which |
+  |---|---|---|
+  | Pull request 3 | The first read, and the second read where a table or a place was pushed. There is no read back yet. A first publish with nothing to push sends create, source read, update; a republish with nothing to push sends source read, update. | The first read decides `gone`, `unsupported` and a failed shape. The `profile` overlay, the only overlay at this head, is computed on the last read before the import: the second read where it ran, else the first. Nothing is compared, and no baseline is written. |
+  | Pull request 4 | The same, and the read back after the import: two source reads, or three where a table or a place was pushed. | The drift decision compares the `target-app` read with the stored baseline (2g, 2h). An app this publish made has no baseline to compare with, and its read after the create is written as the `create` baseline. The second read is compared with this publish's first read through `diffHqAppSource`, never with the stored baseline. The read back, normalized, is the new baseline, and nothing else reads it. The `profile` overlay is as at pull request 3. |
+  | Pull request 5 | As at pull request 4. No read is added. | `profile`, `translations` and `add_ons` are all projected on the last read before the import, as `profile` was (part 04, Shared: the overlays' read and one overlay module, "Which read"). |
+  | Pull request 13 | As at pull request 4. No read is added. | The version floor reads `buildSpecVersion` from the first read: at 2g for an app that is there, at step 6 for one this publish made. It never reads the second read (part 03, C1. The version floor). |
 - **A first publish refused at `resources` leaves an empty app in HQ.** Today
   a first publish whose table or place push is refused leaves nothing of the
   app there, because the app is created last. From step 2 the shell exists
@@ -1224,6 +1238,70 @@ What the sequence settles:
   empty app here on an earlier try. Uploading fills it in.", and the retry
   is an existing-app publish that fills that same app and never creates a
   second one.
+- **A stop at step 7 or 8 says what the project space then holds.** Nine
+  messages of `lib/deployment/service.ts` say today that the app was not
+  sent, and one of them that nothing on the project space changed. From
+  this pull request a first publish has made the empty app (step 5) before
+  step 7 or 8 can stop, so each is false for an app this publish created.
+  `pushLookupTables`, `lookupUploadFailure` and `pushLocations` each gain a
+  last argument `createdApp: boolean`, true when step 5 of this publish
+  made the app. `publishAppToHq` passes it into both push functions;
+  `pushLookupTables` hands it to `lookupUploadFailure` at its three call
+  sites and reads it for its own two sentences, and `pushLocations` reads
+  it for its three. Every message takes two forms on one pattern:
+  - `createdApp` false: the clause that says the app was not sent becomes
+    "so Nova stopped before sending the app's content."
+  - `createdApp` true: the same first sentence, then "Nova created the app there, and it is empty for now."
+  - The one arm that claims nothing changed says "Nothing on the project
+    space changed." in the first form and "Nothing else on the project
+    space changed." in the second.
+  - Each arm keeps its own next step, word for word, and its `details`
+    stay HQ's own lines.
+
+  A retry after the second form finds the app mapped, sends no create, and
+  so gets the first form, which is then true: the empty app is an earlier
+  try's, and the dialog says so beside the refusal ("`hqAppAction` and the
+  dialog's sentence"). The two messages written today with a typographic
+  apostrophe keep it, in the new clause too.
+
+  | Where, at the lane's head | Today | `createdApp` false | `createdApp` true |
+  |---|---|---|---|
+  | `pushLookupTables`, line 922: the workbook was taken and the table list then failed (`hq_resource_state_unknown`) | "CommCare HQ took this app's lookup tables for “`<domain>`” but then would not confirm them, so the app was not sent. The tables are on the project space, so publishing again may ask you to confirm they are yours before it carries on." | "CommCare HQ took this app's lookup tables for “`<domain>`” but then would not confirm them, so Nova stopped before sending the app's content. The tables are on the project space, so publishing again may ask you to confirm they are yours before it carries on." | "CommCare HQ took this app's lookup tables for “`<domain>`” but then would not confirm them, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. The tables are on the project space, so publishing again may ask you to confirm they are yours before it carries on." |
+  | `pushLookupTables`, line 985: a pushed table is missing from the list (`hq_rejected_resource_push`) | "CommCare HQ reported this app's lookup tables as uploaded but does not list them all, so the app was not sent. Check the lookup tables on “`<domain>`”, then publish again." | "CommCare HQ reported this app's lookup tables as uploaded but does not list them all, so Nova stopped before sending the app's content. Check the lookup tables on “`<domain>`”, then publish again." | "CommCare HQ reported this app's lookup tables as uploaded but does not list them all, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Check the lookup tables on “`<domain>`”, then publish again." |
+  | `lookupUploadFailure`, line 1030: the workbook answered 401 or 403 | "CommCare HQ wouldn't let Nova put this app's lookup tables on “`<domain>`”, so the app was not sent. Uploading them needs the Edit Data permission on your CommCare HQ account." | "CommCare HQ wouldn't let Nova put this app's lookup tables on “`<domain>`”, so Nova stopped before sending the app's content. Uploading them needs the Edit Data permission on your CommCare HQ account." | "CommCare HQ wouldn't let Nova put this app's lookup tables on “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Uploading them needs the Edit Data permission on your CommCare HQ account." |
+  | `lookupUploadFailure`, line 1032: the workbook was taken in part | "CommCare HQ took only part of this app's lookup tables for “`<domain>`”, so the app was not sent. The tables it did take now hold what Nova sent. Fix what it names below, then publish again to put the rest there." | "CommCare HQ took only part of this app's lookup tables for “`<domain>`”, so Nova stopped before sending the app's content. The tables it did take now hold what Nova sent. Fix what it names below, then publish again to put the rest there." | "CommCare HQ took only part of this app's lookup tables for “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. The tables it did take now hold what Nova sent. Fix what it names below, then publish again to put the rest there." |
+  | `lookupUploadFailure`, line 1034: the workbook may have landed | "Nova couldn’t confirm how much of this app’s lookup data CommCare HQ saved for “`<domain>`”, so the app was not sent. Some tables may now hold what Nova sent. Publishing again checks what is there before updating it." | "Nova couldn’t confirm how much of this app’s lookup data CommCare HQ saved for “`<domain>`”, so Nova stopped before sending the app’s content. Some tables may now hold what Nova sent. Publishing again checks what is there before updating it." | "Nova couldn’t confirm how much of this app’s lookup data CommCare HQ saved for “`<domain>`”, so Nova stopped before sending the app’s content. Nova created the app there, and it is empty for now. Some tables may now hold what Nova sent. Publishing again checks what is there before updating it." |
+  | `lookupUploadFailure`, line 1035: the workbook was refused and nothing landed | "CommCare HQ would not take this app's lookup tables for “`<domain>`”, so the app was not sent and nothing on the project space changed." | "CommCare HQ would not take this app's lookup tables for “`<domain>`”, so Nova stopped before sending the app's content. Nothing on the project space changed." | "CommCare HQ would not take this app's lookup tables for “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Nothing else on the project space changed." |
+  | `pushLocations`, line 1143: a group of places may have landed | "Nova couldn’t confirm whether CommCare HQ saved the last group of places for “`<domain>`”, so the app wasn’t sent. Earlier confirmed groups are recorded. Publishing again checks what is there and may ask you to confirm which existing places Nova can update." | "Nova couldn’t confirm whether CommCare HQ saved the last group of places for “`<domain>`”, so Nova stopped before sending the app’s content. Earlier confirmed groups are recorded. Publishing again checks what is there and may ask you to confirm which existing places Nova can update." | "Nova couldn’t confirm whether CommCare HQ saved the last group of places for “`<domain>`”, so Nova stopped before sending the app’s content. Nova created the app there, and it is empty for now. Earlier confirmed groups are recorded. Publishing again checks what is there and may ask you to confirm which existing places Nova can update." |
+  | `pushLocations`, line 1145: a group answered 401 or 403 | "CommCare HQ wouldn't take this app's places for “`<domain>`”, so the app wasn't sent. Creating places needs the Edit Locations permission on your CommCare HQ account." | "CommCare HQ wouldn't take this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Creating places needs the Edit Locations permission on your CommCare HQ account." | "CommCare HQ wouldn't take this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Creating places needs the Edit Locations permission on your CommCare HQ account." |
+  | `pushLocations`, line 1146: a group was refused | "CommCare HQ wouldn't take some of this app's places for “`<domain>`”, so the app wasn't sent. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there." | "CommCare HQ wouldn't take some of this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there." | "CommCare HQ wouldn't take some of this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there." |
+
+  The same argument reaches the two other sentences a first publish can
+  meet after its create, and Check status's.
+  - *The read that fails after the create (step 5) or at the second read
+    (step 10), `hq_app_state_unknown`.* Today's two sentences say Nova
+    "left that app unchanged", which names an app the person has not seen
+    when this publish made it. With `createdApp` false they stay as they
+    are (2g's read always takes that form: an app read in preflight was
+    there before this publish). With `createdApp` true:
+    - a 401 or 403: "Nova couldn't read the app on “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again."
+    - any other failed read: "Nova couldn't safely read the app on “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Check that the app opens in CommCare HQ, then publish again."
+  - *Check status on a deployment whose publish stopped short
+    (`service.ts::refreshDeployment`, where `deploymentIsObservable` is
+    false).* Today: "This publish stopped before the app reached CommCare
+    HQ, so checking there would say nothing about it. Fix what stopped it
+    and publish again." From this pull request, in one form that holds with
+    an empty app there and without one: "This publish stopped before the
+    app's content reached CommCare HQ, so checking there would say nothing
+    about it. Fix what stopped it and publish again."
+
+  `pushLocations` has a fourth stop, the place whose parent was not pushed,
+  which the plan proves unreachable; its sentence says only that Nova
+  stopped, so it is unchanged. No sentence of `lib/deployment/CLAUDE.md`,
+  of the public docs or of a tool's description quotes any of these
+  messages. The docs sentences that say the same thing in their own words
+  ("A publish that stopped on the data never sent the app", "before the app
+  does") are rewritten as part 11 gives them.
 - **Why the three stops of steps 5 and 6 fold at `resources`.** Nothing of
   the `resources` phase has run when they stop, and
   `lib/deployment/stateMachine.ts::deploymentDisplaysAsReached` draws every
@@ -1294,8 +1372,9 @@ What the sequence settles:
   02, Where the check runs.
 - **When the read after the create fails.** Publish records the mapping (and,
   from work item B, an `unread` baseline) and refuses with `hq_app_state_unknown` at `resources`
-  (today's sentence for that code, which begins "Nova couldn't safely read
-  the current app"), before any table or place is pushed. In this pull request the retry reads the source at `target-app`
+  (that code's sentence in its `createdApp` true form, which says Nova
+  created the app and that it is empty: "A stop at step 7 or 8 says what the
+  project space then holds", above), before any table or place is pushed. In this pull request the retry reads the source at `target-app`
   and updates the shell. From work item B an `unread` baseline always stops:
   the retry refuses with `hq_changed`, listing the app with
   `baselineKnown: false` and B's sentence "Nova couldn't confirm what its
@@ -1311,9 +1390,14 @@ What the sequence settles:
   old. From work item B the next publish stops with `hq_changed` over Nova's
   own push; it is no longer silent.
 - **The windows.** An HQ save between the last source read and step 11's
-  import is overwritten unseen; one between step 11 and step 12 becomes part
-  of the baseline and is overwritten unseen by the next publish. Each is one
-  round trip wide. The public docs state both.
+  import meets the body as it was built on that read, and one between step
+  11 and step 12 becomes part of the baseline, so the next publish's check
+  sees no change in it. Neither is reported. Each is one round trip wide.
+  What lands in each follows from the import's own rule, key by key, and
+  part 02, What the check cannot close, gives it. The second window opens
+  with step 12, so it and the check are pull request 4's, and
+  `lib/deployment/CLAUDE.md` and the public docs state both windows from
+  that pull request, never from this one.
 - **`recordCreatedRemoteApp`** is one `withDeploymentRow` transaction with
   `ensure: false` and ends with `notifyAppDeployments`. Folding `uploaded`
   there would be false on every surface: the deployment would show as
