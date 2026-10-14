@@ -186,6 +186,13 @@ and
 No served reader reads an edited document's archive beside the unedited
 app, and the plan adds no such walk.
 
+A second reading rests on code alone: Core keeps an installed suite whose
+version did not rise, which is why the suite carries the archive's version
+beside the profile (part 04, Defect 9). It is read at
+`resources/model/ResourceTable.java::prepareResource` at the commcare-core
+pin, and no reader request reports the installed suite after an update, so
+no test holds it.
+
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
 CommCare version for a new app is 2.64 on the production server read (October
