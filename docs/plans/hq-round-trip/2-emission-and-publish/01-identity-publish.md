@@ -2125,7 +2125,8 @@ from it.
 
   | Input | Answer | Refusal reason, and its copy in "The refusals" |
   |---|---|---|
-  | `T` empty, whatever `domain` and `server` say | `invalid_input` (422 from the route), listing nothing | `needs-published-project-space`, the first |
+  | `T` empty, and the document holds a selection CommCare HQ cannot take (`hqNestedSelectionFindings(doc, "hq-upload")` is not empty), whatever `domain` and `server` say | `invalid_input` (422 from the route), listing one line per finding, each `lib/doc/userFacingErrors.ts::userFacingError` of it | `selection-held-from-hq`, the fifth |
+  | `T` empty otherwise, whatever `domain` and `server` say | `invalid_input` (422 from the route), listing nothing | `needs-published-project-space`, the first |
   | `C` holds exactly one deployment | That one is the target. | none |
   | `C` holds two or more: with `domain`, the same name on two servers and no `server`; without `domain`, several deployments | `invalid_input` (422), listing every member of `T` with its server | `pick-project-space`, the second |
   | `C` empty: `domain` names no member of `T` (the name is unknown, unreached, a shell only, or its HQ app is reported gone), or `server` alone names a server where `T` holds none | `invalid_input` (422), listing every member of `T` with its server | `unknown-project-space`, the third |
@@ -2136,6 +2137,15 @@ from it.
   own label: the route answers `ApiError(message, 422, lines)`, which
   `PublishPanel.tsx`'s failure toast already shows as its lines, and
   `compile_app` answers `invalid_input` with the same message and lines.
+  The first row lists findings in place of deployments, since `T` is empty
+  there, and both surfaces carry them the same way. The check is the one
+  the export boundary runs for the two HQ modes, called without lookup
+  naming so the refusal reads no lookup data: a finding is read off which
+  menu's selection feeds which, never off a table's name. Executed during
+  planning at the lane's head: called so, it gives the boundary's finding
+  for each of the two refused fixtures, none for the other eight nested
+  menu scenarios, and none, with no error, for the lookup app fixture,
+  whose menu reads a table.
 
   For `format: "json"` and `/api/compile/json` (the HQ import file): `domain`
   is not an input, and one sent is refused with `invalid_input` (422),
@@ -2181,19 +2191,30 @@ from it.
   > The CommCare HQ import file works in any project space, so it isn't made
   > for one. You can download it again without a project space.
 
+  `selection-held-from-hq`, followed by its lines ("An app CommCare HQ
+  cannot take", "The lines"):
+
+  > A CCZ signs workers in to one project space and sends their forms there,
+  > so it is made for a project space this app is published to. This app
+  > can't be published to CommCare HQ as it is, so it has no CCZ yet.
+
 - **The dialog's project-space choice.** For the CCZ target,
   `PublishDialog.tsx` replaces the "CommCare HQ server" select with a
   "Project space" select fed by a new server action
   `lib/deployment/actions.ts::readDownloadTargetsAction(appId)`, which needs
-  `view` access and returns `{ targets: { server, domain }[] }` from
-  `readReachedDeploymentTargets`. It takes one string and returns plain JSON.
-  It is a server action, so it adds no `/api` route and `lib/hostnames.ts`
-  gains no entry. Each item is labelled `<domain> on <server label>`. The
-  three states, exclusive:
+  `view` access and returns `{ targets: { server, domain }[], heldFromHq:
+  string[] }`: `targets` from `readReachedDeploymentTargets`, and
+  `heldFromHq` the lines of the first row of "The inputs", read from the
+  committed document (loaded as `refreshDeploymentAction` loads it) only
+  when `targets` is empty, and `[]` otherwise. It takes one string and
+  returns plain JSON. It is a server action, so it adds no `/api` route and
+  `lib/hostnames.ts` gains no entry. Each item is labelled `<domain> on
+  <server label>`. The four states, exclusive:
 
   | Targets | The dialog shows |
   |---|---|
-  | None | No select and no download button. `needs-published-project-space`'s copy ("The refusals"), and one button, "Publish to CommCare HQ", which switches the dialog's target. |
+  | None, `heldFromHq` empty | No select and no download button. `needs-published-project-space`'s copy ("The refusals"), and one button, "Publish to CommCare HQ", which switches the dialog's target. |
+  | None, `heldFromHq` not empty | No select and no button. `selection-held-from-hq`'s copy, then `heldFromHq` as a list. The publish button is left out because that publish is refused for the same lines: the edit they name is the next step, and it is made in the builder. |
   | One | The select, that target preselected. |
   | Several | The select with no default; the button stays off until one is chosen. |
 
@@ -2267,6 +2288,11 @@ from it.
     readonly format: "ccz" | "json";
     readonly server?: CommCareServer;
     readonly domain?: string;
+    /**
+     * For a `.ccz` with no reached deployment: one line per selection of the
+     * document that CommCare HQ cannot take. Absent or empty where there is none.
+     */
+    readonly heldFromHq?: readonly string[];
   }
   export type DownloadTargetChoice =
     | { readonly kind: "project-space"; readonly target: ReachedDeploymentTarget }
@@ -2278,9 +2304,12 @@ from it.
           | "unknown-project-space"
           | "pick-project-space"
           | "needs-published-project-space"
+          | "selection-held-from-hq"
           | "domain-not-for-import-file";
         readonly message: string;
         readonly reached: readonly ReachedDeploymentTarget[];
+        /** The lines of `selection-held-from-hq`; empty for every other reason. */
+        readonly heldFromHq: readonly string[];
       };
   export function chooseDownloadTarget(
     reached: readonly ReachedDeploymentTarget[],
@@ -2307,7 +2336,7 @@ from it.
   export type DownloadTargetRefusal = Extract<DownloadTargetChoice, { kind: "refused" }>;
   export function resolveDownloadTarget(
     scope: DeploymentScope,
-    input: { format: "ccz" | "json"; server?: CommCareServer; domain?: string },
+    input: { format: "ccz" | "json"; server?: CommCareServer; domain?: string; doc: BlueprintDoc },
   ): Promise<DownloadTarget | DownloadTargetRefusal>;
   ```
 
@@ -2317,7 +2346,13 @@ from it.
     live and not missing, `{ server, domain, hqAppId }`, and from pull
     request 5 `emptyCaseListText` (part 02, Store functions)), then
     `chooseDownloadTarget`, then, for a `.ccz`,
-    `readDeploymentIdentityOverrides` and `targetWireIdentity`. From pull
+    `readDeploymentIdentityOverrides` and `targetWireIdentity`. For a `.ccz`
+    with no reached deployment, and only then, it first reads
+    `hqNestedSelectionFindings(input.doc, "hq-upload")`, maps each finding
+    through `userFacingError` and hands the lines to `chooseDownloadTarget`
+    as `heldFromHq`, so the choice and its copy stay in the pure function
+    and both compile surfaces and `readDownloadTargetsAction` give the same
+    lines. From pull
     request 5 it hands `target.emptyCaseListText` to `compileLocalArchive`,
     which passes it to `compileCcz` as `CompileOptions.emptyCaseListText`
     (part 04, Finding 65). For the
