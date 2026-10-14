@@ -29,7 +29,7 @@ The files each pull request touches are under Files, by pull request, below the 
 | 13 | Publish gates | Defect 12's probes; `lib/commcare/planPrivileges.ts::requiredPlanPrivileges` and `hq_confirmation_needed`, with `NovaPublishVerdict.planPrivileges` over D and D′ and the lane oracle's `user_case` arm over link and datum `xpath`; the version floor (`hq_app_version_below_floor`); the flat fixture with finding 69's copy; Data Forwarding and the Connect forwarder (C8), with the lane's `privilege/data_forwarding` rule in place of its seam; finding 64's equality-test exclusion (C7); logos, with the oracle's `checkLogoRefs` and its code `HQJSON_BAD_LOGO_REF` removed; `withdraw_deployment_confirmation`; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.13"` (`set_app_logo`'s description) | Below | Moves 50: defect 12's 35 and the 13 pull request 11 added, defect 14's 2 logo entries. Deletes 6 from the fixed register, the `d14-android-proof4-case-management-*` entries pull request 9 moved on `expander-form-links-emission-emits-hq-form-links-with-3555b968-0`, and removes that control: the oracle's `user_case` arm now grants it `USERCASE`, and it stops showing them (part 09, What step 2 moves and deletes). Registers none for the soft assertion that `expander-form-links-emission-emits-hq-form-links-with-3555b968-0` shows in proof 3 and proof 4 once it runs with `USERCASE`: pull request 9's two entries of defect 26 hold it (part 09, The entries that remain). Walk stops: the seven related-lookups stops leave their documents, two to their controls (`targeted-search-related-lookups`, `expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0`) and five removed (`function-arguments`, `prompt-guards`, `search-parent` and the two `expander-expanddoc-hq-json-projection-case-search-` documents, `-4d53ba11-0` and `-cd8e0ffa-0`) | none | No document step; deployment reasons `next-publish-asks-more`, `commcare-version-below-floor`, `logo-upload-in-hq` | Defect 14's and finding 42's tile entries are fixed and defect 12's thirteen new entries hold on their own control, so removing `targeted-custom-tile`'s `CASE_LIST_TILE` configuration strands nothing; `NovaPublishVerdict.planPrivileges` equals the lane's oracle on every corpus document |
 | 14 | Lookup, CSQL, media and the model clean-up | Defects 5, 6, 11 (first half), 16; correction 15 (the 32-character cap pinned); finding 48; the Hidden Value with neither a calculate nor a default; the code `XPATH_TIME_ORDERING` added, and `HIDDEN_NO_VALUE`, `FIXTURE_REFERENCE_NOT_MODELED` and `LOOKUP_TAG_TOO_LONG_FOR_HQ` retired; targeted document `targeted-time-ordering` deleted, since no admitted document can order a time; the gate refuses a time ordering and, on a system date, `is-blank` and the null literal, while its rule for a date against a system date does not change, and the witness is authored as a date turned into a date and time (part 08, Defect 6, "The witness"); the judge's `time_operand` reads the three system dates, without which the witness's comparison on the local suite is an undecided use, and its protected-message reader takes a message that holds all four `__nova_mode;<medium>` forms or none, the same in every translation, because a retained control keeps the four; `MODEL_CONTEXT_VERSION` to `"v3-hq-round-trip-emission.14"` (`attach_field_media`'s slots, the authoring guide's File and Hidden Value lines, the search input description), the value the stack deploys | Below | Moves 24: defect 5's 9, defect 6's 12, finding 48's 3. Walk stops: `targeted-lookup-reserved-tags`'s and `targeted-search-hq-compile`'s move to their controls | none | Steps `media-slots` (`media-slot-removed`), `hidden-inert-default` (`hidden-value-saves-blank`), `time-ordering` (`time-comparison-never-true`, `search-term-matches-nothing`; it migrates no search input, since no stored input can hold a time range, and it sets no flag). The Project-level lookup tag rename as a Job step (`lookup-tag-renamed`); deployment reason `lookup-table-content-unsupported`. Blockers `lookup-tag-unparsable`, `lookup-tag-rename-collision` | `targeted-search-hq-compile` takes its last edit and stays as a passing document. The one billed schema check of the stack is asked for at this head. Its smoke job in CI installs WebKit and runs `e2e/tests/browser/media-play.spec.ts` in both browser projects, and its author runs the Android decode probe (`python3 -m unittest proof.android.decode.probe -v`) on an Apple-silicon Mac with the emulator's arm64 images of API 23, 29 and 35 before it is marked ready, because no proof machine and no CI runner boots them (part 08, Defect 11, first half, "Lane") |
 | 15 | Contracts and public docs | Every row of "Contract sentences" below not already moved; `content/docs`; `proof/checks/test_registers.py::test_every_live_defect_is_a_later_steps` over the new `proof/checks/registers.py::OPEN_DEFECTS`; `proof/timings.json` refreshed in both profiles, `no-readers` from this head's fresh run without the readers and `readers` from the whole lane's run at the stack's top, committed here before the maintenance image is built (part 09, The lane's cost) | Below | none | none | none | The docs build; `proof/known-defects.json` holds the 282 entries of defects 20, 21, 23 to 28 and 30 and finding 56, and nothing of a step 2 defect or finding; `proof/checks/registers.py::OPEN_DEFECTS`, which this pull request adds (part 09, How the exit is checked without a third HQ state), names 56 as the only key from 31 up |
-| 16 | Removal of the cutover tooling | The two scripts; `scripts/lib/hqRoundTripCutover/` with its tests and `fixtures/pre-step/`; the `biome.json` line that leaves the committed fold out of lint (`!!scripts/lib/hqRoundTripCutover/prestep/*.generated.mjs`, which pull request 2 adds and which names a directory this pull request removes); the `esbuild` line in `Dockerfile` stage `maintenance-build`; the Job `commcare-nova-hq-round-trip-cutover` in `config/deployment-jobs.json`; its arm in `scripts/rollout/deploy-cloud-run.py::_effective_execution_args`; their cases in `scripts/infra/tests/` and `scripts/infra/__tests__/containerArtifacts.test.ts`; the Job's paragraph in `docs/architecture/deployment.md` and its line in `scripts/README.md`; the runbook `docs/plans/hq-round-trip/2-cutover-runbook.md`; the lane's `cutover` group (its cases in `proof/hq/test_retained_reads.py` and `proof/hq-reads/cutover/`); and this plan, which is `docs/plans/hq-round-trip/2-emission-and-publish.md` with its part files under `docs/plans/hq-round-trip/2-emission-and-publish/` | Below | none | none | none | Infra tests without the Job; `git diff --stat <15>..<16> -- lib app` prints nothing; the whole lane with every reader at this head, before the merge |
+| 16 | Removal of the cutover tooling | The two scripts; `scripts/lib/hqRoundTripCutover/` with its tests and `fixtures/pre-step/`; the `biome.json` line that leaves the committed fold out of lint (`!!scripts/lib/hqRoundTripCutover/prestep/*.generated.mjs`, which pull request 2 adds and which names a directory this pull request removes); the `esbuild` line in `Dockerfile` stage `maintenance-build`; the Job `commcare-nova-hq-round-trip-cutover` in `config/deployment-jobs.json`; its arm in `scripts/rollout/deploy-cloud-run.py::_effective_execution_args`; their cases in `scripts/infra/tests/` and `scripts/infra/__tests__/containerArtifacts.test.ts`; the Job's paragraph in `docs/architecture/deployment.md` and its line in `scripts/README.md`; the runbook `docs/plans/hq-round-trip/2-cutover-runbook.md`; the lane's `cutover` group (its cases in `proof/hq/test_retained_reads.py` and `proof/hq-reads/cutover/`); this plan, which is `docs/plans/hq-round-trip/2-emission-and-publish.md` with its part files under `docs/plans/hq-round-trip/2-emission-and-publish/`; and the edits to the three plan files beside it that cite it, `README.md` (step 2 reads done, with the section "Step 2 is done"), `3-expressions.md` and `4-platforms.md` (Edits to the other plans and the research, below) | Below | none | none | none | Infra tests without the Job; `git diff --stat <15>..<16> -- lib app` prints nothing; the whole lane with every reader at this head, before the merge |
 
 Totals the stack reaches: 724 entries move to `proof/fixed-defects.json` (31 + 126 + 69 + 158 + 3 + 78 + 68 + 91 + 26 + 50 + 24): 669 of the base register and 55 the stack itself registered. 14 are deleted from the live register: 12 of the base register (finding 50's 2, finding 67's 2 and defect 15's 5 Connect rename entries in pull request 1, with their allowances; one of finding 68's two `xmlns` entries in pull request 3, where the other comes to hold its difference; defect 9's 2 form-version entries in pull request 5, with their judge change) and the two pull request 3 registered for defect 9's form version (pull request 5). 2 are written straight into the fixed register (finding 52's). The stack registers 135 live entries: 55 of them move, 2 are deleted, and 78 stay live (finding 56's 2, defect 25's 62, defect 24's 11, defect 23's 2, defect 26's 1). One entry is re-filed from defect 14 to defect 26 in pull request 9 and stays live. Pull request 13 deletes 6 of the moved entries from the fixed register, with their control. At the exit `proof/fixed-defects.json` holds 720 and `proof/known-defects.json` holds 282: the 204 later-step entries of the base, the re-filed one among them, and those 78. 12 spelling rules retire, 1 is added (pull request 3) and 25 stand at the exit, one of them widened. `proof/controls/` goes from 85 directories to 105, every one named. `proof/walk-stops.json` goes from 33 held stops to 29: 20 stay on their documents, 7 move to a control, 6 are removed and 2 are added, one on a document in pull request 1 and one on a control in pull request 5, so 21 are on a document and 8 on a control at the exit (part 09, The held walk stops).
 
@@ -107,7 +107,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 - `proof/README.md`
 - `docs/architecture/contracts.md` (the strict register's sentence)
 - `CLAUDE.md` (the strict register's sentence)
-- `docs/research/2026-09-26-hq-round-trip/harness-findings.md`
+- `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (findings added and moved; finding 74 gains `targeted-datetime-ordering`)
 
 ### Pull request 2: Cutover skeleton, the notice and the ledger tables
 
@@ -182,7 +182,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 - `docs/architecture/contracts.md` (its two contract sentences)
 - `scripts/README.md`
 - `docs/plans/hq-round-trip/2-cutover-runbook.md` (new)
-- `docs/architecture/deployment.md`
+- `docs/architecture/deployment.md` (the Job's paragraph; the evidence archive's sentence)
 
 ### Pull request 3: Identity and the publish sequence
 
@@ -379,6 +379,8 @@ Five kinds of file are given once, here, and are named under a pull request only
 
 - `proof/README.md`
 - `proof/CLAUDE.md` (the determinism rule; a new rule; a device's network)
+- `docs/architecture/complex-apps.md` (the `resources` paragraph; lookup export's sentence)
+- `docs/architecture/multilingual-localization.md` (the compiler list; `localization.wireCodes`)
 
 ### Pull request 4: Drift and baselines
 
@@ -443,6 +445,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 **Docs**
 
 - `proof/README.md`
+- `docs/architecture/contracts.md` (the drift rule)
 
 ### Pull request 5: App-level emission
 
@@ -655,6 +658,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 - `proof/android/README.md`
 - `proof/README.md`
 - `proof/CLAUDE.md` (the determinism rule)
+- `docs/architecture/complex-apps.md` (the emitted app document)
 
 ### Pull request 6: XForm, first part
 
@@ -748,6 +752,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 
 - `proof/android/README.md`
 - `proof/README.md` (work item H's rows; the `container` family row; the Case emission prose)
+- `docs/architecture/multilingual-localization.md` (blank translations)
 
 ### Pull request 7: XForm, second part
 
@@ -815,6 +820,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 **Docs**
 
 - `proof/README.md`
+- `docs/architecture/complex-apps.md` (extension-case creation)
 
 ### Pull request 8: Defect 3
 
@@ -996,6 +1002,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 
 - `docs/plans/hq-round-trip/2-cutover-runbook.md` (the renamed Connect blocks of step 1(d))
 - `proof/README.md`
+- `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (finding 74's documents line)
 
 ### Pull request 11: Case lists
 
@@ -1105,6 +1112,8 @@ Five kinds of file are given once, here, and are named under a pull request only
 **Docs**
 
 - `proof/README.md`
+- `docs/architecture/contracts.md` (a saved case-list column; the tile list's search gap)
+- `docs/architecture/multilingual-localization.md` (the suite app strings bullet)
 
 ### Pull request 12: Menus, navigation and search settings
 
@@ -1274,6 +1283,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 
 - `proof/android/README.md`
 - `proof/README.md`
+- `docs/architecture/complex-apps.md` ("Never match")
 
 ### Pull request 13: Publish gates
 
@@ -1398,6 +1408,7 @@ Five kinds of file are given once, here, and are named under a pull request only
 **Docs**
 
 - `proof/README.md`
+- `docs/architecture/complex-apps.md` (the emitted app document; the `build_spec` paragraph; the empty app's floor)
 
 ### Pull request 14: Lookup, CSQL, media and the model clean-up
 
@@ -1573,6 +1584,8 @@ Five kinds of file are given once, here, and are named under a pull request only
 **Docs**
 
 - `proof/README.md`
+- `docs/architecture/complex-apps.md` (lookup export; the emitted app document)
+- `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (the lookup table description entry)
 
 ### Pull request 15: Contracts and public docs
 
@@ -1612,10 +1625,13 @@ Five kinds of file are given once, here, and are named under a pull request only
 **Docs**
 
 - `scripts/README.md` (the Job's line)
-- `docs/architecture/deployment.md` (the Job's paragraph)
+- `docs/architecture/deployment.md` (the Job's paragraph leaves; the evidence archive's sentence stays)
 - `docs/plans/hq-round-trip/2-cutover-runbook.md` (deleted)
 - `docs/plans/hq-round-trip/2-emission-and-publish.md` (deleted)
 - `docs/plans/hq-round-trip/2-emission-and-publish/` (deleted)
+- `docs/plans/hq-round-trip/README.md` (the step 2 row reads done; the "Step 2 is done" section)
+- `docs/plans/hq-round-trip/3-expressions.md` (citations of the deleted plan re-pointed)
+- `docs/plans/hq-round-trip/4-platforms.md` (citations of the deleted plan re-pointed)
 - `proof/README.md` (the retained reads' `cutover` clause)
 
 ## What every pull request of the stack does
