@@ -16,6 +16,8 @@ import {
 import { Input } from "@/components/tiptap-ui-primitive/input";
 import {
 	Popover,
+	PopoverDescription,
+	PopoverTitle,
 	PopoverTrigger,
 	ToolbarPopoverContent,
 } from "@/components/tiptap-ui-primitive/popover";
@@ -84,6 +86,7 @@ function ImageMain({
 					<div className="image-popover-fields">
 						<Input
 							type="url"
+							aria-label="Image address"
 							placeholder="Paste image URL"
 							value={url}
 							onChange={(e) => setUrl(e.target.value)}
@@ -97,6 +100,7 @@ function ImageMain({
 						/>
 						<Input
 							type="text"
+							aria-label="Image description"
 							placeholder="Alt text (optional)"
 							value={alt}
 							onChange={(e) => setAlt(e.target.value)}
@@ -205,6 +209,10 @@ export const ImagePopover = forwardRef<HTMLButtonElement, ImagePopoverProps>(
 				</PopoverTrigger>
 
 				<ToolbarPopoverContent>
+					<PopoverTitle className="sr-only">Insert image</PopoverTitle>
+					<PopoverDescription className="sr-only">
+						You can add an image address and a description.
+					</PopoverDescription>
 					<ImageMain
 						url={url}
 						setUrl={setUrl}
