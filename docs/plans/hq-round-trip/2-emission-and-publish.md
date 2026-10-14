@@ -125,14 +125,19 @@ reading left doubt:
   configuration (part 04); the hidden-from-menu table on Core, Formplayer, the
   Web Apps client and Android, Android through a `nav` request (part 06); plan
   privileges against HQ's own model over every corpus document (part 03); the
-  edit-kind rebalancing that `setAppSettings` causes (part 04); and every
+  edit-kind rebalancing that `setAppSettings` causes (part 04); every
   accepted media file in Chromium, Chrome, Firefox and WebKit on macOS and
-  in Chromium, Firefox and WebKit on Linux (part 08).
+  in Chromium, Firefox and WebKit on Linux (part 08); and pull request 6's
+  Core tests of a default in each of four placements, of a registration
+  form's default and calculation that read its own new case id, and of an
+  extension child's parent index, each on the local form and on HQ's
+  regenerated form, with the two container documents' checks beside the same
+  checks without the test fields (part 05).
 - The expiring IAM condition the cutover's grant carries, on the development
   project's key: accepted, decrypting within its window, refusing after it,
   and removed (part 10).
 
-**Written and not yet run.** Four runs are written as scratch on the lane and
+**Written and not yet run.** Three runs are written as scratch on the lane and
 have not been made. Each part states its design as the plan's and says in
 place that the run is outstanding; this list is every such place, and it is
 empty when the plan is complete.
@@ -154,20 +159,6 @@ empty when the plan is complete.
   fails at the exit state for it, the Connect determinism test, has not run
   there with the change and every reader (part 09, A build recreated under
   a stored part).
-- Pull request 6's Core tests of a default and a calculation that read a
-  form answer or the form's own new case id (part 05, Default values read
-  relatively; The registration case-id read and reads between case blocks): the five Hidden Values on the
-  container fixture (three on `init-add` for the four default placements,
-  two on `registration` for the own-id default and calculation),
-  `ContainerRuntimeTest.java::defaultsReadTheAnswerTheirPlacementNames` and
-  `::registrationFormReadsItsOwnNewCaseId` with the empty `casedb` the
-  class's environment gains, and
-  `CaseCaptureRuntimeTest.java::extensionParents` and `hqExtensionParents`
-  with the whole extension registration form (`registration.whole.hq.xml`)
-  that `proof/native/steps/case_emission.py` writes for them, are written
-  and have not run through HQ or Core. Emission with and without the five
-  fields has run: no document, edit kind or configuration moves, and files
-  differ only under `container-init-add` and `container-registration`.
 
 **Read from production**, as the operator's own identity, read only, and
 informing the design without any count entering this plan: HQ's default
