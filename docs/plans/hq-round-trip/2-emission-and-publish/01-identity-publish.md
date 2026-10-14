@@ -1553,9 +1553,12 @@ from `activeRemoteApp` and gains two flags beside it, so `get_deployment` and
   sentences step 2 rewrites, gives them; pull request 13 adds there that
   the new app's version check also precedes the Project data;
   "Preflight": the `target-app` edge; the contract row "a publish creates
-  afresh where the active `app` mapping's `remote_missing_at` is set, which
-  the step 2 cutover sets for a deployment whose HQ app HQ reports deleted:
-  the deployment stays, and its next publish makes a new app there");
+  afresh where the active `app` mapping's `remote_missing_at` is set: the
+  deployment stays, and its next publish makes a new app there", which
+  names no cutover. The column is set by a publish or a Check status that
+  hears HQ report the app gone, and by the step 2 cutover for a deployment
+  whose HQ app its read finds deleted; in none of them does the deployment
+  end);
   `lib/commcare/CLAUDE.md` (the `importApp` paragraph: an update
   answers 404 for an unknown id and 400 for a deleted app); root `CLAUDE.md`
   (the `lib/deployment` entry, whose "`resources` puts what the app depends
@@ -1997,7 +2000,10 @@ from it.
   (`proof/checks/controls.py::ARCHIVE_READERS` gives `edit/local.ccz` to
   the bar, intent, manifest and proof 5 alone). The two tests that hold
   these readings are under "Lane", and neither is written or run yet (the
-  main file, `2-emission-and-publish.md`, "Written and not yet run").
+  main file, `2-emission-and-publish.md`, "Written and not yet run"). The
+  plan adds no served-reader walk of an edited archive beside the unedited
+  app: each reading below is one owner's, a view of HQ's or Core's loader,
+  and each test holds it at that owner.
 
   | The worker's app asks | HQ, or Core, answers from | For an archive ahead of its HQ app |
   |---|---|---|
@@ -2215,7 +2221,8 @@ from it.
   `lib/deployment/actions.ts::readDownloadTargetsAction(appId)`, which needs
   `view` access and returns `{ targets: { server, domain }[], heldFromHq:
   string[] }`: `targets` from `readReachedDeploymentTargets`, and
-  `heldFromHq` the lines of the first row of "The inputs", read from the
+  `heldFromHq` the lines of the first row of "The inputs"
+  (`lib/deployment/downloadTarget.ts::selectionsHeldFromHq`), read from the
   committed document (loaded as `refreshDeploymentAction` loads it) only
   when `targets` is empty, and `[]` otherwise. It takes one string and
   returns plain JSON. It is a server action, so it adds no `/api` route and
@@ -2349,6 +2356,8 @@ from it.
     scope: DeploymentScope,
     input: { format: "ccz" | "json"; server?: CommCareServer; domain?: string; doc: BlueprintDoc },
   ): Promise<DownloadTarget | DownloadTargetRefusal>;
+  /** One line per selection of `doc` that CommCare HQ cannot take, in the builder's words. */
+  export function selectionsHeldFromHq(doc: BlueprintDoc): string[];
   ```
 
   - `resolveDownloadTarget` calls the new
@@ -2358,11 +2367,14 @@ from it.
     request 5 `emptyCaseListText` (part 02, Store functions)), then
     `chooseDownloadTarget`, then, for a `.ccz`,
     `readDeploymentIdentityOverrides` and `targetWireIdentity`. For a `.ccz`
-    with no reached deployment, and only then, it first reads
-    `hqNestedSelectionFindings(input.doc, "hq-upload")`, maps each finding
-    through `userFacingError` and hands the lines to `chooseDownloadTarget`
-    as `heldFromHq`, so the choice and its copy stay in the pure function
-    and both compile surfaces and `readDownloadTargetsAction` give the same
+    with no reached deployment, and only then, it first calls
+    `selectionsHeldFromHq(input.doc)`, a second export of
+    `lib/deployment/downloadTarget.ts`
+    (`hqNestedSelectionFindings(doc, "hq-upload")`, each finding mapped
+    through `userFacingError`), and hands the lines to
+    `chooseDownloadTarget` as `heldFromHq`. So the choice and its copy stay
+    in the pure function, and both compile surfaces and
+    `readDownloadTargetsAction`, which calls the same export, give the same
     lines. From pull
     request 5 it hands `target.emptyCaseListText` to `compileLocalArchive`,
     which passes it to `compileCcz` as `CompileOptions.emptyCaseListText`
@@ -3973,6 +3985,11 @@ with the comparison changed.
   its baselines).
 - The version floor, the `plan-features` edge, confirmations, the logo step
   and `applicationShell`'s `build_spec`: work item C (part 03).
+- The lookup push's stop for a plan without Lookup Tables, a new arm of
+  `lookupUploadFailure` that reads the `createdApp` argument this pull
+  request adds (A3. The publish sequence, "A stop at step 7 or 8 says what
+  the project space then holds"): pull request 14 (part 02, Defect 5: the
+  lookup push).
 - The profile `uniqueid` and versions of a `.ccz` (defect 9), which share
   `wireIdentity.ts`'s derivation family, and the profile keys of finding 40:
   work item D (part 04). Part 04, The local profile from step 2, lists the
