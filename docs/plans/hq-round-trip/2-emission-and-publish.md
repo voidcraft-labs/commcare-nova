@@ -497,8 +497,8 @@ Part 11 gives each sentence as it reads today and its replacement. In brief:
 - `lib/media/CLAUDE.md`: the formats every platform plays.
 - `lib/lookup/CLAUDE.md`: a 32-character tag pushes.
 - `lib/deployment/CLAUDE.md`: an HQ app is gone on a 404 or a deleted document
-  type; a publish creates afresh after the cutover ends a deployment whose HQ
-  app is gone; publish names capabilities.
+  type; a deployment whose HQ app is gone stays the same deployment, and its
+  next publish creates a new app there; publish names capabilities.
 - `lib/db/CLAUDE.md`: this horizon's baseline identity, and the notice tables.
 
 ## Exit

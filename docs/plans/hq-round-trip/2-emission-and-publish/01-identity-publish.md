@@ -1251,7 +1251,8 @@ What the sequence settles:
   it for its three. Every message takes two forms on one pattern:
   - `createdApp` false: the clause that says the app was not sent becomes
     "so Nova stopped before sending the app's content."
-  - `createdApp` true: the same first sentence, then "Nova created the app there, and it is empty for now."
+  - `createdApp` true: the same first sentence, then "Nova created the app
+    there, and it is empty for now."
   - The one arm that claims nothing changed says "Nothing on the project
     space changed." in the first form and "Nothing else on the project
     space changed." in the second.
@@ -1276,14 +1277,20 @@ What the sequence settles:
   | `pushLocations`, line 1145: a group answered 401 or 403 | "CommCare HQ wouldn't take this app's places for “`<domain>`”, so the app wasn't sent. Creating places needs the Edit Locations permission on your CommCare HQ account." | "CommCare HQ wouldn't take this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Creating places needs the Edit Locations permission on your CommCare HQ account." | "CommCare HQ wouldn't take this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Creating places needs the Edit Locations permission on your CommCare HQ account." |
   | `pushLocations`, line 1146: a group was refused | "CommCare HQ wouldn't take some of this app's places for “`<domain>`”, so the app wasn't sent. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there." | "CommCare HQ wouldn't take some of this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there." | "CommCare HQ wouldn't take some of this app's places for “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there." |
 
-  The same argument reaches the two other sentences a first publish can
-  meet after its create, and Check status's.
-  - *The read that fails after the create (step 5) or at the second read
-    (step 10), `hq_app_state_unknown`.* Today's two sentences say Nova
-    "left that app unchanged", which names an app the person has not seen
-    when this publish made it. With `createdApp` false they stay as they
-    are (2g's read always takes that form: an app read in preflight was
-    there before this publish). With `createdApp` true:
+  The same argument reaches three more sentences: the two a failed source
+  read gives, and Check status's.
+  - *A source read that fails after the create (step 5) or at the second
+    read (step 10), `hq_app_state_unknown`.* Today's two sentences are, for
+    a 401 or 403, "Nova couldn't read the current app on “`<domain>`”, so it
+    left that app unchanged. Reading it needs permission to edit apps in
+    CommCare HQ. Check the connected account, then publish again." and, for
+    any other failed read, "Nova couldn't safely read the current app on
+    “`<domain>`”, so it left that app unchanged. Check that the app still
+    opens in CommCare HQ, then publish again." Each names an app the person
+    has never seen when this publish made it. With `createdApp` false both
+    stay as they are, and 2g's read always takes that form, since an app
+    read in preflight was there before this publish. With `createdApp`
+    true:
     - a 401 or 403: "Nova couldn't read the app on “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again."
     - any other failed read: "Nova couldn't safely read the app on “`<domain>`”, so Nova stopped before sending the app's content. Nova created the app there, and it is empty for now. Check that the app opens in CommCare HQ, then publish again."
   - *Check status on a deployment whose publish stopped short
@@ -1296,8 +1303,9 @@ What the sequence settles:
     about it. Fix what stopped it and publish again."
 
   `pushLocations` has a fourth stop, the place whose parent was not pushed,
-  which the plan proves unreachable; its sentence says only that Nova
-  stopped, so it is unchanged. No sentence of `lib/deployment/CLAUDE.md`,
+  which the order of `planLocationResourcePush`'s batches makes unreachable
+  (today's comment there); its sentence says only that Nova stopped, so it
+  is unchanged. No sentence of `lib/deployment/CLAUDE.md`,
   of the public docs or of a tool's description quotes any of these
   messages. The docs sentences that say the same thing in their own words
   ("A publish that stopped on the data never sent the app", "before the app
@@ -1484,7 +1492,11 @@ from `activeRemoteApp` and gains two flags beside it, so `get_deployment` and
   `lib/deployment/importApplication.ts` (`HqImportApplicationUpdate` becomes
   `{ appId, source }`; `update: null` returns the shell),
   `lib/deployment/service.ts` (the sequence; `setupArtifactFor` reads
-  `publishedRemoteApp`), `lib/deployment/preflight.ts`
+  `publishedRemoteApp`; `createdApp` on `pushLookupTables`,
+  `lookupUploadFailure` and `pushLocations` with the nine stop messages,
+  the failed read's two sentences and Check status's, as "A stop at step 7
+  or 8 says what the project space then holds" gives them),
+  `lib/deployment/preflight.ts`
   (`PREFLIGHT_CHECK_IDS` gains `target-app`), `lib/deployment/resources.ts`
   (`plannedInPlaceUpdate`, `remoteAppHoldsContent`, `publishedRemoteApp`,
   `nextPublishAction`, `remoteAppReportedGone`), `lib/deployment/store.ts` (see below),
@@ -1516,20 +1528,32 @@ from `activeRemoteApp` and gains two flags beside it, so `get_deployment` and
   `get_deployment`, `refresh_deployment` and `compile_app` (A5, A6) are
   served by MCP alone, so they are in no model context Nova stores.
 - Docs: `content/docs/publishing.mdx` (the empty app a failed first publish
-  can leave, whether it stopped at the CommCare version, at a lookup table
-  or place, or at the update, and that it fills on the next publish; the empty app an
+  can leave, whether it stopped at a lookup table or place, or at the
+  update, and that it fills on the next publish; the empty app an
   interrupted publish can leave unknown to Nova, which can be deleted in
-  CommCare HQ; the two windows; a deleted HQ app is made afresh),
-  `content/docs/mcp/tools.mdx` (`hq_app_gone`, `hq_app_empty`).
+  CommCare HQ; a deleted HQ app is made afresh),
+  `content/docs/mcp/tools.mdx` (`hq_app_gone`, `hq_app_empty`). Two things
+  this pull request's docs text does not say, because neither is so at its
+  head. It names no CommCare version: no publish checks one until work item
+  C builds step 6 and 2g's floor in pull request 13, and that pull request
+  adds, to the same sentence of `publishing.mdx`, that a first publish can
+  also stop at the CommCare version of the app it has just made (part 03,
+  C1. The version floor). And it states no window: the check and the read
+  back are pull request 4's, which states both ("The windows", above).
 - CLAUDE.md: `lib/deployment/CLAUDE.md` ("Ownership": the explicit gone
-  marker and the shell; "One publish lifecycle": the sequence and the single
-  source read, and that on a first publish the empty shell and its version
-  check precede the Project data while the app's content still follows it,
-  with the state-ladder paragraph and its copy in
+  marker and the shell; "One publish lifecycle": the sequence, with its
+  source reads as "Requests per publish, and which read each decision
+  uses" gives them for this pull request's head, and that on a first
+  publish the empty shell precedes the Project data while the app's content
+  still follows it, with the state-ladder paragraph and its copy in
   `docs/architecture/complex-apps.md` rewritten as part 11, Contract
-  sentences step 2 rewrites, gives them; "Preflight": the `target-app` edge; the contract row "a publish
-  creates afresh after the cutover ends a deployment whose HQ app HQ reports
-  deleted"); `lib/commcare/CLAUDE.md` (the `importApp` paragraph: an update
+  sentences step 2 rewrites, gives them; pull request 13 adds there that
+  the new app's version check also precedes the Project data;
+  "Preflight": the `target-app` edge; the contract row "a publish creates
+  afresh where the active `app` mapping's `remote_missing_at` is set, which
+  the step 2 cutover sets for a deployment whose HQ app HQ reports deleted:
+  the deployment stays, and its next publish makes a new app there");
+  `lib/commcare/CLAUDE.md` (the `importApp` paragraph: an update
   answers 404 for an unknown id and 400 for a deleted app); root `CLAUDE.md`
   (the `lib/deployment` entry, whose "`resources` puts what the app depends
   on there BEFORE the app" the shell create makes false: part 11's row gives
@@ -1572,11 +1596,31 @@ layout (a full create, then updates), so they keep showing the re-minted ids.
 
 **Nova tests.** Each holds what Nova's own code does with HQ's answers: the
 order of its requests, what it records, what it refuses. The answers
-themselves are HQ's: every answer of HQ's views the loopback peer serves in
-these tests is read from `proof/hq-reads/publish/`, which the lane writes
-from HQ's own views and holds byte for byte ("Lane"). A test names the
-retained answer it serves; none writes an HQ answer by hand. What is no
-answer of HQ's views is made at the peer, and the test says which: a timeout
+themselves are HQ's: every source read, every refused update and every 429
+the loopback peer serves in these tests is read from
+`proof/hq-reads/publish/`, which the lane writes from HQ's own views and
+holds byte for byte ("Lane"). A test names the retained answer it serves,
+and none writes one of those by hand. Two kinds of HQ answer are written at
+the peer in this pull request, as `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`
+writes them today, and the test says which:
+- An accepted import: `{ "success": true, "app_id": <the id the test names>,
+  "version": <the version the test names> }`, with 201 for a create and
+  200 for an update. Those three fields and an optional `warnings` list are
+  all Nova reads of it (`lib/commcare/client.ts::importApp`), and the test
+  has to choose the id its later requests name.
+- The answers of the lookup table and place endpoints (the table list, the
+  workbook upload, the levels, the place list and a place batch). The lane
+  retains those views' answers from pull request 4 (part 02, The retained
+  HQ reads (`proof/hq-reads/`)), where the adapters' own tests read them, so
+  the stops of steps 7 and 8 are raised here by an answer the test writes,
+  in the shape `lib/commcare/hq/lookupTables.ts` and
+  `lib/commcare/hq/locations.ts` read: for the workbook, HTTP 200 with the
+  JSON `{ "code": 405, "message": <a line> }` (refused, nothing landed),
+  the same with `"code": 402` (taken in part), a 403, and a request whose
+  answer is lost; for a place batch, a 403, a 400 carrying HQ's sentence,
+  and a request whose answer is lost.
+
+What is no answer of HQ's views is made at the peer too: a timeout
 is the peer never answering inside the request's deadline; a 500 is a bare
 status with an empty body, since Nova reads nothing of a 5xx but its status
 and an empty body is no edge refusal (`lib/commcare/hq/http.ts::isEdgeRefusal`
@@ -1589,6 +1633,10 @@ form, which HQ does not send.
 | A first publish sends the shell create, the source read, the update naming derived ids, then media, in that order; for a document with a lookup table and a place, the workbook and the place requests come after the shell's source read and before a second source read and the update; the shell body's key set is exactly the row of the `APP_SHELL_KEYS` table for the pull request at hand (ten keys here; pull requests 5 and 13 each change this expectation with the list), with `modules: []`, `_attachments: {}`, no `multimedia_map`, no `logo_refs`, no `profile` and no `location_fixture_restore` | the requests Nova sends, read from an undici `MockAgent` peer (as `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts` does, over the documents of `lib/deployment/__tests__/publishFixtures.ts`) that serves the retained answers; real Postgres (`lib/deployment/__tests__/publishSequence.postgres.test.ts`) |
 | The create answers 201 and the read after it fails: the mapping is recorded with `pushedRevision` null, the publish refuses with `hq_app_state_unknown` at `resources` having sent no lookup or place request, and the next publish sends a source read and an update to the same app id, never a create | same |
 | A first publish of a document with a lookup table whose workbook HQ refuses: the shell's mapping is kept with `pushedRevision` null, the record is refused at `resources` and shows no rung past `preflight`, no update was sent, and the next publish sends no create, pushes the table and fills that same app | same |
+| Every stop of step 7 and of step 8 carries its two forms, word for word as "A stop at step 7 or 8 says what the project space then holds" gives them. On a first publish, each of the nine stops (the six lookup stops: a workbook refused with nothing landed, taken in part, answered 403, its answer lost, taken and then a failed table list, and taken with a pushed table missing from the list; the three place stops: a batch answered 403, refused with HQ's sentence, and its answer lost) refuses with its `createdApp` true message. The same stop on a republish to a deployment whose app holds content, and on the retry of that first publish, which sends no create, refuses with its `createdApp` false message. No message of either form holds "was not sent", "wasn't sent" or "wasn’t sent" | same |
+| The read after the create fails with a 403, and with a 500: the refusal's message is that failure's `createdApp` true sentence. The `target-app` read of an app that was there fails the same two ways: today's two sentences, unchanged | same |
+| `refresh_deployment` on a deployment whose first publish stopped at `resources` with the empty app mapped answers the sentence "This publish stopped before the app's content reached CommCare HQ, so checking there would say nothing about it. Fix what stopped it and publish again." and sends HQ nothing | real Postgres, a peer that fails the test on any request (`lib/mcp/__tests__/deploymentTools.postgres.test.ts`) |
+| `upload_app_to_hq` carries the stop to an MCP client. Its case "keeps lookup failure evidence and never sends the app after %s" is renamed "keeps lookup failure evidence and never sends the app's content after %s": it is a first publish, so the peer also answers the shell create and its source read, the write requests are the create and then the workbook and no update, the record's one live mapping is the empty app's with a null `pushedRevision`, and each mode's message holds "Nova created the app there, and it is empty for now." beside the line the case already reads | real Postgres with a peer (`lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`) |
 | The create answers 201 and the process stops before `recordCreatedRemoteApp` (the store call is made to throw): no mapping exists and the next publish sends a create. This is the stated window, pinned so a change to it is seen | same |
 | The shell is created, then the update is answered with the retained 404, with a 500, or times out: the mapping is kept with `pushedRevision` null, the record sits at `resources`, the next publish sends an update to the same app id and reports `created`; no second create is ever sent | same |
 | The update is answered with the retained 429 whose `Retry-After` is under a second, then 200: `importApp` waits that long (the test's clock) and resends once, and the publish lands. Answered 429 three times, or with the retained 429 whose `Retry-After` is about 15 seconds, it sends no further request, the publish refuses with `hq_rejected_upload`, and the mapping is kept | same, and pure for the header's parse (`lib/commcare/__tests__/client.test.ts`: the retained decimal header, an absent header, a date) |
@@ -1843,7 +1891,10 @@ from it.
   search and case fixture URLs name that deployment's HQ working app id, and
   it carries that deployment's recorded ids (A1). There is no `.ccz` for no
   project space: an app that is published nowhere is offered the HQ import
-  file and Preview, and its `.ccz` once it is published.
+  file and Preview, and its `.ccz` once it is published. One kind of app
+  that is published nowhere is offered Preview alone: an app that holds a
+  selection CommCare HQ cannot take, which can be neither published nor
+  made into an import file ("An app CommCare HQ cannot take", below).
 
   This withdraws a download people can make today. The person decided it
   for an app that searches, and it is settled for every app (finding 59) on
@@ -1922,6 +1973,150 @@ from it.
   planning: after an update that adds a related-case column to a search
   detail, the next call returns the new relationship at once, so a republish
   is read by the next search.
+- **A `.ccz` holds the document as it stands, and HQ answers it from what
+  the last publish left.** The archive is compiled from the stored document
+  at the moment of the download, as today's is
+  (`app/api/compile/prepareCompileRequest.ts` loads the app's blueprint,
+  and so does `compile_app`). The deployment gives it its addresses, its HQ
+  app id and its recorded ids, and nothing else: no rule ties the archive
+  to the document the last publish sent. So a document changed since that
+  publish gives an archive ahead of the HQ app it names. This is the plan's
+  design. Reason: it is what the download is today and what Preview runs, a
+  person checks a change on a phone before they publish it, and an archive
+  of the document as last published would differ from what the builder
+  shows and would leave an app whose publish is refused with no file at
+  all.
+
+  What HQ answers such an archive from is read here from HQ's and Core's
+  code at the lane's pins, and no run has shown it: every served reader
+  reads a document's local archive beside HQ's app of that same document,
+  and the edited document's archive is read by no served reader
+  (`proof/checks/controls.py::ARCHIVE_READERS` gives `edit/local.ccz` to
+  the bar, intent, manifest and proof 5 alone). The two tests that hold
+  these readings are under "Lane", and neither is written or run yet (the
+  main file, `2-emission-and-publish.md`, "Written and not yet run").
+
+  | The worker's app asks | HQ, or Core, answers from | For an archive ahead of its HQ app |
+  |---|---|---|
+  | Sign-in and sync (`ota-restore-url`) | The worker: their cases, their places, and every lookup table of the project space (`corehq/apps/fixtures/fixturegenerators.py::ItemListsProvider`). `corehq/apps/ota/views.py::get_restore_response` hands the restore the app the URL names, and the restore reads of it its location fixture setting (`corehq/apps/locations/fixtures.py::should_sync_flat_fixture`, `::should_sync_hierarchical_fixture`), its report, registry and call center configuration (`corehq/apps/app_manager/fixtures/mobile_ucr.py`, `corehq/apps/registry/fixtures.py`, `corehq/apps/callcenter/fixturegenerators.py`), and its id for the sync log. It reads no menu, no case list and no form. | The sync is the same whatever menus and forms the archive holds. The location fixture setting is the one the last publish wrote. |
+  | A lookup table (`jr://fixture/item-list:<tag>`) | Core reads the copy the restore brought before the copy in the archive: `org/commcare/core/sandbox/SandboxUtils.java::loadFixture` looks in the user's fixture storage, then the app's. Android and Formplayer call it after their own indexed storage (`org/commcare/utils/AndroidInstanceInitializer.java::setupFixtureData`, `org/commcare/formplayer/session/FormplayerInstanceInitializer.java::setupFixtureData`). | A signed-in worker reads the rows the project space holds, which are the last publish's push or a later edit in HQ. The archive's own rows are read only for a table the project space does not hold. A form that reads a column added since the last publish finds no such column there. |
+  | A form send (`PostURL`) | `corehq/apps/receiverwrapper/util.py::get_app_and_build_ids` reads the URL's app id and the app document's `copy_of`. Neither it nor `receiverwrapper/views.py` looks the form's `xmlns` up in the app. | A form HQ's app does not hold is received and recorded under that app id, with its case blocks applied. |
+  | A search (`/phone/search/<appId>/`) | The cases come from the request's own criteria. The related cases come from the search details of the app HQ holds (`corehq/apps/case_search/utils.py::get_app_context_by_case_type`: the relationship paths of the columns, and the child case types of the detail tabs, of every menu of that case type that searches). | The search answers. A related-case column added since the last publish gets no related case until the app is published again, which is the reading "A working app's id" (above) shows HQ clearing on every save. |
+- **An app CommCare HQ cannot take.** Nova admits two selections that both
+  HQ modes refuse with `HQ_NESTED_SELECTION_UNREPRESENTABLE`
+  (`lib/commcare/hqNestedSelection.ts::hqNestedSelectionFindings`, which
+  `lib/export/boundaryValidation.ts::prepareExportBoundary` runs for
+  `hq-json` and `hq-upload` after whole-document validation and never for
+  `ccz`): a child menu that lists the cases related to several cases
+  selected in its parent menu (`multiple-parent-relation`), and a child
+  menu of its parent's case type whose selection limit is smaller than the
+  parent's (`smaller-child-maximum`). Core runs both from the local suite:
+  `proof/native/core/NestedMenuRuntimeTest.java::childSelectionAndFormReadUseTheirOwnNativeSessionIdentity`
+  over the `parent-multiple` scenario of
+  `lib/commcare/__tests__/nestedMenuWireFixture.ts` (two selected parents
+  give both their children, where HQ's carrier gives none), and
+  `::localRequiresSmallerChildPromptAndRefusedHqCarrierBypassesIt` over
+  `same-smaller` (the child asks for its own selection of at most 4 after
+  a parent selection of at most 5, where HQ's carrier skips it). All of
+  that stays as it is. What changes is the file such an app can have, since
+  a `.ccz` is made only for a reached deployment. No path is added for it:
+  no file is made for no project space, and no deployment is made that
+  holds only the empty app. So what the app is offered depends on whether
+  it has a reached deployment, and this is the plan's design.
+
+  - *Published nowhere.* It can be neither published, nor made into an
+    import file, nor made into a `.ccz`. It runs in Preview alone until one
+    of two edits makes it publishable: the parent menu selects one case, or
+    the child menu's limit is raised to the parent's or more. Today its
+    `.ccz` downloads. This pull request withdraws that file with every
+    other `.ccz` for no project space ("Fix", above), and the notice
+    `ccz-needs-project-space` reaches every such app ("Stored shape and
+    migration").
+  - *Published before it gained the selection.* The publish is refused, so
+    HQ's app stays as the last publish left it. Its `.ccz` for that
+    project space is made from the document as it stands and carries the
+    selection. That is one case of an archive ahead of its HQ app (the
+    bullet above), and the selection itself runs on the device, over the
+    cases the sync brought, with no request to HQ (the two Core cases). A
+    search from such a child menu is answered from the search details of
+    the app HQ holds.
+
+  What each surface answers for an app that holds one of the two
+  selections:
+
+  | Surface | Published nowhere | With a reached deployment |
+  |---|---|---|
+  | The dialog, "CommCare HQ" | The publish is refused at `app-readiness` (`app_not_ready`), having sent nothing: "This app isn't ready to publish yet. Fix the issues below, then try again." and one line per finding. | The same. |
+  | The dialog, "CommCare HQ app file" | `/api/compile/json` answers 422, shown as the failure toast: "This app isn't ready to export. Fix the issues below, then try again." and the same lines. | The same. |
+  | The dialog, "CommCare mobile app file" | No select and no button: the copy of the reason `selection-held-from-hq` ("The refusals") and the same lines, as the fourth row of the dialog's states gives it. | The project-space select and "Download CCZ", as for any app. The archive carries the selection. |
+  | `compile_app`, `format: "ccz"` | `invalid_input`: `selection-held-from-hq`'s copy, then the same lines. | The archive, with `nova/target`. |
+  | `compile_app`, `format: "json"` | `invalid_input`: "This app isn't ready to compile. Fix these first: " and each finding's `message`. | The same. |
+  | `upload_app_to_hq` | `invalid_input`: "This app isn't ready to upload. Fix these first: " and the lines. | The same. |
+
+  **The lines.** Today's four sentences each send the person to a download
+  ("You can download the app to keep this selection", "Download the app to
+  keep this limit"), which from this pull request is no next step for an
+  app that is published nowhere. Each is rewritten to name both menus and
+  the one edit, and to say where the selection does run.
+  `hqNestedSelectionFindings` adds two details beside the
+  `sourceModuleUuid` and `targetModuleUuid` it gives today:
+  `sourceModuleName` and `targetModuleName`, each menu's name as the
+  document holds it. Below, `<parent>` is the source menu and `<child>` the
+  target; where a name is missing the lines read "the parent menu" and
+  "this menu". Executed during planning on the two fixtures at the lane's
+  head: the finding of each sits on the child menu, "Child care", with
+  "Parents" as its source, a source maximum of 5 and, for `same-smaller`, a
+  target maximum of 4.
+
+  `lib/doc/userFacingErrors.ts`, for `multiple-parent-relation`:
+
+  > CommCare HQ can't yet find the cases for "<child>" from several cases
+  > selected in "<parent>". You can set "<parent>" to select one case.
+  > Preview keeps this selection, and so does a CCZ for a project space the
+  > app is already published to.
+
+  For `smaller-child-maximum`:
+
+  > CommCare HQ can't yet keep the limit of <targetMaximum> selected cases
+  > in "<child>" under "<parent>", which selects up to <sourceMaximum>. You
+  > can raise the limit in "<child>" to <sourceMaximum> or more. Preview
+  > keeps this selection, and so does a CCZ for a project space the app is
+  > already published to.
+
+  `lib/commcare/hqNestedSelection.ts`, the finding's own `message`, which
+  `compile_app` prints for `format: "json"`. For `multiple-parent-relation`:
+
+  > CommCare HQ cannot filter the cases of "<child>" by several cases
+  > selected in "<parent>". Set "<parent>" to select one case to publish
+  > this app or make its import file. Preview keeps this selection, and so
+  > does a CCZ for a project space the app is already published to.
+
+  For `smaller-child-maximum`:
+
+  > CommCare HQ would reuse the selection of up to <sourceMaximum> cases
+  > from "<parent>" in "<child>", which is limited to <targetMaximum>. Raise
+  > the limit in "<child>" to <sourceMaximum> or more to publish this app or
+  > make its import file. Preview keeps this limit, and so does a CCZ for a
+  > project space the app is already published to.
+
+  **The other refusal that points at a download.** One more HQ-only finding
+  sends the person to a download today, and no other message of the export
+  boundary does: `LOOKUP_CELL_TEXT_CHANGED_BY_HQ`
+  (`lib/commcare/lookup/hqCellText.ts`), for a lookup cell whose leading or
+  trailing whitespace HQ would remove. Its two sentences end "or download
+  the app to preserve these values". From this pull request the download is
+  no way to keep them: an app published nowhere has no `.ccz`, and a
+  worker signed in with the `.ccz` of a published app reads the project
+  space's copy of the table before the archive's (the table above). Both
+  sentences lose that clause. `lib/doc/userFacingErrors.ts`: "The
+  "<column>" column in "<table>" has leading or trailing whitespace that
+  CommCare HQ would remove. You can remove that whitespace in Project
+  data." `hqCellText.ts`: "The "<column>" column in "<table>" has leading
+  or trailing whitespace in <count> row(s) that CommCare HQ would remove.
+  Remove that whitespace in Project data." An app stopped by this finding
+  and published nowhere meets `needs-published-project-space` like any
+  other, since Project data is where it is put right and no change to the
+  app is asked.
 - **The inputs.** `/api/compile` (the `.ccz`) and `compile_app` gain an
   optional `domain` beside the optional `server`. `T` is every reached
   deployment of the app (`readReachedDeploymentTargets`); `C` is `T` narrowed
@@ -3212,6 +3407,8 @@ derivation or the target's recorded override.
 | `lib/deployment/CLAUDE.md`, "Ownership" | a persisted upload failure says the mapped app is gone | `remote_missing_at` says it |
 | `lib/deployment/resources.ts`, the comment on `plannedInPlaceUpdate` | the inference and its imperfect corner | the explicit fact; the corner is closed |
 | `lib/deployment/service.ts`, the comment above `remoteAppMissing` | "The NEXT publish sees the failed upload phase" | the next publish sees `remoteMissingAt` |
+| `lib/deployment/service.ts`, the doc block above `lookupUploadFailure` | Nova supplies the part CommCare HQ cannot know, "that the app was held back because its data was" | Nova supplies the part CommCare HQ cannot know: that the app's content was held back because its data was, and, on a first publish, that the empty app is already there |
+| `lib/mcp/tools/uploadAppToHq.ts`, the file header | (a) "The app's Project data goes FIRST, before the app itself: an app whose selects read a table that is not there yet installs and misbehaves." (b) error 9, `hq_app_state_unknown`: "Nova could not safely read the current HQ app source immediately before an in-place update, so it left that app unchanged." | (a) The app's Project data goes before the app's content: content whose selects read a table that is not there yet installs and misbehaves. On a first publish the empty app is made first, and it holds nothing that reads a table. (b) Nova could not safely read the HQ app's source, in preflight, after a first publish's create or before the update, so it sent none of the app's content; after a create the empty app is there |
 | `lib/commcare/hq/appSource.ts`, the file header | reads only the profile bag | reads the whole source, bounded and validated |
 | `lib/commcare/multimedia/hqJsonExportArchive.ts`, the file header | an app that needs neither companion ships bare JSON | always the ZIP |
 | `lib/commcare/multimedia/bundle.ts`, the comment calling the map id a placeholder | present | deleted with `buildMultimediaMap` |
