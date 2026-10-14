@@ -99,6 +99,12 @@ The Tiptap toolbar retains its Radix popover adapter to preserve the editor's po
 `Description` parts for their accessible names and descriptions, with explicit
 labels on each address and image-description input.
 
+Docs use the current Fumadocs static-search hook and official dialog primitives.
+Their framework adapter projects the docs route parameters onto the public base
+URL; raw Next pathnames differ across the hostname rewrite during hydration.
+The 404 owns its named grid area directly, so no broad `main` selector controls
+ordinary library pages.
+
 ## Animation + DOM listeners
 
 Menu and popover entrances and exits fade without scaling. A nested popup may open before its parent finishes entering; changing the anchor's measured size during that transition feeds the child's width update back into ResizeObserver. Keep those dimensions stable, with the shared `MENU_POPUP_CLS` and `POPOVER_POPUP_CLS` owning the transition.

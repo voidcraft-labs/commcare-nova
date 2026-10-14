@@ -62,7 +62,12 @@ source and bundled docs. Upstream sources:
 The important fixes are abort/cancel completion, fresh model-output timeout
 budgets, stopping model-output timers while local tools execute, resumed-stream
 message identity, preservation of provider-executed calls, tool-error envelopes,
-and asynchronous auto-continuation failures. Nova uses these paths in
+and asynchronous auto-continuation failures. Unavailable tools now replay an
+omission notice instead of exposing their old output to the model. The replay
+test checks that behavior while retaining message/part order and local execution
+semantics. Durable-context recovery checks the peer's independently specified
+normalized token counts, rather than equating its accounting projection with
+provider-specific raw diagnostics. Nova uses these paths in
 `lib/chat/novaChatTransport.ts`, `components/chat/ChatContainer.tsx`,
 `app/api/chat/route.ts`, and the build/edit agents. Its provider-wire tests use
 the real SDK against a private HTTP peer, with no paid provider call.
@@ -124,12 +129,32 @@ core `^16.17.0`, but #735 supplied 16.16.2. Align core/UI to cooldown-eligible
 16.17 moves search highlighting to the CSS Custom Highlight API, introduces
 provider-specific search hooks, retires old stringifiers/highlight results,
 indexes tables by row, and derives processed Markdown/search records from the
-authored source. Nova uses the stock RootProvider static search and
-`createFromSource(source).staticGET`, not deprecated search hooks or custom
-highlight/stringifier APIs. Regenerating MDX and the production build regenerates
-the complete static search index and processed Markdown. Nova's custom code
-theme, docs translations, page renderer and LLM routes retain their supported
-interfaces. 16.17.1 additionally formats generated Markdown tables.
+authored source. The packaged default dialog still calls deprecated
+`useDocsSearch`; Nova now composes the official dialog primitives with the new
+`useStaticSearch` hook. It retains the generated `createFromSource(source).staticGET`
+index and shows a Nova-voiced refresh action when that index cannot load. There
+are no custom highlight/stringifier implementations. Regenerating MDX and the
+production build regenerates the complete index and processed Markdown.
+16.17.1 additionally formats generated Markdown tables.
+
+Actual browser checks exposed two integration changes that type-checking missed:
+
+- Ordinary pages are now direct `main` children. Nova's old broad 404 CSS rule
+  made them span the sidebar. Remove that obsolete rule and place the actual
+  404 in the named main area; its return destination uses the canonical docs base.
+- The new TOC trigger reads the page tree's current title. The hostname proxy
+  rewrites public `/` to internal `/docs`; a raw pathname made SSR render
+  “On this page” while hydration expected “Documentation”. Nova's supported
+  framework adapter derives the canonical path from `useParams().slug` and the
+  server-owned docs base URL. Native Next links/images and Nova's navigation
+  hook remain the framework implementations. This preserves the new active-title
+  feature without a client-only rendering gate or suppressed hydration warning.
+
+The browser check uses native HTTP forwarding into the real hostname proxy,
+production standalone app and generated index. It verifies unreadable-index
+recovery, results, actual CSS highlights, keyboard navigation, sidebar/content
+separation, the 404 return action and narrow-screen controls. Nova's code theme,
+server-owned translations and LLM routes retain their supported interfaces.
 
 The build's CSS optimizer warns about `::highlight`; this is valid browser CSS
 from Fumadocs, retained in the generated asset. It is not a source syntax error.
@@ -228,7 +253,9 @@ measurements; it does not enable direct DOM updates. Retain that layout ownershi
 
 Local checks: peer-tree inspection, type-check, lint/format, real media/MCP/chat
 transport tests (39 tests), provider transport/structured-output/SA wire
-checks (26 tests), and native Chromium link/image/formatting checks.
+checks (26 tests), retired-output replay (14 tests), the real Postgres/SDK durable
+accounting reproduction, and native Chromium link/image/formatting and production
+docs-search checks.
 The production build regenerates docs/search/LLM artifacts. Full PR CI adds the
 complete unit, Postgres, production-build, browser/app smoke and ordinary proof
 lanes. Their exact final outcome is recorded on the consolidated PR.

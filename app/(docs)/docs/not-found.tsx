@@ -6,10 +6,11 @@
  */
 import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
+import { DOCS_BASE_URL } from "@/lib/docs/source";
 
 export default function DocsNotFound() {
 	return (
-		<main className="flex w-full max-w-none flex-1 flex-col items-center justify-center gap-4 px-6 py-24 text-center">
+		<main className="[grid-area:main] flex w-full max-w-none flex-1 flex-col items-center justify-center gap-4 px-6 py-24 text-center">
 			<p className="text-sm text-fd-muted-foreground">404</p>
 			<h1 className="font-display tracking-tighter text-3xl text-fd-foreground">
 				I couldn't find that page
@@ -19,7 +20,7 @@ export default function DocsNotFound() {
 				docs home has everything that's here now.
 			</p>
 			<Button
-				render={<Link href="/" />}
+				render={<Link href={DOCS_BASE_URL} />}
 				nativeButton={false}
 				variant="secondary"
 			>
