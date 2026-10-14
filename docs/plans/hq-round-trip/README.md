@@ -12,7 +12,7 @@ changes" table.
 | Step | Plan | Depth |
 |---|---|---|
 | 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
-| 2 | [Emission and publish fixes](2-emission-and-publish.md) | work items, planned in full next |
+| 2 | [Emission and publish fixes](2-emission-and-publish.md) | planned in full |
 | 3 | [Expressions](3-expressions.md) | outline |
 | 4 | [Platforms](4-platforms.md) | outline |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
@@ -68,6 +68,11 @@ read it needs (finding 68). `proof/README.md` ("What the lane does not
 observe") holds what is outside the lane, a behavior that depends on nothing
 in Nova's app; everything that depends on Nova's export is observed.
 
+Step 2 settles the two rows this paragraph names. Its work item H takes
+defect 3's unknown-question warning off `targeted-save-to-case-read` (pull
+request 6), and Nova's gate refuses the read "20, CommTrack" needs (finding
+68, pull request 10).
+
 ## Why each later step is planned when the one before it exits
 
 Each defect part step 2 fixes that the lane reproduces is observed in the
@@ -90,10 +95,15 @@ before it exits, against the code as it then stands.
 - No rollouts, flags, leases or transitional cutovers.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local
-  checkouts of the Dimagi repositories at the research pins: commcare-hq `f57e85e02913` (with
-  `525becc2963` where the research names it), formplayer `24383ac71bfb`,
-  commcare-core `8e9ba8d908e9`, commcare-android `fd79cac4a0f1`, Vellum
-  `01215f251c57`, commcare-connect `4a200c9d9`. A subagent's brief carries the
+  checkouts of the Dimagi repositories at the commits `proof/pins.json` names
+  when the plan is written, which the plan states. Step 2's plan reads
+  commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
+  `7a5584475580`, commcare-connect `046c7fd78081` and formplayer
+  `24383ac71bfb`, with Vellum `01215f251c57` (the build HQ vendors at that
+  pin). The research cites commcare-hq `f57e85e02913` (with `525becc2963`
+  where it names it), commcare-android `fd79cac4a0f1` and commcare-connect
+  `4a200c9d9`; a plan re-verifies each fact it relies on at the pins it reads
+  and cites those. A subagent's brief carries the
   same rules: search every checkout for every reader of a value, read each
   reader's enclosing condition, never read a repo through `git show` or raw
   URLs, never switch a shared checkout, and execute where reading leaves doubt.
@@ -105,10 +115,41 @@ before it exits, against the code as it then stands.
 
 ## Nova since the research
 
-The research reads Nova `main` at `982d2630`. Main has since gained #699 and
-#701 (dependency upgrades, MCP OAuth scope challenges on the HQ tools, an MCP
-request-body cap) and the research itself (#698). None of them changes what the
-research says Nova does. The one consequence for these plans: from #701 every
-MCP tool that reads or writes HQ declares its scope through
-`lib/mcp/scopes.ts::oauthScopeChallenge`, so each new or changed HQ-facing MCP
-tool in these steps does the same.
+The research reads Nova `main` at `982d2630`. Step 2's plan reads it at the
+proof lane's merge onto `main`, which is `7b153dc3` or later. Between them:
+
+- #699 and #701 (dependency upgrades, MCP OAuth scope challenges on the HQ
+  tools, an MCP request-body cap) and the research itself (#698). From #701
+  every MCP tool that reads or writes HQ declares its scope through
+  `lib/mcp/scopes.ts::oauthScopeChallenge`, so each new or changed HQ-facing
+  MCP tool in these steps does the same.
+- #702 (worker journey evidence), and #703, these plans.
+- #704 to #707, step 1: the native proofs in the pinned harness, the surface
+  manifest with the flag probe reading its gates from it
+  (`config/commcare-hq-feature-flags.json` and the weekly flag audit are
+  gone), the proof lane with its register, and their docs. Two things moved
+  that later plans name: what a publish sends is assembled only in
+  `lib/deployment/importApplication.ts::hqImportApplication`, and a `.ccz`
+  only in `lib/export/localArchive.ts::compileLocalArchive`; the lane's
+  capture calls both.
+- #712 (authoring and worker-app behavior). It fixed finding 52 by rewriting
+  how a validation message is emitted (`lib/commcare/xform/constraintMessage.ts`):
+  a plain message is written on the bind and as the control's `<alert>`, and
+  one that shows an answer becomes the constraint-message expression, with a
+  new emitted node `nova_constraint_message_<question>` and itext forms named
+  `__nova_identity`, `__nova_mode`, `__nova_locale` and `__nova_piece_<n>`,
+  none of which the research's list of emitted nodes names. It also added the
+  previous-task projection to after-submit navigation
+  (`lib/commcare/previousTaskProjection.ts`, `lib/domain/navigation.ts`).
+- #717 and #722 (dependency upgrades; scripts now start with
+  `import "./lib/loadEnv"`), #723 and #724 (the lane on hosted runners), and
+  #716, which moved the upstream pins.
+- #729 (case-write findings, in `lib/commcare/caseWriteFindings.ts`), #730 (a
+  select's choices from the worker's available cases, a casedb itemset on
+  both export paths, `lib/commcare/caseOptions.ts`), #732 and #733.
+- #738, the proof lane's own pull request: every CommCare reader over Nova's
+  exports, with the registers and the pins step 2's plan reads.
+
+No defect the research lists changed behavior in that span but finding 52.
+Step 2's plan states, defect by defect, what it re-verified and where the
+code a fix touches has moved.

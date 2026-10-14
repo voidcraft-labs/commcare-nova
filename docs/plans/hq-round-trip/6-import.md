@@ -11,11 +11,21 @@ Planned in full when step 5 exits. The design is the research's "The reader",
    reason. It derives every entity's UUID as UUIDv5 over the new app's UUID and
    the per-kind key the research's table gives, so every reading of one HQ app
    gives the same ids. It treats HQ-generated content as derived and reads each
-   spelling of one meaning into Nova's one concept.
+   spelling of one meaning into Nova's one concept. It refuses an app that
+   carries a translation for a runtime UI-catalog key until step 7's
+   application-and-settings group holds UI string overrides: from step 2 Nova
+   leaves those keys at HQ's value on publish and holds none of them. It keeps
+   each imported form's `xmlns` in an optional stored slot this step adds:
+   step 2 derives every `xmlns` from the form's UUID and stores none, and an
+   imported form's is HQ's own.
 2. **The `hq-import` birth owner**, the third owner of the one genesis writer
    (`lib/db/appGenesis.ts`). Lookup tables and media are materialized in Project
    storage atomically with sequence 1, and the HQ app is recorded in the
-   deployment ledger as explicitly adopted.
+   deployment ledger as explicitly adopted. An import writes the ids its
+   target holds that differ from Nova's derivation into
+   `app_deployment_identities`, so this step gives the runtime role the write
+   privilege on that table: in step 2 the cutover is its only writer and the
+   runtime role can only read it.
 3. **Referenced and adopted project-space data.** A table or location an app
    only reads is recorded as referenced in its project space and never written
    there; adoption belongs to a Project table (or the app's location) and a
