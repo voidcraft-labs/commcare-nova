@@ -3,6 +3,11 @@ import { type ClientRequest, createServer, request } from "node:http";
 /** Forward a browser's native HTTP to the real application with its docs Host. */
 export async function docsHostPeer(baseURL: string) {
 	const target = new URL(baseURL);
+	if (
+		target.protocol !== "http:" ||
+		!["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)
+	)
+		throw new Error("Docs peer needs a local HTTP app");
 	const pending = new Map<ClientRequest, Promise<void>>();
 	const errors: Error[] = [];
 	let unreadableIndex = true;
@@ -14,9 +19,12 @@ export async function docsHostPeer(baseURL: string) {
 			return;
 		}
 		let cancelled = false;
+		const path = new URL(incoming.url ?? "/", "http://docs-peer.invalid");
 		const upstream = request(
-			new URL(incoming.url ?? "/", target),
 			{
+				hostname: target.hostname === "[::1]" ? "::1" : target.hostname,
+				port: target.port,
+				path: `${path.pathname}${path.search}`,
 				method: incoming.method,
 				headers: { ...incoming.headers, host: "docs.commcare.app" },
 				agent: false,
