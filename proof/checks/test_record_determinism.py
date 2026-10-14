@@ -8,8 +8,12 @@ inline is longer than a kilobyte (bytes are blobs). A part the store holds
 is read, not observed again, and what is observed under it is what an
 observation with nothing stored writes: under a held ``a``, A is recreated
 and the other parts come out byte-identical; under a held ``a`` and ``b``, B
-is recreated too and ``b_aligned`` comes out byte-identical. A fresh store
-observes every part and hands each to its audit, which finds it equal.
+is recreated too and ``b_aligned`` comes out byte-identical. A build made
+again asks HQ what the build first observed asked, so it leaves HQ as that
+build left it: where HQ writes as it answers (with USERCASE, the first time
+a build's identities are asked), the parts observed under a held ``a`` are
+still the first observation's. A fresh store observes every part and hands
+each to its audit, which finds it equal.
 Every input a part reads moves its key (the local archive proof 3's
 sessions replay on moves ``b_aligned``'s; what a hook declares it reads
 moves its state's), and what only the judges read moves none; the corpus's
@@ -27,7 +31,9 @@ A publish whose import HQ refused sends no media, as Nova's sends none.
 The plausible failures: entropy or a clock reached outside an operation (two
 observations mint different ids), a timing, a path or an unordered set in a
 record, a recreated A or B that is not the one first observed (the parts
-under it then differ), a key that misses an input (a stored part would
+under it then differ), a build made again that leaves out a read HQ writes
+on (the builds after it then write what the first observation's did not,
+and their records say so), a key that misses an input (a stored part would
 stand for one whose inputs changed) or reads a judge-only input (every edit
 to the register would observe again), a hook given another state at B-edit
 than at B, a same-as that hides what B-edit's own observation shows, and a
@@ -204,6 +210,46 @@ def test_a_stored_part_is_read_and_what_is_observed_under_it_is_unchanged(
     assert all(equal for _, equal in fresh.audits)
     _assert_each_put_holds_the_blobs_its_record_names(fresh, audited.blobs)
     assert sorted(key for key, _, _ in fresh.puts) == sorted(fresh.held)
+
+
+@pytest.mark.under_determinism
+def test_a_build_recreated_under_a_stored_part_leaves_hq_as_the_build_first_observed_left_it(
+    hq, core_runner, editor_driver, monkeypatch
+):
+    """A's first build asks HQ for its identities and, under USERCASE, HQ writes as it answers. A made again
+    under a stored ``a`` asks the same, so every part observed over it is the part first observed.
+
+    The write is HQ's own, inside a build, whatever reads the state after it: the document is observed without
+    the served hook, so the readers a run names are shown nothing here."""
+
+    def granted(document, name):
+        return "USERCASE" in document.exports[name].configuration.privileges
+
+    # HQ's case property map writes the project space's user field definition the first time a build's identities
+    # ask it, and only with USERCASE: the cheapest document a configuration of which grants it.
+    document, _ = _cheapest_where(
+        granted, "configuration grants USERCASE", shows="a build made again asking HQ what the first build asked"
+    )
+    monkeypatch.setattr(unit, "HOOKS", tuple(hook for hook in unit.HOOKS if hook[0] != "served"))
+    first = unit.observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
+    # The premise: under each configuration that grants the privilege A's build wrote, so there is a write for a
+    # recreated A to make or miss.
+    builds = {
+        name: [entry["wrote"] for entry in held.a["operations"] if entry["label"] == "build"]
+        for name, held in first.configurations.items()
+        if granted(document, name)
+    }
+    assert builds and all(wrote == [True] for wrote in builds.values()), (document.id, builds)
+    a_parts = {f"{name}/a" for name in first.configurations}
+    under = unit.observe_document(
+        document, core_runner=core_runner, editor_driver=editor_driver, store=DictStore(_store_of(first, a_parts))
+    )
+    # Each a is read from the store and A made again, and every other part the first observation observed is
+    # observed over it.
+    assert a_parts <= set(first.observed)
+    assert sorted(under.observed) == sorted(set(first.observed) - a_parts)
+    differing = sorted(name for name, held in first.digests().items() if under.digests().get(name) != held)
+    assert not differing, f"Under a stored a these parts of {document.id} came out other bytes: {differing}"
 
 
 def _inputs():
@@ -449,16 +495,16 @@ def test_records_name_their_blobs_and_read_back_whole():
 # Media: each publish's upload, replayed after its import ------------------------------------------------------
 
 
-def _cheapest_where(sends, what):
-    """The cheapest corpus document and configuration whose capture ``sends(document, name)``: ``(document, name)``."""
+def _cheapest_where(holds, what, shows="its upload replayed"):
+    """The cheapest corpus document and configuration for which ``holds(document, name)``: ``(document, name)``."""
     estimate = sharding.estimate(sharding.load_timings())
     found = [
         (estimate(document.group), document.id, name, document)
         for document in cases.load_corpus().emitted
         for name in sorted(document.exports)
-        if sends(document, name)
+        if holds(document, name)
     ]
-    assert found, f"The corpus holds no document whose {what}, so nothing shows its upload replayed."
+    assert found, f"The corpus holds no document whose {what}, so nothing shows {shows}."
     _, _, name, document = min(found, key=lambda entry: entry[:3])
     return document, name
 

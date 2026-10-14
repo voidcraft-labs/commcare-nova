@@ -11,8 +11,8 @@ worker's device (``android``) and CommCare Connect's own server (``connect``)
   default);
 - ``0``: none, the pull request lane's profile;
 - a comma list of ``formplayer``, ``webapps``, ``android`` and ``connect``:
-  those, for a person or an agent proving one reader's change on a slice
-  (``proof/README.md``, "Proving a reader change before you push"). Every
+  those, for a person or an agent running one reader over a slice
+  (``proof/README.md``, "Seeing a reader's verdict before a merge"). Every
   reader named brings Formplayer (``BRINGS``): the client replays Formplayer's
   walk, Connect receives the submissions it makes, and the served states a
   device is handed (B's, and proof 4's saves) are served along that walk.

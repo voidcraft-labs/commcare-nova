@@ -53,8 +53,11 @@ core.py::SoftAssert._call`` raises only under ``settings.UNIT_TESTING``, or
 Before a part is observed the store is asked for it (``store.lookup``): a
 part the store holds is not observed again. One it does not hold under
 parts it does recreates what it is observed over with the same operations,
-so the same state: A (create, its media, build, saved build) under a held
-``a``, and B (republish, its media, build) under a held ``b``. With
+so the same state: A (create, its media, the HQ-side saves where the document
+carries them, build, saved build) under a held ``a``, and B (republish, its
+media, build) under a held ``b``. A build made again asks HQ for its
+identities as the build first observed did and keeps none of the answer
+(``_build``), since HQ can write as it answers. With
 ``store.fresh`` every part is observed and handed to ``store.audit`` beside
 what the store held. While a part (or what it is observed over) is
 observed, the evidence store's guard (``proof.store.guard.observing``)
@@ -521,7 +524,7 @@ class _Built:
     archive: dict | None = None
 
 
-def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None, identities=True):
+def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None, keep=True):
     """HQ's build of the app the unit holds, Core's admission of it, and its identities, in one operation.
 
     The build reads the app freshly, with every cache emptied first
@@ -529,6 +532,13 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
     come back with it (by constant, else by slug). With ``configuration``, it is
     A's plain build (``proof.observe.sensitivity.plain_build``) and the
     project-space settings it read come back too; otherwise none do.
+
+    HQ is asked for the build's identities in every build. ``keep`` says
+    whether the unit keeps what it reads of the build. With it (a build
+    observed for a record) Core admits the build, and the identities and the
+    device archive come back. Without it (a build made again under a stored
+    part, whose record holds them) HQ is asked all the same and its answer is
+    dropped, and Core's admission and the device archive are left out.
     Returns ``(_Built, flags read, settings read)``.
     """
     from proof.hq.seams import build_seams
@@ -545,10 +555,16 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
             built = sensitivity.build(unit, unit.record, app_id, name, previous)
             flags = sorted({read.symbol or read.slug for read in unit.record.flags[first:]})
         found = archive = None
-        if identities:
-            with build_seams(previous=previous):
+        with build_seams(previous=previous):
+            if keep:
                 admit_build(core_runner, built.app, built.outcome)
-                found = app_identity(built.app, built.outcome.files, unit.domain)
+            # HQ's reads for the identities are made whether or not the unit keeps them, so a build recreated
+            # under a stored part leaves HQ's state as the build first observed left it: under USERCASE, HQ's
+            # case property map creates the project space's user field definition the first time it is asked
+            # (app_schemas/case_properties.py::_get_usercase_default_properties).
+            read = app_identity(built.app, built.outcome.files, unit.domain)
+            if keep:
+                found = read
                 archive = device_archive(built.outcome, built.app)
         doc = _json(built.app.to_json())
     return _Built(built.outcome, built.hq_build, found, doc, archive), flags, settings
@@ -654,7 +670,7 @@ class _Unit:
             "A",
             None,
             configuration=self.configuration if full else None,
-            identities=full,
+            keep=full,
         )
         with ops("save-build", b""):
             self.saved_a = self.a_built.hq_build.saved_build() if self.a_built.hq_build is not None else None
@@ -830,7 +846,7 @@ class _Unit:
         refused = self.publish_over_a(ops, captured, "B")["refused"]
         self.b_built = self.mark_b = None
         if refused is None and b_record.get("state") is not None:
-            built, _, _ = _build(self.unit, ops, self.core_runner, self.app_id, "B", self.saved_a, identities=False)
+            built, _, _ = _build(self.unit, ops, self.core_runner, self.app_id, "B", self.saved_a, keep=False)
             held = _built_from(b_record["state"], self.blobs, "B")
             built.outcome, built.doc, built.identities = held.outcome, held.doc, held.identities
             self.b_built, self.mark_b = built, self.unit.mark()

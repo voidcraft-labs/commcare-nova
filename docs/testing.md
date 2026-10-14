@@ -435,10 +435,11 @@ shards running blocks of groups packed from each profile's measured costs
 with every reader over what changed since main's last store snapshot, each
 week runs it whole and fresh (the run that proves the store's keys), a
 document too heavy for one worker observed in pieces, each opening an issue
-when it fails, and a change a reader would show is proven on a proof machine
-before it is pushed (`proof/README.md`, "The lane in CI", "Timings and what
-the lane is expected to take", "Documents observed in pieces" and "Proving a
-reader change before you push"). It is the one place a result is
+when it fails; someone who wants to see a reader's verdict before merging
+can start a run by hand over the documents the change touches
+(`proof/README.md`, "The lane in CI", "Timings and what the lane is expected
+to take", "Documents observed in pieces" and "Seeing a reader's verdict
+before a merge"). It is the one place a result is
 read rather than recomputed: an observation is reused only under a key that
 names every input it read (and the profile it ran in), a sample of documents
 is observed afresh and held to the store on every pull request, and the whole
