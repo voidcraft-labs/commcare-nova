@@ -195,6 +195,11 @@ External link generation belongs to a selected Publishing target and asks for
 that HQ project space's case IDs. Its evidence reads “Released build checked” with
 a time; it makes no guarantee about the build HQ later chooses for a recipient.
 
+**Docs search.** Matches stay highlighted while people choose a result. When the
+search index cannot load, offer a refresh in plain language and keep the docs
+available. The page contents and sidebar occupy separate tracks, including on
+a missing page; the contents control follows the current page and section.
+
 **References in wording.** A visible **Insert reference** action opens a searchable
 list of answers and properties, with names and paths together. Chips mean live
 values; typed or pasted hashtags are literal until explicitly converted. A

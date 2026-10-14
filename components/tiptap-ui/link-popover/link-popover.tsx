@@ -22,6 +22,8 @@ import {
 import { Input } from "@/components/tiptap-ui-primitive/input";
 import {
 	Popover,
+	PopoverDescription,
+	PopoverTitle,
 	PopoverTrigger,
 	ToolbarPopoverContent,
 } from "@/components/tiptap-ui-primitive/popover";
@@ -132,6 +134,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
 				<CardItemGroup orientation="horizontal">
 					<Input
 						type="url"
+						aria-label="Link address"
 						placeholder="Paste a link"
 						value={url}
 						onChange={(e) => setUrl(e.target.value)}
@@ -291,6 +294,10 @@ export const LinkPopover = forwardRef<HTMLButtonElement, LinkPopoverProps>(
 				</PopoverTrigger>
 
 				<ToolbarPopoverContent>
+					<PopoverTitle className="sr-only">Edit link</PopoverTitle>
+					<PopoverDescription className="sr-only">
+						You can add, open, or remove a link.
+					</PopoverDescription>
 					<LinkMain
 						url={url}
 						setUrl={setUrl}

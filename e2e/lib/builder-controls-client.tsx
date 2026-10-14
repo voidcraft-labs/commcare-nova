@@ -32,6 +32,7 @@ import { RelationPathBuilder } from "@/components/builder/shared/primitives/Rela
 import { SlotCardHeader } from "@/components/builder/shared/SlotCardHeader";
 import { reorderByKeyboard } from "@/components/builder/shared/useReorderableList";
 import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
+import { InlineTextEditor } from "@/components/preview/form/InlineTextEditor";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -946,6 +947,23 @@ function SetupFixture({ values = false }: { readonly values?: boolean }) {
 				<SetupFixtureContent values={values} />
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>
+	);
+}
+function InlineProseFixture() {
+	const [value, setValue] = useState(proseText("Hello"));
+	return (
+		<section style={{ marginTop: 160 }}>
+			<InlineTextEditor
+				value={value}
+				onSave={(next) => {
+					setValue(next);
+					return undefined;
+				}}
+				onCancel={() => {}}
+				fieldType="label"
+			/>
+			<output aria-label="Saved prose">{JSON.stringify(value)}</output>
+		</section>
 	);
 }
 function MarkdownFixture() {
@@ -2020,7 +2038,9 @@ if (!root) throw new Error("Missing fixture root");
 if (scenario === "chrome") root.style.maxWidth = "1800px";
 createRoot(root).render(
 	<StrictMode>
-		{scenario === "inline-validation" ? (
+		{scenario === "inline-prose" ? (
+			<InlineProseFixture />
+		) : scenario === "inline-validation" ? (
 			<InlineValidationFixture />
 		) : scenario === "chrome" ? (
 			<ChromeFixture />

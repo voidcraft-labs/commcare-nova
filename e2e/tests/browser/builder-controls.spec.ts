@@ -1688,6 +1688,52 @@ test("lookup choice sources stage complete identities, cancel cleanly and refuse
 	await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
+test("inline prose popovers expose their names and retain editing focus", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=inline-prose`);
+	const editor = page.getByRole("textbox", { name: "Label", exact: true });
+	await editor.click();
+	await editor.press("ControlOrMeta+a");
+	await page.getByRole("button", { name: "Link", exact: true }).click();
+	const link = page.getByRole("dialog", { name: "Edit link", exact: true });
+	await expect(link).toHaveAccessibleDescription(
+		"You can add, open, or remove a link.",
+	);
+	const address = link.getByRole("textbox", {
+		name: "Link address",
+		exact: true,
+	});
+	await expect(address).toBeFocused();
+	await address.fill("https://example.com/guide");
+	await address.press("Enter");
+	await expect(link).toHaveCount(0);
+	await expect(editor.locator("a")).toHaveAttribute(
+		"href",
+		"https://example.com/guide",
+	);
+	await editor.press("ArrowRight");
+	await page.getByRole("button", { name: "Image", exact: true }).click();
+	const image = page.getByRole("dialog", { name: "Insert image", exact: true });
+	await expect(image).toHaveAccessibleDescription(
+		"You can add an image address and a description.",
+	);
+	const imageAddress = image.getByRole("textbox", {
+		name: "Image address",
+		exact: true,
+	});
+	await expect(imageAddress).toBeFocused();
+	await imageAddress.fill(`${peer.origin}/native-image.svg`);
+	await image
+		.getByRole("textbox", { name: "Image description", exact: true })
+		.fill("Region symbol");
+	await imageAddress.press("Enter");
+	await expect(image).toHaveCount(0);
+	await expect(
+		editor.getByRole("img", { name: "Region symbol", exact: true }),
+	).toBeVisible();
+});
+
 test("markdown formatting fits a narrow inspector and native dialogs insert the requested content", async ({
 	page,
 }) => {

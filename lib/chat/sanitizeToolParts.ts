@@ -20,7 +20,10 @@
  * static tool type. Preserve that native conversion. A non-terminal missing
  * tool or a nonempty schema-invalid completed call still fails validation;
  * drop only those parts. Call + output ride one UIMessage part, so the wire
- * keeps matched pairs for everything that survives. Surrounding assistant
+ * keeps matched pairs for everything that survives. Model-message conversion
+ * replaces unavailable-tool outputs with the SDK's omission notice; the
+ * transcript remains readable without replaying retired output to the model.
+ * Surrounding assistant
  * text stays, and an assistant message with no parts left is dropped whole.
  * The SA re-reads doc state through its read tools when it needs what a
  * dropped part carried.

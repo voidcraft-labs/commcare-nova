@@ -56,4 +56,14 @@ function ToolbarPopoverContent(
 	);
 }
 
-export { Popover, PopoverContent, PopoverTrigger, ToolbarPopoverContent };
+const PopoverTitle = PopoverPrimitive.Title;
+const PopoverDescription = PopoverPrimitive.Description;
+
+export {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverTitle,
+	PopoverTrigger,
+	ToolbarPopoverContent,
+};

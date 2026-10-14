@@ -981,8 +981,20 @@ describe("durable model context", () => {
 				});
 				const next = await openDesignModelContext(spec());
 				expect(next.messages).toEqual([message, ...result.responseMessages]);
+				// Recovery exposes normalized accounting, not provider-specific raw
+				// diagnostics. Check the actual peer's independent token counts.
 				expect(next.completedSteps.map((item) => item.usage)).toEqual([
-					result.usage,
+					{
+						inputTokens: 11,
+						inputTokenDetails: {
+							noCacheTokens: 8,
+							cacheReadTokens: 3,
+							cacheWriteTokens: undefined,
+						},
+						outputTokens: 7,
+						outputTokenDetails: { textTokens: 5, reasoningTokens: 2 },
+						totalTokens: 18,
+					},
 				]);
 				await step({ ...args, messages: next.messages });
 			},

@@ -273,7 +273,17 @@ describe("reasoning repair after native retired-tool conversion", () => {
 					"text",
 					"dynamic-tool",
 				]);
-				expect(modelMessages).toEqual([
+				// The SDK may include optional undefined fields. Preserve the
+				// complete message/part order and local tool-execution semantics.
+				const assistantMessage = modelMessages.find(
+					(message) => message.role === "assistant",
+				);
+				const toolCall =
+					assistantMessage && Array.isArray(assistantMessage.content)
+						? assistantMessage.content.find((part) => part.type === "tool-call")
+						: undefined;
+				expect(toolCall?.providerExecuted).not.toBe(true);
+				expect(modelMessages).toMatchObject([
 					{
 						role: "user",
 						content: [{ type: "text", text: "Continue the plan" }],
@@ -307,7 +317,11 @@ describe("reasoning repair after native retired-tool conversion", () => {
 								type: "tool-result",
 								toolCallId: "call-2",
 								toolName: "searchBlueprint",
-								output: { type: "json", value: { matches: [] } },
+								output: {
+									type: "text",
+									value:
+										"Tool output omitted because the tool is no longer available.",
+								},
 							},
 						],
 					},

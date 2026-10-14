@@ -9,7 +9,7 @@ export const docs = defineDocs({
 	docs: {
 		/* `includeProcessedMarkdown` runs the `remarkLLMs` plugin against
 		 * each page during the MDX postprocess phase and exposes the
-		 * stringified result via `page.data.getText("processed")`. The
+		 * processed authored Markdown via `page.data.getText("processed")`. The
 		 * "processed" snapshot has JSX components stripped down to plain
 		 * Markdown — exactly what the `/llms.mdx/[[...slug]]` route and
 		 * the `MarkdownCopyButton` need to hand off to an LLM. Without
