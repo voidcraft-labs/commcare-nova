@@ -168,6 +168,12 @@ together with that space's addresses (part 04, Defect 9). Two of its three
 steps are executed separately: an update across two `uniqueid`s, and an
 update rewriting forced settings.
 
+A fifth is the same: pull request 5's predicate
+`proof/android/predicates.py::test_a_file_for_a_remade_hq_app_updates_a_phone_at_an_unchanged_sequence`,
+which holds that the file made after a deleted HQ app is made afresh
+updates a phone at an unchanged sequence, and that the same file with the
+profile's version left where it was does not (part 04, Defect 9).
+
 One more reading rests on code and on no run, and its tests are specified
 and not written: an archive ahead of its HQ app (part 01, A5). What HQ and
 Core answer such an archive from is read from their code at the pins. Pull
