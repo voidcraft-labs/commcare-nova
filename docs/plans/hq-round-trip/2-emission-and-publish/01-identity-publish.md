@@ -2048,7 +2048,7 @@ from it.
   |---|---|---|
   | The dialog, "CommCare HQ" | The publish is refused at `app-readiness` (`app_not_ready`), having sent nothing: "This app isn't ready to publish yet. Fix the issues below, then try again." and one line per finding. | The same. |
   | The dialog, "CommCare HQ app file" | `/api/compile/json` answers 422, shown as the failure toast: "This app isn't ready to export. Fix the issues below, then try again." and the same lines. | The same. |
-  | The dialog, "CommCare mobile app file" | No select and no button: the copy of the reason `selection-held-from-hq` ("The refusals") and the same lines, as the fourth row of the dialog's states gives it. | The project-space select and "Download CCZ", as for any app. The archive carries the selection. |
+  | The dialog, "CommCare mobile app file" | No select and no button: the copy of the reason `selection-held-from-hq` ("The refusals") and the same lines, as "The dialog's project-space choice" gives the state with no target and `heldFromHq` lines. | The project-space select and "Download CCZ", as for any app. The archive carries the selection. |
   | `compile_app`, `format: "ccz"` | `invalid_input`: `selection-held-from-hq`'s copy, then the same lines. | The archive, with `nova/target`. |
   | `compile_app`, `format: "json"` | `invalid_input`: "This app isn't ready to compile. Fix these first: " and each finding's `message`. | The same. |
   | `upload_app_to_hq` | `invalid_input`: "This app isn't ready to upload. Fix these first: " and the lines. | The same. |
@@ -2057,7 +2057,12 @@ from it.
   ("You can download the app to keep this selection", "Download the app to
   keep this limit"), which from this pull request is no next step for an
   app that is published nowhere. Each is rewritten to name both menus and
-  the one edit, and to say where the selection does run.
+  the one edit, and to say where the selection does run: in a `.ccz` (the
+  two Core cases above) and in Preview, which lists the children of every
+  selected parent and lets a same-type child reuse a selection only where
+  its limit has room for it (`lib/preview/CLAUDE.md`, "Menu selection and
+  Form launch are separate session facts";
+  `lib/domain/modules.ts::caseSelectionCanFlowBetweenModules`).
   `hqNestedSelectionFindings` adds two details beside the
   `sourceModuleUuid` and `targetModuleUuid` it gives today:
   `sourceModuleName` and `targetModuleName`, each menu's name as the

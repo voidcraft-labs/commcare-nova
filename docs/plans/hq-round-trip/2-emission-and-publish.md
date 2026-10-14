@@ -148,11 +148,12 @@ empty when the plan is complete.
   (`Export.content`): a six-document slice passes without the readers; the
   whole corpus, the other controls and the packages have not run under those
   names (part 01, A7).
-- The build recreated under a stored part (pull request 1): the cause of
-  the one package test that fails at the exit state is read from HQ's code
-  and the lane's, the fault is read to be there at the lane's head, and
-  neither of the two tests of the change has run with it (part 09, A build
-  recreated under a stored part).
+- The build recreated under a stored part: the lane's own pull request
+  holds the change and its test, which fails without the change and passes
+  with it at the lane's head, without the readers. The one package test that
+  fails at the exit state for it, the Connect determinism test, has not run
+  there with the change and every reader (part 09, A build recreated under
+  a stored part).
 - Pull request 6's Core tests of a default and a calculation that read a
   form answer or the form's own new case id (part 05, Default values read
   relatively; The registration case-id read and reads between case blocks): the five Hidden Values on the
