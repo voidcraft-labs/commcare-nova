@@ -35,6 +35,13 @@ so two records of one key, and the blobs they name, are held to each other
 but for those (``proof.store.audit.alike_but_for_draws``, in ``put``), the
 first is the one kept, and no document entry is kept.
 
+A group that follows pieces (``PROOF_GROUP_PIECES``, ``pieces``: a
+document's own group where the queue had each of its configurations observed
+by a group of its own, ``proof.lane.blocks``) reads every part from the store
+(the run's delta, where its pieces kept what they observed, and the snapshot,
+which held what they did not need to) and observes nothing
+(``proof.checks.observations.records_for``).
+
 The browser transcripts (``transcripts``) are kept the same way, by
 ``proof.store.keys.transcript_key`` under the document scope (the
 observation's and the browser's code, the platform, the environment): a
@@ -57,6 +64,7 @@ from proof.store import audit, disk, fingerprints, guard, keys
 
 STORE_ENVIRONMENT = "PROOF_STORE"
 FRESH_ENVIRONMENT = "PROOF_GROUP_FRESH"
+PIECES_ENVIRONMENT = "PROOF_GROUP_PIECES"
 OFF = "off"
 AUDIT = "audit"
 # A view's run spec kind (``proof.editors.pages.ViewSpec``); a Vellum run's is ``vellum``.
@@ -81,6 +89,13 @@ def snapshot(root: Path | None) -> disk.Snapshot:
     if held is None:
         held = _snapshots[str(root)] = disk.Snapshot(root)
     return held
+
+
+def pieces(environ=None) -> tuple[str, ...]:
+    """The pieces the group this process runs follows (``PROOF_GROUP_PIECES``, which the lane's worker sets from
+    the group's ``after``); none for any other group."""
+    named = (os.environ if environ is None else environ).get(PIECES_ENVIRONMENT, "")
+    return tuple(name for name in named.split(",") if name)
 
 
 def session_store(document=None, environ=None):

@@ -1,0 +1,439 @@
+package nova.proof.android;
+
+import android.content.Intent;
+
+import androidx.test.core.app.ApplicationProvider;
+
+import org.commcare.CommCareApp;
+import org.commcare.CommCareApplication;
+import org.commcare.CommCareTestApp;
+import org.commcare.CommCareTestApplication;
+import org.commcare.activities.InstallArchiveActivity;
+import org.commcare.android.database.global.models.ApplicationRecord;
+import org.commcare.android.util.TestAppInstaller;
+import org.commcare.engine.resource.AppInstallStatus;
+import org.commcare.models.database.user.DemoUserBuilder;
+import org.commcare.network.LocalReferencePullResponseFactory;
+import org.commcare.tasks.DataPullTask;
+import org.commcare.tasks.ResourceEngineTask;
+import org.commcare.tasks.ResultAndError;
+import org.commcare.utils.RobolectricUtil;
+import org.javarosa.core.util.PropertyUtils;
+import org.robolectric.Shadows;
+import org.robolectric.shadows.ShadowLooper;
+
+import org.commcare.AppUtils;
+import org.javarosa.core.model.User;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+
+/**
+ * The device the reader's observations run on: commcare-android's own application under Robolectric
+ * (CommCareTestApplication, the application the project's own tests run), with an archive installed through the
+ * app's own archive install and a restore applied through its own data pull.
+ *
+ * An archive is installed the way a worker installs one from a file: InstallArchiveActivity unzips it (UnzipTask)
+ * and registers the folder with the application's ArchiveFileRoot, and a ResourceEngineTask installs the profile
+ * that reference names, as CommCareSetupActivity starts one (ResourceInstallUtils.startAppInstallAsync). The task
+ * is the project's TestAppInstaller's, with two differences an observation needs: the install status is returned
+ * rather than asserted, and the app is not marked as having its media validated, so
+ * CommCareApp.areMMResourcesValidated reads what the profile gave it.
+ */
+final class Device {
+    // A name no restore registers: Android keeps one user record a name, and the device's own worker is
+    // made at login, before a restore brings the workers it registers.
+    static final String USERNAME = "nova-proof-device";
+    static final String PASSWORD = "123";
+    // The worker HQ made, where the device is served: they sign in with these (signIn).
+    private static String username;
+    private static String password;
+    private static boolean served;
+    /** Whether a walk changed what the worker's sandbox holds (a form saved, a claim's sync). */
+    static boolean dirty;
+    private static String restorePath;
+    private static String restoreReference;
+
+    private Device() {
+    }
+
+    static CommCareTestApplication application() {
+        return (CommCareTestApplication)CommCareApplication.instance();
+    }
+
+    // How long the app's unzip may take before the reader says it did not finish.
+    private static final long UNZIP_MILLIS = 120_000;
+
+    /**
+     * The reference InstallArchiveActivity hands back for the archive at {@code path}, unzipped by the app.
+     *
+     * The activity starts its UnzipTask from a message on the main looper, which Robolectric runs only when the
+     * looper idles, and hands its result back from another once the task's background thread ends. So the task
+     * may not be the activity's current one when the reader first waits for it, and its result may arrive after
+     * the looper last idled: the reader waits for whatever task is current and idles the looper, again, until
+     * the activity has handed back its result or finished, as the app's own looper would run on a device.
+     */
+    static String archiveReference(String path) {
+        try {
+            return unzipped(path);
+        } finally {
+            Opened.end();
+        }
+    }
+
+    private static String unzipped(String path) {
+        Intent intent = new Intent(ApplicationProvider.getApplicationContext(), InstallArchiveActivity.class);
+        intent.putExtra(InstallArchiveActivity.ARCHIVE_FILEPATH, path);
+        InstallArchiveActivity activity =
+                Opened.build(InstallArchiveActivity.class, intent).setup().get();
+        long deadline = System.nanoTime() + UNZIP_MILLIS * 1_000_000L;
+        Intent result = null;
+        while (true) {
+            RobolectricUtil.flushBackgroundThread(activity);
+            ShadowLooper.idleMainLooper();
+            result = Shadows.shadowOf(activity).getResultIntent();
+            if (result != null || activity.isFinishing() || System.nanoTime() > deadline) {
+                break;
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (result == null || !result.hasExtra(InstallArchiveActivity.ARCHIVE_JR_REFERENCE)) {
+            // What the activity shows the worker: its unzip's failure, where UnzipTask delivered one (an unzip that
+            // fails, or that unzipped nothing, leaves the activity open with its message and no result).
+            android.view.View message = ((android.view.Window) activity.getWindow())
+                    .findViewById(org.commcare.dalvik.R.id.screen_multimedia_install_messages);
+            android.widget.TextView shown =
+                    message instanceof android.widget.TextView ? (android.widget.TextView) message : null;
+            throw new IllegalStateException("Android's archive install did not unzip " + path
+                    + ": InstallArchiveActivity returned no archive reference"
+                    + (result == null && !activity.isFinishing() ? " within " + UNZIP_MILLIS / 1000 + " s" : "")
+                    + ", showing the worker " + (shown == null ? "nothing" : "\"" + shown.getText() + "\"") + ".");
+        }
+        return result.getStringExtra(InstallArchiveActivity.ARCHIVE_JR_REFERENCE);
+    }
+
+    /** Installs the archive at {@code path} as a new app and returns Android's install status. */
+    static AppInstallStatus install(String path) {
+        String reference = archiveReference(path);
+        ApplicationRecord record = new ApplicationRecord(PropertyUtils.genUUID().replace("-", ""),
+                ApplicationRecord.STATUS_UNINITIALIZED);
+        CommCareApp app = new CommCareTestApp(new CommCareApp(record));
+        final AppInstallStatus[] status = new AppInstallStatus[1];
+        final Exception[] failure = new Exception[1];
+        ResourceEngineTask<Object> task = new ResourceEngineTask<Object>(app, -1, false, false) {
+            @Override
+            protected void deliverResult(Object receiver, AppInstallStatus result) {
+                status[0] = result;
+            }
+
+            @Override
+            protected void deliverUpdate(Object receiver, int[]... update) {
+            }
+
+            @Override
+            protected void deliverError(Object receiver, Exception e) {
+                failure[0] = e;
+            }
+        };
+        task.connect(TestAppInstaller.fakeConnector);
+        try {
+            task.execute(reference).get();
+        } catch (Exception e) {
+            throw new IllegalStateException("Android's install task did not finish for " + path, e);
+        }
+        ShadowLooper.idleMainLooper();
+        if (failure[0] != null) {
+            throw new IllegalStateException("Android's install task raised for " + path, failure[0]);
+        }
+        return status[0];
+    }
+
+    /**
+     * The worker HQ made for the state the device is served, by the username they type at Android's sign-in
+     * (the name HQ gave them without the project space's, which Android's requests complete from the profile's
+     * cc_user_domain, HttpUtils.buildDomainUser) and their password, which they sign in with (signIn).
+     */
+    static void serve(JSONObject worker) throws Exception {
+        username = worker.getString("username");
+        password = worker.getString("password");
+        served = true;
+    }
+
+    /** Whether the device has a network and a worker of HQ's to sign in as. */
+    static boolean served() {
+        return served && Peer.on();
+    }
+
+    /**
+     * The worker signs in as on a worker's phone: the app's own sign-in pipeline (LoginController.performLogin,
+     * which LoginActivity's view model runs once its form is filled), which manages the worker's key record
+     * (ManageKeyRecordTask, asking the profile's key server for it), pulls their data with the app's own data
+     * pull and requester (DataPullTask, the profile's ota-restore-url, with the worker's own credentials and no
+     * session yet) and starts their session with the user the restore brought. Each request is the app's own,
+     * through the device's network. What the pipeline answered, as the app's own result.
+     *
+     * The pipeline runs as LoginActivity runs it, through the app's own view model (LoginViewModel.start), on the
+     * main thread, whose looper the reader runs until the view model holds the result.
+     */
+    static String signIn() {
+        // The test application's own start of a session (ProofApplication.startUserSession) makes up a user where
+        // the sandbox holds none and it was given a password to make one with, which a device signing in for the
+        // first time never has: it holds no user until its first restore brings one. So it is given none, and
+        // the pipeline goes on to the data pull as on a worker's phone.
+        application().setCachedUserPassword(null);
+        Peer.seed("sign-in");
+        Sensors.switchOn();
+        final org.commcare.login.LoginRequest request = new org.commcare.login.LoginRequest(
+                CommCareApplication.instance().getCurrentApp().getUniqueId(), username, password,
+                org.commcare.activities.LoginMode.PASSWORD, org.commcare.login.AuthSource.Manual, false, false,
+                false, org.commcare.activities.DataPullController.DataPullMode.NORMAL);
+        // What LoginActivity runs once its form is filled: its view model starts the pipeline in its own scope on
+        // the main thread, and hands the activity the result.
+        org.commcare.login.LoginViewModel model = new org.commcare.login.LoginViewModel(
+                (android.app.Application)ApplicationProvider.getApplicationContext());
+        final Object[] outcome = new Object[1];
+        model.start(request);
+        long deadline = System.nanoTime() + SIGN_IN_MILLIS * 1_000_000L;
+        while ((outcome[0] = model.getResult().getValue()) == null) {
+            ShadowLooper.idleMainLooper();
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("Android's sign-in did not end within " + SIGN_IN_MILLIS / 1000
+                        + " s.");
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        ShadowLooper.idleMainLooper();
+        if (outcome[0] instanceof Throwable) {
+            throw new IllegalStateException("Android's sign-in raised", (Throwable)outcome[0]);
+        }
+        if (outcome[0] instanceof org.commcare.login.LoginResult.Success) {
+            Cases.restored();
+        }
+        return String.valueOf(outcome[0]);
+    }
+
+    // How long the sign-in may take before the reader says it did not end.
+    private static final long SIGN_IN_MILLIS = 300_000;
+
+    /** A worker on the seated app, logged in, as the project's tests make one. */
+    static void login() {
+        CommCareApp app = CommCareApplication.instance().getCurrentApp();
+        DemoUserBuilder.buildTestUser(ApplicationProvider.getApplicationContext(), app, USERNAME, PASSWORD);
+        TestAppInstaller.login(USERNAME, PASSWORD);
+        // A worker's phone has its location switched on before any form asks for it.
+        Sensors.switchOn();
+    }
+
+    /**
+     * Applies the restore at {@code path} through Android's own data pull (DataPullTask), which reads the payload
+     * from a reference where the test application's requester stands in for the server
+     * (CommCareTestApplication.getDataPullRequester).
+     */
+    static String restore(String path) {
+        File file = new File(path);
+        String root = CommCareApplication.instance().getArchiveFileRoot().addArchiveFile(file.getParent());
+        String reference = "jr://archive/" + root + "/" + file.getName();
+        restorePath = path;
+        restoreReference = reference;
+        org.commcare.network.CommcareRequestEndpointsMock.setCaseFetchResponseCodes(new Integer[]{200});
+        LocalReferencePullResponseFactory.setRequestPayloads(new String[]{reference});
+        CommCareApplication.instance().getCurrentApp().getAppPreferences().edit()
+                .putString("key_server", null).commit();
+        final Object[] outcome = new Object[2];
+        DataPullTask<Object> task = new DataPullTask<Object>(USERNAME, PASSWORD, null, "fake.server.com",
+                ApplicationProvider.getApplicationContext(), LocalReferencePullResponseFactory.INSTANCE,
+                false, false, false) {
+            @Override
+            protected void deliverResult(Object receiver, ResultAndError<PullTaskResult> result) {
+                outcome[0] = result.data;
+                outcome[1] = result.errorMessage;
+            }
+
+            @Override
+            protected void deliverUpdate(Object receiver, Integer... update) {
+            }
+
+            @Override
+            protected void deliverError(Object receiver, Exception e) {
+                outcome[0] = e;
+            }
+        };
+        task.connect(TestAppInstaller.fakeConnector);
+        try {
+            task.execute().get();
+        } catch (Exception e) {
+            throw new IllegalStateException("Android's data pull did not finish for " + path, e);
+        }
+        ShadowLooper.idleMainLooper();
+        if (outcome[0] instanceof Exception) {
+            throw new IllegalStateException("Android's data pull raised for " + path, (Exception)outcome[0]);
+        }
+        become();
+        Cases.restored();
+        return String.valueOf(outcome[0]) + (outcome[1] == null || "".equals(outcome[1]) ? "" : ": " + outcome[1]);
+    }
+
+    /**
+     * The worker the restore registered becomes the device's worker, as the worker who logged in is on a real
+     * device: there the first restore brings the worker's own record and the session starts with it
+     * (DataPullTask, CommCareApplication.startUserSession reads the user by the key record's name). The test
+     * application makes its worker before any restore, under a name of its own, so the session is given the
+     * worker the restore brought by the app's own call for it, the one its data pull makes once a restore has
+     * written the worker's record (DataPullTask.updateCurrentUser, CommCareSessionService.setCurrentUser).
+     *
+     * Never by starting the session again: the app starts a session once on a service, and a second start under
+     * the service's own maintenance timer can end the session at once. Each second the timer reads the time,
+     * waits for the lock a start holds, then expires a session that ends further ahead of that time than its
+     * length ("the system's clock is altered", CommCareSessionService.timeToExpireSession), which is what a
+     * start that moved the end while the timer waited leaves. Home then finds no session and makes no session
+     * navigator, and the request's one walk is what the reader raised reading it. On a machine at twice its
+     * processors that was one request in seven.
+     */
+    private static void become() {
+        for (User user : CommCareApplication.instance().getUserStorage("USER", User.class)) {
+            if (!USERNAME.equals(user.getUsername())) {
+                CommCareApplication.instance().getSession().setCurrentUser(user, PASSWORD);
+                return;
+            }
+        }
+    }
+
+    /** The reference a sync reads the server's restore from (the one the device was restored from), or null. */
+    static String restoreReference() {
+        return restoreReference;
+    }
+
+    /** A worker's own settings, written where Android's settings screen writes them. */
+    static void prefer(JSONObject preferences) throws Exception {
+        if (preferences == null) {
+            return;
+        }
+        android.content.SharedPreferences.Editor editor =
+                CommCareApplication.instance().getCurrentApp().getAppPreferences().edit();
+        JSONArray names = preferences.names();
+        for (int i = 0; names != null && i < names.length(); i++) {
+            editor.putString(names.getString(i), preferences.getString(names.getString(i)));
+        }
+        editor.commit();
+    }
+
+    // How long the reader waits for what an earlier walk set running to end.
+    private static final long SETTLE_MILLIS = 120_000;
+
+    /**
+     * Waits until nothing an earlier walk set running is still running: every task the app keeps in its own list
+     * of running tasks (ManagedAsyncTask, its form loads and saves, its list loads) has ended and handed its
+     * result to the main thread. A list's load the walk left behind is otherwise still pending when the next walk
+     * opens the same list, which takes the pending load over (EntityLoaderTask.pendingTask) and reads cases from
+     * the storage the reset has since closed; a worker's device has long finished such a load before its data is
+     * cleared or the list opened again.
+     *
+     * The app also starts tasks of its own that are not in that list, on AsyncTask's pool: the log submission
+     * every sign-in starts (CommCareApplication.doReportMaintenance, CommCareUtil.executeLogSubmission) and the
+     * images a list loads (CachingAsyncImageLoader). Each is waited for until no thread of the pool is running
+     * one, so a request a sign-in started reaches HQ in the sign-in's own place and never in whichever walk is
+     * under way when it arrives.
+     */
+    @SuppressWarnings("unchecked")
+    static void settle() throws Exception {
+        java.lang.reflect.Field field =
+                org.commcare.tasks.templates.ManagedAsyncTask.class.getDeclaredField("livingTasks");
+        field.setAccessible(true);
+        java.util.List<android.os.AsyncTask<?, ?, ?>> living =
+                (java.util.List<android.os.AsyncTask<?, ?, ?>>)field.get(null);
+        long deadline = System.nanoTime() + SETTLE_MILLIS * 1_000_000L;
+        while (true) {
+            ShadowLooper.idleMainLooper();
+            java.util.List<android.os.AsyncTask<?, ?, ?>> running = new java.util.ArrayList<>();
+            synchronized (living) {
+                for (android.os.AsyncTask<?, ?, ?> task : living) {
+                    if (task.getStatus() != android.os.AsyncTask.Status.FINISHED) {
+                        running.add(task);
+                    }
+                }
+            }
+            if (running.isEmpty()) {
+                String busy = busyPoolThread();
+                if (busy == null) {
+                    return;
+                }
+                if (System.nanoTime() > deadline) {
+                    throw new IllegalStateException("A task the app set running on AsyncTask's pool (on " + busy
+                            + ") did not end within " + SETTLE_MILLIS / 1000 + " s.");
+                }
+                Thread.sleep(10);
+                continue;
+            }
+            for (android.os.AsyncTask<?, ?, ?> task : running) {
+                long left = deadline - System.nanoTime();
+                try {
+                    task.get(Math.max(1, left / 1_000_000L), java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.CancellationException | java.util.concurrent.ExecutionException ended) {
+                    // The task ended either way; its end reaches the main thread below.
+                } catch (java.util.concurrent.TimeoutException running_) {
+                    throw new IllegalStateException("A task an earlier walk set running (" + task.getClass().getName()
+                            + ") did not end within " + SETTLE_MILLIS / 1000 + " s.");
+                }
+            }
+        }
+    }
+
+    /**
+     * A thread of AsyncTask's pool (AsyncTask.THREAD_POOL_EXECUTOR, whose threads its factory names "AsyncTask
+     * #n") that is running a task, or null where every one waits for work. A thread waits for work only inside
+     * ThreadPoolExecutor.getTask; one anywhere else is running a task or about to, a thread the pool started for a
+     * task it was handed included, so a task handed to the pool before this is asked is never missed.
+     */
+    private static String busyPoolThread() {
+        for (java.util.Map.Entry<Thread, StackTraceElement[]> entry : Thread.getAllStackTraces().entrySet()) {
+            Thread thread = entry.getKey();
+            if (!thread.getName().startsWith("AsyncTask #") || !thread.isAlive()) {
+                continue;
+            }
+            boolean waiting = false;
+            for (StackTraceElement frame : entry.getValue()) {
+                if ("java.util.concurrent.ThreadPoolExecutor".equals(frame.getClassName())
+                        && "getTask".equals(frame.getMethodName())) {
+                    waiting = true;
+                    break;
+                }
+            }
+            if (!waiting) {
+                return thread.getName();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The device as it was before any walk changed the worker's data: the worker's session closed and sandbox
+     * wiped by the app's own calls (CommCareApplication.closeUserSession, AppUtils.wipeSandboxForUser, what the
+     * app's Clear User Data runs), the worker made and logged in again, and the restore applied again.
+     */
+    static void reset() {
+        CommCareApplication.instance().closeUserSession();
+        if (served()) {
+            AppUtils.wipeSandboxForUser(username);
+            signIn();
+        } else {
+            AppUtils.wipeSandboxForUser(USERNAME);
+            login();
+            if (restorePath != null) {
+                restore(restorePath);
+            }
+        }
+        Forms.openedIn = -1;
+        dirty = false;
+    }
+}

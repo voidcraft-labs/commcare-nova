@@ -38,6 +38,24 @@ Contracts (``proof.lane.serve``):
   completion, and a deadlock when the claim waits on that block), and the
   session torn down and its services started again for the next group.
 
+- A document queued in pieces (``proof.lane.blocks``: each configuration
+  observed by a group of its own, the document's group after them) is
+  judged from the same records as the document observed whole: over two real
+  documents, every check's evidence, every record part the run's store keeps
+  and each document's entry are the same bytes in the two runs, each piece
+  observed its own configuration, and the document's own group observed
+  nothing (which worker ran which piece is the broker's to say, and
+  ``test_broker`` holds it). The
+  plausible failures: a piece observing its configuration otherwise than the
+  whole observation does (state another configuration's unit would have
+  left, a part kept under another key), the document's group observing again
+  what its pieces kept, or reading a record that is not the one they kept.
+- A lane that keeps no store fails each piece before it observes, the
+  document's group is failed by its piece's name and never run, and nothing
+  of the document is observed. The plausible failure: the pieces observing
+  into nothing and the document's group then observing it whole, twice the
+  work on the one worker the pieces exist to spare.
+
 HQ mints its ids (``uuid.uuid4().hex``, 32 hexadecimal digits:
 ``corehq/apps/app_manager/util.py::update_form_unique_ids``, and the app's
 id) afresh in every run the checks make outside a keyed HQ operation, and
@@ -69,20 +87,42 @@ import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from proof import processes
 from proof.checks import cases, sharding
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 
 PROOF = sharding.PROOF_DIR
 WORKTREE = PROOF.parent
 INI = PROOF / "pytest.ini"
-# Lane positions no lane runs: the nested server's databases are proof_hq_w701_ and on.
+# Lane positions no lane runs, ten for each of the lane's own workers: the nested servers of the worker at position
+# i name their databases proof_hq_w<701 + 10 i>_ and on, so this module's tests, split into groups of their own
+# (proof.checks.sharding.SPLIT) and run by different workers at once, never meet in one database.
 NESTED_BASE = 700
+
+
+def _nested_base() -> int:
+    """The first lane position this worker's nested servers take: read as each runs, since the lane's server
+    imports this module before it forks the worker that runs it."""
+    return NESTED_BASE + 10 * sharding.parse_shard(os.environ.get("PROOF_WORKER", "1/1"), "PROOF_WORKER")[0]
+
+
 DEADLINE_SECONDS = 1200
 # How long an interrupted run has to stop what it started before its group is killed.
 GRACE_SECONDS = 120
 # What the nested runs must not inherit from the session running this test: they are runs of their own.
-INHERITED = ("PROOF_OUT", "PROOF_GROUP", "PROOF_BLOCK", "PROOF_GROUP_FRESH", "PROOF_CORE_CLASSES", "PROOF_WORKER")
+INHERITED = (
+    "PROOF_OUT",
+    "PROOF_GROUP",
+    "PROOF_BLOCK",
+    "PROOF_GROUP_FRESH",
+    "PROOF_GROUP_PIECES",
+    "PROOF_LANE_PIECES",
+    "PROOF_CORE_CLASSES",
+    "PROOF_WORKER",
+)
 # An id HQ mints: uuid.uuid4().hex.
 HQ_ID = re.compile(r"\b[0-9a-f]{32}\b")
 # The fields each check's evidence records timings in, by path ("*": every element of a list).
@@ -109,6 +149,19 @@ class Finished:
 
     def tail(self) -> str:
         return self.output[-9000:]
+
+
+def _failure_section(output: str, name: str) -> str:
+    """The section pytest wrote for the failed item ``name`` (from its ``___ name ___`` heading to the next), or a
+    note that the output holds none."""
+    # A forked worker's lines come prefixed with its name (``[w1] ``).
+    lines = [line.split("] ", 1)[1] if line.startswith("[w") and "] " in line else line for line in output.splitlines()]
+    starts = [index for index, line in enumerate(lines) if line.startswith("_") and line.strip("_ ").endswith(name)]
+    if not starts:
+        return f"(no failure section for {name} in this output)"
+    first = starts[0]
+    end = next((index for index in range(first + 1, len(lines)) if lines[index].startswith("___")), len(lines))
+    return "\n".join(lines[first:end])[:6000]
 
 
 def _run_to_end(command, log: Path, **extra) -> Finished:
@@ -140,7 +193,7 @@ def _run_to_end(command, log: Path, **extra) -> Finished:
 
 def _serve(out, pytest_args=(), *, workers=2, options=(), **extra) -> Finished:
     command = [sys.executable, "-m", "proof.lane.serve", "--out", out, "--workers", workers]
-    command += ["--worker-base", NESTED_BASE, *options]
+    command += ["--worker-base", _nested_base(), *options]
     if pytest_args:
         command += ["--", *pytest_args]
     return _run_to_end(command, Path(f"{out}.log"), **extra)
@@ -390,7 +443,7 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
         tmp_path / "plain.log",
         PROOF_OUT=str(plain_out),
         **_own_corpus(corpus),
-        PROOF_WORKER=f"{NESTED_BASE + 3}/{NESTED_BASE + 3}",
+        PROOF_WORKER=f"{_nested_base() + 3}/{_nested_base() + 3}",
     )
     assert plain.returncode in (0, 1), plain.tail()
 
@@ -420,7 +473,16 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
         plain_outcomes[case.get("classname").rsplit(".", 1)[-1], case.get("name")] = {"failure": "failed"}.get(
             outcome, outcome
         )
-    assert plain_outcomes == forked_outcomes and forked_outcomes
+    # Where the two disagree, the side whose item failed says why, in that item's own section of its output.
+    assert plain_outcomes == forked_outcomes and forked_outcomes, "\n".join(
+        [f"{plain_outcomes} != {forked_outcomes}"]
+        + [
+            _failure_section(side.output, name)
+            for (module, name), outcome in sorted(plain_outcomes.items())
+            if forked_outcomes.get((module, name)) != outcome
+            for side in (plain, forked)
+        ]
+    )
 
     # Both runs observed every document themselves, so the evidence below is two observations', not one store's.
     for out in (plain_out, forked_out):
@@ -443,12 +505,15 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
 # A CI shard: claims over two queues -------------------------------------------------------------------
 
 
-def _queue_file(path, *groups_per_block):
+def _queue_file(path, *groups_per_block, readers=None):
+    """A queue of ``groups_per_block``, built for the readers the nested run inherits (``proof.lane.readers``)
+    unless ``readers`` names another set."""
     blocks = tuple(
         lane_blocks.Block(lane_blocks.block_id(names), 1.0, tuple(lane_blocks.QueuedGroup(name) for name in names))
         for names in groups_per_block
     )
-    lane_blocks.write_json(path, lane_blocks.queue_json(lane_blocks.Queue(blocks)))
+    built = lane_readers.named() if readers is None else readers
+    lane_blocks.write_json(path, lane_blocks.queue_json(lane_blocks.Queue(blocks, readers=built)))
     return blocks
 
 
@@ -518,9 +583,7 @@ def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_
 
 # One cheap item using the Core runner in each of two packages (pytest's -k, through PYTEST_ADDOPTS, which the
 # server's collection and every worker's session read alike).
-CORE_RUNNER_ITEMS = (
-    "test_unknown_markup_is_a_warning_not_a_failure or test_a_build_reads_the_same_filter_errors_from_either"
-)
+CORE_RUNNER_ITEMS = "test_a_missing_archive_entry_is_named or test_a_build_reads_the_same_filter_errors_from_either"
 # Claims the first block at once, and the second only once the first block's manifest is written.
 SLOW_CLAIM = """#!/bin/sh
 if [ "$1" = "{first}" ]; then exit 0; fi
@@ -554,6 +617,16 @@ def test_an_early_queue_holding_a_group_that_reads_the_corpus_is_refused_before_
     ]
     # Refused before anything was booted, restored or compiled.
     assert record["fixed"] == {} and "Booted HQ" not in finished.output
+
+    # A queue built for another set of readers (proof.lane.readers): its groups and keys are that set's.
+    other = tmp_path / "other.json"
+    _queue_file(other, ["proof/core"], readers=lane_readers.NONE if lane_readers.served() else lane_readers.EVERY)
+    out = tmp_path / "other-out"
+    finished = _serve(out, options=["--early-queue", other, "--claim", "static"])
+    assert finished.returncode == 2, finished.tail()
+    [problem] = json.loads((out / lane_blocks.SERVE).read_text())["problems"]
+    assert problem.startswith(f"The queue {other} was built for") and "the other set's" in problem
+    assert "Booted HQ" not in finished.output
 
 
 def test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings(tmp_path):
@@ -611,3 +684,133 @@ def test_a_shard_whose_corpus_emission_failed_runs_its_early_blocks_and_fails_by
     record = json.loads((out / lane_blocks.SERVE).read_text())
     assert [manifest["block"] for _, manifest in lane_blocks.read_manifests(out)] == [corpus_package.id]
     assert any("corpus emission failed" in problem for problem in record["problems"])
+
+
+# A document in pieces ------------------------------------------------------------------------------------
+
+
+def _split_queue(path, corpus, documents, *, split):
+    """A main queue of one block over ``documents``: each whole, or (``split``) in pieces, one for each
+    configuration it is exported under, with its own group after them; the first document's pieces fresh, as a
+    fresh lane's are. Returns the block and each document's pieces."""
+    pieces = {
+        document: tuple(f"corpus:{document}@{child.name}" for child in sorted((corpus / document / "export").iterdir()))
+        for document in documents
+    }
+    assert all(len(found) == 2 for found in pieces.values()), pieces
+    groups = []
+    for index, document in enumerate(documents):
+        if split:
+            groups += [lane_blocks.QueuedGroup(piece, index == 0) for piece in pieces[document]]
+        groups.append(lane_blocks.QueuedGroup(f"corpus:{document}", False, pieces[document] if split else ()))
+    block = lane_blocks.Block(lane_blocks.block_id(group.group for group in groups), 1.0, tuple(groups))
+    lane_blocks.write_json(path, lane_blocks.queue_json(lane_blocks.Queue((block,), readers=lane_readers.named())))
+    return block, pieces
+
+
+def _with_store():
+    """The environment of a nested run that keeps an evidence store of its own beside its output, under the
+    fingerprints this session runs with (or stand-ins, where it runs with none)."""
+    from proof.store import fingerprints
+
+    found = fingerprints.current() or {name: name[0] * 64 for name in fingerprints.NAMES}
+    return {"PROOF_STORE": "", fingerprints.ENVIRONMENT: json.dumps(found)}
+
+
+def _kept(out, kind):
+    """Each entry of ``kind`` the run's store kept, by its key, as its bytes."""
+    directory = out / "store" / "entries" / kind
+    return {path.name: path.read_bytes() for path in sorted(directory.glob("*.json"))}
+
+
+@pytest.mark.under_determinism
+def test_a_document_observed_in_pieces_is_judged_from_the_records_of_one_observed_whole(tmp_path):
+    # Two observations of one document keep the same bytes only where HQ's draws and clocks are seeded.
+    corpus, documents = _two_documents(tmp_path)
+    runs = {}
+    for name, split in (("whole", False), ("pieces", True)):
+        out, queue = tmp_path / name, tmp_path / f"{name}.json"
+        block, pieces = _split_queue(queue, corpus, documents, split=split)
+        finished = _serve(out, options=["--queue", queue, "--claim", "static"], **_own_corpus(corpus), **_with_store())
+        assert finished.returncode in (0, 1), finished.tail()
+        record = json.loads((out / lane_blocks.SERVE).read_text())
+        assert record["problems"] == [], finished.tail()
+        [(directory, manifest)] = lane_blocks.read_manifests(out)
+        assert manifest["block"] == block.id
+        groups = {group["group"]: group for group in manifest["groups"]}
+        assert all(group["failure"] is None and group["outcomes"] for group in groups.values()), finished.tail()
+        runs[name] = (out, directory, groups, pieces, lane_blocks.load_queue(queue))
+
+    out, directory, groups, pieces, queue = runs["pieces"]
+    whole_out, whole_directory, whole_groups, _, _ = runs["whole"]
+    for document in documents:
+        # Each piece is one item, which passed.
+        for piece in pieces[document]:
+            assert groups[piece]["outcomes"] == {sharding.piece_item(piece): "passed"}, groups[piece]
+        # Each piece observed its own configuration and no other (and the document's local part, where the other
+        # piece had not kept it yet), and the document's own group nothing.
+        local = False
+        for piece in pieces[document]:
+            configuration = piece.partition("@")[2]
+            observed = json.loads((directory / "observe" / f"corpus-{document}@{configuration}.json").read_text())
+            names = {entry.partition("/")[0] for entry in observed["observed"]}
+            assert {configuration} <= names <= {configuration, "local"}, observed
+            assert f"{configuration}/a" in observed["observed"] and f"{configuration}/b" in observed["observed"]
+            local |= "local" in names
+        assert local, f"No piece of {document} observed its local part."
+        judged = json.loads((directory / "observe" / f"corpus-{document}.json").read_text())
+        assert judged["observed"] == [], f"{document}'s own group observed {judged['observed']} after its pieces."
+        unsplit = json.loads((whole_directory / "observe" / f"corpus-{document}.json").read_text())
+        assert {entry.partition("/")[0] for entry in unsplit["observed"]} == {
+            *(piece.partition("@")[2] for piece in pieces[document]),
+            "local",
+        }
+        # The document's items end as they do on the document observed whole.
+        assert groups[f"corpus:{document}"]["outcomes"] == whole_groups[f"corpus:{document}"]["outcomes"]
+
+    # Every record part the store kept, and each document's entry, is the same bytes in the two runs.
+    parts, whole_parts = _kept(out, "parts"), _kept(whole_out, "parts")
+    assert parts and sorted(parts) == sorted(whole_parts)
+    assert [key for key in sorted(parts) if parts[key] != whole_parts[key]] == []
+    assert _kept(out, "documents") == _kept(whole_out, "documents") and len(_kept(out, "documents")) == 2
+    # And so is every check's evidence, but for the timing fields it records and the ids HQ mints outside a part.
+    evidence, whole_evidence = _evidence([directory]), _evidence([whole_directory])
+    assert set(evidence) == set(whole_evidence) and evidence
+    ids = set(HQ_ID.findall("".join(evidence.values())))
+    whole_ids = set(HQ_ID.findall("".join(whole_evidence.values())))
+    canonical, whole_canonical = _canonical(evidence, ids - whole_ids), _canonical(whole_evidence, whole_ids - ids)
+    differing = [name for name in sorted(evidence) if canonical[name] != whole_canonical[name]]
+    assert differing == [], f"The evidence of the documents in pieces differs from the whole documents' in {differing}."
+
+    # The gate's accounting holds the pieces as it holds any group: their block ran once, every item of each.
+    verdict = sharding.verify([("main", queue)], [out])
+    assert set(verdict.chosen) == {queue.blocks[0].id}
+    assert not any(name.startswith(lane_blocks.DOCUMENT_KINDS) for name in verdict.groups), verdict.groups
+    phases = {phase["phase"]: phase for phase in json.loads((out / lane_blocks.SERVE).read_text())["phases"]}
+    collected = [group for group in phases["main"]["collected"]["groups"] if lane_blocks.piece_of(group)]
+    assert sorted(collected) == sorted(piece for found in pieces.values() for piece in found)
+    assert not any(lane_blocks.piece_of(group) for group in phases["main"]["unaccounted"])
+
+
+def test_a_lane_that_keeps_no_store_fails_its_pieces_and_never_observes_the_document_whole(tmp_path):
+    corpus, documents = _two_documents(tmp_path)
+    out, queue = tmp_path / "out", tmp_path / "queue.json"
+    _, pieces = _split_queue(queue, corpus, documents[:1], split=True)
+    # PROOF_STORE=off, as every nested run here but the one above: the pieces would observe into nothing.
+    finished = _serve(out, workers=2, options=["--queue", queue, "--claim", "static"], **_own_corpus(corpus))
+    assert finished.returncode == 1, finished.tail()
+    [(directory, manifest)] = lane_blocks.read_manifests(out)
+    groups = {group["group"]: group for group in manifest["groups"]}
+    [document] = documents[:1]
+    for piece in pieces[document]:
+        assert groups[piece]["outcomes"] == {sharding.piece_item(piece): "failed"}, groups[piece]
+    assert "observes into the run's evidence store" in finished.output and "this run keeps none" in finished.output
+    whole = groups[f"corpus:{document}"]
+    assert whole["outcomes"] == {} and whole["worker"] is None
+    assert whole["failure"].startswith("its piece corpus:") and "so it was not run" in whole["failure"]
+    assert not (directory / "observe").exists(), "Something of the document was observed."
+    verdict = sharding.verify([("main", lane_blocks.load_queue(queue))], [out])
+    assert (
+        f"corpus:{document}" in verdict.groups
+        and "did not finish: its piece" in verdict.groups[f"corpus:{document}"][0]
+    )

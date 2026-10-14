@@ -9,7 +9,9 @@ Postgres image, the architecture, the observation's environment) changes
 exactly the keys of the results it can change: a document's key, its
 judgments', each record part's storage key, a browser transcript's, and a
 package group's (a package keyed on a sample of the corpus by that sample
-alone); and a file no partition holds changes none. The parts that drive the
+alone); a test module changes the package groups' keys alone, but the one
+whose items run in documents' groups (HQ's branch proof), which changes the
+judgments' too; and a file no partition holds changes none. The parts that drive the
 browser name its code in their own keys (proof 4's declared inputs), so the
 store keeps no browser fingerprint beside any part. And a document's key
 changes wherever any of its parts' keys does, since the queue builder
@@ -19,7 +21,7 @@ changes with any code that starts the browser or records what it did.
 The plausible failures: a partition that leaves out a file its results read
 (an edited judge reusing old judgments), a key that names a fingerprint it
 need not (every record part observed again for an edit of the editor
-driver), a document key that reads another document's files, a document
+driver, or of a test module), a document key that reads another document's files, a document
 key that stays while a part's key moves (a driver edit leaving every
 document cached, proof 4 never driven again), a transcript replayed over
 outputs shaped by code that has since changed, a part whose key does not
@@ -171,6 +173,16 @@ CASES = {
         {"document one", "document two", "judgment one", "b one", "b_aligned one", "b_edit one", "transcript"}
         | PACKAGES,
     ),
+    "a test module of a package the observation runs": (
+        lambda checkout, corpus: _edit(checkout / "proof/core/test_core.py", "# edited\n"),
+        PACKAGES,
+    ),
+    "the branch proof, whose items run in documents' groups": (
+        lambda checkout, corpus: write_files(
+            checkout, {"proof/hq/test_branches.py": "def test_branches():\n    pass\n"}
+        ),
+        {"judgment one"} | PACKAGES,
+    ),
     "the lane's container files": (
         lambda checkout, corpus: _edit(checkout / "proof/run.mjs", "// edited\n"),
         OBSERVED | PACKAGES,
@@ -221,6 +233,17 @@ def test_the_image_architecture_and_environment_change_what_runs_on_them(checkou
     # started in.
     unseamed = {**keys.LANE_ENVIRONMENT, "PROOF_HQ_SPEED": "0"}
     assert _changed(before, _all_keys(checkout, corpus, environ=unseamed)) == set(KEYS)
+    # A run without the readers (proof.lane.readers) records no served state and runs no test that starts one:
+    # every record, judgment, transcript and package outcome is keyed apart from a run with them, so neither
+    # profile reads the other's; and naming the readers' default changes nothing.
+    without = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "0"}
+    assert _changed(before, _all_keys(checkout, corpus, environ=without)) == set(KEYS)
+    with_readers = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "all"}
+    assert _changed(before, _all_keys(checkout, corpus, environ=with_readers)) == set()
+    # A slice of the readers is a set of its own, apart from every reader and from none.
+    android = _all_keys(checkout, corpus, environ={**keys.LANE_ENVIRONMENT, "PROOF_READERS": "android"})
+    assert _changed(before, android) == set(KEYS)
+    assert _changed(_all_keys(checkout, corpus, environ=without), android) == set(KEYS)
     # The audit switches only check: the lane's shards run with the editor audit on and still read the store. The
     # image sets where its checkouts are, which its digest names: the queue builder, outside it, keys alike.
     audited = {**keys.LANE_ENVIRONMENT, "PROOF_EDITOR_AUDIT": "0.03", "PROOF_VERIFY_MEMOS": "1"}
@@ -244,27 +267,34 @@ def test_a_part_key_names_its_inputs_and_no_fingerprint_so_every_image_draws_the
         keys.part_key("b", a.hex(), inputs)
 
 
-def test_only_proof_4s_parts_drive_the_browser_and_their_keys_name_its_code(tmp_path, corpus):
-    # The editor driver reaches an observation only through BContext, which the unit gives the hooks it calls
-    # with observe_b, at B and B-edit: the b and b_edit parts.
-    names = {field.name for field in dataclasses.fields(unit.HookContext)}
-    assert "editor_driver" not in names and "editor_driver" in {f.name for f in dataclasses.fields(unit.BContext)}
-    driving = [(name, states) for name, function, states in unit.HOOKS if function == "observe_b"]
-    assert driving == [("proof4", ("B", "B-edit"))]
-    proof4 = importlib.import_module("proof.observe.proof4")
-    # Its declared inputs at both states are the driver's code, which joins those parts' keys.
-    for state in ("B", "B-edit"):
-        assert proof4.browser_fingerprint() in json.dumps(proof4.inputs(document_of(corpus, "one"), state))
+def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_path, corpus):
+    # A browser reaches an observation only through the contexts the unit gives its hooks: the served hook's at A
+    # (the Web Apps client's screens) and proof 4's at B and B-edit (HQ's editors, and the client after a save).
+    assert "editor_driver" in {field.name for field in dataclasses.fields(unit.HookContext)}
+    assert "editor_driver" in {field.name for field in dataclasses.fields(unit.BContext)}
+    driving = {name: states for name, function, states in unit.EVERY_HOOK if name in ("served", "proof4")}
+    assert driving == {"served": ("A",), "proof4": ("B", "B-edit")}
+    browser = importlib.import_module("proof.observe.browser")
+    # Each declares the driver's code among what it reads, which joins those parts' keys.
+    for name, states in driving.items():
+        hook = importlib.import_module(f"proof.observe.{name}")
+        for state in states:
+            assert browser.browser_fingerprint() in json.dumps(hook.inputs(document_of(corpus, "one"), state))
     root = tmp_path / "checkout"
     shutil.copytree(fingerprints.WORKTREE / "proof/editors/driver", root / "proof/editors/driver")
-    before = proof4.browser_fingerprint(root)
+    before = browser.browser_fingerprint(root)
     _edit(root / "proof/editors/driver/driver.mjs", "// edited\n")
-    assert proof4.browser_fingerprint(root) != before
+    assert browser.browser_fingerprint(root) != before
     inputs = unit.document_inputs(document_of(corpus, "one"))
-    declared = {state: {"proof4": {"browser": before}} for state in ("A", "B", "B-edit")}
+    declared = {"A": {"served": {"browser": before}}, **{s: {"proof4": {"browser": before}} for s in ("B", "B-edit")}}
     held = unit.part_keys(inputs, "minimum", DATABASES, declared)
-    for state, changed in (("B", {"b", "b_aligned"}), ("B-edit", {"b_edit"})):
-        edited = unit.part_keys(inputs, "minimum", DATABASES, {**declared, state: {"proof4": {"browser": "edited"}}})
+    # A is every part's parent, so the browser's code at A names them all; at B, B and what is observed over it.
+    for state, hook, changed in (
+        ("A", "served", {"a", "b", "b_aligned", "b_edit"}),
+        ("B", "proof4", {"b", "b_aligned"}),
+        ("B-edit", "proof4", {"b_edit"}),
+    ):
+        edited = unit.part_keys(inputs, "minimum", DATABASES, {**declared, state: {hook: {"browser": "edited"}}})
         assert {part for part in held if held[part] != edited[part]} == changed
 
 

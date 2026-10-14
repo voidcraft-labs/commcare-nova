@@ -1,0 +1,19 @@
+{
+	"method": "POST",
+	"path": "/a/nova-proof/apps/api/import_app/",
+	"contentType": "multipart/form-data; boundary=----nova-proof-capture",
+	"fields": [
+		"waf_padding",
+		"app_name",
+		"app_id",
+		"app_file"
+	],
+	"compatibility": {
+		"status": "not_needed",
+		"capabilities": [],
+		"advisories": []
+	},
+	"media": "media.body",
+	"placeholderAppId": "nova-proof-placeholder-app",
+	"assumedSourceProfile": {}
+}

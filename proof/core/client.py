@@ -83,16 +83,26 @@ DEFAULT_MAX_HEAP = "1g"
 # date arithmetic do not depend on the machine (EntityStringFilterer lower-cases
 # with Locale.getDefault(); DateUtils reads the default zone). HotSpot writes its
 # own messages (an out-of-memory exit, VM warnings) to standard output unless
-# told otherwise, and standard output is the protocol, so they go to stderr.
+# told otherwise, and standard output is the protocol, so they go to stderr:
+# its VM output by DisplayVMOutputToStderr, and its unified log, whose warnings
+# go to standard output by default, by -Xlog (a Formplayer that filled its code
+# cache once wrote "CodeCache is full" where its next answer belonged).
 # The serial collector and the client compiler alone keep the runner's CPU at
 # what its requests need: a lane worker's runner serves a few documents, and
 # the optimizing compiler's work for them costs more CPU than it saves.
-# Neither changes what a request computes.
+# Stopping at the client compiler leaves the code cache at the size HotSpot
+# gives a JVM without tiers (48 MB), which a worker's Formplayer fills, after
+# which HotSpot compiles nothing more and every request is interpreted; the
+# cache is reserved at the size HotSpot gives a tiered JVM (240 MB) and
+# committed only as it fills. None of this changes what a request computes.
 JVM_OPTIONS = (
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+DisplayVMOutputToStderr",
+    "-Xlog:disable",
+    "-Xlog:all=warning:stderr:uptime,level,tags",
     "-XX:+UseSerialGC",
     "-XX:TieredStopAtLevel=1",
+    "-XX:ReservedCodeCacheSize=240m",
     "-Duser.timezone=UTC",
     "-Duser.language=en",
     "-Duser.country=US",
@@ -427,7 +437,9 @@ class CoreRunner:
     # -- operations --------------------------------------------------------
 
     def validate_form(self, xml: bytes, *, deadline: float = 60.0) -> str:
-        """Formplayer's validate_form response body for these form bytes, exactly as Formplayer writes it."""
+        """Core's parse of these form bytes as a report (``XFormParser`` with ``JSONReporter``): the runner's own
+        lifecycle tests' probe. HQ's form validation is Formplayer's own (``proof.hq.seams.formplayer_validation``),
+        never this."""
         result = self.request("validateForm", deadline=deadline, xmlBase64=base64.b64encode(xml).decode("ascii"))
         return result["report"]
 
@@ -467,6 +479,7 @@ class CoreRunner:
         question_kinds: Mapping[str, str] | None = None,
         locale: str | None = None,
         clock: str = DEFAULT_CLOCK,
+        after_submit: bool = False,
         deadline: float = 600.0,
     ) -> dict[str, Any]:
         """Runs scripted sessions over the admitted app and returns their trace.
@@ -474,6 +487,9 @@ class CoreRunner:
         Without a script the runner derives one from the app (every menu command,
         every reachable form with the first entity of each list); the trace
         records the script it ran, so the same script can replay on another build.
+        With ``after_submit``, each submitted form's ``stackAfterSubmit`` also
+        holds ``next``: what Core's session needs for the frame the submission
+        left it, and the form it opens where it needs nothing (``FormRun.next``).
         """
         self._require_current(app)
         args: dict[str, Any] = {
@@ -488,6 +504,8 @@ class CoreRunner:
             args["questionKinds"] = dict(question_kinds)
         if locale is not None:
             args["locale"] = locale
+        if after_submit:
+            args["afterSubmit"] = True
         return self.request("session", deadline=deadline, **args)
 
     def evaluate(self, *, deadline: float = 120.0, app: AppHandle | None = None, **args: Any) -> dict[str, Any]:

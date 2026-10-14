@@ -1,0 +1,167 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "patient-4",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"active"
+						]
+					]
+				},
+				{
+					"case_id": "patient-5",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"closed"
+						]
+					]
+				},
+				{
+					"case_id": "patient-6",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"care_status",
+							"a.'\"/b"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Media proof",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "468453be-7424-54ea-af09-11080c02b04e",
+							"validations": {
+								"05d70c8a-2454-598e-a769-633012b9777a": "/answer"
+							},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"468453be-7424-54ea-af09-11080c02b04e"
+					],
+					"uuid": "20a8dd0a-bf0e-59fe-a0a4-b63c8958a67a"
+				}
+			]
+		}
+	}
+}

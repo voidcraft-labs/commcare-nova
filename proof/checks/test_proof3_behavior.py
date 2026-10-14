@@ -128,7 +128,7 @@ def _behavior(document, export, observed, core_runner):
     if a_build is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
         raw = proof2.build_differences(document.id, a_build, observed.b_aligned, observed.alignment, rules=())
         differs = any(difference.kind != "refused" for difference in raw)
-    with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(export.configuration.hq()) as (unit, _):
         restore_a = sessions.hq_restore(
             unit, casedata.case_database(document.document), export.create.lookups, "restore-a"
         )
@@ -291,7 +291,7 @@ def control(hq, core_runner, tmp_path_factory):
             or document.local_ccz is None
         ):
             continue
-        with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (state, _):
+        with hq_check(export.configuration.hq()) as (state, _):
             restore = casedata.restore(casedata.case_database(document.document), state.domain)
         baseline = proof3.run_sessions(
             core_runner, "A", proof3.arrange_build(observed.a.build.files, scratch / document.id), restore
@@ -550,7 +550,7 @@ def _casedb_form():
 
 def test_core_reads_the_whole_restore_hq_writes(hq, core_runner):
     database = casedata.case_database(_document())
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(Configuration()) as (state, _):
         restore = casedata.restore(database, state.domain)
         assert restore == casedata.restore(database, state.domain)
     result = core_runner.evaluate(
@@ -617,7 +617,7 @@ def test_hq_processes_a_submission_over_the_restores_cases(hq, core_runner):
             f'<index><parent case_type="patient" relationship="extension">{patient.case_id}</parent></index>',
         )
     )
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(Configuration()) as (state, _):
         updated = operations.process_case_blocks(state, update, cases=casedata.hq_cases(database, state.domain))
         indexed = operations.process_case_blocks(state, child, cases=casedata.hq_cases(database, state.domain))
         bare_update = operations.process_case_blocks(state, update)
@@ -656,7 +656,7 @@ def test_hq_names_where_the_form_holds_each_case_block_it_reads(hq, core_runner)
     def run(*blocks):
         return {"trace": [{"screen": "form", "submission": _submission(*blocks).decode()}], "generated": {}}
 
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, record):
+    with hq_check(Configuration()) as (state, record):
         log = OperationLog(state, record, {})
         accepted = sessions.processed_runs(state, database, {"runs": [run(update)]})
         with log("case-processing:A", b"hq"):
@@ -708,7 +708,7 @@ def test_a_case_attachment_is_read_from_the_files_the_device_sends_and_without_t
         ("with", Configuration(flags={"MM_CASE_PROPERTIES"})),
         ("without", Configuration()),
     ):
-        with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+        with hq_check(configuration) as (state, _):
             processed[name] = sessions.processed_runs(state, database, {"runs": [run]})
             processed[f"{name}, no files"] = sessions.processed_runs(state, database, {"runs": [run]}, files=False)
     assert sessions.stand_ins(run["trace"][0]["submission"]) == {"photo.jpg": (sessions.STAND_IN, "image/jpeg")}
@@ -767,7 +767,7 @@ def test_a_corpus_document_whose_forms_send_files_is_processed_with_them(hq, cor
     assert all("needsFiles" not in sent["runs"][index] for index in attaching)
     database = casedata.case_database(document.document)
     xmlns = proof3.xmlns_alignment(recorded["local"]["admission"], recorded["baseline"]["admission"])
-    with hq_check(document.exports[name].configuration.hq(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(document.exports[name].configuration.hq()) as (state, _):
         bare = sessions.processed_runs(state, database, trace, xmlns, files=False)
     assert all(bare["runs"][index]["needsFiles"]["class"] == "AttachmentNotFound" for index in attaching)
 
@@ -786,7 +786,7 @@ def test_each_note_hq_makes_processing_a_submission_is_recorded_with_its_operati
         )
     )
     dated = _submission(_block("visit-1", "<update><code>b</code></update>"))
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, record):
+    with hq_check(Configuration()) as (state, record):
         log = OperationLog(state, record, {})
         with log("case-processing:local.ccz", b"undated"):
             operations.process_case_blocks(state, undated)
@@ -807,8 +807,11 @@ def test_each_note_hq_makes_processing_a_submission_is_recorded_with_its_operati
 def test_each_note_a_hooks_operation_or_request_makes_is_recorded_under_the_hook(hq, core_runner):
     """What an observation hook runs through its unit (``proof.observe.unit.HookUnit``) is logged in its part's
     record under the hook's name: each operation, and each request in which HQ noted something; and the hook's
-    check holds the notes, no other."""
+    check holds the notes, no other. A request a served reader made is named under that reader, so a run without
+    the reader, which cannot show it, leaves an entry on it to a run with the reader (``served_artifact``)."""
+    from proof.checks.differences import artifact_reader, served_artifact
     from proof.hq import operations
+    from proof.observe import served
     from proof.observe.record import ConfigurationRecords, DocumentRecords
     from proof.observe.unit import HookUnit, OperationLog
 
@@ -818,7 +821,7 @@ def test_each_note_a_hooks_operation_or_request_makes_is_recorded_under_the_hook
         )
     )
     dated = _submission(_block("visit-1", "<update><code>b</code></update>"))
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, record):
+    with hq_check(Configuration()) as (state, record):
         log = OperationLog(state, record, {})
         hook = HookUnit(state, log, "proof4")
         with hook.operation("probe", b"undated"):
@@ -827,15 +830,26 @@ def test_each_note_a_hooks_operation_or_request_makes_is_recorded_under_the_hook
             operations.process_case_blocks(state, undated)
         with hook.request(b"\x02" * 32):
             operations.process_case_blocks(state, dated)
+        with served.reading("android"), hook.request(b"\x03" * 32):
+            operations.process_case_blocks(state, undated)
     (operation,) = log.log
     assert operation["hook"] == "proof4" and operation["softAssertions"]
-    (request,) = log.requests
+    request, devices = log.requests
     assert request["hook"] == "proof4" and request["request"] == "01" * 32 and request["softAssertions"]
+    assert "reader" not in request
+    assert devices["request"] == "03" * 32 and devices["reader"] == "android" and devices["softAssertions"]
     records = DocumentRecords("d", "corpus")
     records.configurations["minimum"] = ConfigurationRecords("minimum", {}, b=log.recorded({}))
     found = {(d.artifact, d.kind) for d in observations.soft_assertion_differences(records, "proof4")}
-    assert found == {("soft_assert:probe@B", "error"), (f"soft_assert:request:{'01' * 8}@B", "error")}
+    device_artifact = f"android@soft_assert:request:{'03' * 8}@B"
+    assert found == {
+        ("soft_assert:probe@B", "error"),
+        (f"soft_assert:request:{'01' * 8}@B", "error"),
+        (device_artifact, "error"),
+    }
     assert observations.soft_assertion_differences(records, "bar") == []
+    assert served_artifact(device_artifact) and artifact_reader(device_artifact) == "android"
+    assert not served_artifact(f"soft_assert:request:{'01' * 8}@B")
 
 
 # A republish HQ refuses -------------------------------------------------------
@@ -943,7 +957,7 @@ def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner):
         f'<instance id="item-list:{tag}" src="jr://fixture/item-list:{tag}"/><instance id="casedb"'.encode(),
     )
     database = casedata.case_database(document.document)
-    with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(export.configuration.hq()) as (state, _):
         tables = casedata.lookup_fixtures(state, export.create.lookups)
         restore = casedata.restore(database, state.domain, tables)
         plain = casedata.restore(database, state.domain)

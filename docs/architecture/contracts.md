@@ -140,19 +140,23 @@ the rule forbids is unchanged either way: "I verified it against the emitter" is
 not a byte assertion, and a unit that cannot name a byte oracle has not met the
 bar.
 
-**Nova's exports are proven where they are read.** The proof lane (`proof/`,
-`proof/README.md`) runs on every pull request: CommCare HQ's own import,
-build, case processing and editors, and CommCare Core's own runtime, at the
-commits `proof/pins.json` names, read every document of a reproducible corpus
-as Nova's real publish client and compilers export it. Every difference a
-check reports is either erased by a spelling rule whose own test shows that
-HQ's build and Core's run do not depend on it, or held by an entry of the
-known-defect register (`proof/known-defects.json`). The register is strict:
-a new difference fails, and so does an entry nothing shows any more on its
-document or on its retained control, so a fix removes its entry in the same
-pull request. Android is cited at source, never run. A symptom that shows
-only under a project-space configuration Nova's publish refuses reaches no
-one, and is not a defect.
+**Nova's exports are proven where they are read.** In the proof lane
+(`proof/`, `proof/README.md`) CommCare's own code, at the commits
+`proof/pins.json` names, reads every document of a reproducible corpus as
+Nova's real publish client and compilers export it: CommCare HQ's own import,
+build, case processing and editors and CommCare Core's own runtime on every
+pull request, and with them Formplayer's own application, HQ's Web Apps
+client, CommCare Android's own code and CommCare Connect's own server each
+scheduled night over what changed and each week whole. Every difference a check reports
+is either erased by a spelling rule whose own tests show that each reader it
+names reads both spellings alike, or held by an entry of the known-defect
+register (`proof/known-defects.json`). The register is strict: a new
+difference fails, and so does an entry nothing shows any more on its document
+or on its retained control, so a fix removes its entry in the same pull
+request. A reader's walk that stops short of its end is held the same way, by
+name (`proof/walk-stops.json`). A symptom that shows only under a
+project-space configuration Nova's publish refuses reaches no one, and is not
+a defect.
 
 **Every author-facing vocabulary ships its three editor surfaces.** A unit that
 adds something an author can create also ships its SA tools and its MCP

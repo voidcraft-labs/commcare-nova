@@ -88,7 +88,7 @@ def test_a_captured_update_is_applied_to_the_app_its_create_made(hq, core_runner
     directory = captures / "clinic-visits" / "minimum"
     create, _ = _upload(directory, "create.import")
     update, sidecar = _upload(directory, "update-edited.import")
-    with hq_check(_configuration(directory), validate=core_runner.validate_form) as (state, _):
+    with hq_check(_configuration(directory)) as (state, _):
         with timed("publish_capture"):
             app_id, created, updated = operations.publish_capture(
                 state, create, update, sidecar["assumedSourceProfile"]
@@ -105,7 +105,7 @@ def test_a_captured_update_over_a_profile_hq_does_not_hold_is_refused(hq, core_r
     update, sidecar = _upload(directory, "update-edited.import")
     assumed = sidecar["assumedSourceProfile"]
     other = {**assumed, "properties": {**assumed.get("properties", {}), "cc-proof-not-held": "yes"}}
-    with hq_check(_configuration(directory), validate=core_runner.validate_form) as (state, _):
+    with hq_check(_configuration(directory)) as (state, _):
         with pytest.raises(operations.CapturedProfileNotHeld) as refusal:
             operations.publish_capture(state, create, update, other)
         assert json.dumps(other, sort_keys=True) in str(refusal.value)
@@ -121,7 +121,7 @@ def test_a_search_capture_runs_where_case_search_is_on(hq, core_runner, captures
     lookup, _ = _upload(directory, "create.lookup")
     create, _ = _upload(directory, "create.import")
     update, sidecar = _upload(directory, "update.import")
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+    with hq_check(configuration) as (state, _):
         from corehq.apps.case_search.models import case_search_enabled_for_domain
 
         assert case_search_enabled_for_domain(state.domain)
@@ -155,7 +155,7 @@ def test_hq_reads_case_search_as_the_configuration_sets_it(hq, core_runner):
         Configuration(sync_cases_on_form_entry=True)
     for enabled, sync in ((False, False), (True, False), (True, True)):
         configuration = Configuration(case_search_enabled=enabled, sync_cases_on_form_entry=sync)
-        with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+        with hq_check(configuration) as (state, _):
             assert case_search_enabled_for_domain(state.domain) is enabled
             case_search_sync_cases_on_form_entry_enabled_for_domain.clear(state.domain)
             with override_settings(UNIT_TESTING=False):
@@ -209,7 +209,7 @@ def test_a_captured_media_upload_maps_the_media_as_hqs_own_processing_of_its_zip
     media, sidecar = _upload(directory, "create.media")
     archive = tmp_path / "multimedia.zip"
     archive.write_bytes(_uploaded_zip(media))
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, _):
+    with hq_check(configuration) as (state, _):
         from corehq.apps.hqmedia.cache import BulkMultimediaStatusCache, BulkMultimediaStatusCacheNfs
         from corehq.apps.hqmedia.tasks import process_bulk_upload_zip
 

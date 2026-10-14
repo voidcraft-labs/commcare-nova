@@ -1,0 +1,248 @@
+"""The session's Formplayer and the Web Apps client's browser, for the observations that are served to them.
+
+A document's observation serves each state of its app to Formplayer and
+shows it in the Web Apps client (``proof.observe.served``), from inside the
+unit, where no test's fixtures reach. pytest still owns each service's
+lifetime: the session's fixture (``proof/conftest.py::lane_services``) opens
+``session()`` for the whole session and closes it when the session ends,
+and each service starts the first time an observation or a test asks for it
+(a session whose checks never ask starts none). Outside such a session
+there is none, and asking raises.
+
+- ``formplayer()``: the session's one Formplayer runner.
+- ``validator()``: the Formplayer that answers the form validation HQ asks
+  for while it builds an app, saves a form or maps media
+  (``proof.hq.seams.form_validation``): in the lane, the one the server
+  started for every worker (``proof.formplayer.shared``); elsewhere a runner
+  of its own, since a runner answers one request at a time and HQ may build
+  while it answers a request of the session's Formplayer.
+- ``connect()``: the session's one Connect runtime (``proof.connect.runtime``:
+  Connect at its pin, its Postgres and Redis, its migrated database), which
+  a Connect document's observation serves an opportunity from
+  (``proof.observe.connect``). Its logs go under the run's output, by the
+  worker whose runtime it is (``$PROOF_OUT/connect-unit/w<worker>``): two
+  workers of a shard may each start theirs while in one block, as the two
+  pieces of a Connect document always do, and each keeps its own logs.
+- ``android()``: the session's Android reader (``proof.android.client``:
+  commcare-android's own code under Robolectric, one JVM and one device a
+  request), which reads each served state beside HQ's unit, its network
+  answered by HQ's own views (``proof.android.hq``). It runs where
+  Robolectric's native runtime does (linux/amd64, where the lane's shards
+  run, and macOS), from the runtime ``PROOF_ANDROID_RUNTIME`` names; asking
+  for it anywhere else raises with the reason.
+- ``client_browser()``: an editor driver (node and Chromium) of the Web
+  Apps client's own. Proof 4 shows a saved app in the client while the
+  editor page that saved it is still open in the session's editor driver,
+  mid-run, each save released into a fork of its own; a driver runs one
+  operation at a time, so the client has a second browser, as a worker's
+  is another browser than the person's who edits the app. The project
+  space's admin sets Connect's forwarder up on HQ's pages in the same
+  browser, asked for as Connect's.
+
+Formplayer, the client's browser, Connect and the Android reader are the
+served readers. In a run that leaves a reader out (``PROOF_READERS``,
+``proof.lane.readers``) asking for it raises ``ReadersOff``, so a test that
+starts a reader and is not marked ``reader`` fails there rather than running
+half; ``asked()`` counts the requests for one, by which a run with them holds
+each test marked by hand to starting one (``proof/conftest.py``). The
+validation Formplayer is HQ's (its build asks for it), never refused.
+"""
+
+from __future__ import annotations
+
+from contextlib import ExitStack, contextmanager
+
+_SESSION: dict = {
+    "open": False,
+    "formplayer": None,
+    "validator": None,
+    "browser": None,
+    "connect": None,
+    "android": None,
+}
+# What each device request of the session took, in seconds and in processor seconds (a JVM of its own, every walk
+# of one served state on one device), kept past the session's end for its summary (``proof/conftest.py``).
+ANDROID_SECONDS: list[float] = []
+ANDROID_CPU_SECONDS: list[float] = []
+
+
+class NoSession(RuntimeError):
+    """An observation asked for the session's Formplayer outside a session that owns one."""
+
+
+class ReadersOff(RuntimeError):
+    """A served reader was asked for in a run without the readers (``PROOF_READERS=0``)."""
+
+
+# How many times a served reader was asked for in this process (``asked``).
+_ASKED = [0]
+
+
+def asked() -> int:
+    """How many times this process has asked for a served reader (Formplayer, the client's browser, Connect, the
+    Android reader), started or already running."""
+    return _ASKED[0]
+
+
+# The session's services, in the order its end closes them.
+_SERVICES = ("android", "browser", "connect", "validator", "formplayer")
+
+
+@contextmanager
+def session(on_start=None):
+    """The lifetime of the session's services; ``on_start(runner)`` is told each runner as it starts. At its end
+    every service it started is closed, whatever another's close raises, and the session has ended before any of
+    them is, so the process can open another."""
+    if _SESSION["open"]:
+        raise NoSession("The session's services are already open in this process; one session owns them.")
+    _SESSION.update(dict.fromkeys(_SERVICES), open=True, on_start=on_start)
+    try:
+        yield
+    finally:
+        held = {name: _SESSION[name] for name in _SERVICES}
+        _SESSION.update(dict.fromkeys(_SERVICES), open=False)
+        # An exit stack calls what it was given last first, each whatever an earlier one raised, and raises the
+        # last of what they raised: a close that fails (a reader that cannot remove its work directory, a
+        # browser already gone) leaves no JVM, Chromium or Postgres of the others running.
+        with ExitStack() as closing:
+            for name in reversed(_SERVICES):
+                if held[name] is not None:
+                    closing.callback(held[name].close)
+            reader = held["android"]
+            if reader is not None:
+                ANDROID_SECONDS.extend(reader.seconds)
+                ANDROID_CPU_SECONDS.extend(reader.cpu_seconds)
+
+
+def _reader(reader, what):
+    """A served reader asked for: counted, and refused in a run that leaves it out."""
+    from proof.lane import readers
+
+    _ASKED[0] += 1
+    named = readers.named()
+    if reader not in named:
+        raise ReadersOff(
+            f"Something asked for {what}, and this run hands its states to {readers.described(named)}"
+            f" ({readers.VARIABLE}={readers.canonical(named)}). A test that starts a served reader runs only where"
+            f" the run names it: mark it reader (pytest.mark.reader('{reader}'), proof/lane/readers.py), or give it"
+            " the fixture that starts the reader (formplayer_runner, connect_runtime), so a run that leaves the"
+            " reader out leaves the test to the nightly."
+        )
+    _require_session(what)
+
+
+def _require_session(what):
+    if not _SESSION["open"]:
+        raise NoSession(
+            f"A document's observation serves its app to {what}, and no session owns one here. Run it under"
+            " pytest (proof/conftest.py::lane_services opens the session's services), or open"
+            " proof.observe.services.session() around it."
+        )
+
+
+def client_browser(reader: str = "webapps"):
+    """The Web Apps client's own editor driver (node and Chromium), started on first use. It is also the browser
+    the project space's admin sets Connect's forwarder up in (``proof.connect.hq.forwarding``), which asks for it
+    as Connect's (``reader``), so a run that names Connect and not the client still has it."""
+    _reader(reader, "the Web Apps client's browser" if reader == "webapps" else f"the browser {reader} is set up in")
+    if _SESSION["browser"] is None:
+        from proof.editors.client import EditorDriver
+
+        driver = EditorDriver()
+        try:
+            driver.start()
+        except BaseException:
+            driver.close()
+            raise
+        _SESSION["browser"] = driver
+    return _SESSION["browser"]
+
+
+def formplayer():
+    """The session's Formplayer runner, started on first use."""
+    _reader("formplayer", "Formplayer")
+    if _SESSION["formplayer"] is None:
+        from proof.formplayer.client import FormplayerRunner
+
+        runner = FormplayerRunner()
+        try:
+            runner.start()
+        except BaseException:
+            runner.close()
+            raise
+        _SESSION["formplayer"] = runner
+        if _SESSION.get("on_start") is not None:
+            _SESSION["on_start"](runner)
+    return _SESSION["formplayer"]
+
+
+def validator():
+    """The Formplayer that answers HQ's form validation: in a worker of the lane's server, a client of the
+    server's one (``proof.formplayer.shared``); otherwise a runner of its own beside the session's, started on
+    first use, since a runner answers one request at a time and HQ may build while the session's is waiting on
+    one of HQ's own answers."""
+    import os
+
+    _require_session("Formplayer's form validation")
+    if _SESSION["validator"] is None:
+        from proof.formplayer import shared
+        from proof.formplayer.client import FormplayerRunner
+
+        address = os.environ.get(shared.ENVIRONMENT)
+        if address:
+            _SESSION["validator"] = shared.Validator(address)
+            return _SESSION["validator"]
+        runner = FormplayerRunner()
+        try:
+            runner.start()
+        except BaseException:
+            runner.close()
+            raise
+        _SESSION["validator"] = runner
+    return _SESSION["validator"]
+
+
+def connect_logs(environment=None):
+    """Where this worker's Connect runtime logs under the run's output (``$PROOF_OUT/connect-unit/w<worker>``), or
+    None where the run has none. The directory is the worker's own: a runtime names its logs by service and by
+    session (``connect.session_1.log``), and two workers of a shard may each start theirs while in one block, as
+    the two pieces of a Connect document always do, so in one directory each would write over the other's."""
+    import os
+    from pathlib import Path
+
+    from proof.hq import database
+
+    environment = os.environ if environment is None else environment
+    out = environment.get("PROOF_OUT")
+    return Path(out) / "connect-unit" / f"w{database.session_worker(environment)}" if out else None
+
+
+def connect():
+    """The session's Connect runtime, started on first use (its fetch and its migrations, once a session)."""
+    _reader("connect", "Connect")
+    if _SESSION["connect"] is None:
+        import tempfile
+        from pathlib import Path
+
+        from proof.connect.runtime import ConnectRuntime
+
+        runtime = ConnectRuntime(connect_logs() or Path(tempfile.mkdtemp(prefix="proof-connect-unit-")))
+        runtime.__enter__()
+        _SESSION["connect"] = runtime
+    return _SESSION["connect"]
+
+
+def android():
+    """The session's Android reader, started on first use (its sources compiled against the runtime, once)."""
+    _reader("android", "the Android reader")
+    if _SESSION["android"] is None:
+        from proof.android.client import AndroidReader
+
+        reader = AndroidReader()
+        try:
+            reader.start()
+        except BaseException:
+            reader.close()
+            raise
+        _SESSION["android"] = reader
+    return _SESSION["android"]

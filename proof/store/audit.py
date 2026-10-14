@@ -175,7 +175,8 @@ def masked(value) -> str:
 
 
 def _content(kind: str, entry, source) -> bytes:
-    """What a mismatch shows of an entry: a part's record and a judgment's evidence as their blobs, else the entry."""
+    """What a mismatch shows of an entry: a part's record and a judgment's evidence as their blobs, else the
+    entry."""
     if kind in ("parts", "judgments"):
         found = source.blob(entry["record"] if kind == "parts" else entry)
         if found is not None:

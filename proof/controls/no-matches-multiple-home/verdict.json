@@ -1,0 +1,44 @@
+{
+	"capabilities": [
+		{
+			"id": "case-search",
+			"flags": [
+				{
+					"symbol": "SYNC_SEARCH_CASE_CLAIM",
+					"slug": "search_claim"
+				}
+			],
+			"runtimeProbes": [
+				"case-search"
+			]
+		},
+		{
+			"id": "registration-after-empty-search",
+			"flags": [
+				{
+					"symbol": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+					"slug": "followup_forms_as_case_list_form"
+				}
+			],
+			"runtimeProbes": []
+		}
+	],
+	"advisories": [
+		{
+			"id": "large-search-performance",
+			"flags": [
+				{
+					"symbol": "CUSTOM_PROPERTIES",
+					"slug": "custom_properties"
+				}
+			]
+		}
+	],
+	"minimumConfiguration": {
+		"flags": [
+			"FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"caseSearchEnabled": true
+	}
+}

@@ -309,6 +309,27 @@ def test_a_package_outcome_is_kept_only_from_a_run_in_the_environment_its_queue_
         assert len(documents) == (0 if name in ("one branch", "unrecorded") else 2), name
 
 
+def test_each_profile_keeps_its_package_outcomes_from_its_own_runs_and_queues_and_never_the_others(tmp_path):
+    """The lane's two profiles (proof.lane.readers): a run without the readers keeps a package's outcome under the
+    key its own queue names, which records that profile's environment; never under a queue of the other profile,
+    and never a run with the readers under its queue. Each profile is packed from its own outputs and queues."""
+    without = {**keys.LANE_ENVIRONMENT, "PROOF_READERS": "0"}
+    queues = {}
+    for name, environment in (("with", None), ("without", keys.environment(without))):
+        queues[name] = tmp_path / f"{name}.json"
+        value = {"blocks": [{"groups": [{"group": "proof/core", "key": name[0] * 64}]}]}
+        queues[name].write_text(json.dumps({**value, **({} if environment is None else {"environment": environment})}))
+    for run, recorded in (("with", LANE_RUN_ENVIRONMENT), ("without", {**LANE_RUN_ENVIRONMENT, "PROOF_READERS": "0"})):
+        output = tmp_path / f"run-{run}"
+        write_serve(output, environment=recorded)
+        write_block(output, {"proof/core": {"proof/core/test_core.py::test_core": "passed"}})
+        for queue in ("with", "without"):
+            kept = queue[0] * 64 in pack.gather([output], [queues[queue]]).index["groups"]
+            assert kept is (run == queue), (run, queue)
+    with pytest.raises(pack.PackError, match="different environments"):
+        pack.gather([tmp_path / "run-without"], [queues["with"], queues["without"]])
+
+
 def test_a_run_of_another_selection_keeps_its_records_and_no_outcome_or_judgment(tmp_path, corpus):
     for name, selection in (("arguments", {"pytest_arguments": ["-k", "bar"]}), ("addopts", {"addopts": "-k bar"})):
         output = tmp_path / name

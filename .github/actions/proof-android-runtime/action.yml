@@ -1,0 +1,89 @@
+name: Proof Android runtime
+description: >-
+  Puts the Android reader's runtime (proof/android/README.md) at the path it
+  was built at, with the JDK the toolchain names. A runtime is a function of
+  the two pins, the toolchain and the scripts that build it
+  (proof/android/toolchain.py key), and is kept in the Actions cache under
+  that digest. With `build`, a runtime no cache entry holds is built from
+  exactly those (proof/android/build-runtime.sh, every download named by
+  commit, checksum or revision) and saved, and the reader's own checks run
+  on the runtime, built or kept (the reader's code changes without the
+  runtime changing); without it, a missing runtime fails the job, since the
+  proof shards, which mount it beside the harness, run after the job that
+  builds it. Needs `proof/` checked out, on linux/amd64:
+  Robolectric's native runtime and the Android Gradle plugin's resource
+  compiler ship for no other Linux.
+inputs:
+  build:
+    description: Whether to build and save a runtime the cache does not hold
+    default: 'false'
+outputs:
+  runtime:
+    description: The runtime's directory (PROOF_ANDROID_RUNTIME)
+    value: ${{ steps.name.outputs.runtime }}
+runs:
+  using: composite
+  steps:
+    - id: name
+      shell: bash
+      run: |
+        if [ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]; then
+          echo "::error::The Android reader runs on linux/amd64 (proof/android/README.md, Where it runs); this runner is $(uname -s) on $(uname -m)."
+          exit 1
+        fi
+        {
+          echo "key=proof-android-runtime-$(python3 proof/android/toolchain.py key)"
+          echo "jdk=$(python3 proof/android/toolchain.py get jdk version)"
+          echo "distribution=$(python3 proof/android/toolchain.py get jdk distribution)"
+          echo "runtime=$HOME/proof-android-reader"
+        } >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-java@v5
+      with:
+        distribution: ${{ steps.name.outputs.distribution }}
+        java-version: ${{ steps.name.outputs.jdk }}
+        check-latest: false
+    - id: held
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.name.outputs.runtime }}
+        key: ${{ steps.name.outputs.key }}
+        fail-on-cache-miss: ${{ inputs.build != 'true' }}
+    - name: Build the runtime
+      if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
+      shell: bash
+      env:
+        RUNTIME: ${{ steps.name.outputs.runtime }}
+      run: |
+        python3 proof/android/toolchain.py prepare-sdk "$RUNNER_TEMP/proof-android-sdk"
+        # Where the dependencies' checksums are not committed yet, this build writes them for a person to
+        # review and commit (the artifact below); where they are, the build holds every dependency to them.
+        write=()
+        if [ ! -f proof/android/verification-metadata.xml ]; then
+          write=(--write-verification "$RUNNER_TEMP/proof-android-verification/verification-metadata.xml")
+          mkdir -p "$RUNNER_TEMP/proof-android-verification"
+        fi
+        ANDROID_HOME="$RUNNER_TEMP/proof-android-sdk" sh proof/android/build-runtime.sh "$RUNTIME" "${write[@]}"
+        du -sh "$RUNTIME" "$RUNTIME"/*
+    - name: Upload the dependencies' checksums this build wrote
+      if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' && hashFiles('proof/android/verification-metadata.xml') == '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: proof-android-verification-${{ github.job }}
+        path: ${{ runner.temp }}/proof-android-verification/
+        if-no-files-found: ignore
+        retention-days: 14
+    # The reader held to itself, before any shard hands it a state: on a runtime just built before it
+    # is kept, and on a kept one too, since the reader's own code changes without the runtime changing.
+    - name: The reader's own checks
+      if: ${{ inputs.build == 'true' }}
+      shell: bash
+      env:
+        PROOF_ANDROID_RUNTIME: ${{ steps.name.outputs.runtime }}
+        TZ: UTC
+      run: python3 -m unittest proof.android.selfcheck proof.android.predicates -v
+    - name: Save the runtime
+      if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.name.outputs.runtime }}
+        key: ${{ steps.name.outputs.key }}

@@ -366,7 +366,6 @@
 		"check": "proof3",
 		"artifact": "trace@local.ccz",
 		"path": "/profile/properties/cc-show-incomplete",
-		"android": "HiddenPreferences.isIncompleteFormsEnabled",
 		"document": "targeted-survey-menu",
 		"control": "case-operation-query"
 	},
@@ -377,7 +376,6 @@
 		"check": "proof3",
 		"artifact": "trace@local.ccz",
 		"path": "/profile/properties/cc-show-saved",
-		"android": "HiddenPreferences.isSavedFormsEnabled",
 		"document": "targeted-survey-menu",
 		"control": "case-operation-query"
 	},
@@ -442,7 +440,6 @@
 		"check": "proof1",
 		"artifact": "local.ccz",
 		"path": "/uniqueid",
-		"android": "AppUtils.getAppById; ProfileAndroidInstaller.checkDuplicate",
 		"document": "targeted-multi-select-destinations",
 		"control": "case-operation-query"
 	},
@@ -642,6 +639,106 @@
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
 		"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=markdown]/text()",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-caption",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/caption",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-caption-markdown",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/caption_markdown",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-help",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/children/*/help",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-hint",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/children/*/hint",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-caption",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/caption",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-caption-markdown",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/caption_markdown",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-help",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/children/*/help",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-hint",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/children/*/hint",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-webapps-vellum-group-label",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/form/groups/*/label",
+		"document": "localization-optional",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-webapps-vellum-question-label",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/form/questions/*/label",
 		"document": "localization-optional",
 		"control": "localization-optional"
 	},
@@ -2778,6 +2875,17 @@
 		"control": "case-operation-query"
 	},
 	{
+		"id": "d14-non-writing-followup-soft-assert-casedb-base-get-case-from-case-update",
+		"defect": 14,
+		"part": "non-writing follow-up (HQ makes the case a form link's literal id names, which no form created)",
+		"check": "proof4",
+		"artifact": "android@soft_assert:request:*",
+		"path": "/corehq~1form_processor~1casedb_base.py::get_case_from_case_update",
+		"kind": "error",
+		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
+		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
+	},
+	{
 		"id": "d14-search-settings-suite-csql-key-include-closed",
 		"defect": 14,
 		"part": "search settings",
@@ -2925,8 +3033,7 @@
 		"artifact": "app.json@case list@*",
 		"path": "/modules/*/case_details/short/columns/*/font_size",
 		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile",
-		"android": "EntityViewTile.getView (medium sets MEDIUM_FONT; an absent size reads GridStyle.getFontSize normal, which keeps the TextView default)"
+		"control": "targeted-custom-tile"
 	},
 	{
 		"id": "d14-tiles-app-grid-x-changed",
@@ -2991,8 +3098,7 @@
 		"artifact": "suite.xml@case list@*",
 		"path": "/suite/detail[@id=*]/field[*]/style[*]/@font-size",
 		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile",
-		"android": "EntityViewTile.getView (medium sets MEDIUM_FONT; an absent size reads GridStyle.getFontSize normal, which keeps the TextView default)"
+		"control": "targeted-custom-tile"
 	},
 	{
 		"id": "d15-entry-point-ids-editor-alerts-not-valid-session",
@@ -3129,7 +3235,6 @@
 		"check": "sensitivity",
 		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
 		"path": "/suite/entry[*]/post[*]",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry",
 		"document": "case-list-local",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3140,7 +3245,6 @@
 		"check": "sensitivity",
 		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
 		"path": "/suite/entry[*]/post[*]/@relevant",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry",
 		"document": "case-list-inline",
 		"control": "case-list-inline"
 	},
@@ -3151,7 +3255,6 @@
 		"check": "sensitivity",
 		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
 		"path": "/suite/entry[*]/post[*]/data[*]/@exclude",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry",
 		"document": "search-multiple",
 		"control": "search-multiple"
 	},
@@ -3162,10 +3265,6 @@
 		"check": "proof4",
 		"artifact": "app.json@case list@*",
 		"path": "/modules/*/search_config/auto_launch",
-		"values": {
-			"before": false,
-			"after": true
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3206,10 +3305,6 @@
 		"check": "proof4",
 		"artifact": "case_blocks@case list@*",
 		"path": "/runs/*/submitted",
-		"values": {
-			"before": true,
-			"after": false
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3220,10 +3315,6 @@
 		"check": "proof4",
 		"artifact": "suite.xml@case list@*",
 		"path": "/suite/detail[@id=*]/action[*]/@auto_launch",
-		"values": {
-			"before": "false()",
-			"after": "$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0"
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3234,10 +3325,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/end/submitted/unreplayable",
-		"values": {
-			"before": "submitted",
-			"after": "unreplayable"
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3258,10 +3345,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/autoLaunched",
-		"values": {
-			"before": null,
-			"after": true
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3322,10 +3405,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/defaultSearch",
-		"values": {
-			"before": null,
-			"after": false
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -3366,10 +3445,6 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/root",
-		"values": {
-			"before": "m0",
-			"after": null
-		},
 		"document": "targeted-list-first-web-apps",
 		"control": "targeted-list-first-web-apps"
 	},
@@ -4552,7 +4627,6 @@
 		"check": "manifest",
 		"artifact": "*form:*",
 		"path": "/xform:repeat/refused/user-repeat-in-a-field-list",
-		"android": "commcare-android activities/FormEntryActivityUIController.java::showNextView shows a field list through commcare-core FormEntryController.getQuestionPrompts, which skips EVENT_PROMPT_NEW_REPEAT inside it, so no row can be added",
 		"document": "targeted-labelled-group-repeat",
 		"control": "targeted-labelled-group-repeat"
 	},
@@ -4847,7 +4921,6 @@
 		"check": "proof3",
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/headers/*",
-		"android": "EntitySelectActivity.getSortOptionsList",
 		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
 		"control": "case-list-inline"
 	},
@@ -4878,7 +4951,6 @@
 		"check": "proof3",
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/headerWidths/*",
-		"android": "EntityView (its constructor reads DetailField.getHeaderWidthHint)",
 		"document": "case-list-inline",
 		"control": "case-list-inline"
 	},
@@ -4899,7 +4971,6 @@
 		"check": "proof3",
 		"artifact": "trace@local.ccz",
 		"path": "/locale",
-		"android": "CommCareApp.initializeApplicationHelper (cur_locale, default 'default')",
 		"document": "targeted-survey-menu",
 		"control": "case-operation-query"
 	},
@@ -4910,7 +4981,6 @@
 		"check": "proof4",
 		"artifact": "app.json@app settings@*",
 		"path": "/profile/properties",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled, HiddenPreferences.getGpsAutoCaptureAccuracy, CommCareApp.areMMResourcesValidated, UpdateHelper.getAutoUpdateFrequency, MainConfigurablePreferences.isTTSEnabled (each key's reader on its profile entry)",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4921,7 +4991,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-autoup-freq]",
-		"android": "UpdateHelper.getAutoUpdateFrequency",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4932,7 +5001,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-content-valid]",
-		"android": "CommCareApp.areMMResourcesValidated",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4943,7 +5011,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-enable-tts]",
-		"android": "MainConfigurablePreferences.isTTSEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4954,7 +5021,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4965,7 +5031,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"android": "HiddenPreferences.getGpsAutoCaptureAccuracy",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4976,7 +5041,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-autoup-freq]",
-		"android": "UpdateHelper.getAutoUpdateFrequency",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4987,7 +5051,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-content-valid]",
-		"android": "CommCareApp.areMMResourcesValidated",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -4998,7 +5061,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-enable-tts]",
-		"android": "MainConfigurablePreferences.isTTSEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5009,7 +5071,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5020,7 +5081,6 @@
 		"check": "proof4",
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"android": "HiddenPreferences.getGpsAutoCaptureAccuracy",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5031,7 +5091,6 @@
 		"check": "proof4",
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-autoup-freq]",
-		"android": "UpdateHelper.getAutoUpdateFrequency",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5042,7 +5101,6 @@
 		"check": "proof4",
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-content-valid]",
-		"android": "CommCareApp.areMMResourcesValidated",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5053,7 +5111,6 @@
 		"check": "proof4",
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-enable-tts]",
-		"android": "MainConfigurablePreferences.isTTSEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5064,7 +5121,6 @@
 		"check": "proof4",
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5075,7 +5131,6 @@
 		"check": "proof4",
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"android": "HiddenPreferences.getGpsAutoCaptureAccuracy",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5086,7 +5141,6 @@
 		"check": "proof4",
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-autoup-freq]",
-		"android": "UpdateHelper.getAutoUpdateFrequency",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5097,7 +5151,6 @@
 		"check": "proof4",
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-content-valid]",
-		"android": "CommCareApp.areMMResourcesValidated",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5108,7 +5161,6 @@
 		"check": "proof4",
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-enable-tts]",
-		"android": "MainConfigurablePreferences.isTTSEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5119,7 +5171,6 @@
 		"check": "proof4",
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-fuzzy-search-enabled]",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5130,7 +5181,6 @@
 		"check": "proof4",
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-gps-auto-capture-accuracy]",
-		"android": "HiddenPreferences.getGpsAutoCaptureAccuracy",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5141,7 +5191,6 @@
 		"check": "proof4",
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-autoup-freq",
-		"android": "UpdateHelper.getAutoUpdateFrequency",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5152,7 +5201,6 @@
 		"check": "proof4",
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-content-valid",
-		"android": "CommCareApp.areMMResourcesValidated",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5163,7 +5211,6 @@
 		"check": "proof4",
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-enable-tts",
-		"android": "MainConfigurablePreferences.isTTSEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5174,7 +5221,6 @@
 		"check": "proof4",
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-fuzzy-search-enabled",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5185,7 +5231,6 @@
 		"check": "proof4",
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-gps-auto-capture-accuracy",
-		"android": "HiddenPreferences.getGpsAutoCaptureAccuracy",
 		"document": "case-operation-query",
 		"control": "case-operation-query"
 	},
@@ -5216,7 +5261,6 @@
 		"check": "manifest",
 		"artifact": "*app.json",
 		"path": "/schema:Detail.case_tile_template/refused/null-on-a-placed-custom-tile-column",
-		"android": "commcare-android views/EntityViewTile.java::setScaleType (`left` is FIT_START, an absent alignment keeps the image view's FIT_CENTER)",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -5227,7 +5271,6 @@
 		"check": "proof4",
 		"artifact": "app.json@case list@*",
 		"path": "/modules/*/case_details/short/columns/*/horizontal_align",
-		"android": "EntityViewTile.setScaleType",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -5238,7 +5281,6 @@
 		"check": "proof4",
 		"artifact": "suite.xml@case list@*",
 		"path": "/suite/detail[@id=*]/field[*]/style[*]/@horz-align",
-		"android": "EntityViewTile.setScaleType",
 		"document": "targeted-custom-tile",
 		"control": "targeted-custom-tile"
 	},
@@ -5359,7 +5401,6 @@
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
 		"path": "/html/head[*]/title[*]/text()",
-		"android": "FormEntryActivity.getHeaderString, FormEntryInstanceState.getDefaultFormTitle",
 		"document": "localization-stale",
 		"control": "localization-bilingual"
 	},
@@ -5370,7 +5411,6 @@
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
 		"path": "/html/head[*]/title[*]/text()",
-		"android": "FormEntryActivity.getHeaderString, FormEntryInstanceState.getDefaultFormTitle",
 		"document": "localization-stale",
 		"control": "localization-bilingual"
 	},
@@ -5381,7 +5421,6 @@
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
 		"path": "/runs/*/trace/*/title",
-		"android": "FormEntryActivity.getHeaderString, FormEntryInstanceState.getDefaultFormTitle",
 		"document": "localization-stale",
 		"control": "localization-bilingual"
 	},
@@ -5432,7 +5471,6 @@
 		"check": "manifest",
 		"artifact": "*.ccz/suite.xml",
 		"path": "/csql-fn:search-value-mixes-quote-marks/refused",
-		"android": "commcare-android QueryRequestActivity.makeQueryRequest (QueryRequestUiController.setupUI's search button) sends RemoteQuerySessionManager.getRawQueryParams(false) with no prompt validation, where Web Apps queries only when screen.getErrors() is empty (formplayer MenuSessionRunnerService.doQuery)",
 		"document": "targeted-search-hq-compile",
 		"control": "targeted-search-hq-compile"
 	},
@@ -5443,7 +5481,6 @@
 		"check": "manifest",
 		"artifact": "*app.json",
 		"path": "/csql-fn:search-value-mixes-quote-marks/refused",
-		"android": "commcare-android QueryRequestActivity.makeQueryRequest (QueryRequestUiController.setupUI's search button) sends RemoteQuerySessionManager.getRawQueryParams(false) with no prompt validation, where Web Apps queries only when screen.getErrors() is empty (formplayer MenuSessionRunnerService.doQuery)",
 		"document": "targeted-search-hq-compile",
 		"control": "targeted-search-hq-compile"
 	},
@@ -5523,9 +5560,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PendingCalcs.getPendingSyncStatus (absent reads freq-never)",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-autosync-freq",
@@ -5535,9 +5570,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PendingCalcs.getPendingSyncStatus (absent reads freq-never)",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-autosync-freq",
@@ -5547,9 +5580,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PendingCalcs.getPendingSyncStatus (absent reads freq-never)",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-autosync-freq",
@@ -5559,9 +5590,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-autosync-freq]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PendingCalcs.getPendingSyncStatus (absent reads freq-never)",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-autosync-freq",
@@ -5571,9 +5600,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-autosync-freq",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PendingCalcs.getPendingSyncStatus (absent reads freq-never)",
-		"equivalence": "HQ forces the value Android's PendingCalcs.getPendingSyncStatus (absent reads freq-never) and Formplayer's RestoreFactory.getSyncFreqency takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-days-form-retain",
@@ -5583,9 +5610,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1)",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-days-form-retain",
@@ -5595,9 +5620,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1)",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-days-form-retain",
@@ -5607,9 +5630,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1)",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-days-form-retain",
@@ -5619,9 +5640,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-days-form-retain]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1)",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-days-form-retain",
@@ -5631,9 +5650,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-days-form-retain",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1)",
-		"equivalence": "HQ forces the value Android's PurgeStaleArchivedFormsTask.getArchivedFormsValidityInDays (absent reads -1) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-inflation-target-density",
@@ -5643,9 +5660,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.isSmartInflationEnabled (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-inflation-target-density",
@@ -5655,9 +5670,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.isSmartInflationEnabled (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-inflation-target-density",
@@ -5667,9 +5680,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.isSmartInflationEnabled (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-inflation-target-density",
@@ -5679,9 +5690,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-inflation-target-density]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.isSmartInflationEnabled (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-inflation-target-density",
@@ -5691,9 +5700,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-inflation-target-density",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.isSmartInflationEnabled (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.isSmartInflationEnabled (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-label-required-questions-with-asterisk",
@@ -5703,9 +5710,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-label-required-questions-with-asterisk",
@@ -5715,9 +5720,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-label-required-questions-with-asterisk",
@@ -5727,9 +5730,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-label-required-questions-with-asterisk",
@@ -5739,9 +5740,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-label-required-questions-with-asterisk]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-label-required-questions-with-asterisk",
@@ -5751,9 +5750,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-label-required-questions-with-asterisk",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.shouldLabelRequiredQuestionsWithAsterisk (absent reads no) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-login-duration-seconds",
@@ -5763,9 +5760,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLoginDuration (absent reads 86400)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-login-duration-seconds",
@@ -5775,9 +5770,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLoginDuration (absent reads 86400)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-login-duration-seconds",
@@ -5787,9 +5780,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLoginDuration (absent reads 86400)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-login-duration-seconds",
@@ -5799,9 +5790,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-login-duration-seconds]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLoginDuration (absent reads 86400)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-login-duration-seconds",
@@ -5811,9 +5800,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-login-duration-seconds",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLoginDuration (absent reads 86400)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLoginDuration (absent reads 86400) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-maps-default-layer",
@@ -5823,9 +5810,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getMapsDefaultLayer (absent reads normal)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-maps-default-layer",
@@ -5835,9 +5820,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getMapsDefaultLayer (absent reads normal)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-maps-default-layer",
@@ -5847,9 +5830,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getMapsDefaultLayer (absent reads normal)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-maps-default-layer",
@@ -5859,9 +5840,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-maps-default-layer]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getMapsDefaultLayer (absent reads normal)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-maps-default-layer",
@@ -5871,9 +5850,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-maps-default-layer",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getMapsDefaultLayer (absent reads normal)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getMapsDefaultLayer (absent reads normal) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-cc-resize-images",
@@ -5883,9 +5860,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getResizeMethod (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-cc-resize-images",
@@ -5895,9 +5870,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getResizeMethod (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-cc-resize-images",
@@ -5907,9 +5880,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getResizeMethod (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-cc-resize-images",
@@ -5919,9 +5890,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=cc-resize-images]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getResizeMethod (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-cc-resize-images",
@@ -5931,9 +5900,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/cc-resize-images",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getResizeMethod (absent reads none)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getResizeMethod (absent reads none) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-logenabled",
@@ -5943,9 +5910,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLogsEnabled (absent reads Enabled)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-logenabled",
@@ -5955,9 +5920,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLogsEnabled (absent reads Enabled)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-logenabled",
@@ -5967,9 +5930,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLogsEnabled (absent reads Enabled)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-logenabled",
@@ -5979,9 +5940,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=logenabled]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLogsEnabled (absent reads Enabled)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-logenabled",
@@ -5991,9 +5950,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/logenabled",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "HiddenPreferences.getLogsEnabled (absent reads Enabled)",
-		"equivalence": "HQ forces the value Android's HiddenPreferences.getLogsEnabled (absent reads Enabled) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-unsent-number-limit",
@@ -6003,9 +5960,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-unsent-number-limit",
@@ -6015,9 +5970,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-unsent-number-limit",
@@ -6027,9 +5980,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-unsent-number-limit",
@@ -6039,9 +5990,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-number-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-unsent-number-limit",
@@ -6051,9 +6000,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/unsent-number-limit",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormNumberLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-ccpr-unsent-time-limit",
@@ -6063,9 +6010,7 @@
 		"artifact": "media_profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-media-profile-xml-unsent-time-limit",
@@ -6075,9 +6020,7 @@
 		"artifact": "media_profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-ccpr-unsent-time-limit",
@@ -6087,9 +6030,7 @@
 		"artifact": "profile.ccpr@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-profile-xml-unsent-time-limit",
@@ -6099,9 +6040,7 @@
 		"artifact": "profile.xml@app settings@*",
 		"path": "/profile/property[@key=unsent-time-limit]",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d40-app-settings-trace-unsent-time-limit",
@@ -6111,99 +6050,7 @@
 		"artifact": "trace@app settings@*",
 		"path": "/profile/properties/unsent-time-limit",
 		"document": "case-operation-query",
-		"control": "case-operation-query",
-		"android": "SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5)",
-		"equivalence": "HQ forces the value Android's SyncDetailCalculations.unsentFormTimeLimitExceeded (absent reads 5) takes where the property is absent, and no worker preference sets it, so devices read the two alike; only those runtimes read it, so no test the lane runs can prove it (finding 40)."
-	},
-	{
-		"id": "d42-tile-alignment-app-vertical-align",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/case_details/short/columns/*/vertical_align",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile",
-		"android": "EntityViewTile.computeGravity (no case for start, as for an absent alignment)",
-		"equivalence": "Android reads a vertical alignment of start as none (EntityViewTile.computeGravity has no case for it) and Web Apps reads an absent one as start, so both runtimes render the cell alike; only they read it, so no test the lane runs can prove it (correction 4)."
-	},
-	{
-		"id": "d42-tile-alignment-suite-style-vert-align",
-		"defect": 42,
-		"part": "custom-tile cell alignment",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/detail[@id=*]/field[*]/style[*]/@vert-align",
-		"document": "targeted-custom-tile",
-		"control": "targeted-custom-tile",
-		"android": "EntityViewTile.computeGravity (no case for start, as for an absent alignment)",
-		"equivalence": "Android reads a vertical alignment of start as none (EntityViewTile.computeGravity has no case for it) and Web Apps reads an absent one as start, so both runtimes render the cell alike; only they read it, so no test the lane runs can prove it (correction 4)."
-	},
-	{
-		"id": "d54-search-description-app-description",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "app.json@case list@*",
-		"path": "/modules/*/search_config/description/*",
-		"document": "case-list-browse",
-		"control": "case-operation-query",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), Android never reads it, and only Web Apps' client settles it, which the lane does not run (finding 54)."
-	},
-	{
-		"id": "d54-search-description-suite-remote-request",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/remote-request[*]/session[*]/query[*]/description[*]",
-		"document": "case-list-browse",
-		"control": "case-operation-query",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), Android never reads it, and only Web Apps' client settles it, which the lane does not run (finding 54)."
-	},
-	{
-		"id": "d54-search-description-suite-entry",
-		"defect": 54,
-		"part": "empty search description",
-		"check": "proof4",
-		"artifact": "suite.xml@case list@*",
-		"path": "/suite/entry[*]/session[*]/query[*]/description[*]",
-		"document": "case-list-inline",
-		"control": "case-list-inline",
-		"equivalence": "HQ's app strings write the description's empty text as a non-breaking space (commcare-translations commcare_translations.py::dumps), so Core reads \"\\u00a0\" with the description and \"\" without one (QueryScreen.getDescriptionLocaleString), which Formplayer hands Web Apps (QueryResponseBean); Web Apps trims either to nothing and shows no description (formplayer/menus/views/query.js and views.js templateContext), Android never reads it, and only Web Apps' client settles it, which the lane does not run (finding 54)."
-	},
-	{
-		"id": "d55-connect-work-area-form",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/deliver[@id=*]/work_area_id[*]",
-		"document": "connect-deliver-default",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
-	},
-	{
-		"id": "d55-connect-work-area-source",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/deliver[@id=*]/work_area_id[*]",
-		"document": "connect-deliver-default",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
-	},
-	{
-		"id": "d55-connect-work-area-trace",
-		"defect": 55,
-		"part": "Connect work area id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/deliver[@id=*]/work_area_id[*]",
-		"document": "connect-deliver-default",
-		"control": "expander-expanddoc-hq-json-projection-sort-elements-85a51a04-0",
-		"equivalence": "Connect reads a deliver unit's work_area_id by its truth value (commcare-connect form_receiver/processor.py::process_deliver_unit), so the empty id Vellum writes reads as none; only Connect reads it, so no test the lane runs can prove it (finding 55)."
+		"control": "case-operation-query"
 	},
 	{
 		"id": "d53-zero-input-sentinel-trace-params",
@@ -6236,8 +6083,7 @@
 		"path": "/runs/*/trace/*/rows/*/sortFields/*",
 		"document": "case-operation-query",
 		"control": "case-operation-query",
-		"kind": "removed",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled (a fuzzy search matches a field by its sort key alone)"
+		"kind": "removed"
 	},
 	{
 		"id": "d51-sort-keys-trace-rows-sortfields-added",
@@ -6248,8 +6094,7 @@
 		"path": "/runs/*/trace/*/rows/*/sortFields/*",
 		"document": "targeted-shared-property-sort",
 		"control": "targeted-shared-property-sort",
-		"kind": "added",
-		"android": "MainConfigurablePreferences.isFuzzySearchEnabled (a fuzzy search matches a field by its sort key alone)"
+		"kind": "added"
 	},
 	{
 		"id": "d26-form-links-app-form-links-other-module-target",
@@ -6370,8 +6215,7 @@
 		"path": "/runs/*/trace/*",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "removed",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "removed"
 	},
 	{
 		"id": "d20-session-trace-screen",
@@ -6382,8 +6226,7 @@
 		"path": "/runs/*/trace/*/screen",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "changed",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "changed"
 	},
 	{
 		"id": "d20-session-trace-requests",
@@ -6394,8 +6237,7 @@
 		"path": "/runs/*/trace/*/requests",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "removed",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "removed"
 	},
 	{
 		"id": "d20-session-trace-title",
@@ -6406,8 +6248,7 @@
 		"path": "/runs/*/trace/*/title",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "added",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "added"
 	},
 	{
 		"id": "d20-session-trace-xmlns",
@@ -6418,8 +6259,7 @@
 		"path": "/runs/*/trace/*/xmlns",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "added",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "added"
 	},
 	{
 		"id": "d20-session-trace-events",
@@ -6430,8 +6270,7 @@
 		"path": "/runs/*/trace/*/events",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "added",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "added"
 	},
 	{
 		"id": "d20-session-trace-submission",
@@ -6442,8 +6281,7 @@
 		"path": "/runs/*/trace/*/submission",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "added",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "added"
 	},
 	{
 		"id": "d20-session-trace-case-db",
@@ -6454,8 +6292,7 @@
 		"path": "/runs/*/trace/*/caseDb",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
-		"kind": "added",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"kind": "added"
 	},
 	{
 		"id": "d20-session-trace-stack",
@@ -6466,7 +6303,3016 @@
 		"path": "/runs/*/trace/*/stackAfterSubmit",
 		"document": "targeted-sync-on-form-entry",
 		"control": "targeted-sync-on-form-entry",
+		"kind": "added"
+	},
+	{
+		"id": "d6-csql-formplayer-a-app-aware-remote-search-400-is-not-a-correct",
+		"defect": 6,
+		"part": "CSQL",
+		"check": "proof3",
+		"artifact": "formplayer@A",
+		"path": "/hq/app_aware_remote_search/400/is-not-a-correctly-formatted-date-or-datetime",
+		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d12-related-lookups-formplayer-a-app-aware-remote-search-400-you-cannot-query",
+		"defect": 12,
+		"part": "related lookups",
+		"check": "proof3",
+		"artifact": "formplayer@A",
+		"path": "/hq/app_aware_remote_search/400/you-cannot-query-related-cases-here",
+		"document": "targeted-search-related-lookups",
+		"control": "targeted-search-related-lookups"
+	},
+	{
+		"id": "d4-auto-gps-capture-formplayer-b-data-meta-location",
+		"defect": 4,
+		"part": "auto_gps_capture",
+		"check": "proof3",
+		"artifact": "formplayer@B",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d4-auto-gps-capture-formplayer-b-data-meta-location-2",
+		"defect": 4,
+		"part": "auto_gps_capture",
+		"check": "proof3",
+		"artifact": "formplayer@B",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/asked/*",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-asked-2",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/asked/*/*",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/details/*/altText/*",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-alttext-2",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/entities/*/altText/*",
+		"document": "case-list-inline",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d35-hidden-select-column-text-formplayer-local-ccz-data",
+		"defect": 35,
+		"part": "hidden select column text",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/entities/*/data/*",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-keeps-67fa0ac7-0"
+	},
+	{
+		"id": "d10-label-column-and-unsorted-or-formplayer-local-ccz-response-entityorder",
+		"defect": 10,
+		"part": "label-column and unsorted order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/entityOrder/*",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
+	},
+	{
+		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-response-headers",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/headers/*",
+		"document": "targeted-shared-property-sort",
+		"control": "targeted-shared-property-sort"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/case[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-order",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/order()",
+		"document": "case-capture-query",
+		"control": "case-capture-query"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/subcase_*[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d9-form-version-formplayer-local-ccz-output-data-version",
+		"defect": 9,
+		"part": "form version",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/@version",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-update-external-id-text",
+		"defect": 33,
+		"part": "trimmed case names and external ids",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/external_id[*]/text()",
+		"document": "navigation-base",
+		"control": "navigation-base"
+	},
+	{
+		"id": "d66-update-property-order-formplayer-local-ccz-case-update-order",
+		"defect": 66,
+		"part": "update property order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]/update[*]/order()",
+		"document": "workforce-case-operation-sequence",
+		"control": "workforce-case-operation-sequence"
+	},
+	{
+		"id": "d34-connect-location-capture-formplayer-local-ccz-data-meta-location",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d37-new-case-order-formplayer-local-ccz-output-data-order",
+		"defect": 37,
+		"part": "new case order",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/order()",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-output-data-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/subcase_*[*]",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-response-metadata-attemptrestore",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/metaData/attemptRestore",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-noitemstext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/noItemsText",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d36-hidden-sort-column-offered-formplayer-local-ccz-persistentcasetile-headers",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/headers/*",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-selecttext",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/selectText",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d51-sort-keys-formplayer-local-ccz-response-sortindices",
+		"defect": 51,
+		"part": "sort keys",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/sortIndices/*",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d65-texts-the-local-archive-leav-formplayer-local-ccz-response-translations",
+		"defect": 65,
+		"part": "texts the local archive leaves out",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/translations/*",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d32-searches-from-a-local-ccz-formplayer-local-ccz-response-type",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/type",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d59-local-archive-names-no-serve-formplayer-local-ccz-submit-status",
+		"defect": 59,
+		"part": "local archive names no server",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/status",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-maxheight",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/maxHeight",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-response-maxwidth",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/maxWidth",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-numentitiesperrow",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/numEntitiesPerRow",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-response-persistentcasetile-maxwidth",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/maxWidth",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-fontsize",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/fontSize",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/styles/*/horizontalAlign",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-persistentcasetile-tiles",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/tiles/*",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-tiles-fontsize",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/persistentCaseTile/tiles/*/fontSize",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-fontsize-2",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign-2",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/styles/*/horizontalAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-tiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/tiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-response-tiles",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/tiles/*",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-tiles-fontsize-2",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/tiles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-search-settings-formplayer-case-list-response-title",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/title",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-formplayer-case-list-response-type",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/type",
+		"document": "targeted-list-first-web-apps",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-response-usescasetiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/usesCaseTiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-maxheight",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/maxHeight",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-submit-nextscreen-maxwidth",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/maxWidth",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-numentitiesperrow",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/numEntitiesPerRow",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-styles-fontsize-3",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-formplayer-case-list-styles-horizontalalign-3",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/styles/*/horizontalAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-tiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/tiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-nextscreen-tiles",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/tiles/*",
+		"document": "tile-persistent",
+		"control": "tile-persistent"
+	},
+	{
+		"id": "d14-tiles-formplayer-case-list-tiles-fontsize-3",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/tiles/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-formplayer-case-list-submit-nextscreen-type",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"document": "expander-form-links-emission-forwards-literal-condition-47c96355-0",
+		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
+	},
+	{
+		"id": "d12-custom-tile-formplayer-case-list-submit-nextscreen-usescasetiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/usesCaseTiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-non-writing-follow-up-formplayer-case-management-output-data-case",
+		"defect": 14,
+		"part": "non-writing follow-up",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/case[*]",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d14-non-writing-follow-up-formplayer-case-management-instance-data-case",
+		"defect": 14,
+		"part": "non-writing follow-up",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d14-close-conditions-formplayer-case-management-data-case-close",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/close[*]",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d14-non-writing-follow-up-formplayer-case-management-output-data-case-2",
+		"defect": 14,
+		"part": "non-writing follow-up",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/case[*]",
+		"document": "search-registration-link",
+		"control": "search-registration-link"
+	},
+	{
+		"id": "d14-close-conditions-formplayer-case-management-submit-nextscreen-type",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "formplayer@case management@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d26-hidden-links-and-navigation--formplayer-form-settings-submit-nextscreen",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "formplayer@form settings@*",
+		"path": "/runs/*/steps/*/submit/nextScreen",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d41-empty-list-text-goes-blank-formplayer-module-settings-response-noitemstext",
+		"defect": 41,
+		"part": "empty-list text goes blank",
+		"check": "proof4",
+		"artifact": "formplayer@module settings@*",
+		"path": "/runs/*/steps/*/response/noItemsText",
+		"document": "targeted-empty-list-no-english",
+		"control": "search-browse"
+	},
+	{
+		"id": "d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-html",
+		"defect": 41,
+		"part": "empty-list text goes blank",
+		"check": "proof4",
+		"artifact": "webapps@module settings@*",
+		"path": "/runs/*/screens/*/list/empty/html",
+		"document": "targeted-empty-list-no-english",
+		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
+	},
+	{
+		"id": "d41-empty-list-text-goes-blank-webapps-module-settings-list-empty-text",
+		"defect": 41,
+		"part": "empty-list text goes blank",
+		"check": "proof4",
+		"artifact": "webapps@module settings@*",
+		"path": "/runs/*/screens/*/list/empty/text",
+		"document": "targeted-empty-list-no-english",
+		"control": "expander-expanddoc-hq-json-projection-search-config-lifts-16e452f3-0"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--formplayer-vellum-data-count",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/@count",
+		"document": "targeted-query-repeat-places",
+		"control": "targeted-query-repeat-places"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
+		"document": "case-operation-query",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d45-blanked-case-id-owner-and-st-formplayer-vellum-data-text",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/text()",
+		"document": "standard-case-reads",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-output-data-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/@name",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-case-case-id",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/*/case[*]/@case_id",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-update-text",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/*/case[*]/update[*]/*/text()",
+		"document": "case-operation-sequence",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-case-id",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@case_id",
+		"document": "case-operation-sequence",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id-2",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-2",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-multiple",
+		"control": "case-extension-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-update-selected-cases-case-attachment",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"document": "case-capture-multiple",
+		"control": "case-capture-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-3",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--formplayer-vellum-response-type",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/type",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-4",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-query",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d45-blanked-case-id-owner-and-st-formplayer-vellum-data-text-2",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/text()",
+		"document": "standard-case-reads",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-instance-data-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/@name",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d13-wrapper-conditions-and-leaf--formplayer-vellum-data-nova-operations",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_operations[*]/*",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-5",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-multiple",
+		"control": "case-extension-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-update-selected-cases-case-attachment-2",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"document": "case-capture-multiple",
+		"control": "case-capture-multiple"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-6",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-7",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-multiple-repeat",
+		"control": "case-extension-multiple-repeat"
+	},
+	{
+		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-8",
+		"defect": 23,
+		"part": "attachment-mode capture",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"document": "case-extension-repeat",
+		"control": "case-extension-repeat"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-output-data-name-2",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@name",
+		"document": "case-extension-registration",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d13-datetime-leaves-formplayer-vellum-submit-nextscreen-type",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"document": "case-operation-retype",
+		"control": "case-operation-retype"
+	},
+	{
+		"id": "d13-guard-blocks-formplayer-vellum-submit-status",
+		"defect": 13,
+		"part": "guard blocks",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/status",
+		"document": "case-operation-query",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-end-empty-menu-unreplayable",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/empty-menu/unreplayable",
+		"document": "case-list-no-details",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-end-no-cases-script-ended",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/no-cases/script-ended",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*",
+		"document": "targeted-search-related-lookups",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-datum",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/datum",
+		"document": "tile-grouped-search",
+		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-requests",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/requests",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-step",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/step",
+		"document": "tile-grouped-search",
+		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d62-incomplete-forms-tile-webapps-app-settings-home-tiles-incomplete",
+		"defect": 62,
+		"part": "Incomplete Forms tile",
+		"check": "proof4",
+		"artifact": "webapps@app settings@*",
+		"path": "/home/tiles/incomplete",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d62-incomplete-forms-tile-webapps-app-settings-screens-tiles-incomplete",
+		"defect": 62,
+		"part": "Incomplete Forms tile",
+		"check": "proof4",
+		"artifact": "webapps@app settings@*",
+		"path": "/runs/*/screens/*/tiles/incomplete",
+		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-screens-kind",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/kind",
+		"document": "targeted-list-first-web-apps",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-list-cells",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-alignself",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/alignSelf",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-class",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/class",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-fontsize",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/fontSize",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-gridarea",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/gridArea",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-webapps-case-list-cells-justifyself",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/justifySelf",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d42-custom-tile-cell-alignment-webapps-case-list-cells-textalign",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/cells/*/textAlign",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-headers",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/headers/*",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-hidden",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/hidden",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-cells-image",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/image",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-tiles-webapps-case-list-cells-text",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/rows/*/cells/*/text",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-sort",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/sort/*",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-custom-tile-webapps-case-list-list-tiles",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/list/tiles",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-search-settings-webapps-case-list-screens-title",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/title",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-alerts",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/alerts/*",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-screens-kind",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/kind",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-run-ends-answers",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (Formplayer refuses the saved form as it opens, so App Preview's run of it ends there)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/answers",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-run-ends-screens",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (Formplayer refuses the saved form as it opens, so App Preview's run of it ends there)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-query-repeat-rewritten-into--webapps-vellum-run-ends-submit",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (Formplayer refuses the saved form as it opens, so App Preview's run of it ends there)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/submit",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d34-connect-location-capture-connect-local-ccz-visits-flags-gps",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "connect@local.ccz",
+		"path": "/runs/*/state/visits/*/flags/gps",
 		"kind": "added",
-		"android": "commcare-android HomeScreenBaseActivity.launchRemoteSync: Core's CommCareSession.getNeededData asks for a sync (STATE_SYNC_REQUEST) on a form entry whose post is relevant, and Android clears the session (clearSessionAndExit) because the entry is a FormEntry, not a RemoteRequestEntry"
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d34-connect-location-capture-connect-local-ccz-visits-location",
+		"defect": 34,
+		"part": "Connect location capture",
+		"check": "proof3",
+		"artifact": "connect@local.ccz",
+		"path": "/runs/*/state/visits/*/location",
+		"kind": "changed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d60-connect-key-names-connect-a-refused-500-keyerror",
+		"defect": 60,
+		"part": "Connect block named like a Connect key",
+		"check": "proof3",
+		"artifact": "connect@A",
+		"path": "/runs/*/refused/500/KeyError",
+		"kind": "error",
+		"document": "targeted-connect-deliver-key-names",
+		"control": "targeted-connect-deliver-key-names"
+	},
+	{
+		"id": "d61-deliver-form-with-a-task-connect-a-visit-rejected",
+		"defect": 61,
+		"part": "deliver form that holds a task",
+		"check": "proof3",
+		"artifact": "connect@A",
+		"path": "/runs/*/visit-rejected-for-the-task-its-form-completes",
+		"kind": "error",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-ids-deliver-moved",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/ids/deliver/moved",
+		"kind": "changed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": ["home_visit"],
+			"after": ["household_visit"]
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-ids-task-moved",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/ids/task/moved",
+		"kind": "changed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename",
+		"values": {
+			"before": ["follow_up"],
+			"after": ["return_visit"]
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-refused-400-payment-unit",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/runs/*/refused/400/payment-unit-is-not-configured-for-the-deliver-unit",
+		"kind": "error",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-ids-module-moved",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/ids/module/moved",
+		"kind": "changed",
+		"document": "targeted-connect-learn-rename",
+		"control": "targeted-connect-learn-rename",
+		"values": {
+			"before": ["hand_washing"],
+			"after": ["washing_hands"]
+		}
+	},
+	{
+		"id": "d15-connect-ids-renamed-connect-b-edit-catalog-learnmodules-added",
+		"defect": 15,
+		"part": "Connect ids renamed under an opportunity",
+		"check": "proof4",
+		"artifact": "connect@B-edit@*",
+		"path": "/runs/*/catalog/learnModules/added",
+		"kind": "error",
+		"document": "targeted-connect-learn-rename",
+		"control": "targeted-connect-learn-rename",
+		"values": {
+			"before": null,
+			"after": ["washing_hands"]
+		}
+	},
+	{
+		"id": "d1-android-proof1-b-update-reopened-changed",
+		"defect": 1,
+		"part": "ids and xmlns (an incomplete form after the next publish)",
+		"check": "proof1",
+		"artifact": "android@B",
+		"path": "/update/reopened/*",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d67-android-proof1-b-update-reopened-session-changed",
+		"defect": 67,
+		"part": "grouped-tile parent ids in a stored session",
+		"check": "proof1",
+		"artifact": "android@B",
+		"path": "/update/reopened/*/session",
+		"kind": "changed",
+		"document": "tile-grouped-one",
+		"control": "tile-grouped-one"
+	},
+	{
+		"id": "d9-android-proof1-local-ccz-installs-changed",
+		"defect": 9,
+		"part": "uniqueid (two exports install as two apps)",
+		"check": "proof1",
+		"artifact": "android@local.ccz",
+		"path": "/installs/*",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d9-android-proof1-local-ccz-update-changed",
+		"defect": 9,
+		"part": "uniqueid (no update to the next export)",
+		"check": "proof1",
+		"artifact": "android@local.ccz",
+		"path": "/update",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d67-android-proof1-local-ccz-update-reopened-session-changed",
+		"defect": 67,
+		"part": "grouped-tile parent ids in a stored session",
+		"check": "proof1",
+		"artifact": "android@local.ccz",
+		"path": "/update/reopened/*/session",
+		"kind": "changed",
+		"document": "tile-grouped-one",
+		"control": "tile-grouped-one"
+	},
+	{
+		"id": "d48-android-proof3-a-query-withanswer-sent-unquotable-search-error",
+		"defect": 48,
+		"part": "a search answer holding both quote marks",
+		"check": "proof3",
+		"artifact": "android@A",
+		"path": "/walks/*/steps/*/query/withAnswer/sent-unquotable-search",
+		"kind": "error",
+		"document": "targeted-search-hq-compile",
+		"control": "targeted-search-hq-compile"
+	},
+	{
+		"id": "d4-android-proof3-b-form-deviceasked-removed",
+		"defect": 4,
+		"part": "auto_gps_capture (the location permission)",
+		"check": "proof3",
+		"artifact": "android@B",
+		"path": "/walks/*/steps/*/form/deviceAsked",
+		"kind": "removed",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d7-android-proof3-local-ccz-home-gethiddenbuttons-incomplete-removed",
+		"defect": 7,
+		"part": "saved and incomplete forms",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/home/StandardHomeActivityUIController.getHiddenButtons/incomplete",
+		"kind": "removed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d14-android-proof3-local-ccz-install-changed",
+		"defect": 14,
+		"part": "close conditions (HQ's build does not install)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/install",
+		"kind": "changed",
+		"document": "targeted-close-condition-unparsable",
+		"control": "targeted-close-condition-unparsable",
+		"values": {
+			"before": "InvalidResource",
+			"after": "Installed"
+		}
+	},
+	{
+		"id": "d15-android-proof3-local-ccz-install-changed",
+		"defect": 15,
+		"part": "question ids (HQ's build does not install)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/install",
+		"kind": "changed",
+		"document": "targeted-invalid-question-ids",
+		"control": "targeted-invalid-question-ids",
+		"values": {
+			"before": "InvalidResource",
+			"after": "Installed"
+		}
+	},
+	{
+		"id": "d39-android-proof3-local-ccz-locale-localization-getcurrentlocale-changed",
+		"defect": 39,
+		"part": "local profile locale",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/profile/locale/Localization.getCurrentLocale",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d7-android-proof3-local-ccz-readers-hiddenpreferences-isincompleteformsenabled-changed",
+		"defect": 7,
+		"part": "saved and incomplete forms",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/profile/readers/HiddenPreferences.isIncompleteFormsEnabled",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d7-android-proof3-local-ccz-readers-hiddenpreferences-issavedformsenabled-changed",
+		"defect": 7,
+		"part": "saved and incomplete forms",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/profile/readers/HiddenPreferences.isSavedFormsEnabled",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d7-android-proof3-local-ccz-form-saved-aftersend-changed",
+		"defect": 7,
+		"part": "saved and incomplete forms (a sent form the device keeps)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/saved/afterSend/*",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d20-android-proof3-local-ccz-ter-menuactivity-home-session-refresh-required-formentryactivity-changed",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-MenuActivity:home!Session Refresh Required:FormEntryActivity",
+		"kind": "changed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d34-android-proof3-local-ccz-form-deviceasked-removed",
+		"defect": 34,
+		"part": "Connect location capture (the location permission)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/deviceAsked",
+		"kind": "removed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d14-android-proof3-local-ccz-form-saved-cases-changed",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/saved/cases/*",
+		"kind": "changed",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d36-android-proof3-local-ccz-list-entityselectactivity-getsortoptionslist-changed",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList",
+		"kind": "changed",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d38-android-proof3-local-ccz-list-header-children-layoutwidth-changed",
+		"defect": 38,
+		"part": "image-map column width",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/header/*/children/*/layoutWidth",
+		"kind": "changed",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d38-android-proof3-local-ccz-list-headerdrawn-texts-lines-changed",
+		"defect": 38,
+		"part": "image-map column width (a header drawn at the width it is given)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/headerDrawn/texts/*/lines",
+		"kind": "changed",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d38-android-proof3-local-ccz-list-headerdrawn-height-changed",
+		"defect": 38,
+		"part": "image-map column width (a header drawn at the width it is given)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/headerDrawn/height",
+		"kind": "changed",
+		"document": "media-only",
+		"control": "media-only"
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-order-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/order",
+		"kind": "changed",
+		"document": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
+		"control": "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0"
+	},
+	{
+		"id": "d38-android-proof3-local-ccz-list-rows-children-layoutwidth-changed",
+		"defect": 38,
+		"part": "image-map column width",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/rows/*/children/*/layoutWidth",
+		"kind": "changed",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d51-android-proof3-local-ccz-list-searches-fuzzyon-changed",
+		"defect": 51,
+		"part": "sort keys (fuzzy search)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/searches/fuzzyOn/*",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d51-android-proof3-local-ccz-list-sorted-changed",
+		"defect": 51,
+		"part": "sort keys (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "case-list-inline",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d36-android-proof3-local-ccz-list-sorted-added",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "added",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-sorted-zone-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "targeted-label-sort",
+		"control": "targeted-label-sort",
+		"values": {
+			"before": "proof text | proof text | 10 | 10 | 2",
+			"after": "10 | 10 | 2 | proof text | proof text"
+		}
+	},
+	{
+		"id": "d10-android-proof3-local-ccz-list-sorted-level-changed",
+		"defect": 10,
+		"part": "label-column and unsorted order (the order a Sort choice gives)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "changed",
+		"document": "targeted-label-sort",
+		"control": "targeted-label-sort",
+		"values": {
+			"before": "2 | proof text | 10 | 10 | proof text",
+			"after": "10 | 10 | 2 | proof text | proof text"
+		}
+	},
+	{
+		"id": "d36-android-proof3-local-ccz-list-sorted-removed",
+		"defect": 36,
+		"part": "hidden sort column offered",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/list/sorted/*",
+		"kind": "removed",
+		"document": "targeted-shared-property-sort",
+		"control": "targeted-shared-property-sort"
+	},
+	{
+		"id": "d53-android-proof3-local-ccz-query-getrawqueryparams-removed",
+		"defect": 53,
+		"part": "zero-input search sentinel",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/RemoteQuerySessionManager.getRawQueryParams/*",
+		"kind": "removed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-url-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/url",
+		"kind": "changed",
+		"document": "case-list-browse",
+		"control": "case-list-browse"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-entityselectactivity-end-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case goes no further)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-QueryRequestActivity:EntitySelectActivity:end",
+		"kind": "changed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-screens-after-queryrequestactivity-home-end-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case goes no further)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-QueryRequestActivity:home:end",
+		"kind": "changed",
+		"document": "no-matches-multiple-home",
+		"control": "no-matches-multiple-home"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-walks-removed",
+		"defect": 32,
+		"part": "searches from a local .ccz (the walks past a search that finds a case)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*",
+		"kind": "removed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-errortext-added",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/errorText",
+		"kind": "added",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-finishing-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/finishing",
+		"kind": "changed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-resultcode-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/resultCode",
+		"kind": "changed",
+		"document": "targeted-sync-on-form-entry",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-errorshown-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-errortext-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-finishing-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/finishing",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-typed-afterserveranswers-resultcode-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-errorshown-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-errortext-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-finishing-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/finishing",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d32-android-proof3-local-ccz-query-withanswer-afterserveranswers-resultcode-changed",
+		"defect": 32,
+		"part": "searches from a local .ccz (a search that finds a case, refused)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d53-android-proof3-local-ccz-query-withanswer-getrawqueryparams-removed",
+		"defect": 53,
+		"part": "zero-input search sentinel",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getRawQueryParams/*",
+		"kind": "removed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d40-android-proof4-app-settings-readers-commcareapp-aremmresourcesvalidated-changed",
+		"defect": 40,
+		"part": "app settings save writes HQ's defaults",
+		"check": "proof4",
+		"artifact": "android@app settings@*",
+		"path": "/profile/readers/CommCareApp.areMMResourcesValidated",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d40-android-proof4-app-settings-readers-hiddenpreferences-getgpsautocaptureaccuracy-changed",
+		"defect": 40,
+		"part": "app settings save writes HQ's defaults",
+		"check": "proof4",
+		"artifact": "android@app settings@*",
+		"path": "/profile/readers/HiddenPreferences.getGpsAutoCaptureAccuracy",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d40-android-proof4-app-settings-readers-mainconfigurablepreferences-isfuzzysearchenabled-changed",
+		"defect": 40,
+		"part": "app settings save writes HQ's defaults",
+		"check": "proof4",
+		"artifact": "android@app settings@*",
+		"path": "/profile/readers/MainConfigurablePreferences.isFuzzySearchEnabled",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d40-android-proof4-app-settings-update-workersettings-cc-autoup-freq-changed",
+		"defect": 40,
+		"part": "app settings save writes HQ's defaults (forced at an update)",
+		"check": "proof4",
+		"artifact": "android@app settings@*",
+		"path": "/update/workerSettings/cc-autoup-freq",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d40-android-proof4-app-settings-update-workersettings-cc-enable-tts-changed",
+		"defect": 40,
+		"part": "app settings save writes HQ's defaults (forced at an update)",
+		"check": "proof4",
+		"artifact": "android@app settings@*",
+		"path": "/update/workerSettings/cc-enable-tts",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d40-android-proof4-app-settings-list-searches-asinstalled-changed",
+		"defect": 40,
+		"part": "app settings save writes HQ's defaults (fuzzy search)",
+		"check": "proof4",
+		"artifact": "android@app settings@*",
+		"path": "/walks/*/steps/*/list/searches/asInstalled/*",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-actions-changed",
+		"defect": 14,
+		"part": "search settings",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/actions/*",
+		"kind": "changed",
+		"document": "case-list-match-none",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d12-android-proof4-case-list-list-rowclass-changed",
+		"defect": 12,
+		"part": "custom tile",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rowClass",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-rows-children-added",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/children/*",
+		"kind": "added",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-rows-drawn-texts-added",
+		"defect": 14,
+		"part": "tiles (a row drawn with the field the save adds)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/drawn/texts/*",
+		"kind": "added",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-rows-drawn-height-changed",
+		"defect": 14,
+		"part": "tiles (a row drawn with the field the save adds)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/drawn/height",
+		"kind": "changed",
+		"document": "tile-grouped-browse",
+		"control": "tile-grouped-browse"
+	},
+	{
+		"id": "d42-android-proof4-case-list-list-rows-children-gravity-changed",
+		"defect": 42,
+		"part": "custom-tile cell alignment",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/children/*/gravity",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d14-android-proof4-case-list-list-rows-children-textsize-changed",
+		"defect": 14,
+		"part": "tiles",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/list/rows/*/children/*/textSize",
+		"kind": "changed",
+		"document": "targeted-custom-tile",
+		"control": "targeted-custom-tile"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-prompts-added",
+		"defect": 12,
+		"part": "single-date prompt",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/prompts/*",
+		"kind": "added",
+		"document": "navigation-search-date-add",
+		"control": "navigation-search-date-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-getrawqueryparams-changed",
+		"defect": 12,
+		"part": "single-date prompt (what the search sends)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/RemoteQuerySessionManager.getRawQueryParams/*/*",
+		"kind": "changed",
+		"document": "navigation-search-date-add",
+		"control": "navigation-search-date-add"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-cases-changed",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/cases/*",
+		"kind": "changed",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d14-android-proof4-case-management-list-order-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (HQ applies the touch, so the touched case moves after its ties in HQ's next search)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/list/order",
+		"kind": "changed",
+		"document": "case-list-inline",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d14-android-proof4-case-management-formentryactivity-error-saving-your-form-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/screens/after-FormEntryActivity:FormEntryActivity:FormEntryActivity!Error Saving your Form",
+		"kind": "changed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-aftersend-removed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/afterSend",
+		"kind": "removed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-casesastheformopened-added",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
+		"kind": "added",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-finishing-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/finishing",
+		"kind": "changed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-records-status-changed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/records/*/status",
+		"kind": "changed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d14-android-proof4-case-management-form-saved-resultcode-removed",
+		"defect": 14,
+		"part": "non-writing follow-up (the touch reads a case id a form link does not give, so the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@case management@*",
+		"path": "/walks/*/steps/*/form/saved/resultCode",
+		"kind": "removed",
+		"document": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0",
+		"control": "expander-form-links-emission-emits-hq-form-links-with-3555b968-0"
+	},
+	{
+		"id": "d25-android-proof4-vellum-menuactivity-formentryactivity-formentryactivity-error-occurred-changed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/screens/after-MenuActivity:FormEntryActivity:FormEntryActivity!Error Occurred",
+		"kind": "changed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-ended-changed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/ended",
+		"kind": "changed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-path-changed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/path",
+		"kind": "changed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-finishshown-removed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/finishShown",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-saved-records-removed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the form stops at Core's alert)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/records/*",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d13-android-proof4-vellum-ivity-formentryactivity-formentryactivity-error-saving-your-form-changed",
+		"defect": 13,
+		"part": "guard blocks (the device does not save the form)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/screens/after-MenuActivity:FormEntryActivity:FormEntryActivity!Error Saving your Form",
+		"kind": "changed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d46-android-proof4-vellum-form-formentryinstancestate-getdefaultformtitle-changed",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle",
+		"kind": "changed",
+		"document": "localization-bilingual",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d46-android-proof4-vellum-form-formtitle-changed",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/formTitle",
+		"kind": "changed",
+		"document": "localization-bilingual",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-cases-added",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/cases/*",
+		"kind": "added",
+		"document": "case-operation-conditional",
+		"control": "case-operation-conditional"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-cases-changed",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/cases/*",
+		"kind": "changed",
+		"document": "case-operation-relation",
+		"control": "case-operation-relation"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-cases-removed",
+		"defect": 13,
+		"part": "guard blocks (the device does not save the form, so the case it makes is not made)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/cases/*",
+		"kind": "removed",
+		"document": "case-operation-key",
+		"control": "case-operation-key"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-aftersend-removed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/afterSend",
+		"kind": "removed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-casesastheformopened-added",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
+		"kind": "added",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-finishing-changed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/finishing",
+		"kind": "changed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-records-status-changed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/records/*/status",
+		"kind": "changed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d13-android-proof4-vellum-form-saved-resultcode-removed",
+		"defect": 13,
+		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/resultCode",
+		"kind": "removed",
+		"document": "case-operation-expression-retype",
+		"control": "case-operation-expression-retype"
+	},
+	{
+		"id": "d46-android-proof4-vellum-form-saved-records-formrecord-getdisplayname-changed",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName",
+		"kind": "changed",
+		"document": "localization-bilingual",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-readers-formsubmissionhelper-getformposturl-changed",
+		"defect": 59,
+		"part": "local archive names no server (where a device posts a form)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/profile/readers/FormSubmissionHelper.getFormPostURL",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d59-android-proof3-local-ccz-network-signin-changed",
+		"defect": 59,
+		"part": "local archive names no server (where a device signs in)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/network/signIn",
+		"kind": "changed",
+		"document": "case-capture-followup",
+		"control": "case-capture-followup"
+	},
+	{
+		"id": "d3-save-to-case-read-proof4-editor-vellum-again-case-1-error-0",
+		"defect": 3,
+		"part": "unknown question for a property only a Save to Case block writes",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/constraintAttr/logic-bad-path-warning/#case~1*",
+		"kind": "error",
+		"document": "targeted-save-to-case-read",
+		"values": {
+			"before": null,
+			"after": {
+				"level": "warning",
+				"message": "Unknown question: #case/risk_level",
+				"type": "Text",
+				"reference": "#case/risk_level"
+			}
+		},
+		"control": "targeted-save-to-case-read"
+	},
+	{
+		"id": "d3-save-to-case-read-proof4-editor-vellum-case-1-error-1",
+		"defect": 3,
+		"part": "unknown question for a property only a Save to Case block writes",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/constraintAttr/logic-bad-path-warning/#case~1*",
+		"kind": "error",
+		"document": "targeted-save-to-case-read",
+		"values": {
+			"before": null,
+			"after": {
+				"level": "warning",
+				"message": "Unknown question: #case/risk_level",
+				"type": "Text",
+				"reference": "#case/risk_level"
+			}
+		},
+		"control": "targeted-save-to-case-read"
+	},
+	{
+		"id": "d20-supply-point-manifest-form-supply-point-id-outside-a-computed-datum-refused-0",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "manifest",
+		"artifact": "form:*",
+		"path": "/session-path:session~1data~1*/refused/supply-point-id-outside-a-computed-datum",
+		"kind": "refused",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": {
+				"key": "session-path:session/data/*",
+				"surfaceItem": true,
+				"uses": 1,
+				"at": ["/h:html/h:head[1]/model[1]/bind[1]/@calculate"],
+				"entries": [
+					{
+						"id": "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
+						"disposition": "REFUSED",
+						"valueClass": "supply-point-id-outside-a-computed-datum"
+					}
+				]
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-assertions-added-1",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/assertions[*]",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "<assertions>\n      <assert test=\"count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/user/data/commtrack-supply-point]) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-datum-id-added-2",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/session[*]/datum[@id=*]",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "<datum id=\"supply_point_id\" function=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-suite-xml-vellum-datum-id-added-3",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "suite.xml@vellum@*",
+		"path": "/suite/entry[*]/stack[*]/create[*]/datum[@id=*]",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "<datum id=\"supply_point_id\" value=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-org-javarosa-xpath-xpathnodeset-getinval-changed-4",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/end/form-did-not-open/assertion-failed/org.javarosa.xpath.XPathTypeMismatchException/org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "form-did-not-open",
+			"after": "assertion-failed"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-added-5",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": {
+				"screen": "assertion",
+				"text": "This form requires access to the user's location, but none was found."
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-badges-added-6",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/badges",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": [""]
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-badges-removed-7",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/badges",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": [""],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-choices-added-8",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/choices",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": [
+				{
+					"audio": null,
+					"command": "m0-f0",
+					"image": null,
+					"text": "Visit"
+				}
+			]
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-choices-removed-9",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/choices",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": [
+				{
+					"audio": null,
+					"command": "m0-f0",
+					"image": null,
+					"text": "Visit"
+				}
+			],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-chosen-added-10",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/chosen",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "m0-f0"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-chosen-removed-11",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/chosen",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "m0-f0",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-datum-added-12",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/datum",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "supply_point_id"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-org-javarosa-xpath-xpathnodeset-getinval-removed-13",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/error/org.javarosa.xpath.XPathTypeMismatchException/org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": {
+				"class": "org.javarosa.xpath.XPathTypeMismatchException",
+				"message": "Calculation Error: Error in calculation for /data/supply_point\nLogic references instance(commcaresession)/session/data/supply_point_id which is not a valid question or value.",
+				"site": "org.javarosa.xpath.XPathNodeset.getInvalidNodesetException(XPathNodeset.java:146)"
+			},
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-hidden-added-14",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/hidden",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": []
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-hidden-removed-15",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/hidden",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": [],
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-added-16",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/root",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": "m0"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-root-removed-17",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/root",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "m0",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-screen-changed-18",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "form",
+			"after": "menu"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-screen-changed-19",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "menu",
+			"after": "computed"
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-step-added-20",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/step",
+		"kind": "added",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": null,
+			"after": {
+				"id": "supply_point_id",
+				"type": "CASE_ID",
+				"value": ""
+			}
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-xmlns-removed-21",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/xmlns",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "http://openrosa.org/formdesigner/444aa554bd6ce79e",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-proof4-trace-vellum-xmlns-removed-22",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/xmlns",
+		"kind": "removed",
+		"document": "targeted-supply-point-read",
+		"values": {
+			"before": "http://openrosa.org/formdesigner/6d589420121f63ba",
+			"after": null
+		},
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-android-proof4-vellum-screens-after-menuactivity-formentryactivity-error-occurred-home-unrecoverable-error-changed",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/screens/after-MenuActivity:FormEntryActivity!Error Occurred:home!Unrecoverable Error",
+		"kind": "changed",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d34-android-proof3-local-ccz-form-devicegave-removed",
+		"defect": 34,
+		"part": "Connect location capture (the location fix)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/deviceGave",
+		"kind": "removed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d34-android-proof3-local-ccz-form-saved-records-metalocation-removed",
+		"defect": 34,
+		"part": "Connect location capture (the location the saved form holds)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+		"kind": "removed",
+		"document": "targeted-connect-deliver-rename",
+		"control": "targeted-connect-deliver-rename"
+	},
+	{
+		"id": "d4-android-proof3-b-form-devicegave-removed",
+		"defect": 4,
+		"part": "auto_gps_capture (the location fix)",
+		"check": "proof3",
+		"artifact": "android@B",
+		"path": "/walks/*/steps/*/form/deviceGave",
+		"kind": "removed",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d4-android-proof3-b-form-saved-records-metalocation-removed",
+		"defect": 4,
+		"part": "auto_gps_capture (the location the saved form holds)",
+		"check": "proof3",
+		"artifact": "android@B",
+		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+		"kind": "removed",
+		"document": "targeted-hq-side-state",
+		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d53-android-proof3-local-ccz-query-typed-getrawqueryparams-removed",
+		"defect": 53,
+		"part": "zero-input search sentinel (a typed search)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams/*",
+		"kind": "removed",
+		"document": "search-automatic",
+		"control": "search-automatic"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-getrawqueryparams-changed",
+		"defect": 12,
+		"part": "single-date prompt (what a typed search sends)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getRawQueryParams/*/*",
+		"kind": "changed",
+		"document": "navigation-search-date-add",
+		"control": "navigation-search-date-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-given-added",
+		"defect": 12,
+		"part": "single-date prompt (a prompt a worker can type into)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/given/*",
+		"kind": "added",
+		"document": "navigation-search-date-add",
+		"control": "navigation-search-date-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-errorshown-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-errortext-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-finishing-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/finishing",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-typed-afterserveranswers-resultcode-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a typed search sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/typed/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-errorshown-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorShown",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-errortext-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/errorText",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-finishing-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/finishing",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d12-android-proof4-case-list-query-withanswer-afterserveranswers-resultcode-changed",
+		"defect": 12,
+		"part": "single-date prompt (HQ refuses what a search with an answer sends for a datetime input)",
+		"check": "proof4",
+		"artifact": "android@case list@*",
+		"path": "/walks/*/steps/*/query/withAnswer/afterServerAnswers/resultCode",
+		"kind": "changed",
+		"document": "navigation-search-datetime-add",
+		"control": "navigation-search-datetime-add"
+	},
+	{
+		"id": "d14-close-conditions-webapps-case-management-screens-kind",
+		"defect": 14,
+		"part": "close conditions",
+		"check": "proof4",
+		"artifact": "webapps@case management@*",
+		"path": "/runs/*/screens/*/kind",
+		"document": "targeted-close-conditions",
+		"control": "targeted-close-conditions"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-breadcrumbs",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/breadcrumbs/*",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-commands",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/commands/*",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-commands-icon",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/commands/*/icon",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-commands-text",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/commands/*/text",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-route-selections",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/route/selections/*",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d26-form-links-webapps-form-settings-title",
+		"defect": 26,
+		"part": "hidden links and navigation fallbacks",
+		"check": "proof4",
+		"artifact": "webapps@form settings@*",
+		"path": "/runs/*/screens/*/title",
+		"document": "targeted-form-links-hidden-and-fallback",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-breadcrumbs",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/breadcrumbs/*",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-commands-icon",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/commands/*/icon",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-commands-text",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/commands/*/text",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-selections",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/selections/*",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-sessionid",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/sessionId",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-route-sortindex",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/route/sortIndex",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
+	},
+	{
+		"id": "d20-supply-point-webapps-vellum-title",
+		"defect": 20,
+		"part": "CommTrack (a form that reads the session supply point)",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/title",
+		"document": "targeted-supply-point-read",
+		"control": "targeted-supply-point-read"
 	}
 ]

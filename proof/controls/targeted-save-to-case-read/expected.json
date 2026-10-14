@@ -1,0 +1,46 @@
+{
+	"intent": [
+		{
+			"id": "review-refuses-another-level",
+			"export": "local",
+			"form": "9eedcd9b-ab13-5fc7-a3e5-126d7d9a398b",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f1",
+					"data": {
+						"case_id": "targeted-amina"
+					}
+				},
+				"constraintChecks": [
+					{
+						"path": "/data/agreed",
+						"value": "low"
+					},
+					{
+						"path": "/data/agreed",
+						"value": "high"
+					},
+					{
+						"path": "/data/counted",
+						"value": "3"
+					}
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/constraints/0/result",
+					"value": "constraint"
+				},
+				{
+					"pointer": "/constraints/1/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/constraints/2/result",
+					"value": "ok"
+				}
+			]
+		}
+	]
+}

@@ -11,9 +11,18 @@ name: Upstream pins
 #
 # GitHub holds CI on a pull request this workflow's token opened until a
 # person approves its run or updates the branch. Before that, the whole
-# proof lane runs fresh on the candidate image and saves what it observed as
-# main's evidence store for that image (proof-lane.yml), so the pin pull
-# request's CI reads its records instead of observing every document again;
+# proof lane runs fresh on the candidate image in the pull request lane's
+# profile (without the readers, proof/lane/readers.py) and saves what it
+# observed as main's evidence store for that image (proof-lane.yml), so the
+# pin pull request's CI reads its records instead of observing every document
+# again. After it the lane runs with every reader on the candidate, compared
+# with main's store, so the readers' verdict on the new pins is this run's
+# before the pull request merges (a reader that does not hold fails the run);
+# the nightly audit holds main to it after. The two run one after the other,
+# the prewarm first, so this run never holds more than fourteen runners, and
+# the whole lane with every reader is about twelve hours of them
+# (proof/README.md, "The other workflows"). The pull request waits only for
+# the prewarm its CI reads;
 # this schedule's runs write the default branch's caches, which every pull
 # request can read. The prewarm
 # checks the tree the pull request will carry: the branch with the lock the
@@ -22,11 +31,14 @@ name: Upstream pins
 # request's own run looks them up.
 #
 # The workflow never merges. The jobs that run upstream code (the surface
-# extraction, the prewarm) hold only a read token; the jobs that write run
-# none.
+# extraction, the prewarm, the readers' lane) hold only a read token; the jobs
+# that write run none.
 on:
+  # Monday, just after midnight: after the weekly audit (proof-audit.yml, from Saturday evening) and with the
+  # day ahead of it, so its lane with every reader ends before the image comparison starts (proof-image.yml,
+  # 17:17) and no two workflows' lanes with the readers run at once (proof/README.md, "The other workflows").
   schedule:
-    - cron: "37 6 * * 1"
+    - cron: "37 0 * * 1"
   workflow_dispatch:
 
 permissions: {}
@@ -68,9 +80,13 @@ jobs:
     name: Build the image at the new pins
     needs: plan
     if: ${{ needs.plan.outputs.action == 'update' }}
+    # A call's grant bounds every job of the workflow it calls. The build pushes the image (packages); the
+    # called workflow's report job opens an issue when its own weekly comparison fails, which a call for a ref
+    # never reaches, and GitHub refuses the call at startup unless that job's scope is granted here too.
     permissions:
       contents: read
       packages: write
+      issues: write
     uses: ./.github/workflows/proof-image.yml
     with:
       ref: upstream/pins
@@ -113,10 +129,28 @@ jobs:
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
       label: prewarm
+      readers: false
+      shards: '8'
       store: save
       # The pull request's own CI gives the verdict; a prewarm keeps what it
       # observed whatever it is.
       verdict: false
+
+  # After the prewarm, whatever it found: the two together would hold more than fourteen runners.
+  readers:
+    name: Every reader on the candidate image
+    needs: [image, surface, prewarm]
+    if: ${{ !cancelled() && needs.image.result == 'success' && needs.surface.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      ref: upstream/pins
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
+      surface: upstream-surface
+      label: prewarm-readers
+      # Its verdict fails this run where a reader does not hold on the new pins, before a person merges them.
+      store: compare
 
   report:
     name: Open or update the pin pull request

@@ -1,0 +1,308 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"proof text"
+						],
+						[
+							"last_visit",
+							"proof text"
+						],
+						[
+							"rank",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"10"
+						],
+						[
+							"last_visit",
+							"10"
+						],
+						[
+							"rank",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"2"
+						],
+						[
+							"last_visit",
+							"2"
+						],
+						[
+							"rank",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Tile persistent",
+			"modules": [
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "e7c01c04-6c0a-52a0-a01d-005e2d3daf14",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [
+								"visit"
+							],
+							"fieldWrites": {},
+							"formType": "registration",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "ddc00c46-7a0a-58aa-aa1c-f6ec233d9f56",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"e7c01c04-6c0a-52a0-a01d-005e2d3daf14",
+						"ddc00c46-7a0a-58aa-aa1c-f6ec233d9f56"
+					],
+					"uuid": "eb814680-b315-5514-a223-a872556e4470"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"proof text"
+						],
+						[
+							"last_visit",
+							"proof text"
+						],
+						[
+							"rank",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"10"
+						],
+						[
+							"last_visit",
+							"10"
+						],
+						[
+							"rank",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"village",
+							"2"
+						],
+						[
+							"last_visit",
+							"2"
+						],
+						[
+							"rank",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Tile persistent",
+			"modules": [
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "e7c01c04-6c0a-52a0-a01d-005e2d3daf14",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [
+								"visit"
+							],
+							"fieldWrites": {},
+							"formType": "registration",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "ddc00c46-7a0a-58aa-aa1c-f6ec233d9f56",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"e7c01c04-6c0a-52a0-a01d-005e2d3daf14",
+						"ddc00c46-7a0a-58aa-aa1c-f6ec233d9f56"
+					],
+					"uuid": "eb814680-b315-5514-a223-a872556e4470"
+				}
+			]
+		}
+	}
+}

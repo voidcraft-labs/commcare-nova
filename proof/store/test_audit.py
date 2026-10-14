@@ -113,9 +113,7 @@ def test_two_runs_held_to_each_other_pair_parts_and_evidence_and_masked_compares
     capsys.readouterr()
     # The right run's shards each drew their own values: two of them holding one key alike but for those are
     # one, and two that differ otherwise are not.
-    drew_a, drew_b = (
-        _shard(tmp_path / f"drew-{drawn}", corpus, value=drawn * 32, evidence=redrawn) for drawn in "ef"
-    )
+    drew_a, drew_b = (_shard(tmp_path / f"drew-{drawn}", corpus, value=drawn * 32, evidence=redrawn) for drawn in "ef")
     assert _compare("--masked", "--left", left, "--right", drew_a, drew_b) == 0
     other = _shard(tmp_path / "drew-other", corpus, value="differs", evidence=redrawn)
     assert _compare("--masked", "--left", left, "--right", drew_a, other) == 1

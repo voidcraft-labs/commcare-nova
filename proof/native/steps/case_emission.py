@@ -138,7 +138,7 @@ def _regenerated(exports, name, module_index=0):
 
 def cases(session):
     exports = session.family("case")
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         extensions = [_extension(exports, scenario) for scenario in EXTENSION_SCENARIOS]
         captures = [_regenerated(exports, f"capture-{scenario}") for scenario in CAPTURE_SCENARIOS]
         operations = [
@@ -147,7 +147,7 @@ def cases(session):
         ]
     # A worker-record write needs the usercase, which HQ grants with the
     # USERCASE privilege (app_manager/util.py::domain_has_usercase_access).
-    with native_check(DOMAIN, validate=session.validate_form, privileges={"USERCASE"}):
+    with native_check(DOMAIN, privileges={"USERCASE"}):
         workers = [_worker(exports, scenario) for scenario in WORKER_SCENARIOS]
     return {"extensions": extensions, "workers": workers, "captures": captures, "operations": operations}
 
@@ -155,6 +155,6 @@ def cases(session):
 def relation_instances(session):
     """The four relation-instance forms, regenerated for ``RelationInstanceRuntimeTest``; their names."""
     exports = session.family("relation-instance")
-    with native_check(DOMAIN, validate=session.validate_form):
+    with native_check(DOMAIN):
         operations = [_regenerated(exports, f"operation-{scenario}") for scenario in RELATION_INSTANCE_SCENARIOS]
     return [record["scenario"] for record in operations]

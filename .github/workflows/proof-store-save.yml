@@ -1,0 +1,121 @@
+name: Proof store save
+
+# Saves one snapshot of main's evidence store from several calls of the proof
+# lane in one run (proof-lane.yml with `store: pack`): the nightly's two
+# profiles (with every reader, and without them as a pull request's lane runs,
+# proof/lane/readers.py), each queued against main's store, so merged over
+# main's snapshot (`base`); and the weekly fresh audit's two, which replace it
+# whole, so a key no current run reads is dropped once a week. Each call
+# packed what it observed as an artifact (proof-store-<label>-<attempt>); this
+# merges them (python3 -m proof.store.pack merge: every key names its profile,
+# so the two never hold one key) and saves the result under a key of its own:
+# the run's, its attempt's, and the labels this call merges
+# (proof/ci/store-keys.mjs --save), since a cache entry is never written over
+# and a second save under one key is dropped with only a warning.
+#
+# A call that left no packed store (one of its shards could not run) has
+# nothing to give. Over main's snapshot (`base`) it is left out and the rest
+# are saved: main's own records for that profile stay as they were, so a
+# failed shard with the readers does not keep back the records without them
+# that every pull request reads. A save that replaces the snapshot whole
+# needs every call, or it would drop the missing profile's records: it then
+# saves nothing and main's previous snapshot stays.
+on:
+  workflow_call:
+    inputs:
+      labels:
+        description: The labels of the proof-lane.yml calls whose packed stores are merged, one a line
+        type: string
+        required: true
+      ref:
+        description: The commit or branch those calls checked out (the caller's by default)
+        type: string
+        default: ''
+      image:
+        description: The candidate image those calls ran, recorded in the lock (proof/image.lock's by default)
+        type: string
+        default: ''
+      base:
+        description: Whether main's newest snapshot is merged beneath them (calls queued against it, which packed only what it lacked)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  save:
+    name: Save main's newest snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          sparse-checkout: proof
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Record the candidate image in the lock
+        if: ${{ inputs.image != '' }}
+        env:
+          CANDIDATE: ${{ inputs.image }}
+        run: node proof/ci/candidate.mjs --image "$CANDIDATE"
+      - name: Name the store's snapshots
+        id: store
+        env:
+          LABELS: ${{ inputs.labels }}
+        run: |
+          # Which of the run's saves this is: the labels it merges, so two calls in one run keep two snapshots.
+          save="$(sed '/^[[:space:]]*$/d' <<< "$LABELS" | paste -sd+ -)"
+          node proof/ci/store-keys.mjs --arch amd64 --save "$save"
+      - name: Restore main's evidence store
+        if: ${{ inputs.base }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      # A run whose calls packed nothing has no such artifact; the next step then saves nothing.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: proof-store-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/packed
+      - name: Merge every call's packed store
+        id: merge
+        env:
+          LABELS: ${{ inputs.labels }}
+          BASE: ${{ inputs.base }}
+        run: |
+          sources=()
+          # Main's snapshot first, so each call's newer records are read over it (an absent one holds nothing).
+          if [ "$BASE" = true ]; then sources+=("$RUNNER_TEMP/store/main"); fi
+          packed_stores=0
+          while IFS= read -r label; do
+            [ -n "$label" ] || continue
+            packed="$RUNNER_TEMP/packed/proof-store-$label-$GITHUB_RUN_ATTEMPT"
+            if [ ! -d "$packed" ]; then
+              if [ "$BASE" = true ]; then
+                echo "::notice::The $label lane packed no store (one of its shards could not run), so the snapshot keeps main's records for it as they were."
+                continue
+              fi
+              echo "::notice::The $label lane packed no store (one of its shards could not run), and this save replaces main's snapshot whole, so nothing is saved and main's previous snapshot stays."
+              exit 0
+            fi
+            sources+=("$packed")
+            packed_stores=$((packed_stores + 1))
+          done <<< "$LABELS"
+          if [ "$packed_stores" = 0 ]; then
+            echo "::notice::No lane packed a store, so nothing is saved and main's previous snapshot stays."
+            exit 0
+          fi
+          python3 -m proof.store.pack merge --into "$RUNNER_TEMP/store/next" "${sources[@]}"
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+      - name: Save main's newest snapshot
+        if: ${{ steps.merge.outputs.merged == 'true' && steps.store.outputs.key != '' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/store/next
+          key: ${{ steps.store.outputs.key }}

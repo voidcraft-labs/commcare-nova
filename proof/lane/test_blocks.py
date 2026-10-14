@@ -12,6 +12,17 @@ twice or both run and read from the store, a document both run and named as
 left out (the gate would then hold its entries on their controls alone), and
 a queue of another version read as this one.
 
+Contract (pieces, ``proof.lane.blocks.piece_problems``): a queue a lane is
+given holds each piece (``corpus:<id>@<configuration>``, one configuration of
+a document observed by a group of its own) in its document's block, with the
+document's group following it (``after``); a piece follows nothing, a group
+follows only its own document's pieces, and one that follows pieces is never
+fresh. The plausible failures: a piece no group reads (a configuration
+observed for no one, and its document observed whole beside it), a group
+waiting on a piece another shard holds or that no block holds (it would
+never be handed out), and a fresh group after its pieces (it would observe
+the document again in their place).
+
 Contract (``proof.lane.blocks.CORPUS_PACKAGES``): the packages listed are
 exactly those whose tests read the corpus, so the early phase refuses each
 one (``proof.lane.serve``). A package reads it when one of its test modules
@@ -46,7 +57,7 @@ def _queue():
             },
             {"id": lane_blocks.block_id(["surface"]), "estimate": 60, "groups": [{"group": "surface", "fresh": False}]},
         ],
-        "cached": [{"group": "corpus:b@minimum", "judgments": {"bar": "k1", "proof1": "k2"}}],
+        "cached": [{"group": "corpus:b", "judgments": {"bar": "k1", "proof1": "k2"}}],
     }
 
 
@@ -55,13 +66,36 @@ def test_a_lane_queue_is_read_whole():
     assert [block.names for block in queue.blocks] == [("corpus:a", "proof/hq"), ("surface",)]
     assert queue.blocks[0].groups[0] == lane_blocks.QueuedGroup("corpus:a", True)
     assert queue.blocks[1].estimate == 60.0
-    assert queue.cached == (lane_blocks.CachedGroup("corpus:b@minimum", {"bar": "k1", "proof1": "k2"}),)
+    assert queue.cached == (lane_blocks.CachedGroup("corpus:b", {"bar": "k1", "proof1": "k2"}),)
     assert queue.groups() == {"corpus:a", "proof/hq", "surface"}
     assert lane_blocks.parse_queue(lane_blocks.queue_json(queue)) == queue
     assert queue.unsampled == () and "unsampled" not in lane_blocks.queue_json(queue)
     sampled = lane_blocks.parse_queue({**_queue(), "unsampled": ["c", "d"]})
     assert sampled.unsampled == ("c", "d")
     assert lane_blocks.parse_queue(lane_blocks.queue_json(sampled)) == sampled
+    # A sampled queue names the documents its sample kept and the seed that chose them.
+    assert queue.sample is None and "sample" not in lane_blocks.queue_json(queue)
+    seeded = lane_blocks.parse_queue({**_queue(), "sample": {"seed": "2026-W42", "documents": ["a"]}})
+    assert seeded.sample == lane_blocks.Sample(("a",), "2026-W42")
+    assert lane_blocks.parse_queue(lane_blocks.queue_json(seeded)) == seeded
+    assert lane_blocks.parse_queue({**_queue(), "sample": {"seed": None, "documents": ["a"]}}).sample.seed is None
+
+
+def test_a_run_over_documents_named_by_hand_names_them_and_what_it_leaves_out():
+    value = {**_queue(), "selection": {"documents": ["a"], "left": ["control:z", "proof/checks"]}}
+    queue = lane_blocks.parse_queue(value)
+    assert queue.selection == lane_blocks.Selection(("a",), ("control:z", "proof/checks"))
+    assert lane_blocks.parse_queue(lane_blocks.queue_json(queue)) == queue
+    assert lane_blocks.parse_queue(_queue()).selection is None and "selection" not in lane_blocks.queue_json(
+        lane_blocks.parse_queue(_queue())
+    )
+    for broken, why in (
+        ({"documents": "a"}, "its selection names no list of document ids"),
+        ({"documents": ["a"], "left": "x"}, "its selection's left is not a list of the groups it leaves out"),
+        ({"documents": ["a"], "left": ["proof/hq"]}, "proof/hq is run or read, and the selection names it as left out"),
+    ):
+        with pytest.raises(lane_blocks.QueueError, match=why):
+            lane_blocks.parse_queue({**_queue(), "selection": broken})
 
 
 def _refusal(change):
@@ -111,12 +145,22 @@ def test_a_document_both_run_and_left_out_of_the_sample_is_refused():
     def cached(value):
         value["unsampled"] = ["b"]
 
-    assert "corpus:b@minimum is run or read" in _refusal(cached)
+    assert "corpus:b is run or read" in _refusal(cached)
 
     def malformed(value):
         value["unsampled"] = "c"
 
     assert "unsampled documents are not a list of document ids" in _refusal(malformed)
+
+    def unnamed(value):
+        value["sample"] = {"seed": "2026-W42"}
+
+    assert "its sample names no list of document ids" in _refusal(unnamed)
+
+    def unseeded(value):
+        value["sample"] = {"seed": 42, "documents": ["a"]}
+
+    assert "its sample's seed is 42" in _refusal(unseeded)
 
 
 def test_a_fresh_flag_that_is_not_a_boolean_and_a_name_no_queue_holds_are_refused():
@@ -128,7 +172,124 @@ def test_a_fresh_flag_that_is_not_a_boolean_and_a_name_no_queue_holds_are_refuse
     def nested(value):
         value["blocks"][1]["groups"][0]["group"] = "proof/hq/xpath"
 
-    assert "'proof/hq/xpath' names no package directly under proof/" in _refusal(nested)
+    assert "'proof/hq/xpath' names no test module of a package (proof/<package>/<module>.py)" in _refusal(nested)
+
+    def split(value):
+        value["blocks"][1]["groups"][0]["group"] = "proof/hq/test_boot.py::"
+
+    assert "'proof/hq/test_boot.py::' names no test module of a package" in _refusal(split)
+
+
+def _pieces(*, fresh=True):
+    """A queue of one document in pieces with a control beside it: each configuration a group, the document's own
+    group after them."""
+    groups = [
+        {"group": "corpus:a@maximum", "fresh": fresh, "estimate": 60.0},
+        {"group": "corpus:a@minimum", "fresh": fresh, "estimate": 40.0},
+        {"group": "corpus:a", "fresh": False, "after": ["corpus:a@maximum", "corpus:a@minimum"], "estimate": 2.0},
+        {"group": "control:a", "fresh": fresh},
+    ]
+    identifier = lane_blocks.block_id(group["group"] for group in groups)
+    return {"version": 1, "blocks": [{"id": identifier, "estimate": 110.0, "groups": groups}], "cached": []}
+
+
+def _piece_refusal(change):
+    value = _pieces()
+    change(value["blocks"][0]["groups"])
+    value["blocks"][0]["id"] = lane_blocks.block_id(group["group"] for group in value["blocks"][0]["groups"])
+    with pytest.raises(lane_blocks.QueueError) as refused:
+        lane_blocks.parse_queue(value, "the test's queue")
+    return str(refused.value)
+
+
+def test_a_document_in_pieces_is_read_with_the_group_that_follows_them_and_written_back_the_same():
+    queue = lane_blocks.parse_queue(_pieces())
+    whole = next(group for group in queue.blocks[0].groups if group.group == "corpus:a")
+    assert whole == lane_blocks.QueuedGroup("corpus:a", False, ("corpus:a@maximum", "corpus:a@minimum"), 2.0)
+    piece = next(group for group in queue.blocks[0].groups if group.group == "corpus:a@maximum")
+    assert piece == lane_blocks.QueuedGroup("corpus:a@maximum", True, (), 60.0)
+    assert lane_blocks.piece_of("corpus:a@maximum") == ("corpus:a", "maximum")
+    assert lane_blocks.piece_of("control:a@minimum") == ("control:a", "minimum")
+    assert lane_blocks.piece_of("corpus:a") is None and lane_blocks.piece_of("proof/hq") is None
+    # A group that follows nothing and carries no estimate is written as it always was.
+    written = lane_blocks.queue_json(queue)
+    assert written["blocks"][0]["groups"][3] == {"group": "control:a", "fresh": True}
+    assert lane_blocks.parse_queue(written) == queue
+    # A control is observed in pieces as a document is.
+    control = _pieces()
+    for group in control["blocks"][0]["groups"][:3]:
+        group["group"] = group["group"].replace("corpus:a", "control:b")
+    control["blocks"][0]["groups"][2]["after"] = ["control:b@maximum", "control:b@minimum"]
+    control["blocks"][0]["id"] = lane_blocks.block_id(group["group"] for group in control["blocks"][0]["groups"])
+    assert lane_blocks.parse_queue(control).blocks[0].groups[2].after == ("control:b@maximum", "control:b@minimum")
+
+
+def test_a_piece_no_group_follows_and_a_group_following_what_is_not_its_piece_are_refused():
+    def unfollowed(groups):
+        groups[2]["after"] = ["corpus:a@maximum"]
+
+    assert "the piece corpus:a@minimum is followed by no group" in _piece_refusal(unfollowed)
+
+    def alone(groups):
+        del groups[2]
+
+    message = _piece_refusal(alone)
+    assert "the piece corpus:a@maximum is followed by no group: corpus:a, which judges what it observes" in message
+
+    def elsewhere(groups):
+        groups[2]["after"].append("corpus:a@other")
+
+    assert "corpus:a follows corpus:a@other, which is not in its block" in _piece_refusal(elsewhere)
+
+    def anothers(groups):
+        groups[3]["after"] = ["corpus:a@maximum"]
+
+    assert "control:a follows corpus:a@maximum, which is no piece of it" in _piece_refusal(anothers)
+
+    def chained(groups):
+        groups[1]["after"] = ["corpus:a@maximum"]
+
+    assert "the piece corpus:a@minimum follows corpus:a@maximum; a piece follows nothing" in _piece_refusal(chained)
+
+    def twice(groups):
+        groups[2]["after"].append("corpus:a@maximum")
+
+    assert "corpus:a names a piece twice in its after" in _piece_refusal(twice)
+
+    def fresh(groups):
+        groups[2]["fresh"] = True
+
+    assert "corpus:a follows its pieces and is fresh; it reads what they observed" in _piece_refusal(fresh)
+
+    def malformed(groups):
+        groups[2]["after"] = "corpus:a@maximum"
+
+    assert "corpus:a's after is 'corpus:a@maximum', not a list of the pieces it follows" in _piece_refusal(malformed)
+
+    def unnamed(groups):
+        groups[0]["group"] = "corpus:a@"
+
+    assert "'corpus:a@' names no one configuration of its document" in _piece_refusal(unnamed)
+
+    def costed(groups):
+        groups[0]["estimate"] = "long"
+
+    assert "corpus:a@maximum's estimate is 'long', not a number of box-seconds" in _piece_refusal(costed)
+
+    cached = _pieces()
+    cached["cached"] = [{"group": "corpus:c@minimum", "judgments": {}}]
+    with pytest.raises(lane_blocks.QueueError, match="the cached group corpus:c@minimum is a piece; a piece observes"):
+        lane_blocks.parse_queue(cached)
+
+
+def test_the_queue_a_run_writes_for_itself_may_hold_a_piece_alone():
+    """A person who observes one configuration again names the piece's item, and the server writes the queue of
+    what it collected (``check_names`` off): the gate reads that queue for the slice."""
+    queue = lane_blocks.single_block({"corpus:a@maximum": 60.0})
+    value = lane_blocks.queue_json(queue)
+    assert lane_blocks.parse_queue(value, check_names=False).groups() == {"corpus:a@maximum"}
+    with pytest.raises(lane_blocks.QueueError, match="the piece corpus:a@maximum is followed by no group"):
+        lane_blocks.parse_queue(value)
 
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.
@@ -174,7 +335,7 @@ def test_the_packages_the_early_phase_refuses_are_those_whose_tests_read_the_cor
         return bool(seen & CORPUS_READERS)
 
     reading = {
-        sharding.item_group(SimpleNamespace(path=path))
+        lane_blocks.package_of(sharding.item_group(SimpleNamespace(path=path)))
         for name, path in modules.items()
         if (path.name.startswith("test_") or path.name == "conftest.py") and reaches_a_reader(name)
     }

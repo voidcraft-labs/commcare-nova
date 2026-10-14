@@ -1,0 +1,28 @@
+{
+	"intent": [
+		{
+			"id": "the-session-supply-point-is-read",
+			"export": "local",
+			"form": "b039255d-fbee-5f59-ae2c-4b3f1fea7cad",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0",
+					"data": {
+						"case_id": "targeted-amina",
+						"supply_point_id": "depot-7"
+					}
+				},
+				"expressions": [
+					"/data/supply_point"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "depot-7"
+				}
+			]
+		}
+	]
+}

@@ -172,7 +172,7 @@ from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.names import CASE_FIELDS, block_path
 from proof.checks.compare.trace import compare_traces as compare_trace_documents
 from proof.checks.compare.trace import generated_labels, relabel_generated
-from proof.checks.differences import Difference, pointer_token
+from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
 from proof.observe.runs import Run as Run
 from proof.observe.runs import script_of as script_of
 from proof.observe.runs import submission_of as submission_of
@@ -937,6 +937,140 @@ def processed_runs(state, database, trace, xmlns=None):
     return observed(state, database, trace, xmlns)
 
 
+# Served states ----------------------------------------------------------------------
+
+
+def _served_a(records, name):
+    """A's served record (the ``served`` hook's, ``proof.observe.served.observe``), or None where the hook did
+    not run or HQ releases no build of A."""
+    held = ((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}
+    return held["A"] if held.get("served") else None
+
+
+def _archive_forms(path) -> dict:
+    """Each form of a local archive by its path in it."""
+    import zipfile
+    from pathlib import PurePosixPath
+
+    with zipfile.ZipFile(path) as archive:
+        return {
+            entry: archive.read(entry)
+            for entry in archive.namelist()
+            if PurePosixPath(entry).match("modules-*/forms-*.xml")
+        }
+
+
+def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None):
+    """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
+
+    Where A is served (``proof.observe.served``): every request HQ's own
+    views refused while Formplayer walked A (``formplayer@A``,
+    ``served.refusal_differences``), and a release whose archive is
+    not the build the other checks read (``release@A``); Formplayer's
+    sessions on Nova's local archive against A's, always
+    (``formplayer@local.ccz``, the forms' namespaces mapped as Core's are);
+    and, wherever proof 2 still finds a difference between A's build and
+    the build of B aligned to A, Formplayer's sessions and the client's
+    screens on that build against A's (``formplayer@B``, ``webapps@B``).
+
+    For a Connect app (``proof.observe.connect``), what CommCare Connect made of each state's submissions
+    (``proof.checks.connect``): what stands on its own at A (``connect@A``), and the local archive's and B's
+    against A's (``connect@local.ccz``, ``connect@B``).
+    """
+    from proof.checks import connect, served
+
+    blobs = records.blobs
+    a = _served_a(records, name)
+    if a is None:
+        return []
+    found = served.refusal_differences(
+        a["formplayer"]["hq"], check=CHECK, document=document, artifact=f"{FORMPLAYER}@A"
+    )
+    if a.get("releaseDiffers"):
+        found += _refused(document, f"{RELEASE}@A", "/release-differs", a["releaseDiffers"])
+    aligned = (records.configurations[name].b_aligned or {}).get("served")
+    if aligned is None:
+        raise RecordIncomplete(
+            f"{document}'s b_aligned record under {name} holds no served states though A was served. The unit"
+            " (proof.observe.unit._Unit.observe_b_aligned) records them wherever the served hook ran at A."
+        )
+    trace_a = blobs.get_json(a["formplayer"]["trace"])
+    # A Connect app: what Connect made of A's submissions that stands on its own, and below what it made of the
+    # local archive's and of B's against A's (``proof.checks.connect``).
+    opportunity = (((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}).get("connect")
+    connect_a = blobs.get_json(a["connect"]) if a.get("connect") else None
+    if opportunity is not None:
+        found += connect.absolute_differences(
+            connect_a, opportunity["catalog"], check=CHECK, document=document, artifact=f"{CONNECT}@A"
+        )
+    if aligned.get("refused"):
+        # HQ's make_build refused the state the unit held with b_aligned (B, or B aligned to A), which the bar
+        # reports of B's build; nothing was served there to compare.
+        return found
+    if has_local:
+        local = aligned.get("local")
+        if local is None:
+            raise RecordIncomplete(
+                f"{document}'s b_aligned record under {name} holds no Formplayer walk of the local archive, though"
+                " the document carries one and A was served (proof.observe.served.aligned)."
+            )
+        xmlns = None
+        if sessions is not None and sessions.get("baseline") and sessions.get("local"):
+            xmlns = xmlns_alignment(sessions["local"]["admission"], sessions["baseline"]["admission"])
+        found += served.formplayer_differences(
+            trace_a,
+            blobs.get_json(local["formplayer"]["trace"]),
+            check=CHECK,
+            document=document,
+            artifact=f"{FORMPLAYER}@local.ccz",
+            rules=RULES,
+            xmlns=xmlns,
+            text_ids=served.merged_text_ids(observed.a.build.files or {}, _archive_forms(local_ccz))
+            if local_ccz is not None
+            else None,
+        )
+        if opportunity is not None and local.get("connect"):
+            # Formplayer's submissions and a device's (the local archive's device given the lane's input, whose
+            # forms HQ takes under the app's id), each against A's from the same reader.
+            found += connect.differences(
+                connect_a,
+                blobs.get_json(local["connect"]),
+                check=CHECK,
+                document=document,
+                artifact=f"{CONNECT}@local.ccz",
+                readers={"formplayer": "formplayer", "android": "android"},
+            )
+    b = aligned.get("B")
+    if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
+        if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
+            if b.get("releaseDiffers"):
+                found += _refused(document, f"{RELEASE}@B", "/release-differs", b["releaseDiffers"])
+            from proof.checks.proof4 import content_versions
+
+            found += served.formplayer_differences(
+                trace_a,
+                blobs.get_json(b["formplayer"]["trace"]),
+                check=CHECK,
+                document=document,
+                artifact=f"{FORMPLAYER}@B",
+                rules=RULES,
+                versions=content_versions(observed.a.build, observed.b_aligned),
+            )
+            if a.get("webapps") is not None and b.get("webapps") is not None:
+                found += served.webapps_differences(
+                    blobs.get_json(a["webapps"]),
+                    blobs.get_json(b["webapps"]),
+                    check=CHECK,
+                    document=document,
+                    artifact=f"{WEBAPPS}@B",
+                )
+            if opportunity is not None and b.get("connect"):
+                found += connect.differences(
+                    connect_a, blobs.get_json(b["connect"]), check=CHECK, document=document, artifact=f"{CONNECT}@B"
+                )
+    return found
+
+
 def document_behavior(document, records):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records."""
     from proof.checks import observations
@@ -944,12 +1078,28 @@ def document_behavior(document, records):
     found = []
     local_admission = observations.local_reports(records).get("local.ccz")
     for name in sorted(document.exports):
+        observed = observations.republish_view(records, name)
+        sessions = observations.sessions_record(records, name)
         found += behavioral_equivalence(
             document.id,
-            observations.republish_view(records, name),
-            observations.sessions_record(records, name),
+            observed,
+            sessions,
             records.blobs,
             has_local=document.local_ccz is not None,
             local_admission=local_admission,
         )
+        found += served_equivalence(
+            document.id,
+            records,
+            name,
+            observed,
+            sessions,
+            has_local=document.local_ccz is not None,
+            local_ccz=document.local_ccz,
+        )
+    from proof.checks import android
+
+    phone = android.behavior(document.id, android.document_record(records))
+    tablet = android.behavior(document.id, android.document_record(records, tablet=True), device=android.TABLET)
+    found += phone + android.tablet_only(phone, tablet)
     return found + observations.soft_assertion_differences(records, CHECK)

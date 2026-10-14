@@ -40,6 +40,7 @@ from proof.hq.boot import HQ_ROOT
 # Every module that judges records, or that a judge imports: from the checks, and the observation's own
 # readers of what a record holds.
 JUDGES = (
+    "proof.checks.android",
     "proof.checks.bar",
     "proof.checks.cases",
     "proof.checks.compare.app_json",
@@ -51,6 +52,7 @@ JUDGES = (
     "proof.checks.compare.trace",
     "proof.checks.compare.versions",
     "proof.checks.compare.xml_tree",
+    "proof.checks.connect",
     "proof.checks.corpus",
     "proof.checks.differences",
     "proof.checks.hqbuild",
@@ -66,6 +68,7 @@ JUDGES = (
     "proof.checks.proof5",
     "proof.checks.registers",
     "proof.checks.sensitivity",
+    "proof.checks.served",
     "proof.observe.alignment",
     "proof.observe.builds",
     "proof.observe.identity",

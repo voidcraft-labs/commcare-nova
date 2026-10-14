@@ -18,5 +18,10 @@
 		"repository": "https://github.com/dimagi/commcare-connect.git",
 		"defaultBranch": "main",
 		"commit": "046c7fd7808142856ba84364205b4241feb084fa"
+	},
+	"formplayer": {
+		"repository": "https://github.com/dimagi/formplayer.git",
+		"defaultBranch": "master",
+		"commit": "24383ac71bfbac9da8246afdfea8c2db22c8208b"
 	}
 }

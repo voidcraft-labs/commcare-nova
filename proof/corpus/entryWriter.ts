@@ -359,6 +359,9 @@ export async function writeEntry(
 			...(document.projectSettings?.syncCasesOnFormEntry !== undefined && {
 				syncCasesOnFormEntry: document.projectSettings.syncCasesOnFormEntry,
 			}),
+			...(document.projectSettings?.commtrack !== undefined && {
+				commtrack: document.projectSettings.commtrack,
+			}),
 		}),
 	);
 	const named = configurationFlags(flags);

@@ -1,0 +1,136 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Hand washing course",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "e7c3c7e2-b3ca-5e7e-ac85-6db4e4166bb2",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"e7c3c7e2-b3ca-5e7e-ac85-6db4e4166bb2"
+					],
+					"uuid": "2a341d8c-1390-5b10-ae70-a99ed2c31c9c"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Hand washing course",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "e7c3c7e2-b3ca-5e7e-ac85-6db4e4166bb2",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"e7c3c7e2-b3ca-5e7e-ac85-6db4e4166bb2"
+					],
+					"uuid": "2a341d8c-1390-5b10-ae70-a99ed2c31c9c"
+				}
+			]
+		}
+	}
+}

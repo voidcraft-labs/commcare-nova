@@ -1,0 +1,14 @@
+{
+	"footprint": [
+		"cab47ab9-f624-5286-8cdb-c9d65677205b"
+	],
+	"footprintParts": {
+		"appWide": false,
+		"app": false,
+		"entities": [
+			"cab47ab9-f624-5286-8cdb-c9d65677205b"
+		],
+		"modules": [],
+		"forms": []
+	}
+}

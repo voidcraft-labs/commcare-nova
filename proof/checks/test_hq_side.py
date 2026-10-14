@@ -32,8 +32,13 @@ DOCUMENT = "targeted-hq-side-state"
 
 def _document():
     documents = {document.id: document for document in cases.load_corpus().emitted}
-    if DOCUMENT not in documents:
-        pytest.skip(f"The corpus this run reads holds no {DOCUMENT}.")
+    # A targeted document every emission writes, a sampled run's among those it leaves out (``emitted``): a corpus
+    # without it is a broken emission, which fails here by name where a skip would pass for saves nothing made.
+    assert DOCUMENT in documents, (
+        f"The corpus this run reads holds no {DOCUMENT}, a targeted document every emission writes"
+        " (proof/targeted/documents/hqSideState.ts), so HQ-side saves were held on nothing. Emit the corpus again"
+        " (proof/corpus/emit.ts) and read its log for why the document was left out."
+    )
     return documents[DOCUMENT]
 
 
@@ -57,7 +62,7 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_loses_them(hq, core_r
     document = _document()
     export = document.exports["minimum"]
     saves = document.hq_side
-    with hq_check(export.configuration.hq(), validate=core_runner.validate_form) as (unit, _):
+    with hq_check(export.configuration.hq()) as (unit, _):
         app_id = _created(unit, export)
         held = hqside.save(unit, _ops(unit), app_id, saves)
         assert sorted(held) == sorted(saves)
@@ -106,7 +111,7 @@ def test_a_save_hq_refuses_stops_the_observation(hq, core_runner):
     export = document.exports["minimum"]
     configuration = export.configuration.hq()
     without = replace(configuration, privileges=configuration.privileges - {"BUILD_PROFILES"})
-    with hq_check(without, validate=core_runner.validate_form) as (unit, _):
+    with hq_check(without) as (unit, _):
         app_id = _created(unit, export)
         with pytest.raises(hqside.HqSideSaveRefused, match="build profiles"):
             hqside.build_profiles(unit, app_id, document.hq_side["buildProfiles"])

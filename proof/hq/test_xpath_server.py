@@ -120,7 +120,7 @@ def test_a_build_reads_the_same_filter_errors_from_either(hq, core_runner):
     app_json = hq_test_app()
     app_json["modules"][0]["module_filter"] = "#case/@case_id = ''"
     app_json["modules"][0]["forms"][0]["form_filter"] = "count(/data/repeat"
-    with hq_check(Configuration(), validate=core_runner.validate_form) as (state, _):
+    with hq_check(Configuration()) as (state, _):
         app_id, _ = operations.publish(state, [nova_shaped_upload(app_json, "Suite app")])
         with speed.on():
             seamed = operations.held_app(state, app_id).validate_app()

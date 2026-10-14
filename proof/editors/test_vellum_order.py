@@ -55,7 +55,7 @@ def test_vellum_parses_after_the_data_sources_even_when_its_timer_fires_first(hq
         return vellum.DesignerOptions(json=json.dumps(value), lang=options.lang)
 
     with (
-        hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _),
+        hq_check(CONFIGURATION) as (state, _),
         mock.patch.object(vellum, "vellum_options", without_load_delay),
     ):
         app_id = publish_hq_app(state, SUITE_APP)
@@ -82,7 +82,7 @@ def test_a_form_vellum_parsed_without_the_data_sources_is_not_saved(hq, core_run
             super().__init__(state)
             answered.append(self)
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
         before = operations.held_app(state, app_id).get_form(form_id).source
@@ -129,7 +129,7 @@ def test_what_a_run_records_does_not_depend_on_whether_the_sources_beat_the_pars
                 time.sleep(LATE_ANSWER_SECONDS)
             return super().__call__(asked)
 
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         app_id = publish_hq_app(state, SUITE_APP)
         form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
         unit = CheckUnit(state)

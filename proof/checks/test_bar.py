@@ -216,6 +216,9 @@ def test_every_check_an_operations_notes_are_held_by_reports_them():
 
     hooks = {name for name, _, _ in HOOKS}
     present = {name for name in hooks if importlib.util.find_spec(f"proof.observe.{name}") is not None}
+    # A hook's notes are held by the check named for it, or the one ``HOOK_CHECKS`` gives it (the served
+    # hook's are proof 3's).
+    present = {observations.HOOK_CHECKS.get(name, name) for name in present}
     holding = ({"bar", *observations.OPERATION_CHECKS.values()} - hooks) | present
     reported = set()
     for path in sorted(Path(observations.__file__).parent.glob("*.py")):

@@ -29,7 +29,7 @@ def containers(session):
     domain = "nova-container-evidence"
     exports = session.family("container")
     records = []
-    with native_check(domain, validate=session.validate_form):
+    with native_check(domain):
         for source in sorted(exports.glob("container-*.json")):
             raw = source.read_bytes()
             form = import_source(raw, domain).get_module(0).get_form(0)
@@ -46,7 +46,7 @@ def navigations(session):
     exports = session.family("navigation")
     sources = sorted(exports.glob("*.json"))
     records = []
-    with native_check(domain, validate=session.validate_form):
+    with native_check(domain):
         for source in sources:
             raw = source.read_bytes()
             app = import_source(raw, domain)
@@ -73,7 +73,7 @@ def xml_text(session):
     domain = "nova-xml-evidence"
     exports = session.family("xml")
     records = []
-    with native_check(domain, validate=session.validate_form):
+    with native_check(domain):
         for scenario in json.loads((exports / "scenarios.json").read_bytes()):
             raw = (exports / f"{scenario['name']}.json").read_bytes()
             form = import_source(raw, domain).get_module(0).get_form(0)
@@ -127,7 +127,7 @@ def connect_forms(session):
     extractors, extractor_source = _connect_extractors(checkout.path)
     scenarios = json.loads((exports / "scenarios.json").read_bytes())
     records = []
-    with native_check(domain, validate=session.validate_form):
+    with native_check(domain):
         for scenario in scenarios:
             name = scenario["name"]
             raw = (exports / f"{name}.json").read_bytes()

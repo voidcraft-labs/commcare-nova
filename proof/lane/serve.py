@@ -7,7 +7,9 @@
 The server (this process) boots HQ (``proof.hq.boot``), restores HQ's
 template database (``proof.hq.database.restore_template``), compiles the
 Core runner's classes once (``proof.core.client.compile_runner``, named to
-every runner as ``PROOF_CORE_CLASSES``) and warms HQ (``boot.warm``). For
+every runner as ``PROOF_CORE_CLASSES``), warms HQ (``boot.warm``), and starts
+the one Formplayer that answers every worker's form validation
+(``proof.formplayer.shared``) while it does. For
 each phase it collects the phase's tests once, then makes itself safe to
 fork (``boot.prepare_for_fork``: one thread, no connection, a frozen heap)
 and forks up to K workers (``proof.lane.worker``), each with its own lane
@@ -45,7 +47,14 @@ run it all once between them. With queues it runs the early
 queue's blocks first (groups that need no corpus: each group's tests,
 ``proof.checks.sharding.collection_roots``), and the main queue's as soon as
 it is known, every test under ``proof/`` but the early phase's; while early
-groups still run, main workers take the slots early workers leave. An
+groups still run, main workers take the slots early workers leave. Where
+the main queue names pieces (``proof.lane.blocks``: one configuration of a
+heavy document observed by a group of its own), the main phase collects
+their items too (``proof.checks.sharding.PIECES_MODULE``, named a test module
+for this collection, which gives one item for each piece the queue
+``PROOF_LANE_PIECES`` names), and a group that follows pieces is handed out
+once they have passed (``proof.lane.broker``); one whose piece did not pass
+is never run, and the server's exit says so (1) whatever its items. An
 early queue holding a group that reads the corpus (a document's, a
 control's, or a package in ``proof.lane.blocks.CORPUS_PACKAGES``) is refused
 at the start, before HQ boots. The main phase reads the corpus PROOF_CORPUS
@@ -55,6 +64,13 @@ waited for with ``--wait-for``, a shell command run from the checkout that
 exits 0 once the queue is at ``--queue`` (``PROOF_LANE_QUEUE``) and the
 corpus at ``PROOF_CORPUS``, or 3 when the corpus emission failed (its
 marker exists); any other exit is the server's failure.
+
+Readers. The server runs with the readers ``PROOF_READERS`` names
+(``proof.lane.readers``: every one, none as the pull request lane runs, or a
+slice's few), records them in ``serve.json`` (``readers``) and in the queue a
+run without queues writes, and refuses a queue built for another set
+(``readers`` in the queue): its groups and the keys its records are read
+under are that set's.
 
 Claims. ``--claim static`` owns every block (with ``--bin I/N``, the blocks
 of bin I of N, ``proof.checks.sharding.static_bins``). Otherwise each block
@@ -111,6 +127,7 @@ import pytest
 from proof import processes
 from proof.checks import sharding
 from proof.lane import blocks as lane_blocks
+from proof.lane import readers as lane_readers
 from proof.lane import worker as lane_worker
 from proof.lane.broker import WAIT, Broker
 from proof.store.keys import SELECTION_ENVIRONMENT
@@ -243,8 +260,11 @@ class Server:
         # Phases whose workers cannot run (a collection that failed, or differs between processes): phase -> why.
         self.broken: dict[str, str] = {}
         self.classes: Path | None = None
+        self.validation = None
         self.restored = False
         self.failing: list[str] = []
+        # Each group a block was written with as failed before it ran an item (one whose piece did not pass).
+        self.unrun: list[str] = []
         self.ran_items = 0
         self.collect_only_code: int | None = None
         self.record: dict = {
@@ -258,6 +278,8 @@ class Server:
             "claims": [],
             "workersRun": [],
             "problems": self.problems,
+            # The readers the run hands its served states to (PROOF_READERS, proof.lane.readers).
+            "readers": lane_readers.to_record(lane_readers.named()),
             # What the server collected with beyond its own arguments, and in what environment: a run of any
             # other selection holds only some of each group's items, and one in another environment than the queue
             # keys a package group under ran it otherwise, so the evidence store keeps no such outcome
@@ -298,6 +320,9 @@ class Server:
                 f"The main queue {options.queue} does not exist, and nothing waits for it: add --wait-for with the"
                 " command that brings it."
             )
+        for path, phase in ((options.early_queue, "early"), (options.queue, "main")):
+            if path is not None and path.exists():
+                self._refuse_profile(self._load(path, phase), path)
         if options.early_queue is not None:
             early = self._load(options.early_queue, "early")
             reading = sorted(name for name in early.groups() if lane_blocks.reads_corpus(name))
@@ -318,6 +343,18 @@ class Server:
             if name in os.environ:
                 self.command_env[name] = os.environ.pop(name)
 
+    def _refuse_profile(self, queue: lane_blocks.Queue, path: Path):
+        """Refuse a queue built for another set of readers: its groups and keys are that set's."""
+        here = lane_readers.named()
+        if queue.readers != here:
+            raise Refused(
+                f"The queue {path} was built for {lane_readers.described(queue.readers)}, and this shard runs with"
+                f" {lane_readers.described(here)} ({lane_readers.VARIABLE}="
+                f"{os.environ.get(lane_readers.VARIABLE, 'unset')}): its groups and the keys its records are read"
+                f" under are the other set's. Build the queue with --lane-env {lane_readers.VARIABLE}="
+                f"{lane_readers.canonical(here)}."
+            )
+
     def _prepare(self):
         """Boot, template, javac and warm, once, before any fork."""
         # Before the boot imports ddtrace, so this hook runs after ddtrace's own, at the fork itself.
@@ -329,8 +366,14 @@ class Server:
         processes.become_subreaper()
 
         from proof.core.client import CLASSES_ENVIRONMENT, compile_runner
+        from proof.formplayer import shared
         from proof.hq import boot, database
 
+        # The workers' one validation Formplayer starts while HQ boots and the workers set up; a worker reads its
+        # address at its first validation (proof.formplayer.shared).
+        self.validation = shared.Host(self.out)
+        self.validation.start()
+        os.environ[shared.ENVIRONMENT] = str(self.validation.ready)
         started = time.perf_counter()
         report = boot.boot()
         fixed["boot"] = round(time.perf_counter() - started, 3)
@@ -374,9 +417,21 @@ class Server:
             self.phases["main"] = PhaseInfo("main", [*self._base_args(), str(PROOF_DIR), *ignored])
             self.broker.add_phase("main", static=static)
             if options.queue.exists():
-                self.broker.offer("main", self._binned(self._load(options.queue, "main")))
+                queue = self._load(options.queue, "main")
+                self._collect_pieces(queue)
+                self.broker.offer("main", self._binned(queue, after=self._early()))
             else:
                 self._start_wait()
+
+    def _collect_pieces(self, queue: lane_blocks.Queue):
+        """Have the main phase collect the pieces the main queue names: their module, which reads the queue for
+        them (``proof.checks.pieces``), named a test module for this collection beside every test under
+        ``proof/`` (``sharding.PIECES_FILES``). A queue that names none collects none, so no shard collects an
+        item no queue runs."""
+        if not any(lane_blocks.piece_of(name) is not None for name in queue.groups()):
+            return
+        os.environ[sharding.PIECES_ENVIRONMENT] = str(self.options.queue)
+        self.phases["main"].args += sharding.PIECES_FILES
 
     def _load(self, path: Path, phase: str) -> lane_blocks.Queue:
         try:
@@ -384,15 +439,25 @@ class Server:
         except lane_blocks.QueueError as error:
             raise Refused(f"The {phase} queue cannot be run: {error}") from error
 
-    def _binned(self, queue: lane_blocks.Queue) -> list:
+    def _binned(self, queue: lane_blocks.Queue, *, after: lane_blocks.Queue | None = None) -> list:
         """The queue's blocks this shard takes, in its order: with ``--bin I/N``, bin I of N alone where it claims
-        statically, and otherwise every block, its own bin's first (``sharding.claim_order``)."""
+        statically, and otherwise every block, its own bin's first (``sharding.claim_order``). The main queue's
+        bins start from the early queue's (``after``), so one shard does not hold the heaviest block of both."""
         if self.options.bin is None:
             return list(queue.blocks)
         index, count = self.options.bin
         if self.options.claim != "static":
             return sharding.claim_order(queue.blocks, index, count)
-        return sharding.static_bins(queue.blocks, count)[index - 1]
+        loads = None
+        if after is not None:
+            loads = [sum(block.estimate for block in members) for members in sharding.static_bins(after.blocks, count)]
+        return sharding.static_bins(queue.blocks, count, loads)[index - 1]
+
+    def _early(self) -> lane_blocks.Queue | None:
+        """The early queue, for the main queue's bins to start from; None without one."""
+        if self.options.early_queue is None:
+            return None
+        return self._load(self.options.early_queue, "early")
 
     # Commands --------------------------------------------------------------------------
 
@@ -482,12 +547,14 @@ class Server:
             return
         try:
             queue = lane_blocks.load_queue(self.options.queue)
-        except lane_blocks.QueueError as error:
+            self._refuse_profile(queue, self.options.queue)
+        except (lane_blocks.QueueError, Refused) as error:
             self.problems.append(f"The main queue cannot be run: {error}")
             self.broker.cancel("main")
             return
         say(f"The main queue arrived after {seconds} s: {len(queue.blocks)} blocks.")
-        self.broker.offer("main", self._binned(queue))
+        self._collect_pieces(queue)
+        self.broker.offer("main", self._binned(queue, after=self._early()))
 
     # Collecting ------------------------------------------------------------------------------
 
@@ -533,6 +600,21 @@ class Server:
         for node_id, group in collector.groups.items():
             info.by_group.setdefault(group, []).append(node_id)
         info.digest = lane_blocks.collection_digest(info.groups)
+        if (
+            emits
+            and any(lane_blocks.reads_corpus(group) for group in info.by_group)
+            and not (self.out / "corpus" / "index.json").is_file()
+        ):
+            # A package whose tests read the corpus as they run, where the collection read none: emitted here,
+            # once, before any worker starts. Every group of a local run is one block, with one output directory,
+            # and two workers each emitting the corpus into it at once removed each other's files.
+            from proof.checks.corpus import CorpusLayoutError, emit_corpus
+
+            say("The selection's tests read the corpus as they run, so the lane emits it before any worker starts.")
+            try:
+                emit_corpus(self.out / "corpus")
+            except CorpusLayoutError as error:
+                raise Refused(str(error)) from error
         if not os.environ.get("PROOF_CORPUS") and (self.out / "corpus" / "index.json").is_file():
             # The collection emitted the corpus (proof.checks.corpus.corpus_root); every worker reads that one.
             os.environ["PROOF_CORPUS"] = str(self.out / "corpus")
@@ -556,6 +638,7 @@ class Server:
                 if self.options.bin is not None
                 else lane_blocks.single_block(estimates)
             )
+            queue = replace(queue, readers=lane_readers.named())
             corpus = os.environ.get("PROOF_CORPUS")
             if corpus and Path(corpus, "index.json").is_file():
                 # A corpus the queue builder sampled names the documents it leaves out, for the gate.
@@ -568,6 +651,9 @@ class Server:
             if path is not None and path.exists():
                 queue = lane_blocks.load_queue(path)
                 accounted |= queue.groups() | {entry.group for entry in queue.cached}
+                if queue.selection is not None:
+                    # A run over documents named by hand leaves these out, and says so (proof.lane.gate).
+                    accounted |= set(queue.selection.left)
         info.record["unaccounted"] = sorted(set(info.by_group) - accounted)
         queued = {name for block in self.broker.phases[info.name].blocks for name in block.names}
         missing = sorted(queued - set(info.by_group))
@@ -584,6 +670,8 @@ class Server:
                 fds.append(held.output)
         for command in self.commands:
             fds.append(command.group.fileno())
+        if self.validation is not None:
+            fds += self.validation.fds()
         return fds
 
     def _fork(self, info: PhaseInfo):
@@ -709,7 +797,7 @@ class Server:
         if held.refusal or self.stopping or held.phase in self.broken:
             self._send(held, {"group": None})
             return True
-        assignment = self.broker.next_for(held.phase, held.sequence)
+        assignment = self.broker.next_for(held.phase, held.sequence, ahead=not wait)
         if assignment == WAIT:
             if wait:
                 return False
@@ -727,6 +815,7 @@ class Server:
                 "block": assignment.block,
                 "fresh": assignment.fresh,
                 "phase": assignment.phase,
+                "after": list(assignment.after),
             },
         )
         return True
@@ -889,6 +978,8 @@ class Server:
             failure = state.failure
             if state.status not in ("finished", "failed"):
                 failure = unfinished or "it never ran"
+            elif failure and state.worker is None:
+                self.unrun.append(f"{group}: {failure}")
             groups.append(
                 lane_blocks.group_record(
                     group=group,
@@ -947,7 +1038,10 @@ class Server:
                 swept = time.perf_counter()
 
     def _known(self) -> set[int]:
-        return {held.pid for held in self.workers.values()} | {command.group.group for command in self.commands}
+        known = {held.pid for held in self.workers.values()} | {command.group.group for command in self.commands}
+        if self.validation is not None and self.validation.process is not None:
+            known.add(self.validation.process.pid)
+        return known
 
     # Ending -------------------------------------------------------------------------------------
 
@@ -961,6 +1055,15 @@ class Server:
         for command in list(self.commands):
             command.group.stop()
             self.commands.remove(command)
+        if self.validation is not None:
+            said = self.validation.close() or {}
+            # How long the workers' validation Formplayer took to start, beside the server's own fixed costs.
+            self.record["fixed"]["validationStart"] = said.get("seconds")
+            if "error" in said:
+                self.problems.append(
+                    f"The workers' validation Formplayer did not start: {said['error']} (its log:"
+                    f" {self.validation.log})."
+                )
         for _ in range(20):
             if not reap_strays(set()):
                 break
@@ -1011,7 +1114,7 @@ class Server:
             return EXIT_INTERRUPTED
         if self.problems:
             return EXIT_BROKEN
-        if self.failing:
+        if self.failing or self.unrun:
             return EXIT_FAILED
         if not any(info.groups for info in self.phases.values()) and all(info.local for info in self.phases.values()):
             return EXIT_NOTHING
@@ -1022,6 +1125,8 @@ class Server:
         say(f"Ran {blocks} blocks, {self.ran_items} items; {len(self.failing)} failed.")
         for node_id in self.failing[:30]:
             say(f"  failed: {node_id}")
+        for group in self.unrun[:30]:
+            say(f"  not run: {group}")
         for problem in self.problems:
             say(f"Problem: {problem}")
         say(f"Exit status {code}; the run's record is {self.out / lane_blocks.SERVE}.")

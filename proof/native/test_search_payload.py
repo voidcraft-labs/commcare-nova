@@ -153,7 +153,7 @@ def _check_queries(state, payloads, corpus):
 
 def test_hq_compiles_cores_navigation_queries_to_the_meant_filters(native):
     payloads = native.core_artifact("navigation", "nova-search-payloads.tsv", "NavigationRuntimeTest")
-    with native_check(DOMAIN, validate=native.validate_form) as (state, _):
+    with native_check(DOMAIN) as (state, _):
         results = _check_queries(state, payloads, "navigation")
         assert len(results) == 10
         assert [row["scenario"] for row in results] == ["date-add"] * 2 + ["datetime-add"] * 2 + ["day-range"] * 6
@@ -218,7 +218,7 @@ LIMITS = (
 def test_hq_compiles_cores_function_queries_and_parses_their_arguments(native):
     payloads = native.core_artifact("function", "nova-function-payloads.tsv", "CsqlFunctionRuntimeTest")
     arguments = native.core_artifact("function", "nova-function-arguments.tsv", "CsqlFunctionRuntimeTest")
-    with native_check(DOMAIN, validate=native.validate_form) as (state, _):
+    with native_check(DOMAIN) as (state, _):
         from eulxml.xpath import parse as parse_xpath
 
         results = _check_queries(state, payloads, "function")

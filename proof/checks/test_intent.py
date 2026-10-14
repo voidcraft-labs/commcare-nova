@@ -366,7 +366,7 @@ def _held(core_runner, privileges):
     from proof.observe.identity import app_identity
 
     configuration = Configuration(privileges=privileges)
-    with hq_check(configuration, validate=core_runner.validate_form) as (state, record):
+    with hq_check(configuration) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(_suite_app(), "Suite app")])
         app = operations.held_app(state, app_id)
         with build_seams(previous=None):

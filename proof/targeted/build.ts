@@ -46,6 +46,7 @@ import {
 	type ProjectSettings,
 	storedDocument,
 } from "../corpus/documents";
+import type { UploadedMedia } from "../corpus/publish";
 import type { Expected } from "./expected";
 
 /** The identity named `name` in the targeted document `documentId`. */
@@ -62,6 +63,8 @@ export interface TargetedSpec {
 	/** The document as written; it must be the one Nova's gate admits. */
 	readonly doc: BlueprintDoc;
 	readonly lookup?: LookupFixtureDataSnapshot;
+	/** The uploaded media the document names, as Nova's media store holds it. */
+	readonly media?: ReadonlyMap<string, UploadedMedia>;
 	/** The hand-fixed values the intent check holds Core to (`expected.json`). */
 	readonly expected: Expected;
 	/** Files the expectations read (their restores), by name in the document's directory. */
@@ -168,6 +171,7 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 		source: { kind: "targeted", rows: spec.rows },
 		doc: committed,
 		...(spec.lookup !== undefined && { lookup: spec.lookup }),
+		...(spec.media !== undefined && { media: spec.media }),
 		expected: spec.expected,
 		...(spec.files !== undefined && { files: spec.files }),
 		...(spec.singleFlags !== undefined && { singleFlags: spec.singleFlags }),

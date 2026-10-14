@@ -24,7 +24,7 @@ A product that fails is recorded and the others still run, so one producer's
 failure fails only the tests that read its family: the command exits 0 once
 it has run every product, and 2 when it could not write DIR.
 
-Standard library only: CI's ``quality`` job runs it on the runner's own Python
+Standard library only: CI's ``proof-corpus`` job runs it on the runner's own Python
 beside the corpus emission, and the corpus carries DIR as ``native/``
 (``produced_directory``), so the lane's shards, which mount no
 ``node_modules``, read the products instead of producing them. A lane run
@@ -80,7 +80,7 @@ def _without_install() -> str:
         return ""
     return (
         "; this checkout has no node_modules (a CI shard mounts none) and the lane's corpus carries no "
-        f"{CORPUS_DIRECTORY}/, which CI's quality job writes beside the corpus "
+        f"{CORPUS_DIRECTORY}/, which CI's proof-corpus job writes beside the corpus "
         f"(`python3 -m proof.native.produce --out <corpus>/{CORPUS_DIRECTORY}`)"
     )
 

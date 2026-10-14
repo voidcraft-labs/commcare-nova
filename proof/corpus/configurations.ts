@@ -15,8 +15,8 @@
  *   names for the document.
  *
  * Every configuration builds at the harness's CommCare version
- * (`CORPUS_COMMCARE_VERSION`), with CommTrack off, and sync cases on form
- * entry off unless a reproduction turns it on for the document
+ * (`CORPUS_COMMCARE_VERSION`), with CommTrack and sync cases on form entry
+ * each off unless a reproduction turns it on for the document
  * (`CorpusDocument.projectSettings`). A configuration names only the
  * privileges a reproduction asks for
  * (`namedPrivileges`): the ones the document's content needs are HQ's to
@@ -144,6 +144,7 @@ export function documentConfigurations(
 	input: FlagsInput & {
 		readonly namedPrivileges: readonly string[];
 		readonly syncCasesOnFormEntry?: boolean;
+		readonly commtrack?: boolean;
 	},
 ): DocumentConfigurations {
 	const sets = flagSets(input);
@@ -151,7 +152,7 @@ export function documentConfigurations(
 		flags,
 		namedPrivileges: sorted(input.namedPrivileges),
 		commcareVersion: CORPUS_COMMCARE_VERSION,
-		commtrack: false,
+		commtrack: input.commtrack ?? false,
 		syncCasesOnFormEntry: input.syncCasesOnFormEntry ?? false,
 		caseSearchEnabled: input.caseSearchEnabled,
 	});

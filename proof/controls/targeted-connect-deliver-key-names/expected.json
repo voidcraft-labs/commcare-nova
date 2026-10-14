@@ -1,0 +1,56 @@
+{
+	"intent": [
+		{
+			"id": "score-held-1",
+			"export": "local",
+			"form": "04a85857-cc46-56a3-a44b-e72961fea447",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/score",
+						"value": "8"
+					}
+				],
+				"expressions": [
+					"/data/score"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "8"
+				}
+			]
+		},
+		{
+			"id": "score-held-2",
+			"export": "local",
+			"form": "252427f3-bd66-53d7-ac84-d51d593ca6c3",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/score",
+						"value": "8"
+					}
+				],
+				"expressions": [
+					"/data/score"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "8"
+				}
+			]
+		}
+	]
+}

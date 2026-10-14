@@ -356,6 +356,8 @@ class EditorDriver:
         deadline: float = 120.0,
         cookies: Mapping[str, str] | None = None,
         seed: Mapping[str, Any] | None = None,
+        timers: bool = False,
+        viewport: Mapping[str, int] | None = None,
     ) -> dict[str, Any]:
         """Runs page steps in a fresh browser context, answering the page's HQ requests with ``answer``.
 
@@ -363,13 +365,21 @@ class EditorDriver:
         response to a page the run does not load (the form designer page, for
         the Vellum host) would have set in the browser. ``seed`` (``{seed,
         epoch}``) fixes the pages' clock and randomness
-        (``driver/steps/page/seed.js``).
+        (``driver/steps/page/seed.js``). With ``timers`` every document counts
+        its short one-off timers (``driver/steps/page/timers.js``), for the
+        steps that settle on them. ``viewport`` (``{width, height}``) is the
+        window the pages are laid out in, where it is not Playwright's own
+        desktop one.
         """
         message: dict[str, Any] = {"op": "run", "steps": list(steps)}
+        if viewport is not None:
+            message["viewport"] = dict(viewport)
         if cookies:
             message["cookies"] = cookie_list(cookies)
         if seed is not None:
             message["seed"] = dict(seed)
+        if timers:
+            message["timers"] = True
         return self.operation(message, answer=answer, deadline=deadline)
 
     def operation(
@@ -478,7 +488,12 @@ class EditorDriver:
                 self._answer(received["hq"], answer)
                 continue
             if "phase" in received:
+                # What the caller does at a phase (a section's fork read and every reader served the state its
+                # save left) is the harness's own work between the page's steps, never the page's: the driver
+                # moves its deadline on by the time it waited for it, and so does this.
+                waited = time.perf_counter()
                 self._phase(received["phase"], on_phase)
+                ends += time.perf_counter() - waited
                 continue
             if received.get("id") != request_id:
                 self._stop_process()

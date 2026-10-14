@@ -15,11 +15,13 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
+	androidRuntime,
 	laneOptions,
 	proofMatrix,
 	refreshTimings,
 	runOutput,
 	shardOptions,
+	statsBytes,
 } from "../run.mjs";
 
 const run = promisify(execFile);
@@ -117,6 +119,33 @@ async function calls(log: string): Promise<string[][]> {
 		.map((line) => JSON.parse(line));
 }
 
+/** Variables a test hands a run for its command environment, which CI's own steps may also hold. */
+const HANDED = ["ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL", "GITHUB_TOKEN"];
+
+/**
+ * The environment a runner under test is given: this machine's, without
+ * anything the runner reads or passes into the harness, and then what the
+ * test itself names. The runner reads its switches from the environment
+ * (every `PROOF_` variable), and the suite runs where some are set for other
+ * reasons: CI's workflow sets PROOF_READERS for its own lane, and a proof
+ * machine names its Android runtime. Each test states what its run is given,
+ * so the same assertions hold wherever the suite runs.
+ */
+function environmentOf(given: Record<string, string>): NodeJS.ProcessEnv {
+	const environment = { ...process.env };
+	for (const name of Object.keys(environment)) {
+		if (name.startsWith("PROOF_") || HANDED.includes(name)) {
+			delete environment[name];
+		}
+	}
+	return {
+		...environment,
+		PATH: `${scratch}:${process.env.PATH}`,
+		PROOF_IMAGE: "proof-image:test",
+		...given,
+	};
+}
+
 /**
  * Runs one of the runner's entry points (`main` for `npm run proof`, `shard`
  * for `--lane`) as its command line would, writing into an output directory
@@ -128,22 +157,10 @@ async function runner(
 	platform: string,
 	env: Record<string, string> = {},
 ) {
-	const environment: NodeJS.ProcessEnv = {
-		...process.env,
-		PATH: `${scratch}:${process.env.PATH}`,
-		PROOF_IMAGE: "proof-image:test",
+	const environment = environmentOf({
 		PROOF_OUT_DIR: join(scratch, "out"),
 		...env,
-	};
-	for (const name of [
-		"PROOF_SHARD",
-		"PROOF_WORKER",
-		"PROOF_CORPUS",
-		"PROOF_SURFACE_EXTRACTION",
-		"PROOF_STORE",
-	]) {
-		if (!(name in env)) delete environment[name];
-	}
+	});
 	try {
 		const { stdout, stderr } = await run(
 			process.execPath,
@@ -301,6 +318,8 @@ it("reuses a filled volume and serves the whole harness with one worker when not
 		"--claim",
 		"static",
 	]);
+	// A run that names no profile passes none, and the harness serves every reader.
+	expect(passed(harness)).not.toContain("PROOF_READERS");
 });
 
 it("mounts the checkout's own node_modules on Linux instead of a volume", async () => {
@@ -344,6 +363,7 @@ it("passes the corpus selection and the audit switches through and nothing else,
 		PROOF_CORPUS_SEED: "11",
 		PROOF_HQ_DETERMINISM: "0",
 		PROOF_EDITOR_AUDIT: "0.03",
+		PROOF_READERS: "formplayer,android",
 		PROOF_SOMETHING_ELSE: "1",
 	});
 	expect(result.code).toBe(0);
@@ -356,7 +376,10 @@ it("passes the corpus selection and the audit switches through and nothing else,
 		"PROOF_FINGERPRINTS",
 		"PROOF_HQ_DETERMINISM",
 		"PROOF_IMAGE_ID",
+		"PROOF_READERS",
 	]);
+	// The lane's profile reaches the harness as it was named (proof/lane/readers.py reads it there).
+	expect(flagValue(harness, "PROOF_READERS")).toBe("formplayer,android");
 	expect(flagValue(harness, "PROOF_IMAGE_ID")).toBe(IMAGE_ID);
 	// The evidence store's keys name this checkout's code, the image the lane runs (its id: the reference pins no
 	// digest) and the Docker server's architecture.
@@ -511,11 +534,17 @@ it("writes into PROOF_OUT_DIR when it is empty, and refuses one that holds an ea
 	expect(mountOf((await calls(log)).find(composeRun), "/out")).toBe(
 		join(scratch, "out"),
 	);
+	// The run records the memory its containers used beside its evidence.
+	expect(
+		JSON.parse(await readFile(join(scratch, "out", "memory.json"), "utf8")),
+	).toHaveProperty("peaks");
 
 	await writeFile(join(scratch, "out", "evidence.json"), "earlier\n");
 	const refused = await proof([], "darwin");
 	expect(refused.code).toBe(99);
-	expect(refused.stderr).toContain("already holds 1 entries (evidence.json)");
+	expect(refused.stderr).toContain(
+		"already holds 2 entries (evidence.json, memory.json)",
+	);
 	expect(await readFile(join(scratch, "out", "evidence.json"), "utf8")).toBe(
 		"earlier\n",
 	);
@@ -646,6 +675,8 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 		{
 			PROOF_CORPUS: corpus,
 			PROOF_STORE: store,
+			// The pull request lane's profile, which its workflow sets for every step.
+			PROOF_READERS: "0",
 			ACTIONS_RUNTIME_TOKEN: "token",
 			ACTIONS_RESULTS_URL: "https://results.example",
 			GITHUB_TOKEN: "not for the harness",
@@ -669,8 +700,10 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 		"PROOF_CORPUS",
 		"PROOF_FINGERPRINTS",
 		"PROOF_IMAGE_ID",
+		"PROOF_READERS",
 		"PROOF_STORE",
 	]);
+	expect(flagValue(harness, "PROOF_READERS")).toBe("0");
 	expect(served(harness)).toEqual([
 		"--out",
 		"/out",
@@ -721,9 +754,22 @@ it("refuses a shard with no queue, a main queue without a corpus, a missing earl
 
 it("plans CI's shards on the execution's runner, or as many as asked for", () => {
 	const timings = {
-		execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
-		groups: { g: 1 },
+		profiles: {
+			readers: {
+				execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
+				groups: { g: 1 },
+			},
+			"no-readers": {
+				execution: { shards: 6, workers: 4, runner: "ubuntu-24.04" },
+				groups: { g: 0.1 },
+			},
+		},
 	};
+	// Each profile plans from its own execution: the pull request lane's shards are not the nightly's.
+	expect(proofMatrix("default", timings, false).include).toHaveLength(6);
+	expect(proofMatrix("default", timings, false).include[0]?.runner).toBe(
+		"ubuntu-24.04",
+	);
 	const matrix = proofMatrix("default", timings);
 	expect(matrix.include).toHaveLength(14);
 	expect(matrix.include[0]).toEqual({
@@ -738,8 +784,36 @@ it("plans CI's shards on the execution's runner, or as many as asked for", () =>
 	);
 	expect(() => proofMatrix("0", timings)).toThrow("whole number");
 	expect(() =>
-		proofMatrix("default", { execution: { shards: 2, workers: 4 } }),
+		proofMatrix("default", {
+			profiles: { readers: { execution: { shards: 2, workers: 4 } } },
+		}),
 	).toThrow("names no runner");
+	expect(() => proofMatrix("default", timings.profiles.readers)).toThrow(
+		"whole number",
+	);
+});
+
+it("prints the matrix of a planned count, with the plan's deadline where it gives one", () => {
+	const timings = {
+		profiles: {
+			readers: {
+				execution: { shards: 16, workers: 4, runner: "ubuntu-24.04" },
+			},
+		},
+	};
+	const planned = proofMatrix("4", timings, true, "300");
+	expect(planned.include).toHaveLength(4);
+	expect(planned.include[3]).toEqual({
+		shard: 4,
+		total: 4,
+		workers: 4,
+		runner: "ubuntu-24.04",
+		deadline: 300,
+	});
+	const counted = proofMatrix("default", timings);
+	expect(counted.include).toHaveLength(16);
+	expect(counted.include[0]).not.toHaveProperty("deadline");
+	expect(() => proofMatrix("auto", timings)).toThrow("The shard count");
 });
 
 it("writes each group's box-seconds the workers measured, averaging runs, with the servers' fixed costs", async () => {
@@ -785,10 +859,20 @@ it("writes each group's box-seconds the workers measured, averaging runs, with t
 		// A shard's wait for the main queue is time spent on another job, not one of its fixed costs.
 		JSON.stringify({ fixed: { boot: 4, template: 1 }, waits: { queue: 90 } }),
 	);
-	const refreshed = await refreshTimings([first, second], {
-		execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
-		groups: { stale: 1 },
-	});
+	const previous = {
+		profiles: {
+			readers: {
+				execution: { shards: 14, workers: 4, runner: "ubuntu-24.04-arm" },
+				groups: { stale: 1 },
+			},
+			"no-readers": {
+				execution: { shards: 6, workers: 4, runner: "ubuntu-24.04" },
+				groups: { kept: 2 },
+			},
+		},
+	};
+	const refreshed = (await refreshTimings([first, second], previous)).profiles
+		.readers;
 	expect(refreshed.execution).toEqual({
 		shards: 14,
 		workers: 4,
@@ -803,6 +887,40 @@ it("writes each group's box-seconds the workers measured, averaging runs, with t
 		"proof/hq": 10,
 		"proof/native": 25,
 	});
+	// Runs without the readers refresh that profile alone, the other kept as it was; on a box that gives each
+	// worker a vCPU, as a CI shard does, a worker-second is a CI worker's, divided by the workers a CI box holds.
+	for (const directory of [first, second]) {
+		const served = JSON.parse(
+			await readFile(join(directory, "serve.json"), "utf8"),
+		);
+		await writeFile(
+			join(directory, "serve.json"),
+			JSON.stringify({ ...served, readers: false }),
+		);
+	}
+	const without = await refreshTimings([first, second], previous, {
+		boxWorkers: 4,
+	});
+	expect(without.profiles.readers).toEqual(previous.profiles.readers);
+	expect(without.profiles["no-readers"].execution).toEqual(
+		previous.profiles["no-readers"].execution,
+	);
+	// corpus:a: 8/4 twice; proof/native: 80/4 and 60/4.
+	expect(without.profiles["no-readers"].groups).toEqual({
+		"corpus:a": 2,
+		"proof/hq": 10,
+		"proof/native": 17.5,
+	});
+	expect(without.profiles["no-readers"].measured.basis).toContain(
+		"divided by 4",
+	);
+	await writeFile(
+		join(first, "serve.json"),
+		JSON.stringify({ fixed: {}, readers: true }),
+	);
+	await expect(refreshTimings([first, second], previous)).rejects.toThrow(
+		"both of the lane's profiles",
+	);
 	await expect(refreshTimings([scratch], {})).rejects.toThrow(
 		"holds no timings/ from a lane run",
 	);
@@ -818,6 +936,37 @@ it("writes each group's box-seconds the workers measured, averaging runs, with t
 	);
 });
 
+it("hands the harness the Android runtime and its JDK at the paths they have here, read-only", async () => {
+	// A runtime names its classpath by absolute paths, so it is mounted where it was built; a name that
+	// is not there is refused, and an environment that names neither mounts nothing.
+	const runtime = join(scratch, "android-runtime");
+	const jdk = join(scratch, "temurin");
+	await mkdir(runtime, { recursive: true });
+	await mkdir(jdk, { recursive: true });
+	expect(
+		androidRuntime({ PROOF_ANDROID_RUNTIME: runtime, PROOF_ANDROID_JDK: jdk }),
+	).toEqual({
+		mounts: ["-v", `${runtime}:${runtime}:ro`, "-v", `${jdk}:${jdk}:ro`],
+		environment: [
+			"-e",
+			`PROOF_ANDROID_RUNTIME=${runtime}`,
+			"-e",
+			`PROOF_ANDROID_JDK=${jdk}`,
+		],
+	});
+	expect(androidRuntime({})).toEqual({ mounts: [], environment: [] });
+	expect(() =>
+		androidRuntime({ PROOF_ANDROID_RUNTIME: join(scratch, "absent") }),
+	).toThrow("PROOF_ANDROID_RUNTIME names");
+});
+
+it("reads a container's memory as docker stats prints it", () => {
+	expect(statsBytes("1.5GiB ")).toBe(1.5 * 1024 ** 3);
+	expect(statsBytes("512MiB")).toBe(512 * 1024 ** 2);
+	expect(statsBytes("10kB")).toBe(10_000);
+	expect(statsBytes("--")).toBeNull();
+});
+
 /** `npm run surface`, writing the extraction into the test's own `output` and the surface to `destination`. */
 async function regenerate(destination: string, output: string) {
 	const call = JSON.stringify([RUNNER, "surface", [{ destination, output }]]);
@@ -825,14 +974,7 @@ async function regenerate(destination: string, output: string) {
 		await run(
 			process.execPath,
 			["--input-type=module", "-e", CALL_RUNNER, call],
-			{
-				cwd: WORKTREE,
-				env: {
-					...process.env,
-					PATH: `${scratch}:${process.env.PATH}`,
-					PROOF_IMAGE: "proof-image:test",
-				},
-			},
+			{ cwd: WORKTREE, env: environmentOf({}) },
 		);
 		return 0;
 	} catch (error) {

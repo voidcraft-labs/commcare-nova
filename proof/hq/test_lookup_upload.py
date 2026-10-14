@@ -70,7 +70,7 @@ REPLACEMENT = [
 
 
 def test_a_replacing_upload_recreates_the_table_and_leaves_no_owner(hq, core_runner):
-    with hq_check(CONFIGURATION, validate=core_runner.validate_form) as (state, _):
+    with hq_check(CONFIGURATION) as (state, _):
         from corehq.apps.fixtures.models import LookupTable, LookupTableRow, LookupTableRowOwner, OwnerType
 
         operations.seed_mobile_worker(state, "u1", "user-u1")

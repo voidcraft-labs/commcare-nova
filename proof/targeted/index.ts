@@ -8,11 +8,20 @@
  */
 
 import type { CorpusDocument } from "../corpus/documents";
+import { captureWidgets } from "./documents/captureWidgets";
 import {
 	closeConditions,
 	closeConditionUnparsable,
 } from "./documents/closeConditions";
+import {
+	connectDeliverKeyNames,
+	connectDeliverRename,
+	connectLearnKeyNames,
+	connectLearnRename,
+} from "./documents/connectApps";
 import { customTile } from "./documents/customTile";
+import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
+import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
 	invalidConnectIds,
@@ -26,9 +35,11 @@ import { hqSideState } from "./documents/hqSideState";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
+import { mediaSlots } from "./documents/mediaSlots";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
 import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
+import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
 	listFirstWebApps,
 	searchButtonLabel,
@@ -43,6 +54,7 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { supplyPointRead } from "./documents/supplyPointRead";
 import { timeOrdering } from "./documents/timeOrdering";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
@@ -77,6 +89,16 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	parentFormPreviousFrame,
 	wireEqualRepublish,
 	searchButtonLabel,
+	formLinkHiddenTarget,
+	emptyListNoEnglish,
+	connectDeliverRename,
+	connectLearnRename,
+	connectLearnKeyNames,
+	connectDeliverKeyNames,
+	saveToCaseRead,
+	supplyPointRead,
+	mediaSlots,
+	captureWidgets,
 	noMatchesReturnIdentity,
 ];
 

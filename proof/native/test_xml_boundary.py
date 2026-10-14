@@ -123,7 +123,7 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
         "consumer_spacing-label": [
             "/data/meals",
             (
-                "json-property('{\"v\":\"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003"
+                'json-property(\'{"v":"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003'
                 "\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\"}', 'v')"
             ),
             "/data/address",
@@ -146,9 +146,11 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
             "if(jr:itext('checked-constraintMsg;__nova_mode') = 'media', jr:itext('checked-constraintMsg'), "
             "if(jr:itext('checked-constraintMsg;__nova_locale') = 'en', "
             "if(count(/data/meals) > 1 or count(/data/address) > 1, '', "
-            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address)), "
+            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), "
+            "/data/address)), "
             "if(count(/data/meals) > 1 or count(/data/address) > 1, '', "
-            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), /data/address))))"
+            "concat(/data/meals, json-property(jr:itext('checked-constraintMsg;__nova_piece_1'), 'v'), "
+            "/data/address))))"
         ), (path, protected)
         for field_id in ("checked", "literal_checked", "reference_checked"):
             carrier_path = f"/data/nova_constraint_message_{field_id}"

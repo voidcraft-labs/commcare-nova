@@ -53,8 +53,11 @@ core.py::SoftAssert._call`` raises only under ``settings.UNIT_TESTING``, or
 Before a part is observed the store is asked for it (``store.lookup``): a
 part the store holds is not observed again. One it does not hold under
 parts it does recreates what it is observed over with the same operations,
-so the same state: A (create, its media, build, saved build) under a held
-``a``, and B (republish, its media, build) under a held ``b``. With
+so the same state: A (create, its media, the HQ-side saves where the document
+carries them, build, saved build) under a held ``a``, and B (republish, its
+media, build) under a held ``b``. A build made again asks HQ for its
+identities as the build first observed did and keeps none of the answer
+(``_build``), since HQ can write as it answers. With
 ``store.fresh`` every part is observed and handed to ``store.audit`` beside
 what the store held. While a part (or what it is observed over) is
 observed, the evidence store's guard (``proof.store.guard.observing``)
@@ -116,14 +119,29 @@ B_UNREAD_ROLES = frozenset({"verdict", "document"})
 STATES = ("A", "B", "B-edit")
 # The document's local part, which the local hooks observe with (``observe_local``).
 LOCAL = "local"
-# Each observation hook: its module under ``proof.observe``, the function the unit calls, the states it is
-# called at.
-HOOKS = (
+# A served to Formplayer, the Web Apps client, a device and Connect (the baseline of proof 3's comparisons of
+# them), where the run hands its states to the readers (``proof.lane.readers``).
+SERVED = ("served", "observe", ("A",))
+EVERY_HOOK = (
     ("intent", "observe", STATES),
     ("intent", "observe_local", (LOCAL,)),
     ("manifest", "observe_local", (LOCAL,)),
+    SERVED,
     ("proof4", "observe_b", ("B", "B-edit")),
 )
+
+
+def hooks(environ=None):
+    """Each observation hook the unit calls: its module under ``proof.observe``, the function the unit calls, the
+    states it is called at. The served hook only where the run hands its states to the readers
+    (``proof.lane.readers.served``, ``PROOF_READERS``): without it no state is served, and so B and proof 4's saves
+    are served to nothing (``BContext.serve``)."""
+    from proof.lane import readers
+
+    return tuple(hook for hook in EVERY_HOOK if hook != SERVED or readers.served(environ))
+
+
+HOOKS = hooks()
 
 
 class HookContractError(TypeError):
@@ -263,10 +281,11 @@ def _module(name):
         raise
 
 
-def hook_modules():
-    """Each observation hook that exists: ``[(name, module, function, states)]``."""
+def hook_modules(hooked=None):
+    """Each observation hook that exists, of ``hooked`` (``HOOKS`` by default): ``[(name, module, function,
+    states)]``."""
     found = []
-    for name, function, states in HOOKS:
+    for name, function, states in HOOKS if hooked is None else hooked:
         module = _module(name)
         if module is None:
             continue
@@ -282,11 +301,11 @@ def hook_modules():
     return found
 
 
-def hook_inputs(document):
+def hook_inputs(document, hooked=None):
     """What each hook that exists reads beyond its part's own inputs, by state (``local`` too):
-    ``{state: {hook: inputs}}``."""
+    ``{state: {hook: inputs}}``; ``hooked`` is ``hook_modules``'s."""
     found = {state: {} for state in (*STATES, LOCAL)}
-    for name, module, _, states in hook_modules():
+    for name, module, _, states in hook_modules(hooked):
         for state in states:
             if state == "B-edit" and document.edit is None:
                 continue
@@ -306,7 +325,8 @@ def part_keys(inputs, name, databases, hooks=None):
     whose update sends B's bytes over B's cases has B's key. Nothing else of
     D′ is read over B-edit but what a hook declares. ``b_aligned`` is keyed
     under ``b`` with the local archive proof 3's sessions replay on
-    (``inputs.json``'s ``local`` role); its cases and B's lookups are
+    (``inputs.json``'s ``local`` role) and the local export a device installs
+    after it (``local-again``); its cases and B's lookups are
     ``b``'s. Each state's part also reads what each hook declares for that
     state (``hooks``: ``hook_inputs``).
     """
@@ -321,7 +341,11 @@ def part_keys(inputs, name, databases, hooks=None):
                 "b", a, {"inputs": requests, "caseDatabase": databases[part], "hooks": hooks.get(state, {})}
             )
     if "b" in keys:
-        keys["b_aligned"] = part_key("b_aligned", keys["b"], {"localArchive": inputs["local"].get("local")})
+        keys["b_aligned"] = part_key(
+            "b_aligned",
+            keys["b"],
+            {"localArchive": inputs["local"].get("local"), "localAgain": inputs["local"].get("local-again")},
+        )
     return keys
 
 
@@ -337,7 +361,8 @@ def local_key(inputs, hooks=None):
 
 class HookUnit:
     """The unit as a hook sees it: the unit itself, with each operation the hook runs logged in its part's record
-    under the hook's name (``OperationLog``), and each of its requests in which HQ noted a soft assertion."""
+    under the hook's name (``OperationLog``), and each of its requests in which HQ noted a soft assertion, with the
+    served reader that made it where one did (``proof.observe.served.reading``)."""
 
     def __init__(self, unit, log, hook):
         self._unit, self._log, self._hook = unit, log, hook
@@ -347,12 +372,16 @@ class HookUnit:
 
     @contextmanager
     def request(self, digest):
+        from proof.observe.served import reader_now
+
+        reader = reader_now()
         with self._unit.request(digest) as scope:
             yield scope
         if scope.soft_assertions:
-            self._log.requests.append(
-                {"hook": self._hook, "request": digest.hex(), "softAssertions": _notes(scope.soft_assertions)}
-            )
+            entry = {"hook": self._hook, "request": digest.hex(), "softAssertions": _notes(scope.soft_assertions)}
+            if reader is not None:
+                entry["reader"] = reader
+            self._log.requests.append(entry)
 
     def __getattr__(self, name):
         return getattr(self._unit, name)
@@ -381,6 +410,13 @@ class HookContext:
     blobs: Blobs
     configuration: object  # proof.hq.configuration.Configuration
     configuration_name: str  # the configuration's name in the corpus (its export directory)
+    # The session's editor driver, in whose Chromium the Web Apps client runs; None where the observation was
+    # given none.
+    editor_driver: object = None
+    # A's restore for proof 3's sessions (None where HQ serves none), and the unit's Connect opportunity holder
+    # (``proof.observe.connect.Holder``), which the served hook fills at A for a Connect app.
+    restore_a: bytes | None = None
+    connect: object = None
 
 
 @dataclass
@@ -422,6 +458,13 @@ class BContext:
     # HQ's restore over the document's tables: ``{"served": True}``, or ``{"refused": reason}`` where ``restore``
     # is None (``proof.observe.sessions.hq_restore``).
     restore_outcome: dict
+    # The build HQ compared this B's forms with when it built it: saved(build(A)).
+    previous_build: object = None
+    # Whether B and each save over it are also served to Formplayer and the Web Apps client
+    # (``proof.observe.served``): where the unit's served hook runs.
+    serve: bool = False
+    # The unit's Connect opportunity holder (``proof.observe.connect.Holder``).
+    connect: object = None
 
 
 # Observation -----------------------------------------------------------------------
@@ -477,9 +520,11 @@ class _Built:
     hq_build: object
     identities: dict | None
     doc: dict
+    # The archive a device installs of it (``proof.observe.build.device_archive``); None where it was not read.
+    archive: dict | None = None
 
 
-def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None, identities=True):
+def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None, keep=True):
     """HQ's build of the app the unit holds, Core's admission of it, and its identities, in one operation.
 
     The build reads the app freshly, with every cache emptied first
@@ -487,11 +532,18 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
     come back with it (by constant, else by slug). With ``configuration``, it is
     A's plain build (``proof.observe.sensitivity.plain_build``) and the
     project-space settings it read come back too; otherwise none do.
+
+    HQ is asked for the build's identities in every build. ``keep`` says
+    whether the unit keeps what it reads of the build. With it (a build
+    observed for a record) Core admits the build, and the identities and the
+    device archive come back. Without it (a build made again under a stored
+    part, whose record holds them) HQ is asked all the same and its answer is
+    dropped, and Core's admission and the device archive are left out.
     Returns ``(_Built, flags read, settings read)``.
     """
     from proof.hq.seams import build_seams
     from proof.observe import sensitivity
-    from proof.observe.build import admit_build
+    from proof.observe.build import admit_build, device_archive
     from proof.observe.identity import app_identity
 
     flags = settings = None
@@ -502,18 +554,29 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
             first = len(unit.record.flags)
             built = sensitivity.build(unit, unit.record, app_id, name, previous)
             flags = sorted({read.symbol or read.slug for read in unit.record.flags[first:]})
-        found = None
-        if identities:
-            with build_seams(previous=previous):
+        found = archive = None
+        with build_seams(previous=previous):
+            if keep:
                 admit_build(core_runner, built.app, built.outcome)
-                found = app_identity(built.app, built.outcome.files, unit.domain)
+            # HQ's reads for the identities are made whether or not the unit keeps them, so a build recreated
+            # under a stored part leaves HQ's state as the build first observed left it: under USERCASE, HQ's
+            # case property map creates the project space's user field definition the first time it is asked
+            # (app_schemas/case_properties.py::_get_usercase_default_properties).
+            read = app_identity(built.app, built.outcome.files, unit.domain)
+            if keep:
+                found = read
+                archive = device_archive(built.outcome, built.app)
         doc = _json(built.app.to_json())
-    return _Built(built.outcome, built.hq_build, found, doc), flags, settings
+    return _Built(built.outcome, built.hq_build, found, doc, archive), flags, settings
 
 
 def _state_record(built: _Built, blobs):
+    from proof.observe.build import archive_record
+
     return {
         "build": outcome_record(built.outcome, blobs),
+        # What a device installs of this state (HQ's archive download), for the Android reader.
+        "archive": archive_record(built.archive, blobs),
         "identities": built.identities,
         "doc": blobs.put_json(built.doc),
     }
@@ -542,7 +605,18 @@ def _flags_of(ops, labels):
 class _Unit:
     """One configuration's unit and what its parts share."""
 
-    def __init__(self, document, export, configuration, unit, core_runner, editor_driver, store, blobs, timings):
+    def __init__(
+        self,
+        document,
+        export,
+        configuration,
+        unit,
+        core_runner,
+        editor_driver,
+        store,
+        blobs,
+        timings,
+    ):
         self.document, self.export, self.configuration = document, export, configuration
         self.unit, self.core_runner, self.editor_driver = unit, core_runner, editor_driver
         self.store, self.blobs, self.timings = store, blobs, timings
@@ -553,6 +627,11 @@ class _Unit:
         self.mark_a = None
         self.b_built = None
         self.mark_b = None
+        # A's restore for proof 3's sessions, and the unit's Connect opportunity (proof.observe.connect).
+        self.restore_a = None
+        from proof.observe.connect import Holder
+
+        self.connect = Holder()
 
     def ops(self, part):
         return OperationLog(self.unit, self.unit.record, self.timings.setdefault(part, {}))
@@ -591,7 +670,7 @@ class _Unit:
             "A",
             None,
             configuration=self.configuration if full else None,
-            identities=full,
+            keep=full,
         )
         with ops("save-build", b""):
             self.saved_a = self.a_built.hq_build.saved_build() if self.a_built.hq_build is not None else None
@@ -608,6 +687,7 @@ class _Unit:
 
         database = casedata.document_case_database(self.document)
         outcome, restore = sessions.hq_restore(self.unit, database, self.export.create.lookups, "restore-a", ops)
+        self.restore_a = restore
         return {"lookups": outcome, "restore": None if restore is None else self.blobs.put(restore)}
 
     def observe_a(self):
@@ -644,6 +724,18 @@ class _Unit:
         if self.a_built is not None and a_record.get("state") is not None:
             held = _built_from(a_record["state"], self.blobs, "A")
             self.a_built.outcome, self.a_built.doc = held.outcome, held.doc
+            if any(name == "served" for name, _, _, _ in self.hooks):
+                from proof.observe import served
+
+                # A Connect app's opportunity, made again while A is served: every later state is received by it.
+                served.reopen(
+                    HookUnit(self.unit, self.ops("recreate"), served.HOOK),
+                    document=self.document,
+                    app_id=self.app_id,
+                    a_record=a_record,
+                    holder=self.connect,
+                    blobs=self.blobs,
+                )
 
     # Hooks ---------------------------------------------------------------------
 
@@ -664,6 +756,9 @@ class _Unit:
                 self.blobs,
                 self.configuration,
                 self.export.configuration.name,
+                self.editor_driver,
+                self.restore_a,
+                self.connect,
             )
             started = time.perf_counter()
             found[name] = getattr(module, function)(ctx)
@@ -702,6 +797,9 @@ class _Unit:
             blobs=self.blobs,
             store=self.store,
             restore_outcome=outcome,
+            previous_build=self.saved_a,
+            serve=any(hook == "served" for hook, _, _, _ in self.hooks),
+            connect=self.connect,
         )
 
     # B and B-edit --------------------------------------------------------------
@@ -748,12 +846,12 @@ class _Unit:
         refused = self.publish_over_a(ops, captured, "B")["refused"]
         self.b_built = self.mark_b = None
         if refused is None and b_record.get("state") is not None:
-            built, _, _ = _build(self.unit, ops, self.core_runner, self.app_id, "B", self.saved_a, identities=False)
+            built, _, _ = _build(self.unit, ops, self.core_runner, self.app_id, "B", self.saved_a, keep=False)
             held = _built_from(b_record["state"], self.blobs, "B")
             built.outcome, built.doc, built.identities = held.outcome, held.doc, held.identities
             self.b_built, self.mark_b = built, self.unit.mark()
 
-    def observe_b_aligned(self, a_record):
+    def observe_b_aligned(self, a_record, b_record=None):
         """B aligned to A, built, and proof 3's sessions, as the ``b_aligned`` record.
 
         From B's mark. Where HQ refused B there is no B to align, and the
@@ -767,7 +865,7 @@ class _Unit:
 
         ops = self.ops("b_aligned")
         record = {"kind": "b_aligned"}
-        b_aligned, differs = None, False
+        b_aligned, differs, aligned_doc = None, False, None
         if self.b_built is None:
             self.unit.restore(self.mark_a)
         else:
@@ -781,6 +879,8 @@ class _Unit:
             }
             with ops("build-aligned", b""):
                 aligned = aligned_app(operations.held_app(self.unit, self.app_id), alignment)
+                # B aligned to A as a stored document, before HQ's build wrote its versions into the app.
+                aligned_doc = _json(aligned.to_json())
                 with build_seams(previous=self.saved_a):
                     b_aligned, _ = build_state(aligned, self.unit.record, "B-aligned")
             record["aligned"] = outcome_record(b_aligned, self.blobs)
@@ -800,6 +900,31 @@ class _Unit:
                 blobs=self.blobs,
                 operation=ops,
             )
+        if any(name == "served" for name, _, _, _ in self.hooks):
+            from proof.observe import served
+
+            def change(stored):
+                stored.clear()
+                stored.update(aligned_doc)
+
+            found = served.aligned(
+                HookUnit(self.unit, ops, served.HOOK),
+                document=self.document,
+                app_id=self.app_id,
+                a_record=a_record,
+                a_build=self.a_built.outcome,
+                b_aligned=b_aligned,
+                differs=differs,
+                change=change,
+                previous=self.saved_a,
+                driver=self.editor_driver,
+                blobs=self.blobs,
+                connect=self.connect,
+                sessions=record.get("sessions"),
+                b_record=b_record,
+            )
+            if found is not None:
+                record["served"] = found
         record["flagsReadByBuild"] = _flags_of(ops, {"build-aligned"})
         return ops.recorded(record)
 
@@ -837,6 +962,20 @@ class _TimedRunner:
         return getattr(self._runner, name)
 
 
+class PartsNotHeld(AssertionError):
+    """A document read from the store alone (``held_only``) lacks a part an observation of it keeps."""
+
+    def __init__(self, document, parts):
+        self.parts = list(parts)
+        super().__init__(
+            f"{document.group} was read from the evidence store alone, with nothing observed, and the store holds"
+            f" no {', '.join(self.parts)} of it. Its own group reads so where each of its configurations was observed"
+            " by a piece before it (proof.checks.pieces), which keeps every part in the run's store. Look at the"
+            " pieces' outcomes in this block's manifest, and at whether the run keeps a store at all (PROOF_STORE=off"
+            " and a run without PROOF_FINGERPRINTS keep none)."
+        )
+
+
 def _held(store, key, blobs):
     """The record the store holds under ``key`` (its blobs merged into ``blobs``), or None."""
     held = store.lookup(key)
@@ -852,15 +991,41 @@ def _settle(store, key, record, blobs, held):
     store.put(key, record, blobs.named_by(record))
 
 
+@contextmanager
+def _connect_closed():
+    """Each Connect opportunity holder appended to the block's list is closed as the block ends, however it ends:
+    a unit's served Connect does not outlive the unit."""
+    holders = []
+    try:
+        yield holders
+    finally:
+        for holder in holders:
+            holder.close()
+
+
 def observe_configuration(
-    document, name, keys, records, *, core_runner, editor_driver, store, blobs, timings, same_as=True, hooks=None
+    document,
+    name,
+    keys,
+    records,
+    *,
+    core_runner,
+    editor_driver,
+    store,
+    blobs,
+    timings,
+    same_as=True,
+    hooks=None,
+    held_only=False,
 ):
     """One configuration's parts, from the store where it holds them and observed in one unit otherwise.
 
     With ``same_as`` (the default) a ``b_edit`` keyed as ``b`` is recorded as
     the same and not observed; without it, it is observed all the same.
     ``hooks`` is what the observation hooks declare they read
-    (``hook_inputs``), which the guard allows each part's hooks.
+    (``hook_inputs``), which the guard allows each part's hooks. With
+    ``held_only`` nothing is observed: a part an observation of the
+    configuration keeps and the store does not hold raises ``PartsNotHeld``.
     """
     from proof.hq.state import hq_unit
     from proof.store import guard
@@ -880,6 +1045,14 @@ def observe_configuration(
         records.b_edit = {"same_as": keys["b"].hex()}
     if not wanted:
         return []
+    if held_only:
+        # What an observation of the configuration keeps: its ``a``, and every other part where A holds an app
+        # (below: nothing is observed past a create HQ refused).
+        a = held.get("a")
+        unkept = [part for part in wanted if a is None or a.get("state") is not None]
+        if unkept:
+            raise PartsNotHeld(document, [f"{name}/{part}" for part in unkept])
+        return []
     started = time.perf_counter()
     observed = []
     core_runner = _TimedRunner(core_runner)
@@ -894,9 +1067,21 @@ def observe_configuration(
 
     with (
         guard.observing(document, name, "configuration", hooks),
-        hq_unit(configuration, root_key=keys["a"], validate=core_runner.validate_form) as unit,
+        hq_unit(configuration, root_key=keys["a"]) as unit,
+        _connect_closed() as closing,
     ):
-        state = _Unit(document, export, configuration, unit, core_runner, editor_driver, store, blobs, timings)
+        state = _Unit(
+            document,
+            export,
+            configuration,
+            unit,
+            core_runner,
+            editor_driver,
+            store,
+            blobs,
+            timings,
+        )
+        closing.append(state.connect)
         if "a" in wanted:
             settled("a", state.observe_a)
         else:
@@ -909,7 +1094,7 @@ def observe_configuration(
                 with guard.observing(document, name, "b", hooks):
                     state.recreate_b(records.b, export.republish)
             if "b_aligned" in wanted:
-                settled("b_aligned", lambda: state.observe_b_aligned(records.a))
+                settled("b_aligned", lambda: state.observe_b_aligned(records.a, records.b))
             if "b_edit" in wanted:
                 update = document.edit.exports[name].update
                 settled("b_edit", lambda: state.observe_b("b_edit", update, "B-edit"))
@@ -979,10 +1164,11 @@ def local_archives(document):
     return found
 
 
-def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None):
+def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None, held_only=False):
     """Core's admission of each local archive the document carries, its reading of each stack step value in
     its suite (``read_stack_values``), and each local hook's record (``observe_local(ctx)``, ``LocalContext``),
-    as the ``local`` record, and its key. ``hooks`` is ``hook_inputs(document)``, computed where not given."""
+    as the ``local`` record, and its key. ``hooks`` is ``hook_inputs(document)``, computed where not given. With
+    ``held_only`` nothing is observed: a record the store does not hold raises ``PartsNotHeld``."""
     from proof.observe.build import admit
     from proof.store import guard
 
@@ -993,6 +1179,8 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     held = _held(store, key, blobs)
     if held is not None and not store.fresh:
         return held, key, False
+    if held_only:
+        raise PartsNotHeld(document, [LOCAL])
     started = time.perf_counter()
     reports, readings = {}, {}
     archives = local_archives(document)
@@ -1018,12 +1206,27 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     return record, key, True
 
 
-def observe_document(document, *, core_runner, editor_driver=None, store=NULL_STORE, configurations=None, same_as=True):
+def observe_document(
+    document,
+    *,
+    core_runner,
+    editor_driver=None,
+    store=NULL_STORE,
+    configurations=None,
+    same_as=True,
+    held_only=False,
+):
     """Every part of one document's tree, each configuration in a unit of its own, and its local archives.
 
     ``configurations`` names the configurations to observe (every one the
     document is exported under by default); ``same_as`` is
-    ``observe_configuration``'s.
+    ``observe_configuration``'s. Each state is also served to the session's
+    Formplayer (``proof.observe.services``) and, with ``editor_driver``, shown
+    in the Web Apps client (``proof.observe.served``). With ``held_only``
+    every part is read from the store and nothing is observed
+    (``PartsNotHeld`` where the store lacks one an observation keeps): how a
+    document's own group reads what its pieces observed, one configuration
+    each (``proof.checks.observations``).
     """
     from proof.store import guard
 
@@ -1053,11 +1256,18 @@ def observe_document(document, *, core_runner, editor_driver=None, store=NULL_ST
             timings=timings,
             same_as=same_as,
             hooks=hooks,
+            held_only=held_only,
         )
         found.observed += [f"{name}/{part}" for part in observed]
         found.configurations[name] = held
     found.local, found.local_key, observed = observe_local(
-        document, core_runner=core_runner, store=store, blobs=found.blobs, timings=found.timings, hooks=hooks
+        document,
+        core_runner=core_runner,
+        store=store,
+        blobs=found.blobs,
+        timings=found.timings,
+        hooks=hooks,
+        held_only=held_only,
     )
     if observed:
         found.observed.append("local")

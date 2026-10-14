@@ -48,7 +48,7 @@ def _target(app, app_id):
 
 
 def _check(session, domain, flags):
-    return native_check(domain, validate=session.validate_form, flags=flags, server_origin=NOVA_SERVER_ORIGIN)
+    return native_check(domain, flags=flags, server_origin=NOVA_SERVER_ORIGIN)
 
 
 def case_lists(session):
