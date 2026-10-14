@@ -140,7 +140,9 @@ reading left doubt:
 **Written and not yet run.** Three runs are written as scratch on the lane and
 have not been made. Each part states its design as the plan's and says in
 place that the run is outstanding; this list is every such place, and it is
-empty when the plan is complete.
+empty when the plan is complete. No pull request makes any of them: the first
+nightly after the merge is the whole lane with every reader, and it is the
+run that reads each.
 
 - The whole lane with every reader at the exit state with the publish
   sequence in it. The every-reader run this plan cites read the stack
@@ -412,14 +414,15 @@ Part 09 holds this in full.
   each of this stack's does (part 09 gives the model, and the one run that
   measured its long end). The scheduled nights, Tuesday to Saturday, run every
   reader over main against main's store and open an issue on a failure, and
-  the week's lane runs everything fresh. So each pull request of the stack runs, on a proof machine (`proof/remote/run.sh`), the slices its blocks name with
-  the readers their entries name before it is marked ready, and the whole lane
-  with every reader runs once at the stack's top before the merge (part 09,
-  part 11's house rules). Planning made that run over the stack without part
+  the week's lane runs everything fresh. No pull request of the stack runs a served reader, and no part of step 2
+  uses a machine that bills: each pull request passes the pull request lane in
+  CI, and the first nightly after the merge is the whole lane with every
+  reader over the merged stack (part 09, part 11's house rules). Where that
+  night fails, its issue lists every failing group at once, and only the
+  documents on that list are rerun, by name. Planning made that run over the stack without part
   01's A3 and A2, and ran the stack with both without the readers: no class
   shows that no entry holds. The run with every reader at that state is
-  composed and has not run ("Written and not yet run" above). The implementer
-  asks the person once, at the start, for the proof machine's use and budget.
+  composed and has not run ("Written and not yet run" above).
 - **The harness keeps publishing as Nova publishes**: the capture and the
   publish sequence change in the same pull request, and retained controls are
   replayed in the layout they were captured in.
@@ -535,6 +538,6 @@ Part 11 gives each sentence as it reads today and its replacement. In brief:
   feature, and a second publish stops when HQ's copy changed since the first.
 - Every existing app is valid under the new schema and validator, and carries
   its notice.
-- The whole lane, every reader, holds at the stack's top on a proof machine
-  before the merge (part 11, "House rules for the stack"), and the first
-  nightly over main after the deploy holds.
+- The first nightly over main after the deploy, which is the whole lane with
+  every reader over the merged stack, holds (part 11, "House rules for the
+  stack").

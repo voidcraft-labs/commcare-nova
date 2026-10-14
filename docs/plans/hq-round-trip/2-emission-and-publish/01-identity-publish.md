@@ -513,8 +513,7 @@ run proof -- proof/hq/test_publish.py proof/hq/test_publish_capture.py` and
 `PROOF_READERS=0 npm run proof -- proof/checks -k
 "targeted-multi-select-destinations or control-case-operation-query or
 navigation-base"`: the document and the control of the five entries HQ and
-the local path hold, and the document the HQ tests publish. Reader slice, on
-a proof machine: `case-capture-followup` and `control-case-capture-followup`,
+the local path hold, and the document the HQ tests publish. Reader slice: `case-capture-followup` and `control-case-capture-followup`,
 the document and control of the device's entry, which are in the first of
 the two runs this pull request makes with the readers (A5, "Lane"), and
 `targeted-supply-point-read` with its control retained again, the second
@@ -848,7 +847,7 @@ the two entries, which are HQ's, and the document whose codes change; and
 `PROOF_READERS=0 npm run proof -- proof/native/test_localization_emission.py
 "proof/native/test_core_runtime.py::test_core_runs_the_proof_class[LocalizationRuntimeTest]"
 proof/checks/test_hq_side.py`, the package tests that read the Mandarin
-codes. Reader slice, on a proof machine: the Android predicate below, over
+codes. Reader slice: the Android predicate below, over
 the Android reader's runtime there (`python3 -m unittest
 proof.android.predicates`). The block moves no served reader's entry and has
 no targeted witness, so its share of the slice holds no document.
@@ -1882,9 +1881,7 @@ with it is under "Lane".
 
 Locally, with the readers off, the pull request runs `PROOF_READERS=0 npm
 run proof -- proof/hq/test_publish.py` and `PROOF_READERS=0 npm run proof --
-proof/checks -k case-list-inline`, a document with media. Reader slice, on a
-proof machine: `proof/remote/run.sh <host> --env PROOF_READERS=android --
-proof/hq/test_publish.py`, which runs the Android case beside the HQ tests
+proof/checks -k case-list-inline`, a document with media. Reader slice: `PROOF_READERS=android npm run proof -- proof/hq/test_publish.py`, which runs the Android case beside the HQ tests
 it shares its builds with. The block moves no entry and has no targeted
 witness, so its share of the slice holds no document.
 
@@ -3279,11 +3276,10 @@ three trace entries, and `PROOF_READERS=0 npm run proof -- proof/rules`.
 What the whole pull request lane showed at this pull request's state is
 under A7, "This pull request's lane, run without the readers".
 
-Reader slice of pull request 3, on a proof machine, seventeen documents in
+Reader slice of pull request 3, seventeen documents in
 two runs. The first holds sixteen, under the two readers the entries of
 fifteen of them name:
-`proof/remote/run.sh <host> --env PROOF_READERS=formplayer,android --
---workers <n> proof/checks -k "case-capture-followup or
+`PROOF_READERS=formplayer,android npm run proof -- --workers <n> proof/checks -k "case-capture-followup or
 control-case-capture-followup or control-case-capture-multiple or
 targeted-sync-on-form-entry or control-targeted-sync-on-form-entry or
 no-matches-multiple-home or control-no-matches-multiple-home or
@@ -3305,8 +3301,7 @@ fuzz-suite-20260930-8"`, its output held
 by `python3 -m proof.lane.gate <output> --documents
 case-capture-followup,targeted-sync-on-form-entry,no-matches-multiple-home,search-automatic,case-list-browse,targeted-close-conditions,targeted-custom-tile,targeted-hq-side-state,targeted-form-link-hidden-target,targeted-connect-deliver-rename,case-extension-registration,case-extension-repeat,case-extension-query,case-capture-repeat,search-hidden-link,fuzz-suite-20260930-8`.
 The second, for the control A1 retains again, under the two readers whose
-entries name it (seven Web Apps entries and one Android): `proof/remote/run.sh
-<host> --env PROOF_READERS=webapps,android -- --workers <n> proof/checks -k
+entries name it (seven Web Apps entries and one Android): `PROOF_READERS=webapps,android npm run proof -- --workers <n> proof/checks -k
 "targeted-supply-point-read"`, held by the gate with `--documents
 targeted-supply-point-read`. A `-k` term selects every node whose id holds
 it, so `targeted-custom-tile` also selects `control-targeted-custom-tile` and
@@ -3332,12 +3327,10 @@ control. Planning's evidence for that document is its own runs at this
 pull request's state, by itself: under Formplayer without the change and
 with it, and under Formplayer and Android with it (the same passage). The
 slice's planning run of the other documents was made without it. With
-them, `proof/remote/run.sh
-<host> -- proof/formplayer/test_local_archive.py
+them, `npm run proof -- proof/formplayer/test_local_archive.py
 proof/connect/test_receiver.py proof/checks/test_connect_unit.py
 proof/rules/test_runtime_url_app_id.py`, the reader tests this block
-rewrites or adds; `proof/remote/run.sh <host> --env PROOF_READERS=android --
-proof/hq/test_publish.py`, which holds A4's device case; and, over the
+rewrites or adds; `PROOF_READERS=android npm run proof -- proof/hq/test_publish.py`, which holds A4's device case; and, over the
 Android reader's runtime there, `python3 -m unittest
 proof.android.predicates`, which holds the predicates A2, A5 and A6 add. No
 other document is in the slice: the documents A5's bytes change, which are
@@ -4065,9 +4058,7 @@ with the comparison changed.
   the readers those packages hold (`proof/android`, `proof/formplayer`,
   `proof/connect`; A4's device case is a `reader("android")` case of
   `proof/hq`). Part 09 says where the readers run: not in the pull request
-  lane, which runs without them, but in the nightly, the weekly and on a
-  proof machine, where the pull request proves them before it is marked
-  ready. A test of this part is one more test of that reader's package.
+  lane, which runs without them, but in the nightly and the weekly, after the merge. A test of this part is one more test of that reader's package.
 - The cutover's reads, its pairing rule and its Job, and the registry of
   transform step ids and notice reasons this part uses verbatim: part 10,
   The cutover and work item F (the migration notice).
