@@ -3,7 +3,8 @@
 Contract (``proof.lane.report``): from the lanes' verdicts, the issue's body names the commit the run checked,
 and for each lane each group a problem names, why, and the exact lines that rerun that group as its lane ran it
 and hold the slice to the gate: on any machine with Docker for a lane without the readers, on a proof machine for
-a lane with them, where a group that fails without the readers too is sent there first. A document's group reruns
+a lane with them, said after the run started by hand that reruns a document's group on GitHub's runners and needs no
+machine, and a group that fails without the readers too is sent there first. A document's group reruns
 every item of it, a package's its failing items, each by node id; a group that never ran is selected by path and
 says it may select more. A lane with no verdict is named as that, and a failing lane whose problems name no group
 quotes them. The plausible failures: an issue that says only that the night failed, a command that reruns more
@@ -63,9 +64,14 @@ def test_each_failing_group_is_named_with_the_command_that_reruns_it_alone_where
     assert "over main at `abc123`" in body and "The run: https://example.test/run/1" in body
     assert "git fetch origin && git checkout abc123" in body
     with_readers, without = body.split("### Lane `audit-no-readers`")
-    # With the readers: a proof machine, every item of the document's group by node id, and the gate over it.
+    # With the readers: the run started by hand named first, then a proof machine's lines, every item of the
+    # document's group by node id, and the gate over it.
     assert "### Lane `audit` (with every reader)" in with_readers
-    assert "2 groups failed where a reader ran, so each reruns on a proof machine" in with_readers
+    assert "2 groups failed where a reader ran. A document's group runs again with every reader on GitHub's" in (
+        with_readers
+    )
+    assert "gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f mechanics=<document id>" in with_readers
+    assert "Where a proof machine is at hand, each line below reruns its group alone" in with_readers
     assert (
         "  proof/remote/run.sh <host> -- 'proof/checks/test_bar.py::test_every_export_meets_the_bar[tile]'"
         " 'proof/hq/test_branches.py::test_a_documents_branches_hold[tile]'\n"

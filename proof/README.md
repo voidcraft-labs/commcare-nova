@@ -502,19 +502,124 @@ every key of the evidence store names (`proof/store/keys.py`), so neither
 reads what the other observed, and their queues say which they were built for
 (the server refuses a queue of the other profile).
 
-### Proving a reader change before you push
+### Seeing a reader's verdict before a merge
 
-The pull request lane runs no reader, so a change a reader would show is
-proven before it is pushed, on a proof machine: a Linux amd64 machine with
-Docker and the Android reader's runtime ("Android in the unit"), the only
-platform where every reader runs. This holds for a change to Nova's emission,
-which every reader reads, and to anything a reader observes or judges: the
-reader packages (`proof/formplayer`, `proof/webapps`, `proof/android`,
+The pull request lane runs no served reader, and nothing more is asked of a
+pull request. The readers run where the schedules run them: each night reads
+what a merge changed with every reader and opens an issue when it fails, and
+each week reads everything. Someone who wants a reader's verdict before
+merging can start a run by hand over the documents the change touches, on
+GitHub's runners, which costs nothing on this public repository. The changes
+a reader would show are a change to Nova's emission, which every reader
+reads, and a change to anything a reader observes or judges: the reader
+packages (`proof/formplayer`, `proof/webapps`, `proof/android`,
 `proof/connect`), `proof/observe/served.py` and `proof/observe/connect.py`,
 `proof/checks/served.py`, `proof/checks/android.py`, `proof/checks/connect.py`,
-a register entry naming a reader's artifact, and a pin. Run that reader's
-slice with that reader on (`PROOF_READERS=<reader>`, or every reader, the
-default), over the documents your change touches:
+a register entry naming a reader's artifact, and a pin. A proof machine, for
+whoever has one, is another way to the same verdict.
+
+**What the night after a merge takes.** A night observes every group whose
+key the merge changed, and on most nights that is minutes. A merge that
+changes the emission, the observation's code or a pin changes every
+document's key, and the night after it is the whole lane with every reader:
+13.5 hours on up to fourteen of the account's twenty runners, which leaves
+six to pull requests until it ends ("The other workflows", When the
+scheduled lanes run). The first night after the lane's workflows reach main
+is that night whatever merges with them, since a lane reads only a snapshot
+its own image wrote on its own architecture and main has none until a run
+there saves one: on 2026-10-13 main's two snapshots were arm64 ones of an
+earlier image (`gh cache list --key proof-store-`), which this lane's amd64
+keys never name.
+
+**The run started by hand.** `proof-audit.yml` runs the lane with every
+reader over documents named by hand, at the head of a branch GitHub holds
+(its `mechanics` dispatch, "The other workflows"):
+
+```bash
+gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f mechanics=<document id>,<another id>
+gh run list --workflow proof-audit.yml --branch <branch> --limit 1   # the run it started
+gh run watch <run id> --exit-status                                  # its jobs, failing where the gate fails
+gh run view <run id> --web                                           # its summary, where the report is
+```
+
+- `nightly=false` is needed: the input is ticked by default, and a dispatch
+  that leaves it so runs both nightly lanes as well.
+- `mechanics` names corpus documents by their ids, the ones your change
+  touches. One of them must carry an edit (proof 5's check is collected over
+  those, and the queue builder refuses a selection without one), so name an
+  edited document beside yours where yours carries none.
+- `mechanics_readers=false` runs the same selection without the readers.
+  Left as it is, every reader runs, never some of them.
+- `mechanics_shards` is how many shards run it, 2 unless you say (`auto`
+  sizes them from the queue). `mechanics_split` is the seconds of one worker
+  past which a document is observed in pieces, 0 unless you say, which puts
+  every document and control under more than one configuration in pieces
+  (`none` for no pieces).
+
+It runs the documents you name and the controls of the register's entries
+naming them, each state served to Formplayer, the Web Apps client, a device
+and, for a Connect app, Connect; the Android reader's own checks and its
+predicates, in the job that builds or finds the reader's runtime; and the
+groups that read no corpus (the packages `proof`, `proof/android`,
+`proof/core` and `proof/corpus`, and the surface block). It runs nothing
+else: no other document, no other control, and no package that reads the
+corpus (`proof/lane/blocks.py::CORPUS_PACKAGES`: `proof/checks`,
+`proof/connect`, `proof/editors`, `proof/formplayer`, `proof/hq`,
+`proof/lane`, `proof/native`, `proof/rules`, `proof/store`, `proof/views`
+and `proof/webapps`). So it proves what a document's checks show with every
+reader, and no test of a reader's own package, of a spelling rule's readers
+or of `proof/checks` beside the documents' checks: no input names a package
+or a test.
+
+Its gate holds the run as it holds a slice told its documents ("The gate
+over a slice", below), and the surface too, which this run extracts: every
+block ran once and every item passed; every difference and every walk stop
+the documents and their controls showed is held to the whole register and
+the whole `proof/walk-stops.json`; every entry naming one of the documents
+was seen on the document and on its control; and it says what it left,
+which is every other entry and every group above. The run's conclusion is
+the gate's. Whatever the verdict, the run's last job writes into its summary
+what a failed night's issue would say: each failing group, why, and the line
+that reruns it. The verdict itself is the artifact
+`proof-lane-verdict-mechanics-<attempt>`. The run saves no store and opens
+no issue.
+
+Executed 2026-10-13, run 38446445107 at `c3eff982`, over
+`targeted-invalid-question-ids` and `container-query-conditional-parent`
+with every reader, on two shards: 39 minutes from the dispatch to the
+report, 24 of them the job that built the Android reader's runtime, which no
+cache held yet, and the shards 11 and 15 minutes after it. Every section of
+the gate held, and it said what it left to the nightly and the weekly: 868
+of the register's 885 entries and 108 groups.
+
+A reader package's own tests, and a rule's reader tests, are in neither of
+that run's queues. With the readers they run in the nightly lanes, which a
+dispatch also starts at a branch's head (`gh workflow run proof-audit.yml
+--ref <branch>`, with `nightly` left ticked): both profiles, one after the
+other, each queued against main's newest snapshot as a pull request's lane
+is, so every group whose key the store lacks is observed, and every package
+group is one wherever the branch changes a file of the harness. Started so,
+it saves no store (`proof/ci/store-keys.mjs` names no key for a dispatch on
+a branch other than main), opens no issue (only a scheduled run's failure
+does), and trims main's older snapshots as any night does (its last job
+keeps the newest two). It holds up to fourteen of the account's twenty
+runners for as long as it runs, so beside a scheduled lane it takes the six
+the schedules leave to pull requests. A branch that changes the emission,
+the observation's code or a pin changes every document's key, and its run is
+then a night's where every key moved: 13.5 hours, nearly all of it the whole
+lane with every reader ("The other workflows", When the scheduled lanes
+run). It is rarely worth starting by hand: the night after the merge runs
+the same lane over the same change, saves what it observes, and opens an
+issue when it fails.
+
+**On a proof machine, where one is at hand.** A proof machine is a Linux
+amd64 machine with Docker and the Android reader's runtime ("Android in the
+unit", "Running the lane on another machine"), the only platform where every
+reader runs. Nothing above needs one. It runs what the run started by hand
+cannot name, one reader's slice or a package's own tests, and from a working
+tree GitHub does not hold. Run that reader's slice with that reader on
+(`PROOF_READERS=<reader>`, or every reader, the default), over the documents
+your change touches:
 
 ```bash
 export PROOF_ANDROID_RUNTIME=<the runtime build-runtime.sh built> PROOF_ANDROID_JDK=<the JDK it was built with>
@@ -575,9 +680,9 @@ and the absent surface, and the run with Formplayer 1,428, 24 walk-stops
 problems and the absent surface, none of them the slice's.
 
 Each scheduled night runs the lane with every reader over what changed and
-each week runs it whole, each opening an issue when it fails; they are the
-backstop
-for what a slice missed, never the first run of a reader change.
+each week runs it whole, each opening an issue when it fails. They are where
+the readers' verdict on a merge comes from; a run started by hand or a slice
+shows a part of it sooner, for whoever wants it.
 
 ### Running the lane on another machine
 
@@ -621,7 +726,7 @@ from that install, runs `npm run proof -- <arguments>` there with the
 runtime and the JDK and each `--env`, and copies the output back to
 `.proof/remote/<slot>-<stamp>/` (it prints the directory), where
 `python3 -m proof.lane.gate` reads it: told a slice's documents
-(`--documents`, "Proving a reader change before you push"), or with nothing
+(`--documents`, "Seeing a reader's verdict before a merge"), or with nothing
 more for a whole lane. The output comes back without the emitted corpus and
 the store's blobs, neither of which the gate reads.
 
@@ -667,8 +772,8 @@ In it:
 
 `python3 -m proof.lane.gate .proof/out` holds a finished run to the lane's
 verdict, as CI's gate does ("The gate", below); a slice of documents is held
-to them with `--documents <id>,<id>` ("Proving a reader change before you
-push").
+to them with `--documents <id>,<id>` ("Seeing a reader's verdict before a
+merge").
 
 ### The switches run.mjs passes
 
@@ -1077,8 +1182,9 @@ app, restore and trace) are blobs named by their sha256.
 Before a part is observed the store is asked for it, and a part the store
 holds is not observed again ("The evidence store and its audits"). A part it
 lacks is observed over the state the held parts stand for, made again by the
-same operations: A under a held `a` (its create, media, HQ-side saves and
-build), and B under a held `b` (the republish, its media and its build). A
+same operations: A under a held `a` (its create and media, the HQ-side saves
+where the document carries them, its build and the saved build), and B under
+a held `b` (the republish, its media and its build). A
 build made again asks HQ for its identities as the first build did and keeps
 none of the answer, because HQ can write as it answers: with the `USERCASE`
 privilege, its case property map creates the project space's user field
@@ -1087,7 +1193,13 @@ definition the first time it is asked
 that left the question out would leave that write to the next build, whose
 record would then say it wrote where the first observation's says it did
 not. Core's admission and the device archive are read only where a build is
-first observed.
+first observed, and neither writes to HQ. The admission reads the build's
+files alone. Under the archive's arrangement
+(`hqmedia/views.py::iter_app_files`) the one save a unit can reach is of an
+app whose media map names a path the app no longer does
+(`hqmedia/models.py::ApplicationMediaMixin.remove_unused_mappings`), and
+HQ's own build has made it by then, writing the same app's media suite
+(`suite_xml/generator.py::MediaSuiteGenerator.media_resources`).
 
 ### HQ, booted offline
 
@@ -2576,7 +2688,7 @@ reused is only what a key names whole, and the reuse is audited:
 | A reused page and a warm Vellum host save as fresh ones | state one view or form leaves for the next | `proof/editors/test_view_equivalence.py`, `test_vellum_warm_equivalence.py`, and the in-band audit |
 | Judges are pure | a judge that runs HQ, so a stored record no longer stands for its observation | `proof/checks/test_judge_purity.py` |
 | A stored record stands for a fresh one | a key that misses an input | `proof/store/test_keys.py`, `test_guard.py`, the per-pull-request audit sample and the nightly audit |
-| A state made again under a stored part is the state first observed | a build made again that leaves out a read HQ writes on (with `USERCASE`, the first read of its case property map creates the project space's user field definition), so the builds after it write what the first observation's did not | `proof/checks/test_record_determinism.py`: a document that writes a worker record, observed whole, then under a stored `a`, then under a stored `a`, `b`, `b_edit` and `local` |
+| A state made again under a stored part is the state first observed | a build made again that leaves out a read HQ writes on (with `USERCASE`, the first read of its case property map creates the project space's user field definition), so the builds after it write what the first observation's did not | `proof/checks/test_record_determinism.py`: the cheapest document a configuration of which grants `USERCASE`, observed without the served hook in every profile, whole and then under a stored `a` |
 | Forked workers observe what one session does | state a fork shares | `proof/lane/test_forkserver.py` |
 | Connect runs at the pin, each scenario alone | a virtualenv from another commit's lock; a row or queued task one scenario leaves the next | `proof/connect/test_runtime.py` |
 | What reaches Connect is what HQ's own receiver and repeater sent | a payload built beside HQ's repeater; a forward acknowledged without reaching Connect; an opportunity made from an archive HQ did not serve; a project space forwarding without Data Forwarding | `proof/connect/test_forwarding.py` |
@@ -3180,11 +3292,19 @@ A scheduled night or week that fails opens an issue that names each failing
 group, why, and the command that reruns that group alone at the commit the
 run checked (`python3 -m proof.lane.report`): `PROOF_READERS=0 npm run proof
 -- <the group's items>` on any machine with Docker where it failed without
-the readers, `proof/remote/run.sh <host> -- <the group's items>` on a proof
-machine where it failed only with them, each followed by the gate over that
-slice. The nightly is the backstop, never the first run: a change a reader
-would show is proven on a proof machine before it is pushed ("Proving a
-reader change before you push").
+the readers, `proof/remote/run.sh <host> -- <the group's items>` where it
+failed only with them and a proof machine is at hand, each followed by the
+gate over that slice. For a lane with the readers the issue says first what
+needs no machine: a document's group runs again with every reader on
+GitHub's runners, by naming the document to the run started by hand.
+
+The pull request lane runs no served reader. The nightly reads what a merge
+changed with every reader and opens an issue when it fails, and the week
+reads everything. Someone who wants to see a reader's verdict before merging
+can start the run by hand over the documents the change touches, or run them
+on a proof machine where one is at hand; the same section says what the
+night after a merge takes, 13.5 hours where the merge moved every key
+("Seeing a reader's verdict before a merge").
 
 ### The pull request lane
 
@@ -3251,8 +3371,9 @@ existing jobs:
   what it held and what this run observed that main's does not hold.
 
 The Android reader's runtime is built and held to the reader's own checks
-(`selfcheck.py`, `predicates.py`) where the readers run: the nightly's lane
-(`proof-lane.yml`'s "Android reader runtime" job) and a proof machine.
+(`selfcheck.py`, `predicates.py`) where the readers run: every lane with the
+readers (`proof-lane.yml`'s "Android reader runtime" job, in the nightly's,
+the weekly's and a run started by hand) and a proof machine.
 
 CI makes the corpus and the native products on an x64 runner, with the
 runner's own Node, and the shards read them on x64 in the image. So
@@ -3391,7 +3512,9 @@ written from where a pull request's own run read documents from the store
   the queue builder refuses a selection without one. It saves no store and
   is no verdict on the corpus: its gate holds every difference on its
   documents to the whole register, asks to see only the entries naming
-  them, on the document and on the control, and says what it left.
+  them, on the document and on the control, and says what it left. It is
+  also how someone sees a reader's verdict on a change before merging it
+  ("Seeing a reader's verdict before a merge").
 - **`proof-image.yml`** builds the image: by hand for a change to the recipe,
   weekly, and for the weekly pin pull request. Weekly and by hand it also
   holds the image's variants to each other, each lane fresh on the images

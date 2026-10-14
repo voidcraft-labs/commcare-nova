@@ -15,9 +15,13 @@ commit the run checked:
 
 - a group that failed in a lane without the readers reruns on any machine
   with Docker: ``PROOF_READERS=0 npm run proof -- <selection>``;
-- a group that failed only where a reader ran needs a proof machine
-  (``proof/README.md``, "Running the lane on another machine"):
-  ``proof/remote/run.sh <host> -- <selection>``.
+- a group that failed only where a reader ran reruns alone on a proof
+  machine, where one is at hand (``proof/README.md``, "Running the lane on
+  another machine"): ``proof/remote/run.sh <host> -- <selection>``. Its
+  lane's section says first what needs none: a document's group runs again
+  with every reader on GitHub's runners, by naming the document to the run
+  started by hand (``proof/README.md``, "Seeing a reader's verdict before a
+  merge").
 
 The selection is the group's own items, by their node ids: every item of a
 document's or a control's group (they share one observation, and the register
@@ -247,8 +251,11 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str], run: str = "
         return [*lines, *effects]
     if readers:
         lines += [
-            f"{_count(len(failing), 'group')} failed where a reader ran, so each reruns on a proof machine"
-            ' (`proof/README.md`, "Running the lane on another machine"):',
+            f"{_count(len(failing), 'group')} failed where a reader ran. A document's group runs again with every"
+            " reader on GitHub's runners, by naming the document to the run started by hand (`gh workflow run"
+            " proof-audit.yml --ref <branch> -f nightly=false -f mechanics=<document id>`; `proof/README.md`,"
+            ' "Seeing a reader\'s verdict before a merge"). Where a proof machine is at hand, each line below'
+            ' reruns its group alone (`proof/README.md`, "Running the lane on another machine"):',
             "",
         ]
     else:

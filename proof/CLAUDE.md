@@ -333,20 +333,34 @@ harness keeps, each with its reason.
   that names each failing group, why, and the command that reruns that
   group alone at the commit the run checked (`python3 -m proof.lane.report`:
   `PROOF_READERS=0 npm run proof -- <its items>` where it failed without the
-  readers, `proof/remote/run.sh <host> -- <its items>` where it needs one),
+  readers; where it failed with them, the run started by hand that reruns a
+  document's group on GitHub's runners, and then `proof/remote/run.sh <host>
+  -- <its items>` for whoever has a proof machine),
   so whoever fixes it reruns the smallest slice; keep that true when the
   gate's verdict or a lane's labels change. The two profiles are one lane:
   nothing loosens between them, every check that runs holds exactly as it
   does nightly, the gate leaves only the served readers' register entries to
-  the nightly, and every key the store keeps names its profile. The nightly
-  is the backstop, never the first run: a change to Nova's emission or to
+  the nightly, and every key the store keeps names its profile. The pull
+  request lane runs no served reader, and nothing more is asked of a pull
+  request: the nightly reads what a merge changed with every reader and
+  opens an issue when it fails, and the week reads everything. The night
+  after a merge that moves every key (a change to the emission, to the
+  observation's code or to a pin) is the whole lane with every reader, 13.5
+  hours on up to fourteen of the account's twenty runners. Someone who wants
+  to see a reader's verdict before merging a change to Nova's emission or to
   what a reader observes (`proof/formplayer`, `proof/webapps`,
   `proof/android`, `proof/connect`, `proof/observe/served.py`, a reader's
-  judge or register entry, a pin) is proven by running that reader's slice
-  with the readers on a proof machine before it is pushed, and holding it
-  with the gate told the slice's documents (`python3 -m proof.lane.gate
-  <output> --documents <id>,<id>`; `proof/README.md`, "Proving a reader
-  change before you push"). A test that starts a served
+  judge or register entry, a pin) can start the run by hand over the
+  documents it touches on GitHub's runners (`gh workflow run proof-audit.yml
+  --ref <branch> -f nightly=false -f mechanics=<id>,<id>`), whose gate holds
+  them and their controls. It names documents, never a package or a test: a
+  reader package's own tests run with the readers in the nightly lanes,
+  which a dispatch also starts at a branch's head and which are rarely worth
+  starting so: the run costs a night, saves no store and opens no issue. A
+  proof machine is never required: where one is at hand it runs that
+  reader's slice, held with the gate told the slice's documents (`python3 -m
+  proof.lane.gate <output> --documents <id>,<id>`; `proof/README.md`,
+  "Seeing a reader's verdict before a merge"). A test that starts a served
   reader is marked `reader`, by its fixture or by hand, and the readers-off
   run refuses one left unmarked. A shard's checkout holds `proof/`,
   `lib/commcare/surface/` and its two actions, with no `node_modules`, so a
