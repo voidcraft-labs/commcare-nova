@@ -161,7 +161,7 @@ public class CaseCaptureRuntimeTest {
         form.initialize(true, environment());
         answer(form, "/data/show", "yes");
         enter(parsed, "multiple");
-        assertEquals(2.0, eval(form, "count(/data/__nova_selected_cases/item)"));
+        assertEquals(2.0, eval(form, "count(/data/nova_selected_cases/item)"));
         answer(form, "/data/full_name", "Shared name");
         answer(form, "/data/details/scan", "shared.pdf");
         answer(form, "/data/details/thepicture", "shared.jpg");

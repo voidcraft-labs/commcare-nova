@@ -109,7 +109,6 @@ const CLEAN_IDS = [
 const GARBAGE_IDS = [
 	"bad id!", // XML-illegal → INVALID_FIELD_ID territory
 	"date", // reserved case property
-	"__nova_temp", // reserved namespace
 	"_temp", // XML-legal, case-property-illegal → CASE_PROPERTY_BAD_FORMAT
 	"1leading", // XML-illegal
 ];

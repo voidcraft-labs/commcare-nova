@@ -10,7 +10,7 @@
  */
 
 import AdmZip from "adm-zip";
-import { isTag } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -18,9 +18,27 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import {
+	descendFormPathIntoField,
+	FormPath,
+} from "@/lib/commcare/xform/formPath";
+import {
+	type GeneratedNodePlan,
+	isKeyedRootCreate,
+	operationGuardKinds,
+	planGeneratedNodes,
+} from "@/lib/commcare/xform/generatedNodes";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { asUuid, blueprintDocSchema } from "@/lib/domain";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
+import {
+	asUuid,
+	type BlueprintDoc,
+	blueprintDocSchema,
+	isContainer,
+	orderedCaseOperations,
+	type Uuid,
+} from "@/lib/domain";
 import { collectHqPaths } from "../matching";
 import { rawDocumentAssembly, readRawDocument } from "../oldShape";
 import { questionPaths } from "../questionPaths";
@@ -89,6 +107,132 @@ function xforms(app: HqApp): string[] {
 	);
 }
 
+/** Each form's uuid in the app JSON's order. */
+function formUuids(doc: BlueprintDoc, app: HqApp): Uuid[] {
+	const byUniqueId = new Map(
+		Object.keys(doc.forms).map((uuid) => [
+			derivedUniqueId(asUuid(uuid)),
+			asUuid(uuid),
+		]),
+	);
+	return app.modules.flatMap((module) =>
+		module.forms.flatMap((form) => {
+			const uuid = byUniqueId.get(form.unique_id);
+			return uuid === undefined ? [] : [uuid];
+		}),
+	);
+}
+
+function elements(node: { children: unknown[] }): Element[] {
+	return node.children.filter((child): child is Element =>
+		isTag(child as never),
+	);
+}
+
+/** The primary instance's data root of one XForm. */
+function dataRoot(xform: string): Element {
+	const find = (nodes: readonly Element[]): Element | undefined => {
+		for (const element of nodes) {
+			if (element.name.endsWith("instance")) return elements(element)[0];
+			const found = find(elements(element));
+			if (found !== undefined) return found;
+		}
+		return undefined;
+	};
+	const root = find(elements(parseXml(xform)));
+	if (root === undefined) throw new Error("The form holds no data root.");
+	return root;
+}
+
+/** Every element under `root`, with its path from the data root's own name. */
+function walk(root: Element): { element: Element; path: string }[] {
+	const all: { element: Element; path: string }[] = [];
+	const visit = (element: Element, path: string) => {
+		all.push({ element, path });
+		for (const child of elements(element))
+			visit(child, `${path}/${child.name}`);
+	};
+	visit(root, `/${root.name}`);
+	return all;
+}
+
+/**
+ * The paths a post-step form holds through its own questions alone, and the
+ * path of each question's container element, read by walking the document's
+ * field tree beside the data tree. A container element holding no question's
+ * element is a leaf, as `collectHqPaths` reads a pre-step one whose children
+ * were all generated.
+ */
+function authoredTree(
+	xform: string,
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): { leaves: string[]; scopeOf: Map<Uuid, string> } {
+	const leaves: string[] = [];
+	const scopeOf = new Map<Uuid, string>();
+	const visit = (element: Element, parentUuid: Uuid, path: string) => {
+		let held = 0;
+		for (const uuid of orderedFieldUuids(doc, parentUuid)) {
+			const field = doc.fields[uuid];
+			scopeOf.set(uuid, path);
+			const child = elements(element).find((node) => node.name === field.id);
+			if (child === undefined) continue;
+			held += 1;
+			const childPath = `${path}/${field.id}`;
+			if (!isContainer(field)) {
+				leaves.push(childPath);
+				continue;
+			}
+			const item =
+				field.kind === "repeat" && field.repeat_mode === "query_bound"
+					? elements(child).find((node) => node.name === "item")
+					: child;
+			if (item === undefined) leaves.push(childPath);
+			else visit(item, uuid, item === child ? childPath : `${childPath}/item`);
+		}
+		if (held === 0 && path !== `/${element.name}` && !leaves.includes(path))
+			leaves.push(path);
+	};
+	const root = dataRoot(xform);
+	visit(root, formUuid, `/${root.name}`);
+	return { leaves, scopeOf };
+}
+
+/** Each repeat's own scope as the plan keys it, by the repeat's uuid. */
+function repeatScopes(doc: BlueprintDoc, formUuid: Uuid): Map<Uuid, FormPath> {
+	const scopes = new Map<Uuid, FormPath>();
+	const visit = (parentUuid: Uuid, parentPath: FormPath) => {
+		for (const uuid of orderedFieldUuids(doc, parentUuid)) {
+			const field = doc.fields[uuid];
+			if (!isContainer(field)) continue;
+			const path = descendFormPathIntoField(field, parentPath.child(field.id));
+			if (field.kind === "repeat") scopes.set(uuid, path);
+			visit(uuid, path);
+		}
+	};
+	visit(formUuid, FormPath.root());
+	return scopes;
+}
+
+/** The Save to Case block a form's data tree holds under `name`. */
+function block(
+	tree: readonly { element: Element; path: string }[],
+	name: string,
+): Element | undefined {
+	return tree.find(
+		(entry) =>
+			entry.element.name === name &&
+			entry.element.attribs["vellum:role"] === "SaveToCase",
+	)?.element;
+}
+
+function parentName(element: Element | undefined): string | undefined {
+	const parent = element?.parent;
+	return parent !== null && parent !== undefined && isTag(parent)
+		? parent.name
+		: undefined;
+}
+
 /** The data root's `xmlns` declaration of one XForm. */
 function dataXmlns(xform: string): string | undefined {
 	const find = (nodes: readonly unknown[]): string | undefined => {
@@ -108,6 +252,61 @@ function dataXmlns(xform: string): string | undefined {
 	return find(parseXml(xform).children);
 }
 
+/**
+ * Each operation's block stood in `__nova_operations`; it now stands in its
+ * scope's operations group, inside its one-row repeat when it is a root
+ * create keyed by an answer, and inside its condition group when it is a
+ * conditional update or close. Each guard is a Save to Case block in the
+ * condition group of a conditional operation and in the operations group of
+ * any other.
+ */
+function expectOperationsMoved(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	plan: GeneratedNodePlan,
+	tree: readonly { element: Element; path: string }[],
+	previous: readonly { element: Element; path: string }[],
+): void {
+	const repeats = repeatScopes(doc, formUuid);
+	const conditional = new Set(
+		plan.nodes
+			.filter((node) => node.purpose === "condition")
+			.map((node) => node.owner),
+	);
+	for (const operation of orderedCaseOperations(doc.forms[formUuid])) {
+		const repeat = operation.forEach?.repeat;
+		const operations = plan.operations(
+			repeat === undefined
+				? FormPath.root()
+				: (repeats.get(repeat) ?? FormPath.root()),
+		);
+		expect(parentName(block(previous, operation.id))).toBe("__nova_operations");
+		const moved = block(tree, operation.id);
+		const groupOf = conditional.has(operation.uuid)
+			? plan.condition(operation.uuid)
+			: operations;
+		if (isKeyedRootCreate(operation)) {
+			expect(parentName(moved)).toBe(plan.keyed(operation.uuid));
+			expect(parentName(moved?.parent as Element)).toBe(operations);
+		} else if (operation.action !== "create") {
+			expect(parentName(moved)).toBe(groupOf);
+		} else {
+			expect(parentName(moved)).toBe(operations);
+		}
+		if (groupOf !== operations)
+			expect(
+				parentName(
+					tree.find((entry) => entry.element.name === groupOf)?.element,
+				),
+			).toBe(operations);
+		for (const kind of operationGuardKinds(operation)) {
+			expect(parentName(block(tree, plan.guard(operation.uuid, kind)))).toBe(
+				groupOf,
+			);
+		}
+	}
+}
+
 describe.each(DOCUMENTS)("over %s", (id) => {
 	const legacy = readLegacyApp(id, "republish") as unknown as HqApp;
 
@@ -116,16 +315,55 @@ describe.each(DOCUMENTS)("over %s", (id) => {
 	});
 
 	it("keeps every question path no step renames", () => {
-		const after = xforms(emitted(id).hq);
+		const { doc, hq } = emitted(id);
+		const after = xforms(hq);
 		const before = xforms(legacy);
+		const forms = formUuids(doc, hq);
 		expect(after).toHaveLength(before.length);
-		const authored = (xform: string) =>
-			collectHqPaths(xform)
-				.filter((entry) => !entry.generated)
-				.map((entry) => entry.path)
-				.sort();
+		expect(forms).toHaveLength(before.length);
 		before.forEach((xform, index) => {
-			expect(authored(after[index] ?? "")).toEqual(authored(xform));
+			expect(
+				authoredTree(after[index] ?? "", doc, forms[index]).leaves.sort(),
+			).toEqual(
+				collectHqPaths(xform)
+					.filter((entry) => !entry.generated)
+					.map((entry) => entry.path)
+					.sort(),
+			);
+		});
+	});
+
+	it("moves every generated node's path as the plan names it, and leaves each count and message node where it stood", () => {
+		const { doc, hq } = emitted(id);
+		const after = xforms(hq);
+		const before = xforms(legacy);
+		formUuids(doc, hq).forEach((formUuid, index) => {
+			const xform = after[index] ?? "";
+			const plan = planGeneratedNodes(doc, formUuid);
+			const { scopeOf } = authoredTree(xform, doc, formUuid);
+			const tree = walk(dataRoot(xform));
+			const previous = walk(dataRoot(before[index] ?? ""));
+			// No node keeps the pre-step prefix.
+			expect(
+				tree.filter((entry) => entry.element.name.startsWith("__nova_")),
+			).toEqual([]);
+			// `nova_count_` and `nova_constraint_message_` do not move.
+			expect(
+				plan.nodes
+					.filter(
+						(node) =>
+							node.purpose === "count" || node.purpose === "constraint-message",
+					)
+					.map((node) => `${scopeOf.get(node.owner)}/${node.name}`)
+					.sort(),
+			).toEqual(
+				collectHqPaths(before[index] ?? "")
+					.filter((entry) => entry.generated)
+					.map((entry) => entry.path)
+					.sort(),
+			);
+			// Each operation's block, from `__nova_operations/<id>` to its place.
+			expectOperationsMoved(doc, formUuid, plan, tree, previous);
 		});
 	});
 

@@ -3,7 +3,6 @@ import {
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
-	RESERVED_XFORM_NODE_PREFIX,
 } from "@/lib/commcare/constants";
 import {
 	findOnDeviceDateAddIssue,
@@ -197,18 +196,13 @@ export function validateCaseOperations(
 			);
 		}
 		seenUuids.add(operation.uuid);
-		if (
-			!isCaseOperationIdentifier(operation.id) ||
-			operation.id.startsWith(RESERVED_XFORM_NODE_PREFIX)
-		) {
+		if (!isCaseOperationIdentifier(operation.id)) {
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_INVALID_ID",
-					!isCaseOperationIdentifier(operation.id)
-						? `Case operation id "${operation.id}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
-						: `Case operation id "${operation.id}" starts with Nova's reserved "${RESERVED_XFORM_NODE_PREFIX}" namespace.`,
+					`Case operation id "${operation.id}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`,
 				),
 			);
 		}
@@ -465,9 +459,8 @@ function validateOperation(
 		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
 		const linkTooLong =
 			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
-		const reservedLink = link.identifier.startsWith(RESERVED_XFORM_NODE_PREFIX);
 		const duplicateLink = linkIds.has(link.identifier);
-		if (invalidLinkFormat || linkTooLong || reservedLink || duplicateLink) {
+		if (invalidLinkFormat || linkTooLong || duplicateLink) {
 			errors.push(
 				opError(
 					ctx,
@@ -477,9 +470,7 @@ function validateOperation(
 						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
-							: reservedLink
-								? `Link identifier "${link.identifier}" starts with Nova's reserved "${RESERVED_XFORM_NODE_PREFIX}" namespace.`
-								: `Link identifier "${link.identifier}" is used more than once by this operation.`,
+							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
 				),
 			);
 		}

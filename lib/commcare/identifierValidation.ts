@@ -3,7 +3,6 @@
 import {
 	CASE_TYPE_REGEX,
 	RESERVED_CASE_PROPERTIES,
-	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "./constants";
 import { FormPath } from "./xform/formPath";
@@ -40,17 +39,6 @@ export function validatePropertyName(name: string): string {
 /** Returns true if the name is a reserved case property. */
 export function isReservedProperty(name: string): boolean {
 	return RESERVED_CASE_PROPERTIES.has(name);
-}
-
-/**
- * Returns true if the XForm node name falls under Nova's reserved
- * synthetic-node namespace (the `__nova_` prefix). The XForm emitter
- * generates nodes under this prefix (e.g. case-operation and capture nodes), so an authored field id here would collide
- * with a synthesized node. Parallel to `isReservedProperty`, but for the
- * XForm element-name namespace rather than the case-property namespace.
- */
-export function isReservedXFormNodeName(name: string): boolean {
-	return name.startsWith(RESERVED_XFORM_NODE_PREFIX);
 }
 
 /** Convert a display name to a valid snake_case identifier (alphanumeric, starts with a letter). */

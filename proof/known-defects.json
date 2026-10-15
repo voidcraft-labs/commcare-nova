@@ -334,706 +334,6 @@
 		"control": "navigation-search-date-add"
 	},
 	{
-		"id": "d13-guard-blocks-form-bindnodeset-attribute-no-plugin-owns",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1bind@nodeset/refused/attribute-no-plugin-owns",
-		"document": "case-operation-retype",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-form-instance-hand-written-case-block",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/hand-written-case-block",
-		"document": "case-operation-retype",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-e9ae",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-c75b",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1item~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-0df5",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-f25e-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//update/*~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-4b91-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//update/*~1item~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-248c-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//update/__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-case-date-modified-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//update/__nova_operations~1__nova_guard_*~1case/*/@date_modified",
-		"document": "case-operation-link",
-		"control": "case-operation-link"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-case-user-id-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//update/__nova_operations~1__nova_guard_*~1case/*/@user_id",
-		"document": "case-operation-link",
-		"control": "case-operation-link"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-c19e-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/*~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-951a-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/*~1__nova_operations~1__nova_guard_*~1case/cases/*",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-e6de-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/*~1item~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-587f-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/*~1item~1__nova_operations~1__nova_guard_*~1case/cases/*",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-1caf-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/__nova_operations~1__nova_guard_*~1case",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-blocks-nova-guard-case-c523-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/__nova_operations~1__nova_guard_*~1case/cases/*",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-case-id-bind-node-found-889d",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_operations~1__nova_guard_*~1case~1@case_id] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-date-modified-bind-node-found-bd6f",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_operations~1__nova_guard_*~1case~1@date_modified] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-user-id-bind-node-found-a4b5",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_operations~1__nova_guard_*~1case~1@user_id] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-case-id-bind-node-found-3935",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1__nova_operations~1__nova_guard_*~1case~1@case_id] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-date-modified-bind-node-found-31f4",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1__nova_operations~1__nova_guard_*~1case~1@date_modified] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-user-id-bind-node-found-2dc9",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1__nova_operations~1__nova_guard_*~1case~1@user_id] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-case-id-bind-node-found-24e8",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_operations~1__nova_guard_*~1case~1@case_id] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-date-modified-bind-node-found-ea2c",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_operations~1__nova_guard_*~1case~1@date_modified] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-vellum-parse-warning-user-id-bind-node-found-93c1",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_operations~1__nova_guard_*~1case~1@user_id] found but has no associated Data node. This bind node will be discarded!",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-case-id-7048",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/__nova_guard_*/case/@case_id]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-date-modified-99fe",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/__nova_guard_*/case/@date_modified]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-user-id-8733",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/__nova_guard_*/case/@user_id]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-case-id-5f0f",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/__nova_guard_*/case/@case_id]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-date-modified-f318",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/__nova_guard_*/case/@date_modified]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-user-id-c2fb",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/__nova_guard_*/case/@user_id]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-case-id-70a7",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/__nova_guard_*/case/@case_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-date-modified-067b",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/__nova_guard_*/case/@date_modified]",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-form-case-user-id-1745",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/__nova_guard_*/case/@user_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-soft-assert-case-util-py-validate-phone-datetime",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "soft_assert:proof4-case-processing@vellum@*",
-		"path": "/corehq~1ex-submodules~1casexml~1apps~1case~1util.py::validate_phone_datetime",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-case-id-10f8",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/__nova_guard_*/case/@case_id]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-date-modified-858d",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/__nova_guard_*/case/@date_modified]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-user-id-30dc",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/__nova_guard_*/case/@user_id]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-case-id-00d7",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/__nova_guard_*/case/@case_id]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-date-modified-c599",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/__nova_guard_*/case/@date_modified]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-user-id-f712",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/__nova_guard_*/case/@user_id]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-case-id-3919",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/__nova_guard_*/case/@case_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-date-modified-1122",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/__nova_guard_*/case/@date_modified]",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-source-case-user-id-2474",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/__nova_guard_*/case/@user_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-7f53-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/end/submitted/submission-refused/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-81e5-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/end/submitted/submission-refused/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1item~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-e541-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/end/submitted/submission-refused/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1__nova_guard_*~1case",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-8f6f-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-b3d4-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1__nova_operations~1__nova_guard_*~1case/caseDb",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-stackaftersubmit-f387-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1__nova_operations~1__nova_guard_*~1case/stackAfterSubmit",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-5c09-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1item~1__nova_operations~1__nova_guard_*~1case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-2726-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1item~1__nova_operations~1__nova_guard_*~1case/caseDb",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-stackaftersubmit-5f6d-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/*~1item~1__nova_operations~1__nova_guard_*~1case/stackAfterSubmit",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-d1b0-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1__nova_guard_*~1case",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-nova-guard-case-80a6-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1__nova_guard_*~1case/caseDb",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-stackaftersubmit-94c4-update",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1__nova_guard_*~1case/stackAfterSubmit",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-case-id-a861",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/__nova_operations[*]/__nova_guard_*[*]/case[*]/@case_id",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-date-modified-38a0",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/__nova_operations[*]/__nova_guard_*[*]/case[*]/@date_modified",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-user-id-4db5",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-case-id-5ed5",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/__nova_operations[*]/__nova_guard_*[*]/case[*]/@case_id",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-date-modified-e19f",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/__nova_operations[*]/__nova_guard_*[*]/case[*]/@date_modified",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-user-id-2b9c",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-case-id-8a99",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@case_id",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-date-modified-b5ad",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@date_modified",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-trace-case-user-id-d825",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
-		"document": "case-operation-key",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-constraint-739c",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id/__nova_constraint_*",
-		"document": "container-query-conditional",
-		"control": "container-query-conditional"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-datetime",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id/__nova_datetime_*",
-		"document": "case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-operations-31ec",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id/__nova_operations",
-		"document": "arithmetic",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-selected-cases-519a",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id/__nova_selected_cases",
-		"document": "case-extension-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-subcases-8df5",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id/__nova_subcases",
-		"document": "case-extension-followup",
-		"control": "case-extension-registration"
-	},
-	{
 		"id": "d15-question-ids-form-instance-invalid-question-id-9f9c",
 		"defect": 15,
 		"part": "question ids",
@@ -1042,718 +342,6 @@
 		"path": "/xform:model~1instance~1*~1*/refused/invalid-question-id",
 		"document": "targeted-invalid-question-ids",
 		"control": "targeted-invalid-question-ids"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-constraint-3370",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_constraint_*",
-		"document": "container-query-conditional-parent",
-		"control": "container-query-conditional-parent"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-guard",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_guard_*",
-		"document": "case-operation-conditional",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-operations-d74f",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_operations",
-		"document": "case-extension-multiple",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-selected-cases-ca8c",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_selected_cases",
-		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-subcase",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_subcase_*",
-		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-subcases-233d",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_subcases",
-		"document": "case-extension-query",
-		"control": "case-extension-repeat"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-update-selected-cases",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_update_selected_cases",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-reserved-names-form-instance-invalid-question-id-nova-url",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/invalid-question-id/__nova_url_*",
-		"document": "case-capture-followup",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-reserved-names-vellum-again-mug-nodeid-error-nova-constraint-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_constraint_* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "container-query-conditional-relative",
-		"control": "container-query-conditional"
-	},
-	{
-		"id": "d13-reserved-names-vellum-again-mug-nodeid-error-nova-datetime-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_datetime_* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-reserved-names-vellum-again-mug-nodeid-error-nova-operations-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_operations is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-reserved-names-vellum-again-mug-nodeid-error-nova-selected-cases-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_selected_cases is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-reserved-names-vellum-again-mug-nodeid-error-nova-subcases-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_subcases is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-extension-repeat",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d13-reserved-names-vellum-again-mug-nodeid-error-nova-url-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_url_* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-reserved-names-vellum-mug-nodeid-error-nova-constraint-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_constraint_* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "container-query-conditional-relative",
-		"control": "container-query-conditional"
-	},
-	{
-		"id": "d13-reserved-names-vellum-mug-nodeid-error-nova-datetime-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_datetime_* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "workforce-case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-reserved-names-vellum-mug-nodeid-error-nova-operations-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_operations is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-reserved-names-vellum-mug-nodeid-error-nova-selected-cases-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_selected_cases is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-reserved-names-vellum-mug-nodeid-error-nova-subcases-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_subcases is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-extension-repeat",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d13-reserved-names-vellum-mug-nodeid-error-nova-url-not-valid",
-		"defect": 13,
-		"part": "reserved names",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/nodeID/mug-nodeID-error/__nova_url_* is not a valid Question ID. It must start with a letter and contain only letters, numbers, and '*' or '*' characters.",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-root-create-id-form-bindcalculate-live-create-case-id",
-		"defect": 13,
-		"part": "root create id",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1bind@calculate/refused/live-create-case-id",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-blocks-nova-operations-case-removed",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/__nova_operations~1*~1case",
-		"kind": "removed",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-blocks-nova-operations-case-1b40-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//create/__nova_operations~1*~1case",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-blocks-nova-operations-case-1b40-update",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks//update/__nova_operations~1*~1case",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-root-create-id-blocks-nova-operations-case-8144-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/create/__nova_operations~1*~1case",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-blocks-nova-operations-case-8144-update",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/update/__nova_operations~1*~1case",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-root-create-id-blocks-nova-operations-case-342a-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/refusal/IllegalCaseId/create/__nova_operations~1*~1case/cases/*",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-form-case-case-id-3db0",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/*/case/@case_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-form-case-case-id-44de",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/setvalue[@event=xforms-ready][@ref=/data/__nova_operations/*/case/@case_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-source-case-case-id-2ebc",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/*/case/@case_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-source-case-case-id-d085",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/setvalue[@event=xforms-ready][@ref=/data/__nova_operations/*/case/@case_id]",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-root-create-id-trace-nova-operations-case-7be0-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/end/submitted/submission-refused/org.javarosa.xml.util.InvalidStructureException/case_id/create/__nova_operations~1*~1case",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-nova-operations-case-7be0-update",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/end/submitted/submission-refused/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1*~1case",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-root-create-id-trace-nova-operations-case-6fca-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/create/__nova_operations~1*~1case",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-nova-operations-case-6fca-update",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1*~1case",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-root-create-id-trace-nova-operations-case-167f-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/create/__nova_operations~1*~1case/caseDb",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-nova-operations-case-167f-update",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1*~1case/caseDb",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-root-create-id-trace-case-stackaftersubmit-create",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/create/__nova_operations~1*~1case/stackAfterSubmit",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-stackaftersubmit-update",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/processing/org.javarosa.xml.util.InvalidStructureException/case_id/update/__nova_operations~1*~1case/stackAfterSubmit",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-root-create-id-trace-case-case-id",
-		"defect": 13,
-		"part": "root create id",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_operations[*]/*/case[*]/@case_id",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-wrapper-conditions-form-bindrelevant-on-a-savetocase-node",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1bind@relevant/refused/on-a-savetocase-node",
-		"document": "case-operation-retype",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-conditions-blocks-nova-operations-case-e273",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1__nova_operations~1*~1case",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-wrapper-conditions-blocks-nova-operations-case-e723",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1item~1__nova_operations~1*~1case",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-conditions-blocks-nova-operations-case-added",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/__nova_operations~1*~1case",
-		"kind": "added",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-blocks",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/cases/*",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-form-bind-nodeset-nova-operations-4057",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/*]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-wrapper-conditions-form-item-nova-operations",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/*]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-conditions-form-bind-nodeset-nova-operations-8d02",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/*]",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-form-nova-operations-nova-update-selected-cases",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases]",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-wrapper-conditions-source-bind-nodeset-nova-operations-8834",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_operations/*]",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-wrapper-conditions-source-item-nova-operations",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_operations/*]",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-conditions-source-bind-nodeset-nova-operations-d975",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/*]",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-source-nova-operations-nova-update-selected-cases",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases]",
-		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-bd7e",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]",
-		"document": "workforce-case-operation-conditional",
-		"control": "case-operation-conditional"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-c5b9",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/*",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-e391",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/*/text()",
-		"document": "case-operation-relation",
-		"control": "case-operation-relation"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-case-type",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/@case_type",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-status",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/@status",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-case-name",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/case_name[*]/text()",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-case-last-modified",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/last_modified[*]/text()",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-nova-operations-b4bc",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/__nova_operations[*]/*",
-		"document": "case-operation-repeat",
-		"control": "case-operation-repeat"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-item-nova-operations",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/__nova_operations[*]/*",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-conditions-trace-nova-operations-93bc",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_operations[*]/*",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-wrapper-containers-form-instance-hidden-value-with-children-nova-operations-2efc",
-		"defect": 13,
-		"part": "wrapper containers",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/hidden-value-with-children/__nova_operations",
-		"document": "case-operation-retype",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-wrapper-containers-form-instance-hidden-value-with-children-nova-subcases-06ee",
-		"defect": 13,
-		"part": "wrapper containers",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1*~1*/refused/hidden-value-with-children/__nova_subcases",
-		"document": "case-extension-followup",
-		"control": "case-extension-registration"
-	},
-	{
-		"id": "d13-wrapper-containers-vellum-again-mug-updateproperty-error-add-at-least",
-		"defect": 13,
-		"part": "wrapper containers",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/updateProperty/mug-updateProperty-error/Add at least one property to update, or deselect the Update action.",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-containers-vellum-mug-updateproperty-error-add-at-least",
-		"defect": 13,
-		"part": "wrapper containers",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/updateProperty/mug-updateProperty-error/Add at least one property to update, or deselect the Update action.",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-guard-blocks-form-instance-hidden-value-with-children-nova-guard",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/hidden-value-with-children/__nova_guard_*",
-		"document": "case-operation-conditional",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-containers-form-instance-hidden-value-with-children-nova-operations-e00e",
-		"defect": 13,
-		"part": "wrapper containers",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/hidden-value-with-children/__nova_operations",
-		"document": "case-extension-multiple",
-		"control": "case-operation-query"
-	},
-	{
-		"id": "d13-wrapper-containers-form-instance-hidden-value-with-children-nova-subcases-f704",
-		"defect": 13,
-		"part": "wrapper containers",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/hidden-value-with-children/__nova_subcases",
-		"document": "case-extension-query",
-		"control": "case-extension-repeat"
-	},
-	{
-		"id": "d13-guard-blocks-form-instance-hidden-value-with-children-case-block",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:model~1instance~1~1*/refused/hidden-value-with-children",
-		"document": "case-operation-conditional",
-		"control": "case-operation-query"
 	},
 	{
 		"id": "d14-close-conditions-app-own-case-condition-not-offered-or-quoted-3731",
@@ -2857,7 +1445,7 @@
 		"artifact": "*form:*",
 		"path": "/xform:model~1instance~1~1*/refused/attachment-in-a-savetocase-block",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-blocks-case-attachment-4a7a",
@@ -2865,9 +1453,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1__nova_selected_cases~1item~1__nova_operations~1__nova_subcase_*~1case/*/attachment",
+		"path": "/runs/*/blocks/*/*~1nova_selected_cases~1item~1nova_operations~1nova_subcase_*~1case/*/attachment",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-blocks-case-attachment-ce57",
@@ -2875,9 +1463,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1__nova_subcases~1__nova_subcase_*~1case/*/attachment",
+		"path": "/runs/*/blocks/*/*~1nova_subcases~1nova_subcase_*~1case/*/attachment",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-blocks-case-attachment-58ea",
@@ -2885,9 +1473,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/*~1item~1__nova_subcases~1__nova_subcase_*~1case/*/attachment",
+		"path": "/runs/*/blocks/*/*~1item~1nova_subcases~1nova_subcase_*~1case/*/attachment",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-blocks-case-attachment-ed9e",
@@ -2895,9 +1483,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/__nova_selected_cases~1item~1__nova_operations~1__nova_subcase_*~1case/*/attachment",
+		"path": "/runs/*/blocks/*/nova_selected_cases~1item~1nova_operations~1nova_subcase_*~1case/*/attachment",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-blocks-case-attachment-cecc",
@@ -2905,9 +1493,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/__nova_selected_cases~1item~1__nova_operations~1__nova_update_selected_cases~1case/*/attachment",
+		"path": "/runs/*/blocks/*/nova_selected_cases~1item~1nova_operations~1nova_condition_*~1nova_update_selected_cases~1case/*/attachment",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-blocks-case-attachment-ad85",
@@ -2915,9 +1503,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "case_blocks@vellum@*",
-		"path": "/runs/*/blocks/*/__nova_subcases~1__nova_subcase_*~1case/*/attachment",
+		"path": "/runs/*/blocks/*/nova_subcases~1nova_subcase_*~1case/*/attachment",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-again-mug-caseproperty-error-case-property-not",
@@ -2935,9 +1523,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_selected_cases~1item~1__nova_operations~1__nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1nova_selected_cases~1item~1nova_operations~1nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-src-bind-node-found-b0f8",
@@ -2945,9 +1533,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_selected_cases~1item~1__nova_operations~1__nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1nova_selected_cases~1item~1nova_operations~1nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-bind-node-found-eba6",
@@ -2955,9 +1543,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_subcases~1__nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1nova_subcases~1nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-src-bind-node-found-e37c",
@@ -2965,9 +1553,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1__nova_subcases~1__nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1nova_subcases~1nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-bind-node-found-c2f2",
@@ -2975,9 +1563,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1__nova_subcases~1__nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1nova_subcases~1nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-src-bind-node-found-df1e",
@@ -2985,9 +1573,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1__nova_subcases~1__nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1*~1item~1nova_subcases~1nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-bind-node-found-d238",
@@ -2995,9 +1583,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_selected_cases~1item~1__nova_operations~1__nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1nova_selected_cases~1item~1nova_operations~1nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-src-bind-node-found-a8b1",
@@ -3005,9 +1593,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_selected_cases~1item~1__nova_operations~1__nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1nova_selected_cases~1item~1nova_operations~1nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-bind-node-found-77d6",
@@ -3015,9 +1603,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_selected_cases~1item~1__nova_operations~1__nova_update_selected_cases~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1nova_selected_cases~1item~1nova_operations~1nova_condition_*~1nova_update_selected_cases~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-src-bind-node-found-f1af",
@@ -3025,9 +1613,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_selected_cases~1item~1__nova_operations~1__nova_update_selected_cases~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1nova_selected_cases~1item~1nova_operations~1nova_condition_*~1nova_update_selected_cases~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-bind-node-found-b420",
@@ -3035,9 +1623,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_subcases~1__nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1nova_subcases~1nova_subcase_*~1case~1attachment~1*] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-parse-warning-src-bind-node-found-cf4b",
@@ -3045,9 +1633,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1__nova_subcases~1__nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
+		"path": "/modules/*/forms/*/form_errors/parse-warning/Bind Node [~1data~1nova_subcases~1nova_subcase_*~1case~1attachment~1*~1@src] found but has no associated Data node. This bind node will be discarded!",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-vellum-mug-caseproperty-error-case-property-not",
@@ -3065,9 +1653,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-dbdd",
@@ -3075,9 +1663,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-form-attachment-src-c0c7",
@@ -3085,9 +1673,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_subcases/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_subcases/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-413a",
@@ -3095,9 +1683,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_subcases/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_subcases/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-form-attachment-src-f439",
@@ -3105,9 +1693,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_subcases/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/nova_subcases/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-66c7",
@@ -3115,9 +1703,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_subcases/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/nova_subcases/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-form-attachment-src-ba58",
@@ -3125,9 +1713,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-279b",
@@ -3135,9 +1723,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-form-attachment-src-22fa",
@@ -3145,9 +1733,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_condition_*/nova_update_selected_cases/case/attachment/*/@src]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-0e43",
@@ -3155,9 +1743,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_condition_*/nova_update_selected_cases/case/attachment/*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-form-attachment-src-b973",
@@ -3165,9 +1753,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_subcases/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_subcases/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-039a",
@@ -3175,9 +1763,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_subcases/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_subcases/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-f59e",
@@ -3185,9 +1773,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-8d7e",
@@ -3195,9 +1783,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-1b28",
@@ -3205,9 +1793,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/item[@id=*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-d8bd",
@@ -3215,9 +1803,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-bc0c",
@@ -3225,9 +1813,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_condition_*[*]/nova_update_selected_cases[*]/case[*]/attachment[*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-form-case-attachment-ce28",
@@ -3235,9 +1823,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-source-attachment-src-448f",
@@ -3245,9 +1833,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-8a61",
@@ -3255,9 +1843,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-source-attachment-src-7ee7",
@@ -3265,9 +1853,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_subcases/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_subcases/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-46c4",
@@ -3275,9 +1863,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_subcases/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/nova_subcases/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-source-attachment-src-8062",
@@ -3285,9 +1873,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_subcases/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/nova_subcases/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-a963",
@@ -3295,9 +1883,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_subcases/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/nova_subcases/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-source-attachment-src-6212",
@@ -3305,9 +1893,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-f87e",
@@ -3315,9 +1903,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-source-attachment-src-7142",
@@ -3325,9 +1913,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_condition_*/nova_update_selected_cases/case/attachment/*/@src]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-c3f8",
@@ -3335,9 +1923,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_selected_cases/item/nova_operations/nova_condition_*/nova_update_selected_cases/case/attachment/*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-source-attachment-src-9edd",
@@ -3345,9 +1933,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_subcases/__nova_subcase_*/case/attachment/*/@src]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_subcases/nova_subcase_*/case/attachment/*/@src]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-f004",
@@ -3355,9 +1943,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_subcases/__nova_subcase_*/case/attachment/*]",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/nova_subcases/nova_subcase_*/case/attachment/*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-4bb5",
@@ -3365,9 +1953,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-717e",
@@ -3375,9 +1963,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-7bc4",
@@ -3385,9 +1973,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/*/item[@id=*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-d4ab",
@@ -3395,9 +1983,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-a320",
@@ -3405,9 +1993,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_condition_*[*]/nova_update_selected_cases[*]/case[*]/attachment[*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-source-case-attachment-faa4",
@@ -3415,9 +2003,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "source:form:*@vellum@*",
-		"path": "/html/head[*]/model[*]/instance[*]/data[*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-trace-case-attachment-2e20",
@@ -3425,9 +2013,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/trace/*/submission/data/*/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-trace-case-attachment-5f0c",
@@ -3435,9 +2023,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/trace/*/submission/data/*/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-trace-case-attachment-fe72",
@@ -3445,9 +2033,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-trace-case-attachment-12d3",
@@ -3455,9 +2043,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/trace/*/submission/data/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-trace-case-attachment-754d",
@@ -3465,9 +2053,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"path": "/runs/*/trace/*/submission/data/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_condition_*[*]/nova_update_selected_cases[*]/case[*]/attachment[*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-trace-case-attachment-15fb",
@@ -3475,9 +2063,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/submission/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/trace/*/submission/data/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-form-actions-extension",
@@ -3487,7 +2075,7 @@
 		"artifact": "*app.json",
 		"path": "/schema:Form.actions/refused/extension",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-form-actions-subcase-never",
@@ -3497,7 +2085,7 @@
 		"artifact": "*app.json",
 		"path": "/schema:Form.actions/refused/subcase-never",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-formactions-subcases-extension",
@@ -3507,7 +2095,7 @@
 		"artifact": "*app.json",
 		"path": "/schema:FormActions.subcases/refused/extension",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-formactions-subcases-subcase-never",
@@ -3517,7 +2105,7 @@
 		"artifact": "*app.json",
 		"path": "/schema:FormActions.subcases/refused/subcase-never",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-opensubcaseaction-condition-subcase-never",
@@ -3527,7 +2115,7 @@
 		"artifact": "*app.json",
 		"path": "/schema:OpenSubCaseAction.condition/refused/subcase-never",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-schema-opensubcaseaction-relationship-extension",
@@ -3537,7 +2125,7 @@
 		"artifact": "*app.json",
 		"path": "/schema:OpenSubCaseAction.relationship/refused/extension",
 		"document": "case-extension-multiple",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-trace-case",
@@ -3547,7 +2135,7 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/submission/data/*/case[*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-trace-item-case",
@@ -3557,7 +2145,7 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/case[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-trace-item-subcase",
@@ -3567,7 +2155,7 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/subcase_*[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-trace-subcase-c90a",
@@ -3577,7 +2165,7 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/submission/data/*/subcase_*[*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-trace-subcase-50ea",
@@ -3587,7 +2175,7 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/submission/data/subcase_*[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-app-subcases-relationship",
@@ -3597,7 +2185,7 @@
 		"artifact": "app.json@case management@*",
 		"path": "/modules/*/forms/*/actions/subcases/*/relationship",
 		"document": "case-extension-repeat",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d25-query-repeat-form-vellum-role-model-iteration-nested",
@@ -4744,7 +3332,7 @@
 		"artifact": "formplayer@local.ccz",
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/case[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-order",
@@ -4764,7 +3352,7 @@
 		"artifact": "formplayer@local.ccz",
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/subcase_*[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d33-trimmed-case-names-and-exter-formplayer-local-ccz-update-external-id-text",
@@ -4848,7 +3436,7 @@
 		"artifact": "formplayer@local.ccz",
 		"path": "/runs/*/steps/*/response/instanceXml/output/data/subcase_*[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-subcase",
@@ -5307,64 +3895,14 @@
 		"control": "targeted-query-repeat-places"
 	},
 	{
-		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
-	},
-	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment",
 		"defect": 23,
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
-	},
-	{
-		"id": "d13-guard-blocks-formplayer-vellum-case-case-id",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/*/case[*]/@case_id",
-		"document": "case-operation-conditional",
-		"control": "case-operation-conditional"
-	},
-	{
-		"id": "d13-guard-blocks-formplayer-vellum-update-text",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/*/case[*]/update[*]/*/text()",
-		"document": "case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-case-id",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@case_id",
-		"document": "case-operation-sequence",
-		"control": "case-operation-sequence"
-	},
-	{
-		"id": "d13-guard-blocks-formplayer-vellum-nova-guard-case-user-id-2",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_operations[*]/__nova_guard_*[*]/case[*]/@user_id",
-		"document": "case-operation-conditional",
-		"control": "case-operation-conditional"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-2",
@@ -5372,9 +3910,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-update-selected-cases-case-attachment",
@@ -5382,9 +3920,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_condition_*[*]/nova_update_selected_cases[*]/case[*]/attachment[*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-3",
@@ -5392,9 +3930,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/response/instanceXml/output/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d25-query-repeat-rewritten-into--formplayer-vellum-response-type",
@@ -5412,19 +3950,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-query",
-		"control": "case-extension-query"
-	},
-	{
-		"id": "d13-wrapper-conditions-and-leaf--formplayer-vellum-data-nova-operations",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_operations[*]/*",
-		"document": "case-operation-conditional",
-		"control": "case-operation-conditional"
+		"control": "case-extension-query-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-5",
@@ -5432,9 +3960,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple",
-		"control": "case-extension-multiple"
+		"control": "case-extension-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-update-selected-cases-case-attachment-2",
@@ -5442,9 +3970,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_update_selected_cases[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_condition_*[*]/nova_update_selected_cases[*]/case[*]/attachment[*]",
 		"document": "case-capture-multiple",
-		"control": "case-capture-multiple"
+		"control": "case-capture-multiple-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-6",
@@ -5452,9 +3980,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-registration",
-		"control": "case-extension-registration"
+		"control": "case-extension-registration-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-7",
@@ -5462,9 +3990,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/*/__nova_selected_cases[*]/item[@id=*]/__nova_operations[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/nova_selected_cases[*]/item[@id=*]/nova_operations[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-multiple-repeat",
-		"control": "case-extension-multiple-repeat"
+		"control": "case-extension-multiple-repeat-after-13"
 	},
 	{
 		"id": "d23-attachment-mode-capture-formplayer-vellum-nova-subcase-case-attachment-8",
@@ -5472,29 +4000,9 @@
 		"part": "attachment-mode capture",
 		"check": "proof4",
 		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submissions/*/instance/data/*/__nova_subcases[*]/__nova_subcase_*[*]/case[*]/attachment[*]",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/nova_subcases[*]/nova_subcase_*[*]/case[*]/attachment[*]",
 		"document": "case-extension-repeat",
-		"control": "case-extension-repeat"
-	},
-	{
-		"id": "d13-datetime-leaves-formplayer-vellum-submit-nextscreen-type",
-		"defect": 13,
-		"part": "datetime leaves",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submit/nextScreen/type",
-		"document": "case-operation-retype",
-		"control": "case-operation-retype"
-	},
-	{
-		"id": "d13-guard-blocks-formplayer-vellum-submit-status",
-		"defect": 13,
-		"part": "guard blocks",
-		"check": "proof4",
-		"artifact": "formplayer@vellum@*",
-		"path": "/runs/*/steps/*/submit/status",
-		"document": "case-operation-query",
-		"control": "case-operation-query"
+		"control": "case-extension-repeat-after-13"
 	},
 	{
 		"id": "d21-list-first-turned-search-fir-trace-case-list-end-empty-menu-unreplayable",
@@ -6984,105 +5492,6 @@
 		"kind": "changed",
 		"document": "container-query-conditional",
 		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d13-android-proof4-vellum-ivity-formentryactivity-formentryactivity-error-saving-your-form-changed",
-		"defect": 13,
-		"part": "guard blocks (the device does not save the form)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/screens/after-MenuActivity:FormEntryActivity:FormEntryActivity!Error Saving your Form",
-		"kind": "changed",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-cases-added",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/cases/*",
-		"kind": "added",
-		"document": "case-operation-conditional",
-		"control": "case-operation-conditional"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-cases-changed",
-		"defect": 13,
-		"part": "wrapper conditions and leaf guards",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/cases/*",
-		"kind": "changed",
-		"document": "case-operation-relation",
-		"control": "case-operation-relation"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-cases-removed",
-		"defect": 13,
-		"part": "guard blocks (the device does not save the form, so the case it makes is not made)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/cases/*",
-		"kind": "removed",
-		"document": "case-operation-key",
-		"control": "case-operation-key"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-aftersend-removed",
-		"defect": 13,
-		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/afterSend",
-		"kind": "removed",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-casesastheformopened-added",
-		"defect": 13,
-		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
-		"kind": "added",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-finishing-changed",
-		"defect": 13,
-		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/finishing",
-		"kind": "changed",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-records-status-changed",
-		"defect": 13,
-		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/records/*/status",
-		"kind": "changed",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
-	},
-	{
-		"id": "d13-android-proof4-vellum-form-saved-resultcode-removed",
-		"defect": 13,
-		"part": "guard blocks (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
-		"check": "proof4",
-		"artifact": "android@vellum@*",
-		"path": "/walks/*/steps/*/form/saved/resultCode",
-		"kind": "removed",
-		"document": "case-operation-expression-retype",
-		"control": "case-operation-expression-retype"
 	},
 	{
 		"id": "d20-supply-point-manifest-form-supply-point-id-outside-a-computed-datum-refused-0",

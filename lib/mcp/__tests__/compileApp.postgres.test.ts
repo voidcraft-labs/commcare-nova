@@ -925,7 +925,7 @@ it("resolves attachment writes from persisted deployments on the selected server
 	await h.seedProjectMember("creator", PROJECT, "owner");
 	const photoBinds = (xform: string) =>
 		elements(xform, "bind")
-			.filter((node) => node.attribs.nodeset === "/data/__nova_url_photo")
+			.filter((node) => node.attribs.nodeset === "/data/nova_url_photo")
 			.map((node) => node.attribs.calculate);
 	const linkTo = (server: "india" | "production", domain: string) =>
 		`if(/data/photo = '', '', concat('https://${server === "production" ? "www" : "india"}.commcarehq.org/a/${domain}/api/form_attachment/v1/', /data/meta/instanceID, '/', /data/photo))`;
@@ -943,7 +943,7 @@ it("resolves attachment writes from persisted deployments on the selected server
 			if (linked) {
 				expect(update.update).toMatchObject({
 					photo_url: {
-						question_path: "/data/__nova_url_photo",
+						question_path: "/data/nova_url_photo",
 						update_mode: "always",
 					},
 				});

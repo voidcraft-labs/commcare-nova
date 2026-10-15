@@ -1,0 +1,61 @@
+{
+	"method": "POST",
+	"path": "/a/nova-proof/apps/api/import_app/",
+	"contentType": "multipart/form-data; boundary=----nova-proof-capture",
+	"fields": [
+		"waf_padding",
+		"app_name",
+		"app_id",
+		"app_file"
+	],
+	"compatibility": {
+		"status": "ready",
+		"capabilities": [
+			{
+				"id": "case-attachments",
+				"state": "available"
+			}
+		],
+		"advisories": []
+	},
+	"layout": 2,
+	"placeholderAppId": "nova-proof-placeholder-app",
+	"assumedSource": {
+		"doc_type": "Application",
+		"build_spec.version": "2.57.0",
+		"profile": {
+			"properties": {
+				"cc-fuzzy-search-enabled": "no",
+				"cc-gps-auto-capture-accuracy": "10",
+				"cc-content-valid": "no",
+				"cc-autoup-freq": "freq-never",
+				"cc-enable-tts": "no",
+				"cc-autosync-freq": "freq-never",
+				"cc-days-form-retain": "-1",
+				"cc-inflation-target-density": "none",
+				"cc-label-required-questions-with-asterisk": "no",
+				"cc-login-duration-seconds": "86400",
+				"cc-maps-default-layer": "normal",
+				"cc-resize-images": "none",
+				"logenabled": "Enabled",
+				"unsent-number-limit": "5",
+				"unsent-time-limit": "5",
+				"cc-show-saved": "no",
+				"cc-show-incomplete": "no"
+			}
+		},
+		"translations": {
+			"en": {
+				"en": "English"
+			}
+		},
+		"add_ons": {
+			"case_list_menu_item": true,
+			"subcases": true
+		},
+		"langs": [
+			"en"
+		],
+		"auto_gps_capture": false
+	}
+}

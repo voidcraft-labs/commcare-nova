@@ -55,6 +55,7 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"ids-change-once-unreadable",
 	"menu-id-changes-once",
 	"form-ids-change-once",
+	"data-paths-move-once",
 	"deep-links-need-republish",
 	"next-publish-overwrites-hq-edits",
 	"next-publish-asks-before-overwriting",

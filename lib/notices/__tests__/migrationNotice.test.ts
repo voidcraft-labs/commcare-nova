@@ -61,6 +61,7 @@ const REAL_ENTRIES = {
 	),
 	"deep-links-need-republish": deploymentEntry("deep-links-need-republish"),
 	"hq-app-deleted": deploymentEntry("hq-app-deleted"),
+	"data-paths-move-once": deploymentEntry("data-paths-move-once"),
 	"hq-app-not-nova-made": deploymentEntry("hq-app-not-nova-made"),
 	"ids-change-once-unreadable": deploymentEntry("ids-change-once-unreadable"),
 	"menu-id-changes-once": {

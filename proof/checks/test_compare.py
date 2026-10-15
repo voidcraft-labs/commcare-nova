@@ -39,6 +39,7 @@ import re
 import pytest
 from lxml import etree
 
+from proof.checks.compare import names
 from proof.checks.compare.app_strings import compare_app_strings
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.trace import compare_traces
@@ -357,6 +358,74 @@ def test_a_forms_own_names_are_one_star_and_the_names_its_readers_find_stay():
         "/html/head[1]/model[1]/bind[@nodeset=/data/questions/x]/@constraint",
         "/html/head[1]/model[1]/bind[@nodeset=/data/questions/y]/@constraint",
     ]
+
+
+# Each name the allocator gives a generated node (``lib/commcare/xform/generatedNodes.ts``) as a path writes it.
+GENERATED_NAMES = {
+    "nova_operations": "nova_operations",
+    "nova_subcases": "nova_subcases",
+    "nova_selected_cases": "nova_selected_cases",
+    "nova_update_selected_cases": "nova_update_selected_cases",
+    "nova_close_selected_cases": "nova_close_selected_cases",
+    "nova_close": "nova_close",
+    "nova_url_photo": "nova_url_*",
+    "nova_datetime_when": "nova_datetime_*",
+    "nova_constraint_q_0": "nova_constraint_*",
+    "nova_trimmed_name": "nova_trimmed_*",
+    "nova_keyed_create_visit": "nova_keyed_*",
+    "nova_guard_create_visit_text": "nova_guard_*",
+    "nova_condition_update_selected_cases": "nova_condition_*",
+    "nova_subcase_0": "nova_subcase_*",
+    # A constraint count of a field whose id starts ``message_``, and a keyed create's count node: each is written
+    # as a count node and a message carrier are, the app's own name, though a family's prefix starts it.
+    "nova_constraint_message_x_0": "*",
+    "nova_count_nova_keyed_create_visit": "*",
+    "nova_count_visits": "*",
+    "nova_constraint_message_q": "*",
+}
+
+
+@pytest.mark.parametrize(("name", "written"), GENERATED_NAMES.items())
+def test_a_generated_nodes_name_keeps_its_fixed_name_or_family_and_a_count_nodes_is_the_apps(name, written):
+    """A generated node's name is Nova's, not the document's, so a path keeps a fixed name and writes a minted one
+    as its family: a guard on two documents is one class, and a guard and a condition group are two. A count node
+    and a message carrier are written ``*``, as before the allocator, so defect 30's paths stay where they are.
+    The plausible failure: a family checked before the two names written ``*``, which moves those paths."""
+    root = parse_xml(CASE_FORM)
+    data = root.find(f".//{{{XF}}}instance")[0]
+    etree.SubElement(data, f"{{{etree.QName(data).namespace}}}{name}")
+    found = {(d.path, d.kind) for d in compare_xml(CASE_FORM, _xml(root), check="proof4", document="d", artifact="f")}
+    step = written if written == "*" else f"{written}[*]"
+    assert found == {(f"/html/head[*]/model[*]/instance[*]/data[*]/{step}", "added")}
+
+
+@pytest.mark.parametrize(
+    ("keys", "written"),
+    [
+        (["nova_operations", "nova_guard_create_visit_text"], "nova_operations/nova_guard_*/case"),
+        (["nova_operations", "nova_condition_tag_visit", "tag_visit"], "nova_operations/nova_condition_*/*/case"),
+        (["nova_operations", "nova_keyed_create_visit", "create_visit"], "nova_operations/nova_keyed_*/*/case"),
+        (["items", "item", "nova_operations", "mark"], "*/item/nova_operations/*/case"),
+        (["nova_subcases", "nova_subcase_0"], "nova_subcases/nova_subcase_*/case"),
+        (
+            ["nova_selected_cases", "item", "nova_operations", "nova_condition_update_selected_cases"]
+            + ["nova_update_selected_cases"],
+            "nova_selected_cases/item/nova_operations/nova_condition_*/nova_update_selected_cases/case",
+        ),
+        (["__nova_operations", "__nova_guard_1270f255_text"], "__nova_operations/__nova_guard_*/case"),
+        (
+            ["__nova_selected_cases", "item", "__nova_update_selected_cases"],
+            "__nova_selected_cases/item/__nova_update_selected_cases/case",
+        ),
+    ],
+)
+def test_where_a_block_sits_keeps_novas_containers_and_reads_the_names_the_controls_hold(keys, written):
+    """HQ's path to a case block (``extract_case_blocks(..., include_path=True)``) is written with Nova's groups,
+    condition groups and keyed repeats as the comparison writes them, and the ``__nova_`` names a retained
+    control holds are read as before, so a fixed entry on a control keeps its path. The plausible failure: an
+    operation's block inside a condition group or a keyed repeat written as the group, so a condition added to
+    an operation moves its block into the guard's class."""
+    assert names.block_path(keys) == written
 
 
 def test_a_setvalue_is_paired_by_its_event_and_target_so_one_more_moves_no_other():

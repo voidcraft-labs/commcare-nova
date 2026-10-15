@@ -2203,3 +2203,76 @@ describe("EngineController", () => {
 		});
 	});
 });
+
+describe("count node names", () => {
+	it("follows the plan of generated nodes when siblings are only reordered", () => {
+		const takenUuid = testUuid("cccccccc-0001-0001-0001-000000000001");
+		const firstUuid = testUuid("cccccccc-0002-0002-0002-000000000002");
+		const secondUuid = testUuid("cccccccc-0003-0003-0003-000000000003");
+		const firstNoteUuid = testUuid("cccccccc-0004-0004-0004-000000000004");
+		const secondNoteUuid = testUuid("cccccccc-0005-0005-0005-000000000005");
+		const repeat = (uuid: Uuid, id: string): Field => ({
+			uuid,
+			id,
+			kind: "repeat",
+			label: proseText("Rows"),
+			repeat_mode: "count_bound",
+			repeat_count: xp("2"),
+		});
+		const note = (uuid: Uuid): Field => ({
+			uuid,
+			id: "note",
+			kind: "text",
+			label: proseText("Note"),
+		});
+		const store = createLoadedStore(
+			makeDoc(
+				{
+					[takenUuid]: {
+						uuid: takenUuid,
+						id: "nova_count_a",
+						kind: "text",
+						label: proseText("Taken"),
+					},
+					[firstUuid]: repeat(firstUuid, "a"),
+					[secondUuid]: repeat(secondUuid, "a_1"),
+					[firstNoteUuid]: note(firstNoteUuid),
+					[secondNoteUuid]: note(secondNoteUuid),
+				},
+				{
+					[FORM_UUID]: [takenUuid, firstUuid, secondUuid],
+					[firstUuid]: [firstNoteUuid],
+					[secondUuid]: [secondNoteUuid],
+				},
+			),
+		);
+		const refresh = vi.spyOn(FormEngine.prototype, "refreshRepeatCountNames");
+		const ctrl = ownedController();
+		ctrl.setDocStore(store);
+		ctrl.activateForm(FORM_UUID);
+		expect(refresh).toHaveBeenLastCalledWith({
+			[firstUuid]: "nova_count_a_1",
+			[secondUuid]: "nova_count_a_1_1",
+		});
+
+		// The reorder moves no path, so no other refresh runs, yet `a_1` now
+		// takes its count's first spelling ahead of `a`.
+		applyControllerEdit(store, [
+			{
+				kind: "moveField",
+				uuid: secondUuid,
+				toParentUuid: FORM_UUID,
+				after: null,
+			},
+		]);
+		expect(store.getState().fieldOrder[FORM_UUID]).toEqual([
+			secondUuid,
+			takenUuid,
+			firstUuid,
+		]);
+		expect(refresh).toHaveBeenLastCalledWith({
+			[firstUuid]: "nova_count_a_2",
+			[secondUuid]: "nova_count_a_1",
+		});
+	});
+});

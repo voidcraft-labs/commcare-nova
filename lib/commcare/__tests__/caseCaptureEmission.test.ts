@@ -94,7 +94,7 @@ for (const scenario of caseCaptureScenarios) {
 			expect(update.scan_url).toEqual(
 				withTarget
 					? {
-							question_path: `${scope}/details/__nova_url_scan`,
+							question_path: `${scope}/details/nova_url_scan`,
 							update_mode: "always",
 						}
 					: undefined,
@@ -106,7 +106,7 @@ for (const scenario of caseCaptureScenarios) {
 				const details = child(container(form.data), "details");
 				expect(details.children.filter(isTag).map((e) => e.name)).toEqual(
 					withTarget
-						? ["thepicture", "scan", "__nova_url_scan"]
+						? ["thepicture", "scan", "nova_url_scan"]
 						: ["thepicture", "scan"],
 				);
 				expect(
@@ -118,8 +118,8 @@ for (const scenario of caseCaptureScenarios) {
 					{ ref: `${scope}/details/scan`, mediatype: "application/*,text/*" },
 				]);
 				if (withTarget) {
-					expect(bind(form.model, `${scope}/details/__nova_url_scan`)).toEqual({
-						nodeset: `${scope}/details/__nova_url_scan`,
+					expect(bind(form.model, `${scope}/details/nova_url_scan`)).toEqual({
+						nodeset: `${scope}/details/nova_url_scan`,
 						type: "xsd:string",
 						calculate: `if(${scope}/details/scan = '', '', concat('https://www.commcarehq.org/a/demo-project/api/form_attachment/v1/', /data/meta/instanceID, '/', ${scope}/details/scan))`,
 						relevant: `count(${scope}/details/scan) > 0`,
@@ -129,7 +129,7 @@ for (const scenario of caseCaptureScenarios) {
 						findAll(
 							(e) =>
 								Object.values(e.attribs).some((value) =>
-									value.includes("__nova_url_scan"),
+									value.includes("nova_url_scan"),
 								),
 							form.model.children,
 						),
@@ -164,8 +164,8 @@ for (const scenario of caseCaptureScenarios) {
 			if (withTarget)
 				expect(bind(device.model, `${scope}/case/update/scan_url`)).toEqual({
 					nodeset: `${scope}/case/update/scan_url`,
-					calculate: `${scope}/details/__nova_url_scan`,
-					relevant: `count(${scope}/details/__nova_url_scan) > 0`,
+					calculate: `${scope}/details/nova_url_scan`,
+					relevant: `count(${scope}/details/nova_url_scan) > 0`,
 				});
 			const meta = child(device.data, "orx:meta");
 			child(meta, "orx:instanceID");

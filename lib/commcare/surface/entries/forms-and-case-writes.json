@@ -2870,8 +2870,8 @@
 			}
 		},
 		"emission": {
-			"cell": "the sibling (today `__nova_datetime_<id>`: unproducible, defect 13)",
-			"markers": ["unproducible"]
+			"cell": "the sibling `nova_datetime_<question id>`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3119,8 +3119,8 @@
 			}
 		},
 		"emission": {
-			"cell": "hidden value `nova_url_<question id>` with the publish target's address (today `__nova_url_<id>`: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "hidden value `nova_url_<question id>` with the publish target's address",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4563,7 +4563,7 @@
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time question gives it), which no single surface item holds; the question and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a date-and-time question writing its date to a `date` property (Nova routes every date-and-time writer through the `__nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
+		"dispositionCell": "**HELD-NEW**: a date-and-time question writing its date to a `date` property (Nova routes every date-and-time writer through the `nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

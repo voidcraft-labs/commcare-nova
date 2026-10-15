@@ -1,6 +1,5 @@
 import { caseOptionsNodeset } from "../caseOptions";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
-import { repeatCountNodeName } from "./repeatCountNode";
 /**
  * XForm XML emitter.
  *
@@ -36,9 +35,8 @@ import { repeatCountNodeName } from "./repeatCountNode";
  * emitted bytes.
  */
 
-import type { ChildNode, Element } from "domhandler";
+import { type ChildNode, type Element, isTag } from "domhandler";
 import { decodeXML } from "entities";
-import { RESERVED_XFORM_NODE_PREFIX } from "@/lib/commcare";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
@@ -80,7 +78,6 @@ import {
 import {
 	type AttachmentUrlTarget,
 	captureUrlCalculate,
-	captureUrlNodeName,
 	captureUrlNodePath,
 } from "@/lib/commcare/xform/captureUrlNode";
 import {
@@ -126,15 +123,12 @@ import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { xpathPrintContext } from "@/lib/domain/xpath/print";
-import {
-	ConstraintMessageNames,
-	protectConstraintMessage,
-} from "./constraintMessage";
+import { protectConstraintMessage } from "./constraintMessage";
 import {
 	datetimeCaseValueCalculate,
-	datetimeCaseValueName,
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
+import { type GeneratedNodePlan, planGeneratedNodes } from "./generatedNodes";
 
 interface ItextRegistration {
 	readonly registered: boolean;
@@ -623,14 +617,35 @@ export interface BuildXFormOptions {
 	attachmentTarget?: AttachmentUrlTarget;
 }
 
-function isRepeatCountSnapshot(element: Element): boolean {
-	const ref = element.attribs.ref;
-	if (ref === undefined || !ref.startsWith("/data/")) return false;
-	const leaf = FormPath.parse(ref).segments().at(-1);
-	return (
-		leaf?.kind === "element" &&
-		leaf.name.startsWith(`${RESERVED_XFORM_NODE_PREFIX}count_`)
-	);
+/**
+ * `setvalues` ordered by where each target stands in the primary instance,
+ * an attribute at its element. Setvalues on one element keep their order.
+ */
+function inDataTreeOrder(
+	setvalues: readonly Element[],
+	data: Element,
+): Element[] {
+	const position = new Map<string, number>();
+	const visit = (element: Element, path: FormPath): void => {
+		position.set(path.toXPath(), position.size);
+		for (const child of element.children) {
+			if (isTag(child)) visit(child, path.child(child.name));
+		}
+	};
+	visit(data, FormPath.root());
+	const at = (setvalue: Element): number => {
+		const ref = setvalue.attribs.ref ?? "";
+		const target = FormPath.parse(ref);
+		return (
+			position.get(
+				(target.endsInAttribute() ? target.parent() : target).toXPath(),
+			) ?? position.size
+		);
+	};
+	return setvalues
+		.map((setvalue, index) => ({ setvalue, index, at: at(setvalue) }))
+		.sort((a, b) => a.at - b.at || a.index - b.index)
+		.map(({ setvalue }) => setvalue);
 }
 
 /**
@@ -884,17 +899,9 @@ export function buildXForm(
 			protectedConstraint: protectedMessage?.expression,
 		};
 	};
-	const constraintMessageNames = new ConstraintMessageNames(
-		doc,
-		new Set(
-			[
-				opts.connect?.learn_module?.id,
-				opts.connect?.assessment?.id,
-				opts.connect?.deliver_unit?.id,
-				opts.connect?.task?.id,
-			].filter((id): id is string => id !== undefined),
-		),
-	);
+	// Every name the form's generated nodes carry, from the one allocator the
+	// case-operation emitter and `formActions.ts` read too.
+	const generatedNodes = planGeneratedNodes(doc, formUuid);
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
 		buildFieldParts(
@@ -917,7 +924,7 @@ export function buildXForm(
 			opts.assets,
 			lookupSelects,
 			opts.attachmentTarget,
-			constraintMessageNames,
+			generatedNodes,
 		);
 	}
 
@@ -954,6 +961,7 @@ export function buildXForm(
 	const caseOperations = buildCaseOperations(
 		doc,
 		formUuid,
+		generatedNodes,
 		opts.moduleCaseType,
 		opts.lookupNaming,
 		opts.selectedCaseIdRef,
@@ -985,11 +993,11 @@ export function buildXForm(
 		el("instance", {}, [dataEl]),
 		...instances.toElements(),
 		...binds,
-		// Snapshot counts after answer defaults and parent query identities have
-		// initialized. Field order must not change the initial count. Generated
-		// count targets occupy a reserved structural namespace, not authored XPath.
-		...setvalues.filter((e) => !isRepeatCountSnapshot(e)),
-		...setvalues.filter(isRepeatCountSnapshot),
+		// HQ's form builder writes setvalues in the order their targets stand
+		// in the data tree (`writer.js::createSetValues`). Core runs the
+		// setvalues of one event in document order, so a row's identity is
+		// still set before a nested repeat reads it.
+		...inDataTreeOrder(setvalues, dataEl),
 		el("itext", {}, [
 			...localization.languages.map((language) =>
 				el(
@@ -1122,7 +1130,7 @@ function buildFieldParts(
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
-	constraintMessageNames: ConstraintMessageNames,
+	generatedNodes: GeneratedNodePlan,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1250,7 +1258,9 @@ function buildFieldParts(
 	if (canValidate && validate) {
 		const expression = fieldExpressionValue(field, "validate");
 		const plan = expression
-			? planConstraintCollections(expression, fieldUuid, doc, nodePath)
+			? planConstraintCollections(expression, fieldUuid, doc, nodePath, (n) =>
+					generatedNodes.constraintCount(fieldUuid, n),
+				)
 			: { source: validate, calculations: [] };
 		const validateShorthand = shorthand(plan.source);
 		if (validateShorthand !== undefined)
@@ -1335,18 +1345,19 @@ function buildFieldParts(
 	// the same child-create bucket as the capture. It carries no body
 	// control: nobody answers it.
 	//
-	// `captureUrlNodePath` is shared with `formActions.ts`, which names this
-	// exact node as the case update's question path — the one place the two
-	// halves of the write agree.
+	// `captureUrlNodePath` reads the form's plan of generated nodes, which
+	// `formActions.ts` reads too to name this exact node as the case update's
+	// question path, so the two halves of the write agree.
 	if (
 		attachmentTarget !== undefined &&
 		isCaptureField(field) &&
 		field.caseWrite?.mode === "url"
 	) {
-		dataElements.push(el(captureUrlNodeName(field.id), {}));
+		const urlPath = captureUrlNodePath(generatedNodes, fieldUuid, nodePath);
+		dataElements.push(el(generatedNodes.url(fieldUuid), {}));
 		binds.push(
 			el("bind", {
-				nodeset: captureUrlNodePath(nodePath).toXPath(),
+				nodeset: urlPath.toXPath(),
 				type: "xsd:string",
 				calculate: captureUrlCalculate(nodePath, attachmentTarget),
 				// Core excludes irrelevant answers from nodesets. The address must
@@ -1361,10 +1372,14 @@ function buildFieldParts(
 		field.caseWrite !== undefined &&
 		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
 	) {
-		dataElements.push(el(datetimeCaseValueName(field.id), {}));
+		dataElements.push(el(generatedNodes.datetime(fieldUuid), {}));
 		binds.push(
 			el("bind", {
-				nodeset: datetimeCaseValuePath(nodePath).toXPath(),
+				nodeset: datetimeCaseValuePath(
+					generatedNodes,
+					fieldUuid,
+					nodePath,
+				).toXPath(),
 				type: "xsd:string",
 				calculate: datetimeCaseValueCalculate(nodePath),
 				relevant: `count(${nodePath.toXPath()}) > 0`,
@@ -1429,7 +1444,7 @@ function buildFieldParts(
 			assets,
 			lookupSelects,
 			attachmentTarget,
-			constraintMessageNames,
+			generatedNodes,
 		);
 		return;
 	}
@@ -1495,7 +1510,7 @@ function buildFieldParts(
 		),
 	);
 	if (validationMessage.protectedConstraint !== undefined) {
-		const name = constraintMessageNames.allocate(fieldUuid, parentPath);
+		const name = generatedNodes.constraintMessage(fieldUuid);
 		const path = parentPath.child(name).toXPath();
 		dataElements.push(el(name, {}));
 		binds.push(
@@ -1749,7 +1764,7 @@ function buildContainer(
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
-	constraintMessageNames: ConstraintMessageNames,
+	generatedNodes: GeneratedNodePlan,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -1795,7 +1810,7 @@ function buildContainer(
 			assets,
 			lookupSelects,
 			attachmentTarget,
-			constraintMessageNames,
+			generatedNodes,
 		);
 	}
 
@@ -1884,6 +1899,7 @@ function buildContainer(
 				dataElements,
 				instances,
 				expand,
+				generatedNodes,
 			),
 		);
 		// Core executes setvalues in document order: establish this row identity
@@ -1953,6 +1969,7 @@ function buildRepeatBody(
 	scopeDataElements: Element[],
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
+	generatedNodes: GeneratedNodePlan,
 ): Element {
 	let repeatNodeset = nodePath.toXPath();
 	const repeatAttribs: Record<string, string> = {};
@@ -1981,13 +1998,8 @@ function buildRepeatBody(
 		let countPath = expandedCount;
 		let countShadow = repeatCount;
 		if (directReference === undefined) {
-			const parent = nodePath.parent();
-			const names = new Set(scopeDataElements.map((element) => element.name));
-			const parentUuid = doc.fieldParent[field.uuid];
-			for (const uuid of orderedFieldUuids(doc, parentUuid))
-				names.add(doc.fields[uuid].id);
-			const name = repeatCountNodeName(field.id, names);
-			const target = parent.child(name);
+			const name = generatedNodes.count(field.uuid);
+			const target = nodePath.parent().child(name);
 			countPath = target.toXPath();
 			countShadow = target.toVellum();
 			scopeDataElements.push(el(name, {}));

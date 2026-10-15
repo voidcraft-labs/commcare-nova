@@ -1,15 +1,12 @@
 import type { Element } from "domhandler";
 import { decodeXML } from "entities";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	type ProseTemplate,
 	printProseTemplate,
-	type Uuid,
 } from "@/lib/domain";
 import { el, text } from "../elementBuilders";
 import { xpathStringLiteral } from "../xpath/stringLiteral";
-import type { FormPath } from "./formPath";
 
 interface LocalizedMessage {
 	readonly language: string;
@@ -36,11 +33,7 @@ export function protectConstraintMessage(
 	expand: (expression: string) => string,
 ): ProtectedConstraintMessage | undefined {
 	if (
-		!messages.some(({ template }) =>
-			template.parts.some(
-				(part) => part.kind !== "text" || decodeXML(part.text).includes("${"),
-			),
-		)
+		!constraintMessageNeedsProtection(messages.map(({ template }) => template))
 	)
 		return undefined;
 
@@ -131,6 +124,22 @@ export function protectConstraintMessage(
 	};
 }
 
+/**
+ * Whether a validation message in some language holds a typed value or a
+ * literal `${`, which Core's alert filler would read as an output slot. Such
+ * a message is composed in the constraint expression, and its itext is owned
+ * by a generated sibling (`generatedNodes.ts::constraintMessage`).
+ */
+export function constraintMessageNeedsProtection(
+	templates: readonly ProseTemplate[],
+): boolean {
+	return templates.some((template) =>
+		template.parts.some(
+			(part) => part.kind !== "text" || decodeXML(part.text).includes("${"),
+		),
+	);
+}
+
 /** ASCII JSON survives XML indentation and Vellum's NBSP replacement. */
 function asciiJson(value: string): string {
 	const json = JSON.stringify({ v: value });
@@ -143,35 +152,4 @@ function asciiJson(value: string): string {
 				: json[index];
 	}
 	return encoded;
-}
-
-/** All later authored siblings and root Connect blocks are reserved up front.
- * Other generated siblings cannot overlap: count uses `nova_count_`, while
- * URL/datetime/constraint collections use reserved `__nova_` prefixes. Case
- * and metadata scaffolding use fixed `case`/`subcase`/`meta` names.
- */
-export class ConstraintMessageNames {
-	private readonly scopes = new Map<string, Set<string>>();
-	constructor(
-		private readonly doc: BlueprintDoc,
-		private readonly rootNames: ReadonlySet<string>,
-	) {}
-	allocate(fieldUuid: Uuid, parent: FormPath): string {
-		const scope = parent.toXPath();
-		let names = this.scopes.get(scope);
-		if (names === undefined) {
-			names = new Set(
-				orderedFieldUuids(this.doc, this.doc.fieldParent[fieldUuid]).map(
-					(uuid) => this.doc.fields[uuid].id,
-				),
-			);
-			if (scope === "/data") for (const name of this.rootNames) names.add(name);
-			this.scopes.set(scope, names);
-		}
-		const base = `nova_constraint_message_${this.doc.fields[fieldUuid].id}`;
-		let name = base;
-		for (let suffix = 1; names.has(name); suffix++) name = `${base}_${suffix}`;
-		names.add(name);
-		return name;
-	}
 }

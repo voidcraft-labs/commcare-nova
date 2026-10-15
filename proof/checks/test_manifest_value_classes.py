@@ -360,6 +360,50 @@ def test_a_refused_class_names_novas_scaffolding_apart_from_the_ids_a_person_aut
     ) in paths
 
 
+# Each name the allocator gives a generated node (``lib/commcare/xform/generatedNodes.ts``) and the part of a
+# REFUSED class it is: a fixed name kept, a minted name its family with the minted part ``*``, and a count node or
+# a validation message carrier none, as an authored id's, though a family's prefix starts it.
+GENERATED_PARTS = {
+    "nova_operations": "nova_operations",
+    "nova_subcases": "nova_subcases",
+    "nova_selected_cases": "nova_selected_cases",
+    "nova_update_selected_cases": "nova_update_selected_cases",
+    "nova_close_selected_cases": "nova_close_selected_cases",
+    "nova_close": "nova_close",
+    "nova_url_photo": "nova_url_*",
+    "nova_datetime_when": "nova_datetime_*",
+    "nova_constraint_q_0": "nova_constraint_*",
+    "nova_trimmed_name": "nova_trimmed_*",
+    "nova_keyed_create_visit": "nova_keyed_*",
+    "nova_guard_create_visit_text": "nova_guard_*",
+    "nova_condition_update_selected_cases": "nova_condition_*",
+    "nova_subcase_0": "nova_subcase_*",
+    "nova_constraint_message_x_0": None,
+    "nova_count_nova_keyed_create_visit": None,
+}
+
+
+@pytest.mark.parametrize(("name", "part"), GENERATED_PARTS.items())
+def test_a_refused_class_names_each_generated_node_by_its_family(manifest, name, part):
+    """A form whose generated node Vellum would keep as a Hidden Value with children names the class's part by the
+    node's fixed name or family, as a comparison writes the node, so one REFUSED class over a guard and a
+    condition group is two parts. The plausible failures: a family read as a fixed name (every guard its own
+    part), or a constraint count of a field whose id starts ``message_``, or a keyed create's count node, read as
+    the family its prefix names, which moves the path defect 30's entries hold."""
+    xml = _form(data=f"<{name}><x/></{name}>", model=f'<bind nodeset="/data/{name}/x" calculate="1"/>')
+    found = manifest_usage.Uses()
+    manifest_usage.xform_uses(xml, manifest, "form:0.0", found)
+    paths = {
+        difference.path
+        for use in found.uses
+        if use.where.rsplit("}", 1)[-1] == f"{name}[1]"
+        for difference in manifest_usage.unclassified("d", [use], manifest)
+        if "/refused/hidden-value-with-children" in difference.path
+    }
+    suffix = "" if part is None else f"/{part}"
+    assert paths == {f"/xform:model~1instance~1*~1*/refused/hidden-value-with-children{suffix}"}
+
+
 def test_types_vellum_drops_or_rewrites_on_selects_secrets_and_savetocase_leaves(manifest):
     xml = _form(
         data="<choice/><word/><pin/><op><case xmlns='http://commcarehq.org/case/transaction/v2' case_id=''"

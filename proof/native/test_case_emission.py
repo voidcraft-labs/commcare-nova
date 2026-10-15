@@ -8,11 +8,13 @@ HQ allocates (all ``uuid()``, with the registration link matching the first
 new extension), the owner preload, the worker-record writes with the
 usercase datum and its assertion as the local suite carries them, and whole
 capture and operation forms free of editor attributes, which Core then runs
-(``CaseCaptureRuntimeTest``, ``CaseOperationRuntimeTest``). The plausible
-failures: HQ's basic case builder dropping ``relationship="extension"`` (it
-ignores ``OpenSubCaseAction.relationship``), an active redundant transaction,
-a datum allocation or link match that no longer lines up with Nova's suite,
-and a regenerated form Core cannot run.
+(``CaseCaptureRuntimeTest``, ``CaseOperationRuntimeTest``), each operation
+form's blocks inside one ``nova_operations`` group whose body control HQ
+keeps. The plausible failures: HQ's basic case builder dropping
+``relationship="extension"`` (it ignores ``OpenSubCaseAction.relationship``),
+an active redundant transaction, a datum allocation or link match that no
+longer lines up with Nova's suite, a regenerated form Core cannot run, and a
+group HQ's form builder reads as a Hidden Value because no control names it.
 
 The relation-instance forms HQ regenerates for ``RelationInstanceRuntimeTest``
 have no HQ check of their own: the checks publish and build those documents
@@ -28,6 +30,7 @@ from proof.native.steps.case_emission import NAMESPACES, NATIVE_FILES
 FAMILIES = ("case",)
 OWNER_PRELOAD = "instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@owner_id"
 VELLUM = '//@*[namespace-uri()="http://commcarehq.org/xforms/vellum"]'
+BODY = {"h": "http://www.w3.org/1999/xhtml"}
 
 
 def _expected_datum_ids(scenario):
@@ -137,9 +140,13 @@ def _check_operation(record):
     for xml in [record["native"], record["local"]]:
         tree = etree.fromstring(xml)
         operations = tree.xpath(
-            '//x:model/x:instance[not(@src)]//*[local-name()="__nova_operations"]', namespaces=NAMESPACES
+            '//x:model/x:instance[not(@src)]//*[local-name()="nova_operations"]', namespaces=NAMESPACES
         )
         assert len(operations) == 1, name
+        # A group, so HQ's form builder keeps the blocks inside it: a body control names the data element.
+        steps = [etree.QName(node).localname for node in operations[0].iterancestors()]
+        path = "/" + "/".join([*steps[: steps.index("instance")][::-1], "nova_operations"])
+        assert len(tree.xpath("//h:body//x:group[@ref=$path]", namespaces=NAMESPACES | BODY, path=path)) == 1, name
         assert tree.xpath(VELLUM) == [], name
     return _hashes(record, name.removeprefix("operation-"))
 

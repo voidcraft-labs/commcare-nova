@@ -33,7 +33,7 @@ from functools import cache, cached_property
 
 from lxml import etree
 
-from proof.checks.compare.names import NOVA_PREFIX, nova_name
+from proof.checks.compare.names import nova_name
 from proof.observe.manifest import CSQL_HOLE
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -4219,15 +4219,15 @@ def sibling_with_one_name(use, manifest):
 
 
 def nova_scaffolding_part(use, manifest):
-    """The part of a REFUSED class a data node's use is: Nova's own scaffolding node, by its name with its
-    minted part ``*`` (``compare.names.nova_name``: ``__nova_operations``, ``__nova_guard_*``), which Nova emits
-    whatever a person authors, apart from a node a person named; None for the latter, and where the use is on
-    no data node."""
+    """The part of a REFUSED class a data node's use is: a node Nova generates, by its name with its minted part
+    ``*`` (``compare.names.nova_name``: ``nova_operations``, ``nova_guard_*``, and the ``__nova_operations`` and
+    ``__nova_guard_*`` the retained controls hold), which Nova emits whatever a person authors, apart from a node
+    a person named; None for the latter, and where the use is on no data node. A person's node named like a
+    generated family is read as that family."""
     _, element = _data_node(use)
     if element is None:
         return None
-    name = _node_name(element)
-    return nova_name(name) if name.startswith(NOVA_PREFIX) else None
+    return nova_name(_node_name(element))
 
 
 def hidden_value_with_children(use, manifest):

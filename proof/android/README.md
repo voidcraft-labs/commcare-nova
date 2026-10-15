@@ -464,9 +464,22 @@ form's title and a completed save's name are the form's name in the app's
 default language, under a header that is the same text as before; and a
 validation that counts the rows whose answer reads its own node accepts the
 dependent answer where the count matches and refuses it with Android's own
-message where it does not. Each test carries `@pytest.mark.reader("android")`
-and takes the `hq` fixture, so the pull request lane deselects it and the
-nightly runs it.
+message where it does not.
+
+`test_case_blocks.py` reads the corpus the same way, on the follow-up form
+"Edit" (`m0-f0`) of six documents whose case operations Nova writes inside
+`nova_operations` and `nova_condition_<operation>` groups, with guards as
+update-only blocks and a keyed root create inside a one-row repeat. With the
+condition true the instance the device sends holds every block in the order
+the form lists its operations, and with it false an empty create and no case
+the device made; a failing guard ends in "Error Saving your Form", a
+quarantined record, the device's cases as the form opened them and nothing
+sent; a keyed root create writes its keyed id, also on a form saved incomplete
+at its first screen, reopened from home and completed; and no generated
+group, repeat or row is a screen or a question.
+
+Each test carries `@pytest.mark.reader("android")` and takes the `hq` fixture,
+so the pull request lane deselects it and the nightly runs it.
 
 `proof/checks/test_device_archive.py` runs in the lane too: the archive a
 state keeps is HQ's own download with the media its suite names, and a

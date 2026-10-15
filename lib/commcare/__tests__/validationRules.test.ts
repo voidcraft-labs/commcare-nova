@@ -261,7 +261,9 @@ describe("whole-document structural admission", () => {
 });
 
 describe("field and property identity policy", () => {
-	it.each(["answer_value", "_answer", "nova_answer"])(
+	// Nova reserves no question names for its own nodes: the allocator steps
+	// around an authored name equal to a generated one.
+	it.each(["answer_value", "_answer", "nova_answer", "nova_url_x", "__nova_x"])(
 		"admits field id %s",
 		(id) => {
 			assertAdmittedDoc(survey([{ ...plain, id }]));
@@ -278,14 +280,6 @@ describe("field and property identity policy", () => {
 			);
 		},
 	);
-	it("reserves generated node names", () => {
-		findings(
-			candidate(survey(), (d) => {
-				d.fields[q].id = "__nova_counter";
-			}),
-			["RESERVED_FIELD_ID_PREFIX"],
-		);
-	});
 	it("detects duplicate sibling paths", () => {
 		const doc = survey([
 			plain,

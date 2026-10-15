@@ -201,6 +201,12 @@ export const MIGRATION_NOTICE_COPY = {
 				` change once, because Nova couldn't read the ones that project space holds. Their submissions stay together. ${FORM_ID_REPOINT}`,
 			),
 		]),
+	"data-paths-move-once": (entry) =>
+		noticeLine([
+			text(
+				`The next publish to ${projectSpace(entry)} moves the form data that Nova adds to each form to new names, once. Form exports in CommCare HQ show those columns under the new names from then on.`,
+			),
+		]),
 	"deep-links-need-republish": (entry) =>
 		noticeLine([
 			text(

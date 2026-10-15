@@ -456,7 +456,7 @@ it.each(["case_name", "external_id", "photo_url"])(
 				.update,
 		).toEqual({
 			photo_url: {
-				question_path: "/data/__nova_url_answer",
+				question_path: "/data/nova_url_answer",
 				update_mode: "always",
 			},
 		});

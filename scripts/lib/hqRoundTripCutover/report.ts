@@ -12,9 +12,22 @@
  * operator's terminal only.
  */
 
+import { isTag, type Element as XmlElement } from "domhandler";
 import { sql, type Transaction } from "kysely";
+import { expandDoc } from "@/lib/commcare/expander";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
+import { derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import {
+	formConnectIds,
+	type GeneratedNodePlan,
+	planGeneratedNodes,
+} from "@/lib/commcare/xform/generatedNodes";
+import { parseXml } from "@/lib/commcare/xmlParse";
 import type { AppDatabase } from "@/lib/db/pg";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, isContainer, type Uuid } from "@/lib/domain";
 import type { DeploymentNoticeReason } from "@/lib/notices/migrationNotice";
 import type { HolderCensus } from "./holders";
 import type { MatchResult } from "./matching";
@@ -167,6 +180,7 @@ export function planSections(
 	report.line("behavior", {
 		reasons: [...behavior].map(([reason, counts]) => ({ reason, ...counts })),
 	});
+	generatedPathsLine(report, build);
 	report.line("holders", {
 		live: holders.liveApps.length + holders.liveSessions.length,
 		liveApps: holders.liveApps,
@@ -229,6 +243,208 @@ export function planSections(
 			apps: blocker.referencingAppIds,
 		});
 	}
+}
+
+/**
+ * The forms of one app whose generated data paths move at the next publish
+ * to a project space (`data-paths-move-once`), each by uuid and name. The
+ * name is authored content: the report prints the counts, and only
+ * `--debug-details` prints the forms.
+ */
+export interface GeneratedPathForms {
+	/**
+	 * Forms whose generated-node plan holds a renamed node (every node the
+	 * pre-step emitter named `__nova_`), a new node, or a Save to Case block,
+	 * which now sits inside a group or a keyed repeat.
+	 */
+	readonly moving: readonly GeneratedPathForm[];
+	/**
+	 * Forms where the plan gives a `nova_count_` or `nova_constraint_message_`
+	 * node another name than the pre-step emitter gave it.
+	 */
+	readonly countOrMessageNameMoves: readonly GeneratedPathForm[];
+}
+
+export interface GeneratedPathForm {
+	readonly formUuid: string;
+	readonly name: string;
+}
+
+/** The two purposes whose names the pre-step emitter wrote without `__nova_`. */
+const KEPT_PURPOSES: ReadonlySet<string> = new Set([
+	"count",
+	"constraint-message",
+]);
+
+/**
+ * The forms of one migrated document whose generated data paths move. The
+ * plan names every question- and operation-owned node; the document's HQ
+ * emission says which forms hold a Save to Case block, since a block's
+ * container (`nova_operations`, `nova_subcases`, `nova_selected_cases`) is
+ * written only where a block stands in it. Every such block stood in a
+ * `__nova_` container before.
+ */
+export function generatedPathForms(
+	doc: BlueprintDoc,
+	lookupContext: LookupValidationContext,
+): GeneratedPathForms {
+	const app = expandDoc(doc, {
+		...(lookupContext.kind === "available" && {
+			lookupNaming: lookupWireNaming(lookupContext.definitions),
+		}),
+	});
+	const moving: GeneratedPathForm[] = [];
+	const countOrMessageNameMoves: GeneratedPathForm[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			const connectIds = formConnectIds(doc, formUuid);
+			const plan = planGeneratedNodes(doc, formUuid);
+			const entry = { formUuid, name: form.name };
+			const xform = app._attachments[`${derivedUniqueId(formUuid)}.xml`];
+			if (
+				plan.nodes.some((node) => !KEPT_PURPOSES.has(node.purpose)) ||
+				(typeof xform === "string" && holdsSaveToCaseBlock(xform))
+			)
+				moving.push(entry);
+			if (countOrMessageNameMoved(doc, formUuid, plan, connectIds))
+				countOrMessageNameMoves.push(entry);
+		}
+	}
+	return { moving, countOrMessageNameMoves };
+}
+
+/** Whether a form source's primary instance holds a Save to Case block. */
+function holdsSaveToCaseBlock(xform: string): boolean {
+	const children = (element: { children: unknown[] }): XmlElement[] =>
+		element.children.filter((child): child is XmlElement =>
+			isTag(child as never),
+		);
+	const named = (element: XmlElement, name: string) =>
+		element.name === name || element.name.endsWith(`:${name}`);
+	const find = (
+		elements: readonly XmlElement[],
+		name: string,
+	): XmlElement | undefined => {
+		for (const element of elements) {
+			if (named(element, name)) return element;
+			const found = find(children(element), name);
+			if (found !== undefined) return found;
+		}
+		return undefined;
+	};
+	const model = find(children(parseXml(xform)), "model");
+	const instance =
+		model === undefined
+			? undefined
+			: children(model).find((element) => named(element, "instance"));
+	const holds = (element: XmlElement): boolean =>
+		element.attribs["vellum:role"] === "SaveToCase" ||
+		children(element).some(holds);
+	return instance !== undefined && children(instance).some(holds);
+}
+
+/**
+ * Whether the plan names a `nova_count_` or `nova_constraint_message_` node
+ * other than the pre-step emitter did. That emitter named each family by
+ * itself: a message took the first free `nova_constraint_message_<id>[_<n>]`
+ * among its siblings' ids, the root's Connect ids and the messages before it
+ * in that scope; a count took the first free `nova_count_<id>[_<n>]` among its
+ * siblings' ids and the nodes written before it in that scope. The plan's
+ * one allocator takes every name allocated before it too.
+ */
+function countOrMessageNameMoved(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	plan: GeneratedNodePlan,
+	connectIds: ReadonlySet<string>,
+): boolean {
+	const planned = new Map<string, string>();
+	for (const node of plan.nodes) {
+		if (KEPT_PURPOSES.has(node.purpose))
+			planned.set(`${node.purpose}\u0000${node.owner}`, node.name);
+	}
+	if (planned.size === 0) return false;
+	const allocate = (taken: Set<string>, base: string): string => {
+		let name = base;
+		for (let n = 1; taken.has(name); n++) name = `${base}_${n}`;
+		taken.add(name);
+		return name;
+	};
+	const moved = (parentUuid: Uuid, root: boolean): boolean => {
+		const children = orderedFieldUuids(doc, parentUuid).flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field === undefined ? [] : [field];
+		});
+		const authored = children.map((field) => field.id);
+		const messages = new Set([...authored, ...(root ? connectIds : [])]);
+		const written = new Set(authored);
+		for (const field of children) {
+			const message = planned.get(`constraint-message\u0000${field.uuid}`);
+			if (message !== undefined) {
+				const today = allocate(messages, `nova_constraint_message_${field.id}`);
+				written.add(today);
+				if (today !== message) return true;
+			}
+			const count = planned.get(`count\u0000${field.uuid}`);
+			if (
+				count !== undefined &&
+				allocate(written, `nova_count_${field.id}`) !== count
+			)
+				return true;
+		}
+		return children.some(
+			(field) => isContainer(field) && moved(field.uuid, false),
+		);
+	};
+	return moved(formUuid, true);
+}
+
+/**
+ * The `generated-paths` line: per app, the count of forms whose generated
+ * data paths move and of forms whose count or message node is named anew.
+ * Neither is a blocker. An app whose target does not parse, that the gate
+ * refuses or that is not ready to export is emitted by no publish, so it is
+ * listed as not counted.
+ */
+function generatedPathsLine(
+	report: CutoverReport,
+	build: CutoverPlanBuild,
+): void {
+	const apps: {
+		appId: string;
+		formsMoving: number;
+		formsWhoseCountOrMessageNameMoves: number;
+	}[] = [];
+	const notCounted: string[] = [];
+	for (const app of build.plan.apps) {
+		const doc = build.targets.get(app.appId)?.doc;
+		if (
+			doc === undefined ||
+			app.blockers.some(
+				(blocker) =>
+					blocker.code === "target-parse" ||
+					blocker.code === "target-gate" ||
+					blocker.code === "target-export-readiness",
+			)
+		) {
+			notCounted.push(app.appId);
+			continue;
+		}
+		const forms = generatedPathForms(
+			doc,
+			build.lookupContexts.get(app.projectId) ?? { kind: "unavailable" },
+		);
+		if (forms.moving.length + forms.countOrMessageNameMoves.length > 0) {
+			apps.push({
+				appId: app.appId,
+				formsMoving: forms.moving.length,
+				formsWhoseCountOrMessageNameMoves: forms.countOrMessageNameMoves.length,
+			});
+		}
+	}
+	report.line("generated-paths", { apps, notCounted });
 }
 
 /**
@@ -526,9 +742,11 @@ export async function readRecipients(
 
 /**
  * `--debug-details --app <id>`: for one app, every place each blocker met,
- * by entity id and name with the finding's own sentence. Authored content,
- * for the operator's terminal only; nothing of it enters the plan, the
- * digest or the report.
+ * by entity id and name with the finding's own sentence, then each form
+ * whose generated data paths move, so the people who own HQ form exports and
+ * reports built on the old paths can be told which forms to re-point.
+ * Authored content, for the operator's terminal only; nothing of it enters
+ * the plan, the digest or the report.
  */
 export function debugDetails(
 	build: CutoverPlanBuild,
@@ -559,6 +777,27 @@ export function debugDetails(
 		lines.push(`  case-schema-change ${caseType}`);
 	}
 	if (lines.length === 1) lines.push("  no blocker");
+	const plan = build.plan.apps.find((app) => app.appId === appId);
+	if (
+		target?.doc !== undefined &&
+		plan !== undefined &&
+		findings.parse.length === 0 &&
+		findings.gate.length === 0 &&
+		findings.exportReadiness.length === 0
+	) {
+		const forms = generatedPathForms(
+			target.doc,
+			build.lookupContexts.get(plan.projectId) ?? { kind: "unavailable" },
+		);
+		for (const form of forms.moving) {
+			lines.push(`  generated-paths-move ${form.formUuid}: ${form.name}`);
+		}
+		for (const form of forms.countOrMessageNameMoves) {
+			lines.push(
+				`  generated-count-or-message-name-moves ${form.formUuid}: ${form.name}`,
+			);
+		}
+	}
 	return lines;
 }
 

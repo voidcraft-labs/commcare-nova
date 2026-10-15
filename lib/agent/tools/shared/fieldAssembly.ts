@@ -7,10 +7,9 @@
  * Per item: sentinel strip (`stripEmpty`) → case-type default merge
  * (`applyDefaults`) → uuid mint → domain `Field` assembly
  * (`flatFieldToField`) → the shared identifier verdict
- * (`lib/doc/identifierVerdicts.ts` — XML-name legality, the reserved
- * `__nova_` prefix, and sibling uniqueness against the doc AND this
- * batch's earlier items). Parent resolution
- * covers containers minted earlier in the same batch (`mintedByBareId`)
+ * (`lib/doc/identifierVerdicts.ts` — XML-name legality and sibling
+ * uniqueness against the doc AND this batch's earlier items). Parent
+ * resolution covers containers minted earlier in the same batch (`mintedByBareId`)
  * before falling back to the doc-wide lookup, so a group + its children
  * compose in one call.
  *

@@ -127,7 +127,7 @@ def test_an_extension_case_exports_empty_inert_subcase_columns_whose_index_path_
     # Each extension child case is an active Save to Case block (``nova_subcases/nova_subcase_<i>``) and an inert
     # basic subcase at the same position (``subcase_<i>``); a basic child case at a position no block holds is
     # neither.
-    blocks = {header.split(".")[2].rsplit("_", 1)[1] for header in headers if ".__nova_subcase_" in header}
+    blocks = {header.split(".")[2].rsplit("_", 1)[1] for header in headers if ".nova_subcase_" in header}
     inert = [
         index for index, header in enumerate(headers) if header.split(".")[1:2] in ([f"subcase_{i}"] for i in blocks)
     ]

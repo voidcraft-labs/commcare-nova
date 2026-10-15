@@ -99,6 +99,13 @@ public class CaseOperationRuntimeTest {
                 unrelated.setIndex(new CaseIndex("parent", "patient", "patient-2"));
                 sandbox.getCaseStorage().write(unrelated);
             }
+            if ("expression-retype".equals(scenario)) {
+                // A patient whose id an answer keyed, which no operation may retype.
+                Case keyed = new Case("Keyed patient", "patient");
+                keyed.setCaseId(KEYED_PATIENT);
+                keyed.setUserId("previous-owner");
+                sandbox.getCaseStorage().write(keyed);
+            }
             if ("nested".equals(scenario)) {
                 Case household = new Case("Household name", "household");
                 household.setCaseId("household-1");
@@ -165,14 +172,32 @@ public class CaseOperationRuntimeTest {
                 }
             }
         }
-        void apply() throws Exception {
+        byte[] serialized() throws Exception {
             form.postProcessInstance();
-            byte[] submitted = new XFormSerializingVisitor().serializeInstance(form.getMainInstance());
-            XmlFormRecordProcessor.process(sandbox, new ByteArrayInputStream(submitted));
+            return new XFormSerializingVisitor().serializeInstance(form.getMainInstance());
+        }
+        void apply() throws Exception {
+            XmlFormRecordProcessor.process(sandbox, new ByteArrayInputStream(serialized()));
+        }
+        /** The elements the submission holds below the form's {@code nova_operations} group, by name, in order. */
+        java.util.List<String> submittedOperations() throws Exception {
+            javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            org.w3c.dom.Document submitted = factory.newDocumentBuilder().parse(new ByteArrayInputStream(serialized()));
+            java.util.List<String> found = new java.util.ArrayList<>();
+            for (org.w3c.dom.Node group = submitted.getDocumentElement().getFirstChild(); group != null; group = group.getNextSibling()) {
+                if (!"nova_operations".equals(group.getLocalName())) continue;
+                for (org.w3c.dom.Node child = group.getFirstChild(); child != null; child = child.getNextSibling()) {
+                    if (child.getNodeType() != org.w3c.dom.Node.ELEMENT_NODE) continue;
+                    found.add(child.getLocalName() + (child.getFirstChild() == null ? "" : "/" + child.getFirstChild().getLocalName()));
+                }
+            }
+            return found;
         }
         Case record(String id) { return sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, id); }
     }
     private Run run(String scenario) throws Exception { return new Run(scenario, hq); }
+    private static final String KEYED_PATIENT = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:keyed";
     private static void assertVisit(Run run, String id, String name, boolean tagged) {
         Case visit = run.record(id);
         assertEquals("visit", visit.getTypeId());
@@ -191,8 +216,12 @@ public class CaseOperationRuntimeTest {
         run.answer("/data/answer", "  Visit one  ");
         run.answer("/data/key", "write");
         run.answer("/data/ordinary_note", "Ordinary last");
-        String id = (String)run.eval("/data/__nova_operations/create_visit/case/@case_id");
+        String id = (String)run.eval("/data/nova_operations/create_visit/case/@case_id");
         assertFalse(id.isEmpty());
+        // One block reads another's id through current(): the update that targets the create and the create's
+        // guard each hold the id the create wrote.
+        assertEquals(id, run.eval("/data/nova_operations/tag_visit/case/@case_id"));
+        assertEquals(id, run.eval("/data/nova_operations/nova_guard_create_visit_text/case/@case_id"));
         run.apply();
         assertVisit(run, id, "Visit one", true);
         assertEquals("Ordinary last", run.record("patient-1").getPropertyString("nickname"));
@@ -443,10 +472,18 @@ public class CaseOperationRuntimeTest {
         Run run = run("conditional");
         run.answer("/data/answer", "Conditional visit");
         run.answer("/data/enabled", "no");
+        // A false condition leaves the create's block without its case and every condition group out, so the
+        // consumers of the create, its guard among them, submit nothing.
+        assertEquals(Arrays.asList("create_visit"), run.submittedOperations());
         run.apply();
         assertEquals(3, run.sandbox.getCaseStorage().getNumRecords());
         run.answer("/data/enabled", "yes");
-        String id = (String)run.eval("/data/__nova_operations/create_visit/case/@case_id");
+        assertEquals(Arrays.asList("create_visit/case", "nova_condition_create_visit/nova_guard_create_visit_text",
+            "nova_condition_tag_visit/tag_visit", "nova_condition_unlink_visit/unlink_visit",
+            "nova_condition_finish_visit/finish_visit"), run.submittedOperations());
+        String id = (String)run.eval("/data/nova_operations/create_visit/case/@case_id");
+        assertEquals(id, run.eval("/data/nova_operations/nova_condition_create_visit/nova_guard_create_visit_text/case/@case_id"));
+        assertEquals(id, run.eval("/data/nova_operations/nova_condition_tag_visit/tag_visit/case/@case_id"));
         run.apply();
         assertVisit(run, id, "Conditional visit", false);
     }
@@ -471,6 +508,33 @@ public class CaseOperationRuntimeTest {
         assertTrue(record.isClosed());
     }
     @Test public void sessionRetype() throws Exception { retype("retype"); }
+    /** A guard is an update-only block after its operation's; where its test fails its case id is blank, and Core
+     * refuses the whole submission (CaseXmlParserUtil.validateMandatoryProperty). One guard of each kind. */
+    @Test public void aFailingGuardOfEachKindRefusesTheSubmission() throws Exception {
+        String type = "/data/nova_operations/nova_guard_link_patient_type/case/@case_id";
+        Run linked = run("link");
+        linked.answer("/data/destination", "visit-1");
+        assertEquals("A link to a case of another type", "", linked.eval(type));
+        assertThrows(InvalidStructureException.class, linked::apply);
+        String promoted = "/data/nova_operations/nova_condition_promote/promote/case/@case_id";
+        String retype = "/data/nova_operations/nova_condition_promote/nova_guard_promote_retype/case/@case_id";
+        String text = "/data/nova_operations/nova_condition_rename_promoted/nova_guard_rename_promoted_text/case/@case_id";
+        Run keyed = run("expression-retype");
+        keyed.answer("/data/enabled", "yes");
+        keyed.answer("/data/answer", "Promoted name");
+        keyed.answer("/data/destination", KEYED_PATIENT);
+        assertEquals(KEYED_PATIENT, keyed.eval(promoted));
+        assertEquals("A retype of a case whose id an answer keyed", "", keyed.eval(retype));
+        assertEquals(KEYED_PATIENT, keyed.eval(text));
+        assertThrows(InvalidStructureException.class, keyed::apply);
+        Run blank = run("expression-retype");
+        blank.answer("/data/enabled", "yes");
+        blank.answer("/data/answer", "   ");
+        blank.answer("/data/destination", "patient-1");
+        assertEquals("patient-1", blank.eval(retype));
+        assertEquals("A whitespace-only name", "", blank.eval(text));
+        assertThrows(InvalidStructureException.class, blank::apply);
+    }
     @Test public void expressionRetypeUsesSnapshot() throws Exception { retype("expression-retype"); }
     private void repeated(String scenario) throws Exception {
         Run run = run(scenario);
@@ -483,12 +547,16 @@ public class CaseOperationRuntimeTest {
             String scope = base + "[" + index + "]";
             run.answer(scope + "/answer", "Visit " + index);
             run.answer(scope + "/key", "write");
-            ids.add((String)run.eval(scope + "/__nova_operations/create_visit/case/@case_id"));
+            String id = (String)run.eval(scope + "/nova_operations/create_visit/case/@case_id");
+            // Each row's blocks read that row's create through current().
+            assertEquals(id, run.eval(scope + "/nova_operations/nova_guard_create_visit_text/case/@case_id"));
+            assertEquals(id, run.eval(scope + "/nova_operations/unlink_visit/case/@case_id"));
+            ids.add(id);
         }
         assertEquals(count, ids.size());
         run.apply();
         for (int index = 1; index <= count; index++) {
-            String id = (String)run.eval(base + "[" + index + "]/__nova_operations/create_visit/case/@case_id");
+            String id = (String)run.eval(base + "[" + index + "]/nova_operations/create_visit/case/@case_id");
             if (index == 1) assertVisit(run, id, "Visit " + index, true);
             else {
                 Case skipped = run.record(id);
@@ -506,11 +574,16 @@ public class CaseOperationRuntimeTest {
     @Test public void queryGeneratedIds() throws Exception { repeated("query"); }
     @Test public void exactAuthoredKeysAndBounds() throws Exception {
         String prefix = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:";
+        // The root keyed create's block sits in a one-row repeat, whose row form entry makes.
+        String block = "/data/nova_operations/nova_keyed_create_visit/create_visit/case/@case_id";
         for (String key : new String[]{" External/42 ", "é", "e\u0301", "😀".repeat(102) + "x"}) {
             Run run = run("key");
+            run.enter("key");
+            assertEquals(1.0, run.eval("count(/data/nova_operations/nova_keyed_create_visit)"));
             run.answer("/data/answer", "Keyed visit");
             run.answer("/data/key", key);
-            assertEquals(prefix + key, run.eval("/data/__nova_operations/create_visit/case/@case_id"));
+            assertEquals(prefix + key, run.eval(block));
+            assertEquals(prefix + key, run.eval("/data/nova_operations/nova_guard_create_visit_text/case/@case_id"));
             run.apply();
             assertEquals("Keyed visit", run.record(prefix + key).getName());
             assertEquals("fixture-userid", run.record(prefix + key).getUserId());
@@ -518,6 +591,7 @@ public class CaseOperationRuntimeTest {
         }
         for (String key : new String[]{"", "x".repeat(206), "😀".repeat(103)}) {
             Run run = run("key");
+            run.enter("key");
             run.answer("/data/answer", "Keyed visit");
             run.answer("/data/key", key);
             assertThrows(InvalidStructureException.class, run::apply);
@@ -532,8 +606,8 @@ public class CaseOperationRuntimeTest {
             run.answer("/data/items/item[" + index + "]/key", " Shared ");
         }
         String expected = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b: Shared ";
-        assertEquals(expected, run.eval("/data/items/item[1]/__nova_operations/create_visit/case/@case_id"));
-        assertEquals(expected, run.eval("/data/items/item[2]/__nova_operations/create_visit/case/@case_id"));
+        assertEquals(expected, run.eval("/data/items/item[1]/nova_operations/create_visit/case/@case_id"));
+        assertEquals(expected, run.eval("/data/items/item[2]/nova_operations/create_visit/case/@case_id"));
         run.apply();
         assertEquals(4, run.sandbox.getCaseStorage().getNumRecords());
         assertEquals("Visit 2", run.record(expected).getName());

@@ -44,10 +44,6 @@ const operationIdInputSchema = z
 	.regex(
 		CASE_OPERATION_IDENTIFIER_REGEX,
 		CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-	)
-	.refine(
-		(value) => !value.startsWith("__nova_"),
-		'Operation ids starting with "__nova_" are reserved.',
 	);
 
 const propertyInputSchema = z

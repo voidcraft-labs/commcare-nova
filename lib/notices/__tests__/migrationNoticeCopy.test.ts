@@ -181,6 +181,7 @@ const ENTRIES: Record<
 		[],
 	),
 	"hq-app-deleted": deploymentEntries("hq-app-deleted", []),
+	"data-paths-move-once": deploymentEntries("data-paths-move-once", []),
 	"hq-app-not-nova-made": deploymentEntries("hq-app-not-nova-made", []),
 	"ids-change-once-unreadable": deploymentEntries(
 		"ids-change-once-unreadable",
@@ -340,6 +341,11 @@ describe("the identity, gone app and download lines", () => {
 			renderNoticeEntry(deployment("ids-change-once-unreadable"), PRESENT).text,
 		).toBe(
 			"Nova couldn't read the app on field-ops during this update, so the next publish there asks before it writes over that copy. Once you confirm, every menu and form of the app there gets a new ID in CommCare HQ, once. Forms submitted before then stay under each form's earlier ID in CommCare HQ. If an SMS keyword or a scheduled message opens one of its forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.",
+		);
+		expect(
+			renderNoticeEntry(deployment("data-paths-move-once"), PRESENT).text,
+		).toBe(
+			"The next publish to field-ops moves the form data that Nova adds to each form to new names, once. Form exports in CommCare HQ show those columns under the new names from then on.",
 		);
 		expect(
 			renderNoticeEntry(

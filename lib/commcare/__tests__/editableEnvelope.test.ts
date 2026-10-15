@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
@@ -175,6 +176,75 @@ function selfReadingCarriers(elements: Element[]): string[] {
 	return out;
 }
 
+const CASE_TRANSACTION = "http://commcarehq.org/case/transaction/v2";
+
+/** The form's primary instance root. */
+function dataRoot(elements: Element[]): Element {
+	const data = elements.find(
+		(element) =>
+			element.name === "data" &&
+			element.parent !== null &&
+			isTag(element.parent) &&
+			element.parent.name === "instance" &&
+			element.parent.attribs.src === undefined,
+	);
+	if (data === undefined)
+		throw new Error("The form holds no primary instance.");
+	return data;
+}
+
+/** The data element a structural `/data/...` path names, if any. */
+function resolve(data: Element, path: string): Element | undefined {
+	let target: FormPath;
+	try {
+		target = FormPath.parse(path);
+	} catch {
+		return undefined;
+	}
+	let node: Element | undefined = data;
+	for (const segment of target.segments().slice(1)) {
+		if (segment.kind === "attribute") break;
+		node = node?.children
+			.filter(isTag)
+			.find((element) => element.name === segment.name);
+	}
+	return node;
+}
+
+/** A model-iteration row stands for its repeat in HQ's form builder. */
+function editorNode(node: Element): Element {
+	const parent = node.parent;
+	return node.name === "item" &&
+		parent !== null &&
+		isTag(parent) &&
+		parent.attribs.ids !== undefined
+		? parent
+		: node;
+}
+
+/** The data parent HQ's form builder gives a node. */
+function editorParent(node: Element): Element | undefined {
+	const parent = node.parent;
+	return parent !== null && isTag(parent) ? editorNode(parent) : undefined;
+}
+
+/** Every body control with the data node it names. */
+function controls(elements: Element[]): { control: Element; node: Element }[] {
+	const data = dataRoot(elements);
+	const body = elements.find((element) => element.name === "h:body");
+	return findAll(() => true, body?.children ?? []).flatMap((control) => {
+		const path =
+			control.name === "repeat" ? control.attribs.nodeset : control.attribs.ref;
+		if (path === undefined || !path.startsWith("/data/")) return [];
+		const node = resolve(data, path);
+		if (node === undefined)
+			throw new Error(
+				`The control ${control.name} names ${path}, which the data tree does not hold.`,
+			);
+		return [{ control, node: editorNode(node) }];
+	});
+}
+
 describe.each(emitted)("$name", (form) => {
 	it("writes no constraint on a case-block leaf, in the source or the local archive", () => {
 		for (const elements of [form.source, form.local]) {
@@ -284,6 +354,98 @@ describe.each(emitted)("$name", (form) => {
 				[],
 			);
 		}
+	});
+
+	it("lists each parent's controls in the order its data holds them", () => {
+		for (const elements of [form.source, form.local]) {
+			const named = controls(elements);
+			const byParent = new Map<Element, Element[]>();
+			for (const { node } of named) {
+				const parent = editorParent(node);
+				if (parent === undefined) continue;
+				byParent.set(parent, [...(byParent.get(parent) ?? []), node]);
+			}
+			for (const [parent, inBody] of byParent) {
+				const controlled = new Set(inBody);
+				const inData = parent.children.filter(isTag).flatMap((child) => {
+					if (controlled.has(child)) return [child];
+					// A model-iteration row's children are its repeat's.
+					return child.name === "item" && editorNode(child) === parent
+						? child.children.filter(
+								(row): row is Element => isTag(row) && controlled.has(row),
+							)
+						: [];
+				});
+				expect(inBody.map((node) => node.name)).toEqual(
+					inData.map((node) => node.name),
+				);
+			}
+		}
+	});
+
+	it("puts each control inside its data parent's control", () => {
+		for (const elements of [form.source, form.local]) {
+			const named = controls(elements);
+			const nodeOf = new Map(named.map(({ control, node }) => [control, node]));
+			for (const { control, node } of named) {
+				let up = control.parent;
+				while (up !== null && isTag(up) && !nodeOf.has(up)) up = up.parent;
+				const parentControlNode =
+					up !== null && isTag(up) ? nodeOf.get(up) : dataRoot(elements);
+				expect(editorParent(node)).toBe(parentControlNode);
+			}
+		}
+	});
+
+	it("writes setvalues in the order their targets stand in the data tree", () => {
+		for (const elements of [form.source]) {
+			const order = new Map<Element, number>();
+			for (const node of findAll(() => true, [dataRoot(elements)]))
+				order.set(node, order.size);
+			const data = dataRoot(elements);
+			const positions = elements
+				.filter((element) => element.name === "setvalue")
+				.map((setvalue) => {
+					const target = resolve(data, setvalue.attribs.ref ?? "");
+					return target === undefined ? -1 : (order.get(target) ?? -1);
+				});
+			expect(positions).not.toContain(-1);
+			expect(positions).toEqual([...positions].sort((a, b) => a - b));
+		}
+	});
+
+	it("never names a node inside a case block by an absolute path", () => {
+		const data = dataRoot(form.source);
+		const insideBlock = (path: string): boolean => {
+			let target: FormPath;
+			try {
+				target = FormPath.parse(path);
+			} catch {
+				return false;
+			}
+			let node: Element | undefined = data;
+			for (const segment of target.segments().slice(1)) {
+				if (segment.kind === "attribute" || node === undefined) break;
+				node = node.children
+					.filter(isTag)
+					.find((element) => element.name === segment.name);
+				if (node?.name === "case" && node.attribs.xmlns === CASE_TRANSACTION)
+					return true;
+			}
+			return false;
+		};
+		const absolute: string[] = [];
+		for (const source of expressions(form.source)) {
+			parser.parse(source).iterate({
+				enter(cursor) {
+					if (cursor.name !== "Child" && cursor.name !== "Descendant") return;
+					const path = source.slice(cursor.from, cursor.to);
+					if (path.startsWith("/data/")) absolute.push(path);
+					return false;
+				},
+			});
+		}
+		expect(absolute.filter(insideBlock)).toEqual([]);
 	});
 
 	it("names the form by its default-language name in the title and the data node", () => {

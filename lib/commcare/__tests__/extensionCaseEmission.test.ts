@@ -129,38 +129,38 @@ it.each(extensionScenarios)(
 			);
 			const parent =
 				scenario === "multiple-repeat"
-					? at(at(at(data, "records"), "__nova_selected_cases"), "item")
+					? at(at(at(data, "records"), "nova_selected_cases"), "item")
 					: scenario === "repeat"
 						? at(data, "records")
 						: scenario === "query"
 							? at(at(data, "records"), "item")
 							: scenario === "multiple"
-								? at(at(data, "__nova_selected_cases"), "item")
+								? at(at(data, "nova_selected_cases"), "item")
 								: data;
 			const container = at(
 				parent,
-				multiple ? "__nova_operations" : "__nova_subcases",
+				multiple ? "nova_operations" : "nova_subcases",
 			);
 			expect(container.children.filter(isTag).map((e) => e.name)).toEqual(
 				multiple
-					? ["__nova_subcase_0", "__nova_subcase_1", "__nova_subcase_2"]
-					: ["__nova_subcase_0", "__nova_subcase_2"],
+					? ["nova_subcase_0", "nova_subcase_1", "nova_subcase_2"]
+					: ["nova_subcase_0", "nova_subcase_2"],
 			);
 			const prefix =
 				scenario === "multiple-repeat"
-					? "/data/records/__nova_selected_cases/item"
+					? "/data/records/nova_selected_cases/item"
 					: scenario === "repeat"
 						? "/data/records"
 						: scenario === "query"
 							? "/data/records/item"
 							: scenario === "multiple"
-								? "/data/__nova_selected_cases/item"
+								? "/data/nova_selected_cases/item"
 								: "/data";
 			for (const [index, type] of [
 				[0, "episode"],
 				[2, "consent"],
 			] as const) {
-				const block = at(at(container, `__nova_subcase_${index}`), "case");
+				const block = at(at(container, `nova_subcase_${index}`), "case");
 				expect(block.attribs).toEqual({
 					case_id: "",
 					date_modified: "",
@@ -172,7 +172,7 @@ it.each(extensionScenarios)(
 					relationship: "extension",
 				});
 				expect(at(at(block, "update"), "note").attribs).toEqual({});
-				const path = `${prefix}/${container.name}/__nova_subcase_${index}/case`;
+				const path = `${prefix}/${container.name}/nova_subcase_${index}/case`;
 				if (type === "episode") {
 					expect(at(at(block, "attachment"), "photo").attribs).toEqual({
 						src: "",

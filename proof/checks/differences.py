@@ -13,8 +13,9 @@ keys, identities and names. The vocabulary is decided from the formats' own
 readers (``compare.names`` for an XForm's data, a submission and Core's case
 database; ``compare.app_json`` for the app JSON; ``compare.app_strings`` for
 app strings), so a name a reader finds an element by (``case``, ``create``,
-``update``, ``meta``, ``@case_id``, Nova's ``__nova_*`` prefixes without
-their minted part) stays as it is. A run of the app's own elements is one
+``update``, ``meta``, ``@case_id``) stays as it is, and so does the name of a
+node Nova generates, its fixed name or its family without its minted part
+(``compare.names.nova_name``). A run of the app's own elements is one
 ``*``, a query-bound repeat's row inside it part of it (how deeply the app
 nests its data is the document's).
 
