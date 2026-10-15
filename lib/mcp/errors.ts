@@ -471,7 +471,7 @@ export function toMcpErrorResult(
 		 *
 		 * Logged at `error`: unlike an invalid input, this one is our bug. The
 		 * stored payloads stay out of the message. */
-		log.error("[mcp] mutation batch id collision", {
+		log.error("[mcp] mutation batch id collision", err, {
 			userId: ctx?.userId ?? null,
 			appId: ctx?.appId ?? null,
 		});

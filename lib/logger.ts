@@ -168,7 +168,7 @@ export function sentryTagsFor(
 /**
  * Mirror an error/critical entry to Sentry. `captureException` when the
  * caller passed a thrown value — Sentry fingerprints on its stack, which
- * groups far better than message text — and `captureMessage` otherwise.
+ * groups far better than message text — and a message-only `captureEvent` otherwise.
  * The log message + context ride along as `extra` so the Sentry issue
  * carries the same detail as the Cloud Logging line; the identity-shaped
  * subset is additionally promoted to indexed `tags` (see `sentryTagsFor`)
@@ -192,7 +192,9 @@ function captureToSentry(
 	if (error !== undefined) {
 		Sentry.captureException(error, capture);
 	} else {
-		Sentry.captureMessage(message, capture);
+		// captureMessage synthesizes a logger stack when attachStacktrace is on.
+		// An event without an exception preserves the actual diagnostic title.
+		Sentry.captureEvent({ message, ...capture });
 	}
 }
 

@@ -556,13 +556,31 @@ export class GenerationContext
 	 * the known external conditions (rate limit, auth, overload, …) log at
 	 * `warn` so they don't flood Error Reporting with expected states.
 	 */
+	private readonly reportedErrors = new WeakSet<object>();
+
 	emitError(
 		error: ClassifiedError,
 		context?: string,
-		opts?: { runContinues?: boolean; reportedAtSource?: boolean },
+		opts?: {
+			runContinues?: boolean;
+			reportedAtSource?: boolean;
+			originalError?: unknown;
+		},
 	): void {
-		if (opts?.reportedAtSource !== true) {
+		const originalError = opts?.originalError;
+		const identity =
+			originalError !== null &&
+			(typeof originalError === "object" || typeof originalError === "function")
+				? originalError
+				: undefined;
+		if (
+			opts?.reportedAtSource !== true &&
+			(!identity || !this.reportedErrors.has(identity))
+		) {
+			if (identity) this.reportedErrors.add(identity);
 			const cause = {
+				appId: this.appId,
+				runId: this.runId,
 				raw: error.raw ?? "",
 				context: context ?? "",
 				recoverable: error.recoverable,
@@ -570,7 +588,7 @@ export class GenerationContext
 			if (error.type === "internal") {
 				log.error(
 					`[generation] internal error: ${error.message}`,
-					undefined,
+					opts?.originalError,
 					cause,
 				);
 			} else {
@@ -585,10 +603,10 @@ export class GenerationContext
 		};
 		try {
 			this.emitConversation({ type: "error", error: payload });
-		} catch {
+		} catch (emissionError) {
 			log.error(
 				"[emitError] conversation event emission failed — error may not reach the log",
-				undefined,
+				emissionError,
 				{ errorMessage: error.message, context: context ?? "" },
 			);
 		}
@@ -1272,7 +1290,9 @@ export class GenerationContext
 					error: error instanceof Error ? error.message : String(error),
 				});
 			} else {
-				this.emitError(classifyError(error), `extractDocument:${opts.label}`);
+				this.emitError(classifyError(error), `extractDocument:${opts.label}`, {
+					originalError: error,
+				});
 			}
 			throw error;
 		}
