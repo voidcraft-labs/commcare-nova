@@ -4802,7 +4802,7 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
 		"document": "targeted-invalid-connect-ids",
-		"control": "targeted-hq-side-state"
+		"control": "connect-location-capture"
 	},
 	{
 		"id": "d35-hidden-select-text-trace-rows-fields",

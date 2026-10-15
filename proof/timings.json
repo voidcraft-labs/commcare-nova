@@ -541,6 +541,7 @@
 				"control:case-operation-repeat": 11.571,
 				"control:case-operation-retype": 10.842,
 				"control:case-operation-sequence": 12.344,
+				"control:connect-location-capture": 1.302,
 				"control:container-live-count-entry": 6.418,
 				"control:container-nested-query": 5.913,
 				"control:container-query-conditional": 3.737,
