@@ -52,6 +52,11 @@ import { isDeepStrictEqual } from "node:util";
  * Action, so no client-callable RPC surface exists.
  */
 import type { UIMessage } from "ai";
+import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
+import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
+
+export { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
+
 import { type ExpressionBuilder, sql, type Transaction } from "kysely";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import {
@@ -320,15 +325,6 @@ function stripAssistantAttachmentMetadata(
 	return { ...message, metadata: rest } as UIMessage;
 }
 
-export class ThreadAttachmentUnavailableError extends Error {
-	readonly name = "ThreadAttachmentUnavailableError";
-	constructor() {
-		super(
-			"A conversation attachment is no longer available in this Project. Choose it again and retry.",
-		);
-	}
-}
-
 /**
  * Replace THIS thread's exact conversation media reference set
  * (`thread_media_refs`) in the same transaction as the candidate transcript
@@ -343,6 +339,8 @@ async function admitExactThreadMediaProjection(
 	args: {
 		projectId: string;
 		candidateMessages: readonly unknown[];
+		previousMessages: readonly unknown[];
+		previousSources: readonly SelectedSourceDocument[];
 		threadId: string;
 	},
 ): Promise<void> {
@@ -354,7 +352,42 @@ async function admitExactThreadMediaProjection(
 		});
 	} catch (error) {
 		if (error instanceof MediaReferenceProjectionError) {
-			throw new ThreadAttachmentUnavailableError();
+			const inPrevious = collectThreadAttachments(args.previousMessages).some(
+				(attachment) =>
+					attachment.assetId === error.assetId &&
+					attachment.kind === error.expectedKind,
+			);
+			const incoming = collectThreadAttachments(args.candidateMessages).some(
+				(attachment) =>
+					attachment.assetId === error.assetId &&
+					attachment.kind === error.expectedKind,
+			);
+			// Source selections are server-owned and already admitted. If the failed
+			// requirement is absent from attachments it belongs to that retained source set.
+			const inSelectedSources = args.previousSources.some(
+				(source) =>
+					source.assetId === error.assetId &&
+					source.kind === error.expectedKind,
+			);
+			const admission =
+				inPrevious || inSelectedSources || !incoming ? "durable" : "incoming";
+			const failure = new ThreadAttachmentUnavailableError(admission, error);
+			const context = {
+				threadId: args.threadId,
+				projectId: args.projectId,
+				assetId: error.assetId,
+				reason: error.reason,
+				expectedKind: error.expectedKind,
+				admission,
+			};
+			if (admission === "durable")
+				log.error(
+					"[threads] retained conversation file failed admission",
+					failure,
+					context,
+				);
+			else log.warn("[threads] incoming conversation file refused", context);
+			throw failure;
 		}
 		throw error;
 	}
@@ -705,6 +738,7 @@ export async function upsertThreadTurn(
 				"app_id",
 				"design_session_id",
 				"messages",
+				"selected_sources",
 				"active_stream_id",
 				"clawed_back_ids",
 			])
@@ -728,6 +762,10 @@ export async function upsertThreadTurn(
 				await admitExactThreadMediaProjection(tx, {
 					projectId: authority.projectId,
 					candidateMessages: merged,
+					previousMessages: stored,
+					previousSources: selectedSourceDocumentsSchema.parse(
+						existing.selected_sources,
+					),
 					threadId: args.threadId,
 				});
 			}
@@ -774,6 +812,8 @@ export async function upsertThreadTurn(
 			await admitExactThreadMediaProjection(tx, {
 				projectId: authority.projectId,
 				candidateMessages: insertable,
+				previousMessages: [],
+				previousSources: [],
 				threadId: args.threadId,
 			});
 			return true;
@@ -822,6 +862,10 @@ export async function upsertThreadTurn(
 		await admitExactThreadMediaProjection(tx, {
 			projectId: authority.projectId,
 			candidateMessages: merged,
+			previousMessages: stored,
+			previousSources: selectedSourceDocumentsSchema.parse(
+				existing.selected_sources,
+			),
 			threadId: args.threadId,
 		});
 		return true;
@@ -861,7 +905,13 @@ export async function mergeThreadTurnMessages(args: {
 		await lockThreadIdentity(tx, args.threadId);
 		const existing = await tx
 			.selectFrom("threads")
-			.select(["app_id", "design_session_id", "messages", "clawed_back_ids"])
+			.select([
+				"app_id",
+				"design_session_id",
+				"messages",
+				"selected_sources",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
@@ -882,6 +932,10 @@ export async function mergeThreadTurnMessages(args: {
 		await admitExactThreadMediaProjection(tx, {
 			projectId: authority.projectId,
 			candidateMessages: merged,
+			previousMessages: stored,
+			previousSources: selectedSourceDocumentsSchema.parse(
+				existing.selected_sources,
+			),
 			threadId: args.threadId,
 		});
 		return true;
@@ -1866,6 +1920,10 @@ export async function selectThreadSource(args: {
 		await admitExactThreadMediaProjection(tx, {
 			projectId: args.expectedProjectId,
 			candidateMessages: row.messages,
+			previousMessages: row.messages,
+			previousSources: selectedSourceDocumentsSchema.parse(
+				row.selected_sources,
+			),
 			threadId: args.threadId,
 		});
 	});

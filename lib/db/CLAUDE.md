@@ -1255,3 +1255,10 @@ bind the started event to that turn across context generations; original event
 digests and usage rows stay immutable. Reconnects retain the allowance; a new
 user message or answered question starts a new one. Missing provenance in a
 design start is an invariant failure before another provider call.
+
+Thread file admission preserves typed missing, wrong-Project, not-ready and
+wrong-kind reasons internally. Newly supplied attachments refuse without a Sentry
+incident. A previously retained attachment or server-selected source failing
+admission is an invariant failure reported with its original cause, thread and
+asset identity. Client responses contain actionable copy only. Rejected claims
+roll back their thread, holder and credit changes together.

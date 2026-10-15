@@ -41,6 +41,7 @@ import { productionSourceMaterialDeps } from "@/lib/agent/sources.server";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
+import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
 import { isOpenAICompactionChunk } from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
@@ -775,6 +776,11 @@ export async function POST(req: Request) {
 						reservation = claimed.reservation;
 						holderNonce = claimed.holderNonce;
 					} catch (err) {
+						if (err instanceof ThreadAttachmentUnavailableError)
+							return Response.json(
+								{ error: err.message, type: "attachment_unavailable" },
+								{ status: 409 },
+							);
 						if (err instanceof InputRoundRejectedError)
 							return Response.json(err.reconciliation, { status: 409 });
 						if (err instanceof RunConflictError) {
@@ -1121,6 +1127,11 @@ export async function POST(req: Request) {
 					}
 				}
 			} catch (err) {
+				if (err instanceof ThreadAttachmentUnavailableError)
+					return Response.json(
+						{ error: err.message, type: "attachment_unavailable" },
+						{ status: 409 },
+					);
 				if (err instanceof InputRoundRejectedError)
 					return Response.json(err.reconciliation, { status: 409 });
 				if (err instanceof RunConflictError) {
@@ -2200,6 +2211,15 @@ export async function POST(req: Request) {
 							}
 							break;
 						} catch (err) {
+							if (err instanceof ThreadAttachmentUnavailableError) {
+								ctx.emitError(
+									classifyError(err),
+									"route:attachment-admission",
+									{ reportedAtSource: true },
+								);
+								await finalizeRun(undefined, { heldApp: false });
+								return;
+							}
 							if (err instanceof InputRoundRejectedError) {
 								writer.write({
 									type: "data-input-round-reconciliation",
@@ -2502,6 +2522,13 @@ export async function POST(req: Request) {
 							usage.configureRun({ holderNonce });
 						}
 					} catch (err) {
+						if (err instanceof ThreadAttachmentUnavailableError) {
+							ctx.emitError(classifyError(err), "route:attachment-admission", {
+								reportedAtSource: true,
+							});
+							await finalizeRun(undefined, { heldApp: false });
+							return;
+						}
 						if (err instanceof InputRoundRejectedError) {
 							writer.write({
 								type: "data-input-round-reconciliation",

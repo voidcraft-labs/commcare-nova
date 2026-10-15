@@ -2,7 +2,9 @@
  * Error classifier — inspects errors from the AI SDK / API calls and returns
  * a structured classification with a human-readable message safe for display.
  */
+
 import { APICallError } from "ai";
+import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
 import {
 	AppProjectChangedError,
 	CommitReauthError,
@@ -25,6 +27,7 @@ export type ErrorType =
 	| "access_revoked"
 	| "app_changed"
 	| "prompt_flagged"
+	| "attachment_unavailable"
 	| "internal";
 
 export interface ClassifiedError {
@@ -57,6 +60,8 @@ export const MESSAGES: Record<ErrorType, string> = {
 		"This app moved to another Project while Nova was working. Nova stopped before applying the pending change. Reload to continue.",
 	prompt_flagged:
 		"The model provider flagged this request as a possible usage-policy violation and stopped before finishing. That happens to ordinary content now and then. Try again, or reword the request, to continue.",
+	attachment_unavailable:
+		"A conversation file is unavailable. You can choose it again from this Project.",
 	internal: "Something went wrong during generation.",
 };
 
@@ -189,6 +194,12 @@ function rawErrorText(error: unknown): string {
 }
 
 export function classifyError(error: unknown): ClassifiedError {
+	if (error instanceof ThreadAttachmentUnavailableError)
+		return {
+			type: "attachment_unavailable",
+			message: error.message,
+			recoverable: false,
+		};
 	const raw = rawErrorText(error);
 
 	if (error instanceof RunHolderLostError) {

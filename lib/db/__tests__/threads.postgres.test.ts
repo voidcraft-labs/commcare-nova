@@ -36,7 +36,9 @@
 import type { UIMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { classifyError } from "@/lib/agent/errorClassifier";
 import type { MediaAssetId } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import { RunHolderLostError } from "../commitGuard";
 import { deleteMediaAssetForActor } from "../mediaDeletion";
 import { getAppDb } from "../pg";
@@ -2016,4 +2018,97 @@ describe("loaders", () => {
 		expect(doc?.active_stream_id).toBe("stream-live");
 		expect(doc?.resume_interrupted).toBeUndefined();
 	});
+});
+
+it.each(["not-ready", "wrong-project", "wrong-kind"] as const)(
+	"classifies incoming attachment %s without exposing internal identities",
+	async (reason) => {
+		const assetId = testMediaAssetId("refused-attachment");
+		await seedReadyDocument(assetId);
+		await h
+			.db()
+			.updateTable("media_assets")
+			.set(
+				reason === "not-ready"
+					? { status: "pending" }
+					: reason === "wrong-kind"
+						? { kind: "image" }
+						: { project_id: "other-project" },
+			)
+			.where("id", "=", assetId)
+			.execute();
+		const args = {
+			appId: APP,
+			threadId: "refused-thread",
+			runId: "refused-run",
+			streamId: "refused-stream",
+			holderNonce: NONCE,
+			threadType: "build" as const,
+			messages: [attachmentMsg("incoming", assetId)],
+		};
+		let caught: unknown;
+		try {
+			await writeThreadTurnWithSeededHolder(args);
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toMatchObject({
+			name: "ThreadAttachmentUnavailableError",
+			admission: "incoming",
+			detail: { assetId, reason },
+			cause: { name: "MediaReferenceProjectionError", assetId, reason },
+		});
+		expect(classifyError(caught)).toMatchObject({
+			type: "attachment_unavailable",
+			recoverable: false,
+		});
+		expect(JSON.stringify(classifyError(caught))).not.toContain(assetId);
+		expect(log.error).not.toHaveBeenCalled();
+		expect(
+			await loadThread({ kind: "app", appId: APP }, args.threadId),
+		).toBeNull();
+	},
+);
+
+it("reports retained attachment failures with their original cause and preserves the stored transcript", async () => {
+	const assetId = testMediaAssetId("retained-attachment");
+	await seedReadyDocument(assetId);
+	const args = {
+		appId: APP,
+		threadId: "retained-thread",
+		runId: "retained-run",
+		streamId: "retained-stream",
+		holderNonce: NONCE,
+		threadType: "build" as const,
+		messages: [attachmentMsg("retained", assetId)],
+	};
+	await writeThreadTurnWithSeededHolder(args);
+	const before = await loadThread({ kind: "app", appId: APP }, args.threadId);
+	await h
+		.db()
+		.updateTable("media_assets")
+		.set({ status: "pending" })
+		.where("id", "=", assetId)
+		.execute();
+	await expect(
+		writeThreadTurnWithSeededHolder({
+			...args,
+			messages: [...args.messages, userMsg("new-message", "Continue")],
+		}),
+	).rejects.toMatchObject({
+		admission: "durable",
+		cause: { assetId, reason: "not-ready" },
+	});
+	expect(log.error).toHaveBeenCalledWith(
+		expect.any(String),
+		expect.objectContaining({ name: "ThreadAttachmentUnavailableError" }),
+		expect.objectContaining({
+			threadId: args.threadId,
+			assetId,
+			reason: "not-ready",
+			admission: "durable",
+		}),
+	);
+	const after = await loadThread({ kind: "app", appId: APP }, args.threadId);
+	expect(after?.messages).toEqual(before?.messages);
 });
