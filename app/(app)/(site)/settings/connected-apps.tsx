@@ -23,11 +23,13 @@ import type { AuthorizedClient } from "@/lib/db/oauth-consents";
 import { docsLink } from "@/lib/hostnames";
 import { revokeClientAccess } from "./oauth-actions";
 import { ScopesPopover } from "./scopes-popover";
+import { type SettingsClock, useSettingsClock } from "./useSettingsClock";
 
 // ── Types ──────────────────────────────────────────────────────────
 
 interface ConnectedAppsProps {
 	initial: AuthorizedClient[];
+	initialNow: number;
 }
 
 /** Per-row UI status. Each row owns its own copy. */
@@ -42,23 +44,6 @@ interface RowData extends AuthorizedClient {
 	status: RowStatus;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
-
-/**
- * Renders "12 Apr 2026". Locale pinned to `en-GB` for the day-first
- * order (en-US would emit "Apr 12, 2026") and so output is stable
- * across machines.
- */
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
-	day: "numeric",
-	month: "short",
-	year: "numeric",
-});
-
-function formatAuthorizedAt(iso: string): string {
-	return DATE_FORMATTER.format(new Date(iso));
-}
-
 // ── Animation presets (match commcare-settings.tsx where possible) ──
 
 const ROW_EXIT = { opacity: 0, height: 0, marginTop: 0 } as const;
@@ -66,7 +51,8 @@ const ROW_TRANSITION = { duration: 0.25 } as const;
 
 // ── Component ──────────────────────────────────────────────────────
 
-export function ConnectedApps({ initial }: ConnectedAppsProps) {
+export function ConnectedApps({ initial, initialNow }: ConnectedAppsProps) {
+	const clock = useSettingsClock(initialNow);
 	const [rows, setRows] = useState<RowData[]>(() =>
 		initial.map((r) => ({ ...r, status: { type: "idle" } as RowStatus })),
 	);
@@ -170,6 +156,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 								className="overflow-hidden"
 							>
 								<Row
+									clock={clock}
 									row={row}
 									onRequestConfirm={handleRequestConfirm}
 									onCancelConfirm={handleCancelConfirm}
@@ -214,6 +201,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 // ── Row ────────────────────────────────────────────────────────────
 
 interface RowProps {
+	clock: SettingsClock;
 	row: RowData;
 	onRequestConfirm: (consentId: string) => void;
 	onCancelConfirm: (consentId: string) => void;
@@ -221,6 +209,7 @@ interface RowProps {
 }
 
 function Row({
+	clock,
 	row,
 	onRequestConfirm,
 	onCancelConfirm,
@@ -257,7 +246,9 @@ function Row({
 					</p>
 				) : null}
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-nova-text-muted">
-					<span>Authorized {formatAuthorizedAt(authorizedAt)}</span>
+					<span>
+						Authorized {clock.dateFormatter.format(new Date(authorizedAt))}
+					</span>
 				</div>
 				{/* Inline error sits under the name so it's visually
 				 *   associated with the failed action. */}

@@ -7,6 +7,7 @@ import type {
 /** Executable fixture vocabulary, not a list of test identities. */
 export const SMOKE_PROFILES = [
 	"auth",
+	"settings",
 	"open",
 	"app-tests",
 	"app-list",

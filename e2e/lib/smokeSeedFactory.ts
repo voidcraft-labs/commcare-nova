@@ -626,6 +626,49 @@ export async function createSmokeBuilders(
 		auth: async () => {
 			return {};
 		},
+		settings: async () => {
+			const boundary = new Date("2026-01-02T00:30:00Z");
+			const lastUsedAt = new Date();
+			await ctx.adapter.create({
+				model: "apikey",
+				data: {
+					name: "Clock check",
+					referenceId: SEED.userId,
+					key: randomBytes(32).toString("hex"),
+					start: "nova_clock",
+					permissions: JSON.stringify({ scope: ["nova.read"] }),
+					createdAt: boundary,
+					updatedAt: boundary,
+					lastRequest: lastUsedAt,
+					expiresAt: new Date("2090-01-01T00:00:00Z"),
+					enabled: true,
+					rateLimitEnabled: false,
+					requestCount: 0,
+				},
+			});
+			const clientId = randomUUID();
+			await ctx.adapter.create({
+				model: "oauthClient",
+				data: {
+					clientId,
+					name: "Calendar check",
+					redirectUris: ["http://localhost/callback"],
+					tokenEndpointAuthMethod: "none",
+					createdAt: boundary,
+				},
+			});
+			await ctx.adapter.create({
+				model: "oauthConsent",
+				data: {
+					clientId,
+					userId: SEED.userId,
+					scopes: ["nova.read"],
+					createdAt: boundary,
+					updatedAt: boundary,
+				},
+			});
+			return { lastUsedAt: lastUsedAt.toISOString() };
+		},
 		open: seedOpen,
 		"app-tests": async () => {
 			const { appId, baseSeq } = await createExplicitBlankApp(
