@@ -138,6 +138,16 @@ async function record(remoteId = "working-app", target = TARGET) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
+		baseline: {
+			origin: "unread",
+			remoteAppId: remoteId,
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: "2026-09-01T00:00:00.000Z",
+			discard: null,
+		},
 	});
 }
 async function seed(published = true) {
@@ -406,6 +416,16 @@ it("says what Nova knows of each target's HQ app: there, empty, gone or none", a
 	);
 	await recordCreatedRemoteApp(SCOPE, target("shell"), {
 		remoteId: "shell-app",
+		baseline: {
+			origin: "unread",
+			remoteAppId: "shell-app",
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: at,
+			discard: null,
+		},
 	});
 	const published = await record("gone-app", target("gone"));
 	const mapped = published.active[0];
@@ -474,7 +494,19 @@ it("tells a refresh of a first publish that stopped with its empty app mapped th
 		{ status: "succeeded", at },
 		{ ensure: true },
 	);
-	await recordCreatedRemoteApp(SCOPE, TARGET, { remoteId: "working-app" });
+	await recordCreatedRemoteApp(SCOPE, TARGET, {
+		remoteId: "working-app",
+		baseline: {
+			origin: "unread",
+			remoteAppId: "working-app",
+			sourceGzip: null,
+			sourceBytes: null,
+			sourceDigest: null,
+			ownership: null,
+			observedAt: at,
+			discard: null,
+		},
+	});
 	await foldDeploymentAttempt(SCOPE, TARGET, "resources", {
 		status: "failed",
 		at,

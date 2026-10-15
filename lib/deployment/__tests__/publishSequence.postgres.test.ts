@@ -7,9 +7,11 @@
  * HQ's own answer, retained by the proof lane (`proof/hq-reads/publish/`).
  * Two kinds of answer are written here, and each case says which: an
  * accepted import (`{ success, app_id, version }`, all Nova reads of one),
- * and the lookup table and place endpoints' answers, in the shapes
+ * and the lookup table, row and place endpoints' answers, in the shapes
  * `lib/commcare/hq/lookupTables.ts` and `lib/commcare/hq/locations.ts`
- * read. A timeout is the peer never answering inside the deadline, and a
+ * read. Each landed import is read back, and a republish compares what it
+ * reads with that read, so a case that republishes serves the same read
+ * for both. A timeout is the peer never answering inside the deadline, and a
  * 500 is a bare status.
  */
 
@@ -25,6 +27,7 @@ import {
 import {
 	type RetainedPublishRead,
 	replyRetained,
+	retainedBodyJson,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
@@ -42,6 +45,17 @@ import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { createLocation } from "@/lib/organization/service";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { getEntryPointLink } from "../entryPointLinks";
+import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
+import {
+	APP_PREVIEW_NOTE,
+	APP_READ_BACK_FAILED_WARNING,
+	BASELINE_UNKNOWN_SENTENCE,
+	HQ_CHANGED_DURING_PUSH_MESSAGE,
+	HQ_CHANGED_MESSAGE,
+	HQ_CHANGES_CONFIRMED_DETAIL,
+	HQ_CHANGES_NONE_DETAIL,
+	HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
+} from "../remoteChanges";
 import { activeRemoteApp } from "../resources";
 import {
 	type PublishOutcome,
@@ -49,6 +63,7 @@ import {
 	setupArtifactFor,
 } from "../service";
 import { applyDeploymentObservation, readDeployment } from "../store";
+import type { RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -81,6 +96,7 @@ const WORKBOOK = "/a/clinic/fixtures/fixapi/";
 const LEVELS = "/a/clinic/api/location_type/v1/?limit=1000";
 const PLACES = "/a/clinic/api/location/v2/?limit=1000";
 const PLACE_PUSH = "/a/clinic/api/location/v2/";
+const ROWS = "/a/clinic/api/fixture/v1/?fixture_type_id=hq-table";
 const CREATED = "Nova created the app there, and it is empty for now.";
 
 async function seed(doc: BlueprintDoc = clinicVisitsDocument()) {
@@ -107,13 +123,17 @@ async function seed(doc: BlueprintDoc = clinicVisitsDocument()) {
 	return doc;
 }
 
-function publish(doc: BlueprintDoc): Promise<PublishOutcome> {
+function publish(
+	doc: BlueprintDoc,
+	discardRemoteChanges?: readonly RemoteChangeDiscard[],
+): Promise<PublishOutcome> {
 	return publishAppToHq({
 		scope: SCOPE,
 		...TARGET,
 		doc,
 		compiledAtSeq: 0,
 		appName: doc.appName,
+		...(discardRemoteChanges && { discardRemoteChanges }),
 	});
 }
 
@@ -285,6 +305,49 @@ async function seedPlace() {
 	});
 }
 
+const remotePlace = {
+	location_id: "hq-north",
+	name: "North",
+	site_code: "north",
+	location_type_code: "region",
+	parent_location_id: "",
+	latitude: null,
+	longitude: null,
+	location_data: {},
+};
+
+/** The pushed table's one row, as `FixtureResource` answers a filtered read. */
+function tableRows(peer: MockAgent) {
+	request(peer, ROWS).reply(200, {
+		meta: { next: null, total_count: 1 },
+		objects: [
+			{
+				id: "hq-row",
+				fixture_type: "facilities",
+				fields: { code: "001", name: "Clinic" },
+			},
+		],
+	});
+}
+/** The levels, and the places the project space holds. */
+function inventory(peer: MockAgent, withNorth: boolean) {
+	request(peer, LEVELS).reply(200, {
+		meta: { next: null },
+		objects: remoteLevels,
+	});
+	request(peer, PLACES).reply(200, {
+		meta: { next: null },
+		objects: withNorth ? [remotePlace] : [],
+	});
+}
+/** The inventory read after the last batch, which reads the pushed place back. */
+function placesReadBack(peer: MockAgent) {
+	request(peer, PLACES).reply(200, {
+		meta: { next: null },
+		objects: [remotePlace],
+	});
+}
+
 function emptyTables(peer: MockAgent) {
 	request(peer, TABLES).reply(200, { objects: [], meta: { next: null } });
 }
@@ -344,6 +407,7 @@ describe("a first publish", () => {
 			accepted(peer, 201, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-after-create-then-update");
 			const media = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
 			request(peer, media, "POST").reply(200, {
 				success: true,
@@ -360,11 +424,16 @@ describe("a first publish", () => {
 			});
 
 			const outcome = await publish(doc);
-			expect(outcome).toMatchObject({ landed: true, hqAppAction: "created" });
+			expect(outcome).toMatchObject({
+				landed: true,
+				hqAppAction: "created",
+				appPreviewNote: null,
+			});
 			expect(requests(peer)).toEqual([
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
 				`POST ${media}`,
 				`GET ${media}status/media-job/`,
 			]);
@@ -412,6 +481,7 @@ describe("a first publish", () => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
 			expect((await publish(doc)).landed).toBe(true);
 
 			// The rows a cutover writes from HQ's own reads of a deployment
@@ -441,6 +511,7 @@ describe("a first publish", () => {
 
 			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200, HQ_APP, bodies);
+			serve(peer, SOURCE, "source-live");
 			expect(await publish(doc)).toMatchObject({
 				landed: true,
 				hqAppAction: "updated",
@@ -472,9 +543,12 @@ describe("a first publish", () => {
 			serve(peer, SOURCE, "source-shell");
 			workbookTaken(peer);
 			tablesAfterPush(peer);
+			tableRows(peer);
 			placesTaken(peer);
+			placesReadBack(peer);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
 			expect((await publish(doc)).landed).toBe(true);
 			expect(requests(peer)).toEqual([
 				`GET ${TABLES}`,
@@ -484,14 +558,17 @@ describe("a first publish", () => {
 				`GET ${SOURCE}`,
 				`POST ${WORKBOOK}`,
 				`GET ${TABLES}`,
+				`GET ${ROWS}`,
 				`PATCH ${PLACE_PUSH}`,
+				`GET ${PLACES}`,
 				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
 			]);
 		});
 	});
 
-	it("keeps the mapped shell when the read after the create fails, and the retry fills that same app", async () => {
+	it("keeps the mapped shell when the read after the create fails, and fills that same app once a person publishes over it", async () => {
 		const doc = await seed(await lookupDocument());
 		await withHttpPeer(async (peer) => {
 			emptyTables(peer);
@@ -523,25 +600,71 @@ describe("a first publish", () => {
 				}),
 			]);
 
+			/* Nova holds no read of the empty app, so the retry cannot tell
+			 * whether anything changed there and asks before writing. */
 			emptyTables(peer);
 			serve(peer, SOURCE, "source-shell");
-			workbookTaken(peer);
-			tablesAfterPush(peer);
-			serve(peer, SOURCE, "source-shell");
-			accepted(peer, 200);
-			expect(await publish(doc)).toMatchObject({
-				landed: true,
-				hqAppAction: "created",
+			const asked = refusal(await publish(doc));
+			expect(asked).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					{
+						kind: "app",
+						novaResourceId: APP,
+						name: doc.appName,
+						identity: HQ_APP,
+						parts: [],
+						note: null,
+						baselineKnown: false,
+					},
+				],
 			});
 			expect(requests(peer).slice(3)).toEqual([
 				`GET ${TABLES}`,
 				`GET ${SOURCE}`,
-				`POST ${WORKBOOK}`,
+			]);
+			const [shown] = asked.remoteChanges;
+
+			emptyTables(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect(
+				await publish(doc, [
+					{
+						kind: "app",
+						novaResourceId: APP,
+						observedDigest: shown?.observedDigest ?? fail(),
+					},
+				]),
+			).toMatchObject({
+				landed: true,
+				hqAppAction: "created",
+				appPreviewNote: APP_PREVIEW_NOTE,
+			});
+			expect(requests(peer).slice(5)).toEqual([
 				`GET ${TABLES}`,
 				`GET ${SOURCE}`,
+				`POST ${WORKBOOK}`,
+				`GET ${TABLES}`,
+				`GET ${ROWS}`,
+				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
 			]);
 		});
+		const baseline = await h
+			.db()
+			.selectFrom("app_deployment_baselines")
+			.select(["origin", "discarded_by", "discarded_digest"])
+			.executeTakeFirstOrThrow();
+		expect(baseline).toMatchObject({ origin: "push", discarded_by: ACTOR });
+		expect(baseline.discarded_digest).toMatch(/^[0-9a-f]{64}$/);
 	});
 
 	it("says the app it made is empty when the read after the create answers a bare 500", async () => {
@@ -580,8 +703,10 @@ describe("a first publish", () => {
 			serve(peer, SOURCE, "source-shell");
 			workbookTaken(peer);
 			tablesAfterPush(peer);
+			tableRows(peer);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
 			expect(await publish(doc)).toMatchObject({
 				landed: true,
 				hqAppAction: "created",
@@ -602,6 +727,8 @@ describe("a first publish", () => {
 type Stop = {
 	readonly name: string;
 	readonly places: boolean;
+	/** The stop leaves the table mapped, so the next publish compares it. */
+	readonly mapsTable?: boolean;
 	/** The push's answers, after the preflight reads and before any source read. */
 	readonly stop: (peer: MockAgent) => void;
 	readonly sentence: (createdApp: boolean) => string;
@@ -625,12 +752,14 @@ const STOPS: readonly Stop[] = [
 	{
 		name: "a workbook taken in part",
 		places: false,
+		mapsTable: true,
 		stop: (peer) => {
 			request(peer, WORKBOOK, "POST").reply(200, {
 				code: 402,
 				message: "One row could not be read.",
 			});
 			tablesAfterPush(peer);
+			tableRows(peer);
 		},
 		sentence: (c) =>
 			`CommCare HQ took only part of this app's lookup tables for “clinic”, ${before(c)} The tables it did take now hold what Nova sent. Fix what it names below, then publish again to put the rest there.`,
@@ -645,9 +774,11 @@ const STOPS: readonly Stop[] = [
 	{
 		name: "a workbook whose answer was lost",
 		places: false,
+		mapsTable: true,
 		stop: (peer) => {
 			request(peer, WORKBOOK, "POST").replyWithError(new Error("lost"));
 			tablesAfterPush(peer);
+			tableRows(peer);
 		},
 		sentence: (c) =>
 			`Nova couldn’t confirm how much of this app’s lookup data CommCare HQ saved for “clinic”, ${before(c, "’")} Some tables may now hold what Nova sent. Publishing again checks what is there before updating it.`,
@@ -702,23 +833,33 @@ const STOPS: readonly Stop[] = [
 describe("a stop at a table or place push", () => {
 	it.each(STOPS)(
 		"says what the project space holds after $name",
-		async ({ places, stop, sentence }) => {
+		async ({ places, mapsTable = false, stop, sentence }) => {
 			const doc = places
 				? await seed(withOrganization(clinicVisitsDocument()))
 				: await seed(await lookupDocument());
 			if (places) await seedPlace();
-			const preflight = (peer: MockAgent) =>
-				places ? emptyInventory(peer) : emptyTables(peer);
+			/* Once Nova holds the table or the place there, preflight reads
+			 * it again and compares it with what the push read back. */
+			const preflight = (peer: MockAgent, mapped: boolean) => {
+				if (places) inventory(peer, mapped);
+				else if (mapped) {
+					tablesAfterPush(peer);
+					tableRows(peer);
+				} else emptyTables(peer);
+			};
 			const landedPush = (peer: MockAgent) => {
-				if (places) placesTaken(peer);
-				else {
+				if (places) {
+					placesTaken(peer);
+					placesReadBack(peer);
+				} else {
 					workbookTaken(peer);
 					tablesAfterPush(peer);
+					tableRows(peer);
 				}
 			};
 			await withHttpPeer(async (peer) => {
 				// The first publish: the shell, then the stop.
-				preflight(peer);
+				preflight(peer, false);
 				accepted(peer, 201);
 				serve(peer, SOURCE, "source-shell");
 				stop(peer);
@@ -726,20 +867,21 @@ describe("a stop at a table or place push", () => {
 				expect(first.failure.message).toBe(sentence(true));
 
 				// Its retry sends no create: the empty app is an earlier try's.
-				preflight(peer);
+				preflight(peer, mapsTable);
 				serve(peer, SOURCE, "source-shell");
 				stop(peer);
 				const retry = refusal(await publish(doc));
 				expect(retry.failure.message).toBe(sentence(false));
 
 				// Filled, then a republish to an app that holds content.
-				preflight(peer);
+				preflight(peer, mapsTable);
 				serve(peer, SOURCE, "source-shell");
 				landedPush(peer);
 				serve(peer, SOURCE, "source-shell");
 				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
 				expect((await publish(doc)).landed).toBe(true);
-				preflight(peer);
+				preflight(peer, true);
 				serve(peer, SOURCE, "source-live");
 				stop(peer);
 				const republish = refusal(await publish(doc));
@@ -780,6 +922,7 @@ describe("a failure after the shell is mapped", () => {
 			accepted(peer, 201, "second-app");
 			serve(peer, sourcePath("second-app"), "source-shell");
 			accepted(peer, 200, "second-app");
+			serve(peer, sourcePath("second-app"), "source-after-create-then-update");
 			expect(await publish(doc)).toMatchObject({
 				landed: true,
 				hqAppAction: "created",
@@ -811,6 +954,7 @@ describe("a failure after the shell is mapped", () => {
 
 				serve(peer, SOURCE, "source-shell");
 				accepted(peer, 200);
+				serve(peer, SOURCE, "source-after-create-then-update");
 				expect(await publish(doc)).toMatchObject({
 					landed: true,
 					hqAppAction: "created",
@@ -818,6 +962,7 @@ describe("a failure after the shell is mapped", () => {
 				expect(requests(peer).slice(3)).toEqual([
 					`GET ${SOURCE}`,
 					`POST ${IMPORT}`,
+					`GET ${SOURCE}`,
 				]);
 			});
 		},
@@ -885,7 +1030,7 @@ describe("a failure after the shell is mapped", () => {
 				expect(refusal(await publish(doc))).toMatchObject({
 					failure: { code: "remote_app_missing" },
 				});
-				expect(requests(peer).slice(6)).toEqual([
+				expect(requests(peer).slice(7)).toEqual([
 					`GET ${TABLES}`,
 					`GET ${SOURCE}`,
 				]);
@@ -923,6 +1068,7 @@ describe("a 429 on the update", () => {
 				retainedPublishRead("import-429-second"),
 			);
 			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
 			const pending = publish(doc);
 			await vi.waitFor(() => expect(requests(peer)).toHaveLength(3));
 			await vi.advanceTimersByTimeAsync(2_000);
@@ -932,6 +1078,7 @@ describe("a 429 on the update", () => {
 				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
 				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
 			]);
 		});
 	});
@@ -975,10 +1122,12 @@ describe("a 429 on the update", () => {
 // ── HQ reporting the app gone, and an app Nova did not make ─────────────
 
 describe("the app on HQ at the target-app edge", () => {
+	/** A first publish that lands, in four requests. */
 	async function landed(doc: BlueprintDoc, peer: MockAgent) {
 		accepted(peer, 201);
 		serve(peer, SOURCE, "source-shell");
 		accepted(peer, 200);
+		serve(peer, SOURCE, "source-live");
 		expect((await publish(doc)).landed).toBe(true);
 	}
 
@@ -999,11 +1148,12 @@ describe("the app on HQ at the target-app edge", () => {
 					resumePhase: "upload",
 				});
 				expect(activeRemoteApp(gone ?? fail())?.remoteMissingAt).not.toBeNull();
-				expect(requests(peer).slice(3)).toEqual([`GET ${SOURCE}`]);
+				expect(requests(peer).slice(4)).toEqual([`GET ${SOURCE}`]);
 
 				accepted(peer, 201, "replacement-app");
 				serve(peer, sourcePath("replacement-app"), "source-shell");
 				accepted(peer, 200, "replacement-app");
+				serve(peer, sourcePath("replacement-app"), "source-live");
 				expect(await publish(doc)).toMatchObject({
 					landed: true,
 					hqAppAction: "created",
@@ -1034,7 +1184,7 @@ describe("the app on HQ at the target-app edge", () => {
 				},
 			});
 			expect(await snapshot()).toEqual(unchanged);
-			expect(requests(peer).slice(3)).toEqual([`GET ${SOURCE}`]);
+			expect(requests(peer).slice(4)).toEqual([`GET ${SOURCE}`]);
 		});
 	});
 
@@ -1116,6 +1266,417 @@ describe("readers of a shell or a gone app", () => {
 			).rejects.toThrow("Publish this app again before creating a link.");
 		},
 	);
+});
+
+// ── What changed in CommCare HQ since Nova last published there ─────────
+
+/**
+ * A retained read with the one edit a case names, as a save in CommCare HQ
+ * would leave it.
+ */
+function serveEdited(
+	peer: MockAgent,
+	path: string,
+	name: RetainedPublishRead,
+	edit: (source: Record<string, unknown>) => void,
+) {
+	const answer = retainedPublishRead(name);
+	const source = retainedBodyJson(answer);
+	edit(source);
+	replyRetained(request(peer, path), {
+		...answer,
+		body: JSON.stringify(source),
+	});
+}
+const renamedInHq = (source: Record<string, unknown>) => {
+	source.name = "Renamed in CommCare HQ";
+};
+const renamedAgainInHq = (source: Record<string, unknown>) => {
+	source.name = "Renamed again in CommCare HQ";
+};
+const savedInHq = (source: Record<string, unknown>) => {
+	source.last_modified = "2030-01-01T00:00:00.000000Z";
+};
+function hqChangesCheck(outcome: PublishOutcome) {
+	return outcome.checks.find((check) => check.id === "hq-changes");
+}
+
+describe("changes made in CommCare HQ", () => {
+	it("lands three publishes of an unchanged app in a row, saying what it compared", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			const first = await publish(doc);
+			expect(hqChangesCheck(first)).toMatchObject({
+				status: "passed",
+				detail: HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
+			});
+			for (let again = 0; again < 2; again++) {
+				serve(peer, SOURCE, "source-live");
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				const republish = await publish(doc);
+				expect(republish).toMatchObject({ landed: true, appPreviewNote: null });
+				expect(hqChangesCheck(republish)).toMatchObject({
+					status: "passed",
+					detail: HQ_CHANGES_NONE_DETAIL,
+				});
+			}
+		});
+	});
+
+	it("stops before any write over a changed app, refuses an older digest, and lands over the state a person was shown", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			const sent = requests(peer).length;
+
+			serveEdited(peer, SOURCE, "source-live", renamedInHq);
+			const stopped = await publish(doc);
+			const first = refusal(stopped);
+			expect(first).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_changed", message: HQ_CHANGED_MESSAGE },
+				remoteChanges: [
+					{
+						kind: "app",
+						novaResourceId: APP,
+						name: doc.appName,
+						identity: HQ_APP,
+						parts: ["The app's name"],
+						baselineKnown: true,
+					},
+				],
+			});
+			expect(hqChangesCheck(stopped)).toMatchObject({
+				status: "blocked",
+				items: [doc.appName],
+			});
+			expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+			const [shown] = first.remoteChanges;
+			const digest = shown?.observedDigest ?? fail();
+
+			/* A digest of a state HQ has since left is no confirmation: the
+			 * refusal names the state HQ holds now. */
+			serveEdited(peer, SOURCE, "source-live", renamedAgainInHq);
+			const renamedAgain = refusal(
+				await publish(doc, [
+					{ kind: "app", novaResourceId: APP, observedDigest: digest },
+				]),
+			);
+			const [again] = renamedAgain.remoteChanges;
+			expect(again?.parts).toEqual(["The app's name"]);
+			expect(again?.observedDigest).not.toBe(digest);
+
+			/* A save of a key Nova ignores is a new state with the same parts. */
+			serveEdited(peer, SOURCE, "source-live", (source) => {
+				renamedInHq(source);
+				savedInHq(source);
+			});
+			const resaved = refusal(
+				await publish(doc, [
+					{ kind: "app", novaResourceId: APP, observedDigest: digest },
+				]),
+			);
+			const [moved] = resaved.remoteChanges;
+			expect(moved?.parts).toEqual(["The app's name"]);
+			expect(moved?.observedDigest).not.toBe(digest);
+
+			serveEdited(peer, SOURCE, "source-live", (source) => {
+				renamedInHq(source);
+				savedInHq(source);
+			});
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			const landed = await publish(doc, [
+				{
+					kind: "app",
+					novaResourceId: APP,
+					observedDigest: moved?.observedDigest ?? fail(),
+				},
+			]);
+			expect(landed).toMatchObject({
+				landed: true,
+				appPreviewNote: APP_PREVIEW_NOTE,
+			});
+			expect(hqChangesCheck(landed)).toMatchObject({
+				status: "passed",
+				detail: HQ_CHANGES_CONFIRMED_DETAIL,
+				items: [doc.appName],
+			});
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("app_deployment_baselines")
+				.select(["origin", "discarded_by"])
+				.executeTakeFirstOrThrow(),
+		).toEqual({ origin: "push", discarded_by: ACTOR });
+	});
+
+	it("lands an app whose read back failed, and the next publish asks before writing over it", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			request(peer, SOURCE).reply(500, "");
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).toContain(APP_READ_BACK_FAILED_WARNING);
+
+			serve(peer, SOURCE, "source-live");
+			expect(refusal(await publish(doc)).remoteChanges).toEqual([
+				expect.objectContaining({
+					kind: "app",
+					parts: [],
+					baselineKnown: false,
+				}),
+			]);
+		});
+		expect(BASELINE_UNKNOWN_SENTENCE).toBe(
+			"Nova couldn't confirm what its last publish left here, so it can't tell whether anything changed.",
+		);
+	});
+
+	it("fills a shell whose CommCare version was raised in HQ, and stops on one given a menu", async () => {
+		const doc = await seed();
+		const raised = (source: Record<string, unknown>) => {
+			source.build_spec = {
+				...(source.build_spec as Record<string, unknown>),
+				version: "2.60.0",
+			};
+		};
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			request(peer, IMPORT, "POST").reply(500, "");
+			expect(refusal(await publish(doc)).phase).toBe("upload");
+
+			const live = retainedBodyJson(retainedPublishRead("source-live"));
+			serveEdited(peer, SOURCE, "source-shell", (source) => {
+				source.modules = live.modules;
+				source._attachments = live._attachments;
+			});
+			expect(refusal(await publish(doc)).remoteChanges).toEqual([
+				expect.objectContaining({
+					kind: "app",
+					parts: ["The list of menus"],
+					baselineKnown: true,
+				}),
+			]);
+
+			serveEdited(peer, SOURCE, "source-shell", raised);
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect(await publish(doc)).toMatchObject({
+				landed: true,
+				hqAppAction: "created",
+				appPreviewNote: null,
+			});
+		});
+	});
+
+	it("carries the App Preview statement on the first publish over a baseline the cutover recorded", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ origin: "cutover" })
+				.execute();
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect(await publish(doc)).toMatchObject({
+				landed: true,
+				appPreviewNote: APP_PREVIEW_NOTE,
+			});
+		});
+	});
+
+	it("stops at the upload when the app's compared keys moved during the push, and not when only an ignored key did", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+
+			const republish = (
+				secondRead: (source: Record<string, unknown>) => void,
+			) => {
+				tablesAfterPush(peer);
+				tableRows(peer);
+				serve(peer, SOURCE, "source-live");
+				workbookTaken(peer);
+				tablesAfterPush(peer);
+				tableRows(peer);
+				serveEdited(peer, SOURCE, "source-live", secondRead);
+			};
+			republish(savedInHq);
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+
+			republish(renamedInHq);
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toEqual(
+				expect.objectContaining({
+					phase: "upload",
+					failure: {
+						code: "hq_changed",
+						message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+						details: [],
+					},
+					remoteChanges: [],
+				}),
+			);
+		});
+	});
+
+	it("stops at the upload when the shell this publish made is given a menu during the push", async () => {
+		const doc = await seed(await lookupDocument());
+		const live = retainedBodyJson(retainedPublishRead("source-live"));
+		await withHttpPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serveEdited(peer, SOURCE, "source-shell", (source) => {
+				source.modules = live.modules;
+				source._attachments = live._attachments;
+			});
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toEqual(
+				expect.objectContaining({
+					phase: "upload",
+					failure: {
+						code: "hq_changed",
+						message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+						details: [],
+					},
+					remoteChanges: [],
+				}),
+			);
+			/* The create is the one import; the content is never sent. */
+			expect(
+				requests(peer).filter((sent) => sent === `POST ${IMPORT}`),
+			).toHaveLength(1);
+		});
+	});
+
+	it("stops on a table CommCare HQ no longer has, and makes it again once a person publishes over that", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+
+			emptyTables(peer);
+			serve(peer, SOURCE, "source-live");
+			const stopped = refusal(await publish(doc));
+			expect(stopped.remoteChanges).toEqual([
+				{
+					kind: "lookup-table",
+					novaResourceId: expect.any(String),
+					name: "Facilities",
+					identity: "facilities",
+					parts: [
+						"CommCare HQ no longer has this table. Publishing makes it again.",
+					],
+					note: null,
+					observedDigest: ABSENT_RESOURCE_DIGEST,
+					baselineKnown: true,
+				},
+			]);
+			const [table] = stopped.remoteChanges;
+
+			emptyTables(peer);
+			serve(peer, SOURCE, "source-live");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect(
+				await publish(doc, [
+					{
+						kind: "lookup-table",
+						novaResourceId: table?.novaResourceId ?? fail(),
+						observedDigest: ABSENT_RESOURCE_DIGEST,
+					},
+				]),
+			).toMatchObject({ landed: true, appPreviewNote: null });
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("project_space_resource_baselines")
+				.select(["origin", "discarded_digest", "discarded_by"])
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			origin: "push",
+			discarded_digest: ABSENT_RESOURCE_DIGEST,
+			discarded_by: ACTOR,
+		});
+	});
+
+	it("refuses with the table's own sentence when its rows cannot be read", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+
+			tablesAfterPush(peer);
+			request(peer, ROWS).reply(500, "");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_resource_state_unknown",
+					message:
+						"Nova couldn't read the rows of the lookup table “Facilities” on “clinic”, so it can't tell whether they changed in CommCare HQ since its last publish, and it stopped before sending anything. A row there with an empty value can cause this; filling that value in CommCare HQ, or trying again in a moment, lets the next publish read it.",
+				},
+				remoteChanges: [],
+			});
+		});
+	});
 });
 
 function fail(): never {

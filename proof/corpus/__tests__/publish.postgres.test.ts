@@ -21,10 +21,13 @@
  * Each app is published through the real `publishAppToHq` (migrated
  * Postgres, the real preflight and HQ client; only KMS, object storage and
  * the HQ peer are controlled) and captured through `capturePublish`. The
- * test's peer answers each source read as the capture's peer does, from
- * what Nova last sent: after the shell's create its source
- * (`proof/corpus/targetPeer.ts::shellSource`), after the content import
- * that body with HQ's CommCare version. The bodies are compared decoded:
+ * test's peer answers every request Nova's client sends as the capture's
+ * peer does, by handing it to the capture's own model of the project space
+ * (`proof/corpus/targetPeer.ts::TargetPeer`): each source read from what Nova
+ * last sent (the shell's source after its create, an update's body with
+ * HQ's CommCare version after it), each table list and rows read from the
+ * workbooks pushed so far, and what a person saves in HQ as `applyHqSide`
+ * applies it. The bodies are compared decoded:
  * field order, `app_name`, `app_id` presence, the app file's name and type,
  * the workbook bytes, the app JSON with the app id each side names put in
  * place, and the media upload Nova sends after the content import
@@ -32,9 +35,20 @@
  * the ZIP holds, by name and bytes, in order (each ZIP stamps its files with
  * the time it was built). The order is compared over the requests that
  * write or read the app and its data (imports, source reads, workbooks and
- * media uploads). The archives are compared entry by entry with the
- * profile's `uniqueid` and the app id named in place; the route runs with
- * only the session and object storage controlled.
+ * media uploads, and since step 2's drift check, the table list and rows
+ * reads that compare and baseline the tables). The archives are compared
+ * entry by entry with the profile's `uniqueid` and the app id named in place;
+ * the route runs with only the session and object storage controlled.
+ *
+ * A document a person saved in HQ over (`hq-side.json`) is captured through
+ * the stop Nova's preflight makes and the confirmation a person sends back
+ * (`PublishInput.hqSide`). The capture computes that stop with the production
+ * comparison (`hqSourceBaseline.ts`, `hqResourceBaseline.ts`,
+ * `remoteChanges.ts::decideRemoteChanges`), and the plausible failure is a
+ * capture whose stop is not Nova's: other parts, another digest, or a
+ * resend Nova would refuse. So the same saves are applied to Nova's peer, and
+ * Nova's refusal must list what the capture's stop lists, and Nova's publish
+ * with the capture's discards must send the capture's bytes.
  */
 
 import { createHash } from "node:crypto";
@@ -45,7 +59,7 @@ import { NextRequest } from "next/server";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
-	readMultipartRequest,
+	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
@@ -61,6 +75,7 @@ import {
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { publishAppToHq } from "@/lib/deployment/service";
+import type { RemoteChangeDiscard } from "@/lib/deployment/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
@@ -81,7 +96,7 @@ import {
 	type PublishConfiguration,
 	type PublishDocument,
 } from "../publish";
-import { shellSource } from "../targetPeer";
+import { type PeerRequest, TargetPeer } from "../targetPeer";
 
 vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
@@ -108,11 +123,7 @@ const APP = "published-app",
 	REMOTE_APP = "working-app";
 /** The capture's server (`PROOF_SERVER`), so both sides build the same attachment links. */
 const HOST = "https://www.commcarehq.org";
-const IMPORT = `/a/${DOMAIN}/apps/api/import_app/`;
-const SOURCE = `/a/${DOMAIN}/apps/source/${REMOTE_APP}/`;
-const TABLES = `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`;
-const WORKBOOK = `/a/${DOMAIN}/fixtures/fixapi/`;
-const MEDIA = `/a/${DOMAIN}/apps/api/${REMOTE_APP}/multimedia/`;
+const AUTHORIZATION = "ApiKey account:fixture-key";
 const SCOPE = {
 	appId: APP,
 	projectId: PROJECT,
@@ -143,25 +154,115 @@ async function seed(doc: BlueprintDoc): Promise<void> {
 		.execute();
 }
 
-function request(peer: MockAgent, path: string, method = "GET") {
-	return peer.get(HOST).intercept({
-		path,
-		method,
-		headers: { authorization: "ApiKey account:fixture-key" },
+/**
+ * The capture's own model of the project space (`TargetPeer`), serving
+ * Nova's real client: every request to HQ's host is handed to `model` and
+ * recorded in `log`, with its body as sent.
+ */
+function servedBy(peer: MockAgent, model: TargetPeer, log: PeerRequest[]) {
+	peer
+		.get(HOST)
+		.intercept({ path: () => true, method: () => true })
+		.reply(async (opts) => {
+			const headers = new Headers(opts.headers as Record<string, string>);
+			expect(headers.get("authorization")).toBe(AUTHORIZATION);
+			const request: PeerRequest = {
+				method: opts.method,
+				path: opts.path,
+				contentType: headers.get("content-type") ?? undefined,
+				body: await readHttpRequestBody(opts),
+			};
+			model.requests.push(request);
+			log.push(request);
+			const answer = await model.answer(request);
+			return {
+				statusCode: answer.status,
+				data: answer.body,
+				responseOptions: { headers: { "content-type": answer.contentType } },
+			};
+		})
+		.persist();
+}
+
+/** A model of the project space `DOMAIN` as the capture's peer holds one, with the app id HQ mints there. */
+function projectSpace(
+	options: {
+		readonly flags?: readonly string[];
+		readonly caseSearchEnabled?: boolean;
+		readonly appId?: string;
+		readonly sourceChanges?: Readonly<Record<string, unknown>>;
+	} = {},
+): TargetPeer {
+	return new TargetPeer({
+		credentials: {
+			username: "account",
+			apiKey: "fixture-key",
+			server: "production",
+		},
+		domain: DOMAIN,
+		flags: new Set(options.flags ?? []),
+		caseSearchEnabled: options.caseSearchEnabled ?? false,
+		appId: options.appId ?? REMOTE_APP,
+		commcareVersion: CORPUS_COMMCARE_VERSION,
+		...(options.sourceChanges !== undefined && {
+			sourceChanges: options.sourceChanges,
+		}),
 	});
 }
 
-/** Publish the stored app through the real lifecycle, as the MCP tool calls it. */
-async function publish(appName?: string) {
+/** The multipart form each logged request to `suffix` carried, in order. */
+async function formsTo(
+	log: readonly PeerRequest[],
+	suffix: string,
+): Promise<FormData[]> {
+	return Promise.all(
+		log
+			.filter(
+				(request) =>
+					request.method === "POST" &&
+					new URL(request.path, HOST).pathname.endsWith(suffix),
+			)
+			.map((request) =>
+				new Response(new Uint8Array(request.body), {
+					headers: { "content-type": request.contentType ?? "" },
+				}).formData(),
+			),
+	);
+}
+
+/** Each logged request, `<method> <path>`. */
+function lines(log: readonly PeerRequest[]): string[] {
+	return log.map((request) => `${request.method} ${request.path}`);
+}
+
+/** Publish the stored app through the real lifecycle, as the MCP tool calls it, with what a person confirmed. */
+async function attempt(
+	confirmed: {
+		readonly appName?: string;
+		readonly discardRemoteChanges?: readonly RemoteChangeDiscard[];
+		readonly adoptResourceIds?: readonly string[];
+	} = {},
+) {
 	const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
-	const outcome = await publishAppToHq({
+	return publishAppToHq({
 		scope: SCOPE,
 		doc: loaded.doc,
 		compiledAtSeq: loaded.app.mutation_seq,
-		appName: appName ?? loaded.app.app_name,
+		appName: confirmed.appName ?? loaded.app.app_name,
 		server: "production",
 		domain: DOMAIN,
+		...(confirmed.discardRemoteChanges !== undefined && {
+			discardRemoteChanges: confirmed.discardRemoteChanges,
+		}),
+		...(confirmed.adoptResourceIds !== undefined && {
+			adoptResourceIds: confirmed.adoptResourceIds,
+		}),
 	});
+}
+
+/** A publish that must land. */
+async function publish(appName?: string) {
+	const outcome = await attempt(appName === undefined ? {} : { appName });
 	if (!outcome.landed) {
 		throw new Error(
 			`Nova's publish was refused: ${JSON.stringify(outcome.refusal)}`,
@@ -222,30 +323,6 @@ async function appFile(form: FormData | undefined): Promise<HqApp> {
 	return JSON.parse(await file.text());
 }
 
-/**
- * The source HQ serves after Nova's imports so far, as the capture's peer
- * answers it: the shell's after a create alone, and after the content
- * import that body with HQ's CommCare version and `profile`.
- */
-async function sourceAfter(
-	imports: readonly FormData[],
-	profile?: unknown,
-): Promise<Record<string, unknown>> {
-	if (imports.length === 1) {
-		return shellSource(await appFile(imports[0]), CORPUS_COMMCARE_VERSION);
-	}
-	const content = await appFile(imports[1]);
-	return {
-		...content,
-		doc_type: "Application",
-		build_spec: {
-			...(content.build_spec as Record<string, unknown>),
-			version: CORPUS_COMMCARE_VERSION,
-		},
-		profile: profile ?? content.profile ?? {},
-	};
-}
-
 /** What a request does to the app or its data, for holding the order of two publishes alike. */
 function ordered(sequence: readonly string[]): string[] {
 	return sequence.flatMap((entry) => {
@@ -262,6 +339,12 @@ function ordered(sequence: readonly string[]): string[] {
 		}
 		if (method === "POST" && pathname.endsWith("/multimedia/")) {
 			return ["media"];
+		}
+		if (method === "GET" && pathname.endsWith("/api/lookup_table/v1/")) {
+			return ["table list"];
+		}
+		if (method === "GET" && pathname.endsWith("/api/fixture/v1/")) {
+			return ["rows read"];
 		}
 		return [];
 	});
@@ -428,100 +511,24 @@ function perPublish(log: readonly string[], starts: readonly number[]) {
 	);
 }
 
-it("captures the shell, the content and the profile-preserving update Nova sends for the shared survey app, in Nova's order, and every publish sends the same ids", async () => {
-	await seed(clinicVisitsDocument());
-	const document = await storedDocument();
-	const capture = sentSteps(
-		await capturePublish({
-			create: document,
-			updates: [{ name: "update", document, appName: "Visiting program" }],
-			configuration: {
-				id: "clinic",
-				flags: [],
-				caseSearchEnabled: false,
-				domain: DOMAIN,
-			},
-			source: { profile: TARGET_PROFILE_WITH_DERIVED_KEY },
-		}),
-	);
+/** A project space with every flag the Search, lookup and media app's check asks about. HQ's slugs for these
+ * symbols: corehq/toggles/__init__.py. */
+const EVERYTHING: PublishConfiguration = {
+	id: "everything",
+	flags: [
+		"SYNC_SEARCH_CASE_CLAIM",
+		"VIEW_FORM_ATTACHMENT",
+		"CUSTOM_PROPERTIES",
+	],
+	caseSearchEnabled: true,
+	domain: DOMAIN,
+};
 
-	const imports: FormData[] = [];
-	const log: string[] = [];
-	const starts: number[] = [];
-	await withHttpPeer(async (peer) => {
-		request(peer, IMPORT, "POST")
-			.reply(async (opts) => {
-				log.push(`POST ${opts.path}`);
-				imports.push(await readMultipartRequest(opts));
-				return imports.length === 1
-					? {
-							statusCode: 201,
-							data: JSON.stringify({ success: true, app_id: REMOTE_APP }),
-						}
-					: {
-							statusCode: 200,
-							data: JSON.stringify({
-								success: true,
-								app_id: REMOTE_APP,
-								version: imports.length,
-							}),
-						};
-			})
-			.times(4);
-		request(peer, SOURCE)
-			.reply(async (opts) => {
-				log.push(`GET ${opts.path}`);
-				return {
-					statusCode: 200,
-					data: JSON.stringify(
-						await sourceAfter(imports, TARGET_PROFILE_WITH_DERIVED_KEY),
-					),
-				};
-			})
-			.times(3);
-		starts.push(log.length);
-		expect((await publish()).hqAppAction).toBe("created");
-		starts.push(log.length);
-		expect((await publish("Visiting program")).hqAppAction).toBe("updated");
-		starts.push(log.length);
-		expect((await publish("Visiting program")).hqAppAction).toBe("updated");
-	});
-
-	// The capture sends its requests in the order Nova's publish does.
-	const [firstOrder, updateOrder, againOrder] = perPublish(log, starts);
-	expect(ordered(capture.first.sequence)).toEqual([
-		"import",
-		"source read",
-		"import",
-	]);
-	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
-	expect(ordered(capture.update.sequence)).toEqual(["source read", "import"]);
-	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
-	expect(ordered(againOrder ?? [])).toEqual(ordered(capture.update.sequence));
-
-	const [shell, content, updated, again] = imports;
-	const sentShell = await expectSameImport(
-		capture.first.create.importApp,
-		shell,
-	);
-	expect(sentShell.modules).toEqual([]);
-	const sentContent = await expectSameImport(
-		capture.first.content.importApp,
-		content,
-	);
-	const sentUpdate = await expectSameImport(capture.update.importApp, updated);
-	// The update carries HQ's own profile settings without Nova's derived key,
-	// so the comparison covers the profile projection.
-	expect(sentUpdate.profile).toEqual(TARGET_OWNED_PROFILE);
-	expect(capture.first.content.lookup).toBeUndefined();
-	// Three publishes of one document send one set of ids.
-	const ids = sentIds(sentContent);
-	expect(ids.length).toBeGreaterThan(1);
-	expect(sentIds(sentUpdate)).toEqual(ids);
-	expect(sentIds(await appFile(again))).toEqual(ids);
-});
-
-it("captures what Nova sends and downloads for Search, lookup data, media and an attachment link, with the verdict naming the flags Nova's check asks about", async () => {
+/**
+ * The Search, lookup and media app stored with its Project's table and
+ * uploaded image, and its document as the capture reads it.
+ */
+async function seedSearchLookupMedia(): Promise<PublishDocument> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 	const table = await createLookupTable(scope, {
 		name: "Facilities",
@@ -570,7 +577,7 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		return png;
 	});
 
-	const document = await storedDocument({
+	return storedDocument({
 		lookup: await getLookupFixtureData(scope, [table.id]),
 		media: new Map([
 			[
@@ -579,20 +586,90 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 			],
 		]),
 	});
+}
+
+it("captures the shell, the content and the profile-preserving update Nova sends for the shared survey app, in Nova's order, and every publish sends the same ids", async () => {
+	await seed(clinicVisitsDocument());
+	const document = await storedDocument();
+	const capture = sentSteps(
+		await capturePublish({
+			create: document,
+			updates: [{ name: "update", document, appName: "Visiting program" }],
+			configuration: {
+				id: "clinic",
+				flags: [],
+				caseSearchEnabled: false,
+				domain: DOMAIN,
+			},
+			source: { profile: TARGET_PROFILE_WITH_DERIVED_KEY },
+		}),
+	);
+
+	const log: PeerRequest[] = [];
+	const starts: number[] = [];
+	await withHttpPeer(async (peer) => {
+		servedBy(
+			peer,
+			projectSpace({
+				sourceChanges: { profile: TARGET_PROFILE_WITH_DERIVED_KEY },
+			}),
+			log,
+		);
+		starts.push(log.length);
+		expect((await publish()).hqAppAction).toBe("created");
+		starts.push(log.length);
+		expect((await publish("Visiting program")).hqAppAction).toBe("updated");
+		starts.push(log.length);
+		expect((await publish("Visiting program")).hqAppAction).toBe("updated");
+	});
+	const imports = await formsTo(log, "/apps/api/import_app/");
+
+	// The capture sends its requests in the order Nova's publish does, the
+	// read back after each import among them.
+	const [firstOrder, updateOrder, againOrder] = perPublish(lines(log), starts);
+	expect(ordered(capture.first.sequence)).toEqual([
+		"import",
+		"source read",
+		"import",
+		"source read",
+	]);
+	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
+	expect(ordered(capture.update.sequence)).toEqual([
+		"source read",
+		"import",
+		"source read",
+	]);
+	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
+	expect(ordered(againOrder ?? [])).toEqual(ordered(capture.update.sequence));
+
+	const [shell, content, updated, again] = imports;
+	const sentShell = await expectSameImport(
+		capture.first.create.importApp,
+		shell,
+	);
+	expect(sentShell.modules).toEqual([]);
+	const sentContent = await expectSameImport(
+		capture.first.content.importApp,
+		content,
+	);
+	const sentUpdate = await expectSameImport(capture.update.importApp, updated);
+	// The update carries HQ's own profile settings without Nova's derived key,
+	// so the comparison covers the profile projection.
+	expect(sentUpdate.profile).toEqual(TARGET_OWNED_PROFILE);
+	expect(capture.first.content.lookup).toBeUndefined();
+	// Three publishes of one document send one set of ids.
+	const ids = sentIds(sentContent);
+	expect(ids.length).toBeGreaterThan(1);
+	expect(sentIds(sentUpdate)).toEqual(ids);
+	expect(sentIds(await appFile(again))).toEqual(ids);
+});
+
+it("captures what Nova sends and downloads for Search, lookup data, media and an attachment link, with the verdict naming the flags Nova's check asks about", async () => {
+	const document = await seedSearchLookupMedia();
 	const verdict = novaPublishVerdict(
 		(await loadAppBlueprint(APP, ACTOR, "view")).doc,
 	);
-	// HQ's slugs for these symbols: corehq/toggles/__init__.py.
-	const everything: PublishConfiguration = {
-		id: "everything",
-		flags: [
-			"SYNC_SEARCH_CASE_CLAIM",
-			"VIEW_FORM_ATTACHMENT",
-			"CUSTOM_PROPERTIES",
-		],
-		caseSearchEnabled: true,
-		domain: DOMAIN,
-	};
+	const everything = EVERYTHING;
 	const capture = sentSteps(
 		await capturePublish({
 			create: document,
@@ -601,133 +678,87 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		}),
 	);
 
-	const imports: FormData[] = [];
-	const workbooks: FormData[] = [];
-	const uploads: FormData[] = [];
-	const flagQueries: string[] = [];
-	const log: string[] = [];
+	const log: PeerRequest[] = [];
 	const starts: number[] = [];
 	await withHttpPeer(async (peer) => {
-		const listed = { domain_name: DOMAIN, project_name: "Clinic" };
-		peer
-			.get(HOST)
-			.intercept({
-				path: (path) => path.startsWith("/api/user_domains/v1/?"),
-				method: "GET",
-			})
-			.reply((opts) => {
-				const flag = new URL(opts.path, HOST).searchParams.get("feature_flag");
-				if (flag !== null) flagQueries.push(flag);
-				return {
-					statusCode: 200,
-					data: JSON.stringify({ objects: [listed], meta: { total_count: 1 } }),
-				};
-			})
-			.persist();
-		request(
+		servedBy(
 			peer,
-			`/a/${DOMAIN}/phone/search/?case_type=__nova_compatibility_probe__`,
-		)
-			.reply(200, "<results/>", {
-				headers: { "content-type": "text/xml; charset=utf-8" },
-			})
-			.times(2);
-		const remoteTable = {
-			id: "hq-table",
-			tag: "facilities",
-			is_global: true,
-			fields: [{ field_name: "code" }, { field_name: "name" }],
-		};
-		request(peer, TABLES).reply(200, { objects: [], meta: { next: null } });
-		request(peer, TABLES)
-			.reply(200, { objects: [remoteTable], meta: { next: null } })
-			.times(3);
-		request(peer, WORKBOOK, "POST")
-			.reply(async (opts) => {
-				log.push(`POST ${opts.path}`);
-				workbooks.push(await readMultipartRequest(opts));
-				return {
-					statusCode: 200,
-					data: JSON.stringify({ code: 200, message: "Uploaded" }),
-				};
-			})
-			.times(2);
-		request(peer, IMPORT, "POST")
-			.reply(async (opts) => {
-				log.push(`POST ${opts.path}`);
-				imports.push(await readMultipartRequest(opts));
-				return imports.length === 1
-					? {
-							statusCode: 201,
-							data: JSON.stringify({ success: true, app_id: REMOTE_APP }),
-						}
-					: {
-							statusCode: 200,
-							data: JSON.stringify({
-								success: true,
-								app_id: REMOTE_APP,
-								version: imports.length,
-							}),
-						};
-			})
-			.times(3);
-		// What HQ holds: the shell's source after the create, then the content's.
-		request(peer, SOURCE)
-			.reply(async (opts) => {
-				log.push(`GET ${opts.path}`);
-				return {
-					statusCode: 200,
-					data: JSON.stringify(await sourceAfter(imports)),
-				};
-			})
-			.times(4);
-		request(peer, MEDIA, "POST")
-			.reply(async (opts) => {
-				log.push(`POST ${opts.path}`);
-				uploads.push(await readMultipartRequest(opts));
-				return {
-					statusCode: 200,
-					data: JSON.stringify({ success: true, processing_id: "media-job" }),
-				};
-			})
-			.times(2);
-		request(peer, `${MEDIA}status/media-job/`)
-			.reply(200, {
-				success: true,
-				processing_id: "media-job",
-				complete: true,
-				matched_count: 1,
-				unmatched_count: 0,
-				unmatched_files: [],
-				errors: [],
-			})
-			.times(2);
+			projectSpace({
+				flags: everything.flags,
+				caseSearchEnabled: everything.caseSearchEnabled,
+			}),
+			log,
+		);
 		starts.push(log.length);
 		expect((await publish()).hqAppAction).toBe("created");
 		starts.push(log.length);
 		expect((await publish()).hqAppAction).toBe("updated");
 	});
+	const imports = await formsTo(log, "/apps/api/import_app/");
+	const workbooks = await formsTo(log, "/fixtures/fixapi/");
+	const uploads = await formsTo(log, "/multimedia/");
+	const flagQueries = log.flatMap((request) => {
+		const url = new URL(request.path, HOST);
+		const flag = url.searchParams.get("feature_flag");
+		return url.pathname === "/api/user_domains/v1/" && flag !== null
+			? [flag]
+			: [];
+	});
 
 	// The capture sends its requests in the order Nova's publish does: the
-	// shell and its source read before the workbook, and the content after it.
-	const [firstOrder, updateOrder] = perPublish(log, starts);
+	// table list preflight reads, the shell and its source read before the
+	// workbook, the re-list and the rows read the push records as the table's
+	// baseline, the content after it and its read back; and over the app it
+	// made, the table's rows compared before anything is sent.
+	const [firstOrder, updateOrder] = perPublish(lines(log), starts);
 	expect(ordered(capture.first.sequence)).toEqual([
+		"table list",
 		"import",
 		"source read",
 		"workbook",
+		"table list",
+		"rows read",
 		"source read",
 		"import",
+		"source read",
 		"media",
 	]);
 	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
 	expect(ordered(capture.update.sequence)).toEqual([
+		"table list",
+		"rows read",
 		"source read",
 		"workbook",
+		"table list",
+		"rows read",
 		"source read",
 		"import",
+		"source read",
 		"media",
 	]);
 	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
+	// The capture assumed the table list and rows its peer answered, which
+	// the HQ side holds to HQ's own before it applies the update.
+	expect(capture.first.content.assumedResources).toEqual({
+		lookupTables: [{ tag: "facilities", table: null }],
+	});
+	expect(capture.update.assumedResources?.lookupTables).toEqual([
+		expect.objectContaining({
+			tag: "facilities",
+			table: {
+				is_global: true,
+				fields: [
+					{ field_name: "code", properties: [] },
+					{ field_name: "name", properties: [] },
+				],
+				item_attributes: [],
+			},
+			rows: [
+				{ fields: { code: "002", name: "Hospital" } },
+				{ fields: { code: "001", name: "École & Clinic" } },
+			],
+		}),
+	]);
 
 	// The verdict names exactly the flags Nova's own check asked HQ about.
 	expect(flagQueries.sort()).toEqual(
@@ -806,4 +837,176 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	for (const [entry, content] of routedEntries) {
 		expect(localEntries.get(entry), entry).toBe(content);
 	}
+});
+
+/** The update the capture sent through a person's confirmation, and the stops it met on the way. */
+function confirmedUpdate(capture: PublishCapture) {
+	const { update } = sentSteps(capture);
+	if (update.confirmed === undefined) {
+		throw new Error("The capture sent the update without meeting a stop.");
+	}
+	return { update, confirmed: update.confirmed };
+}
+
+it("captures the stop Nova makes over a person's saves to the app in HQ, and sends what Nova sends once they are confirmed", async () => {
+	await seed(clinicVisitsDocument());
+	const document = await storedDocument();
+	const saves = {
+		uiTranslations: { en: { "home.start": "Begin a visit" } },
+		appAttributes: { auto_gps_capture: true },
+	};
+	const { update, confirmed } = confirmedUpdate(
+		await capturePublish({
+			create: document,
+			updates: [{ name: "update", document }],
+			configuration: {
+				id: "clinic",
+				flags: [],
+				caseSearchEnabled: false,
+				domain: DOMAIN,
+			},
+			hqSide: saves,
+		}),
+	);
+
+	// Nova's own publish over a project space where HQ mints the app id the
+	// capture names, so both send and read the same bytes, and the same saves.
+	const model = projectSpace({ appId: PLACEHOLDER_APP_ID });
+	const log: PeerRequest[] = [];
+	const { refused, landed } = await withHttpPeer(async (peer) => {
+		servedBy(peer, model, log);
+		expect((await publish()).hqAppAction).toBe("created");
+		model.applyHqSide(saves);
+		const refused = await attempt();
+		if (refused.landed)
+			throw new Error("Nova published over the saves without asking.");
+		const before = log.length;
+		const landed = await attempt({
+			discardRemoteChanges: refused.refusal.remoteChanges.map((change) => ({
+				kind: change.kind,
+				novaResourceId: change.novaResourceId,
+				observedDigest: change.observedDigest,
+			})),
+		});
+		return { refused, landed: { outcome: landed, log: log.slice(before) } };
+	});
+
+	// The capture met the stop Nova makes: the same code, the same change with
+	// the same parts and the digest Nova binds a discard to.
+	expect(confirmed.stops).toEqual([
+		{
+			code: "hq_changed",
+			remoteChanges: refused.refusal.remoteChanges,
+			conflicts: [],
+		},
+	]);
+	expect(refused.refusal.remoteChanges.map((change) => change.parts)).toEqual([
+		["A setting this app writes", "Text this app writes"],
+	]);
+	expect(confirmed.discards).toEqual(
+		refused.refusal.remoteChanges.map((change) => ({
+			kind: change.kind,
+			novaResourceId: change.novaResourceId,
+			observedDigest: change.observedDigest,
+		})),
+	);
+	// Nova's publish with that confirmation lands and sends the capture's bytes.
+	expect(landed.outcome.landed).toBe(true);
+	const [sent] = await formsTo(landed.log, "/apps/api/import_app/");
+	if (sent === undefined)
+		throw new Error("Nova sent no import after the confirmation.");
+	const captured = await new Response(new Uint8Array(update.importApp.body), {
+		headers: { "content-type": update.importApp.contentType },
+	}).formData();
+	expect(await appFile(sent)).toEqual(await appFile(captured));
+	expect(ordered(lines(landed.log))).toEqual(ordered(update.sequence));
+});
+
+it("captures the table a person kept in HQ as the name clash Nova refuses, and sends what Nova sends once it is taken over", async () => {
+	const document = await seedSearchLookupMedia();
+	const saves = {
+		lookupTable: {
+			tag: "facilities",
+			fieldProperty: { field: "name", property: "lang", value: "en" },
+			rowAttribute: { name: "zone", values: ["upland", "coastal"] },
+			owners: {
+				user: "facility.lead",
+				group: "Facility leads",
+				location: { name: "North office", siteCode: "north_office" },
+			},
+			description: "The facilities the team visits",
+		},
+	};
+	const { update, confirmed } = confirmedUpdate(
+		await capturePublish({
+			create: document,
+			updates: [{ name: "update", document }],
+			configuration: EVERYTHING,
+			hqSide: saves,
+		}),
+	);
+
+	const model = projectSpace({
+		appId: PLACEHOLDER_APP_ID,
+		flags: EVERYTHING.flags,
+		caseSearchEnabled: EVERYTHING.caseSearchEnabled,
+	});
+	const log: PeerRequest[] = [];
+	const { refused, landed } = await withHttpPeer(async (peer) => {
+		servedBy(peer, model, log);
+		expect((await publish()).hqAppAction).toBe("created");
+		model.applyHqSide(saves);
+		const refused = await attempt();
+		if (refused.landed)
+			throw new Error("Nova pushed over the kept table without asking.");
+		const before = log.length;
+		const landed = await attempt({
+			adoptResourceIds: refused.refusal.resourceConflicts.map(
+				(conflict) => conflict.novaResourceId,
+			),
+		});
+		return { refused, landed: { outcome: landed, log: log.slice(before) } };
+	});
+
+	// HQ's upload of the kept table made it again under a new id, so Nova
+	// reads a table it cannot account for: a name clash, never a drift change.
+	expect(refused.refusal.failure.code).toBe("hq_resource_conflict");
+	expect(confirmed.stops).toEqual([
+		{
+			code: "hq_resource_conflict",
+			remoteChanges: [],
+			conflicts: refused.refusal.resourceConflicts.map((conflict) => ({
+				tableId: conflict.novaResourceId,
+				tag: conflict.identity,
+				remoteId: conflict.remoteId,
+			})),
+		},
+	]);
+	expect(confirmed.adopted).toEqual(
+		refused.refusal.resourceConflicts.map(
+			(conflict) => conflict.novaResourceId,
+		),
+	);
+	expect(landed.outcome.landed).toBe(true);
+	// The capture assumed the table as the person kept it, which the HQ side
+	// holds to HQ's own before it applies the update.
+	expect(update.assumedResources?.lookupTables).toEqual([
+		{
+			tag: "facilities",
+			table: {
+				is_global: true,
+				fields: [
+					{ field_name: "code", properties: [] },
+					{ field_name: "name", properties: ["lang"] },
+				],
+				item_attributes: ["zone"],
+			},
+		},
+	]);
+	const [workbook] = await formsTo(landed.log, "/fixtures/fixapi/");
+	if (workbook === undefined || update.lookup === undefined) {
+		throw new Error("Neither publish pushed the table after taking it over.");
+	}
+	await expectSameWorkbook(update.lookup, workbook);
+	expect(ordered(lines(landed.log))).toEqual(ordered(update.sequence));
 });

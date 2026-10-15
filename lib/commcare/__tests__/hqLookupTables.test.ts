@@ -1,6 +1,9 @@
 /** Real HTTP request/response handling; workbook compilation and ownership
  * consequences are exercised through MCP plus Postgres in uploadAppToHq. */
-import { expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import type { MockAgent } from "undici";
+import { expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
 	readMultipartRequest,
@@ -8,6 +11,7 @@ import {
 } from "@/__tests__/helpers/httpPeer";
 import {
 	listHqLookupTables,
+	readHqLookupTableRows,
 	uploadLookupTableWorkbook,
 } from "../hq/lookupTables";
 
@@ -66,8 +70,17 @@ it("reads each inventory page from the selected space and projects all returned 
 				tag: "facilities",
 				isGlobal: true,
 				fields: ["code", "label"],
+				fieldProperties: { code: [], label: [] },
+				itemAttributes: [],
 			},
-			{ id: "two", tag: "villages", isGlobal: false, fields: ["name"] },
+			{
+				id: "two",
+				tag: "villages",
+				isGlobal: false,
+				fields: ["name"],
+				fieldProperties: { name: [] },
+				itemAttributes: [],
+			},
 		]);
 		expect(
 			peer
@@ -373,4 +386,178 @@ it("refuses an upload redirect without resending workbook bytes to another desti
 				.map((call) => call.fullUrl),
 		).toEqual([HOST + UPLOAD]);
 	});
+});
+
+/*
+ * HQ's own answers to the two reads the drift check makes, retained by the
+ * lane under `proof/hq-reads/lookups/` (part 02, The retained HQ reads):
+ * `plain`, a global table; `rich`, a table that is not global, with a field
+ * property, a row attribute and both row shapes; `long`, 1,005 rows.
+ */
+const LOOKUPS = path.join(process.cwd(), "proof/hq-reads/lookups");
+
+type RetainedAnswer =
+	| {
+			readonly status: number;
+			readonly headers: Record<string, string>;
+			readonly body: string;
+	  }
+	| { readonly exception: string };
+
+function retained(name: string): RetainedAnswer {
+	return JSON.parse(readFileSync(path.join(LOOKUPS, name), "utf8"));
+}
+
+/** Serve one retained answer; a view that raised answers 500, as HQ does. */
+function serve(peer: MockAgent, requestPath: string, answer: RetainedAnswer) {
+	const route = peer.get(HOST).intercept({ path: requestPath, method: "GET" });
+	if ("exception" in answer) route.reply(500, "Internal Server Error");
+	else route.reply(answer.status, answer.body, { headers: answer.headers });
+}
+
+function rowsPath(tableId: string): string {
+	return `/a/clinic/api/fixture/v1/?fixture_type_id=${tableId}`;
+}
+
+async function retainedTables() {
+	return withHttpPeer(async (peer) => {
+		serve(peer, LIST, retained("lookup-tables.json"));
+		const tables = await listHqLookupTables(CREDS, DOMAIN);
+		if ("success" in tables) throw new Error("the retained list did not parse");
+		return tables;
+	});
+}
+
+function tableTagged(
+	tables: Awaited<ReturnType<typeof retainedTables>>,
+	tag: string,
+) {
+	const table = tables.find((candidate) => candidate.tag === tag);
+	if (table === undefined) throw new Error(`no retained table ${tag}`);
+	return table;
+}
+
+it("reads each table's field properties and row attributes from HQ's definition list", async () => {
+	const tables = await retainedTables();
+	expect(tableTagged(tables, "plain")).toMatchObject({ isGlobal: true });
+	const rich = tableTagged(tables, "rich");
+	expect(rich.isGlobal).toBe(false);
+	expect(Object.values(rich.fieldProperties).flat().length).toBeGreaterThan(0);
+	expect(rich.itemAttributes.length).toBeGreaterThan(0);
+});
+
+it("follows the relative cursor across both retained pages of a 1,005-row table and stops at its count", async () => {
+	const long = tableTagged(await retainedTables(), "long");
+	const first = retained("fixture-rows-long-1.json");
+	if ("exception" in first) throw new Error("the first page is an answer");
+	const next = (JSON.parse(first.body) as { meta: { next: string } }).meta.next;
+	const result = await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(long.id), first);
+		serve(
+			peer,
+			new URL(next, `${HOST}${rowsPath(long.id)}`).pathname +
+				new URL(next, `${HOST}${rowsPath(long.id)}`).search,
+			retained("fixture-rows-long-2.json"),
+		);
+		return readHqLookupTableRows(CREDS, DOMAIN, long.id);
+	});
+	if ("success" in result) throw new Error("the rows read failed");
+	expect(result.totalCount).toBe(1005);
+	expect(result.rows).toHaveLength(1005);
+	expect(new Set(result.rows.map((row) => row.id)).size).toBe(1005);
+});
+
+it("gives each page of a table's rows its own deadline, and still stops a page that stalls", async () => {
+	const long = tableTagged(await retainedTables(), "long");
+	const first = retained("fixture-rows-long-1.json");
+	const second = retained("fixture-rows-long-2.json");
+	if ("exception" in first || "exception" in second)
+		throw new Error("the long pages are answers");
+	const next = new URL(
+		(JSON.parse(first.body) as { meta: { next: string } }).meta.next,
+		`${HOST}${rowsPath(long.id)}`,
+	);
+	/* Two pages of 20 seconds each outlast one 30-second deadline, and a
+	 * page of 31 seconds outlasts its own. */
+	for (const [secondPageMs, expected] of [
+		[20_000, { totalCount: 1005 }],
+		[31_000, { success: false, cause: "timeout" }],
+	] as const) {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			await withHttpPeer(async (peer) => {
+				peer
+					.get(HOST)
+					.intercept({ path: rowsPath(long.id), method: "GET" })
+					.reply(first.status, first.body, { headers: first.headers })
+					.delay(20_000);
+				peer
+					.get(HOST)
+					.intercept({ path: next.pathname + next.search, method: "GET" })
+					.reply(second.status, second.body, { headers: second.headers })
+					.delay(secondPageMs);
+				const read = readHqLookupTableRows(CREDS, DOMAIN, long.id);
+				await vi.advanceTimersByTimeAsync(20_000);
+				await vi.advanceTimersByTimeAsync(secondPageMs);
+				expect(await read).toMatchObject(expected);
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	}
+});
+
+it("parses both of HQ's row shapes", async () => {
+	const rich = tableTagged(await retainedTables(), "rich");
+	const result = await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(rich.id), retained("fixture-rows-rich.json"));
+		return readHqLookupTableRows(CREDS, DOMAIN, rich.id);
+	});
+	if ("success" in result) throw new Error("the rows read failed");
+	const shapes = result.rows.map((row) =>
+		Object.values(row.fields).every((value) => typeof value === "string")
+			? "single"
+			: "listed",
+	);
+	expect(new Set(shapes)).toEqual(new Set(["single", "listed"]));
+	const listed = result.rows.find((row) =>
+		Object.values(row.fields).some(
+			(value) => typeof value !== "string" && value.length > 1,
+		),
+	);
+	expect(listed).toBeDefined();
+});
+
+it("refuses a failed page and any row shape HQ does not serve", async () => {
+	const plain = tableTagged(await retainedTables(), "plain");
+	await withHttpPeer(async (peer) => {
+		serve(
+			peer,
+			rowsPath(plain.id),
+			retained("fixture-rows-plain-after-column-added.json"),
+		);
+		expect(await readHqLookupTableRows(CREDS, DOMAIN, plain.id)).toMatchObject({
+			success: false,
+			status: 500,
+		});
+	});
+	const answer = retained("fixture-rows-plain.json");
+	if ("exception" in answer) throw new Error("the plain rows are an answer");
+	const body = JSON.parse(answer.body) as {
+		objects: { fields: Record<string, unknown> }[];
+	};
+	for (const fields of [{ code: 7 }, { code: { values: ["a"] } }]) {
+		const edited = structuredClone(body);
+		const [row] = edited.objects;
+		if (row !== undefined) row.fields = fields;
+		await withHttpPeer(async (peer) => {
+			serve(peer, rowsPath(plain.id), {
+				...answer,
+				body: JSON.stringify(edited),
+			});
+			expect(
+				await readHqLookupTableRows(CREDS, DOMAIN, plain.id),
+			).toMatchObject({ success: false, status: 502 });
+		});
+	}
 });

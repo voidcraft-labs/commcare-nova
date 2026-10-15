@@ -1,0 +1,17 @@
+{
+	"addOns": [
+		"advanced_itemsets",
+		"calc_xpaths",
+		"case_detail_overwrite",
+		"case_list_menu_item",
+		"conditional_enum",
+		"conditional_form_actions",
+		"display_conditions",
+		"enum_image",
+		"register_from_case_list",
+		"subcases"
+	],
+	"profileProperties": [],
+	"profileCustomProperties": [],
+	"autoGpsCapture": true
+}

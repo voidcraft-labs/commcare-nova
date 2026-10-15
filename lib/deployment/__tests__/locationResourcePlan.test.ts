@@ -152,6 +152,19 @@ describe("a project space Nova has never pushed to", () => {
 			ownership: "adopted",
 		});
 	});
+
+	it("names the place information each push writes, sorted, and none when the app models none", () => {
+		const informed = place({ values: { population: "5", area: "" } });
+		const modeled = plan({
+			places: [informed],
+			appModelsPlaceInformation: true,
+		});
+		if (!modeled.ok) throw new Error(JSON.stringify(modeled));
+		expect(modeled.batches[0]?.[0]?.ownedKeys).toEqual(["area", "population"]);
+		const unmodeled = plan({ places: [informed] });
+		if (!unmodeled.ok) throw new Error(JSON.stringify(unmodeled));
+		expect(unmodeled.batches[0]?.[0]?.ownedKeys).toEqual([]);
+	});
 });
 
 describe("a project space Nova already owns places on", () => {

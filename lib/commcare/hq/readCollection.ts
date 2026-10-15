@@ -9,20 +9,37 @@ export function isHqObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export interface ReadHqCollectionOptions {
+	/** Called with each page's `meta`, for a caller that reads more of it than the cursor. */
+	readonly onMeta?: (meta: Readonly<Record<string, unknown>>) => void;
+	/**
+	 * `whole` (the default): one deadline owns every page and body read.
+	 * `page`: each page has its own, for a collection whose length grows
+	 * with data a person enters, so the bound is `maxPages` deadlines.
+	 */
+	readonly deadline?: "whole" | "page";
+}
+
 /** Inventory authorizes remote replacement. Only a complete list from the
- * requested collection can establish absence. One deadline owns all pages and
- * body reads; a stalled page cannot hold a publish open indefinitely. */
+ * requested collection can establish absence. Every page and body read runs
+ * under a deadline, so a stalled page cannot hold a publish open
+ * indefinitely. */
 export async function readHqCollection(
 	creds: CommCareCredentials,
 	firstUrl: string,
 	label: string,
 	maxPages: number,
+	options: ReadHqCollectionOptions = {},
 ): Promise<readonly unknown[] | CommCareApiError> {
+	const { onMeta, deadline = "whole" } = options;
 	const target = new URL(firstUrl);
 
 	const rows: unknown[] = [];
 	let url = firstUrl;
-	return withHqRequestDeadline(async (signal) => {
+	/* With no signal, `readHqJson` owns a deadline of its own for the page. */
+	const readPages = async (
+		signal: AbortSignal | undefined,
+	): Promise<readonly unknown[] | CommCareApiError> => {
 		for (let page = 0; page < maxPages; page++) {
 			const result = await readHqJson(creds, url, label, { signal });
 			if ("success" in result) return result;
@@ -36,6 +53,7 @@ export async function readHqCollection(
 				log.error(`[commcare] ${label} is malformed`, undefined, {});
 				return { success: false, status: 502, cause: "malformed" };
 			}
+			onMeta?.(body.meta);
 			rows.push(...body.objects);
 			if (body.meta.next === null) return rows;
 			let next: URL;
@@ -65,5 +83,8 @@ export async function readHqCollection(
 			pages: maxPages,
 		});
 		return { success: false, status: 508 };
-	});
+	};
+	return deadline === "page"
+		? readPages(undefined)
+		: withHqRequestDeadline((signal) => readPages(signal));
 }

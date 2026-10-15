@@ -31,6 +31,34 @@ the answers it refuses with 429.
   after the republish, and for four of them that a project space sent the
   ids it holds keeps them; and HQ's answers to each refusal the cutover's
   classification names (``answers/``).
+- the drift groups (part 02, The retained HQ reads): for each of the five
+  documents ``DRIFT_DOCUMENTS`` names, published as Nova's first publish
+  leaves it, two reads of the unchanged app (``app-source``,
+  ``app-source-again``), one read after each save its ``hq-side.json``
+  names, each made over A in a fork of its own
+  (``app-source-after-<save>``), for ``case-list-inline`` the read after
+  Nova's media upload, for ``targeted-hq-side-lookup`` the table list and
+  the table's rows, and beside them the ownership descriptor the capture
+  wrote for the content import (``ownership``); ``navigation-base`` given
+  every form-id reference path and two report configs by HQ's own models
+  (``hq-built/``); the shell of ``navigation-base`` and the same shell with
+  a menu HQ's model added (``shell/``); three lookup tables Nova's workbook
+  grammar uploads and HQ's models shape, with their rows, after HQ's table
+  editor adds a column and after it renames a tag (``lookups/``); places the
+  location resource makes, updates with their own values, archives and
+  deletes, its refusals of a create over an archived place, and the level
+  resource's refusal of a write (``places/``); and the upload view's answers
+  to Nova's captured workbook, to a file that is no workbook and to a
+  request with none (``lookup-upload/``). Each read's project space is the
+  document's configuration with HQ's API access privilege beside it, which
+  every one of these resources requires. A read whose view raised is
+  ``{"exception": <its class name>}``. Beside them it holds the two premises
+  the comparison rests on: HQ's form-id reference paths are the four the
+  normalization replaces, and a stored document lacking a declared key at
+  its manifest default reads back at that default (``Detail.display`` alone
+  excepted). The editors' saves over ``navigation-base`` and the shell are
+  ``proof/editors/test_retained_reads.py``'s, which this module leaves out
+  of what it holds.
 
 The plausible failures: an answer written by hand that HQ never gives, a
 read made outside HQ's own authentication and limiter (so a refusal Nova
@@ -40,6 +68,7 @@ operation), and a committed file left stale by a pin move.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from contextlib import contextmanager
@@ -104,12 +133,14 @@ class Retained:
         path.write_text(text, encoding="utf-8")
         return value
 
-    def hold(self, committed: Path, *, ignore=()):
-        """The committed files are exactly those made, byte for byte (each ``ignore``d subtree left out)."""
+    def hold(self, committed: Path, *, ignore=(), others=lambda name: False):
+        """The committed files are exactly those made, byte for byte (each ``ignore``d subtree, and each file
+        ``others`` says another test writes, left out)."""
         held = {
             path.relative_to(committed).with_suffix("").as_posix(): path.read_text(encoding="utf-8")
             for path in sorted(committed.rglob("*.json"))
             if not any(path.relative_to(committed).as_posix().startswith(prefix) for prefix in ignore)
+            and not others(path.relative_to(committed).with_suffix("").as_posix())
         }
         missing = sorted(set(self.made) - set(held))
         stale = sorted(name for name in set(self.made) & set(held) if held[name] != self.made[name])
@@ -609,3 +640,587 @@ def test_the_cutover_reads_nova_is_served_are_hqs_own(hq, core_runner):
     assert "Retry-After" not in made["answers/application-429"].get("headers", {})
     retained.hold(CUTOVER, ignore=tuple(f"{fixture}/legacy/" for fixture in fixtures) + ("legacy-manifest",))
     assert sorted(name for name in retained.made if name.startswith("answers/")) == sorted(CUTOVER_ANSWERS)
+
+
+# The drift groups ---------------------------------------------------------------------------------------------
+
+# The documents whose reads the drift comparison is proven over: a form link (a reference path), media, a person's
+# saves in HQ, and the lookup table.
+DRIFT_DOCUMENTS = (
+    "navigation-base",
+    "search-registration-link",
+    "case-list-inline",
+    "targeted-hq-side-state",
+    "targeted-hq-side-lookup",
+)
+# The four paths ``models/base.py::FormIdProperty`` registers at the pin, which ``normalizeHqAppSource`` replaces
+# with position tokens (``lib/deployment/hqSourceBaseline.ts``).
+FORM_ID_REFERENCE_PATHS = {
+    "modules[*].case_list_form.form_id",
+    "modules[*].forms[*].form_links[*].form_id",
+    "modules[*].forms[*].shadow_parent_form_id",
+    "modules[*].schedule_phases[*].forms[*].form_id",
+}
+# The one declared key a stored document lacking it does not read back at its manifest default: HQ fills a
+# detail's display from its position (``models/details.py``), where the manifest records null.
+DEFAULT_EXCEPTIONS = {("Detail", "display")}
+SURFACE = PROOF_DIR.parent / "lib" / "commcare" / "surface" / "surface.json"
+
+
+def _editors_file(name):
+    """The files under ``navigation-base/`` and ``shell/`` the editors' saves write
+    (``proof/editors/test_retained_reads.py``)."""
+    return name.startswith("app-source-after-") and name.endswith("-save")
+
+
+def _with_api_access(export):
+    """The export's project space with HQ's API access privilege beside what it grants."""
+    configuration = export.configuration.hq()
+    return dataclasses.replace(configuration, privileges=configuration.privileges | {API_ACCESS})
+
+
+def _keep_raised(retained, name, read):
+    """``read()``'s answer kept under ``name``, or, where HQ's view raised in place of answering, the exception's
+    class name."""
+    try:
+        answer = read()
+    except Exception as error:  # noqa: BLE001 (any exception HQ's view raises is what the file records)
+        return retained.keep(name, {"exception": type(error).__name__})
+    return retained.keep(name, answer)
+
+
+def _ownership(export, name):
+    """The ownership descriptor the capture wrote beside one import of the first publish
+    (``proof/corpus/entryWriter.ts``: ``create.ownership.json``, ``content.ownership.json``)."""
+    return json.loads((export.directory / f"{name}.ownership.json").read_text(encoding="utf-8"))
+
+
+def _document_reads(documents, document_id, member_name):
+    """One document's reads: the published app twice, after each of a person's saves, after its media, and its
+    lookup table; and its ownership."""
+    from proof.observe import hqside, publish
+
+    document = documents[document_id]
+    export = document.exports["minimum"]
+    retained = Retained(document_id)
+    retained.keep("ownership", _ownership(export, "content"))
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            member = operations.seed_api_user(state, member_name)
+        app_id = _first_publish(state, export)
+
+        def read(name):
+            with _operation(state, name):
+                return retained.keep(name, operations.source_read(state, app_id, member))
+
+        first = read("app-source")
+        again = read("app-source-again")
+        saves = document.hq_side or {}
+        for kind, run in hqside.SAVES:
+            if kind not in saves:
+                continue
+            with state.fork():
+                with _operation(state, f"hq-side-{kind}"):
+                    run(state, app_id, saves[kind])
+                read(f"app-source-after-{kind}")
+        if export.content.media is not None:
+            with _operation(state, "media"):
+                uploaded = publish.upload_media(state, app_id, export.content.media)
+            assert uploaded["refused"] is None and uploaded["errors"] == [], uploaded
+            read("app-source-after-media")
+        if document_id == "targeted-hq-side-lookup":
+            with _operation(state, "lookup-tables"):
+                tables = retained.keep("lookup-tables", operations.lookup_tables_read(state, member))
+            for table in _body(tables)["objects"]:
+                with _operation(state, f"fixture-rows-{table['tag']}"):
+                    retained.keep(
+                        f"fixture-rows-{table['tag']}", operations.fixture_rows_read(state, table["id"], member)
+                    )
+    unread = sorted(set(saves) - {kind for kind, _ in hqside.SAVES})
+    assert not unread, unread
+    forms = [form["unique_id"] for form in _forms(_body(first))]
+    assert forms and not set(forms) & {form["unique_id"] for form in _forms(_body(again))}, document_id
+    return retained
+
+
+def _hq_built(retained, export, member_name):
+    """``navigation-base`` after HQ's own models give it every form-id reference path: a case-list form, an
+    advanced menu holding two forms, a shadow form of the first and a two-phase visit schedule, and a report menu
+    with two configs, one with a slug."""
+    from corehq.apps.app_manager.models import (
+        AdvancedModule,
+        ReportAppConfig,
+        ReportModule,
+        SchedulePhase,
+        SchedulePhaseForm,
+    )
+
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            member = operations.seed_api_user(state, member_name)
+        app_id = _first_publish(state, export)
+        with _operation(state, "hq-built"):
+            app = operations.held_app(state, app_id)
+            menu = app.get_module(0)
+            register = next(form for form in menu.get_forms() if not form.requires_case())
+            menu.case_list_form.form_id = register.unique_id
+            menu.case_list_form.label = {app.langs[0]: "Register"}
+            advanced = app.add_module(AdvancedModule.new_module("Schedule", app.langs[0]))
+            advanced.case_type = menu.case_type
+            first = advanced.new_form("First visit", app.langs[0])
+            second = advanced.new_form("Second visit", app.langs[0])
+            shadow = advanced.new_shadow_form("First visit again", app.langs[0])
+            shadow.shadow_parent_form_id = first.unique_id
+            advanced.has_schedule = True
+            advanced.schedule_phases = [
+                SchedulePhase(anchor="edd", forms=[SchedulePhaseForm(form_id=first.unique_id)]),
+                SchedulePhase(anchor="add", forms=[SchedulePhaseForm(form_id=second.unique_id)]),
+            ]
+            reports = app.add_module(ReportModule.new_module("Reports", app.langs[0]))
+            reports.report_configs = [
+                ReportAppConfig(report_id="nova-proof-report-one"),
+                ReportAppConfig(report_id="nova-proof-report-two", report_slug="second_report"),
+            ]
+            app.save()
+        reads = []
+        for name in ("app-source", "app-source-again"):
+            with _operation(state, f"hq-built-{name}"):
+                reads.append(_body(retained.keep(name, operations.source_read(state, app_id, member))))
+    first_read, again = reads
+    advanced_menu = first_read["modules"][1]
+    assert first_read["modules"][0]["case_list_form"]["form_id"] in {f["unique_id"] for f in _forms(first_read)}
+    assert advanced_menu["forms"][2]["shadow_parent_form_id"] == advanced_menu["forms"][0]["unique_id"]
+    assert [p["forms"][0]["form_id"] for p in advanced_menu["schedule_phases"]] == [
+        advanced_menu["forms"][0]["unique_id"],
+        advanced_menu["forms"][1]["unique_id"],
+    ]
+    first_configs = first_read["modules"][2]["report_configs"]
+    again_configs = again["modules"][2]["report_configs"]
+    # Each read mints every report config's uuid and fills an empty slug with the stored uuid, the same each time.
+    assert {c["uuid"] for c in first_configs}.isdisjoint({c["uuid"] for c in again_configs})
+    assert [c["report_slug"] for c in first_configs] == [c["report_slug"] for c in again_configs]
+    assert first_configs[1]["report_slug"] == "second_report"
+
+
+def _shell_reads(retained, export, member_name):
+    """The shell ``navigation-base``'s create makes, and the same shell after HQ's own model adds a menu."""
+    from corehq.apps.app_manager.models import Module
+
+    retained.keep("ownership", _ownership(export, "create"))
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            member = operations.seed_api_user(state, member_name)
+        with _operation(state, "shell"):
+            shell_id = operations.apply_upload(state, export.create.upload()).response["app_id"]
+        with _operation(state, "shell-app-source"):
+            shell = retained.keep("app-source", operations.source_read(state, shell_id, member))
+        with _operation(state, "shell-menu"):
+            app = operations.held_app(state, shell_id)
+            app.add_module(Module.new_module("Added in HQ", app.langs[0]))
+            app.save()
+        with _operation(state, "shell-app-source-with-a-menu"):
+            menu = retained.keep("app-source-with-a-menu", operations.source_read(state, shell_id, member))
+    assert _body(shell)["modules"] == [] and len(_body(menu)["modules"]) == 1
+
+
+@pytest.mark.under_determinism
+def test_the_drift_reads_nova_is_served_are_hqs_own(hq, core_runner, documents):
+    groups = [
+        _document_reads(documents, document_id, f"member-{position}@example.org")
+        for position, document_id in enumerate(DRIFT_DOCUMENTS)
+    ]
+    export = documents["navigation-base"].exports["minimum"]
+    hq_built = Retained("hq-built")
+    _hq_built(hq_built, export, "member-built@example.org")
+    shell = Retained("shell")
+    _shell_reads(shell, export, "member-shell@example.org")
+
+    made = {group.group: group.made for group in groups}
+    assert set(made["case-list-inline"]) >= {"app-source-after-media"}
+    assert {"app-source-after-uiTranslations", "app-source-after-appAttributes"} <= set(made["targeted-hq-side-state"])
+    assert {"lookup-tables", "app-source-after-lookupTable"} <= set(made["targeted-hq-side-lookup"])
+    for group in (*groups, hq_built, shell):
+        group.hold(READS / group.group, others=_editors_file)
+
+
+def _lookup_workbook(tables):
+    """An ``.xlsx`` in the header grammar Nova's lookup workbook writes (``lib/commcare/lookup/workbook.ts``): the
+    ``types`` sheet naming each table's tag, ``is_global?`` and fields, and each table's sheet of ``field: <name>``
+    columns, each row new."""
+    from io import BytesIO
+
+    from couchexport.export import export_raw
+    from couchexport.models import Format
+
+    widest = max(len(fields) for _, fields, _ in tables)
+    types_headers = ("Delete(Y/N)", "table_id", "is_global?", *(f"field {n}" for n in range(1, widest + 1)))
+    types_rows = [("N", tag, "yes", *fields, *([""] * (widest - len(fields)))) for tag, fields, _ in tables]
+    sheets = [("types", types_headers, types_rows)]
+    for tag, fields, rows in tables:
+        sheets.append(
+            (tag, ("UID", "Delete(Y/N)", *(f"field: {field}" for field in fields)), [("", "N", *row) for row in rows])
+        )
+    out = BytesIO()
+    export_raw(
+        [(name, headers) for name, headers, _ in sheets],
+        [(name, rows) for name, _, rows in sheets],
+        out,
+        format=Format.XLS_2007,
+    )
+    return out.getvalue()
+
+
+def _shape_rich(state):
+    """``rich`` as HQ's models keep it: not global, a property on its ``name`` field, a row attribute, and its
+    second row holding two values in one field."""
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+
+    table = LookupTable.objects.get(domain=state.domain, tag="rich")
+    table.is_global = False
+    table.fields = [TypeField(name="code"), TypeField(name="name", properties=["lang"])]
+    table.item_attributes = ["zone"]
+    table.save()
+    first, second = LookupTableRow.objects.iter_rows(state.domain, tag="rich")
+    first.fields = {"code": [Field(value="north")], "name": [Field(value="North", properties={"lang": "en"})]}
+    first.item_attributes = {"zone": "upland"}
+    first.save()
+    second.fields = {
+        "code": [Field(value="south")],
+        "name": [Field(value="South", properties={"lang": "en"}), Field(value="Sud", properties={"lang": "fr"})],
+    }
+    second.item_attributes = {"zone": "coastal"}
+    second.save()
+
+
+def _table_editor(state, table, body):
+    """A save of HQ's lookup table editor (``fixtures/views.py::update_tables``, the PUT its page sends)."""
+    from django.urls import resolve, reverse
+
+    from proof.hq import requests as hq_requests
+
+    path = reverse("update_lookup_tables", args=[state.domain, table])
+    match = resolve(path)
+    response = match.func(
+        hq_requests.raw(state, "PUT", path, json.dumps(body).encode(), "application/json"), *match.args, **match.kwargs
+    )
+    assert response.status_code == 200 and "validation_errors" not in json.loads(response.content), response.content
+
+
+def _lookup_reads(retained, export, member_name):
+    """Three tables Nova's workbook grammar uploads and HQ's models shape, read through the two resources Nova's
+    drift check reads, then after HQ's table editor adds a column and, apart, renames a tag."""
+    from corehq.apps.fixtures.models import LookupTable
+
+    long_rows = [(f"{n:04}", f"Place {n}") for n in range(1005)]
+    workbook = _lookup_workbook(
+        [
+            ("plain", ("code", "name"), [("001", "Clinic"), ("002", "Hospital")]),
+            ("rich", ("code", "name"), [("north", "North"), ("south", "South")]),
+            ("long", ("code", "name"), long_rows),
+        ]
+    )
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            member = operations.seed_api_user(state, member_name)
+        with _operation(state, "lookup-upload"):
+            uploaded = operations.upload_lookup_workbook(state, workbook, replace=True)
+            assert uploaded.errors == [], uploaded.errors
+            _shape_rich(state)
+        with _operation(state, "lookup-tables"):
+            tables = {
+                t["tag"]: t
+                for t in _body(retained.keep("lookup-tables", operations.lookup_tables_read(state, member)))["objects"]
+            }
+        # The table resource read, through HQ's own resource class, serves what the API answered.
+        assert {
+            tag: {k: v for k, v in table.items() if k not in ("id", "resource_uri", "tag")}
+            for tag, table in tables.items()
+        } == operations.served_lookup_tables(state)
+        for tag in ("plain", "rich"):
+            with _operation(state, f"fixture-rows-{tag}"):
+                rows = retained.keep(
+                    f"fixture-rows-{tag}", operations.fixture_rows_read(state, tables[tag]["id"], member)
+                )
+            assert [{"fields": row["fields"]} for row in _body(rows)["objects"]] == operations.served_lookup_rows(
+                state, tag
+            )
+        with _operation(state, "fixture-rows-long-1"):
+            page = _body(
+                retained.keep("fixture-rows-long-1", operations.fixture_rows_read(state, tables["long"]["id"], member))
+            )
+        with _operation(state, "fixture-rows-long-2"):
+            last = _body(
+                retained.keep(
+                    "fixture-rows-long-2",
+                    operations.fixture_rows_read(state, tables["long"]["id"], member, query=page["meta"]["next"]),
+                )
+            )
+        plain = LookupTable.objects.get(domain=state.domain, tag="plain").id.hex
+        with state.fork():
+            with _operation(state, "column-added"):
+                _table_editor(
+                    state,
+                    plain,
+                    {
+                        "tag": "plain",
+                        "is_global": True,
+                        "description": "",
+                        "fields": {"code": {}, "name": {}, "region": {"is_new": True}},
+                    },
+                )
+            with _operation(state, "lookup-tables-after-column-added"):
+                retained.keep("lookup-tables-after-column-added", operations.lookup_tables_read(state, member))
+            with _operation(state, "fixture-rows-plain-after-column-added"):
+                raised = _keep_raised(
+                    retained,
+                    "fixture-rows-plain-after-column-added",
+                    lambda: operations.fixture_rows_read(state, plain, member),
+                )
+        with state.fork():
+            with _operation(state, "renamed"):
+                _table_editor(
+                    state,
+                    plain,
+                    {"tag": "plain_renamed", "is_global": True, "description": "", "fields": {"code": {}, "name": {}}},
+                )
+            with _operation(state, "lookup-tables-after-rename"):
+                renamed = retained.keep("lookup-tables-after-rename", operations.lookup_tables_read(state, member))
+    assert tables["plain"]["is_global"] is True and tables["rich"]["is_global"] is False
+    assert page["meta"]["total_count"] == 1005 and len(page["objects"]) == 1000
+    assert page["meta"]["next"].startswith("?") and last["meta"]["next"] is None and len(last["objects"]) == 5
+    assert {row["id"] for row in page["objects"]}.isdisjoint({row["id"] for row in last["objects"]})
+    assert "exception" in raised
+    renamed_tables = {t["id"]: t["tag"] for t in _body(renamed)["objects"]}
+    assert renamed_tables[tables["plain"]["id"]] == "plain_renamed"
+
+
+def _places_reads(retained, export, member_name):
+    """Places the location resource's own PATCH makes, as Nova's push makes them (a parent with coordinates, a child
+    without, and a second top-level place made after them), read through the inventory Nova reads: as made, after
+    an update that sends a place its own values, after HQ archives it, and apart after HQ
+    deletes it; HQ's refusals of a create over the archived place; and the level resource's refusal of a write."""
+    from corehq.apps.locations.models import LocationType, SQLLocation
+
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            member = operations.seed_api_user(state, member_name, edit_locations=True)
+        with _operation(state, "levels"):
+            region = LocationType.objects.create(domain=state.domain, name="Region", code="region")
+            LocationType.objects.create(domain=state.domain, name="District", code="district", parent_type=region)
+        with _operation(state, "parent"):
+            made = operations.location_patch(
+                state,
+                [
+                    {
+                        "name": "North",
+                        "site_code": "north",
+                        "location_type_code": "region",
+                        "latitude": "12.5",
+                        "longitude": "-1.123456789012345",
+                    }
+                ],
+                member,
+            )
+            assert made.status == 202, made.retained()
+        parent = SQLLocation.objects.get(domain=state.domain, site_code="north").location_id
+        with _operation(state, "child"):
+            made = operations.location_patch(
+                state,
+                [
+                    {
+                        "name": "North clinic",
+                        "site_code": "north_clinic",
+                        "location_type_code": "district",
+                        "parent_location_id": parent,
+                    }
+                ],
+                member,
+            )
+            assert made.status == 202, made.retained()
+        # A place made after the child, so the child is not last and the update that sends it its own values
+        # moves it in the inventory's order (``last_modified``).
+        with _operation(state, "later"):
+            made = operations.location_patch(
+                state, [{"name": "South", "site_code": "south", "location_type_code": "region"}], member
+            )
+            assert made.status == 202, made.retained()
+        with _operation(state, "locations"):
+            listed = _body(retained.keep("locations", operations.locations_read(state, member)))
+        child = next(place for place in listed["objects"] if place["site_code"] == "north_clinic")
+        with _operation(state, "unchanged-update"):
+            fields = ("name", "site_code", "location_type_code", "parent_location_id", "location_data")
+            made = operations.location_patch(
+                state, [{"location_id": child["location_id"], **{key: child[key] for key in fields}}], member
+            )
+            assert made.status == 202, made.retained()
+        with _operation(state, "locations-after-unchanged-update"):
+            unchanged = _body(
+                retained.keep("locations-after-unchanged-update", operations.locations_read(state, member))
+            )
+        with state.fork():
+            with _operation(state, "archive"):
+                SQLLocation.objects.get(location_id=child["location_id"]).archive()
+            with _operation(state, "locations-after-archive"):
+                retained.keep("locations-after-archive", operations.locations_read(state, member))
+            again = {
+                "name": "North clinic",
+                "site_code": "north_clinic",
+                "location_type_code": "district",
+                "parent_location_id": parent,
+            }
+            with _operation(state, "create-over-archived-same-name"):
+                same = retained.keep(
+                    "create-over-archived-same-name", operations.location_patch(state, [again], member)
+                )
+            with _operation(state, "create-over-archived-other-site-code"):
+                other = retained.keep(
+                    "create-over-archived-other-site-code",
+                    operations.location_patch(state, [{**again, "name": "North clinic annex"}], member),
+                )
+        with state.fork():
+            with _operation(state, "delete"):
+                SQLLocation.objects.get(location_id=child["location_id"]).full_delete()
+            with _operation(state, "locations-after-delete"):
+                retained.keep("locations-after-delete", operations.locations_read(state, member))
+        with _operation(state, "level-write"):
+            level = retained.keep(
+                "level-write", operations.location_type_write(state, member, {"name": "Ward", "code": "ward"})
+            )
+    by_code = {place["site_code"]: place for place in listed["objects"]}
+    assert by_code["north"]["latitude"] == "12.5000000000" and by_code["north"]["longitude"] == "-1.1234567890"
+    assert by_code["north_clinic"]["latitude"] is None
+    assert [p["site_code"] for p in listed["objects"]] == ["north", "north_clinic", "south"]
+    assert [p["site_code"] for p in unchanged["objects"]] == ["north", "south", "north_clinic"]
+    assert same.status == 400 and "Location with same name and parent already exists." in same.body
+    assert other.status == 400 and "another location already uses this site code" in other.body
+    assert level.status == 401, level.retained()
+
+
+def _lookup_upload_reads(retained, documents, member_name):
+    """The upload view's JSON answers (``fixtures/views.py::upload_fixture_api``) to the workbook Nova's push
+    captured for ``targeted-hq-side-lookup``, to a file that is no workbook and to a request with no file."""
+    export = documents["targeted-hq-side-lookup"].exports["minimum"]
+    captured = export.content.lookups
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            # The upload needs the account's Edit Data permission
+            # (``fixtures/dispatcher.py::require_can_edit_fixtures``).
+            member = operations.seed_api_user(state, member_name, edit_data=True)
+
+        def upload(name, body, content_type):
+            with _operation(state, name):
+                return retained.keep(
+                    name,
+                    operations.api_request(
+                        state,
+                        "POST",
+                        f"/a/{state.domain}/fixtures/fixapi/",
+                        credential=member,
+                        body=body,
+                        content_type=content_type,
+                    ),
+                )
+
+        nova = upload("workbook", captured.upload().body, captured.content_type)
+        boundary = "nova-proof-boundary"
+
+        def form(fields):
+            body = b"".join(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"{extra}\r\n\r\n'.encode()
+                + value
+                + b"\r\n"
+                for name, extra, value in fields
+            )
+            return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
+
+        not_a_workbook = upload(
+            "not-a-workbook",
+            *form(
+                [
+                    ("replace", "", b"true"),
+                    (
+                        "file-to-upload",
+                        '; filename="tables.xlsx"\r\nContent-Type: application/octet-stream',
+                        b"not a workbook",
+                    ),
+                ]
+            ),
+        )
+        no_file = upload("no-file", *form([("replace", "", b"true")]))
+    assert nova.status == 200 and json.loads(nova.body)["code"] == 200, nova.retained()
+    assert json.loads(not_a_workbook.body)["code"] != 200 and json.loads(no_file.body)["code"] != 200
+
+
+@pytest.mark.under_determinism
+def test_the_lookup_and_place_reads_nova_is_served_are_hqs_own(hq, core_runner, documents):
+    # Nova's table push and HQ's table editor need the project space's lookup table privilege, which
+    # targeted-hq-side-lookup's configuration grants.
+    lookup_export = documents["targeted-hq-side-lookup"].exports["minimum"]
+    lookups = Retained("lookups")
+    _lookup_reads(lookups, lookup_export, "member-lookups@example.org")
+    # The location resource needs the project space's locations privilege, which location-multirung's
+    # configuration grants.
+    places = Retained("places")
+    _places_reads(places, documents["location-multirung"].exports["minimum"], "member-places@example.org")
+    upload = Retained("lookup-upload")
+    _lookup_upload_reads(upload, documents, "member-upload@example.org")
+    for group in (lookups, places, upload):
+        group.hold(READS / group.group)
+
+
+def _stripped(value, items):
+    """``value`` with every key of an object carrying a ``doc_type`` removed where it holds the default the surface
+    manifest records for ``schema:<doc_type>.<key>``, at every depth."""
+    if isinstance(value, list):
+        return [_stripped(item, items) for item in value]
+    if not isinstance(value, dict):
+        return value
+    doc_type = value.get("doc_type")
+    kept = {}
+    for key, held in value.items():
+        item = items.get(f"schema:{doc_type}.{key}") if isinstance(doc_type, str) and key != "doc_type" else None
+        if item is not None and item.get("declared") is True and "default" in item and item["default"] == held:
+            continue
+        kept[key] = _stripped(held, items)
+    return kept
+
+
+def _differences(left, right, path=(), doc_type=None):
+    """Each ``(doc_type, key)`` at which two documents differ, where the difference is a key of an object."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        found = set()
+        here = left.get("doc_type", doc_type)
+        for key in set(left) | set(right):
+            if key not in left or key not in right:
+                found.add((here, key))
+            else:
+                found |= _differences(left[key], right[key], (*path, key), here)
+        return found
+    if isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
+        found = set()
+        for a, b in zip(left, right, strict=True):
+            found |= _differences(a, b, path, doc_type)
+        return found
+    return set() if left == right else {(doc_type, path[-1] if path else None)}
+
+
+@pytest.mark.under_determinism
+def test_the_comparisons_premises_hold_at_the_pin(hq, core_runner, documents):
+    """The normalization replaces exactly the form-id reference paths HQ registers, and the schema-growth rule's
+    premise: a stored app lacking a declared key at its manifest default reads back at that default."""
+    from corehq.apps.app_manager.models import Application, form_id_references
+    from jsonpath_ng import parse
+
+    registered = sorted(str(path) for path in form_id_references)
+    assert registered == sorted(str(parse(path)) for path in FORM_ID_REFERENCE_PATHS), registered
+    items = json.loads(SURFACE.read_text(encoding="utf-8"))["items"]
+    export = documents["navigation-base"].exports["minimum"]
+    with hq_check(export.configuration.hq()) as (state, _), _services(state):
+        app_id = _first_publish(state, export)
+        stored = json.loads(json.dumps(operations.held_app(state, app_id).to_json()))
+    stripped = _stripped(stored, items)
+    removed = len(json.dumps(stored)) - len(json.dumps(stripped))
+    assert removed > 0
+    read = json.loads(json.dumps(Application.wrap(json.loads(json.dumps(stripped))).to_json()))
+    whole = json.loads(json.dumps(Application.wrap(json.loads(json.dumps(stored))).to_json()))
+    assert _differences(read, whole) <= DEFAULT_EXCEPTIONS, _differences(read, whole)

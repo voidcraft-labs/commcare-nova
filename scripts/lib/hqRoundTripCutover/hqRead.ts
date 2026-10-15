@@ -482,22 +482,48 @@ async function attempts<T>(
 	return outcome;
 }
 
+/** The member whose key a read's last request sent, and when that request was answered. */
+export interface ReadAnswer {
+	readonly userId: string;
+	readonly at: string;
+}
+
 /**
  * One read through the deployment's credential order: a refused key moves
- * the read to the next member, any other outcome ends it. Null where no
- * member qualifies, so no request is sent.
+ * the read to the next member, any other outcome ends it. `outcome` is null
+ * where no member qualifies, so no request is sent; `answer` names the
+ * member whose key the outcome came back to, null where every key was
+ * refused or none was sent.
  */
+export async function readAnsweredThroughCredentials<T>(
+	context: ReadContext,
+	limited: boolean,
+	request: (creds: CommCareCredentials) => Promise<HqReadOutcome<T>>,
+): Promise<{
+	readonly outcome: HqReadOutcome<T> | null;
+	readonly answer: ReadAnswer | null;
+}> {
+	let last: HqReadOutcome<T> | null = null;
+	for (const userId of context.credentials) {
+		last = await attempts(context, userId, limited, request);
+		if (last.kind !== "refused") {
+			return {
+				outcome: last,
+				answer: { userId, at: new Date(context.clock.now()).toISOString() },
+			};
+		}
+	}
+	return { outcome: last, answer: null };
+}
+
+/** `readAnsweredThroughCredentials`'s outcome alone. */
 export async function readThroughCredentials<T>(
 	context: ReadContext,
 	limited: boolean,
 	request: (creds: CommCareCredentials) => Promise<HqReadOutcome<T>>,
 ): Promise<HqReadOutcome<T> | null> {
-	let last: HqReadOutcome<T> | null = null;
-	for (const userId of context.credentials) {
-		last = await attempts(context, userId, limited, request);
-		if (last.kind !== "refused") return last;
-	}
-	return last;
+	return (await readAnsweredThroughCredentials(context, limited, request))
+		.outcome;
 }
 
 // ── One deployment ──────────────────────────────────────────────────
@@ -509,6 +535,12 @@ export interface DeploymentReads {
 	/** Null where the source read gave no app to read form ids of. */
 	readonly formIds: HqReadOutcome<HqFormIdModule[]> | null;
 	readonly keyUses: readonly KeyUse[];
+	/**
+	 * Whose key the source read's outcome came back to, and when: the
+	 * `observed_by` and `observed_at` of the baseline the cutover stores
+	 * from it. Null where every key was refused or none was sent.
+	 */
+	readonly sourceAnswer: ReadAnswer | null;
 }
 
 /**
@@ -538,18 +570,19 @@ export async function readDeployment(
 		credentialSource: options.credentialSource,
 		keyUses,
 	};
-	const source = await readThroughCredentials(context, false, async (creds) =>
-		classifySourceRead(
-			await readHqAppSource(creds, target.domain, target.remoteAppId),
-		),
-	);
+	const { outcome: source, answer: sourceAnswer } =
+		await readAnsweredThroughCredentials(context, false, async (creds) =>
+			classifySourceRead(
+				await readHqAppSource(creds, target.domain, target.remoteAppId),
+			),
+		);
 	const formIds =
 		source?.kind === "ok"
 			? await readThroughCredentials(context, true, (creds) =>
 					readHqApplicationFormIds(creds, target.domain, target.remoteAppId),
 				)
 			: null;
-	return { source, formIds, keyUses: keyUses.all() };
+	return { source, formIds, keyUses: keyUses.all(), sourceAnswer };
 }
 
 // ── One deployment's class ─────────────────────────────────────────

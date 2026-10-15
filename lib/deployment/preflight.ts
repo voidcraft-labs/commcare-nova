@@ -11,13 +11,20 @@ import {
 	readHqAppSource,
 } from "@/lib/commcare/hq/appSource";
 import {
+	type HqLocation,
 	listHqLocations,
 	listHqLocationTypes,
 } from "@/lib/commcare/hq/locations";
-import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
+import {
+	type HqLookupTable,
+	LOOKUP_ROWS_READ_CONCURRENCY,
+	listHqLookupTables,
+	readHqLookupTableRows,
+} from "@/lib/commcare/hq/lookupTables";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
+import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
@@ -30,7 +37,19 @@ import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { attachmentUrlTarget } from "./attachmentTarget";
+import {
+	ABSENT_RESOURCE_DIGEST,
+	canonicalLookupTable,
+	canonicalPlace,
+	lookupDefinitionChange,
+	lookupDefinitionDigest,
+	lookupIdentityChange,
+	lookupRowsChange,
+	placeChange,
+} from "./hqResourceBaseline";
+import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -43,10 +62,28 @@ import {
 	type PlannedLookupPush,
 	planLookupResourcePush,
 } from "./lookupResourcePlan";
+import {
+	boundedParts,
+	decideRemoteChanges,
+	describeAppChange,
+	describeLookupChange,
+	describePlaceChange,
+	HQ_CHANGED_MESSAGE,
+	HQ_CHANGES_CONFIRMED_DETAIL,
+	HQ_CHANGES_NONE_DETAIL,
+	HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
+} from "./remoteChanges";
+import { readAppBaseline, readResourceBaselines } from "./store";
 import type {
+	AppBaseline,
+	CanonicalLookupTable,
+	CanonicalPlace,
 	DeploymentFailure,
+	DeploymentRemoteChange,
 	DeploymentResource,
 	DeploymentResourceConflict,
+	RemoteChangeDiscard,
+	ResourceBaseline,
 } from "./types";
 import { describeRequiredWorkerDataGaps } from "./workerProvisionPlan";
 import {
@@ -78,6 +115,12 @@ import {
  * there is one: it is where a publish learns the app is gone, or is not an
  * app Nova updates, before anything is written.
  *
+ * The same three edges compare what CommCare HQ holds now with what Nova
+ * last read back from it there (the baselines), and `hq-changes` decides
+ * over everything they collected: a change nobody chose to publish over
+ * stops the whole publish before any write, because a stop after a table or
+ * place went out would leave them overwritten.
+ *
  * `organization` is also where the shapes CommCare HQ will not hold are
  * caught. Places go out in atomic batches of a hundred, one level at a
  * time, so a tree refused on its fourth level has already put three
@@ -91,6 +134,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"organization",
 	"project-space-compatibility",
 	"target-app",
+	"hq-changes",
 	"required-worker-data",
 	"worker-record-access",
 ] as const;
@@ -160,7 +204,17 @@ export type PreflightResult =
 				readonly targetApp: {
 					readonly appId: string;
 					readonly source: HqAppSource;
+					/** The same read, normalized (`hqSourceBaseline.ts::normalizeHqAppSource`). */
+					readonly normalized: unknown;
 				} | null;
+				/**
+				 * The stored baseline of the app `target-app` read, as the
+				 * comparison used it: null when that edge did not run or no
+				 * baseline of that HQ app was ever written.
+				 */
+				readonly appBaseline: AppBaseline | null;
+				/** The HQ-side changes a person named back to publish over. */
+				readonly confirmedChanges: readonly DeploymentRemoteChange[];
 			};
 			readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport;
 	  }
@@ -186,6 +240,8 @@ export type PreflightResult =
 			 * observation of that mapping.
 			 */
 			readonly remoteAppGone?: DeploymentResource;
+			/** What changed in CommCare HQ, listed exactly when the refusal is `hq_changed`. */
+			readonly remoteChanges?: readonly DeploymentRemoteChange[];
 	  };
 
 /** The tables to push, and what Nova may claim about each. */
@@ -228,6 +284,12 @@ export interface PreflightInput {
 	 * defaulted, never inferred from a previous attempt.
 	 */
 	readonly adoptResourceIds: readonly string[];
+	/**
+	 * HQ-side changes the caller says a person chose to write over, each
+	 * bound to the state they were shown. Never defaulted from an earlier
+	 * attempt.
+	 */
+	readonly discardRemoteChanges: readonly RemoteChangeDiscard[];
 	readonly access: {
 		/** The app whose organization this reads. Authorized by the caller. */
 		readonly appId: string;
@@ -251,7 +313,8 @@ function blockedOutcome(
 		| "hq_resource_conflict"
 		| "hq_organization_mismatch"
 		| "hq_app_state_unknown"
-		| "remote_app_missing",
+		| "remote_app_missing"
+		| "hq_changed",
 	message: string,
 	details: readonly string[] = [],
 ): {
@@ -340,6 +403,11 @@ export async function runDeploymentPreflight(
 	input: PreflightInput,
 ): Promise<PreflightResult> {
 	const checks: PreflightCheck[] = [];
+	const target = { server: input.server, domain: input.domain };
+	/* What the three comparing edges collect for the verdict. `compared`
+	 * says whether any of them had something of Nova's here to compare. */
+	const observed: DeploymentRemoteChange[] = [];
+	let compared = false;
 
 	// ── 1. Can we reach that project space at all? ──────────────────
 	const credResult = await getCredentialsForUpload(
@@ -516,16 +584,16 @@ export async function runDeploymentPreflight(
 			hqTables,
 			adoptTableIds: input.adoptResourceIds,
 		});
+		/* Named twice over: the tag is what CommCare HQ shows, and the
+		 * table's own name is what the author will recognize. The
+		 * definitions are the generation the boundary validated, so the
+		 * name printed here is the name the workbook was built from. */
+		const nameByTableId = new Map(
+			boundary.prepared.lookupSnapshot.definitions.map(
+				(definition) => [definition.id, definition.name] as const,
+			),
+		);
 		if (!plan.ok) {
-			/* Named twice over: the tag is what CommCare HQ shows, and the
-			 * table's own name is what the author will recognize. The
-			 * definitions are the generation the boundary validated, so the
-			 * name printed here is the name the workbook was built from. */
-			const nameByTableId = new Map(
-				boundary.prepared.lookupSnapshot.definitions.map(
-					(definition) => [definition.id, definition.name] as const,
-				),
-			);
 			const conflicts: readonly DeploymentResourceConflict[] =
 				plan.conflicts.map((conflict) => ({
 					kind: "lookup-table",
@@ -556,6 +624,76 @@ export async function runDeploymentPreflight(
 			};
 		}
 		lookupPush = { workbook, pushes: plan.pushes };
+
+		/* Each table this deployment mapped under the tag it still plans, the
+		 * table there now or the one HQ deleted or renamed since. A table
+		 * this publish adopts is the person's decision to write over it, so
+		 * it is not compared. */
+		const comparedTables = plan.pushes.flatMap((push) =>
+			push.mappedRemoteId === null
+				? []
+				: [{ push, remoteId: push.mappedRemoteId }],
+		);
+		if (comparedTables.length > 0) {
+			compared = true;
+			const baselines = baselinesByRemoteId(
+				await readResourceBaselines(
+					input.access,
+					target,
+					comparedTables.map(({ remoteId }) => ({
+						kind: "lookup-table",
+						remoteId,
+					})),
+				),
+			);
+			/* The tables are independent, so their rows are read a few at a
+			 * time; the results keep the plan's order, and the first table
+			 * that could not be read is the one the refusal names. */
+			const found = await mapWithConcurrency(
+				comparedTables,
+				LOOKUP_ROWS_READ_CONCURRENCY,
+				({ push, remoteId }) =>
+					lookupRemoteChange({
+						creds,
+						domain,
+						tableId: push.tableId,
+						tag: push.tag,
+						name: nameByTableId.get(push.tableId) ?? push.tag,
+						mappedRemoteId: remoteId,
+						hqTables,
+						baseline: baselines.get(remoteId),
+					}),
+			);
+			const unreadable = comparedTables.find(
+				(_, index) => found[index] === "unreadable",
+			);
+			if (unreadable !== undefined) {
+				const name =
+					nameByTableId.get(unreadable.push.tableId) ?? unreadable.push.tag;
+				const detail = `Nova couldn't read the rows of the lookup table “${name}” on “${domain}”, so it can't tell whether they changed in CommCare HQ since its last publish, and it stopped before sending anything. A row there with an empty value can cause this; filling that value in CommCare HQ, or trying again in a moment, lets the next publish read it.`;
+				checks.push({
+					id: "project-data",
+					title: "Project data",
+					status: "blocked",
+					detail,
+					items: [],
+				});
+				return {
+					checks,
+					outcome: blockedOutcome(
+						input.now,
+						"hq_resource_state_unknown",
+						detail,
+					),
+					ready: null,
+					projectSpaceCompatibility: null,
+					conflicts: [],
+				};
+			}
+			for (const change of found) {
+				if (change !== null && change !== "unreadable") observed.push(change);
+			}
+		}
 		checks.push({
 			id: "project-data",
 			title: "Project data",
@@ -732,6 +870,45 @@ export async function runDeploymentPreflight(
 				};
 			}
 			locationPush = { batches: plan.batches, placeCount: places.length };
+
+			/* Each planned place with a live mapping, by the mapping's id. A
+			 * mapped place the read no longer lists is `missing` whatever the
+			 * push plans in its stead. */
+			const mappingByPlace = new Map(
+				input.mappings
+					.filter((resource) => resource.kind === "location")
+					.map((resource) => [resource.novaResourceId, resource] as const),
+			);
+			const comparedPlaces = plan.batches.flat().flatMap((push) => {
+				const mapping = mappingByPlace.get(push.locationUuid);
+				return mapping === undefined
+					? []
+					: [{ push, remoteId: mapping.remoteId }];
+			});
+			if (comparedPlaces.length > 0) {
+				compared = true;
+				const baselines = baselinesByRemoteId(
+					await readResourceBaselines(
+						input.access,
+						target,
+						comparedPlaces.map(({ remoteId }) => ({
+							kind: "location",
+							remoteId,
+						})),
+					),
+				);
+				const placeById = new Map(
+					hqPlaces.map((place) => [place.locationId, place] as const),
+				);
+				for (const { push, remoteId } of comparedPlaces) {
+					const change = placeRemoteChange({
+						push,
+						current: placeById.get(remoteId) ?? null,
+						baseline: baselines.get(remoteId),
+					});
+					if (change !== null) observed.push(change);
+				}
+			}
 			checks.push({
 				id: "organization",
 				title: "Organization",
@@ -805,7 +982,9 @@ export async function runDeploymentPreflight(
 	let targetApp: {
 		readonly appId: string;
 		readonly source: HqAppSource;
+		readonly normalized: unknown;
 	} | null = null;
+	let appBaseline: AppBaseline | null = null;
 	if (input.inPlaceUpdate !== null) {
 		const appId = input.inPlaceUpdate.remoteId;
 		const read = await readHqAppSource(creds, domain, appId);
@@ -830,7 +1009,47 @@ export async function runDeploymentPreflight(
 				...(gone && { remoteAppGone: input.inPlaceUpdate }),
 			};
 		}
-		targetApp = { appId, source: read.source };
+		const normalized = normalizeHqAppSource(read.source.raw);
+		if ("malformed" in normalized) {
+			const failure = hqAppSourceReadFailure(
+				{ success: false, status: 502, cause: "malformed" },
+				domain,
+				false,
+			);
+			checks.push({
+				id: "target-app",
+				title: "App on CommCare HQ",
+				status: "blocked",
+				detail: failure.message,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, failure.code, failure.message),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+			};
+		}
+		targetApp = {
+			appId,
+			source: read.source,
+			normalized: normalized.normalized,
+		};
+
+		/* A baseline of another HQ app than the one mapped now says nothing
+		 * about this one, so it reads as no baseline at all. */
+		const stored = await readAppBaseline(input.access, target);
+		appBaseline = stored?.remoteAppId === appId ? stored : null;
+		compared = true;
+		const change = appRemoteChange({
+			appName: input.doc.appName,
+			novaAppId: input.access.appId,
+			remoteAppId: appId,
+			current: normalized,
+			baseline: appBaseline,
+		});
+		if (change !== null) observed.push(change);
 		checks.push({
 			id: "target-app",
 			title: "App on CommCare HQ",
@@ -840,7 +1059,51 @@ export async function runDeploymentPreflight(
 		});
 	}
 
-	// ── 7. Will the workers you create there have what they need? ───
+	// ── 7. Has anything this app publishes changed in CommCare HQ? ──
+	// The one verdict over every change the edges above collected. All or
+	// nothing, like a name clash: one change nobody chose to publish over
+	// stops the whole publish, before anything is written.
+	const verdict = decideRemoteChanges({
+		observed,
+		discards: input.discardRemoteChanges,
+	});
+	if (!verdict.proceed) {
+		const items = verdict.remoteChanges.map((change) => change.name);
+		checks.push({
+			id: "hq-changes",
+			title: "Changes in CommCare HQ",
+			status: "blocked",
+			detail: HQ_CHANGED_MESSAGE,
+			items,
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(
+				input.now,
+				"hq_changed",
+				HQ_CHANGED_MESSAGE,
+				items,
+			),
+			ready: null,
+			projectSpaceCompatibility,
+			conflicts: [],
+			remoteChanges: verdict.remoteChanges,
+		};
+	}
+	checks.push({
+		id: "hq-changes",
+		title: "Changes in CommCare HQ",
+		status: "passed",
+		detail:
+			verdict.confirmed.length > 0
+				? HQ_CHANGES_CONFIRMED_DETAIL
+				: compared
+					? HQ_CHANGES_NONE_DETAIL
+					: HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
+		items: verdict.confirmed.map((change) => change.name),
+	});
+
+	// ── 8. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: a publish creates no workers, so
 	// refusing it over a gap would refuse a publish that would have
 	// worked. The same gap IS blocking on the call that provisions
@@ -884,9 +1147,199 @@ export async function runDeploymentPreflight(
 			locationPush,
 			locations,
 			targetApp,
+			appBaseline,
+			confirmedChanges: verdict.confirmed,
 		},
 		projectSpaceCompatibility,
 	};
+}
+
+function baselinesByRemoteId(
+	baselines: readonly ResourceBaseline[],
+): ReadonlyMap<string, ResourceBaseline> {
+	return new Map(
+		baselines.map((baseline) => [baseline.remoteId, baseline] as const),
+	);
+}
+
+/**
+ * The app's change since its baseline, or null when nothing it writes
+ * differs. Observed as the digest of the whole normalized read, so a person
+ * confirms exactly the state Nova read, known baseline or not.
+ */
+function appRemoteChange(input: {
+	readonly appName: string;
+	readonly novaAppId: string;
+	readonly remoteAppId: string;
+	readonly current: { readonly normalized: unknown; readonly digest: string };
+	readonly baseline: AppBaseline | null;
+}): DeploymentRemoteChange | null {
+	const change = (
+		parts: readonly string[],
+		baselineKnown: boolean,
+	): DeploymentRemoteChange => ({
+		kind: "app",
+		novaResourceId: input.novaAppId,
+		name: input.appName,
+		identity: input.remoteAppId,
+		parts,
+		note: null,
+		observedDigest: input.current.digest,
+		baselineKnown,
+	});
+	const { baseline } = input;
+	if (baseline === null || baseline.origin === "unread") {
+		return change([], false);
+	}
+	const parts = diffHqAppSource({
+		baseline: baseline.source,
+		current: input.current.normalized,
+		ownership: baseline.ownership,
+		shell: baseline.origin === "create",
+		schemaDefault: schemaPropertyDefault,
+	});
+	return parts.length === 0
+		? null
+		: change(boundedParts(parts.map(describeAppChange)), true);
+}
+
+/**
+ * One mapped table's change since its baseline, in the comparison's order:
+ * where the table is (needs no baseline), then its definition, then its
+ * rows, which are read only when the definition is unchanged, since HQ's
+ * rows read fails after its table editor adds a column. `"unreadable"`
+ * when the rows read failed.
+ */
+async function lookupRemoteChange(input: {
+	readonly creds: CommCareCredentials;
+	readonly domain: string;
+	readonly tableId: string;
+	readonly tag: string;
+	readonly name: string;
+	readonly mappedRemoteId: string;
+	readonly hqTables: readonly HqLookupTable[];
+	readonly baseline: ResourceBaseline | undefined;
+}): Promise<DeploymentRemoteChange | null | "unreadable"> {
+	const change = (
+		parts: readonly string[],
+		observedDigest: string,
+		baselineKnown: boolean,
+	): DeploymentRemoteChange => ({
+		kind: "lookup-table",
+		novaResourceId: input.tableId,
+		name: input.name,
+		identity: input.tag,
+		parts,
+		note: null,
+		observedDigest,
+		baselineKnown,
+	});
+	const describe = (part: Parameters<typeof describeLookupChange>[0]) =>
+		describeLookupChange(part, input.tag);
+	const moved = lookupIdentityChange({
+		mappedRemoteId: input.mappedRemoteId,
+		tag: input.tag,
+		tables: input.hqTables,
+	});
+	if (moved?.kind === "deleted") {
+		return change([describe(moved)], ABSENT_RESOURCE_DIGEST, true);
+	}
+	if (moved?.kind === "renamed") {
+		const renamed = input.hqTables.find(
+			(table) => table.id === input.mappedRemoteId,
+		);
+		if (renamed === undefined) {
+			throw new Error(
+				`The lookup table ${input.mappedRemoteId} read as renamed is not in the list it was read from.`,
+			);
+		}
+		return change([describe(moved)], lookupDefinitionDigest(renamed), true);
+	}
+	/* The planner pushes over a table under this tag only when it is the
+	 * mapped one, so the table here has the mapped id. */
+	const current = input.hqTables.find((table) => table.tag === input.tag);
+	if (current === undefined || current.id !== input.mappedRemoteId) {
+		throw new Error(
+			`The lookup table under “${input.tag}” is not the mapped table ${input.mappedRemoteId} the plan compared.`,
+		);
+	}
+	const { baseline } = input;
+	if (baseline === undefined || baseline.origin === "unread") {
+		return change([], lookupDefinitionDigest(current), false);
+	}
+	const canonical = baseline.canonical as CanonicalLookupTable;
+	const definition = lookupDefinitionChange(canonical, current);
+	if (definition.length > 0) {
+		return change(
+			definition.map(describe),
+			lookupDefinitionDigest(current),
+			true,
+		);
+	}
+	const rows = await readHqLookupTableRows(
+		input.creds,
+		input.domain,
+		current.id,
+	);
+	if ("success" in rows) return "unreadable";
+	const changed = lookupRowsChange(canonical, rows);
+	return changed.length === 0
+		? null
+		: change(
+				changed.map(describe),
+				canonicalLookupTable(current, rows.rows).digest,
+				true,
+			);
+}
+
+/**
+ * One mapped place's change since its baseline. A place the inventory does
+ * not list is archived or deleted, which no API-key read tells apart, and is
+ * named whatever its baseline.
+ */
+function placeRemoteChange(input: {
+	readonly push: PlannedPlacePush;
+	readonly current: HqLocation | null;
+	readonly baseline: ResourceBaseline | undefined;
+}): DeploymentRemoteChange | null {
+	const change = (
+		parts: readonly string[],
+		observedDigest: string,
+		baselineKnown: boolean,
+	): DeploymentRemoteChange => ({
+		kind: "location",
+		novaResourceId: input.push.locationUuid,
+		name: input.push.name,
+		identity: input.push.siteCode,
+		parts,
+		note: null,
+		observedDigest,
+		baselineKnown,
+	});
+	const { current, baseline } = input;
+	if (current === null) {
+		return change(
+			[describePlaceChange({ kind: "missing" })],
+			ABSENT_RESOURCE_DIGEST,
+			true,
+		);
+	}
+	if (baseline === undefined || baseline.origin === "unread") {
+		return change(
+			[],
+			canonicalPlace(current, input.push.ownedKeys).digest,
+			false,
+		);
+	}
+	const canonical = baseline.canonical as CanonicalPlace;
+	const parts = placeChange(canonical, current);
+	return parts.length === 0
+		? null
+		: change(
+				boundedParts(parts.map(describePlaceChange)),
+				canonicalPlace(current, canonical.ownedKeys).digest,
+				true,
+			);
 }
 
 /**

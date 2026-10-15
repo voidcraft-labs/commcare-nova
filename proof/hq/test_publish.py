@@ -51,7 +51,10 @@ a corpus document's own capture (``proof/hq/conftest.py::DOCUMENTS``):
 - Derived ids (A1): two apps of one project space may hold the same form ids;
   a keyword or a scheduled message resolves a form id a republish keeps in
   the next release; HQ keeps a form's validation verdict for 7 days under
-  the app's and the form's id; and HQ mints the id shapes Nova derives.
+  the app's and the form's id, and so a verdict cached before Nova's
+  publish over a form still refuses HQ's download of the unbuilt app while a
+  new version builds (part 02's 7-day App Preview statement); and HQ mints
+  the id shapes Nova derives.
 """
 
 from __future__ import annotations
@@ -1016,6 +1019,113 @@ def test_an_update_keeps_a_forms_validation_verdict_for_seven_days(hq, core_runn
             assert _validation_errors(operations.held_app(state, app_id))
         with time_machine.travel(kept_at + dt.timedelta(days=7, seconds=1), tick=False):
             assert _validation_errors(operations.held_app(state, app_id)) == []
+
+
+def test_a_capture_is_applied_only_over_the_lookup_tables_it_read(hq, core_runner, documents):
+    """A captured update names the lookup tables its publish read before it decided what to send
+    (``assumedResources``), and the HQ side holds them to HQ's own table and row resources first
+    (``operations.hold_assumed_resources``). ``targeted-hq-side-lookup``'s republish read the district table as a
+    person kept it in HQ: over Nova's own push alone HQ holds another definition, and the hold refuses naming the
+    table; once the person's save is made through HQ's own upload and table editor, it holds."""
+    from proof.hq import redis as hq_redis
+    from proof.observe import hqside, publish
+
+    document = documents["targeted-hq-side-lookup"]
+    export = document.exports["minimum"]
+    assumed = export.republish.meta["assumedResources"]
+    assert [table["tag"] for table in assumed["lookupTables"]] == ["district"]
+    with hq_check(export.configuration.hq()) as (state, _), hq_redis.shared(None), state.committing():
+        app_id, refusal, lookups = publish.create(state, export)
+        assert refusal is None and lookups["errors"] == [], (refusal, lookups)
+        with pytest.raises(operations.CapturedResourcesNotHeld, match="the definition of district"):
+            operations.hold_assumed_resources(state, assumed, "captured republish")
+        hqside.lookup_table(state, document.hq_side["lookupTable"])
+        operations.hold_assumed_resources(state, assumed, "captured republish")
+
+
+def _unbuilt_download(state, app_id):
+    """HQ's download of the unbuilt app (``views/cli.py::direct_ccz`` with ``latest=save``), the reference
+    Formplayer installs an app by its id from (``util/SessionUtils.java::getReferenceToLatest``): its status, and
+    for a refusal the text of its body."""
+    from django.urls import resolve, reverse
+
+    from proof.hq import requests as hq_requests
+
+    path = reverse("direct_ccz", args=[state.domain])
+    match = resolve(path)
+    response = match.func(
+        hq_requests.get(state, path, {"app_id": app_id, "latest": "save"}), *match.args, **match.kwargs
+    )
+    return response.status_code, "" if response.streaming else response.content.decode("utf-8", "replace")
+
+
+def _new_version(state, app_id):
+    """Whether HQ's ``make_build`` builds a new version of the app (validating a copy under a new id)."""
+    from proof.hq.seams import build_seams
+    from proof.webapps import hq as webapps_hq
+
+    try:
+        with build_seams():
+            webapps_hq._make_build(state, operations.held_app(state, app_id))
+    except webapps_hq.ReleaseRefused:
+        return "refused"
+    return "built"
+
+
+def test_a_cached_form_verdict_outlives_an_import_and_a_new_version_checks_afresh(hq, core_runner, documents):
+    """The 7-day App Preview statement (part 02, Work item B): over ``navigation-base``, one state after another,
+    the form's own check (``FormBase.validate_form`` through ``validate_app``), HQ's download of the unbuilt app
+    (``views/cli.py::direct_ccz``, ``latest=save``) and a new version (``ApplicationBase.make_build``):
+
+    - Nova's publish: the check passes, the download answers the archive, a version builds;
+    - one form's source replaced with a broken one through the path the form builder's save writes it
+      (``models/forms.py::FormSource.__set__``), then checked: the check fails, the download answers 400 with
+      "Cannot make new version", a version is refused;
+    - Nova's publish over it, the form Nova's again: the check still fails with the old error and the download
+      still answers 400, but a version builds, since ``make_build`` validates a copy under a new id;
+    - that form's source set once more through the form builder's save path, nothing changed: the cached verdict
+      is gone, and all three pass.
+
+    So what the stale verdict reaches is the unbuilt app, never a build a worker installs, and only a save
+    through the form's own editor path clears it (``proof/editors/test_vellum.py`` makes that save in Vellum)."""
+    from proof.hq import redis as hq_redis
+
+    export = documents[ID_DOCUMENT].exports["minimum"]
+    body = _app_file(export.content.upload())
+    form_id = body["modules"][0]["forms"][0]["unique_id"]
+    seen = {}
+    with hq_check(export.configuration.hq()) as (state, _), hq_redis.shared(None), state.committing():
+        app_id, _ = _first_publish(state, export)
+
+        def observe(name):
+            seen[name] = (
+                bool(_validation_errors(operations.held_app(state, app_id))),
+                *_unbuilt_download(state, app_id),
+                _new_version(state, app_id),
+            )
+
+        observe("published")
+        app = operations.held_app(state, app_id)
+        valid = app.get_form(form_id).source
+        app.get_form(form_id).source = _refused_by_core(valid)
+        app.save()
+        observe("broken in HQ")
+        assert operations.apply_upload(state, operations.with_app_id(export.content.upload(), app_id)).status == 200
+        assert operations.held_app(state, app_id).get_form(form_id).source == valid
+        observe("published over it")
+        app = operations.held_app(state, app_id)
+        app.get_form(form_id).source = app.get_form(form_id).source
+        app.save()
+        observe("saved in the form builder")
+
+    failing, status, text, version = seen["published"]
+    assert (failing, status, version) == (False, 200, "built"), seen["published"]
+    for name in ("broken in HQ", "published over it"):
+        failing, status, text, _ = seen[name]
+        assert failing and status == 400 and "Cannot make new version" in text, (name, seen[name][:2])
+    assert seen["broken in HQ"][3] == "refused" and seen["published over it"][3] == "built"
+    failing, status, _, version = seen["saved in the form builder"]
+    assert (failing, status, version) == (False, 200, "built"), seen["saved in the form builder"]
 
 
 def test_hq_mints_the_id_shapes_nova_derives(hq, core_runner, documents):

@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 1000, \"previous\": \"?fixture_type_id=a0a2cdc1f69941da848befc33ffc36be&limit=1000&offset=0\", \"total_count\": 1005}, \"objects\": [{\"fields\": {\"code\": \"1000\", \"name\": \"Place 1000\"}, \"fixture_type\": \"long\", \"id\": \"0be2a51f27f846c99d23c715222e83f9\", \"resource_uri\": \"\"}, {\"fields\": {\"code\": \"1001\", \"name\": \"Place 1001\"}, \"fixture_type\": \"long\", \"id\": \"63442acf285f41f398b4b5d23caf970c\", \"resource_uri\": \"\"}, {\"fields\": {\"code\": \"1002\", \"name\": \"Place 1002\"}, \"fixture_type\": \"long\", \"id\": \"693c8b42e5194c918b0c4f602563a730\", \"resource_uri\": \"\"}, {\"fields\": {\"code\": \"1003\", \"name\": \"Place 1003\"}, \"fixture_type\": \"long\", \"id\": \"b4d79fe647c94d318c71342f2a8a0a46\", \"resource_uri\": \"\"}, {\"fields\": {\"code\": \"1004\", \"name\": \"Place 1004\"}, \"fixture_type\": \"long\", \"id\": \"5e4e4f189b5a4bdc91f702cc1ebbac57\", \"resource_uri\": \"\"}]}"
+}

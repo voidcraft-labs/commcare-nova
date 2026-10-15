@@ -184,6 +184,12 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"hq_app_state_unknown",
 	/** The app Nova published is no longer on the target project space. */
 	"remote_app_missing",
+	/**
+	 * Something this app publishes is not what CommCare HQ held when Nova
+	 * last published it. Nothing was sent; a person may publish over each
+	 * listed change by naming it back with the state they were shown.
+	 */
+	"hq_changed",
 	/** The released build did not serve the profile a device installs from. */
 	"build_not_installable",
 ] as const;
@@ -247,6 +253,85 @@ export interface DeploymentAttemptRefusal {
 	 * name CommCare HQ shows.
 	 */
 	readonly resourceConflicts: readonly DeploymentResourceConflict[];
+	/**
+	 * Non-empty exactly for `hq_changed` at `preflight`. The `upload` stop
+	 * (a change during the resource push) carries none and offers no
+	 * discard: any resend runs preflight again, which reads CommCare HQ
+	 * afresh and lists the change with its current digest.
+	 */
+	readonly remoteChanges: readonly DeploymentRemoteChange[];
+}
+
+/** Names one HQ table or place a baseline is kept for. */
+export interface ResourceBaselineRef {
+	readonly kind: "lookup-table" | "location";
+	readonly remoteId: string;
+}
+
+/** What a caller names when a person chose to write over an HQ-side change. */
+export interface RemoteChangeDiscard {
+	readonly kind: "app" | "lookup-table" | "location";
+	readonly novaResourceId: string;
+	readonly observedDigest: string;
+}
+
+/**
+ * One thing this app publishes that CommCare HQ holds differently from
+ * Nova's last read of it, as an `hq_changed` refusal lists it.
+ */
+export interface DeploymentRemoteChange {
+	readonly kind: "app" | "lookup-table" | "location";
+	readonly novaResourceId: string;
+	/** The author's name for it. */
+	readonly name: string;
+	/** What CommCare HQ shows it as: the HQ app id, a table's tag, or a place's site code. */
+	readonly identity: string;
+	/** What changed, in Nova's voice, bounded; empty exactly when `baselineKnown` is false. */
+	readonly parts: readonly string[];
+	/** One sentence shown after the parts, outside the bound. */
+	readonly note: string | null;
+	/** The digest of CommCare HQ's state as shown, which a discard names back. */
+	readonly observedDigest: string;
+	/**
+	 * False exactly when the change carries no parts: an `unread` baseline,
+	 * or a live mapping with no baseline row, where no rule that needs no
+	 * baseline applied. A table `deleted` or `renamed` and a place `missing`
+	 * are named whatever the baseline, so they carry their part and read true.
+	 */
+	readonly baselineKnown: boolean;
+}
+
+/**
+ * A discard a person confirmed, recorded with the baseline its push
+ * produces. It carries no person: `discarded_by` is the scope's actor and
+ * `discarded_at` the transaction's `now()`.
+ */
+export interface BaselineDiscardWrite {
+	/** The HQ state the person chose to write over. */
+	readonly digest: string;
+}
+
+/** What the app baseline writers take. Gzip and digests are computed before the transaction. */
+export interface AppBaselineWrite {
+	readonly origin: "create" | "push" | "unread";
+	readonly remoteAppId: string;
+	readonly sourceGzip: Buffer | null;
+	readonly sourceBytes: number | null;
+	readonly sourceDigest: string | null;
+	readonly ownership: AppOwnership | null;
+	readonly observedAt: string;
+	readonly discard: BaselineDiscardWrite | null;
+}
+
+/** What the resource baseline writers take, one HQ table or place each. */
+export interface ResourceBaselineWrite {
+	readonly origin: "push" | "unread";
+	readonly kind: "lookup-table" | "location";
+	readonly remoteId: string;
+	readonly canonical: CanonicalLookupTable | CanonicalPlace | null;
+	readonly digest: string | null;
+	readonly observedAt: string;
+	readonly discard: BaselineDiscardWrite | null;
 }
 
 /**

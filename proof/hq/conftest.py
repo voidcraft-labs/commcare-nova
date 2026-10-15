@@ -26,7 +26,8 @@ import pytest
 from proof.conftest import timed  # noqa: F401  (HQ's tests time their operations with it)
 
 # Every corpus document a test of this package reads, by id, and no other: the seven whose branches
-# ``test_branches.py`` holds, and the four the publish, import file and retained read tests publish.
+# ``test_branches.py`` holds, the four the publish, import file and retained read tests publish, and the two more
+# the drift groups of ``test_retained_reads.py`` publish.
 DOCUMENTS = (
     "lookup-app",
     "media-rich",
@@ -39,6 +40,8 @@ DOCUMENTS = (
     "targeted-form-links-hidden-and-fallback",
     "case-list-inline",
     "targeted-hq-side-lookup",
+    "search-registration-link",
+    "targeted-hq-side-state",
 )
 
 

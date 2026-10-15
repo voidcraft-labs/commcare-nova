@@ -67,7 +67,11 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { type CommCareServer, deploymentServerLabel } from "@/lib/deployment";
+import {
+	BASELINE_UNKNOWN_SENTENCE,
+	type CommCareServer,
+	deploymentServerLabel,
+} from "@/lib/deployment";
 import {
 	type DeploymentView,
 	type DownloadTargetsView,
@@ -84,7 +88,11 @@ import {
 	projectSpaceLabel,
 	SELECTION_HELD_FROM_HQ,
 } from "@/lib/deployment/runtimeTarget";
-import type { DeploymentResourceConflict } from "@/lib/deployment/types";
+import type {
+	DeploymentRemoteChange,
+	DeploymentResourceConflict,
+	RemoteChangeDiscard,
+} from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
@@ -182,6 +190,9 @@ type PublishStatus =
 			hqAppAction: "created" | "updated" | null;
 			appUrl: string;
 			warnings: string[];
+			/** The App Preview line, after a publish that wrote over the app
+			 *  without knowing it unchanged; null otherwise. */
+			appPreviewNote: string | null;
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			/** Null when the response carried no record to point at. */
 			target: { server: string; domain: string } | null;
@@ -195,6 +206,8 @@ type PublishStatus =
 			refusal: { detail: string; items: readonly string[] };
 			/** What the publish would have written over and did not. */
 			resourceConflicts: readonly DeploymentResourceConflict[];
+			/** What changed in CommCare HQ since Nova last published there. */
+			remoteChanges: readonly DeploymentRemoteChange[];
 			warnings: string[];
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 	  }
@@ -310,6 +323,17 @@ export function PublishDialog({
 	const [adoptResourceIds, setAdoptResourceIds] = useState<readonly string[]>(
 		[],
 	);
+	/**
+	 * The changes in CommCare HQ the person has said to publish over, each
+	 * with the state they were shown it in.
+	 *
+	 * Per attempt, like the adoption list, and cleared on the same events:
+	 * a tick says "write over what I saw", so it is never carried to another
+	 * target, another opening of the dialog, or past the publish it was for.
+	 */
+	const [discardRemoteChanges, setDiscardRemoteChanges] = useState<
+		readonly RemoteChangeDiscard[]
+	>([]);
 	const [compatibilityState, setCompatibilityState] =
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
@@ -319,6 +343,7 @@ export function PublishDialog({
 		if (consentServerRef.current === connectionServer) return;
 		consentServerRef.current = connectionServer;
 		setAdoptResourceIds([]);
+		setDiscardRemoteChanges([]);
 	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
@@ -383,6 +408,7 @@ export function PublishDialog({
 		wasOpenRef.current = open;
 		if (!justOpened) return;
 		setAdoptResourceIds([]);
+		setDiscardRemoteChanges([]);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setDownloadTargets({ type: "loading" });
@@ -595,6 +621,7 @@ export function PublishDialog({
 			if (nextDomain !== compatibilityDomain) invalidateCompatibilityReport();
 			operationGenerationRef.current += 1;
 			setAdoptResourceIds([]);
+			setDiscardRemoteChanges([]);
 			setTarget(next);
 			setStatus({ type: "idle" });
 		},
@@ -613,6 +640,7 @@ export function PublishDialog({
 			setStatus({ type: "idle" });
 			/* A choice about acme's tables says nothing about beta's. */
 			setAdoptResourceIds([]);
+			setDiscardRemoteChanges([]);
 		},
 		[compatibilityDomain, invalidateCompatibilityReport],
 	);
@@ -625,6 +653,26 @@ export function PublishDialog({
 						: [...current, novaResourceId]
 					: current.filter((id) => id !== novaResourceId),
 			);
+		},
+		[],
+	);
+	const handleDiscardChange = useCallback(
+		(change: DeploymentRemoteChange, discard: boolean) => {
+			setDiscardRemoteChanges((current) => {
+				const rest = current.filter(
+					(entry) => !sameRemoteChange(entry, change),
+				);
+				return discard
+					? [
+							...rest,
+							{
+								kind: change.kind,
+								novaResourceId: change.novaResourceId,
+								observedDigest: change.observedDigest,
+							},
+						]
+					: rest;
+			});
 		},
 		[],
 	);
@@ -672,6 +720,7 @@ export function PublishDialog({
 					appName: appName.trim(),
 					appId: getAppId(),
 					adopt_resources: adoptResourceIds,
+					discard_remote_changes: discardRemoteChanges,
 				}),
 				signal: controller.signal,
 			});
@@ -731,6 +780,7 @@ export function PublishDialog({
 				 * the next publish must not re-assert a choice nobody made
 				 * again. */
 				setAdoptResourceIds([]);
+				setDiscardRemoteChanges([]);
 				setLandedPublishes((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
@@ -738,6 +788,7 @@ export function PublishDialog({
 					hqAppAction: outcome.hqAppAction,
 					appUrl: outcome.appUrl,
 					warnings: outcome.warnings,
+					appPreviewNote: outcome.appPreviewNote,
 					projectSpaceCompatibility: serverCompatibility,
 					target:
 						record === undefined
@@ -747,6 +798,16 @@ export function PublishDialog({
 				return;
 			}
 			if (outcome.deployment !== null) upsertView(outcome.deployment);
+			/* A tick confirms one state of one resource. A refusal that lists
+			 * a resource again with another state asks afresh, so only ticks
+			 * still naming a listed change in the state shown now survive. */
+			setDiscardRemoteChanges((current) =>
+				current.filter((entry) =>
+					outcome.remoteChanges.some((change) =>
+						sameRemoteChange(entry, change),
+					),
+				),
+			);
 			setStatus({
 				type: "refused",
 				refusal: {
@@ -754,6 +815,7 @@ export function PublishDialog({
 					items: outcome.refusal.items,
 				},
 				resourceConflicts: outcome.resourceConflicts,
+				remoteChanges: outcome.remoteChanges,
 				warnings: outcome.warnings,
 				projectSpaceCompatibility: serverCompatibility,
 			});
@@ -778,6 +840,7 @@ export function PublishDialog({
 		}
 	}, [
 		adoptResourceIds,
+		discardRemoteChanges,
 		compatibilityState,
 		selectedDomain,
 		appName,
@@ -819,6 +882,13 @@ export function PublishDialog({
 		compatibilityState,
 		selectedDomain,
 	);
+	/* Every change a refusal listed has to be ticked before publishing over
+	 * them can work: one left unconfirmed stops the whole publish again. */
+	const remoteChangesToConfirm =
+		status.type === "refused" ? status.remoteChanges : [];
+	const allRemoteChangesConfirmed = remoteChangesToConfirm.every((change) =>
+		discardRemoteChanges.some((entry) => sameRemoteChange(entry, change)),
+	);
 	const canUpload =
 		canEdit &&
 		canUploadToHq &&
@@ -826,6 +896,7 @@ export function PublishDialog({
 		!!selectedDomain &&
 		!isWorking &&
 		compatibilityAllowsUpload &&
+		allRemoteChangesConfirmed &&
 		appName.trim().length > 0;
 	const downloadTarget = target === "mobile" ? "mobile" : "web";
 	const downloadComplete =
@@ -1004,6 +1075,11 @@ export function PublishDialog({
 											availableDomains,
 										)}
 									>
+										{status.appPreviewNote !== null ? (
+											<p className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-2.5 text-left text-xs leading-relaxed text-nova-text-secondary">
+												{status.appPreviewNote}
+											</p>
+										) : null}
 										{/* The app is THERE, which is not the same as ready
 										    for workers. The record says which, so the
 										    celebration never outruns the facts. */}
@@ -1062,6 +1138,16 @@ export function PublishDialog({
 														domain={selectedDomain}
 														adopted={adoptResourceIds}
 														onAdoptChange={handleAdoptChange}
+													/>
+												) : null}
+												{/* The other refusal a person answers here: what
+												    changed in CommCare HQ since Nova last published,
+												    each ticked to publish over it. */}
+												{status.remoteChanges.length > 0 && canEdit ? (
+													<RemoteChangeChoice
+														changes={status.remoteChanges}
+														discarded={discardRemoteChanges}
+														onDiscardChange={handleDiscardChange}
 													/>
 												) : null}
 												{status.projectSpaceCompatibility?.status ===
@@ -1201,6 +1287,8 @@ export function PublishDialog({
 											/>
 											Uploading
 										</>
+									) : remoteChangesToConfirm.length > 0 ? (
+										"Publish over these changes"
 									) : (
 										"Upload"
 									)}
@@ -1827,6 +1915,94 @@ function ResourceConflictChoice({
 					" A site code is set once, so to send a place of your own beside it, remove the place in Organization and add it again with a code that is free."}
 			</p>
 		</div>
+	);
+}
+
+/** Whether a discard names this change in the state it was shown in. */
+function sameRemoteChange(
+	discard: RemoteChangeDiscard,
+	change: RemoteChangeDiscard,
+): boolean {
+	return (
+		discard.kind === change.kind &&
+		discard.novaResourceId === change.novaResourceId &&
+		discard.observedDigest === change.observedDigest
+	);
+}
+
+/**
+ * What changed in CommCare HQ since Nova last published there, and the
+ * only thing that lets the publish write over it.
+ *
+ * Each change is ticked on its own and starts unticked, like a name clash:
+ * publishing over one replaces what a person made in CommCare HQ with this
+ * app's version, so nobody does it by default. A tick is bound to the state
+ * the refusal showed, which is what the resend names back.
+ */
+function RemoteChangeChoice({
+	changes,
+	discarded,
+	onDiscardChange,
+}: {
+	changes: readonly DeploymentRemoteChange[];
+	discarded: readonly RemoteChangeDiscard[];
+	onDiscardChange: (change: DeploymentRemoteChange, discard: boolean) => void;
+}) {
+	return (
+		<ul className="mt-3 flex flex-col gap-2">
+			{changes.map((change) => {
+				const id = `discard-${change.kind}-${change.novaResourceId}`;
+				return (
+					<li
+						key={`${change.kind}:${change.novaResourceId}`}
+						className="rounded-lg border border-nova-border bg-nova-elevated px-3 py-3"
+					>
+						<p className="text-[13px] text-nova-text">
+							{change.name}
+							<span className="text-nova-text-secondary">
+								{" "}
+								({change.identity})
+							</span>
+						</p>
+						{change.baselineKnown ? (
+							<ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
+								{change.parts.map((part, index) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: two parts can name forms of the same name, so the text is no key.
+									<li key={index}>{part}</li>
+								))}
+							</ul>
+						) : (
+							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
+								{BASELINE_UNKNOWN_SENTENCE}
+							</p>
+						)}
+						{change.note !== null ? (
+							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
+								{change.note}
+							</p>
+						) : null}
+						<label
+							htmlFor={id}
+							className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+						>
+							<Checkbox
+								id={id}
+								checked={discarded.some((entry) =>
+									sameRemoteChange(entry, change),
+								)}
+								onCheckedChange={(next) =>
+									onDiscardChange(change, next === true)
+								}
+							/>
+							<span>
+								Publish over this
+								<span className="sr-only"> {change.name}</span>
+							</span>
+						</label>
+					</li>
+				);
+			})}
+		</ul>
 	);
 }
 

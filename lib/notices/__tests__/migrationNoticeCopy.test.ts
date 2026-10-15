@@ -46,6 +46,17 @@ const FORM_ENTITY = {
 	nameAtMigration: "Visit",
 } as const;
 
+const LOOKUP_ENTITY = {
+	type: "lookupTable",
+	uuid: "01992000-0000-7000-8000-0000000000c1",
+	nameAtMigration: "Clinics",
+} as const;
+const LOCATION_ENTITY = {
+	type: "location",
+	uuid: "01992000-0000-7000-8000-0000000000d1",
+	nameAtMigration: "District 4",
+} as const;
+
 /** A deployment reason's entries, with entities and without any. */
 function deploymentEntries(reason: string, entities: readonly unknown[]) {
 	return {
@@ -103,6 +114,14 @@ const ENTRIES: Record<
 	"form-ids-change-once": deploymentEntries("form-ids-change-once", [
 		FORM_ENTITY,
 	]),
+	"next-publish-overwrites-hq-edits": deploymentEntries(
+		"next-publish-overwrites-hq-edits",
+		[],
+	),
+	"next-publish-asks-before-overwriting": deploymentEntries(
+		"next-publish-asks-before-overwriting",
+		[LOOKUP_ENTITY, LOCATION_ENTITY],
+	),
 	"deep-links-need-republish": {
 		withDetail: {
 			kind: "deployment",
@@ -251,6 +270,49 @@ describe("the identity, gone app and download lines", () => {
 		).toBe(
 			"A CCZ of this app can be downloaded once the app is published to a project space. A CCZ downloaded earlier named no CommCare HQ server, so a phone that holds one cannot sign in or send forms with it.",
 		);
+	});
+});
+
+describe("the lines about what the next publish writes over", () => {
+	const deployment = (reason: string, entities?: readonly unknown[]) =>
+		parsed({
+			kind: "deployment",
+			reason,
+			deployment: DEPLOYMENT,
+			...(entities && { entities }),
+		});
+
+	it("say the next publish replaces edits made in CommCare HQ before the update", () => {
+		expect(
+			renderNoticeEntry(deployment("next-publish-overwrites-hq-edits"), PRESENT)
+				.text,
+		).toBe(
+			"The next publish to field-ops replaces any change made to this app in CommCare HQ before this update, without asking. For a change made there after this update, Nova asks first.",
+		);
+	});
+
+	it("name the app where its own read failed, and each table and place otherwise", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-before-overwriting"),
+				PRESENT,
+			).text,
+		).toBe(
+			"Nova couldn't read this app on field-ops, so the next publish there asks before it writes over what CommCare HQ holds.",
+		);
+		const line = renderNoticeEntry(
+			deployment("next-publish-asks-before-overwriting", [
+				LOOKUP_ENTITY,
+				LOCATION_ENTITY,
+			]),
+			REMOVED,
+		);
+		expect(line.text).toBe(
+			"Nova couldn't read Clinics and District 4 on field-ops, so the next publish there asks before it writes over them.",
+		);
+		expect(
+			line.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Clinics", "District 4"]);
 	});
 });
 

@@ -1,0 +1,7 @@
+{
+	"status": 400,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"error\": \"another location already uses this site code\"}"
+}

@@ -278,7 +278,11 @@ checkbox. A "use the existing tables" shortcut would be one click from
 overwriting a table that merely shares a name, which is the failure the refusal
 exists to prevent. Ticking is per attempt and never remembered — it clears on a
 dialog reopen, destination or connected-server change, and on a landed publish, because the ledger remembers the
-decision from then on. A viewer sees the ladder
+decision from then on. `RemoteChangeChoice` stands beside `ResourceConflictChoice` in
+`PublishDialog.tsx`: where a publish stops on `hq_changed` it lists every
+change made in CommCare HQ since Nova's last push and offers to discard them,
+bound to the digest of the list the person saw. `publishOutcome` carries
+`remoteChanges` and, on the landed arm, `appPreviewNote`. A viewer sees the ladder
 without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 

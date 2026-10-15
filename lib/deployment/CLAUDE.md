@@ -241,7 +241,9 @@ serving the old one.
 ## Preflight is a graph with two kinds of edge
 
 A **blocking** edge is a real prerequisite: no connection, an app the export
-boundary refuses, or Project data Nova may not write over. Failing one leaves
+boundary refuses, Project data Nova may not write over, or a change made in
+CommCare HQ since Nova's last push that the person has not confirmed
+discarding. Failing one leaves
 the deployment `incomplete` rather than succeeding with a warning attached, and
 nothing externally visible has happened.
 
@@ -251,7 +253,9 @@ thing: `target-app` whenever `plannedInPlaceUpdate` names an app. It reads the
 app's source (`lib/commcare/hq/appSource.ts::readHqAppSource`), and is the only
 edge that does. It is not the publish's only read of it: a first publish reads
 the source after it creates the empty app, and a publish that pushed a lookup
-table or a place reads it again before the import.
+table or a place reads it again before the import. Each of the three compares
+what it read with its baseline and collects what changed, and preflight gives
+one verdict over all of it, `hq_changed`, before any write.
 
 `project-data` reads the target's tables and plans the push
 (`lookupResourcePlan.ts`), refusing on any tag the target already uses for a
@@ -418,6 +422,12 @@ because "report any old remote resource left behind" is impossible if
 the row is thrown away. A partial unique index makes two live mappings
 for one Nova resource unrepresentable.
 
+No baseline row is deleted when its resource is superseded. A publish reads a
+baseline only through the HQ resource it is about to write, so a superseded
+one is never read again, and a delete that asked whether another app still
+names the id would race that app's writer. A discard of changes made in
+CommCare HQ is recorded as an adoption is, with who and when.
+
 Every publish still CLEARS the build/release/probe outcomes: they
 described what the target held before it — a build of the previous
 version is not evidence about this one — and the next observation
@@ -433,6 +443,60 @@ target holds that differ. The runtime role reads it
 (`store.ts::readDeploymentIdentityOverrides`, which a publish and a `.ccz`
 hand the expander as `targetWireIdentity(overrides)`) and cannot write it;
 every row belongs to a deployment first published before ids were derived.
+
+## Baselines
+
+A baseline is CommCare HQ's own read of what Nova publishes, never what Nova
+sent, so the drift check compares one HQ read with another
+(`hqSourceBaseline.ts`, `hqResourceBaseline.ts`, `remoteChanges.ts`). A
+deployment holds one app baseline (`app_deployment_baselines`): the normalized
+source HQ answered right after Nova's push (`push`), right after the empty app
+was made (`create`), or at the cutover (`cutover`), with the ownership
+descriptor of the body it describes. It holds no form ids: a source read
+re-mints them, so the normalization replaces each by its position. Each HQ
+table and place a Project maps on a project space holds one resource baseline
+(`project_space_resource_baselines`), keyed by the HQ resource, so two apps of
+a Project that map one table share it. A read that fails records `unread`,
+which always stops the next publish and offers the discard, because nothing
+says what Nova's last push left.
+
+One refusal, `hq_changed`, lists every change of every kind, and a discard
+names each resource back with the digest of HQ's state as the refusal showed
+it, so a state HQ has since left is asked about again. A save in an HQ editor
+that changes no value can still be listed: HQ's pages write keys Nova does
+not, and the form builder re-spells XML.
+
+A shell is exempt except for its menus. While the app baseline's origin is
+`create`, the app comparison reads only `modules`, so a menu added in HQ stops
+with `hq_changed` and any other change to the shell, raising its CommCare
+version among them, does not. A failed read after the create records origin
+`unread`, which stops: the exemption belongs to a shell Nova read, never to
+one it could not.
+
+### What the check cannot close
+
+HQ's import takes no expected version, so two windows stay open, each one
+round trip wide. What a save made in HQ inside one meets follows from the
+import's own rule: HQ replaces every key the body carries, whole, and keeps
+every key the body leaves out. Between Nova's last source read and its
+import, a save under a key the body carries is written over: what Nova owns
+takes Nova's value, and the part an overlay carries for the target goes back
+to what the read held. A save under a key the body leaves out stays; where it
+changed a value Nova owns, that value enters the new baseline and the next
+publish writes Nova's over it with no stop. Between the import and the
+read-back, a save becomes part of the baseline, so the next publish's check
+sees no change; that publish writes over the save where its body carries
+Nova's value for what was saved, and keeps it where an overlay carries the
+target's part or the body leaves the key out. Nothing reports either: the
+read-back is compared with no earlier read, and the next check compares its
+own read with the baseline that read-back stored. A crash between the import
+and `recordRemoteResource` leaves HQ updated and the baseline old, and the
+next publish stops with `hq_changed` over Nova's own push, in copy that does
+not claim a person made the change. A table's description and indexed-field
+flags are invisible to the check. A change to a shell other than a menu is
+not seen. A baseline whose origin is `cutover` holds whatever HQ held when it
+was recorded, edits made in HQ before then included, so the first publish
+over it writes over them.
 
 ## One publish lifecycle
 
@@ -471,12 +535,21 @@ and the places go; then the app's content, as an update. For an app that is
 already there nothing moves: the tables and places go first and the update
 follows. A publish that pushed a table or a place reads the app's source
 again before the update, which is built over that read; where nothing was
-pushed it is built over the read the publish already holds. Everything a
+pushed it is built over the read the publish already holds. That second
+read is compared with the one before it (`diffHqAppSource`), and a change in
+anything Nova writes stops the publish at `upload` with `hq_changed`: it
+reached CommCare HQ while the Project data went, so no check before the push
+could hold it. After the update Nova reads the source back, before the media
+upload, and that read is the new baseline; a read-back that fails records an
+`unread` baseline and a warning, since the app landed. Everything a
 person could have decided differently is settled by then, both ownership
 conflicts and the whole organization shape included, so what remains after
 it is CommCare HQ's own answer. On a first publish that answer can come
 before any Project data goes: a create CommCare HQ refuses, or a read after
-the create that fails, stops the publish at `resources`.
+the create that fails, stops the publish at `resources`. One stop after it is
+no answer to a write: a change made in CommCare HQ while the Project data is
+pushed. That publish offers no discard, and the next one's preflight lists the
+change and asks.
 
 ## No lock spans the CommCare HQ round trips
 

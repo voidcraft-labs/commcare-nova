@@ -191,7 +191,9 @@ A table travels with the app it is read by, whichever way the app leaves Nova:
   installed it has them offline.
 - **Publishing to CommCare HQ** puts them on the project space before the app's
   content goes, and replaces their rows with the rows in Nova every time you publish.
-  Anything edited on CommCare HQ is overwritten, so keep the values here.
+  If a table was edited in CommCare HQ since Nova last published it, the next
+  publish stops and asks before it replaces the edit, so the values you keep
+  here stay the ones your app reads.
 - **The CommCare HQ app file** comes as a zip with a `lookup-tables.xlsx` beside
   it, for uploading on the project's Lookup Tables page.
 

@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"code\": \"001\", \"name\": \"Clinic\"}, \"fixture_type\": \"plain\", \"id\": \"afee9d3436974abab80b9ecd5b7f0656\", \"resource_uri\": \"\"}, {\"fields\": {\"code\": \"002\", \"name\": \"Hospital\"}, \"fixture_type\": \"plain\", \"id\": \"098753f4f32d423f9b2f93223bb42ada\", \"resource_uri\": \"\"}]}"
+}

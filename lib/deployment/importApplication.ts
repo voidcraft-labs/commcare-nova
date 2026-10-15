@@ -10,12 +10,18 @@
  * target's ids. The proof harness calls it with the same inputs, so the body
  * it applies to HQ is assembled by this code rather than a copy of it.
  *
+ * Beside the body it returns the body's ownership descriptor, the overlay
+ * keys it writes, which the drift baseline recorded after this import
+ * keeps. It is derived from the bytes Nova sends, so it never names a key
+ * the body does not hold, and this is its one producer.
+ *
  * Pure: it reads no store and sends nothing. The source read stays with the
  * caller because it is a request to HQ that can fail on its own terms, and
  * the caller decides what that failure means for the publish.
  */
 
 import type { HqApplication } from "@/lib/commcare";
+import { appOwnershipOf } from "@/lib/commcare/appOwnership";
 import { hasEffectiveSearch } from "@/lib/commcare/derivedProfile";
 import {
 	expandAppShell,
@@ -31,6 +37,13 @@ import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import type { DeploymentTargetKey } from "./store";
+import type { AppOwnership } from "./types";
+
+/** One import body, and the overlay keys it writes. */
+export interface HqImportApplicationResult<Body> {
+	readonly application: Body;
+	readonly ownership: AppOwnership;
+}
 
 /** The mapped app an update fills or replaces, and its source as HQ holds it now. */
 export interface HqImportApplicationUpdate {
@@ -81,20 +94,23 @@ export function hqImportApplication(
 	input: HqImportApplicationInput & {
 		readonly update: HqImportApplicationUpdate;
 	},
-): HqApplication;
+): HqImportApplicationResult<HqApplication>;
 export function hqImportApplication(
 	input: HqImportApplicationInput & { readonly update: null },
-): HqAppShell;
+): HqImportApplicationResult<HqAppShell>;
 export function hqImportApplication(
 	input: HqImportApplicationInput,
-): HqApplication | HqAppShell;
+): HqImportApplicationResult<HqApplication | HqAppShell>;
 export function hqImportApplication(
 	input: HqImportApplicationInput,
-): HqApplication | HqAppShell {
+): HqImportApplicationResult<HqApplication | HqAppShell> {
 	const { prepared, target, update } = input;
 	/* The shell meets no source read and no overlay, and holds nothing that
 	 * names the target, an asset or a lookup table. */
-	if (update === null) return expandAppShell(prepared.doc);
+	if (update === null) {
+		const shell = expandAppShell(prepared.doc);
+		return { application: shell, ownership: appOwnershipOf(shell) };
+	}
 	/* The naming has to travel with the app, not just with the data. A
 	 * lookup-backed select compiles to an `instance(...)` reference whichever
 	 * mode is emitting, and `buildXForm` refuses without it. */
@@ -109,9 +125,10 @@ export function hqImportApplication(
 		attachmentTarget: prepared.attachmentTarget,
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 	});
-	return projectUpdatedAppProfileForTarget(
+	const { application } = projectUpdatedAppProfileForTarget(
 		generated,
 		update.source.profile,
 		derivedProfileTargetState(input),
-	).application;
+	);
+	return { application, ownership: appOwnershipOf(application) };
 }

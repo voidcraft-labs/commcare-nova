@@ -30,6 +30,7 @@ import {
 	TARGET_OWNED_PROFILE,
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
+import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
 import { readDeployment } from "@/lib/deployment/store";
 import {
@@ -175,13 +176,17 @@ function shellCreated(peer: MockAgent, appId = "working-app") {
 	});
 	shellSource(peer, appId);
 }
-/** An in-place update, accepted. */
+/**
+ * An in-place update, accepted, and HQ's read of the app after it, which
+ * the next publish compares its own read with.
+ */
 function imported(peer: MockAgent, appId = "working-app", version = 2) {
 	request(peer, IMPORT, "POST").reply(200, {
 		success: true,
 		app_id: appId,
 		version,
 	});
+	source(peer, undefined, appId);
 }
 function requests(peer: MockAgent) {
 	return (
@@ -231,8 +236,12 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 		shellSource(peer);
 		accept(2);
 		const profile = TARGET_OWNED_PROFILE;
+		/* HQ's read after the update and the next publish's own read hold
+		 * the same app, so nothing changed in between. */
+		source(peer, TARGET_PROFILE_WITH_DERIVED_KEY);
 		source(peer, TARGET_PROFILE_WITH_DERIVED_KEY);
 		accept(3);
+		source(peer);
 		await asUser(async (client) => {
 			const created = body(await call(client));
 			expect(created).toMatchObject({
@@ -244,6 +253,7 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 				url: `${HOST}/a/clinic/apps/view/working-app/`,
 				warnings: [],
 				project_space_compatibility: { status: "not_needed" },
+				app_preview_note: null,
 			});
 			const initial = await state();
 			expect(initial?.active).toHaveLength(1);
@@ -261,6 +271,7 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 				hq_app_action: "updated",
 				hq_app_id: "working-app",
 				deployment_state: "uploaded",
+				app_preview_note: null,
 			});
 			const updated = await state();
 			expect(updated?.active).toHaveLength(1);
@@ -275,7 +286,9 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 		]);
 		expect(uploads).toHaveLength(3);
 		expect([...uploads[0].keys()]).toEqual([
@@ -360,7 +373,9 @@ it("refuses an unreadable update source without replacing the last published app
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`GET ${HOST}${SOURCE}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 		]);
 	});
 });
@@ -408,10 +423,12 @@ it.each(["source-missing", "source-deleted", "update-missing"] as const)(
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
+				`GET ${HOST}${SOURCE}`,
 				...(answer === "update-missing" ? [`POST ${HOST}${IMPORT}`] : []),
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${sourcePath("replacement-app")}`,
 				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${sourcePath("replacement-app")}`,
 			]);
 		});
 	},
@@ -444,6 +461,7 @@ it("retains a refused shell create as resumable, then records the retry as one u
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 		]);
 	});
 });
@@ -573,6 +591,18 @@ const remoteTable = {
 function tables(peer: MockAgent, objects: object[] = []) {
 	request(peer, TABLES).reply(200, { objects, meta: { next: null } });
 }
+const rowsPath = (tableId = "hq-table") =>
+	`/a/clinic/api/fixture/v1/?fixture_type_id=${tableId}`;
+/** The table's rows as HQ's filtered rows read lists them. */
+function rows(peer: MockAgent, tableId = "hq-table") {
+	const objects = [
+		{ id: "hq-row-1", fields: { code: "001", name: "École & Clinic" } },
+	];
+	request(peer, rowsPath(tableId)).reply(200, {
+		objects,
+		meta: { next: null, total_count: objects.length },
+	});
+}
 
 it("requires explicit adoption of the named table, then ships its real workbook before the app and records the adopted dependency", async () => {
 	const table = await seedLookup();
@@ -588,8 +618,10 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 			};
 		});
 		tables(peer, [remoteTable]);
+		rows(peer);
 		shellCreated(peer);
 		shellSource(peer);
+		source(peer);
 		request(peer, IMPORT, "POST").reply(async (opts) => {
 			const saved = await state();
 			expect(saved?.active.filter((row) => row.kind !== "app")).toEqual([
@@ -659,8 +691,10 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${rowsPath()}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 		]);
 		expect(uploads).toHaveLength(2);
 		expect([...uploads[0].keys()]).toEqual([
@@ -722,13 +756,16 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			message: "One row could not be read",
 		});
 		tables(peer, [remoteTable]);
+		rows(peer);
 		tables(peer, [remoteTable]);
+		rows(peer);
 		shellSource(peer);
 		request(peer, WORKBOOK, "POST").reply(200, {
 			code: 200,
 			message: "Uploaded",
 		});
 		tables(peer, [remoteTable]);
+		rows(peer);
 		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -763,6 +800,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${WORKBOOK}`,
 				`GET ${HOST}${TABLES}`,
+				`GET ${HOST}${rowsPath()}`,
 			]);
 			expect(body(await call(client))).toMatchObject({
 				hq_app_action: "created",
@@ -776,12 +814,16 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${rowsPath()}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${rowsPath()}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${rowsPath()}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 		]);
 	});
 });
@@ -946,6 +988,7 @@ it.each([
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${media}`,
 				...(outcome === "upload-disconnect" ? [] : [`GET ${HOST}${status}`]),
 			]);
@@ -1042,6 +1085,7 @@ it.each([
 						data: JSON.stringify({ success: true, app_id: "working-app" }),
 					};
 				});
+				source(peer);
 			}
 			await asUser(async (client) => {
 				const result = body(await call(client), !ready);
@@ -1088,6 +1132,7 @@ it.each([
 							`POST ${HOST}${IMPORT}`,
 							`GET ${HOST}${SOURCE}`,
 							`POST ${HOST}${IMPORT}`,
+							`GET ${HOST}${SOURCE}`,
 						]
 					: []),
 			]);
@@ -1239,15 +1284,22 @@ function remotePlace(
 	level: string,
 	parent = "",
 	metadata: object = {},
+	name = site,
 ) {
 	return {
 		location_id: `hq-${site}`,
-		name: site,
+		name,
 		site_code: site,
 		location_type_code: level,
 		parent_location_id: parent,
+		latitude: null,
+		longitude: null,
 		location_data: metadata,
 	};
+}
+/** HQ's place inventory as a publish reads it back after its pushes. */
+function placesReadBack(peer: MockAgent, objects: unknown[]) {
+	request(peer, PLACES).reply(200, { meta: { next: null }, objects });
 }
 function acceptPlaces(peer: MockAgent, payloads: unknown[], ids: string[]) {
 	request(peer, PLACE_PUSH, "PATCH").reply(async (opts) => {
@@ -1317,8 +1369,18 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					),
 				};
 			});
+		placesReadBack(peer, [
+			remotePlace("north", "region"),
+			remotePlace("south", "region"),
+			remotePlace("central", "district", "hq-north"),
+			remotePlace("south_district", "district", "hq-south"),
+			...Array.from({ length: 101 }, (_, i) =>
+				remotePlace(`clinic_${i}`, "facility", "hq-south_district"),
+			),
+		]);
 		shellCreated(peer);
 		shellSource(peer);
+		source(peer);
 		request(peer, IMPORT, "POST").reply(async () => {
 			const saved = await state();
 			expect(
@@ -1333,7 +1395,10 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 			};
 		});
 		await asUser(async (client) => {
-			expect(body(await call(client)).deployment_state).toBe("uploaded");
+			expect(body(await call(client))).toMatchObject({
+				deployment_state: "uploaded",
+				warnings: [],
+			});
 			expect(payloads.map((payload) => payload.objects.length)).toEqual([
 				2, 2, 100, 1,
 			]);
@@ -1386,16 +1451,21 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					)
 				).archivedCount,
 			).toBe(103);
-			inventory(peer, [
+			const kept = [
 				remotePlace("north", "region"),
 				remotePlace("central", "district", "hq-north"),
-			]);
+			];
+			inventory(peer, kept);
 			acceptPlaces(peer, payloads, ["hq-north"]);
 			acceptPlaces(peer, payloads, ["hq-central"]);
+			placesReadBack(peer, kept);
 			source(peer);
 			source(peer);
 			imported(peer, "working-app", 3);
-			expect(body(await call(client)).deployment_state).toBe("uploaded");
+			expect(body(await call(client))).toMatchObject({
+				deployment_state: "uploaded",
+				warnings: [],
+			});
 			const final = await state();
 			expect(final?.active.map((row) => row.remoteId).sort()).toEqual([
 				"hq-central",
@@ -1428,6 +1498,7 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 		inventory(peer, [remote]);
 		shellCreated(peer);
 		acceptPlaces(peer, payloads, ["hq-north"]);
+		placesReadBack(peer, [remote]);
 		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1496,6 +1567,13 @@ it.each(["refused", "lost response"] as const)(
 				request(peer, PLACE_PUSH, "PATCH").replyWithError(
 					new Error("acknowledgement lost"),
 				);
+			const remotes = [
+				remotePlace("north", "region"),
+				...(mode === "lost response"
+					? [remotePlace("central", "district", "hq-north")]
+					: []),
+			];
+			placesReadBack(peer, remotes);
 			await asUser(async (client) => {
 				const failure = body(await call(client), true);
 				expect(failure.error_type).toBe("hq_upload_failed");
@@ -1518,12 +1596,6 @@ it.each(["refused", "lost response"] as const)(
 						remoteId: "hq-north",
 					}),
 				]);
-				const remotes = [
-					remotePlace("north", "region"),
-					...(mode === "lost response"
-						? [remotePlace("central", "district", "hq-north")]
-						: []),
-				];
 				if (mode === "lost response") {
 					inventory(peer, remotes);
 					expect(body(await call(client), true)).toMatchObject({
@@ -1538,6 +1610,10 @@ it.each(["refused", "lost response"] as const)(
 				shellSource(peer);
 				acceptPlaces(peer, payloads, ["hq-north"]);
 				acceptPlaces(peer, payloads, ["hq-central"]);
+				placesReadBack(peer, [
+					remotePlace("north", "region"),
+					remotePlace("central", "district", "hq-north"),
+				]);
 				shellSource(peer);
 				imported(peer);
 				expect(
@@ -1715,11 +1791,11 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			);
 		});
 		expect(await snapshot()).toEqual(before);
-		expect(requests(peer)).toHaveLength(6);
+		expect(requests(peer)).toHaveLength(7);
 	});
 });
 
-it("records a recreated missing table as Nova-created while preserving the previous adoption evidence", async () => {
+it("asks before recreating a table deleted in CommCare HQ, then records it as Nova-created while preserving the previous adoption evidence", async () => {
 	const table = await seedLookup();
 	await withHttpPeer(async (peer) => {
 		tables(peer, [remoteTable]);
@@ -1729,6 +1805,7 @@ it("records a recreated missing table as Nova-created while preserving the previ
 			message: "Uploaded",
 		});
 		tables(peer, [remoteTable]);
+		rows(peer);
 		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1741,18 +1818,79 @@ it("records a recreated missing table as Nova-created while preserving the previ
 				ownership: "adopted",
 				adoptedBy: ACTOR,
 			});
-			// A complete inventory establishes absence. The upload creates a new
-			// object under the old tag; nobody adopted that newly created object.
+			/* A complete inventory establishes absence, which is a change made
+			 * in CommCare HQ: nothing is sent until the user says to publish
+			 * over it, by the state the refusal showed. */
 			tables(peer);
+			source(peer);
+			const before = await snapshot();
+			const refusal = body(await call(client), true);
+			expect(refusal).toEqual({
+				error_type: "hq_changed",
+				message:
+					"Something this app publishes isn't the same in CommCare HQ as when Nova last published it, so Nova stopped before sending anything. A save in CommCare HQ can show up here even when it changed no value. You can publish over what's listed below, which replaces it with this app's version.",
+				app_id: APP,
+				remote_changes: [
+					{
+						kind: "lookup-table",
+						nova_resource_id: table.id,
+						name: "Facilities",
+						hq_name: "facilities",
+						parts: [
+							"CommCare HQ no longer has this table. Publishing makes it again.",
+						],
+						note: null,
+						observed_digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+						baseline_known: true,
+					},
+				],
+			});
+			expect(await snapshot()).toEqual(before);
+			const shown = refusal.remote_changes[0].observed_digest;
+			// The upload creates a new object under the old tag; nobody
+			// adopted that newly created object.
+			tables(peer);
+			source(peer);
 			request(peer, WORKBOOK, "POST").reply(200, {
 				code: 200,
 				message: "Uploaded",
 			});
 			tables(peer, [{ ...remoteTable, id: "replacement-table" }]);
-			source(peer);
+			rows(peer, "replacement-table");
 			source(peer);
 			imported(peer, "working-app", 3);
-			body(await call(client));
+			expect(
+				body(
+					await call(client, {
+						discard_hq_changes: [
+							{
+								kind: "lookup-table",
+								nova_resource_id: table.id,
+								observed_digest: shown,
+							},
+						],
+					}),
+				),
+			).toMatchObject({
+				deployment_state: "uploaded",
+				/* Only a write over the app can replace a form HQ checked. */
+				app_preview_note: null,
+			});
+			expect(
+				await h
+					.db()
+					.selectFrom("project_space_resource_baselines")
+					.select(["remote_id", "origin", "discarded_digest", "discarded_by"])
+					.where("remote_id", "=", "replacement-table")
+					.execute(),
+			).toEqual([
+				{
+					remote_id: "replacement-table",
+					origin: "push",
+					discarded_digest: shown,
+					discarded_by: ACTOR,
+				},
+			]);
 			const final = await state();
 			expect(
 				final?.active.find((row) => row.kind === "lookup-table"),
@@ -1770,5 +1908,92 @@ it("records a recreated missing table as Nova-created while preserving the previ
 				}),
 			]);
 		});
+	});
+});
+
+it("lists a change to the app in CommCare HQ, refuses a discard of a state it has since left, and lands one of the state shown with the App Preview line", async () => {
+	await seed();
+	const renamed = (name: string): RetainedHqAnswer => {
+		const live = liveSource();
+		return { ...live, body: { ...retainedBodyJson(live), name } };
+	};
+	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		replyRetained(request(peer, SOURCE), renamed("Renamed in HQ"));
+		replyRetained(request(peer, SOURCE), renamed("Renamed again in HQ"));
+		replyRetained(request(peer, SOURCE), renamed("Renamed again in HQ"));
+		imported(peer, "working-app", 3);
+		await asUser(async (client) => {
+			body(await call(client));
+			const before = await snapshot();
+			const first = body(await call(client), true);
+			expect(first).toMatchObject({
+				error_type: "hq_changed",
+				app_id: APP,
+				remote_changes: [
+					{
+						kind: "app",
+						nova_resource_id: APP,
+						name: "Clinic visits",
+						hq_name: "working-app",
+						parts: ["The app's name"],
+						note: null,
+						baseline_known: true,
+					},
+				],
+			});
+			const stale = first.remote_changes[0].observed_digest;
+			/* HQ moved again after the refusal: the discard names a state that
+			 * is no longer there, so it is asked again with the new one. */
+			const second = body(
+				await call(client, {
+					discard_hq_changes: [
+						{ kind: "app", nova_resource_id: APP, observed_digest: stale },
+					],
+				}),
+				true,
+			);
+			expect(second).toMatchObject({
+				error_type: "hq_changed",
+				remote_changes: [{ kind: "app", parts: ["The app's name"] }],
+			});
+			const shown = second.remote_changes[0].observed_digest;
+			expect(shown).not.toBe(stale);
+			expect(await snapshot()).toEqual(before);
+			expect(
+				body(
+					await call(client, {
+						discard_hq_changes: [
+							{ kind: "app", nova_resource_id: APP, observed_digest: shown },
+						],
+					}),
+				),
+			).toMatchObject({
+				hq_app_action: "updated",
+				deployment_state: "uploaded",
+				app_preview_note: APP_PREVIEW_NOTE,
+			});
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_baselines")
+					.select(["origin", "discarded_digest", "discarded_by"])
+					.execute(),
+			).toEqual([
+				{ origin: "push", discarded_digest: shown, discarded_by: ACTOR },
+			]);
+		});
+		expect(requests(peer)).toEqual([
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+			`GET ${HOST}${SOURCE}`,
+			`GET ${HOST}${SOURCE}`,
+			`GET ${HOST}${SOURCE}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+		]);
 	});
 });

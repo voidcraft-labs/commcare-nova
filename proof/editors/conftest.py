@@ -14,6 +14,12 @@
   HQ's module page would give it.
 - ``save_section`` saves one section from a load of its view on the driver's
   reused page (``pages.run_view``), its save applied to the check's HQ.
+- ``DOCUMENTS`` names every corpus document a test of this package reads,
+  which is what a stored outcome of the package is keyed by
+  (``proof.store.queue.PACKAGE_DATA``): the equivalence test's sample
+  (``test_view_equivalence.py::CORPUS_SAMPLE``) and ``navigation-base``, whose
+  page saves ``test_retained_reads.py`` retains. ``corpus_document`` is the
+  package's one corpus read, refusing a document ``DOCUMENTS`` does not name.
 - ``first_draw`` is the first value a page seeded with a seed draws
   (``driver/steps/page/seed.js``), computed apart from the page.
 - The editors' fixture apps, shared by the equivalence and seeding tests:
@@ -47,7 +53,33 @@ ADVANCED_APP = "suite/suite-advanced.json"
 # HQ's two-language test app (en and es).
 TWO_LANGUAGE_APP = "yesno.json"
 
+# Every corpus document a test of this package reads, by id, and no other: test_view_equivalence.py's
+# CORPUS_SAMPLE and the document test_retained_reads.py saves each page of.
+DOCUMENTS = (
+    "case-operation-scalar",
+    "case-worker-followup",
+    "search-parent",
+    "tile",
+    "localization-bilingual",
+    "case-extension-multiple-repeat",
+    "navigation-base",
+)
+
 _TIMINGS: dict[str, list[float]] = {}
+
+
+def corpus_document(document_id):
+    """The corpus document ``document_id``, which ``DOCUMENTS`` must name: every corpus read of the package goes
+    through here, so the package's stored outcome is keyed by what its tests read."""
+    from proof.checks import cases
+
+    if document_id not in DOCUMENTS:
+        pytest.fail(
+            f"An editors test read the corpus document {document_id}, which proof/editors/conftest.py::DOCUMENTS"
+            " does not name, so a change to it would not invalidate the package's stored outcome. Add it to"
+            " DOCUMENTS."
+        )
+    return cases.load_corpus().document(document_id)
 
 
 @pytest.fixture(autouse=True)

@@ -8,6 +8,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import {
+	APP_PREVIEW_NOTE,
+	HQ_CHANGED_MESSAGE,
+} from "@/lib/deployment/remoteChanges";
 import type { DeploymentRecord } from "@/lib/deployment/types";
 import { type PublishResponseBody, publishOutcome } from "../publishOutcome";
 
@@ -55,6 +59,7 @@ const REFUSAL = {
 		details: [],
 	},
 	resourceConflicts: [],
+	remoteChanges: [],
 };
 
 describe("a publish that landed", () => {
@@ -74,7 +79,21 @@ describe("a publish that landed", () => {
 			appUrl: "https://hq/app",
 			warnings: ["media still processing"],
 			previewProjectSpace: "acme",
+			appPreviewNote: null,
 		});
+	});
+
+	it("carries the App Preview line when the server sent it, and none otherwise", () => {
+		// The server alone knows whether this publish wrote over the app
+		// without knowing it unchanged (a confirmed change, or the cutover's
+		// read), so the client shows exactly what it was told.
+		const note = APP_PREVIEW_NOTE;
+		expect(
+			publishOutcome(true, { success: true, app_preview_note: note }),
+		).toMatchObject({ kind: "landed", appPreviewNote: note });
+		expect(
+			publishOutcome(true, { success: true, app_preview_note: null }),
+		).toMatchObject({ kind: "landed", appPreviewNote: null });
 	});
 
 	it("is still a success when the response carried no record", () => {
@@ -127,8 +146,41 @@ describe("a publish that was refused", () => {
 			deployment: null,
 			refusal: { message: REFUSAL.failure.message, items: [] },
 			resourceConflicts: [conflict],
+			remoteChanges: [],
 			warnings: ["Review target"],
 			previewProjectSpace: null,
+		});
+	});
+
+	it("preserves each change in CommCare HQ with the state it was read in, so publishing over it can name that state back", () => {
+		const change = {
+			kind: "app" as const,
+			novaResourceId: "app-1",
+			name: "Clinic visits",
+			identity: "hq-1",
+			parts: ["The menu Patients"],
+			note: null,
+			observedDigest: "digest-shown",
+			baselineKnown: true,
+		};
+		const outcome = publishOutcome(true, {
+			success: false,
+			refusal: {
+				phase: "preflight",
+				failure: {
+					code: "hq_changed",
+					message: HQ_CHANGED_MESSAGE,
+					details: ["Clinic visits"],
+				},
+				resourceConflicts: [],
+				remoteChanges: [change],
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			refusal: { message: HQ_CHANGED_MESSAGE, items: ["Clinic visits"] },
+			resourceConflicts: [],
+			remoteChanges: [change],
 		});
 	});
 	it("does not synthesize setup instructions when the response has a record alone", () => {
@@ -177,6 +229,7 @@ describe("a publish that was refused", () => {
 					details: ["Give the module a case list column."],
 				},
 				resourceConflicts: [],
+				remoteChanges: [],
 			},
 			preview_project_space: null,
 		});

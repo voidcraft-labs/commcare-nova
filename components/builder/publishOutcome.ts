@@ -25,6 +25,7 @@
 import type { DeploymentView } from "@/lib/deployment/actions";
 import type {
 	DeploymentAttemptRefusal,
+	DeploymentRemoteChange,
 	DeploymentResourceConflict,
 } from "@/lib/deployment/types";
 
@@ -36,6 +37,11 @@ export interface PublishResponseBody {
 	 * server decides from the deployment ledger; null on a refusal.
 	 */
 	readonly hq_app_action?: "created" | "updated" | null;
+	/**
+	 * The App Preview statement, on a publish that wrote over the app
+	 * without knowing it unchanged; null on every other publish.
+	 */
+	readonly app_preview_note?: string | null;
 	readonly url?: string;
 	readonly warnings?: string[];
 	readonly deployment?: DeploymentView["deployment"] | null;
@@ -81,6 +87,13 @@ export type PublishOutcome =
 			readonly warnings: string[];
 			/** What Preview may name, per the server's ambiguity rule. */
 			readonly previewProjectSpace: string | null;
+			/**
+			 * A line the landed outcome shows after a publish that wrote over
+			 * the app without knowing it unchanged: after the person chose to
+			 * publish over a change to the app in CommCare HQ, or over what
+			 * the cutover read. Null on every other publish.
+			 */
+			readonly appPreviewNote: string | null;
 	  }
 	| {
 			readonly kind: "refused";
@@ -102,6 +115,13 @@ export type PublishOutcome =
 			 * `items` above.
 			 */
 			readonly resourceConflicts: readonly DeploymentResourceConflict[];
+			/**
+			 * What changed in CommCare HQ since Nova last published there,
+			 * each with the state it was read in. Non-empty only for
+			 * `hq_changed` at preflight; publishing over them means naming
+			 * each one back with that state, so they travel structurally too.
+			 */
+			readonly remoteChanges: readonly DeploymentRemoteChange[];
 			readonly warnings: string[];
 			readonly previewProjectSpace: string | null;
 	  }
@@ -144,6 +164,7 @@ export function publishOutcome(
 			appUrl: body.url ?? "",
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
+			appPreviewNote: body.app_preview_note ?? null,
 		};
 	}
 	if (responseOk && body.refusal !== undefined && body.refusal !== null) {
@@ -155,9 +176,10 @@ export function publishOutcome(
 				items: body.refusal.failure.details,
 			},
 			/* Defaulted rather than required: a response from a server that
-			 * predates the field is a refusal with nothing to take over, not
-			 * a crash. */
+			 * predates either field is a refusal with nothing to take over or
+			 * publish over, not a crash. */
 			resourceConflicts: body.refusal.resourceConflicts ?? [],
+			remoteChanges: body.refusal.remoteChanges ?? [],
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 		};

@@ -14,7 +14,13 @@ state A is version 1 (2 after media). ``update`` applies a captured update
 field of HQ's source the capture was built over (its sidecar's
 ``assumedSource``, ``Captured.assumed_source``) must be what HQ serves for
 the app (``app_source``), or the captured bytes are not what Nova would send
-there and the harness refuses (``operations.CapturedSourceNotHeld``).
+there and the harness refuses (``operations.CapturedSourceNotHeld``); and
+every lookup table the publish read before it decided (its sidecar's
+``assumedResources``) must be what HQ's own table and row resources serve
+(``operations.CapturedResourcesNotHeld``). Over a document whose
+``hq-side.json`` a person saved in HQ, Nova's preflight stopped the
+republish and the capture sent it again with what that person confirms
+(the sidecar's ``confirmed``), so B lands only through that confirmation.
 ``upload_media`` applies the media upload Nova's publish sends once a
 content import landed (``lib/deployment/service.ts::uploadMediaBytes``), when
 the captured import names one; the unit runs it as an operation of its own,
@@ -97,11 +103,15 @@ def update(unit, app_id, captured, name):
     """A captured update over the app HQ holds: ``(HQ's refusal or None, the lookup upload's result or None)``.
 
     Every field of HQ's source the capture names is held to HQ's own read first
-    (``operations.hold_assumed_source``), whichever fields they are.
+    (``operations.hold_assumed_source``), whichever fields they are, and so is
+    every lookup table the publish read before it decided what to send, its
+    stop and its confirmation among them (``assumedResources``,
+    ``operations.hold_assumed_resources``).
     """
     from proof.hq import operations
 
     operations.hold_assumed_source(unit, app_id, captured.assumed_source, f"captured {name}")
+    operations.hold_assumed_resources(unit, captured.meta.get("assumedResources"), f"captured {name}")
     lookups = upload_lookups(unit, captured.lookups)
     result = operations.apply_upload(unit, operations.with_app_id(captured.upload(), app_id))
     return _refusal(result), lookups

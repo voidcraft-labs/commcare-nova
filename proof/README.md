@@ -62,6 +62,18 @@ its own views (`app_import_api.py::_handle_import_app` and
 - **B-edit** is what Nova's publish of D′ leaves over A, where D′ is D after
   the document's edit batch.
 
+Nova's publish compares what HQ holds with what its last publish left there
+before it writes anything, and stops when a person changed it (`hq_changed`,
+`lib/deployment/remoteChanges.ts`) or when a table under Nova's tag is one it
+cannot account for (`hq_resource_conflict`). Over a document whose
+`hq-side.json` a person saved, the capture meets that stop with Nova's own
+comparison, records it in the update's sidecar, and sends the update again
+with what a person who saw it confirms: each table in conflict taken over and
+each change written over at the digest the stop showed. So B and B-edit land
+over a person's saves only through that confirmation. Over any other
+document a stop ends the emission and names the document: Nova's own push
+must never read as a change.
+
 HQ builds each state (`validate_app()`, `create_all_files()` and
 `create_all_files(build_profile_id)` for every build profile). B and B-edit
 are built with HQ's saved copy of `build(A)` as the previous build, so HQ's
@@ -464,6 +476,8 @@ named here, rather than by every document's checks:
 | Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. Its comments, dead code and copy are plan and code text, held by step 2's review |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
 | What Formplayer's and the client's own tests read of HQ | `proof/formplayer/test_*.py`, `proof/webapps/test_*.py` | HQ's own views answer every request Formplayer makes, over a worker HQ made, cases its receiver saved and a build it released; the states a save leaves are saved by HQ's own pages and views |
+| The drift verdict on a live target | `proof/corpus/__tests__/publish.postgres.test.ts`, with `lib/deployment/__tests__/publishSequence.postgres.test.ts` | Nova's own publish, over a peer that serves HQ's retained reads, stops before any write when the app, a table or a place changed since its last push, lists every change, and lands only after the discard a person confirmed |
+| The drift comparison | `proof/hq/test_retained_reads.py` and `proof/editors/test_retained_reads.py`, with `lib/deployment/__tests__/hqSourceBaseline.test.ts` and `hqResourceBaseline.test.ts` | HQ writes every answer under `proof/hq-reads/` again on each run and the committed copy is held to it byte for byte; Nova's production comparison over those files calls two reads of an unchanged app equal and names the part each of HQ's own saves changed |
 
 Step 1's exit asks the register for an entry for every row of its defect table
 ("The defect rows", below). Every row now has entries that reproduce on their
@@ -1059,7 +1073,17 @@ reads it. Per document, under its id:
   upload a sidecar names. Each sidecar carries `"layout": 2`, and an update's
   names `assumedSource`, the fields of HQ's app source its body was built over,
   which the HQ side holds to HQ's own read before it applies the update
-  (`CapturedSourceNotHeld`). A control retained before the shell create holds
+  (`CapturedSourceNotHeld`); an import that pushes lookup tables names
+  `assumedResources`, what the peer answered for each table before anything
+  was sent (its definition under the tag, without the id HQ mints, and its
+  rows where the publish compared them), which the HQ side holds to HQ's own
+  table and row resources (`CapturedResourcesNotHeld`); and an update that
+  met a stop over a person's saves names `confirmed`: each stop, and the
+  discards and adoptions the resend sent. Beside the first publish's two
+  imports, `create.ownership.json` and `content.ownership.json` hold the
+  overlay keys each body writes (`hqImportApplication`'s `ownership`), which
+  the retained HQ reads copy (`proof/hq-reads/<document>/ownership.json`) and
+  no observation reads. A control retained before the shell create holds
   the legacy layout: no `layout` key, one full `create` that is state A's whole
   app, and `assumedSourceProfile` in place of `assumedSource`.
   `proof/checks/corpus.py::Export.content` reads state A's app, workbook and
@@ -2945,7 +2969,7 @@ reused is only what a key names whole, and the reuse is audited:
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
 | What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends, in its order, and three runs of it send the same menu ids, form ids and `xmlns` in every import body; `proof/hq/test_publish_capture.py`: an update applies only over the source it was built from |
-| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, and its `cutover` group over the legacy bodies in `proof/hq-reads/cutover/`) |
+| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, its `cutover` group over the legacy bodies in `proof/hq-reads/cutover/`, and its drift groups: five documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
 | HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |

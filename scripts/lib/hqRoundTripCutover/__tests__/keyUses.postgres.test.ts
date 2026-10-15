@@ -95,7 +95,7 @@ function refusingReader(
 				firstUsedAt: new Date(at + index * 1_000).toISOString(),
 				lastUsedAt: new Date(at + index * 1_000 + 500).toISOString(),
 			}));
-			return { source: outcome, formIds: null, keyUses };
+			return { source: outcome, formIds: null, keyUses, sourceAnswer: null };
 		},
 	};
 }

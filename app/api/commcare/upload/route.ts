@@ -19,12 +19,16 @@
  * deployment is the answer, and the caller renders which edge stopped it.
  * A 4xx here would throw away the record that says where to retry from.
  *
- * `adopt_resources` is the one field that says something about the target
- * rather than the app. Nova never takes over a CommCare HQ resource because
- * a name matched, so a name clash refuses; sending the exact Nova ids back
- * — a lookup table's or a place's — is how a person says "yes, that one is
- * mine". It is per-request and never remembered as a preference: the next
- * publish decides again.
+ * `adopt_resources` and `discard_remote_changes` are the two fields that
+ * say something about the target rather than the app. Nova never takes over
+ * a CommCare HQ resource because a name matched, so a name clash refuses;
+ * sending the exact Nova ids back — a lookup table's or a place's — is how a
+ * person says "yes, that one is mine". Nova never writes over a change made
+ * in CommCare HQ since its last publish there, so such a change refuses with
+ * `hq_changed`; sending each listed change back with the digest of the
+ * state it was shown in is how a person says "publish over it", and a
+ * digest for a state HQ has since left refuses again. Both are per-request
+ * and never remembered as a preference: the next publish decides again.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -44,6 +48,7 @@ import {
 	currentResourceIdentities,
 	publishAppToHq,
 } from "@/lib/deployment/service";
+import type { RemoteChangeDiscard } from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
 
@@ -68,6 +73,52 @@ function readAdoptResourceIds(value: unknown): readonly string[] {
 	return value as readonly string[];
 }
 
+const REMOTE_CHANGE_KINDS: ReadonlySet<string> = new Set([
+	"app",
+	"lookup-table",
+	"location",
+]);
+
+function isRemoteChangeDiscard(entry: unknown): entry is RemoteChangeDiscard {
+	if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+		return false;
+	}
+	const { kind, novaResourceId, observedDigest } = entry as Record<
+		string,
+		unknown
+	>;
+	return (
+		typeof kind === "string" &&
+		REMOTE_CHANGE_KINDS.has(kind) &&
+		typeof novaResourceId === "string" &&
+		typeof observedDigest === "string"
+	);
+}
+
+/**
+ * Read the changes in CommCare HQ the person chose to publish over.
+ *
+ * As strict as the adoption list: a malformed entry is a client bug, and
+ * reading it as "publish over nothing" would answer with the very refusal
+ * the person just confirmed, with nothing to say why.
+ */
+function readDiscardRemoteChanges(
+	value: unknown,
+): readonly RemoteChangeDiscard[] {
+	if (value === undefined || value === null) return [];
+	if (!Array.isArray(value) || !value.every(isRemoteChangeDiscard)) {
+		throw new ApiError(
+			"Which changes in CommCare HQ to publish over has to be a list, each naming its kind, its Nova id and the state it was shown in.",
+			400,
+		);
+	}
+	return value.map(({ kind, novaResourceId, observedDigest }) => ({
+		kind,
+		novaResourceId,
+		observedDigest,
+	}));
+}
+
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
@@ -78,6 +129,7 @@ export async function POST(req: NextRequest) {
 			appName?: string;
 			appId?: string;
 			adopt_resources?: unknown;
+			discard_remote_changes?: unknown;
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
@@ -99,6 +151,12 @@ export async function POST(req: NextRequest) {
 		 * conflicts it found, so anything else is simply not a conflict it can
 		 * resolve. Absent means adopt nothing. */
 		const adoptResourceIds = readAdoptResourceIds(body.adopt_resources);
+		/* Each bound to the state the person was shown: `publishAppToHq`
+		 * proceeds only when every change it finds now is named here with
+		 * the digest it reads now. Absent means publish over nothing. */
+		const discardRemoteChanges = readDiscardRemoteChanges(
+			body.discard_remote_changes,
+		);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
 		 * push a shared app out of the Project. An `AppAccessError` maps to
@@ -135,6 +193,7 @@ export async function POST(req: NextRequest) {
 			server: settings.server,
 			domain: body.domain.trim(),
 			adoptResourceIds,
+			discardRemoteChanges,
 		});
 
 		/* Whether THIS publish got the app there, which is not the same as
@@ -163,6 +222,9 @@ export async function POST(req: NextRequest) {
 				/* Which way the app landed: updated in place, or created fresh.
 				 * Null on a refusal, where nothing landed. */
 				hq_app_action: outcome.landed ? outcome.hqAppAction : null,
+				/* The App Preview statement, on a publish that wrote over the
+				 * app without knowing it unchanged. Null otherwise. */
+				app_preview_note: outcome.landed ? outcome.appPreviewNote : null,
 				preview_project_space: await previewProjectSpaceFor(scope),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal

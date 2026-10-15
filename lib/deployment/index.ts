@@ -7,6 +7,11 @@
 export { DeploymentError, type DeploymentErrorCode } from "./errors";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
 export {
+	APP_PREVIEW_NOTE,
+	BASELINE_UNKNOWN_SENTENCE,
+	HQ_CHANGED_DURING_PUSH_MESSAGE,
+} from "./remoteChanges";
+export {
 	leftBehindResources,
 	type NextPublishAction,
 	nextPublishAction,
@@ -44,6 +49,7 @@ export {
 	type DeploymentPhaseOutcomes,
 	type DeploymentProgressState,
 	type DeploymentRecord,
+	type DeploymentRemoteChange,
 	type DeploymentResource,
 	type DeploymentResourceConflict,
 	type DeploymentResourceKind,
@@ -53,4 +59,5 @@ export {
 	type DrivenDeploymentPhase,
 	deploymentServerLabel,
 	isDeploymentServer,
+	type RemoteChangeDiscard,
 } from "./types";

@@ -318,6 +318,16 @@ These decisions are closed unless the project owner explicitly reopens them.
   resource, or deletes a remote resource on rename. First adoption is explicit.
   Renames create/repoint or update only resources Nova demonstrably owns, and
   report any old remote resource left behind.
+- Nova never writes over a change made in CommCare HQ since its last publish
+  there without a person's word. Every such decision a person can answer is
+  made in preflight, before any write, by comparing HQ's current read of the
+  app, each mapped lookup table and each mapped place with HQ's own read after
+  Nova's last push. One `hq_changed` refusal lists every change of every kind,
+  and a person publishes over a change only by naming it back with the digest
+  of the state they were shown, so a state HQ has since left is asked about
+  again. The one later stop is a change that reaches the app in HQ while the
+  Project data is pushed: it stops that publish at `upload`, before the app's
+  content is sent, and the next publish's preflight asks about it.
 - Phases are idempotent and independently retryable. Retrying a table or location
   push must not require importing a duplicate app.
 - `uploaded`, `built`, `released`, and `runnable` are distinct states. Entry-point

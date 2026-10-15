@@ -206,9 +206,9 @@ def test_a_two_language_app_held_in_its_second_language_equals_fresh_page_saves(
 
 
 def _corpus_document(document_id):
-    from proof.checks import cases
+    from proof.editors.conftest import corpus_document
 
-    return cases.load_corpus().document(document_id)
+    return corpus_document(document_id)
 
 
 @pytest.mark.parametrize("document_id", CORPUS_SAMPLE)

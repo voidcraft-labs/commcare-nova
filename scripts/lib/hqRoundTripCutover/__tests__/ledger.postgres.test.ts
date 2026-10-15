@@ -94,6 +94,7 @@ const USE = {
 	firstUsedAt: "2026-10-15T10:00:00.000Z",
 	lastUsedAt: "2026-10-15T10:00:07.000Z",
 };
+const ANSWER = { userId: OWNER, at: "2026-10-15T10:00:00.000Z" };
 
 /** Execute the cutover with the given reads, after the dry run that prints its digest. */
 async function execute(reads: () => Promise<DeploymentReads>) {
@@ -125,6 +126,7 @@ describe("the ledger writes", () => {
 			source: { kind: "gone" },
 			formIds: null,
 			keyUses: [USE],
+			sourceAnswer: null,
 		}));
 		const mapping = await sql<{ missing: boolean }>`
 			SELECT remote_missing_at IS NOT NULL AS missing FROM app_deployment_resources
@@ -164,6 +166,7 @@ describe("the ledger writes", () => {
 			source: { kind: "unsupported", docType: "LinkedApplication" },
 			formIds: null,
 			keyUses: [USE],
+			sourceAnswer: null,
 		}));
 		const identities = await sql`
 			SELECT 1 FROM app_deployment_identities WHERE deployment_id = ${deployment}::uuid
@@ -225,6 +228,7 @@ describe("the ledger writes", () => {
 				source: { kind: "ok", value: source },
 				formIds: { kind: "ok", value: formIds },
 				keyUses: [USE],
+				sourceAnswer: ANSWER,
 			}));
 			const { overrides, ids } = await firstPublishIds(appId);
 			// A row holds only what differs from Nova's derivation.
@@ -287,6 +291,7 @@ describe("the ledger writes", () => {
 				),
 			},
 			keyUses: [USE],
+			sourceAnswer: ANSWER,
 		}));
 		const modules = await sql`
 			SELECT 1 FROM app_deployment_identities

@@ -18,6 +18,7 @@ DOCUMENTS = (
     "case-capture-repeat",
     "case-operation-query",
     "media-rich",
+    "navigation-base",
     "prompt-widgets",
     "search-hidden-link",
     "search-remote-defaults",

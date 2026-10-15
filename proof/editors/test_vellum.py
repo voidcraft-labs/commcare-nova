@@ -158,3 +158,36 @@ def test_a_vellum_save_names_the_form_in_the_language_the_person_edits_in(hq, co
     the app's first language changes nothing."""
     assert _form_name_after_save(core_runner, editor_driver, "es") == {"en": "Yes/No", "es": "Yes/No"}
     assert _form_name_after_save(core_runner, editor_driver, None) == {"en": "Yes/No"}
+
+
+def test_a_form_builder_save_clears_a_verdict_cached_before_novas_publish(hq, core_runner, editor_driver):
+    """The fourth state of part 02's 7-day App Preview statement, made in Vellum: ``navigation-base`` as Nova's
+    publish leaves it, one form saved broken through the form builder's save path and checked, so HQ caches its
+    failing verdict, then Nova's publish over it, which leaves the verdict and HQ's download of the unbuilt app
+    refused (``proof/hq/test_publish.py``, the cached form verdict's case).
+    Opening that form in HQ's form builder and saving it with nothing changed clears the verdict: the check passes
+    and the download (``views/cli.py::direct_ccz``, ``latest=save``) answers the archive."""
+    import dataclasses
+
+    from proof.editors.conftest import corpus_document
+    from proof.hq.test_publish import _first_publish, _refused_by_core, _unbuilt_download, _validation_errors
+
+    export = corpus_document("navigation-base").exports["minimum"]
+    configuration = export.configuration.hq()
+    configuration = dataclasses.replace(configuration, privileges=configuration.privileges | {"CLOUDCARE"})
+    with hq_check(configuration) as (state, _):
+        app_id, _ = _first_publish(state, export)
+        app = operations.held_app(state, app_id)
+        form_id = app.get_module(0).get_form(0).unique_id
+        app.get_form(form_id).source = _refused_by_core(app.get_form(form_id).source)
+        app.save()
+        assert _validation_errors(operations.held_app(state, app_id))
+        assert operations.apply_upload(state, operations.with_app_id(export.content.upload(), app_id)).status == 200
+        stale = (bool(_validation_errors(operations.held_app(state, app_id))), _unbuilt_download(state, app_id)[0])
+        run = vellum.open_and_save(editor_driver, state, app_id, form_id)
+        cleared = (bool(_validation_errors(operations.held_app(state, app_id))), _unbuilt_download(state, app_id)[0])
+
+    write_evidence("vellum-clears-a-cached-verdict", _record(run))
+    assert run.loaded and run.saved and run.save_button == "saved", (run.load_error, run.save_refusal)
+    assert stale == (True, 400)
+    assert cleared == (False, 200)

@@ -1,5 +1,7 @@
 /** Real HTTP requests and decoded location contracts, verified against HQ's
  * LocationTypeV0_5Test / LocationV0_6Test and LocationResource._update. */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	readHttpRequestBody,
@@ -46,6 +48,8 @@ const root = {
 	site_code: "north",
 	location_type_code: "region",
 	parent_location_id: "",
+	latitude: "12.5000000000",
+	longitude: "-1.1234567890",
 	location_data: {},
 };
 const child = {
@@ -54,6 +58,8 @@ const child = {
 	site_code: "central",
 	location_type_code: "district",
 	parent_location_id: "hq-region",
+	latitude: null,
+	longitude: null,
 	location_data: {
 		population: "715,522",
 		external_count: 3,
@@ -140,6 +146,8 @@ it("reads every place and preserves complete target metadata for an eventual sha
 				siteCode: "north",
 				locationTypeCode: "region",
 				parentLocationId: null,
+				latitude: "12.5000000000",
+				longitude: "-1.1234567890",
 				values: {},
 			},
 			{
@@ -148,6 +156,8 @@ it("reads every place and preserves complete target metadata for an eventual sha
 				siteCode: "central",
 				locationTypeCode: "district",
 				parentLocationId: "hq-region",
+				latitude: null,
+				longitude: null,
 				values: {
 					population: "715,522",
 					external_count: 3,
@@ -521,4 +531,30 @@ it("requires HTTP 202 and keeps known permission refusals distinct from uncertai
 				.map((call) => call.fullUrl),
 		).toEqual(Array(5).fill(HOST + PATCH));
 	});
+});
+
+it("reads coordinates as HQ's own strings, and null where HQ holds none, from HQ's retained inventory", async () => {
+	/* `proof/hq-reads/places/locations.json`: a parent the resource created
+	 * with coordinates and a child created without (part 02, The retained
+	 * HQ reads). */
+	const answer = JSON.parse(
+		readFileSync(
+			path.join(process.cwd(), "proof/hq-reads/places/locations.json"),
+			"utf8",
+		),
+	) as { status: number; headers: Record<string, string>; body: string };
+	const places = await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PLACES, method: "GET" })
+			.reply(answer.status, answer.body, { headers: answer.headers });
+		return listHqLocations(CREDS, DOMAIN);
+	});
+	if ("success" in places)
+		throw new Error("the retained inventory did not parse");
+	const parent = places.find((place) => place.parentLocationId === null);
+	const child = places.find((place) => place.parentLocationId !== null);
+	expect(parent?.latitude).toMatch(/^-?\d+\.\d{10}$/);
+	expect(parent?.longitude).toMatch(/^-?\d+\.\d{10}$/);
+	expect(child).toMatchObject({ latitude: null, longitude: null });
 });
