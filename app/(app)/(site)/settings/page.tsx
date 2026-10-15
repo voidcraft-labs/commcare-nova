@@ -29,6 +29,7 @@ export default async function SettingsPage() {
 			listUserApiKeys(session.user.id),
 		]);
 
+	const initialNow = Date.now();
 	return (
 		<main className="max-w-2xl mx-auto px-6 py-12">
 			<h1 className="text-2xl font-display font-semibold tracking-tighter mb-8">
@@ -39,8 +40,11 @@ export default async function SettingsPage() {
 					initial={initialSettings}
 					userEmail={session.user.email}
 				/>
-				<ConnectedApps initial={initialAuthorizedClients} />
-				<ApiKeys initial={initialApiKeys} />
+				<ConnectedApps
+					initial={initialAuthorizedClients}
+					initialNow={initialNow}
+				/>
+				<ApiKeys initial={initialApiKeys} initialNow={initialNow} />
 			</div>
 		</main>
 	);
