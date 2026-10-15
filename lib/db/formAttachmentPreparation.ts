@@ -148,10 +148,13 @@ async function processCandidate(
 			candidate.preparationAttempts,
 			err,
 		).catch((recordError: unknown) => {
-			log.error("[attachments] preparation retry could not be recorded", {
-				err: recordError,
-				attachmentId: candidate.attachmentId,
-			});
+			log.error(
+				"[attachments] preparation retry could not be recorded",
+				recordError,
+				{
+					attachmentId: candidate.attachmentId,
+				},
+			);
 			return { kind: "recorded" as const, attempts: 0 };
 		});
 		if (failure.kind !== "recorded") {

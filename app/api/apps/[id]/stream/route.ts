@@ -439,9 +439,8 @@ function openStream(args: {
 								containsDisruptiveChange = true;
 							}
 						} catch (error) {
-							log.error("[stream] malformed durable app-change suffix", {
+							log.error("[stream] malformed durable app-change suffix", error, {
 								appId,
-								error,
 							});
 							protocolFailureAndClose("malformed-app-change-suffix");
 							return;
