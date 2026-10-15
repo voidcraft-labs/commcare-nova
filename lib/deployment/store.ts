@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type Selectable, sql, type Transaction } from "kysely";
+import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
@@ -21,6 +21,9 @@ import {
 	clearObservationOutcomes,
 } from "./stateMachine";
 import {
+	DEPLOYMENT_CONFIRMATION_KINDS,
+	type DeploymentConfirmation,
+	type DeploymentConfirmationKind,
 	type DeploymentPhase,
 	type DeploymentPhaseOutcome,
 	type DeploymentPhaseOutcomes,
@@ -170,6 +173,9 @@ function toDeploymentRecord(
 		createdAt: row.created_at.toISOString(),
 		updatedAt: row.updated_at.toISOString(),
 		lastObservedAt: isoOrNull(row.last_observed_at),
+		offeredLogoContentHash: row.offered_logo_content_hash,
+		targetEmptyCaseListText: row.target_empty_case_list_text,
+		targetWebAppsEnabled: row.target_web_apps_enabled,
 	};
 }
 
@@ -203,40 +209,126 @@ function toDeploymentResource(
 		remoteRevision: numberOrNull(row.remote_revision),
 		remoteObservedAt: isoOrNull(row.remote_observed_at),
 		supersededAt: isoOrNull(row.superseded_at),
+		remoteMissingAt: isoOrNull(row.remote_missing_at),
 	};
 }
 
-function partitionResources(
-	rows: readonly Selectable<AppDeploymentResourcesTable>[],
-): Pick<DeploymentWithResources, "active" | "superseded"> {
-	const mapped = rows.map(toDeploymentResource);
+/** The name a confirmation shows for a person whose user no longer exists. */
+const FORMER_MEMBER_NAME = "A former member";
+
+interface ConfirmationRow {
+	readonly deployment_id: string;
+	readonly kind: string;
+	readonly subject: string;
+	readonly confirmed_by: string;
+	readonly confirmed_at: Date;
+}
+
+function isConfirmationKind(
+	value: string,
+): value is DeploymentConfirmationKind {
+	return (DEPLOYMENT_CONFIRMATION_KINDS as readonly string[]).includes(value);
+}
+
+function toDeploymentConfirmation(
+	row: ConfirmationRow,
+	names: ReadonlyMap<string, string>,
+): DeploymentConfirmation {
+	if (!isConfirmationKind(row.kind)) {
+		throw new Error(
+			`Deployment ${row.deployment_id} records a "${row.kind}" confirmation, which Nova does not know.`,
+		);
+	}
 	return {
-		active: mapped.filter((resource) => resource.supersededAt === null),
-		superseded: mapped.filter((resource) => resource.supersededAt !== null),
+		kind: row.kind,
+		subject: row.subject,
+		confirmedByName: names.get(row.confirmed_by) ?? FORMER_MEMBER_NAME,
+		confirmedAt: row.confirmed_at.toISOString(),
 	};
 }
 
+type DeploymentLedger = Pick<
+	DeploymentWithResources,
+	"active" | "superseded" | "confirmations"
+>;
+
+const NO_DEPLOYMENT_LEDGER: DeploymentLedger = {
+	active: [],
+	superseded: [],
+	confirmations: [],
+};
+
+/**
+ * The resource mappings and the live confirmations of each deployment. A
+ * confirmation names its person by `auth_user.name`, read only when a
+ * confirmation exists, and a user who no longer exists reads as a former
+ * member.
+ */
 async function loadResources(
-	db: Pick<Transaction<AppDatabase>, "selectFrom">,
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
 	deploymentIds: readonly string[],
-): Promise<Map<string, Selectable<AppDeploymentResourcesTable>[]>> {
-	const byDeployment = new Map<
-		string,
-		Selectable<AppDeploymentResourcesTable>[]
-	>();
-	if (deploymentIds.length === 0) return byDeployment;
-	const rows = await db
+): Promise<Map<string, DeploymentLedger>> {
+	if (deploymentIds.length === 0) return new Map();
+	const ids = [...deploymentIds];
+	const resourceRows = await db
 		.selectFrom("app_deployment_resources")
 		.selectAll()
-		.where("deployment_id", "in", [...deploymentIds])
+		.where("deployment_id", "in", ids)
 		.orderBy("created_at", "asc")
 		.execute();
-	for (const row of rows) {
-		const bucket = byDeployment.get(row.deployment_id) ?? [];
-		bucket.push(row);
-		byDeployment.set(row.deployment_id, bucket);
+	const confirmationRows = await db
+		.selectFrom("app_deployment_confirmations")
+		.select([
+			"deployment_id",
+			"kind",
+			"subject",
+			"confirmed_by",
+			"confirmed_at",
+		])
+		.where("deployment_id", "in", ids)
+		.where("withdrawn_at", "is", null)
+		.orderBy("confirmed_at", "asc")
+		.orderBy("id", "asc")
+		.execute();
+	const names = await confirmerNames(
+		db,
+		confirmationRows.map((row) => row.confirmed_by),
+	);
+	const building = new Map(
+		ids.map((id) => [
+			id,
+			{
+				active: [] as DeploymentResource[],
+				superseded: [] as DeploymentResource[],
+				confirmations: [] as DeploymentConfirmation[],
+			},
+		]),
+	);
+	for (const row of resourceRows) {
+		const resource = toDeploymentResource(row);
+		const ledger = building.get(row.deployment_id);
+		if (resource.supersededAt === null) ledger?.active.push(resource);
+		else ledger?.superseded.push(resource);
 	}
-	return byDeployment;
+	for (const row of confirmationRows) {
+		building
+			.get(row.deployment_id)
+			?.confirmations.push(toDeploymentConfirmation(row, names));
+	}
+	return building;
+}
+
+/** `auth_user.name` for each confirming user that still exists. */
+async function confirmerNames(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	userIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+	const distinct = [...new Set(userIds)];
+	if (distinct.length === 0) return new Map();
+	const rows = await sql<{ id: string; name: string }>`
+		SELECT id, name FROM auth_user WHERE id = ANY(${distinct}::text[])
+	`.execute(db);
+	return new Map(rows.rows.map((row) => [row.id, row.name]));
 }
 
 /** The one row query both list readers share, so they cannot drift. */
@@ -272,7 +364,7 @@ export async function readDeploymentsForApp(
 	);
 	return rows.map((row) => ({
 		deployment: toDeploymentRecord(row),
-		...partitionResources(resources.get(row.id) ?? []),
+		...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
 	}));
 }
 
@@ -347,7 +439,7 @@ export async function readDeployment(
 	const resources = await loadResources(db, [row.id]);
 	return {
 		deployment: toDeploymentRecord(row),
-		...partitionResources(resources.get(row.id) ?? []),
+		...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
 	};
 }
 
@@ -364,7 +456,7 @@ async function loadWithinTransaction(
 	const resources = await loadResources(tx, [deploymentId]);
 	return {
 		deployment: toDeploymentRecord(row),
-		...partitionResources(resources.get(deploymentId) ?? []),
+		...(resources.get(deploymentId) ?? NO_DEPLOYMENT_LEDGER),
 	};
 }
 

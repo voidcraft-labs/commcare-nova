@@ -1,0 +1,32 @@
+{
+	"root": {
+		"app_name": "Connect ids",
+		"connect_type": "learn",
+		"case_types_text": null,
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "105159ef-9e83-5983-a67e-b6417caac05f",
+			"kind": "field",
+			"parent_uuid": "830417a1-dbc6-5455-a130-97c3d916a951",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"105159ef-9e83-5983-a67e-b6417caac05f\",\"id\":\"score\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Score\"}]},\"kind\":\"int\"}"
+		},
+		{
+			"uuid": "45fcc69f-cf6f-525b-a688-dd61d2c3228f",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"45fcc69f-cf6f-525b-a688-dd61d2c3228f\",\"id\":\"learning\",\"name\":\"Learning\"}"
+		},
+		{
+			"uuid": "830417a1-dbc6-5455-a130-97c3d916a951",
+			"kind": "form",
+			"parent_uuid": "45fcc69f-cf6f-525b-a688-dd61d2c3228f",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"830417a1-dbc6-5455-a130-97c3d916a951\",\"id\":\"lesson\",\"name\":\"Lesson\",\"type\":\"survey\",\"connect\":{\"learn_module\":{\"id\":\"_lesson\",\"name\":\"Hand washing\",\"description\":\"Wash for twenty seconds.\",\"time_estimate\":5},\"assessment\":{\"id\":\"XMLquiz\"}}}"
+		}
+	]
+}

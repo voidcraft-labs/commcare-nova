@@ -38,6 +38,7 @@ it("confines app-table DML to database owners and reviewed operator migrations",
 		"lib/db/apps.ts",
 		"lib/db/canonicalCommitKernel.ts",
 		"lib/db/credits.ts",
+		"scripts/lib/hqRoundTripCutover/writer.ts",
 		"scripts/lib/languageIdentityRepair.ts",
 		"scripts/lib/repairAuthoringBaselines.ts",
 	]);

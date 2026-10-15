@@ -24,6 +24,9 @@ import * as appTestDisposalConstraints from "./20260930020000_app_test_disposal_
 import * as appTestLookupDefinitions from "./20261004000000_app_test_lookup_definitions";
 import * as threadInputRounds from "./20261009010000_thread_input_rounds";
 import * as threadSelectedSources from "./20261009020000_thread_selected_sources";
+import * as hqRoundTripFoldHorizon from "./20261015000000_hq_round_trip_fold_horizon";
+import * as appMigrationNotices from "./20261015010000_app_migration_notices";
+import * as hqRoundTripDeploymentLedger from "./20261015020000_hq_round_trip_deployment_ledger";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -200,6 +203,9 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260919000000_retire_better_auth_17_bridge": retireBetterAuth17Bridge,
 	"20261009010000_thread_input_rounds": threadInputRounds,
 	"20261009020000_thread_selected_sources": threadSelectedSources,
+	"20261015000000_hq_round_trip_fold_horizon": hqRoundTripFoldHorizon,
+	"20261015010000_app_migration_notices": appMigrationNotices,
+	"20261015020000_hq_round_trip_deployment_ledger": hqRoundTripDeploymentLedger,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

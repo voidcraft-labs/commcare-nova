@@ -18,6 +18,11 @@ import {
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
+import {
+	type AppDeploymentNoticeEntry,
+	type DeploymentNoticeEntry,
+	orderNoticeEntries,
+} from "@/lib/notices/migrationNotice";
 
 /**
  * What each rung means, in the author's words. One home for the ladder,
@@ -233,4 +238,31 @@ export function preseededDomainSelection(
 		return requestedDomain;
 	}
 	return availableDomains.length === 1 ? availableDomains[0].name : "";
+}
+
+// ── Migration notice lines ────────────────────────────────────────────────
+
+/**
+ * The migration notice entries one card still shows, in the order of
+ * `DEPLOYMENT_NOTICE_REASONS`. An entry stays until a publish has happened
+ * there since its notice was written: the deployment's live `app` mapping
+ * was pushed later than the notice's `createdAt`. A deployment with no live
+ * `app` mapping, or one never pushed, keeps them.
+ */
+export function publishingCardNoticeEntries(
+	entries: readonly AppDeploymentNoticeEntry[],
+	view: Pick<DeploymentView, "deployment">,
+): readonly DeploymentNoticeEntry[] {
+	const deploymentId = view.deployment.deployment.id;
+	const pushedAt =
+		view.deployment.active.find((resource) => resource.kind === "app")
+			?.pushedAt ?? null;
+	const kept = entries.filter(
+		(item) =>
+			item.entry.deployment.deploymentId === deploymentId &&
+			(pushedAt === null || Date.parse(pushedAt) <= Date.parse(item.createdAt)),
+	);
+	return orderNoticeEntries(kept.map((item) => item.entry)).filter(
+		(entry): entry is DeploymentNoticeEntry => entry.kind === "deployment",
+	);
 }

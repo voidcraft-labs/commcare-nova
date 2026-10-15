@@ -53,6 +53,7 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **Reassure during waits.** Long operations get patient company ("Still building. Big apps take a minute or two."), not spinners in silence or percent counters.
 - **Celebrate quietly.** "Your app is ready". Warmth, not fireworks. Exclamation points almost never.
 - **Explain consequences, calmly.** Destructive flows state what happens and how to undo, never alarm or guilt: the delete tooltip reads "Move to recently deleted", the confirm button "Confirm delete".
+- **Say what an update changed.** When an update changes an app or what its next publish does, a notice says so with one line per change, each saying what changed, what a worker or a person now sees, and what is theirs to do. A quiet violet chip in the builder header counts the updates to review and opens the notice; nothing opens by itself.
 
 **Unfinished chat edits.** A quiet row below the transcript and above the
 composer says “Changes waiting to be saved” when the current conversation has

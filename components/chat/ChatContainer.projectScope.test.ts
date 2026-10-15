@@ -607,6 +607,19 @@ describe("new-app Project handoff", () => {
 				starter: null,
 			}),
 		).toMatchObject({ starter: null });
+		/* A design-slice receipt read back after a fold horizon carries the
+		 * saved app's later sequence; the blank starter is only ever born. */
+		expect(
+			parseAppMaterializationReceipt({
+				...receipt,
+				designSessionId: "0b944e00-722d-48ab-8d4d-47e922970b5f",
+				changeSetId: "cs-1",
+				starter: null,
+				seq: 4,
+			}),
+		).toMatchObject({ seq: 4, starter: null });
+		expect(parseAppMaterializationReceipt({ ...receipt, seq: 4 })).toBeNull();
+		expect(parseAppMaterializationReceipt({ ...receipt, seq: 1.5 })).toBeNull();
 		expect(
 			parseAppMaterializationReceipt({
 				...receipt,

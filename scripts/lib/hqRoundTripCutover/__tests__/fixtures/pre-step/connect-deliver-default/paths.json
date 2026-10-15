@@ -1,0 +1,15 @@
+[
+	{
+		"uuid": "fe250245-35e0-5099-a17f-efd368120035",
+		"name": "Work",
+		"caseType": null,
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "c908c5a3-5d53-556f-a21a-3cd50e8658b3",
+				"name": "Activity",
+				"paths": ["/data/score", "/data/feedback"]
+			}
+		]
+	}
+]

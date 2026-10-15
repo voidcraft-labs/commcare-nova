@@ -15,6 +15,10 @@
  *   - **Genesis:** the canonical empty in-memory Blueprint carrying the
  *     proposed app id — never persisted as an app.
  *
+ * `greatestFoldBaselineSeq` is the one pre-horizon rule: a reader whose
+ * recorded sequence precedes an app's greatest fold baseline answers from the
+ * current saved app, because rows behind a horizon are not replayable.
+ *
  * Reads are lock-free by design: `app_changes` rows at-or-below a recorded
  * base sequence and fold baselines are immutable, and the contiguity plus
  * digest proofs reject any torn read louder than a lock would.
@@ -135,6 +139,35 @@ export async function loadCanonicalBlueprintAtSequence(
 		digest,
 		projectId: folded.projectId,
 	};
+}
+
+/**
+ * The sequence of an app's greatest immutable fold baseline, or `null` when
+ * it has none.
+ *
+ * A stored-shape cutover establishes a fold horizon whose earlier rows stay
+ * opaque audit history in an older dialect, so no reader folds at a sequence
+ * behind it. A reader holding such a sequence (a finished build's recorded
+ * app sequence, a genesis receipt's sequence 1, a stream subscriber's cursor)
+ * compares it with this value and answers from the current saved app instead.
+ */
+export async function greatestFoldBaselineSeq(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	appId: string,
+): Promise<number | null> {
+	const row = await db
+		.selectFrom("app_change_fold_baselines")
+		.select("seq")
+		.where("app_id", "=", appId)
+		.orderBy("seq", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	return row === undefined
+		? null
+		: safePersistedSequence(
+				row.seq,
+				`app_change_fold_baselines.seq for app ${appId}`,
+			);
 }
 
 export interface GenesisBase {

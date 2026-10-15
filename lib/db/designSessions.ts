@@ -940,65 +940,83 @@ export async function discardDesignSession(
 		if (lease.live || (lease.paused && !lease.pausedBy(actorUserId))) {
 			throw new DesignSessionBusyError();
 		}
-		const reservation = designSessionReservation(row);
-		if (reservation && !reservation.settled && reservation.userId) {
-			await refundToMonthInTransaction(
-				tx,
-				reservation.userId,
-				reservation.period,
-				reservation.reserved,
-			);
-		}
-		/* No live holder may survive the busy guard above. Retire every mutable
-		 * recovery carrier with the abandonment so a discarded design cannot
-		 * leave an apparently resumable workspace, attempt, or stream marker. */
-		await tx
-			.updateTable("design_change_sets")
-			.set({ status: "abandoned", updated_at: new Date() })
-			.where("design_session_id", "=", designSessionId)
-			.where("status", "=", "open")
-			.execute();
-		await tx
-			.updateTable("design_slice_attempts")
-			.set({
-				status: "superseded",
-				failure_code: "design-session-abandoned",
-				updated_at: new Date(),
-			})
-			.where("design_session_id", "=", designSessionId)
-			.where("status", "=", "running")
-			.execute();
-		await tx
-			.updateTable("design_artifact_workspaces")
-			.set({
-				status: "superseded",
-				updated_by_run_id: "system:design-session-discard",
-				updated_at: new Date(),
-			})
-			.where("design_session_id", "=", designSessionId)
-			.where("status", "=", "open")
-			.execute();
-		await releaseDesignLookupProtectionsInTransaction(tx, designSessionId);
-		await tx
-			.updateTable("threads")
-			.set({
-				active_stream_id: null,
-				active_holder_nonce: null,
-				updated_at: new Date().toISOString(),
-			})
-			.where("design_session_id", "=", designSessionId)
-			.execute();
-		await tx
-			.updateTable("design_sessions")
-			.set({
-				...designSessionAuthorityCleared(),
-				state: "abandoned",
-				updated_at: new Date(),
-			})
-			.where("id", "=", designSessionId)
-			.execute();
+		await abandonPreAppDesignSessionInTransaction(tx, row);
 		return { outcome: "discarded" };
 	});
+}
+
+/**
+ * End one pre-app build session: refund its unsettled hold, retire every
+ * mutable recovery carrier (open change sets, running slice attempts, open
+ * artifact workspaces, lookup protections, the thread's stream marker) and
+ * move it to `abandoned`, clearing its authority. The transcript stays.
+ *
+ * The caller has locked the row and decided the session may end;
+ * `discardDesignSession` after its authorization and busy guards, and the
+ * one-time stored-shape cutover for a session that held work in an earlier
+ * dialect. Both end a session through this one body so they cannot drift.
+ */
+export async function abandonPreAppDesignSessionInTransaction(
+	tx: Transaction<AppDatabase>,
+	row: LockedSessionRow,
+): Promise<void> {
+	const reservation = designSessionReservation(row);
+	if (reservation && !reservation.settled && reservation.userId) {
+		await refundToMonthInTransaction(
+			tx,
+			reservation.userId,
+			reservation.period,
+			reservation.reserved,
+		);
+	}
+	/* The caller has proved no live holder remains. Retire every mutable
+	 * recovery carrier with the abandonment so an ended design cannot leave
+	 * an apparently resumable workspace, attempt, or stream marker. */
+	await tx
+		.updateTable("design_change_sets")
+		.set({ status: "abandoned", updated_at: new Date() })
+		.where("design_session_id", "=", row.id)
+		.where("status", "=", "open")
+		.execute();
+	await tx
+		.updateTable("design_slice_attempts")
+		.set({
+			status: "superseded",
+			failure_code: "design-session-abandoned",
+			updated_at: new Date(),
+		})
+		.where("design_session_id", "=", row.id)
+		.where("status", "=", "running")
+		.execute();
+	await tx
+		.updateTable("design_artifact_workspaces")
+		.set({
+			status: "superseded",
+			updated_by_run_id: "system:design-session-discard",
+			updated_at: new Date(),
+		})
+		.where("design_session_id", "=", row.id)
+		.where("status", "=", "open")
+		.execute();
+	await releaseDesignLookupProtectionsInTransaction(tx, row.id);
+	await tx
+		.updateTable("threads")
+		.set({
+			active_stream_id: null,
+			active_holder_nonce: null,
+			updated_at: new Date().toISOString(),
+		})
+		.where("design_session_id", "=", row.id)
+		.execute();
+	await tx
+		.updateTable("design_sessions")
+		.set({
+			...designSessionAuthorityCleared(),
+			state: "abandoned",
+			updated_at: new Date(),
+		})
+		.where("id", "=", row.id)
+		.execute();
 }
 
 /**

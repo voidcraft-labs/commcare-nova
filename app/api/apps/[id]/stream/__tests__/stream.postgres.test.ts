@@ -23,6 +23,8 @@
  *     Destination editor/viewer and same-Project access
  *     reload; source-only loss revokes; a transient denial retries from M-1.
  *   - A gap (first delivered seq isn't cursor+1) emits `event: reload`.
+ *   - A fold horizon above the cursor reauthorizes and reloads before any
+ *     row behind it is parsed.
  *   - Bounded revocation, CONFIRMED-only: a ban (`isUserActive → false`), a
  *     membership loss (`AppAccessError`), and a session-identity change each
  *     close the stream with `event: revoked`; a TRANSIENT blip (a null session,
@@ -68,6 +70,7 @@ import {
 	type PersistableDoc,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { log } from "@/lib/logger";
 
 // Session extraction is the authentication boundary; database authorization is real.
 const { requireSessionMock, readSessionMock } = vi.hoisted(() => ({
@@ -1264,7 +1267,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
 	});
 
-	it("validates pre-baseline rows as part of the complete durable suffix", async () => {
+	it("reloads without parsing a row behind a fold horizon above the cursor", async () => {
 		const appId = await seedApp(2);
 		await writeRawEntry(appId, 1, [
 			{
@@ -1273,21 +1276,31 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			},
 		]);
 		await writeBaselineMarker(appId, 2);
+		let reauthorizations = 0;
+		__setStreamReadTestHooksForTests({
+			beforeAppChangeReauthorization() {
+				reauthorizations += 1;
+			},
+		});
+		const errors = vi.spyOn(log, "error");
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
-			predicate: (current) =>
-				current.some((frame) => frame.event === "protocol-failure"),
+			predicate: (current) => current.some((frame) => frame.event === "reload"),
 		});
 
-		expect(
-			frames.find((frame) => frame.event === "protocol-failure")?.data,
-		).toEqual({ reason: "malformed-app-change-suffix" });
-		expect(frames.some((frame) => frame.event === "reload")).toBe(false);
+		expect(reauthorizations).toBe(1);
+		expect(frames.find((frame) => frame.event === "reload")?.data).toEqual({
+			reason: "app-changed",
+		});
+		expect(frames.some((frame) => frame.event === "protocol-failure")).toBe(
+			false,
+		);
+		expect(errors).not.toHaveBeenCalled();
 		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
 	});
 
-	it("admits every post-baseline body before reloading for the baseline", async () => {
+	it("parses every row after the greatest fold baseline at or below the cursor", async () => {
 		const appId = await seedApp(3);
 		await writeEntry(appId, 1);
 		await writeBaselineMarker(appId, 2);
@@ -1301,7 +1314,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			.execute();
 
 		const { frames } = await collectUntil(appId, {
-			since: 0,
+			since: 2,
 			predicate: (current) =>
 				current.some((frame) => frame.event === "protocol-failure"),
 		});

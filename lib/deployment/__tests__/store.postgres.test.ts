@@ -1152,6 +1152,108 @@ describe("reads", () => {
 		const scope = await seed();
 		await expect(readDeployment(scope, TARGET)).resolves.toBeNull();
 	});
+
+	it("reads the ledger columns as stored and a null column as null", async () => {
+		const scope = await seed();
+		const fresh = await publish(scope, "hq-1", 7);
+		expect(fresh.deployment).toMatchObject({
+			offeredLogoContentHash: null,
+			targetEmptyCaseListText: null,
+			targetWebAppsEnabled: null,
+		});
+		expect(activeRemoteApp(fresh)?.remoteMissingAt).toBeNull();
+		expect(fresh.confirmations).toEqual([]);
+
+		const missingAt = new Date("2026-08-07T00:00:00.000Z");
+		await h
+			.db()
+			.updateTable("app_deployments")
+			.set({
+				offered_logo_content_hash: "logo-sha",
+				target_empty_case_list_text: true,
+				target_web_apps_enabled: false,
+			})
+			.where("id", "=", fresh.deployment.id)
+			.execute();
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ remote_missing_at: missingAt })
+			.where("deployment_id", "=", fresh.deployment.id)
+			.execute();
+
+		const stored = await readDeployment(scope, TARGET);
+		expect(stored?.deployment).toMatchObject({
+			offeredLogoContentHash: "logo-sha",
+			targetEmptyCaseListText: true,
+			targetWebAppsEnabled: false,
+		});
+		expect(stored && activeRemoteApp(stored)?.remoteMissingAt).toBe(
+			missingAt.toISOString(),
+		);
+		const [listed] = await readDeploymentsForApp(scope);
+		expect(listed).toEqual(stored);
+	});
+
+	it("reads live confirmations by the confirming member's name, and a former member's as such", async () => {
+		const scope = await seed();
+		const view = await create(scope);
+		await h.seedProjectMember("u2", scope.projectId, "editor");
+		const at = (minute: number) =>
+			new Date(Date.UTC(2026, 7, 6, 0, minute)).toISOString();
+		await h
+			.db()
+			.insertInto("app_deployment_confirmations")
+			.values([
+				{
+					deployment_id: view.deployment.id,
+					kind: "plan-feature",
+					subject: "user-case",
+					confirmed_by: "u1",
+					confirmed_at: at(1),
+				},
+				{
+					deployment_id: view.deployment.id,
+					kind: "flat-location-fixture",
+					subject: "flat-location-fixture",
+					confirmed_by: "u2",
+					confirmed_at: at(2),
+					withdrawn_by: "u2",
+					withdrawn_at: at(3),
+				},
+				{
+					deployment_id: view.deployment.id,
+					kind: "connect-forwarder",
+					subject: "connect-forwarder",
+					confirmed_by: "user-who-left",
+					confirmed_at: at(4),
+				},
+			])
+			.execute();
+
+		const read = await readDeployment(scope, TARGET);
+		expect(read?.confirmations).toEqual([
+			{
+				kind: "plan-feature",
+				subject: "user-case",
+				confirmedByName: "u1",
+				confirmedAt: at(1),
+			},
+			{
+				kind: "connect-forwarder",
+				subject: "connect-forwarder",
+				confirmedByName: "A former member",
+				confirmedAt: at(4),
+			},
+		]);
+		const folded = await foldDeploymentAttempt(
+			scope,
+			TARGET,
+			"preflight",
+			preflightPassed(),
+		);
+		expect(folded.confirmations).toEqual(read?.confirmations);
+	});
 });
 
 describe("tenancy", () => {

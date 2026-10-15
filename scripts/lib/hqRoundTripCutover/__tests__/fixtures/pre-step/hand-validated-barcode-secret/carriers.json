@@ -1,0 +1,39 @@
+{
+	"root": {
+		"app_name": "Validated codes",
+		"connect_type": null,
+		"case_types_text": null,
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "00971e38-e6b1-52bc-a46c-8efe25e4c8a8",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"00971e38-e6b1-52bc-a46c-8efe25e4c8a8\",\"id\":\"codes\",\"name\":\"Codes\"}"
+		},
+		{
+			"uuid": "021bdedf-6d19-5a63-a231-30792ea4a22f",
+			"kind": "field",
+			"parent_uuid": "a44ed396-3ce4-59d2-a15f-6b14cf774986",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"021bdedf-6d19-5a63-a231-30792ea4a22f\",\"id\":\"pin\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"PIN\"}]},\"kind\":\"secret\",\"validate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"string-length(.) = 6\"}]},\"validate_msg\":{\"parts\":[{\"kind\":\"text\",\"text\":\"A PIN has six characters.\"}]}}"
+		},
+		{
+			"uuid": "a44ed396-3ce4-59d2-a15f-6b14cf774986",
+			"kind": "form",
+			"parent_uuid": "00971e38-e6b1-52bc-a46c-8efe25e4c8a8",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"a44ed396-3ce4-59d2-a15f-6b14cf774986\",\"id\":\"scan\",\"name\":\"Scan\",\"type\":\"survey\"}"
+		},
+		{
+			"uuid": "cdf95ee5-1b5e-5361-a5e7-130f36581eb5",
+			"kind": "field",
+			"parent_uuid": "a44ed396-3ce4-59d2-a15f-6b14cf774986",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"cdf95ee5-1b5e-5361-a5e7-130f36581eb5\",\"id\":\"code\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Code\"}]},\"kind\":\"barcode\",\"validate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"string-length(.) = 6\"}]},\"validate_msg\":{\"parts\":[{\"kind\":\"text\",\"text\":\"A code has six characters.\"}]}}"
+		}
+	]
+}

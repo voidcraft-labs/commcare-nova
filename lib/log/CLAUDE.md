@@ -30,7 +30,8 @@ own columns so reads filter and order without parsing the payload.
 `readEvents` strictly validates the complete ordered page through
 `eventSchema.array().parse`. One malformed row fails the whole read; returning
 the valid rows around it would invent a partial history that never existed.
-Pre-cutover mutation payloads use the explicit opaque `archived-mutation` arm.
+Mutation payloads written before a fold horizon use the explicit opaque
+`archived-mutation` arm.
 
 Conversation-event attachment UUIDs are immutable audit receipts, not live
 media references. Readers display the snapshotted metadata only; event ids are

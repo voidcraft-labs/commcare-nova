@@ -1,0 +1,15 @@
+[
+	{
+		"uuid": "860843bd-cd97-5419-af0a-2d772453b7ad",
+		"name": "Supplies",
+		"caseType": null,
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "69177e67-a9c4-55ab-a3ae-044951d74117",
+				"name": "Order",
+				"paths": ["/data/clinic", "/data/item"]
+			}
+		]
+	}
+]

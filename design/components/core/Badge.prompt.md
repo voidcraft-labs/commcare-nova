@@ -8,4 +8,6 @@ Small status / metadata chip, a full pill (radius-4xl, 22px tall) of soft border
 <Badge>3 forms</Badge>
 ```
 
+The builder header's migration notice chip is a violet Badge inside a ghost `Button`, counting what this member has to review ("1 update to review"); it opens the notice dialog.
+
 Variants: `muted` (default), `violet`, `emerald`, `amber`, `rose`. Badge text: sentence case, no punctuation.

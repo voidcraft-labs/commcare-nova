@@ -1,0 +1,53 @@
+{
+	"root": {
+		"app_name": "Household levels",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"household\",\"properties\":[{\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]},\"name\":\"case_name\"},{\"data_type\":\"text\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Zone\"}]},\"name\":\"zone\"},{\"data_type\":\"single_select\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Level\"}]},\"name\":\"level\",\"options\":[{\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Few\"}]},\"value\":\"2\"},{\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Many\"}]},\"value\":\"10\"}]}]}]",
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "06b54ab2-7833-510e-adf0-5d3461507fe2",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"06b54ab2-7833-510e-adf0-5d3461507fe2\",\"id\":\"households_by_level\",\"name\":\"Households by level\",\"caseType\":\"household\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"e3e78f4e-487c-55b2-a723-2fc0d2d886de\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"},{\"uuid\":\"961381b5-3bb5-5b09-a8fa-3e0f056d75a5\",\"sort\":{\"direction\":\"asc\",\"priority\":0},\"kind\":\"plain\",\"field\":\"level\",\"header\":\"Level\"}],\"listColumnOrder\":[\"e3e78f4e-487c-55b2-a723-2fc0d2d886de\",\"961381b5-3bb5-5b09-a8fa-3e0f056d75a5\"],\"detailColumnOrder\":[\"e3e78f4e-487c-55b2-a723-2fc0d2d886de\",\"961381b5-3bb5-5b09-a8fa-3e0f056d75a5\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "0abe9019-1866-5325-ad69-3a077a4ff029",
+			"kind": "form",
+			"parent_uuid": "54f34064-da9a-58e8-a30b-96aa3b0e6d74",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"0abe9019-1866-5325-ad69-3a077a4ff029\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "54f34064-da9a-58e8-a30b-96aa3b0e6d74",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"54f34064-da9a-58e8-a30b-96aa3b0e6d74\",\"id\":\"households_by_zone\",\"name\":\"Households by zone\",\"caseType\":\"household\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"ae453710-e9d9-521c-aa4a-30a6dd868080\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"},{\"uuid\":\"fd528cff-07de-540b-ada1-609d4d7f154f\",\"sort\":{\"direction\":\"asc\",\"priority\":0},\"kind\":\"id-mapping\",\"field\":\"zone\",\"header\":\"Zone\",\"mapping\":[{\"value\":\"2\",\"label\":\"North\"},{\"value\":\"10\",\"label\":\"South\"}]}],\"listColumnOrder\":[\"ae453710-e9d9-521c-aa4a-30a6dd868080\",\"fd528cff-07de-540b-ada1-609d4d7f154f\"],\"detailColumnOrder\":[\"ae453710-e9d9-521c-aa4a-30a6dd868080\",\"fd528cff-07de-540b-ada1-609d4d7f154f\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "641623af-c40b-5303-aa9e-576955303f5f",
+			"kind": "form",
+			"parent_uuid": "06b54ab2-7833-510e-adf0-5d3461507fe2",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"641623af-c40b-5303-aa9e-576955303f5f\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "81eb51e2-0235-5f66-aa55-ae1877f06992",
+			"kind": "field",
+			"parent_uuid": "641623af-c40b-5303-aa9e-576955303f5f",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"81eb51e2-0235-5f66-aa55-ae1877f06992\",\"id\":\"notes\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Notes\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "c6d48f08-5c64-56f4-a465-398a58ae95d8",
+			"kind": "field",
+			"parent_uuid": "0abe9019-1866-5325-ad69-3a077a4ff029",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"c6d48f08-5c64-56f4-a465-398a58ae95d8\",\"id\":\"notes\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Notes\"}]},\"kind\":\"text\"}"
+		}
+	]
+}

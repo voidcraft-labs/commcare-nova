@@ -15,6 +15,7 @@ import {
 	registerGetDeployment,
 	registerRefreshDeployment,
 } from "./tools/deploymentTools";
+import { registerDismissAppNotice } from "./tools/dismissAppNotice";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
 import { registerGetEntryPointLink } from "./tools/getEntryPointLink";
@@ -38,6 +39,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerListApps(server, ctx);
 	registerSearchApps(server, ctx);
 	registerGetApp(server, ctx);
+	registerDismissAppNotice(server, ctx);
 	registerCheckProjectSpaceCompatibility(server, ctx);
 	registerWorkTools(server, ctx);
 	registerDeleteApp(server, ctx);

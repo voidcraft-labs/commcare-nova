@@ -581,6 +581,179 @@ describe("atomic Project move", () => {
 		expect(moved).toEqual({ project_id: DESTINATION, domain: "acme" });
 	});
 
+	it("copies the moving app's place baselines to the destination by the baseline upsert's rule", async () => {
+		const appId = await seedMoveableApp({
+			id: "app-baseline-move",
+			appName: "Baseline move",
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		const target = { server: "production" as const, domain: "acme" };
+		const deployment = await foldDeploymentAttempt(
+			{ appId, projectId: SOURCE, role: "owner", actorUserId: ACTOR },
+			target,
+			"preflight",
+			{ status: "succeeded", at: "2026-08-06T00:00:00.000Z" },
+			{ ensure: true },
+		);
+		const mapping = (remoteId: string, superseded: boolean) => ({
+			deployment_id: deployment.deployment.id,
+			kind: "location",
+			nova_resource_id: testUuid(`place-${remoteId}`),
+			remote_id: remoteId,
+			ownership: "nova-created",
+			pushed_identity: remoteId,
+			pushed_at: new Date("2026-08-06T00:00:00.000Z"),
+			pushed_revision: 1,
+			superseded_at: superseded ? new Date("2026-08-07T00:00:00.000Z") : null,
+		});
+		await h
+			.db()
+			.insertInto("app_deployment_resources")
+			.values([
+				mapping("place-new", false),
+				mapping("place-dest-newer", false),
+				mapping("place-dest-older", false),
+				mapping("place-left", true),
+			])
+			.execute();
+		const digest = (letter: string) => letter.repeat(64);
+		const baseline = (
+			projectId: string,
+			remoteId: string,
+			observedAt: string,
+			contentDigest: string,
+			discard: { digest: string; by: string; at: string } | null,
+		) => ({
+			project_id: projectId,
+			server: target.server,
+			domain: target.domain,
+			kind: "location",
+			remote_id: remoteId,
+			origin: "push",
+			canonical: JSON.stringify({ remoteId }),
+			digest: contentDigest,
+			observed_at: observedAt,
+			observed_by: ACTOR,
+			observed_from_app_id: appId,
+			discarded_digest: discard?.digest ?? null,
+			discarded_by: discard?.by ?? null,
+			discarded_at: discard?.at ?? null,
+		});
+		const sourceDiscard = {
+			digest: digest("d"),
+			by: ACTOR,
+			at: "2026-08-08T00:00:00.000Z",
+		};
+		const destinationDiscard = {
+			digest: digest("e"),
+			by: "destination-member",
+			at: "2026-08-01T00:00:00.000Z",
+		};
+		await h
+			.db()
+			.insertInto("project_space_resource_baselines")
+			.values([
+				baseline(
+					SOURCE,
+					"place-new",
+					"2026-08-10T00:00:00.000Z",
+					digest("a"),
+					sourceDiscard,
+				),
+				baseline(
+					SOURCE,
+					"place-dest-newer",
+					"2026-08-10T00:00:00.000Z",
+					digest("a"),
+					null,
+				),
+				baseline(
+					SOURCE,
+					"place-dest-older",
+					"2026-08-10T00:00:00.000Z",
+					digest("a"),
+					null,
+				),
+				baseline(
+					SOURCE,
+					"place-left",
+					"2026-08-10T00:00:00.000Z",
+					digest("a"),
+					null,
+				),
+				baseline(
+					SOURCE,
+					"place-unmapped",
+					"2026-08-10T00:00:00.000Z",
+					digest("a"),
+					null,
+				),
+				baseline(
+					DESTINATION,
+					"place-dest-newer",
+					"2026-08-12T00:00:00.000Z",
+					digest("b"),
+					null,
+				),
+				baseline(
+					DESTINATION,
+					"place-dest-older",
+					"2026-08-09T00:00:00.000Z",
+					digest("c"),
+					destinationDiscard,
+				),
+			])
+			.execute();
+		const rowsOf = async (projectId: string) =>
+			(
+				await h
+					.db()
+					.selectFrom("project_space_resource_baselines")
+					.select([
+						"remote_id",
+						"digest",
+						"observed_at",
+						"discarded_digest",
+						"discarded_by",
+					])
+					.where("project_id", "=", projectId)
+					.orderBy("remote_id")
+					.execute()
+			).map((row) => ({
+				...row,
+				observed_at: row.observed_at.toISOString(),
+			}));
+		const sourceBefore = await rowsOf(SOURCE);
+
+		await prepareMove(appId);
+		await commitMove(appId);
+
+		expect(await rowsOf(SOURCE)).toEqual(sourceBefore);
+		expect(await rowsOf(DESTINATION)).toEqual([
+			{
+				remote_id: "place-dest-newer",
+				digest: digest("b"),
+				observed_at: "2026-08-12T00:00:00.000Z",
+				discarded_digest: null,
+				discarded_by: null,
+			},
+			{
+				remote_id: "place-dest-older",
+				digest: digest("a"),
+				observed_at: "2026-08-10T00:00:00.000Z",
+				discarded_digest: destinationDiscard.digest,
+				discarded_by: destinationDiscard.by,
+			},
+			{
+				remote_id: "place-new",
+				digest: digest("a"),
+				observed_at: "2026-08-10T00:00:00.000Z",
+				discarded_digest: sourceDiscard.digest,
+				discarded_by: sourceDiscard.by,
+			},
+		]);
+	});
+
 	it("moves the complete tenant closure atomically and preserves transcript metadata", async () => {
 		const appId = await seedMoveableApp({
 			id: "app-atomic-move",

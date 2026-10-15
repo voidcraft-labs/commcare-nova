@@ -427,7 +427,9 @@ export async function createExplicitBlankApp(
 
 /**
  * The strict activation receipt every genesis emits (§12.6): the complete
- * server-derived access tuple plus the exact sequence-1 snapshot. The
+ * server-derived access tuple plus the exact sequence-1 snapshot. A receipt
+ * read back after a fold horizon follows the birth carries the saved app at
+ * its own sequence, because the birth sequence no longer replays. The
  * explicit-blank variant carries the starter UUIDs (the blank-builder UX
  * selects/names them); a design-slice receipt has no starter.
  */
@@ -438,7 +440,7 @@ export interface AppMaterializationReceipt {
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
-	readonly seq: 1;
+	readonly seq: number;
 	readonly batchId: string;
 	readonly changeSetId: string | null;
 	readonly snapshotDigest: string;

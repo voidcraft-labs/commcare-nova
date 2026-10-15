@@ -1,0 +1,256 @@
+/**
+ * Every sentence a migration notice says: one renderer per reason, one lead
+ * per cutover, the builder chip, and the home page's line about a member's
+ * saved CommCare HQ key.
+ *
+ * A renderer returns the line twice over: as plain text (what `get_app`
+ * returns) and as runs (what the dialog draws, linking each entity that
+ * still exists). The text is always the runs' texts joined, so the two can
+ * never say different things.
+ *
+ * Dates are rendered as day and month in the viewer's locale and time zone,
+ * and never written into a stored entry. Client-safe.
+ */
+
+import type {
+	DeploymentNoticeEntry,
+	KeyReaderNotice,
+	MigrationNoticeCutover,
+	MigrationNoticeEntry,
+	MigrationNoticeReason,
+	NoticeEntityRef,
+} from "./migrationNotice";
+
+export type NoticeLinePart =
+	| { readonly kind: "text"; readonly text: string }
+	| {
+			readonly kind: "entity";
+			readonly entity: NoticeEntityRef;
+			/** The entity's name today where it exists, else its `nameAtMigration`. */
+			readonly text: string;
+			readonly exists: boolean;
+	  };
+
+export interface NoticeLine {
+	/** The whole line as plain text: the parts' texts joined. */
+	readonly text: string;
+	/** The same line in runs: the dialog links each entity part that exists. */
+	readonly parts: readonly NoticeLinePart[];
+}
+
+export interface NoticeRenderContext {
+	/** The entity's current name in the app's document, or null where it is gone. */
+	readonly nameOf: (entity: NoticeEntityRef) => string | null;
+}
+
+function noticeLine(parts: readonly NoticeLinePart[]): NoticeLine {
+	return { text: parts.map((part) => part.text).join(""), parts };
+}
+
+function text(value: string): NoticeLinePart {
+	return { kind: "text", text: value };
+}
+
+/** An entity run: its name today, or the name it had when the cutover ran. */
+export function entityPart(
+	entity: NoticeEntityRef,
+	ctx: NoticeRenderContext,
+): NoticeLinePart {
+	const current = ctx.nameOf(entity);
+	return {
+		kind: "entity",
+		entity,
+		text: current ?? entity.nameAtMigration,
+		exists: current !== null,
+	};
+}
+
+/** The project space a deployment entry is about, named by its domain. */
+function projectSpace(entry: DeploymentNoticeEntry): string {
+	return entry.deployment.domain;
+}
+
+export const MIGRATION_NOTICE_COPY = {
+	"unsaved-assistant-work-discarded": () =>
+		noticeLine([
+			text(
+				"Changes the assistant was still working on here were not saved before this update. The saved app is unchanged. Ask again to pick the work back up.",
+			),
+		]),
+	"deep-links-need-republish": (entry) =>
+		noticeLine([
+			text(
+				`Links to ${projectSpace(entry)} that you already shared keep working. New ones are ready after the next publish there.`,
+			),
+		]),
+} satisfies {
+	readonly [R in MigrationNoticeReason]: (
+		entry: Extract<MigrationNoticeEntry, { reason: R }>,
+		ctx: NoticeRenderContext,
+	) => NoticeLine;
+};
+
+type AnyRenderer = (
+	entry: MigrationNoticeEntry,
+	ctx: NoticeRenderContext,
+) => NoticeLine;
+
+/** Render one entry through its reason's renderer. */
+export function renderNoticeEntry(
+	entry: MigrationNoticeEntry,
+	ctx: NoticeRenderContext,
+): NoticeLine {
+	/* The table above is keyed so each renderer receives exactly its own
+	 * reason's entry; the lookup by `entry.reason` keeps that pairing, which
+	 * TypeScript cannot follow through an indexed access. */
+	const render = MIGRATION_NOTICE_COPY[entry.reason] as AnyRenderer;
+	return render(entry, ctx);
+}
+
+// ── Dates ────────────────────────────────────────────────────────────────
+
+/** The viewer's locale and time zone. Both default to the runtime's. */
+export interface NoticeDateOptions {
+	readonly locale?: string;
+	readonly timeZone?: string;
+}
+
+function dayMonthFormat(options: NoticeDateOptions): Intl.DateTimeFormat {
+	return new Intl.DateTimeFormat(options.locale, {
+		day: "numeric",
+		month: "long",
+		timeZone: options.timeZone,
+	});
+}
+
+/** A day and month, such as "6 October", in the viewer's locale and zone. */
+export function formatNoticeDay(
+	at: string | Date,
+	options: NoticeDateOptions = {},
+): string {
+	return dayMonthFormat(options).format(new Date(at));
+}
+
+function calendarDay(at: Date, options: NoticeDateOptions) {
+	const parts = new Intl.DateTimeFormat("en-US", {
+		year: "numeric",
+		month: "numeric",
+		day: "numeric",
+		timeZone: options.timeZone,
+	}).formatToParts(at);
+	const value = (type: Intl.DateTimeFormatPartTypes) =>
+		parts.find((part) => part.type === type)?.value ?? "";
+	return { year: value("year"), month: value("month"), day: value("day") };
+}
+
+/**
+ * "on 6 October" when both instants fall on one day in the viewer's zone,
+ * else "between 6 and 7 October", or "between 31 October and 1 November"
+ * across a month.
+ */
+export function noticeDaySpan(
+	first: string | Date,
+	last: string | Date,
+	options: NoticeDateOptions = {},
+): string {
+	const from = new Date(first);
+	const to = new Date(last);
+	const a = calendarDay(from, options);
+	const b = calendarDay(to, options);
+	if (a.year === b.year && a.month === b.month && a.day === b.day) {
+		return `on ${formatNoticeDay(from, options)}`;
+	}
+	const format = dayMonthFormat(options);
+	if (a.year === b.year && a.month === b.month) {
+		/* One month: the later date's own spelling with its day replaced by
+		 * both days, so the locale keeps its order ("6 and 7 October",
+		 * "October 6 and 7"). */
+		const fromDay = format
+			.formatToParts(from)
+			.find((part) => part.type === "day")?.value;
+		const joined = format
+			.formatToParts(to)
+			.map((part) =>
+				part.type === "day" && fromDay !== undefined
+					? `${fromDay} and ${part.value}`
+					: part.value,
+			)
+			.join("");
+		return `between ${joined}`;
+	}
+	return `between ${format.format(from)} and ${format.format(to)}`;
+}
+
+// ── The dialog, the chip and the Publishing card ─────────────────────────
+
+/**
+ * The dialog's lead, one per cutover, each naming the day the notice was
+ * written. A cutover that writes notices adds its lead here.
+ */
+export const MIGRATION_NOTICE_LEADS = {
+	"hq-round-trip-emission": (day: string) =>
+		`Nova changed how it writes apps for CommCare HQ on ${day}. Here is what that means for this app.`,
+} satisfies Readonly<Record<MigrationNoticeCutover, (day: string) => string>>;
+
+export function noticeLead(
+	cutover: MigrationNoticeCutover,
+	createdAt: string,
+	options: NoticeDateOptions = {},
+): string {
+	return MIGRATION_NOTICE_LEADS[cutover](formatNoticeDay(createdAt, options));
+}
+
+export const NOTICE_DIALOG_TITLE = "What changed in this app";
+export const NOTICE_DIALOG_BUTTON = "Got it";
+export const PUBLISHING_CARD_NOTICE_LEAD =
+	"The next publish here does a few things once.";
+
+/** The builder chip, counting notices. */
+export function noticeChipLabel(count: number): string {
+	return count === 1 ? "1 update to review" : `${count} updates to review`;
+}
+
+/** The heading over one project space's lines in the dialog. */
+export function projectSpaceGroupHeading(domain: string): string {
+	return `At the next publish to ${domain}`;
+}
+
+/** What `dismiss_app_notice` answers once it has dismissed. */
+export const MCP_NOTICE_DISMISSED =
+	"Dismissed for you. Other members still see it.";
+
+// ── The home page's line ────────────────────────────────────────────────
+
+/**
+ * The home page's one line for a member whose own saved key a cutover sent
+ * to CommCare HQ. It names the project spaces and never an app. The span is
+ * the least first use and the greatest last use of the rows shown.
+ */
+export function keyReaderNoticeLine(
+	rows: readonly KeyReaderNotice[],
+	options: NoticeDateOptions = {},
+): string {
+	const first = rows[0];
+	if (first === undefined) {
+		throw new Error(
+			"The saved-key line needs at least one project space to name.",
+		);
+	}
+	const spaces = new Set(rows.map((row) => `${row.server}\u0000${row.domain}`));
+	const firstUsedAt = rows
+		.map((row) => row.firstUsedAt)
+		.reduce((least, at) => (Date.parse(at) < Date.parse(least) ? at : least));
+	const lastUsedAt = rows
+		.map((row) => row.lastUsedAt)
+		.reduce((greatest, at) =>
+			Date.parse(at) > Date.parse(greatest) ? at : greatest,
+		);
+	const when = noticeDaySpan(firstUsedAt, lastUsedAt, options);
+	const more = spaces.size - 1;
+	if (more === 0) {
+		return `Nova read ${first.domain} on CommCare HQ with your saved key ${when}, to keep its apps' IDs steady through an update.`;
+	}
+	const others =
+		more === 1 ? "1 more project space" : `${more} more project spaces`;
+	return `Nova read ${first.domain} and ${others} on CommCare HQ with your saved key ${when}, to keep their apps' IDs steady through an update.`;
+}

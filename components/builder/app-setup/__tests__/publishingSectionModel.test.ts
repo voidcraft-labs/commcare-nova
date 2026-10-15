@@ -6,6 +6,8 @@ import type {
 	DeploymentState,
 } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
+import { asUuid } from "@/lib/domain/uuid";
+import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
 import {
 	applyRecordUpsert,
 	beginRecordsLoad,
@@ -14,6 +16,7 @@ import {
 	INITIAL_PUBLISHING_RECORDS,
 	preseededDomainSelection,
 	publishAgainDomain,
+	publishingCardNoticeEntries,
 	resolveRecordsLoad,
 	upsertDeploymentViews,
 } from "../publishingSectionModel";
@@ -48,12 +51,16 @@ function view(overrides: {
 		createdAt: "2026-08-01T00:00:00Z",
 		updatedAt: "2026-08-01T00:00:00Z",
 		lastObservedAt: null,
+		offeredLogoContentHash: null,
+		targetEmptyCaseListText: null,
+		targetWebAppsEnabled: null,
 	};
 	return {
 		deployment: {
 			deployment: record,
 			active: overrides.active ?? [],
 			superseded: [],
+			confirmations: [],
 		},
 		artifact: {
 			server: record.server,
@@ -65,7 +72,9 @@ function view(overrides: {
 	};
 }
 
-function appResource(): DeploymentResource {
+function appResource(
+	pushedAt: string | null = "2026-08-01T00:00:00Z",
+): DeploymentResource {
 	return {
 		deploymentId: "dep-1",
 		kind: "app",
@@ -77,10 +86,11 @@ function appResource(): DeploymentResource {
 		adoptedBy: null,
 		pushedRevision: 3,
 		pushToken: "01992000-0000-7000-8000-000000000001",
-		pushedAt: "2026-08-01T00:00:00Z",
+		pushedAt,
 		remoteRevision: null,
 		remoteObservedAt: null,
 		supersededAt: null,
+		remoteMissingAt: null,
 	};
 }
 
@@ -317,5 +327,80 @@ describe("preseededDomainSelection", () => {
 
 	it("leaves a multi-space key unchosen with no request", () => {
 		expect(preseededDomainSelection(undefined, reachable)).toBe("");
+	});
+});
+
+describe("publishingCardNoticeEntries", () => {
+	const NOTICE_AT = "2026-10-06T09:00:00.000Z";
+	const entry = (deploymentId: string): AppDeploymentNoticeEntry => ({
+		noticeId: "01992000-0000-7000-8000-0000000000aa",
+		createdAt: NOTICE_AT,
+		entry: {
+			kind: "deployment",
+			reason: "deep-links-need-republish",
+			deployment: {
+				deploymentId: asUuid(deploymentId),
+				server: "production",
+				domain: "clinic-network",
+			},
+		},
+	});
+	const DEPLOYMENT = "01992000-0000-7000-8000-000000000011";
+	const OTHER = "01992000-0000-7000-8000-000000000022";
+	const card = (active: readonly DeploymentResource[]) => {
+		const base = view({ active });
+		return {
+			...base,
+			deployment: {
+				...base.deployment,
+				deployment: { ...base.deployment.deployment, id: DEPLOYMENT },
+			},
+		};
+	};
+
+	it("shows only this card's project space", () => {
+		const kept = publishingCardNoticeEntries(
+			[entry(DEPLOYMENT), entry(OTHER)],
+			card([]),
+		);
+		expect(kept.map((item) => item.deployment.deploymentId)).toEqual([
+			DEPLOYMENT,
+		]);
+	});
+
+	it("keeps the lines while the deployment has no live app mapping or was never pushed", () => {
+		expect(
+			publishingCardNoticeEntries([entry(DEPLOYMENT)], card([])),
+		).toHaveLength(1);
+		expect(
+			publishingCardNoticeEntries(
+				[entry(DEPLOYMENT)],
+				card([appResource(null)]),
+			),
+		).toHaveLength(1);
+	});
+
+	it("keeps the lines while the last push is not later than the notice", () => {
+		expect(
+			publishingCardNoticeEntries(
+				[entry(DEPLOYMENT)],
+				card([appResource("2026-10-01T00:00:00.000Z")]),
+			),
+		).toHaveLength(1);
+		expect(
+			publishingCardNoticeEntries(
+				[entry(DEPLOYMENT)],
+				card([appResource(NOTICE_AT)]),
+			),
+		).toHaveLength(1);
+	});
+
+	it("hides the lines once a publish there is later than the notice", () => {
+		expect(
+			publishingCardNoticeEntries(
+				[entry(DEPLOYMENT)],
+				card([appResource("2026-10-06T09:00:00.001Z")]),
+			),
+		).toEqual([]);
 	});
 });

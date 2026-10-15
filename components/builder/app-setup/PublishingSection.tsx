@@ -9,6 +9,11 @@
  * the one Publish dialog preseeded to that target (through the session
  * store's one-shot request), so there is exactly one publish flow.
  *
+ * A migration notice's lines about one project space stay on that space's
+ * card after the notice's dialog is dismissed, because this is where a
+ * person decides the next publish, and they go once a publish there has
+ * happened since the notice was written.
+ *
  * The Workers panel lives HERE and nowhere else: it is the only place a
  * worker's password is ever shown, and a second panel would be a second
  * place a credential can be shown.
@@ -24,6 +29,7 @@ import { useCommCareConnection } from "@/components/builder/CommCareConnectionCo
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import { DeploymentWorkers } from "@/components/builder/DeploymentWorkers";
+import { useAppNotices } from "@/components/builder/notices/AppNoticesContext";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import {
@@ -31,6 +37,13 @@ import {
 	type RefreshedDeploymentView,
 	readDeploymentsAction,
 } from "@/lib/deployment/actions";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { documentNoticeNames } from "@/lib/notices/documentNames";
+import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
+import {
+	PUBLISHING_CARD_NOTICE_LEAD,
+	renderNoticeEntry,
+} from "@/lib/notices/migrationNoticeCopy";
 import {
 	useAppId,
 	useCanEdit,
@@ -44,6 +57,7 @@ import {
 	deploymentViewKey,
 	INITIAL_PUBLISHING_RECORDS,
 	publishAgainDomain,
+	publishingCardNoticeEntries,
 	resolveRecordsLoad,
 } from "./publishingSectionModel";
 
@@ -62,6 +76,8 @@ export function PublishingSection() {
 	 * a Check status made from its landed hero), so a publish made while
 	 * this section is mounted reaches its held records. */
 	const recordsRevision = useDeploymentRecordsRevision();
+
+	const { deploymentEntries: noticeEntries } = useAppNotices();
 
 	const [records, setRecords] = useState(INITIAL_PUBLISHING_RECORDS);
 	/* The stale-response guard's counter. A ref rather than state because it
@@ -236,6 +252,7 @@ export function PublishingSection() {
 											/>
 										}
 									/>
+									<DeploymentNoticeNote entries={noticeEntries} view={view} />
 									<DeploymentEntryPointLinks appId={appId ?? ""} view={view} />
 									{retryDomain !== null ? (
 										<div className="mt-3 border-t border-nova-border pt-2">
@@ -263,5 +280,37 @@ export function PublishingSection() {
 				)}
 			</div>
 		</section>
+	);
+}
+
+/**
+ * The lines a migration notice holds about this card's project space, until
+ * a publish there has happened since the notice was written.
+ */
+function DeploymentNoticeNote({
+	entries,
+	view,
+}: {
+	entries: readonly AppDeploymentNoticeEntry[];
+	view: DeploymentView;
+}) {
+	const docApi = useBlueprintDocApi();
+	const kept = publishingCardNoticeEntries(entries, view);
+	if (kept.length === 0) return null;
+	const names = documentNoticeNames(docApi.getState());
+	return (
+		<aside
+			aria-label="What the next publish here does once"
+			className="mt-3 rounded-lg border border-nova-violet/30 bg-nova-violet/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
+		>
+			<p className="text-nova-text">{PUBLISHING_CARD_NOTICE_LEAD}</p>
+			<ul className="mt-2 flex list-disc flex-col gap-1.5 pl-5">
+				{kept.map((entry, index) => (
+					// Entries never reorder while the card is mounted.
+					// biome-ignore lint/suspicious/noArrayIndexKey: two entries can render the same sentence, so the text is no key.
+					<li key={index}>{renderNoticeEntry(entry, names).text}</li>
+				))}
+			</ul>
+		</aside>
 	);
 }

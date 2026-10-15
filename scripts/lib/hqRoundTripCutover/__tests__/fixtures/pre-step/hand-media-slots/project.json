@@ -1,0 +1,46 @@
+{
+	"media": {
+		"fd0deaf7-9d40-536b-a89b-a681ed04cd67": {
+			"kind": "image",
+			"mimeType": "image/png",
+			"extension": ".png",
+			"sizeBytes": 91,
+			"sha256": "50a8af47cc2e68f022bfb93e26be925081df6d21b3d4c276cdabdbd8d31de83d"
+		},
+		"6cf4831a-8764-5fde-a495-ed5835d425ea": {
+			"kind": "image",
+			"mimeType": "image/png",
+			"extension": ".png",
+			"sizeBytes": 91,
+			"sha256": "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e"
+		},
+		"ca5a2a1e-4522-59e2-a5ec-d30417b5d12e": {
+			"kind": "image",
+			"mimeType": "image/png",
+			"extension": ".png",
+			"sizeBytes": 91,
+			"sha256": "30ab512e6539a83342a9415c6e7ddc7358a0ffd2aefe5369c86b9efb591e3984"
+		},
+		"9599f19b-623f-59bf-ad0a-95554e861d4b": {
+			"kind": "image",
+			"mimeType": "image/png",
+			"extension": ".png",
+			"sizeBytes": 91,
+			"sha256": "30ab512e6539a83342a9415c6e7ddc7358a0ffd2aefe5369c86b9efb591e3984"
+		},
+		"e23c31ab-5db2-5aaf-abe3-20dd0a9e69bb": {
+			"kind": "audio",
+			"mimeType": "audio/wav",
+			"extension": ".wav",
+			"sizeBytes": 46,
+			"sha256": "4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91"
+		},
+		"02259d92-ba68-5a5e-aa5c-823843a06be2": {
+			"kind": "video",
+			"mimeType": "video/mp4",
+			"extension": ".mp4",
+			"sizeBytes": 1908,
+			"sha256": "e9cefb19834b705b60adbb1f14ae4cce5313616c0390e9b9601a50b3ca9bab38"
+		}
+	}
+}

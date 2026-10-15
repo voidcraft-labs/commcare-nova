@@ -1,0 +1,20 @@
+[
+	{
+		"uuid": "bef89ddc-ad95-56a8-ae3c-244a80822eec",
+		"name": "Visits",
+		"caseType": "visit",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "32a8cab4-8966-56d8-a2be-9d4e5e92e384",
+				"name": "Record visit",
+				"paths": ["/data/notes"]
+			},
+			{
+				"uuid": "8ffe5d35-86c5-59d1-a75f-15b712488e05",
+				"name": "New visit",
+				"paths": ["/data/name"]
+			}
+		]
+	}
+]

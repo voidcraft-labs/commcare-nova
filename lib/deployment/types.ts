@@ -372,6 +372,8 @@ export interface DeploymentResource {
 	readonly remoteObservedAt: string | null;
 	/** Set once a newer mapping replaced this one. */
 	readonly supersededAt: string | null;
+	/** Set when CommCare HQ reported this app gone; null for every other kind. */
+	readonly remoteMissingAt: string | null;
 }
 
 /**
@@ -401,6 +403,12 @@ export interface DeploymentRecord {
 	readonly createdAt: string;
 	readonly updatedAt: string;
 	readonly lastObservedAt: string | null;
+	/** The logo content hash this deployment last told a person to upload in CommCare HQ. */
+	readonly offeredLogoContentHash: string | null;
+	/** The target's USH_EMPTY_CASE_LIST_TEXT as the last publish read it; null until a publish has read it. */
+	readonly targetEmptyCaseListText: boolean | null;
+	/** HQ's cloudcare_enabled for the app as the last landed publish read it; null until a publish has read it. */
+	readonly targetWebAppsEnabled: boolean | null;
 }
 
 /** A deployment plus the resource mappings that belong to it. */
@@ -414,7 +422,118 @@ export interface DeploymentWithResources {
 	 * deployment reports these too.
 	 */
 	readonly superseded: readonly DeploymentResource[];
+	/** What a person confirmed about this project space that is still in force (not withdrawn). */
+	readonly confirmations: readonly DeploymentConfirmation[];
 }
+
+/** What a person can confirm about a project space before a publish there. */
+export const DEPLOYMENT_CONFIRMATION_KINDS = [
+	"plan-feature",
+	"flat-location-fixture",
+	"connect-forwarder",
+] as const;
+export type DeploymentConfirmationKind =
+	(typeof DEPLOYMENT_CONFIRMATION_KINDS)[number];
+
+/** One confirmation in force on a deployment. */
+export interface DeploymentConfirmation {
+	readonly kind: DeploymentConfirmationKind;
+	/** The confirmed subject: the kind's own name for the two single-subject kinds. */
+	readonly subject: string;
+	/** `auth_user.name` by left join, or "A former member". The confirming user's id stays in the row and reaches no projection. */
+	readonly confirmedByName: string;
+	readonly confirmedAt: string;
+}
+
+/** One id this target holds that is not Nova's derivation. Never part of DeploymentWithResources. */
+export interface DeploymentIdentityOverride {
+	readonly entityKind: "module" | "form";
+	readonly novaEntityUuid: string;
+	readonly uniqueId: string | null;
+	/** Forms only. */
+	readonly xmlns: string | null;
+}
+
+/** What Nova's upload owned inside the overlay keys when a baseline was recorded. */
+export interface AppOwnership {
+	readonly addOns: readonly string[];
+	readonly profileProperties: readonly string[];
+	readonly profileCustomProperties: readonly string[];
+	readonly autoGpsCapture: boolean;
+}
+
+/** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */
+export type AppBaseline =
+	| {
+			readonly origin: "create" | "push" | "cutover";
+			readonly remoteAppId: string;
+			/** The normalized read. */
+			readonly source: unknown;
+			readonly sourceDigest: string;
+			readonly ownership: AppOwnership;
+			readonly observedAt: string;
+			readonly observedBy: string;
+	  }
+	| {
+			readonly origin: "unread";
+			readonly remoteAppId: string;
+			readonly observedAt: string;
+			readonly observedBy: string;
+	  };
+
+/** A lookup table as CommCare HQ returned it, without its row values. */
+export interface CanonicalLookupTable {
+	readonly remoteId: string;
+	readonly tag: string;
+	readonly isGlobal: boolean;
+	readonly fields: readonly {
+		readonly name: string;
+		readonly properties: readonly string[];
+	}[];
+	readonly itemAttributes: readonly string[];
+	readonly rowCount: number;
+	/** sha256 over the rows in HQ's order. */
+	readonly rowsDigest: string;
+	/** sha256 over tag, isGlobal, fields and itemAttributes. */
+	readonly definitionDigest: string;
+	/** sha256 over everything above except remoteId. */
+	readonly digest: string;
+}
+
+/** A place as CommCare HQ returned it, restricted to what a push modeled. */
+export interface CanonicalPlace {
+	readonly remoteId: string;
+	readonly name: string;
+	readonly siteCode: string;
+	readonly locationTypeCode: string;
+	readonly parentRemoteId: string | null;
+	/** As CommCare HQ returned it. */
+	readonly latitude: string | null;
+	readonly longitude: string | null;
+	/** location_data restricted to ownedKeys. */
+	readonly ownedData: Readonly<Record<string, unknown>>;
+	/** The place-information slugs that push modeled. */
+	readonly ownedKeys: readonly string[];
+	/** sha256 over everything above except remoteId. */
+	readonly digest: string;
+}
+
+/** A lookup table or place as CommCare HQ returned it, or the fact that Nova could not read it. */
+export type ResourceBaseline =
+	| {
+			readonly origin: "push" | "cutover";
+			readonly kind: "lookup-table" | "location";
+			readonly remoteId: string;
+			readonly canonical: CanonicalLookupTable | CanonicalPlace;
+			readonly digest: string;
+			readonly observedAt: string;
+	  }
+	| {
+			readonly origin: "unread";
+			readonly kind: "lookup-table" | "location";
+			readonly remoteId: string;
+			readonly observedAt: string;
+	  };
 
 // ── Wire schemas ────────────────────────────────────────────────────────
 //

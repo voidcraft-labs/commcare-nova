@@ -17,6 +17,7 @@
  *   LocationRecoveryEffect      repairs stale URL selection mid-session
  *   PreviewCaseDatabaseProvider : Project-scoped case snapshot
  *   PreviewLookupDataProvider   : Project-scoped lookup snapshot
+ *   AppNoticesProvider          this member's undismissed migration notices
  *   LoadAppHydrator             clears loading flag for existing apps
  *   {children}
  *
@@ -36,6 +37,8 @@ import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetP
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { AppNoticesProvider } from "@/components/builder/notices/AppNoticesContext";
+import type { BuilderNotices } from "@/components/builder/notices/appNoticeModel";
 import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceLazyProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
@@ -81,6 +84,7 @@ export function BuilderProvider({
 	initialAccess,
 	initialBuildUnfinished,
 	initialProjectSpace,
+	initialNotices,
 	userId,
 }: {
 	buildId: string;
@@ -100,6 +104,9 @@ export function BuilderProvider({
 	/** The CommCare HQ project space preview identity answers with, when the
 	 *  app has reached one. Mounted inside, above the form engine. */
 	initialProjectSpace?: string | null;
+	/** The app's migration notices, loaded in the same request as the app.
+	 *  Absent for a build with no app yet, which has none. */
+	initialNotices?: BuilderNotices;
 	/** The session user id: the reconciler's echo classification keys on it. */
 	userId?: string;
 }) {
@@ -111,6 +118,7 @@ export function BuilderProvider({
 			initialAccess={initialAccess}
 			initialBuildUnfinished={initialBuildUnfinished}
 			initialProjectSpace={initialProjectSpace}
+			initialNotices={initialNotices}
 			userId={userId}
 		>
 			{children}
@@ -132,6 +140,7 @@ function BuilderProviderInner({
 	initialAccess,
 	initialBuildUnfinished,
 	initialProjectSpace,
+	initialNotices,
 	userId,
 }: {
 	buildId: string;
@@ -141,6 +150,7 @@ function BuilderProviderInner({
 	initialBuildUnfinished?: boolean;
 	/** The CommCare HQ project space preview identity answers with. */
 	initialProjectSpace?: string | null;
+	initialNotices?: BuilderNotices;
 	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
@@ -186,8 +196,10 @@ function BuilderProviderInner({
 									<LocationRecoveryEffect />
 									<PreviewCaseDatabaseProvider>
 										<PreviewLookupDataProvider>
-											{initialDoc ? <LoadAppHydrator /> : null}
-											{children}
+											<AppNoticesProvider initial={initialNotices}>
+												{initialDoc ? <LoadAppHydrator /> : null}
+												{children}
+											</AppNoticesProvider>
 										</PreviewLookupDataProvider>
 									</PreviewCaseDatabaseProvider>
 								</BuilderFormEngineProvider>

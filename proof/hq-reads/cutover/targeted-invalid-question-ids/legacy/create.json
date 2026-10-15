@@ -1,0 +1,20 @@
+{
+	"method": "POST",
+	"path": "/a/nova-proof/apps/api/import_app/",
+	"contentType": "multipart/form-data; boundary=----nova-proof-capture",
+	"fields": [
+		"waf_padding",
+		"app_name",
+		"app_file"
+	],
+	"compatibility": {
+		"status": "ready",
+		"capabilities": [
+			{
+				"id": "deep-links",
+				"state": "available"
+			}
+		],
+		"advisories": []
+	}
+}

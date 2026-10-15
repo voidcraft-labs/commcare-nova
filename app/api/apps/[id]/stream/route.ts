@@ -58,6 +58,7 @@
  */
 
 import { sql } from "kysely";
+import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import type { Session } from "@/lib/auth";
 import { readSession, requireSession } from "@/lib/auth-utils";
@@ -356,6 +357,26 @@ function openStream(args: {
 					send("app-status", { status } satisfies AppStatusFrame);
 				}
 
+				/* Blueprint migrations, fold baselines, and Project moves require
+				 * fresh scope. Reauthorize before advancing any cursor or emitting
+				 * any earlier ordinary row, then reload. A transient failure leaves
+				 * `deliveredThrough` unchanged and the pump retries the whole
+				 * suffix; a confirmed loss revokes. */
+				async function reloadAfterDisruptiveChange(): Promise<void> {
+					try {
+						runBeforeAppChangeReauthorizationTestHook();
+						await reauthorizeStreamScope(appId, userId);
+					} catch (err) {
+						if (err instanceof AppAccessError) {
+							revokeAndClose("access-revoked");
+							return;
+						}
+						throw err;
+					}
+					if (closed) return;
+					reloadAndClose("app-changed");
+				}
+
 				/* SELECT every committed batch past the delivered cursor and emit it. The
 				 * `app_changes` log is PERMANENT, so the entries always exist above
 				 * the retention efficiency bound: a gap here means the cursor is a real
@@ -369,6 +390,17 @@ function openStream(args: {
 						appId,
 						deliveredThrough,
 					);
+					/* A fold horizon above the cursor puts every row behind it out of
+					 * reach: those rows are opaque history in an earlier dialect. Read
+					 * the greatest baseline before parsing any row, and reload without
+					 * parsing a row behind it. */
+					if (rows.length > 0) {
+						const horizon = await greatestFoldBaselineSeq(db, appId);
+						if (horizon !== null && horizon > deliveredThrough) {
+							await reloadAfterDisruptiveChange();
+							return;
+						}
+					}
 					/* Validate the COMPLETE fetched suffix with the server-only durable
 					 * parser before emitting any browser frame. A disruptive change later
 					 * in the SELECT prevents partial delivery of earlier ordinary rows. */
@@ -448,23 +480,7 @@ function openStream(args: {
 					}
 
 					if (containsDisruptiveChange) {
-						/* Blueprint migrations, fold baselines, and Project moves require
-						 * fresh scope. Reauthorize before advancing any cursor or emitting
-						 * any earlier ordinary row. A
-						 * transient failure leaves `deliveredThrough` unchanged and the
-						 * pump retries the whole suffix; a confirmed loss revokes. */
-						try {
-							runBeforeAppChangeReauthorizationTestHook();
-							await reauthorizeStreamScope(appId, userId);
-						} catch (err) {
-							if (err instanceof AppAccessError) {
-								revokeAndClose("access-revoked");
-								return;
-							}
-							throw err;
-						}
-						if (closed) return;
-						reloadAndClose("app-changed");
+						await reloadAfterDisruptiveChange();
 						return;
 					}
 

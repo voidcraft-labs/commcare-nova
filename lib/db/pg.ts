@@ -556,6 +556,28 @@ export interface AppDeploymentsTable {
 		Date | string | null | undefined,
 		Date | string | null
 	>;
+	/** The logo content hash the deployment last told a person to upload in
+	 * CommCare HQ; a hash, not an asset id, so a Project move's asset remap
+	 * leaves it meaningful. */
+	offered_logo_content_hash: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** The project space's empty-list text flag as the last publish read it;
+	 * null until a publish has read it. */
+	target_empty_case_list_text: ColumnType<
+		boolean | null,
+		boolean | null | undefined,
+		boolean | null
+	>;
+	/** Whether the HQ app had Web Apps on as the last landed publish read it;
+	 * null until a publish has landed and read it. */
+	target_web_apps_enabled: ColumnType<
+		boolean | null,
+		boolean | null | undefined,
+		boolean | null
+	>;
 }
 
 /**
@@ -625,7 +647,154 @@ export interface AppDeploymentResourcesTable {
 		Date | string | null | undefined,
 		Date | string | null
 	>;
+	/** Set when CommCare HQ reported this app gone; only an `app` mapping
+	 * carries one. Outside the push-token trigger's columns. */
+	remote_missing_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
 	created_at: Timestamp;
+}
+
+/**
+ * One id a deployment's target holds that is not Nova's derivation, for a
+ * module or a form. Only a migration writes these rows, as the migration
+ * role; the runtime role reads them.
+ */
+export interface AppDeploymentIdentitiesTable {
+	deployment_id: string;
+	/** 'module' | 'form', reasserted on read. */
+	entity_kind: string;
+	nova_entity_uuid: string;
+	unique_id: string | null;
+	xmlns: string | null;
+	recorded_at: Timestamp;
+}
+
+/**
+ * What a person confirmed about one project space, for one app. Inserted on
+ * confirm, withdrawn by update, never deleted and never row-locked.
+ */
+export interface AppDeploymentConfirmationsTable {
+	id: DefaultedUuidV7Column<string>;
+	deployment_id: string;
+	/** 'plan-feature' | 'flat-location-fixture' | 'connect-forwarder'. */
+	kind: string;
+	subject: string;
+	confirmed_by: string;
+	confirmed_at: Timestamp;
+	withdrawn_by: string | null;
+	withdrawn_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+/**
+ * The app as CommCare HQ returned it when Nova last read it: gzip of the
+ * canonical JSON text of the normalized read, never the compared projection.
+ * Upserted only, serialized by the deployment row's lock.
+ */
+export interface AppDeploymentBaselinesTable {
+	deployment_id: string;
+	remote_app_id: string;
+	/** 'create' | 'push' | 'cutover' | 'unread'. */
+	origin: string;
+	source_gzip: Buffer | null;
+	source_bytes: number | null;
+	source_digest: string | null;
+	ownership: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	observed_at: ColumnType<Date, Date | string, Date | string>;
+	observed_by: string;
+	discarded_digest: string | null;
+	discarded_by: string | null;
+	discarded_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+/**
+ * A lookup table or a place as CommCare HQ returned it when a Nova app of this
+ * Project last read it, keyed by the HQ resource so apps that map one HQ
+ * resource share one row. Upserted only; nothing deletes a row.
+ */
+export interface ProjectSpaceResourceBaselinesTable {
+	project_id: string;
+	server: string;
+	domain: string;
+	/** 'lookup-table' | 'location'. */
+	kind: string;
+	remote_id: string;
+	/** 'push' | 'cutover' | 'unread'. */
+	origin: string;
+	canonical: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	digest: string | null;
+	observed_at: ColumnType<Date, Date | string, Date | string>;
+	observed_by: string;
+	/** Provenance only, with no foreign key. */
+	observed_from_app_id: string;
+	discarded_digest: string | null;
+	discarded_by: string | null;
+	discarded_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+/**
+ * One app's notice of what a stored-shape cutover changed in it. Only a
+ * migration writes these rows; the runtime role reads them.
+ */
+export interface AppMigrationNoticesTable {
+	id: DefaultedUuidV7Column<string>;
+	app_id: string;
+	cutover: string;
+	/** The cutover's lines for this app (`lib/notices/migrationNotice.ts`),
+	 * parsed on read. */
+	entries: JSONColumnType<unknown[], string, never>;
+	created_at: Timestamp;
+}
+
+/**
+ * One member, server and project space whose stored CommCare HQ key a
+ * cutover's execute run sent, with the span from that run's first send of
+ * the key to its last. Only a migration writes these rows.
+ */
+export interface AppMigrationNoticeKeyReadersTable {
+	cutover: string;
+	user_id: string;
+	server: string;
+	domain: string;
+	first_used_at: ColumnType<Date, Date | string, Date | string>;
+	last_used_at: ColumnType<Date, Date | string, Date | string>;
+}
+
+/**
+ * One member's dismissal of one notice (`surface = 'app'`, `notice_id` set)
+ * or of one cutover's home line (`surface = 'key-reader'`, `cutover` set).
+ * Append-only.
+ */
+export interface AppMigrationNoticeDismissalsTable {
+	id: DefaultedUuidV7Column<string>;
+	user_id: string;
+	/** 'app' | 'key-reader'. */
+	surface: string;
+	notice_id: string | null;
+	cutover: string | null;
+	dismissed_at: Timestamp;
 }
 
 /**
@@ -1490,6 +1659,13 @@ export interface AppDatabase {
 	app_location_references: AppLocationReferencesTable;
 	app_deployments: AppDeploymentsTable;
 	app_deployment_resources: AppDeploymentResourcesTable;
+	app_deployment_identities: AppDeploymentIdentitiesTable;
+	app_deployment_confirmations: AppDeploymentConfirmationsTable;
+	app_deployment_baselines: AppDeploymentBaselinesTable;
+	project_space_resource_baselines: ProjectSpaceResourceBaselinesTable;
+	app_migration_notices: AppMigrationNoticesTable;
+	app_migration_notice_key_readers: AppMigrationNoticeKeyReadersTable;
+	app_migration_notice_dismissals: AppMigrationNoticeDismissalsTable;
 	authoring_plans: AuthoringPlansTable;
 	authoring_reviews: AuthoringReviewsTable;
 	authoring_plan_revisions: AuthoringPlanRevisionsTable;

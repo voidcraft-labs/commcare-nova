@@ -1,0 +1,53 @@
+{
+	"root": {
+		"app_name": "Registry",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}],\"parent_type\":\"household\"},{\"name\":\"household\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "00000000-0000-4000-8000-0000000b0010",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-0000000b0010\",\"id\":\"patients\",\"name\":\"Patients\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"b4db34ae-8f0e-5ac2-ac2d-7b803185f91e\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"b4db34ae-8f0e-5ac2-ac2d-7b803185f91e\"],\"detailColumnOrder\":[\"b4db34ae-8f0e-5ac2-ac2d-7b803185f91e\"],\"searchInputs\":[{\"uuid\":\"00000000-0000-4000-8000-0000000b0001\",\"name\":\"patient_name\",\"label\":\"Patient name\",\"kind\":\"simple\",\"property\":\"case_name\",\"type\":\"text\"}]},\"caseSearchConfig\":{\"searchFirst\":true}}"
+		},
+		{
+			"uuid": "00000000-0000-4000-8000-0000000b0011",
+			"kind": "form",
+			"parent_uuid": "00000000-0000-4000-8000-0000000b0010",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-0000000b0011\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "00000000-0000-4000-8000-0000000b0012",
+			"kind": "form",
+			"parent_uuid": "00000000-0000-4000-8000-0000000b0010",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-0000000b0012\",\"id\":\"register_patient\",\"name\":\"Register patient\",\"type\":\"registration\",\"entry\":{\"kind\":\"search-no-matches\"}}"
+		},
+		{
+			"uuid": "00000000-0000-4000-8000-0000000b0020",
+			"kind": "field",
+			"parent_uuid": "00000000-0000-4000-8000-0000000b0012",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-0000000b0020\",\"id\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]},\"caseWrite\":{\"caseType\":\"patient\",\"property\":\"case_name\"},\"kind\":\"text\",\"default_value\":{\"parts\":[{\"kind\":\"search-answer-ref\",\"searchInputUuid\":\"00000000-0000-4000-8000-0000000b0001\"}]}}"
+		},
+		{
+			"uuid": "00000000-0000-4000-8000-0000000b0030",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"00000000-0000-4000-8000-0000000b0030\",\"id\":\"households\",\"name\":\"Households\",\"caseType\":\"household\",\"caseListOnly\":true,\"caseListConfig\":{\"columns\":[{\"uuid\":\"a8d8e333-130b-58f7-a02b-43352583a7a3\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"a8d8e333-130b-58f7-a02b-43352583a7a3\"],\"detailColumnOrder\":[\"a8d8e333-130b-58f7-a02b-43352583a7a3\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "49051140-6fa9-5a4c-aa36-d18e55e77c30",
+			"kind": "field",
+			"parent_uuid": "00000000-0000-4000-8000-0000000b0011",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"49051140-6fa9-5a4c-aa36-d18e55e77c30\",\"id\":\"note\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Note\"}]},\"kind\":\"text\"}"
+		}
+	]
+}

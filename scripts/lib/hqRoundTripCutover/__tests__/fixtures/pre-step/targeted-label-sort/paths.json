@@ -1,0 +1,28 @@
+[
+	{
+		"uuid": "54f34064-da9a-58e8-a30b-96aa3b0e6d74",
+		"name": "Households by zone",
+		"caseType": "household",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "0abe9019-1866-5325-ad69-3a077a4ff029",
+				"name": "Visit",
+				"paths": ["/data/notes"]
+			}
+		]
+	},
+	{
+		"uuid": "06b54ab2-7833-510e-adf0-5d3461507fe2",
+		"name": "Households by level",
+		"caseType": "household",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "641623af-c40b-5303-aa9e-576955303f5f",
+				"name": "Visit",
+				"paths": ["/data/notes"]
+			}
+		]
+	}
+]

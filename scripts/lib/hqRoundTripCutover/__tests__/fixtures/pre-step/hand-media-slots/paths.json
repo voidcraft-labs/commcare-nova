@@ -1,0 +1,15 @@
+[
+	{
+		"uuid": "6f6c6f5e-981b-51c2-a238-1aec9cc297ce",
+		"name": "Households",
+		"caseType": null,
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "c6d03874-29c7-5fc0-abfa-db42692c4d24",
+				"name": "Visit",
+				"paths": ["/data/household/address"]
+			}
+		]
+	}
+]

@@ -1,0 +1,46 @@
+{
+	"root": {
+		"app_name": "Question ids",
+		"connect_type": null,
+		"case_types_text": null,
+		"localization_text": null,
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "39160b11-9a57-5bd5-ad4d-5763f2529661",
+			"kind": "field",
+			"parent_uuid": "6674aa53-075e-5e5f-a650-342956a17903",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"39160b11-9a57-5bd5-ad4d-5763f2529661\",\"id\":\"_notes\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Notes\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "4cdc70c4-40a5-5f60-a6f5-61867579a734",
+			"kind": "field",
+			"parent_uuid": "6674aa53-075e-5e5f-a650-342956a17903",
+			"ordinal": 2,
+			"data_text": "{\"uuid\":\"4cdc70c4-40a5-5f60-a6f5-61867579a734\",\"id\":\"Meta\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Details\"}]},\"kind\":\"text\"}"
+		},
+		{
+			"uuid": "6674aa53-075e-5e5f-a650-342956a17903",
+			"kind": "form",
+			"parent_uuid": "c575a671-c3c1-5045-a884-3757f5b918a1",
+			"ordinal": 0,
+			"data_text": "{\"entryPoint\":{\"uuid\":\"8a8e7e87-2b04-53bb-a4b3-b44509bbb157\",\"id\":\"intake_\"},\"uuid\":\"6674aa53-075e-5e5f-a650-342956a17903\",\"id\":\"intake\",\"name\":\"Intake\",\"type\":\"survey\"}"
+		},
+		{
+			"uuid": "c575a671-c3c1-5045-a884-3757f5b918a1",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"c575a671-c3c1-5045-a884-3757f5b918a1\",\"id\":\"intake\",\"name\":\"Intake\"}"
+		},
+		{
+			"uuid": "d0b66252-a2f7-5d8e-a0e9-cc900926e1a2",
+			"kind": "field",
+			"parent_uuid": "6674aa53-075e-5e5f-a650-342956a17903",
+			"ordinal": 1,
+			"data_text": "{\"uuid\":\"d0b66252-a2f7-5d8e-a0e9-cc900926e1a2\",\"id\":\"XMLcode\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Code\"}]},\"kind\":\"text\"}"
+		}
+	]
+}

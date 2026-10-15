@@ -1,0 +1,27 @@
+[
+	{
+		"uuid": "882c9748-3fd3-5464-a373-f086f2199538",
+		"name": "Patients",
+		"caseType": "patient",
+		"lifted": false,
+		"forms": [
+			{
+				"uuid": "66666666-6666-4666-8666-666666666666",
+				"name": "Edit",
+				"paths": [
+					"/data/enabled",
+					"/data/destination",
+					"/data/answer",
+					"/data/key"
+				]
+			}
+		]
+	},
+	{
+		"uuid": "892c98db-40d3-55f7-a473-f219f31996cb",
+		"name": "Visits",
+		"caseType": "visit",
+		"lifted": false,
+		"forms": []
+	}
+]

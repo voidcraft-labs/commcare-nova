@@ -223,6 +223,7 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_localization_batch_usage_accounts",
 	"design_slice_attempt_budget_claims",
 	"design_lookup_materializations",
+	"app_migration_notice_dismissals",
 ] as const;
 
 /** The design loop's identity-handle ledger writes rows in place: a forward
@@ -230,10 +231,15 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * declaring item upgrades that row to its real kind, so runtime needs UPDATE.
  * No runtime path deletes a handle, and the workspace authority row
  * (`design_artifact_workspaces`) serializes writers, so no code may row-lock
- * a handle row. */
+ * a handle row. A deployment confirmation is inserted on confirm and updated
+ * on withdrawal; the two baseline ledgers are upserted only, serialized by
+ * the deployment row's lock. None of the three is ever deleted or locked. */
 const RUNTIME_INSERT_UPDATE_TABLES = [
 	"design_identity_handles",
 	"authoring_session_requests",
+	"app_deployment_confirmations",
+	"app_deployment_baselines",
+	"project_space_resource_baselines",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
@@ -246,7 +252,16 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"design_lookup_protections",
 ] as const;
 
-const RUNTIME_READ_ONLY_TABLES = ["app_change_fold_baselines"] as const;
+/** Only a migration writes these, as the migration role: fold baselines,
+ * the identity overrides a deployment target holds (a publish writes none),
+ * and the migration notices with their key-reader rows, so serving code
+ * cannot forge one. */
+const RUNTIME_READ_ONLY_TABLES = [
+	"app_change_fold_baselines",
+	"app_deployment_identities",
+	"app_migration_notices",
+	"app_migration_notice_key_readers",
+] as const;
 
 /** `cases` alone lives in the isolated runtime-DDL schema. PostgreSQL requires
  * table ownership plus CREATE on the containing schema for CREATE INDEX; the

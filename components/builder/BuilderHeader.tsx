@@ -41,6 +41,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
 import { LanguageSelector } from "@/components/builder/localization/LanguageSelector";
+import { AppNoticeChip } from "@/components/builder/notices/AppNoticeChip";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
@@ -157,6 +158,12 @@ export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 			 *  editing); renders nothing in a solo session. */}
 			{showToolbar ? <PresenceRoster compact={compactHeader} /> : null}
 			<BuilderAccessStatus compact={compactHeader} />
+			{/* What a stored-shape update changed in this app, for this
+			 *  member to review. Shown to viewers too: every member reads
+			 *  and dismisses notices for themselves. It opens a dialog, so
+			 *  it waits for resolved access like the other popup controls,
+			 *  and renders nothing once each notice is dismissed. */}
+			{showToolbar ? <AppNoticeChip /> : null}
 			{/* Keep the autosave owner mounted through reversible access
 			 * transitions; only its visual output is conditional internally. */}
 			<SaveIndicator compact={compactHeader} />
