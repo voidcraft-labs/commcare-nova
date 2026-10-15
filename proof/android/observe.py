@@ -162,6 +162,12 @@ def app(
     clock=None,
     sent=None,
     device: str = "phone",
+    commands=None,
+    views: bool = False,
+    type_refused: bool = False,
+    questions=None,
+    save_incomplete: str | None = None,
+    reopen: bool = False,
 ) -> dict:
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
@@ -170,11 +176,23 @@ def app(
     ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
     (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
     in, as every reader's walk is (``proof.observe.walks.chosen``), the same languages for every archive of the
-    state so the walks of two archives pair by name."""
+    state so the walks of two archives pair by name.
+
+    A test steers the request with the keys ``Screens.java::read`` reads (``proof/android/README.md``, the
+    ``app`` request): ``commands``, the forms walked alone, each from home (``m<menu>-f<form>``); ``views``, each
+    screen's views as Android laid them out; ``type_refused``, a value the form refused typed into the
+    question's own box; ``questions``, the values for each question the answer table carries, by its reference
+    (``Answers.java::valuesFor``); ``save_incomplete``, a form whose first screen is answered and saved
+    incomplete; and ``reopen``, that record reopened from home's incomplete forms and completed."""
     from proof.observe import walks
 
+    answers = _answers()
+    if questions is not None:
+        answers["questions"] = {
+            reference: [values] if isinstance(values, str) else list(values) for reference, values in questions.items()
+        }
     options = {
-        "answers": _answers(),
+        "answers": answers,
         "queryAnswer": QUERY_ANSWER,
         "device": device,
         "languages": walks.chosen(served.languages),
@@ -183,6 +201,16 @@ def app(
         options["position"] = fix
     if clock is not None:
         options["clock"] = clock
+    if commands is not None:
+        options["commands"] = list(commands)
+    if views:
+        options["views"] = True
+    if type_refused:
+        options["typeRefused"] = True
+    if save_incomplete is not None:
+        options["saveIncomplete"] = save_incomplete
+    if reopen:
+        options["reopen"] = True
     return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent)
 
 

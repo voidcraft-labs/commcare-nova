@@ -2375,7 +2375,7 @@ def load_changes_values(use, manifest):
         later = [question for question in questions if order[target] > order[question] and target != question]
         if not later or not _reads_form(tree, "form"):
             continue
-        reads = _form_reads(tree)
+        reads = _form_reads(tree, target)
         if reads is None:
             unsure = True
             continue
@@ -2387,9 +2387,14 @@ def load_changes_values(use, manifest):
     return None if unsure else False
 
 
-def _form_reads(tree):
+def _form_reads(tree, target):
     """Every path from the form's root an expression reads, or None where it reads the form's nodes another
-    way (from the context node, or ``current()``)."""
+    way (from the context node, or from ``current()`` by a step this does not follow).
+
+    ``target`` is the node the setvalue sets, the absolute path its ``ref`` names: Core evaluates a setvalue's
+    value in its target's context, so ``current()`` there is the target (commcare-core
+    ``SetValueAction.processAction``), and a path from it is resolved from that node, each ``..`` up and each
+    named child down, as Nova prints a default (``current()/../zone``)."""
     found = []
 
     def walk(node, context):
@@ -2398,7 +2403,12 @@ def _form_reads(tree):
             root = node[1]
             if root == "absolute":
                 found.append(node[2])
-            elif root == "call:current" or (root == "relative" and context == "form"):
+            elif root == "call:current":
+                resolved = _from_current(target, node[4])
+                if resolved is None:
+                    return False
+                found.append(resolved)
+            elif root == "relative" and context == "form":
                 return False
             inner = "instance" if root.startswith("instance:") else context
             return all(walk(predicate, inner) for predicate in node[3])
@@ -2407,10 +2417,33 @@ def _form_reads(tree):
         if kind == "negative":
             return walk(node[1], context)
         if kind == "call":
-            return node[1] != "current" and all(walk(argument, context) for argument in node[2])
+            if node[1] == "current":
+                found.append(target)
+                return True
+            return all(walk(argument, context) for argument in node[2])
         return True
 
     return found if walk(tree, "form") else None
+
+
+def _from_current(target, steps):
+    """The absolute path ``current()`` followed by ``steps`` names, ``current()`` being ``target``; None where a
+    step is not a plain ``..``, ``.`` or a named child without a predicate, or climbs above the form's root."""
+    path = target.split("/")[1:]
+    for axis, test, predicates in steps:
+        if predicates:
+            return None
+        if axis == "parent" and test == "node()":
+            if len(path) < 2:
+                return None
+            path = path[:-1]
+        elif axis == "self" and test == "node()":
+            continue
+        elif axis == "child" and test not in ("*", "node()", "text()") and ":" not in test:
+            path = [*path, test]
+        else:
+            return None
+    return "/" + "/".join(path)
 
 
 def _computed(xform, path):

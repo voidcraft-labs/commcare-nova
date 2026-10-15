@@ -342,7 +342,8 @@ retain their exact existing contracts.
 
 Status is derived per unit:
 
-- **Missing**: no explicit target entry exists.
+- **Missing**: no explicit target entry exists, or a current entry of a form's
+  itext is blank where the source or another language has text.
 - **Needs review**: an explicit copied or AI entry matches the current source
   fingerprint but has not been reviewed.
 - **Out of date**: the entry's source fingerprint no longer matches.
@@ -353,6 +354,13 @@ value in Builder, Preview, and emission. Nova does not show a semantically stale
 translation merely because it is in the target language. The old value remains
 available in the translation workspace for comparison. “Keep translation” can
 review the old value against the new source without forcing a textual edit.
+
+A blank translation of a form's label, hint, help text, validation message or
+option label shows the default language's text, and where that is blank the
+first language that has one. This is the fill CommCare HQ's form builder
+applies on every save, so Nova writes it and a save changes nothing. A label
+blank in every language is written with no label at all, and a written choice
+blank in every language with no media is refused.
 
 A direct human edit is reviewed. Copied and AI-authored values need review.
 Review status is advisory rather than a draft/release gate: every document is

@@ -5,9 +5,25 @@ import { isTag } from "domhandler";
 import { findAll, textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
-import { makeTranslationUnitId } from "@/lib/domain";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
+import {
+	makeTranslationUnitId,
+	printProseTemplate,
+	projectedModulePreorder,
+	snapshotTranslationUnits,
+	TRANSLATION_FILL_ROLES,
+} from "@/lib/domain";
+import { formWireName } from "@/lib/domain/formWireName";
+import { proseText } from "@/lib/domain/prose";
 import { compileCcz } from "../compiler";
+import { emissionPlan } from "../emissionPlan";
 import { expandDoc } from "../expander";
+import { commCareLocalization } from "../localization";
+import { validateXForm } from "../validator/xformOracle";
+import { manifestFor } from "./compilerEvidence";
+import { emissionFixtures } from "./emissionFixtures";
 import {
 	localizationScenarios,
 	localizationWireFixture,
@@ -228,5 +244,263 @@ describe("localized emitted artifacts", () => {
 		expect(status.validations?.[0]?.text.es).toBe(
 			"Use solo letras minúsculas. Quite las comillas.",
 		);
+	});
+});
+
+function formSource(hq: ReturnType<typeof expandDoc>, moduleIndex = 0) {
+	const source =
+		hq._attachments[`${hq.modules[moduleIndex].forms[0].unique_id}.xml`];
+	if (typeof source !== "string") throw new Error("Missing form source");
+	return source;
+}
+function titleAndName(xml: string) {
+	const [title] = elements(xml, "h:title");
+	const [data] = elements(xml, "data").filter(
+		(element) =>
+			element.parent !== null &&
+			isTag(element.parent) &&
+			element.parent.name === "instance",
+	);
+	return { title: textContent(title), name: data?.attribs.name };
+}
+
+describe("the form's name in its own XForm", () => {
+	it("is the default language's name in the title and the data node, where the source language is another", () => {
+		const doc = localizationWireFixture("bilingual");
+		const xml = formSource(expandDoc(doc));
+		expect(titleAndName(xml)).toEqual({
+			title: "Registrar",
+			name: "Registrar",
+		});
+	});
+
+	it("keeps a name holding markup characters, quotes and a no-break space as written", () => {
+		const name = `R&D <alpha> "q" 'r'\u00a0x`;
+		const doc = buildDoc({
+			appName: "Names",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name,
+							type: "survey",
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
+						},
+					],
+				},
+			],
+		});
+		const xml = formSource(expandDoc(doc));
+		expect(titleAndName(xml)).toEqual({ title: name, name });
+		expect(validateXForm(xml, name, "M")).toEqual([]);
+	});
+
+	it("falls back to the source text where the default language has no name", () => {
+		const doc = localizationWireFixture("bilingual");
+		const formUuid = doc.formOrder[doc.moduleOrder[0]]?.[0];
+		if (formUuid === undefined) throw new Error("Missing form");
+		const localization = doc.localization;
+		if (localization === undefined) throw new Error("Missing localization");
+		const formName = makeTranslationUnitId("form", formUuid, "name");
+		doc.localization = {
+			...localization,
+			translations: {
+				spa: Object.fromEntries(
+					Object.entries(localization.translations.spa ?? {}).filter(
+						([unitId]) => unitId !== formName,
+					),
+				),
+			},
+		};
+		const hq = expandDoc(doc);
+		expect(formWireName(doc, formUuid)).toBe(doc.forms[formUuid].name);
+		expect(titleAndName(formSource(hq))).toEqual({
+			title: doc.forms[formUuid].name,
+			name: doc.forms[formUuid].name,
+		});
+		expect(hq.modules[0].forms[0].name[hq.langs[0]]).toBe(
+			doc.forms[formUuid].name,
+		);
+	});
+
+	it.each(
+		emissionFixtures().map(
+			({ name, doc, assets }) => [name, doc, assets] as const,
+		),
+	)(
+		"equals HQ's form name in the app's first language across %s",
+		(_, doc, assets) => {
+			const hq = expandDoc(doc, { assets });
+			const wire = emissionPlan(doc).doc;
+			projectedModulePreorder(wire).forEach((moduleUuid, moduleIndex) => {
+				orderedFormUuids(wire, moduleUuid).forEach((formUuid, formIndex) => {
+					expect(formWireName(doc, formUuid)).toBe(
+						hq.modules[moduleIndex].forms[formIndex].name[hq.langs[0]],
+					);
+				});
+			});
+		},
+	);
+});
+
+describe("a leaf label blank in every language", () => {
+	const blankLabelDoc = (withMedia: boolean) =>
+		buildDoc({
+			appName: "Blank labels",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "q",
+									label: proseText(""),
+									...(withMedia && {
+										label_media: { image: testMediaAssetId("blank-label") },
+									}),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("writes no label and no item, as HQ's form builder leaves it", () => {
+		const xml = formSource(expandDoc(blankLabelDoc(false)));
+		const [input] = elements(xml, "input");
+		expect(input.children.filter(isTag).map((e) => e.name)).toEqual([]);
+		expect(
+			elements(xml, "text").filter((e) => e.attribs.id === "q-label"),
+		).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
+	});
+
+	it("keeps its item and label where the label carries media", () => {
+		const doc = blankLabelDoc(true);
+		const xml = formSource(expandDoc(doc, { assets: manifestFor(doc) }));
+		const [input] = elements(xml, "input");
+		expect(input.children.filter(isTag).map((e) => e.name)).toEqual(["label"]);
+		const items = elements(xml, "text").filter(
+			(e) => e.attribs.id === "q-label",
+		);
+		expect(items).toHaveLength(1);
+		expect(itextValue(items[0])).toBe("");
+		expect(
+			items[0].children.filter(isTag).map((e) => e.attribs.form ?? "text"),
+		).toEqual(["text", "markdown", "image"]);
+	});
+});
+
+describe("a translation blank beside text in another language", () => {
+	/** Each `<text>`'s plain or markdown value, by item, form and language. */
+	function valuesByItem(xml: string) {
+		const out = new Map<string, Map<string, string>>();
+		for (const translation of elements(xml, "translation")) {
+			const lang = translation.attribs.lang;
+			for (const item of findAll(
+				(e) => e.name === "text",
+				translation.children,
+			)) {
+				for (const value of item.children.filter(isTag)) {
+					const form = value.attribs.form;
+					if (value.name !== "value") continue;
+					if (form !== undefined && form !== "markdown") continue;
+					const key = `${item.attribs.id} ${form ?? "text"}`;
+					const byLang = out.get(key) ?? new Map<string, string>();
+					byLang.set(lang, textContent(value));
+					out.set(key, byLang);
+				}
+			}
+		}
+		return out;
+	}
+
+	it.each(localizationScenarios)(
+		"writes no blank value beside another language's text in the %s scenario",
+		(scenario) => {
+			const xml = formSource(expandDoc(localizationWireFixture(scenario)));
+			const mixed = [...valuesByItem(xml)].filter(([, byLang]) => {
+				const values = [...byLang.values()];
+				return (
+					values.some((value) => value.trim() === "") &&
+					values.some((value) => value.trim() !== "")
+				);
+			});
+			expect(mixed).toEqual([]);
+		},
+	);
+
+	it("fills the source language's blank with the default language's text, in both forms", () => {
+		const xml = formSource(expandDoc(localizationWireFixture("optional")));
+		const values = valuesByItem(xml);
+		for (const form of ["text", "markdown"]) {
+			expect(
+				Object.fromEntries(values.get(`section-name-hint ${form}`) ?? []),
+			).toEqual({ es: "Pista", en: "Pista" });
+			expect(
+				Object.fromEntries(values.get(`section-label ${form}`) ?? []),
+			).toEqual({ es: "Sección", en: "Sección" });
+		}
+	});
+
+	it("answers one filled value for a form's itext unit on every lookup", () => {
+		const doc = localizationWireFixture("optional");
+		const localization = commCareLocalization(doc);
+		const itext = [...snapshotTranslationUnits(doc).values()].filter((unit) =>
+			TRANSLATION_FILL_ROLES.has(unit.role),
+		);
+		expect(itext.length).toBeGreaterThan(0);
+		for (const unit of itext) {
+			const printed = Object.fromEntries(
+				localization.languages.map((code) => [
+					code,
+					printProseTemplate(localization.prose(code, unit.id), doc),
+				]),
+			);
+			expect(localization.proseTextMap(unit.id)).toEqual(printed);
+			for (const code of localization.languages) {
+				expect(localization.wireText(code, unit.id)).toBe(printed[code]);
+			}
+		}
+	});
+
+	it("writes no hint and no item for a hint blank in every language", () => {
+		const doc = buildDoc({
+			appName: "Blank hints",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "q", label: "Q", hint: { parts: [] } }),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "eng"],
+			wireCodes: { spa: "es", eng: "en" },
+			translations: {},
+		};
+		const xml = formSource(expandDoc(doc));
+		const [input] = elements(xml, "input");
+		expect(input.children.filter(isTag).map((e) => e.name)).toEqual(["label"]);
+		expect(
+			elements(xml, "text").filter((e) => e.attribs.id === "q-hint"),
+		).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });

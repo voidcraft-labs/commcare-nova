@@ -2,7 +2,6 @@
 
 import {
 	collectLocalizedTranslationUnits,
-	effectiveAppLocalization,
 	type Field,
 	type LanguageTag,
 	type LocalizedTranslationUnit,
@@ -12,8 +11,8 @@ import {
 	projectLocalizedField,
 	projectLocalizedModule,
 	resolveAppLanguage,
+	snapshotTranslationUnits,
 	type TranslationUnitId,
-	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
 import { useBlueprintDoc, useBlueprintDocEq } from "./useBlueprintDoc";
@@ -21,34 +20,6 @@ import { useBlueprintDoc, useBlueprintDocEq } from "./useBlueprintDoc";
 /** Persisted language configuration, independently of the selected URL lens. */
 export function useAppLocalization() {
 	return useBlueprintDoc((doc) => doc.localization);
-}
-
-/* Zustand publishes immutable document snapshots. Field rows and form/module
- * chrome ask for separate localized projections of the same snapshot, so
- * share its app-wide translation inventory instead of rebuilding it once per
- * selector. The WeakMap naturally discards every superseded snapshot. */
-const builderTranslationUnitsByDoc = new WeakMap<
-	Parameters<typeof translationUnitsById>[0],
-	ReturnType<typeof translationUnitsById>
->();
-
-function builderTranslationUnits(
-	doc: Parameters<typeof translationUnitsById>[0],
-): ReturnType<typeof translationUnitsById> {
-	const cached = builderTranslationUnitsByDoc.get(doc);
-	if (cached !== undefined) return cached;
-	const units = translationUnitsById(doc);
-	builderTranslationUnitsByDoc.set(doc, units);
-	return units;
-}
-
-function builderTranslationUnitsForProjection(
-	doc: Parameters<typeof translationUnitsById>[0],
-	language: LanguageTag,
-): ReturnType<typeof translationUnitsById> | undefined {
-	return language === effectiveAppLocalization(doc.localization).sourceLanguage
-		? undefined
-		: builderTranslationUnits(doc);
 }
 
 function sameLocalizedUnit(
@@ -61,6 +32,7 @@ function sameLocalizedUnit(
 		left.language === right.language &&
 		left.sourceFingerprint === right.sourceFingerprint &&
 		left.status === right.status &&
+		left.filledFrom === right.filledFrom &&
 		JSON.stringify(left.effective) === JSON.stringify(right.effective) &&
 		JSON.stringify(left.explicit) === JSON.stringify(right.explicit)
 	);
@@ -71,7 +43,7 @@ export function useLocalizedTranslationUnit(
 	unitId: TranslationUnitId,
 ): LocalizedTranslationUnit | undefined {
 	return useBlueprintDocEq((doc) => {
-		const unit = builderTranslationUnits(doc).get(unitId);
+		const unit = snapshotTranslationUnits(doc).get(unitId);
 		return unit === undefined
 			? undefined
 			: localizeTranslationUnit(
@@ -128,12 +100,7 @@ export function useLocalizedModule(
 		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
 		return uuid === undefined
 			? undefined
-			: projectLocalizedModule(
-					doc,
-					snapshotLanguage,
-					uuid,
-					builderTranslationUnitsForProjection(doc, snapshotLanguage),
-				);
+			: projectLocalizedModule(doc, snapshotLanguage, uuid);
 	}, sameModule);
 }
 
@@ -148,11 +115,24 @@ export function useLocalizedField(
 ): Field | undefined {
 	return useBlueprintDocEq((doc) => {
 		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
-		return projectLocalizedField(
-			doc,
-			snapshotLanguage,
-			uuid,
-			builderTranslationUnitsForProjection(doc, snapshotLanguage),
-		);
+		return projectLocalizedField(doc, snapshotLanguage, uuid);
+	}, sameField);
+}
+
+/**
+ * The field as a worker reads it in a language: each label, hint, help text,
+ * validation message and option label takes the form builder's fill for a
+ * blank value (`lib/domain/translationFill.ts`), in the source language too.
+ * Render its text; edit the stored value `useLocalizedField` returns.
+ */
+export function useFilledField(
+	language: LanguageTag,
+	uuid: Uuid,
+): Field | undefined {
+	return useBlueprintDocEq((doc) => {
+		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
+		return projectLocalizedField(doc, snapshotLanguage, uuid, undefined, {
+			filled: true,
+		});
 	}, sameField);
 }

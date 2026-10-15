@@ -12,6 +12,7 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import type { MatchedChild, ProjectedFormLinks } from "../formLinkProjection";
+import { alwaysCondition, emptyFormActions } from "../hqShells";
 import { serializeXml } from "../serializeXml";
 import {
 	buildEntryElement,
@@ -20,7 +21,9 @@ import {
 	deriveEntryDefinition,
 	deriveFormLinkStack,
 	derivePostSubmitStack,
+	deriveSessionDatums,
 	type EntryDefinitionInput,
+	newCaseIdDatumId,
 	toHqWorkflow,
 } from "../session";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
@@ -51,6 +54,23 @@ function entryXml(options: Partial<EntryDefinitionInput> = {}) {
 		),
 	);
 }
+
+describe("a registration form's new-case datum", () => {
+	it("is the id every in-form read of the new case's id names", () => {
+		const actions = emptyFormActions();
+		actions.open_case.condition = alwaysCondition();
+		const created = deriveSessionDatums({
+			formType: "registration",
+			moduleIndex: 0,
+			caseType: "patient",
+			actions,
+		}).filter((datum) => datum.function === "uuid()");
+		expect(created.map((datum) => datum.id)).toEqual([
+			newCaseIdDatumId("patient"),
+		]);
+		expect(newCaseIdDatumId("patient")).toBe("case_id_new_patient_0");
+	});
+});
 
 describe("entry instance dependencies", () => {
 	it.each([

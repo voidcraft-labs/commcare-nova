@@ -255,3 +255,46 @@ export function descendFormPathIntoField(
 		? ownPath.queryBoundIteration()
 		: ownPath;
 }
+
+/**
+ * The relative steps from `from` to `to`: one `..` for every step from
+ * `from` up to the nearest ancestor the two share, then the steps down to
+ * `to`. `.` when the two are the same node.
+ */
+export function relativeXPath(from: FormPath, to: FormPath): string {
+	const fromSegments = from.segments();
+	const toSegments = to.segments();
+	let shared = 0;
+	while (
+		shared < fromSegments.length &&
+		shared < toSegments.length &&
+		fromSegments[shared].kind === toSegments[shared].kind &&
+		fromSegments[shared].name === toSegments[shared].name
+	) {
+		shared += 1;
+	}
+	const parts: string[] = [];
+	for (let index = shared; index < fromSegments.length; index += 1) {
+		parts.push("..");
+	}
+	for (let index = shared; index < toSegments.length; index += 1) {
+		const segment = toSegments[index];
+		parts.push(segment.kind === "element" ? segment.name : `@${segment.name}`);
+	}
+	return parts.join("/") || ".";
+}
+
+/**
+ * Address `to` from the node `from` whose expression reads it, as
+ * `current()/<relative steps>`. `current()` is intentional even where a
+ * bare relative path would do at the expression root: JavaRosa keeps it
+ * anchored on the expression's original context while a predicate
+ * temporarily moves the evaluation context to a candidate node, so a bare
+ * `../field` nested inside a predicate would read from the candidate. Core
+ * evaluates a bind's expressions with its node as that context and a
+ * setvalue's value with its target as that context
+ * (commcare-core `SetValueAction.processAction`).
+ */
+export function originalContextPath(from: FormPath, to: FormPath): string {
+	return `current()/${relativeXPath(from, to)}`;
+}

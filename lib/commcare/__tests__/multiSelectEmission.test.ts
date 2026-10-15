@@ -312,14 +312,12 @@ for (const published of [true, false]) {
 					"case_name",
 					"replace(/data/full_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
 					"/data/full_name",
-					true,
 				],
-				["note", "/data/note", "/data/note", false],
+				["note", "/data/note", "/data/note"],
 				[
 					"external_id",
 					"replace(/data/external_id, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
 					"/data/external_id",
-					true,
 				],
 				...(published
 					? [
@@ -327,12 +325,11 @@ for (const published of [true, false]) {
 								"photo_url",
 								"/data/__nova_url_photo_link",
 								"/data/__nova_url_photo_link",
-								false,
 							] as const,
 						]
 					: []),
 			] as const;
-			for (const [property, calculate, source, scalar] of writers)
+			for (const [property, calculate, source] of writers)
 				expect(
 					form.bind(
 						`${scope}/__nova_update_selected_cases/case/update/${property}`,
@@ -341,7 +338,6 @@ for (const published of [true, false]) {
 					nodeset: `${scope}/__nova_update_selected_cases/case/update/${property}`,
 					calculate,
 					relevant: `count(${source}) > 0 and string(${calculate}) != ''`,
-					...(scalar ? { constraint: "string-length(.) <= 255" } : {}),
 				});
 			expect(
 				form.bind(

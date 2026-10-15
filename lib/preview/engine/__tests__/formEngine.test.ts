@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import type {
 	CaseType,
@@ -24,15 +24,18 @@ import type {
 } from "@/lib/domain";
 import {
 	fieldSchema,
+	makeTranslationUnitId,
+	translationUnitsById,
 	USERCASE_CASE_TYPE,
 	writerPreloadsFromLoadedCase,
 } from "@/lib/domain";
+import { formWireName } from "@/lib/domain/formWireName";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import { evaluateXPathWorkerRequest } from "../../xpath/workerRuntime";
-
+import { buildEngineInput } from "../engineInput";
 import {
 	type CaseDataByType,
 	FormEngine,
@@ -5922,3 +5925,60 @@ it.each([false, true])(
 		}
 	},
 );
+
+describe("the form's data node name", () => {
+	const FORM = testUuid("wire-name-form");
+	/** A form named "Register" in English, the source, and "Registrar" in Spanish, the app's default. */
+	function bilingual() {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "People",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Register",
+							type: "survey",
+							fields: [
+								f({ kind: "hidden", id: "named", calculate: "/data/@name" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const unitId = makeTranslationUnitId("form", FORM, "name");
+		const unit = translationUnitsById(doc).get(unitId);
+		if (unit === undefined) throw new Error("The form name has no unit.");
+		doc.localization = {
+			sourceLanguage: "en",
+			defaultLanguage: "es",
+			languageOrder: ["es", "en"],
+			wireCodes: {},
+			translations: {
+				es: {
+					[unitId]: {
+						value: "Registrar",
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			},
+		};
+		return doc;
+	}
+
+	it.each([null, "en", "es"] as const)(
+		"reads the default language's name the XForm carries, in Preview language %s",
+		(language) => {
+			const doc = bilingual();
+			const input = buildEngineInput(doc, FORM, language);
+			if (input === undefined) throw new Error("The form has no input.");
+			const engine = new FormEngine(input);
+			expect(formWireName(doc, FORM)).toBe("Registrar");
+			expect(engine.getState("/data/named").value).toBe("Registrar");
+		},
+	);
+});

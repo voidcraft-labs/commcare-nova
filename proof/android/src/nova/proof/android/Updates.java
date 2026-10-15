@@ -34,7 +34,8 @@ import org.robolectric.shadows.ShadowLooper;
  * The update is the app's own: UpdateTask stages the second archive's profile and InstallStagedUpdateTask
  * installs it, as the project's own update tests run them (UpdateUtils). The incomplete form is saved through
  * FormEntryActivity.saveFormToDisk, which the quit dialog's Save calls, and reopened by handing home the result
- * its incomplete-forms list hands it.
+ * its incomplete-forms list hands it; the {@code app} request (Screens) reopens one the same way and completes
+ * it.
  */
 final class Updates {
     private Updates() {
@@ -135,13 +136,13 @@ final class Updates {
 
         if (request.has("incomplete")) {
             if (records.containsKey(request.getString("incomplete"))) {
-                found.put("reopened", reopen(records.get(request.getString("incomplete"))));
+                found.put("reopened", reopen(records.get(request.getString("incomplete")), false));
             }
         } else if (!commands.isEmpty()) {
             JSONObject reopened = new JSONObject();
             for (java.util.Map.Entry<String, Integer> entry : records.entrySet()) {
                 try {
-                    reopened.put(entry.getKey(), reopen(entry.getValue()));
+                    reopened.put(entry.getKey(), reopen(entry.getValue(), false));
                 } catch (Throwable raised) {
                     JSONObject failed = new JSONObject();
                     failed.put("raised", Reader.raised(raised));
@@ -206,8 +207,24 @@ final class Updates {
         return record[0];
     }
 
-    /** What home does with the incomplete record a worker picks from the incomplete-forms list. */
-    private static JSONObject reopen(int record) throws Exception {
+    /**
+     * What home does with the incomplete record a worker picks from the incomplete-forms list. With
+     * {@code complete}, the form home starts is the worker's to finish: walked to its end with the request's
+     * answers, finished, saved and, where the device is served, sent by home's own sender (Forms.read), the form
+     * under {@code form} as a walk's step holds one, and the screens opened for it ended as a walk's are
+     * (Opened.end). Without it, the form is opened and described, and nothing more.
+     */
+    static JSONObject reopen(int record, boolean complete) throws Exception {
+        try {
+            return reopened(record, complete);
+        } finally {
+            if (complete) {
+                Opened.end();
+            }
+        }
+    }
+
+    private static JSONObject reopened(int record, boolean complete) throws Exception {
         JSONObject found = new JSONObject();
         found.put("records", Forms.records());
         // The session Android kept for the record, as it stored it (SessionStateDescriptor): what home loads
@@ -224,7 +241,11 @@ final class Updates {
         CommCareApplication.instance().getCurrentSessionWrapper().reset();
         StandardHomeActivity home = Opened.build(StandardHomeActivity.class, null).create().get();
         ShadowLooper.idleMainLooper();
-        home.setFormAndDataSyncer(new FormAndDataSyncerFake());
+        if (!complete || !Device.served()) {
+            // Nothing is sent, as the project's own tests leave home; a form completed on a served device is
+            // sent by home's own sender, as Screens.walked leaves it.
+            home.setFormAndDataSyncer(new FormAndDataSyncerFake());
+        }
         ShadowActivity shadow = Shadows.shadowOf(home);
         Screens.drain(shadow);
         try {
@@ -244,6 +265,10 @@ final class Updates {
         String target = started.getComponent().getClassName();
         found.put("screen", target.substring(target.lastIndexOf('.') + 1));
         if (target.equals(FormEntryActivity.class.getName())) {
+            if (complete) {
+                Forms.read(started, found, shadow);
+                return found;
+            }
             try {
                 JSONObject form = new JSONObject();
                 found.put("form", form);

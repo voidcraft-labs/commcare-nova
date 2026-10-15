@@ -41,6 +41,7 @@ import {
 } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useFilledField } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CommitOutcome,
@@ -82,6 +83,10 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const { toggleCollapse } = useVirtualFormContext();
 	const q = useLocalizedField(uuid);
 	const language = useBuilderLanguage();
+	/* The header renders what a worker reads (a blank translation takes the
+	 * form builder's fill); its TextEditable edits `q`'s stored label. */
+	const shown = useFilledField(language.language, uuid);
+	const shownLabel = shown && "label" in shown ? shown.label : undefined;
 	const labelEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "label"),
 	);
@@ -238,9 +243,9 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									onSave={saveField ? (v) => saveField("label", v) : undefined}
 									fieldType="label"
 								>
-									{"label" in q && q.label && !proseTemplateIsEmpty(q.label) ? (
+									{shownLabel && !proseTemplateIsEmpty(shownLabel) ? (
 										<LabelContent
-											label={q.label}
+											label={shownLabel}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
 											className={FIELD_STYLES.label}

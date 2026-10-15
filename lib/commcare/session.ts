@@ -618,6 +618,17 @@ function accumulateCaseLoadingInstances(
 }
 
 /**
+ * The id of the function datum a registration form's entry mints its new
+ * case's id into: `case_id_new_<type>_0`, the spelling HQ's suite gives the
+ * form's own create (`models/forms.py::Form.session_var_for_action`). The
+ * entry's datum and every in-form read of the new case's id come from this
+ * one function, so the two cannot name different datums.
+ */
+export function newCaseIdDatumId(caseType: string): string {
+	return `case_id_new_${validateCaseType(caseType)}_0`;
+}
+
+/**
  * Derive session datums required by a form entry.
  *
  * Emits up to one of each kind, in this order:
@@ -753,7 +764,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			actions.open_case.condition.type === "if";
 		if (opensCase && caseType) {
 			datums.push({
-				id: `case_id_new_${validateCaseType(caseType)}_0`,
+				id: newCaseIdDatumId(caseType),
 				function: "uuid()",
 				caseType,
 			});

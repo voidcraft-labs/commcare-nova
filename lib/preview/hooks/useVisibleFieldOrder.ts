@@ -27,7 +27,8 @@ import { usePresentationSelector } from "./usePresentationDocument";
 
 // Document snapshots are immutable. Sibling/instance selectors share one
 // language projection per snapshot instead of rebuilding its translation
-// inventory for every recursive renderer.
+// inventory for every recursive renderer. The projection is the filled one a
+// worker reads, so a blank translation shows the text a device shows.
 const localizedFieldsByDoc = new WeakMap<
 	BlueprintDoc,
 	Map<LanguageTag, Record<string, Field>>
@@ -47,7 +48,7 @@ function presentationFields(doc: BlueprintDoc, language: LanguageTag | null) {
 	}
 	const cached = byLanguage.get(resolved);
 	if (cached !== undefined) return cached;
-	const fields = projectLocalizedFields(doc, resolved);
+	const fields = projectLocalizedFields(doc, resolved, { filled: true });
 	byLanguage.set(resolved, fields);
 	return fields;
 }

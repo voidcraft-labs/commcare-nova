@@ -10,10 +10,14 @@ describe("container labels and their itext references", () => {
 			const id = scenario === "user" ? "items" : "page";
 			const groups = elements("group");
 			expect(groups).toHaveLength(1);
+			// A repeat's wrapper group carries no ref, as HQ's form builder
+			// writes it.
 			expect(groups[0].attribs).toEqual(
 				scenario === "labelled"
 					? { ref: `/data/${id}`, appearance: "field-list" }
-					: { ref: `/data/${id}` },
+					: scenario === "user"
+						? {}
+						: { ref: `/data/${id}` },
 			);
 			const labels = groups[0].children.filter(
 				(n) => isTag(n) && n.name === "label",

@@ -4,10 +4,11 @@
  * Uses the Lezer XPath parser to identify HashtagRef nodes and their structured
  * children (HashtagType, HashtagSegment), then surgically replaces them with
  * expanded XPath. The shorthand survives on the wire only in HQ's EDITOR
- * vocabulary — `vellum:*` shadow attributes via
- * `hashtags/formContext.ts::vellumShorthandInContext`, and the
- * `case_references_data.load` map via {@link hqLoadReference} — never as Nova's
- * per-case-type namespaces, which the editor cannot parse.
+ * vocabulary — `#form/` in the `vellum:*` shadow attributes via
+ * `hashtags/formContext.ts::vellumShorthandInContext`, and HQ's `#case/`
+ * strings in the `case_references_data.load` map via {@link hqLoadReference}
+ * (HQ's app summary reads that map, `app_schemas/app_case_metadata.py`) —
+ * never as Nova's per-case-type namespaces, which the editor cannot parse.
  */
 import { parser } from "@/lib/commcare/xpath";
 import { emitCasePropertyWirePath } from "./casePropertyWire";
@@ -30,8 +31,7 @@ const T = (() => {
 
 // ── Case-loading selector primitives ─────────────────────────────────
 // Single source of truth for the casedb `<case>` selector. Typed case refs
-// project through `expandCaseToWire`; HQ editor metadata privately projects
-// the same selector to its required `#case/` vocabulary.
+// project through `expandCaseToWire`.
 const CASEDB_CASE = "instance('casedb')/casedb/case";
 /**
  * The session datum a case-loading entry selects its case into. Every form-
@@ -47,13 +47,9 @@ function caseById(idExpr: string): string {
 	return `${CASEDB_CASE}[@case_id = ${idExpr}]`;
 }
 
-/** HQ-shaped transforms metadata — the static prefixes the head-level
- *  `<vellum:hashtagTransforms>` element composes from. */
+/** The prefix `#user/` expands to. */
 export const VELLUM_HASHTAG_TRANSFORMS = {
 	prefixes: {
-		// The loaded case in HQ's private editor vocabulary, composed from the
-		// same selector primitive as typed case-ref wire projection.
-		"#case/": `${caseById(CURRENT_CASE_ID)}/`,
 		// The same selector the suite's `usercase_id` datum and its assertion
 		// are built from, so the hashtag cannot come to mean a different case
 		// than the entry guards.
@@ -90,16 +86,14 @@ const EXPANSIONS = new Map<string, string>([
 /**
  * The core case-loading walk, addressed by hop depth: `hops` parent-index hops
  * up from the form's loaded case, then `propPath` read off the target case.
- * Zero hops → the plain loaded-case selector (the same shape the `#case/`
- * transforms prefix carries, since both compose from `caseById`). N hops → N
+ * Zero hops → the plain loaded-case selector. N hops → N
  * nested `caseById(...)/index/parent` walks from the current case to the target
  * ancestor case.
  *
- * The single wire-shape authority for canonical typed case refs and the
- * emitter-private HQ editor/metadata projection. The authored case-type
- * namespace maps to its `reachableCaseTypes` depth and passes that depth here;
- * HQ's `#case/parent…` spelling is generated from the same depth after
- * projection, never accepted as Nova input.
+ * The single wire-shape authority for canonical typed case refs. The
+ * authored case-type namespace maps to its `reachableCaseTypes` depth and
+ * passes that depth here; HQ's `#case/parent…` load-map spelling is generated
+ * from the same depth ({@link hqLoadReference}), never accepted as Nova input.
  */
 export function expandCaseToWire(
 	hops: number,
@@ -107,9 +101,7 @@ export function expandCaseToWire(
 	fromCaseId: string = CURRENT_CASE_ID,
 ): string {
 	// Walk to the target case's id — one `/index/parent` per hop; zero hops
-	// leaves it at the current case. Everything flows through `caseById`, so the
-	// zero-hop output is byte-for-byte the loaded-case prefix used by the
-	// private HQ metadata projection.
+	// leaves it at the current case. Everything flows through `caseById`.
 	let idExpr = fromCaseId;
 	for (let h = 0; h < hops; h++) {
 		idExpr = `${caseById(idExpr)}/index/parent`;
@@ -216,9 +208,8 @@ export function expandFlatHashtags(expr: string): string {
  * `#user/…`, and every `#<case_type>/…` per-type ref — i.e. every namespace
  * EXCEPT `#form/`, which resolves to a plain in-form `/data/` path that carries
  * no HQ-side hashtag metadata or `case_references_data.load` entry, and
- * `#search/`, which reads the search-input instance. Feeds both
- * the head-level `<vellum:hashtags>` map and `formActions.ts`'s load map (each
- * translating the raw refs into HQ vocabulary before emission).
+ * `#search/`, which reads the search-input instance. Feeds `formActions.ts`'s
+ * load map, which translates the raw refs into HQ vocabulary before emission.
  */
 /** Whether the expression reads a search answer (`#search/<name>`). */
 export function referencesSearchAnswer(expr: string): boolean {
@@ -308,42 +299,4 @@ export function hqLoadReference(
 		VELLUM_CASE_GENERATION_PREFIXES[depth] ??
 		`#case/${"parent/".repeat(depth)}`;
 	return prefix + rest;
-}
-
-/**
- * Build the head-level `<vellum:hashtagTransforms>` payload for a form: the
- * prefix → expansion table covering every generation prefix the form's
- * (already-editor-vocabulary) refs actually use, plus `#user/` when referenced.
- *
- * This is the same `{prefixes}` JSON vanilla Vellum serializes
- * (`Vellum/src/form.js::knownHashtagTransforms` → `writer.js`) and reads back
- * as its pre-datasources fallback (`parser.js::initHashtags`). Each case
- * generation maps to the depth-N `caseById` walk `expandCaseToWire` emits, so
- * the table's expansion is byte-identical to the expanded attributes the binds
- * carry.
- */
-export function buildVellumTransforms(editorRefs: Iterable<string>): {
-	prefixes: Record<string, string>;
-} {
-	const prefixes: Record<string, string> = {};
-	for (const ref of editorRefs) {
-		if (ref.startsWith("#user/")) {
-			prefixes["#user/"] = VELLUM_HASHTAG_TRANSFORMS.prefixes["#user/"];
-			continue;
-		}
-		// Longest generation prefix first — every `#case/parent/…` ref also
-		// starts with `#case/`.
-		for (
-			let depth = VELLUM_CASE_GENERATION_PREFIXES.length - 1;
-			depth >= 0;
-			depth--
-		) {
-			if (ref.startsWith(VELLUM_CASE_GENERATION_PREFIXES[depth])) {
-				prefixes[VELLUM_CASE_GENERATION_PREFIXES[depth]] =
-					`${expandCaseToWire(depth, "")}/`;
-				break;
-			}
-		}
-	}
-	return { prefixes };
 }

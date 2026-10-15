@@ -20,6 +20,12 @@ public class ContainerRuntimeTest {
  private static InstanceInitializationFactory environment() {
   return new InstanceInitializationFactory() {
    @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
+    if("casedb".equals(instance.getInstanceId())) {
+     // An empty case database: a form that names a case type declares it, and these forms read no case.
+     TreeElement cases=node("casedb",null);
+     InstanceUtils.setUpInstanceRoot(cases,instance.getInstanceId(),new InstanceBase(instance.getInstanceId()));
+     return new ConcreteInstanceRoot(cases);
+    }
     if(!"commcaresession".equals(instance.getInstanceId()))throw new AssertionError(instance.getInstanceId());
     TreeElement root=node("session",null), context=node("context",null), data=node("data",null);
     for(String key:new String[]{"deviceid","username","userid","appversion"})context.addChild(node(key,"fixture-"+key));
@@ -113,6 +119,40 @@ public class ContainerRuntimeTest {
   assertEquals("pump tap",eval(form,"join(' ', /data/visits[1]/assets/item/row_id)"));
   assertEquals("Retain this answer",eval(form,"string(/data/visits[1]/assets/item[2]/note)"));
   assertEquals("tank",eval(form,"string(/data/visits[2]/assets/item/row_id)"));
+ }
+ /** A default reads relatively from the node it sets (current()/...), so each of its four placements reads the
+  * answer its path names: at the root, in a repeat row reading an answer outside the repeat, in a row reading a
+  * sibling in the row, and in a nested repeat's row reading the enclosing row's answer. */
+ @Test public void defaultsReadTheAnswerTheirPlacementNames()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("init-add",source);FormDef form=parsed.getFormDef();
+   assertEquals("north",eval(form,"string(/data/root_read)"));
+   enter(parsed,true);
+   assertEquals(1.0,eval(form,"count(/data/visits)"));
+   assertEquals("north",eval(form,"string(/data/visits[1]/zone)"));
+   assertEquals("north",eval(form,"string(/data/visits[1]/sibling_read)"));
+   assertEquals("north north",eval(form,"join(' ', /data/visits[1]/assets/item/enclosing_read)"));
+   answer(form,"/data/zone","south");enter(parsed,true);
+   assertEquals(2.0,eval(form,"count(/data/visits)"));
+   assertEquals("north",eval(form,"string(/data/root_read)"));
+   assertEquals("north",eval(form,"string(/data/visits[1]/zone)"));
+   assertEquals("north",eval(form,"string(/data/visits[1]/sibling_read)"));
+   assertEquals("north north",eval(form,"join(' ', /data/visits[1]/assets/item/enclosing_read)"));
+   assertEquals("south",eval(form,"string(/data/visits[2]/zone)"));
+   assertEquals("south",eval(form,"string(/data/visits[2]/sibling_read)"));
+   assertEquals(1.0,eval(form,"count(/data/visits[2]/assets/item)"));
+   assertEquals("south",eval(form,"string(/data/visits[2]/assets/item/enclosing_read)"));
+  }
+ }
+ /** A registration form reads its own new case's id from the session's datum, which is also the id its create
+  * block carries: a default and a calculation of it hold the id the session gives case_id_new_patient_0. */
+ @Test public void registrationFormReadsItsOwnNewCaseId()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("registration",source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   assertEquals("new-patient",eval(form,"string(/data/case/@case_id)"));
+   assertEquals("new-patient",eval(form,"string(/data/page/own_id_read)"));
+   assertEquals("P-new-patient",eval(form,"string(/data/page/tracking_code)"));
+  }
  }
  @Test public void groupMetadataAndDescendantsSurviveNativeParsing()throws Exception{
   for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"titled","untitled","empty","transparent","labelled","nested","registration"}){

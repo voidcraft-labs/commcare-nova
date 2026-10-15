@@ -34,6 +34,7 @@ import {
 	type OnDeviceExpressionBindings,
 	type OnDeviceTermEmissionContext,
 } from "@/lib/commcare/predicate/termEmitter";
+import { newCaseIdDatumId } from "@/lib/commcare/session";
 import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
 import type {
 	FormActionCondition,
@@ -41,6 +42,7 @@ import type {
 	UpdateCaseAction,
 } from "@/lib/commcare/types";
 import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
+import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
 import {
 	caseOperationConditionalGuardUuids,
@@ -68,8 +70,9 @@ import type {
 	PropertyRef,
 	ValueExpression,
 } from "@/lib/domain/predicate";
+import { datetimeCaseValueExpression } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
-import { FormPath } from "./formPath";
+import { FormPath, originalContextPath } from "./formPath";
 
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 const OPERATIONS_CONTAINER = "__nova_operations";
@@ -156,6 +159,20 @@ export interface CaseOperationsEmission {
 	/** Lookup-fixture declarations the operation expressions need, id → src. */
 	readonly fixtureInstances: ReadonlyMap<string, string>;
 	readonly requiredNamePaths: readonly string[];
+}
+
+/**
+ * The case type a registration form creates. `NO_CASE_TYPE` refuses a module
+ * that holds a registration form and names no case type, so every document
+ * that reaches emission names one here.
+ */
+function registrationCaseType(moduleCaseType: string | undefined): string {
+	if (moduleCaseType === undefined || moduleCaseType === "") {
+		throw new Error(
+			"buildCaseOperations reached a registration form whose module names no case type. The validator's NO_CASE_TYPE refuses that module, so check that the caller passes the module's case type.",
+		);
+	}
+	return moduleCaseType;
 }
 
 /** Build every operation block for one form. Pure: returned DOM nodes are
@@ -529,15 +546,15 @@ export function buildCaseOperations(
 						(type) => type.name === (operation.retype ?? operation.caseType),
 					)
 					?.properties.find((property) => property.name === write.property);
-				// Core converts a calculated Date to DateData unless this target
-				// explicitly requests DateTimeData, dropping the clock otherwise.
-				if (destination?.data_type === "datetime")
-					attributes.type = "xsd:dateTime";
 				if (write.condition !== undefined) {
 					attributes.relevant = emitPredicate(write.condition, writePath);
 				}
 				const emitted = emitExpression(write.value, writePath);
-				if (write.property === "external_id") {
+				if (destination?.data_type === "datetime") {
+					// HQ's form builder writes a row's bind with no `type`, so the
+					// leaf stays untyped and the value carries its own clock.
+					attributes.calculate = datetimeCaseValueExpression(emitted);
+				} else if (write.property === "external_id") {
 					optionalScalarTextPaths.push(writePath);
 					attributes.calculate = caseScalarTextValueCalculation(emitted);
 				} else {
@@ -1008,9 +1025,6 @@ export function buildCaseOperations(
 					nodeset: updatePath.child(write.property).toXPath(),
 					calculate: write.value,
 					relevant: write.present,
-					...(write.fixedScalar && {
-						constraint: caseScalarTextValueGuard(".", "allow"),
-					}),
 				}),
 			);
 		}
@@ -1160,8 +1174,7 @@ export function buildCaseOperations(
 				}),
 			);
 		}
-		if (!multiple && form.type !== "registration")
-			instances.add("commcaresession");
+		if (!multiple) instances.add("commcaresession");
 		binds.push(
 			el("bind", {
 				nodeset: casePath.attr("date_modified").toXPath(),
@@ -1181,7 +1194,6 @@ export function buildCaseOperations(
 				calculate: caseScalarTextValueCalculation(
 					sourceRef(subcase.name_update.question_path, namePath),
 				),
-				constraint: caseScalarTextValueGuard(".", "reject"),
 			}),
 			el("bind", {
 				nodeset: createPath.child("owner_id").toXPath(),
@@ -1192,7 +1204,9 @@ export function buildCaseOperations(
 				calculate: multiple
 					? originalContextPath(indexPath.child(indexId), idPath)
 					: form.type === "registration"
-						? "/data/case/@case_id"
+						? // The form's own new case: the datum its entry mints the id
+							// into, which HQ's build also sets the create block's id from.
+							`instance('commcaresession')/session/data/${newCaseIdDatumId(registrationCaseType(moduleCaseType))}`
 						: selectedCaseIdRef,
 			}),
 		);
@@ -1208,9 +1222,6 @@ export function buildCaseOperations(
 						? caseScalarTextValueCalculation(source)
 						: source,
 					relevant: `count(${source}) > 0`,
-					...(fixedScalar && {
-						constraint: caseScalarTextValueGuard(".", "allow"),
-					}),
 				}),
 			);
 		}
@@ -1408,7 +1419,9 @@ export function buildCaseOperations(
 		});
 		bodyChildren.push({
 			...(nested && { parentRepeatPath: scope.authoredParentPath }),
-			element: el("group", { ref: containerPath.toXPath() }, [
+			// A repeat's wrapper group carries no `ref`, as HQ's form builder
+			// writes it (`mugs/types/group.js`, `writeControlRefAttr: null`).
+			element: el("group", {}, [
 				el("repeat", {
 					nodeset: scope.itemPath.toXPath(),
 					"jr:count": countPath.toXPath(),
@@ -1416,6 +1429,19 @@ export function buildCaseOperations(
 				}),
 			]),
 		});
+	}
+
+	// A predicate's own-node read is `./.`, which HQ's form builder does not
+	// take for a read of the question itself (`xpath/selfSteps.ts`).
+	for (const bind of binds) {
+		for (const name of ["calculate", "relevant"] as const) {
+			const value = bind.attribs[name];
+			if (value !== undefined) bind.attribs[name] = spellPredicateSelf(value);
+		}
+	}
+	for (const setvalue of setvalues) {
+		const value = setvalue.attribs.value;
+		if (value !== undefined) setvalue.attribs.value = spellPredicateSelf(value);
 	}
 
 	return {
@@ -1612,18 +1638,6 @@ function typedRuntimeCaseId(id: string, caseType: string): string {
 }
 
 /**
- * Address a value in the same repeat iteration from the bind node whose
- * expression consumes it. `current()` is intentional even for a plain
- * calculate: JavaRosa keeps it anchored on the bind's original context while
- * predicates temporarily move the evaluation context to a `casedb` candidate.
- * A bare `../../../field` would work at the expression root but silently read
- * from the candidate case when nested inside `exists(...where...)`.
- */
-function originalContextPath(from: FormPath, to: FormPath): string {
-	return `current()/${relativeXPath(from, to)}`;
-}
-
-/**
  * uuid → XPath bindings for a lookup itemset filter evaluated at
  * `questionPath`. `current()` is the question node contextualized to its
  * repeat iteration (`ItemSetUtils.populateDynamicChoices` builds the
@@ -1645,29 +1659,6 @@ export function bindLookupFilterFieldPaths(
 				: field.path.toXPath(),
 		]),
 	);
-}
-
-function relativeXPath(from: FormPath, to: FormPath): string {
-	const fromSegments = from.segments();
-	const toSegments = to.segments();
-	let shared = 0;
-	while (
-		shared < fromSegments.length &&
-		shared < toSegments.length &&
-		fromSegments[shared].kind === toSegments[shared].kind &&
-		fromSegments[shared].name === toSegments[shared].name
-	) {
-		shared += 1;
-	}
-	const parts: string[] = [];
-	for (let index = shared; index < fromSegments.length; index += 1) {
-		parts.push("..");
-	}
-	for (let index = shared; index < toSegments.length; index += 1) {
-		const segment = toSegments[index];
-		parts.push(segment.kind === "element" ? segment.name : `@${segment.name}`);
-	}
-	return parts.join("/") || ".";
 }
 
 function formCasePropertyResolver(

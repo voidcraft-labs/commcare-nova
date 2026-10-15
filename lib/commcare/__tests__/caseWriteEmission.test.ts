@@ -194,7 +194,6 @@ it.each(["registration", "followup"] as const)(
 				nodeset: namePath,
 				calculate:
 					"replace(/data/subject, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
-				constraint: "string-length(.) > 0 and string-length(.) <= 255",
 				...(type === "followup" && { relevant: "count(/data/subject) > 0" }),
 			});
 			if (type === "followup") {

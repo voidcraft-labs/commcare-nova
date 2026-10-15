@@ -11,12 +11,14 @@
 import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
+	filledProse,
 	type LanguageTag,
 	localizeTranslationUnit,
 	type ProseTemplate,
 	printProseTemplate,
+	snapshotTranslationUnits,
+	TRANSLATION_FILL_ROLES,
 	type TranslationUnitId,
-	translationUnitsById,
 	type WireStringSource,
 } from "@/lib/domain";
 import { planLanguageWire } from "./languageWire";
@@ -33,6 +35,7 @@ export interface CommCareLocalization {
 	/** `wireText` over a source that may join several units with one space. */
 	wireTextFor(wireCode: string, source: WireStringSource): string;
 	text(wireCode: string, unitId: TranslationUnitId): string;
+	/** A prose unit in one language. */
 	prose(wireCode: string, unitId: TranslationUnitId): ProseTemplate;
 	textMap(unitId: TranslationUnitId): WireLanguageMap;
 	/** `textMap` over a source that may join several units with one space. */
@@ -47,7 +50,11 @@ export interface CommCareLocalization {
 /**
  * Build one immutable lookup facade for an emission run. Missing and stale
  * entries intentionally resolve through `localizeTranslationUnit` to the
- * canonical source, which is Nova's authored fallback contract.
+ * canonical source, which is Nova's authored fallback contract. A form's
+ * itext (a label, hint, help text, validation message or option label) then
+ * takes the fill HQ's form builder applies on every save
+ * (`lib/domain/translationFill.ts::filledProse`), so a save changes no value
+ * Nova wrote; every method reads one unit the same way.
  */
 export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 	const effective = effectiveAppLocalization(doc.localization);
@@ -65,7 +72,7 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 		return tag;
 	};
 
-	const units = translationUnitsById(doc);
+	const units = snapshotTranslationUnits(doc);
 	const requireUnit = (unitId: TranslationUnitId) => {
 		const unit = units.get(unitId);
 		if (unit === undefined) {
@@ -75,9 +82,14 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 		}
 		return unit;
 	};
-	const value = (wireCode: string, unitId: TranslationUnitId) =>
-		localizeTranslationUnit(doc, tagFor(wireCode), requireUnit(unitId))
-			.effective;
+	// A form's itext unit reads the form builder's fill on every method, so
+	// each spelling of one unit in one language agrees.
+	const value = (wireCode: string, unitId: TranslationUnitId) => {
+		const unit = requireUnit(unitId);
+		return TRANSLATION_FILL_ROLES.has(unit.role)
+			? filledProse(doc, unit, tagFor(wireCode))
+			: localizeTranslationUnit(doc, tagFor(wireCode), unit).effective;
+	};
 
 	const text = (wireCode: string, unitId: TranslationUnitId): string => {
 		const localized = value(wireCode, unitId);

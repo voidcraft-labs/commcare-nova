@@ -1136,24 +1136,6 @@ class Predicates(unittest.TestCase):
         self.assertTrue(self.steps(plain, "QueryRequestActivity"))
         self.assertEqual(differing(plain, other), set())
 
-    def test_an_empty_work_area_id_changes_nothing_a_device_shows_or_saves(self):
-        """The rule ``connect-work-area-empty``. Contract: the empty ``work_area_id`` a Vellum save writes into
-        a Connect deliver unit is a node of the form's data with no bind and no question, so a device opens,
-        walks and saves the form with it as without it, and holds the same cases after. Failure it catches: a
-        form Android refuses, or a screen or a save the node changes."""
-        form = "modules-0/forms-0.xml"
-        unit = "<entity_id/><entity_name/></deliver>"
-        with_node = edited(
-            CONNECT_DELIVER,
-            self.work / "work-area.ccz",
-            form,
-            [(unit, "<entity_id/><entity_name/><work_area_id/></deliver>")],
-        )
-        plain, other = self.walked(CONNECT_DELIVER), self.walked(with_node)
-        forms = self.steps(plain, "FormEntryActivity")
-        self.assertTrue(forms and all(step["form"]["saved"]["finishing"] for step in forms))
-        self.assertEqual(differing(plain, other), set())
-
     def test_a_fuzzy_search_matches_a_columns_sort_key_and_only_where_it_has_one(self):
         """Finding 51. Contract: with fuzzy search on, Android matches a misspelled term against each column's
         sort key (``EntityStringFilterer``, ``EntitySortUtil``), so the same list finds a case by a misspelling

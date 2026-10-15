@@ -9,6 +9,7 @@ import { expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { datetimeCaseValueExpression } from "@/lib/commcare/xform/datetimeCaseValue";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
@@ -248,8 +249,14 @@ it.each(operationScenarios)(
 						: "instance('casedb')/casedb/case[@case_id=(/data/destination) and @case_type='patient']/@case_id";
 				for (const name of transitions)
 					expect(bind(`${base}/${name}/case/@case_id`).calculate).toBe(target);
-				expect(bind(`${base}/promote/case/update/changed_type_at`).type).toBe(
-					"xsd:dateTime",
+				// HQ's form builder writes a row's bind untyped, so the leaf is
+				// untyped and its calculate keeps the clock.
+				const changedTypeAt = bind(
+					`${base}/promote/case/update/changed_type_at`,
+				);
+				expect(changedTypeAt.type).toBeUndefined();
+				expect(changedTypeAt.calculate).toBe(
+					datetimeCaseValueExpression("now()"),
 				);
 				expect(bind(`${base}/promote/case/update/case_type`).calculate).toBe(
 					"'visit'",
@@ -363,14 +370,16 @@ it.each(operationScenarios)(
 					expect(bind(questionPath).type).toBe("xsd:string");
 					expect(bind(questionPath).calculate).toContain(`/data/${property}`);
 				}
-				for (const [operation, property] of [
-					["create_visit", "occurred_at"],
-					["before_ordinary", "occurred_at"],
-					["before_ordinary", "reference_at"],
+				for (const [operation, property, value] of [
+					["create_visit", "occurred_at", "now()"],
+					["before_ordinary", "occurred_at", "now()"],
+					["before_ordinary", "reference_at", "'2026-04-17T14:23:41+03:00'"],
 				]) {
-					expect(
-						bind(`${base}/${operation}/case/update/${property}`).type,
-					).toBe("xsd:dateTime");
+					// HQ's form builder writes a row's bind untyped, so the leaf is
+					// untyped and its calculate keeps the clock.
+					const leaf = bind(`${base}/${operation}/case/update/${property}`);
+					expect(leaf.type).toBeUndefined();
+					expect(leaf.calculate).toBe(datetimeCaseValueExpression(value));
 				}
 			}
 			if (scenario === "sequence" && mode === "device") {

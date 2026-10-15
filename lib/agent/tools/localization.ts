@@ -412,6 +412,7 @@ function translationPageDigest(
 					effective: unit.effective,
 					explicit: unit.explicit ?? null,
 					status: unit.status,
+					filledFrom: unit.filledFrom ?? null,
 					owner: unit.owner,
 					breadcrumb: unit.breadcrumb,
 					context: unit.context,
@@ -592,6 +593,9 @@ export const getTranslatableContentTool = {
 						effective: unit.effective,
 						explicit: unit.explicit,
 						status: unit.status,
+						...(unit.filledFrom === undefined
+							? {}
+							: { filledFrom: unit.filledFrom }),
 						owner: unit.owner,
 						breadcrumb: unit.breadcrumb,
 						context: unit.context,

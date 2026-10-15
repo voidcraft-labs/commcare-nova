@@ -69,6 +69,20 @@ describe("repeat wire structure (actual entry and row identities checked by Cont
 				});
 			}
 	});
+	it.each(["user", "literal", "query", "nested-query"] as const)(
+		"wraps each %s repeat in a group with no ref, as HQ's form builder writes it",
+		(scenario) => {
+			const { elements } = containerXml(scenario);
+			const wrappers = elements("repeat").map((repeat) => repeat.parent);
+			expect(wrappers.length).toBeGreaterThan(0);
+			for (const wrapper of wrappers) {
+				expect(wrapper).toMatchObject({ name: "group" });
+				expect(
+					wrapper !== null && "attribs" in wrapper ? wrapper.attribs : {},
+				).toEqual({});
+			}
+		},
+	);
 	it("allocates around all authored sibling names, including later fields", () => {
 		const { elements } = containerXml("count-collision");
 		expect(elements("repeat")[0].attribs["jr:count"]).toBe(

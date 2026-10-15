@@ -18,8 +18,11 @@ import {
 	languageTag,
 	languageTagSchema,
 	languageWireCodeSchema,
+	localizeTranslationUnit,
 	makeTranslationUnitId,
 	parseLanguageTag,
+	projectLocalizedField,
+	projectLocalizedFields,
 	proseText,
 	simpleSearchInputDef,
 	translationSourceFingerprint,
@@ -713,5 +716,151 @@ describe("translation unit inventory", () => {
 				affectedCount: 1,
 			}),
 		]);
+	});
+});
+
+describe("blank translations", () => {
+	const FIELD = testUuid("blank-translation-field");
+
+	/** An English-source app with a Spanish target whose question label and
+	 * hint the test translates. */
+	function fixture(hint: string) {
+		const doc = buildDoc({
+			appName: "Clinic",
+			modules: [
+				{
+					name: "Patients",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "blank-translation-field",
+									kind: "text",
+									id: "name",
+									label: "Name",
+									hint,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
+			translations: { spa: {} },
+		};
+		return doc;
+	}
+
+	function translate(
+		doc: ReturnType<typeof fixture>,
+		slot: "label" | "hint",
+		text: string,
+	) {
+		const unit = collectTranslationUnits(doc).find(
+			(candidate) =>
+				candidate.id === makeTranslationUnitId("field", FIELD, slot),
+		);
+		if (unit === undefined || doc.localization === undefined) {
+			throw new Error(`No ${slot} unit`);
+		}
+		const spa = doc.localization.translations.spa ?? {};
+		spa[unit.id] = {
+			value: proseText(text),
+			sourceFingerprint: unit.sourceFingerprint,
+			origin: "human",
+			review: "reviewed",
+			translatedFrom: "eng",
+		};
+		return unit;
+	}
+
+	it("projects a worker's filled text only when asked, in the source language too", () => {
+		const doc = fixture("");
+		translate(doc, "label", "");
+		translate(doc, "hint", "Nombre completo");
+		expectAdmittedDoc(doc);
+
+		const stored = projectLocalizedFields(doc, "spa")[FIELD];
+		const filled = projectLocalizedFields(doc, "spa", { filled: true })[FIELD];
+		expect(stored).toMatchObject({
+			label: proseText(""),
+			hint: proseText("Nombre completo"),
+		});
+		expect(filled).toMatchObject({
+			label: proseText("Name"),
+			hint: proseText("Nombre completo"),
+		});
+
+		// The English hint is blank beside a Spanish one: a worker reading
+		// English sees the Spanish text, and the stored English stays blank.
+		expect(projectLocalizedFields(doc, "eng")[FIELD]).toMatchObject({
+			hint: proseText(""),
+		});
+		expect(
+			projectLocalizedFields(doc, "eng", { filled: true })[FIELD],
+		).toMatchObject({ hint: proseText("Nombre completo") });
+	});
+
+	it("gives the stored field itself where the fill changes nothing", () => {
+		// One language: nothing can be filled, so a worker reads the stored
+		// field, by reference.
+		const single = fixture("");
+		single.localization = undefined;
+		expectAdmittedDoc(single);
+		expect(
+			projectLocalizedField(single, "eng", FIELD, undefined, { filled: true }),
+		).toBe(single.fields[FIELD]);
+		expect(projectLocalizedFields(single, "eng", { filled: true })).toBe(
+			single.fields,
+		);
+
+		// The source language with every slot written: no slot is filled.
+		const written = fixture("Full name");
+		translate(written, "label", "");
+		expectAdmittedDoc(written);
+		expect(
+			projectLocalizedField(written, "eng", FIELD, undefined, { filled: true }),
+		).toBe(written.fields[FIELD]);
+		// The same document in Spanish fills the blank label.
+		expect(
+			projectLocalizedField(written, "spa", FIELD, undefined, { filled: true }),
+		).toMatchObject({ label: proseText("Name") });
+	});
+
+	it("marks a blank translation beside text missing, naming the language workers read", () => {
+		const doc = fixture("Full name");
+		const unit = translate(doc, "label", "");
+		expectAdmittedDoc(doc);
+
+		expect(localizeTranslationUnit(doc, "spa", unit)).toMatchObject({
+			status: "missing",
+			filledFrom: "eng",
+			effective: proseText(""),
+			explicit: { value: proseText(""), review: "reviewed" },
+		});
+		const statuses = collectLocalizedTranslationUnits(doc, "spa")
+			.filter((candidate) => candidate.owner.kind === "field")
+			.map((candidate) => [candidate.role, candidate.status]);
+		expect(statuses).toEqual([
+			["field-label", "missing"],
+			["field-hint", "missing"],
+		]);
+	});
+
+	it("keeps the status of a translation blank in every language", () => {
+		const doc = fixture("");
+		const unit = translate(doc, "hint", "");
+		expectAdmittedDoc(doc);
+
+		const localized = localizeTranslationUnit(doc, "spa", unit);
+		expect(localized).toMatchObject({ status: "ready" });
+		expect(localized.filledFrom).toBeUndefined();
 	});
 });

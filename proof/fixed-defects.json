@@ -1481,5 +1481,650 @@
 		"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
 		"kind": "removed",
 		"control": "targeted-hq-side-state"
+	},
+	{
+		"id": "d13-form-defaults-vellum-again-case-case-id",
+		"defect": 13,
+		"part": "#form/ defaults and block ids",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/~1data~1case~1@case_id",
+		"control": "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0"
+	},
+	{
+		"id": "d13-form-defaults-vellum-again-mug-defaultvalue-error-referencing-node-form",
+		"defect": 13,
+		"part": "#form/ defaults and block ids",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/defaultValue/mug-defaultValue-error/You are referencing a node in this form. This can cause errors in the form",
+		"control": "targeted-load-time-values"
+	},
+	{
+		"id": "d13-form-defaults-vellum-case-case-id",
+		"defect": 13,
+		"part": "#form/ defaults and block ids",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/~1data~1case~1@case_id",
+		"control": "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0"
+	},
+	{
+		"id": "d13-form-defaults-vellum-mug-defaultvalue-error-referencing-node-form",
+		"defect": 13,
+		"part": "#form/ defaults and block ids",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/defaultValue/mug-defaultValue-error/You are referencing a node in this form. This can cause errors in the form",
+		"control": "targeted-load-time-values"
+	},
+	{
+		"id": "d13-blank-translations-form-translation-blank-beside-default-text",
+		"defect": 13,
+		"part": "blank translations",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:model~1itext~1translation~1text~1value/refused/blank-beside-default-text",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-form-itext-translation",
+		"defect": 13,
+		"part": "blank translations",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[*]/text()",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-form-translation-value-form-markdown",
+		"defect": 13,
+		"part": "blank translations",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=markdown]/text()",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-source-itext-translation",
+		"defect": 13,
+		"part": "blank translations",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[*]/text()",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-source-translation-value-form-markdown",
+		"defect": 13,
+		"part": "blank translations",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=markdown]/text()",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-caption",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/caption",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-caption-markdown",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/caption_markdown",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-help",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/children/*/help",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-response-hint",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/tree/*/children/*/hint",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-caption",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/caption",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-caption-markdown",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/caption_markdown",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-help",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/children/*/help",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-formplayer-vellum-tree-hint",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/tree/*/children/*/hint",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-webapps-vellum-group-label",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/form/groups/*/label",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-blank-translations-webapps-vellum-question-label",
+		"defect": 13,
+		"part": "blank translations, shown in another language",
+		"check": "proof4",
+		"artifact": "webapps@vellum@*",
+		"path": "/runs/*/screens/*/form/questions/*/label",
+		"control": "localization-optional"
+	},
+	{
+		"id": "d13-datetime-leaves-form-jr-type-datetime-savetocase-leaf-type",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/jr-type:dateTime/refused/savetocase-leaf-type",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-datetime-leaves-blocks-case-update",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "proof4",
+		"artifact": "case_blocks@vellum@*",
+		"path": "/runs/*/blocks/*/__nova_operations~1*~1case/*/update/*",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-datetime-leaves-form-update-type",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/*/case/update/*]/@type",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-datetime-leaves-source-update-type",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_operations/*/case/update/*]/@type",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-datetime-leaves-trace-case-update",
+		"defect": 13,
+		"part": "datetime leaves",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/submission/data/__nova_operations[*]/*/case[*]/update[*]/*/text()",
+		"control": "case-operation-sequence"
+	},
+	{
+		"id": "d13-shadows-build-create-all-files-xformvalidationerror",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "build@vellum@*",
+		"path": "/create_all_files/XFormValidationError",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-shadows-source-nova-constraint-calculate-8b80",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_constraint_*]/@calculate",
+		"control": "container-query-conditional-parent"
+	},
+	{
+		"id": "d13-shadows-source-bind-nodeset-constraint",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*]/@constraint",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-shadows-source-nova-constraint-calculate-4fa3",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_constraint_*]/@calculate",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-shadows-source-order",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/order()",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-shadows-trace-create-all-files-xformvalidationerror",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/unbuildable/raised/create_all_files/XFormValidationError",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-shadows-trace-validate-app-validation-error",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/unbuildable/validate_app/modules/*/forms/*/validation error",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-shadows-validate-validation-error",
+		"defect": 13,
+		"part": "shadows",
+		"check": "proof4",
+		"artifact": "validate_app@vellum@*",
+		"path": "/modules/*/forms/*/validation error",
+		"control": "container-query-conditional"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-bindconstraint-in-a-savetocase-block",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:model~1bind@constraint/refused/in-a-savetocase-block",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-case-name-constraint-d109",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-multiple-repeat"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-case-name-constraint-534c",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_subcases/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-repeat"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-case-name-constraint-75e2",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_subcases/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-case-name-constraint-9fc5",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-multiple"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-case-name-constraint-e002",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/update/case_name]/@constraint",
+		"control": "case-capture-multiple"
+	},
+	{
+		"id": "d13-wrapper-conditions-form-case-name-constraint-82e0",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_subcases/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d13-wrapper-conditions-source-case-name-constraint-133a",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-multiple-repeat"
+	},
+	{
+		"id": "d13-wrapper-conditions-source-case-name-constraint-68f8",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/__nova_subcases/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-repeat"
+	},
+	{
+		"id": "d13-wrapper-conditions-source-case-name-constraint-01dc",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*/item/__nova_subcases/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-query"
+	},
+	{
+		"id": "d13-wrapper-conditions-source-case-name-constraint-8792",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-multiple"
+	},
+	{
+		"id": "d13-wrapper-conditions-source-case-name-constraint-aa5b",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/update/case_name]/@constraint",
+		"control": "case-capture-multiple"
+	},
+	{
+		"id": "d13-wrapper-conditions-source-case-name-constraint-5f86",
+		"defect": 13,
+		"part": "wrapper conditions and leaf guards",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/__nova_subcases/__nova_subcase_*/case/create/case_name]/@constraint",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d14-data-node-name-form-instance-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/@name",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d14-data-node-name-source-instance-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/instance[*]/data[*]/@name",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d14-data-node-name-trace-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/submission/data/@name",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d45-blanked-case-reads-form-bind-nodeset-calculate",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*]/@calculate",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d45-blanked-case-reads-source-bind-nodeset-calculate",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/model[*]/bind[@nodeset=/data/*]/@calculate",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d45-blanked-case-reads-trace",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/submission/data/*/text()",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d46-form-renamed-form-title",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "form:*@vellum@*",
+		"path": "/html/head[*]/title[*]/text()",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d46-form-renamed-source-title",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "source:form:*@vellum@*",
+		"path": "/html/head[*]/title[*]/text()",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d46-form-renamed-trace-title",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "trace@vellum@*",
+		"path": "/runs/*/trace/*/title",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d47-unknown-question-vellum-again-logic-bad-path-warning-case-5a98",
+		"defect": 47,
+		"part": "unknown-question warnings",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/#case~1*",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d47-unknown-question-vellum-again-logic-bad-path-warning-case-75f1",
+		"defect": 47,
+		"part": "unknown-question warnings",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/relevantAttr/logic-bad-path-warning/#case~1*",
+		"control": "expander-form-hashtag-expansion-emits-the-editor-1daa5537-0"
+	},
+	{
+		"id": "d47-unknown-question-vellum-logic-bad-path-warning-case-9e43",
+		"defect": 47,
+		"part": "unknown-question warnings",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/calculateAttr/logic-bad-path-warning/#case~1*",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d47-unknown-question-vellum-logic-bad-path-warning-case-52b8",
+		"defect": 47,
+		"part": "unknown-question warnings",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/relevantAttr/logic-bad-path-warning/#case~1*",
+		"control": "expander-form-hashtag-expansion-emits-the-editor-1daa5537-0"
+	},
+	{
+		"id": "d45-blanked-case-id-owner-and-st-formplayer-vellum-data-text",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/text()",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-output-data-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/@name",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d45-blanked-case-id-owner-and-st-formplayer-vellum-data-text-2",
+		"defect": 45,
+		"part": "blanked case id, owner and status reads",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/text()",
+		"control": "standard-case-reads"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-instance-data-name",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/@name",
+		"control": "targeted-form-links-hidden-and-fallback"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-vellum-output-data-name-2",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof4",
+		"artifact": "formplayer@vellum@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/instanceXml/output/data/@name",
+		"control": "case-extension-registration"
+	},
+	{
+		"id": "d14-data-node-name-formplayer-local-ccz-submit-submitresponsemessage",
+		"defect": 14,
+		"part": "data node name",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submit/submitResponseMessage",
+		"kind": "changed",
+		"control": "targeted-custom-tile-after-59"
+	},
+	{
+		"id": "d46-android-proof4-vellum-form-formentryinstancestate-getdefaultformtitle-changed",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle",
+		"kind": "changed",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d46-android-proof4-vellum-form-formtitle-changed",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/formTitle",
+		"kind": "changed",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d46-android-proof4-vellum-form-saved-records-formrecord-getdisplayname-changed",
+		"defect": 46,
+		"part": "form renamed in HQ's editing language",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName",
+		"kind": "changed",
+		"control": "localization-bilingual"
+	},
+	{
+		"id": "d3-save-to-case-read-proof4-editor-vellum-again-case-1-error-0",
+		"defect": 3,
+		"part": "unknown question for a property only a Save to Case block writes",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/constraintAttr/logic-bad-path-warning/#case~1*",
+		"kind": "error",
+		"values": {
+			"before": null,
+			"after": {
+				"level": "warning",
+				"message": "Unknown question: #case/risk_level",
+				"type": "Text",
+				"reference": "#case/risk_level"
+			}
+		},
+		"control": "targeted-save-to-case-read"
+	},
+	{
+		"id": "d3-save-to-case-read-proof4-editor-vellum-case-1-error-1",
+		"defect": 3,
+		"part": "unknown question for a property only a Save to Case block writes",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/constraintAttr/logic-bad-path-warning/#case~1*",
+		"kind": "error",
+		"values": {
+			"before": null,
+			"after": {
+				"level": "warning",
+				"message": "Unknown question: #case/risk_level",
+				"type": "Text",
+				"reference": "#case/risk_level"
+			}
+		},
+		"control": "targeted-save-to-case-read"
 	}
 ]

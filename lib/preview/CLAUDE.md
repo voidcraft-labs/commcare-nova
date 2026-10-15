@@ -263,7 +263,8 @@ trailing empty ids do not.
 
 The structural world includes nodes the emitted form supplies even when Nova
 has no value for them. The main `/data` root exposes the same `uiVersion`,
-`version`, and slugged `name` attributes as the XForm. Preview's `version`
+`version`, and `name` attributes as the XForm; `name` is the form's name in the
+default language (`lib/domain/formWireName.ts::formWireName`). Preview's `version`
 stays `1`: a submission's version is each export path's own counter (HQ's
 form version on an HQ build, the app's sequence in a local archive), the
 client engine also runs documents with unsaved edits, which have no

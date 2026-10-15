@@ -3230,8 +3230,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits this today: save-breaking; in-envelope: the constraint on the source question)",
-			"markers": ["save-breaking"]
+			"cell": "— (in-envelope: the constraint on the source question)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3282,8 +3282,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits this today: save-breaking; in-envelope: untyped `if(p = '', '', format-date(coalesce(p, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`)",
-			"markers": ["save-breaking"]
+			"cell": "— (in-envelope: untyped `if(p = '', '', format-date(coalesce(p, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`)",
+			"markers": []
 		},
 		"gates": []
 	},

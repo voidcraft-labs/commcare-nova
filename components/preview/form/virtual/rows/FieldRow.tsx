@@ -32,6 +32,7 @@ import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useFilledField } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CommitOutcome,
@@ -66,6 +67,10 @@ export const FieldRow = memo(function FieldRow({
 }: FieldRowProps) {
 	const q = useLocalizedField(uuid);
 	const language = useBuilderLanguage();
+	/* What a worker reads: blank translations take the form builder's fill.
+	 * The rendered text comes from it; each TextEditable edits `q`'s stored
+	 * value. */
+	const shown = useFilledField(language.language, uuid);
 	const labelEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "label"),
 	);
@@ -141,7 +146,9 @@ export const FieldRow = memo(function FieldRow({
 		renderPreview,
 	});
 
-	if (!q) return null;
+	if (!q || !shown) return null;
+	const shownLabel = "label" in shown ? shown.label : undefined;
+	const shownHint = "hint" in shown ? shown.hint : undefined;
 
 	const displayState = {
 		...state,
@@ -166,7 +173,7 @@ export const FieldRow = memo(function FieldRow({
 				    CommCare renders a question's `<value form="image">`. Visual-only
 				    in edit mode: the click selects the field. */}
 				<MediaDisplay media={q.label_media} interactive={false} />
-				{q.label && (
+				{q.label && shownLabel && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">
 							<TextEditable
@@ -175,7 +182,7 @@ export const FieldRow = memo(function FieldRow({
 								fieldType="label"
 							>
 								<LabelContent
-									label={q.label}
+									label={shownLabel}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode
 									className={FIELD_STYLES.label}
@@ -187,14 +194,14 @@ export const FieldRow = memo(function FieldRow({
 						)}
 					</div>
 				)}
-				{q.hint && (
+				{q.hint && shownHint && (
 					<TextEditable
 						value={q.hint}
 						onSave={saveField ? (v) => saveField("hint", v) : undefined}
 						fieldType="hint"
 					>
 						<LabelContent
-							label={q.hint}
+							label={shownHint}
 							resolvedLabel={state.resolvedHint}
 							isEditMode
 							className={FIELD_STYLES.hint}
@@ -211,13 +218,13 @@ export const FieldRow = memo(function FieldRow({
 				    (CommCare hides it behind a "?"); both slots are input-kind
 				    only, so guard the access. */}
 				<FieldHelp
-					help={"help" in q ? q.help : undefined}
+					help={"help" in shown ? shown.help : undefined}
 					resolvedHelp={state.resolvedHelp}
 					helpMedia={"help_media" in q ? q.help_media : undefined}
 					interactive={false}
 				/>
 				<FieldRenderer
-					field={q}
+					field={shown}
 					state={displayState}
 					onChange={(value) => controller.onValueChangeAsync(uuid, value)}
 					onBlur={() => controller.onTouchAsync(uuid)}

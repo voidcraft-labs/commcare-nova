@@ -50,12 +50,10 @@ import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
+import { newCaseIdDatumId } from "@/lib/commcare/session";
 import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
 import { SESSION_USERCASE_ID } from "@/lib/commcare/usercaseWire";
-import {
-	caseScalarTextValueCalculation,
-	caseScalarTextValueGuard,
-} from "@/lib/commcare/xform/caseOps";
+import { caseScalarTextValueCalculation } from "@/lib/commcare/xform/caseOps";
 import {
 	appendChildren,
 	ensureInstance,
@@ -314,7 +312,6 @@ function buildCaseBlocks(
 			el("bind", {
 				nodeset: primaryCreatePath.child("case_name").toXPath(),
 				calculate: caseScalarTextValueCalculation(validatedNamePath),
-				constraint: caseScalarTextValueGuard(".", "reject"),
 			}),
 		);
 		// CommCare forces the case-name question required so a case can never be
@@ -341,7 +338,7 @@ function buildCaseBlocks(
 			el("setvalue", {
 				ref: primaryCasePath.attr("case_id").toXPath(),
 				event: "xforms-ready",
-				value: `instance('commcaresession')/session/data/case_id_new_${primaryCaseType()}_0`,
+				value: `instance('commcaresession')/session/data/${newCaseIdDatumId(primaryCaseType())}`,
 			}),
 		);
 		// Conditional-open forms get a `<bind relevant>` on the case element.
@@ -474,14 +471,6 @@ function buildCaseBlocks(
 							? caseScalarTextValueCalculation(resolvedQPath)
 							: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
-					...(validProp === "external_id" || validProp === "case_name"
-						? {
-								constraint: caseScalarTextValueGuard(
-									".",
-									validProp === "external_id" ? "allow" : "reject",
-								),
-							}
-						: {}),
 				}),
 			);
 		}
@@ -643,7 +632,6 @@ function buildCaseBlocks(
 			el("bind", {
 				nodeset: subcaseCreatePath.child("case_name").toXPath(),
 				calculate: caseScalarTextValueCalculation(namePath),
-				constraint: caseScalarTextValueGuard(".", "reject"),
 			}),
 		);
 		// CommCare forces every opened case's name question required, subcases
@@ -803,11 +791,6 @@ function buildCaseBlocks(
 							? caseScalarTextValueCalculation(resolvedQPath)
 							: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
-					...(validProp === "external_id"
-						? {
-								constraint: caseScalarTextValueGuard(".", "allow"),
-							}
-						: {}),
 				}),
 			);
 		}

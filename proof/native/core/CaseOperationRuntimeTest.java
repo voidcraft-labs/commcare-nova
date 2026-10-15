@@ -71,6 +71,9 @@ public class CaseOperationRuntimeTest {
             this(scenario, hq, null);
         }
         Run(String scenario, boolean hq, Instant clock) throws Exception {
+            this(scenario, clock, new FormParseInit("/case/operation-" + scenario + (hq ? ".hq.xml" : ".xml")));
+        }
+        Run(String scenario, Instant clock, FormParseInit parsed) throws Exception {
             this.scenario = scenario;
             for (String[] seed : new String[][]{{"patient-1", "patient", "Original name"}, {"patient-2", "patient", "Other patient"}, {"visit-1", "visit", "Other visit"}}) {
                 Case record = new Case(seed[2], seed[1]);
@@ -106,7 +109,7 @@ public class CaseOperationRuntimeTest {
                 child.setIndex(new CaseIndex("parent", "household", "household-1"));
                 sandbox.getCaseStorage().write(child);
             }
-            parsed = new FormParseInit("/case/operation-" + scenario + (hq ? ".hq.xml" : ".xml"));
+            this.parsed = parsed;
             form = parsed.getFormDef();
             if (clock != null) {
                 // Override only the volatile clock through Core's supported
@@ -308,6 +311,130 @@ public class CaseOperationRuntimeTest {
             }
             assertEquals(32, captures);
             assertEquals(256, prompts);
+        } finally {
+            DateUtils.resetTimezoneProvider();
+        }
+    }
+    /** The one spelling Nova writes for a Save to Case leaf that writes a datetime property, on an untyped leaf
+     * (lib/commcare/xform/datetimeCaseValue.ts::datetimeCaseValueExpression). */
+    private static String untypedDatetime(String expression) {
+        return "if(" + expression + " = '', '', format-date(coalesce(" + expression + ", ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))";
+    }
+    private static final String CASE_NAMESPACE = "http://commcarehq.org/case/transaction/v2";
+    private static final String XFORMS = "http://www.w3.org/2002/xforms";
+    /** The five datetime writes, by the leaf each is written to: a datetime question, the clock, a saved datetime
+     * string with an offset, a blank and a date-only string. */
+    private static final String[][] DATETIME_WRITES = {
+        {"dt_question", "/data/visible_at"},
+        {"dt_now", "now()"},
+        {"dt_stored", "'2026-04-17T14:23:41+03:00'"},
+        {"dt_blank", "''"},
+        {"dt_date", "'2026-04-17'"},
+    };
+    /** The absolute path of an instance node, as a bind's node set names it. */
+    private static String instancePath(org.w3c.dom.Node node) {
+        StringBuilder path = new StringBuilder();
+        for (org.w3c.dom.Node at = node; at != null && !"instance".equals(at.getLocalName()); at = at.getParentNode()) {
+            path.insert(0, "/" + at.getLocalName());
+        }
+        return path.toString();
+    }
+    /**
+     * The family's sequence form with the leaves of DATETIME_WRITES (the first {@code rows} of them) added to the
+     * update of its operation that writes reference_at, each bound as Nova binds a datetime write
+     * ({@code typed}: as the leaf was written before, typed xsd:dateTime with the bare value).
+     */
+    private FormParseInit datetimeForm(int rows, boolean typed) throws Exception {
+        javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        org.w3c.dom.Document document;
+        try (java.io.InputStream stream = getClass().getResourceAsStream("/case/operation-sequence" + (hq ? ".hq.xml" : ".xml"))) {
+            document = factory.newDocumentBuilder().parse(stream);
+        }
+        org.w3c.dom.NodeList written = document.getElementsByTagNameNS(CASE_NAMESPACE, "reference_at");
+        assertEquals("One operation writes reference_at", 1, written.getLength());
+        org.w3c.dom.Node update = written.item(0).getParentNode();
+        String base = instancePath(update);
+        org.w3c.dom.Element model = (org.w3c.dom.Element)document.getElementsByTagNameNS(XFORMS, "model").item(0);
+        // The form holds Nova's own spelling of a datetime write: the clock, on an untyped leaf.
+        org.w3c.dom.NodeList binds = document.getElementsByTagNameNS(XFORMS, "bind");
+        boolean spelled = false;
+        for (int index = 0; index < binds.getLength(); index++) {
+            org.w3c.dom.Element bind = (org.w3c.dom.Element)binds.item(index);
+            if ((base + "/occurred_at").equals(bind.getAttribute("nodeset"))) {
+                assertEquals(untypedDatetime("now()"), bind.getAttribute("calculate"));
+                assertFalse("A datetime write's leaf carries no type", bind.hasAttribute("type"));
+                spelled = true;
+            }
+        }
+        assertTrue("The operation writes occurred_at", spelled);
+        for (int row = 0; row < rows; row++) {
+            String name = DATETIME_WRITES[row][0], value = DATETIME_WRITES[row][1];
+            update.appendChild(document.createElementNS(CASE_NAMESPACE, name));
+            org.w3c.dom.Element bind = document.createElementNS(XFORMS, "bind");
+            bind.setAttribute("nodeset", base + "/" + name);
+            if (typed) bind.setAttribute("type", "xsd:dateTime");
+            bind.setAttribute("calculate", typed ? value : untypedDatetime(value));
+            model.appendChild(bind);
+        }
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        javax.xml.transform.TransformerFactory.newInstance().newTransformer()
+            .transform(new javax.xml.transform.dom.DOMSource(document), new javax.xml.transform.stream.StreamResult(bytes));
+        try (java.io.InputStream input = new ByteArrayInputStream(bytes.toByteArray())) {
+            return new FormParseInit(org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input));
+        }
+    }
+    /** What Core submits at each leaf of DATETIME_WRITES, the first {@code rows} of them, by leaf. */
+    private java.util.Map<String, String> submittedDatetimes(int rows, boolean typed, Instant instant) throws Exception {
+        Run run = new Run("sequence", instant, datetimeForm(rows, typed));
+        run.answer("/data/enabled", "yes");
+        FormEntryController answer = new FormEntryController(clockQuestion(run.form, "/data/visible_at"));
+        assertEquals(FormEntryController.ANSWER_OK, answer.answerQuestion(new DateTimeData(Date.from(instant))));
+        run.form.postProcessInstance();
+        byte[] xml = new XFormSerializingVisitor().serializeInstance(run.form.getMainInstance());
+        javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        org.w3c.dom.Document submitted = factory.newDocumentBuilder().parse(new ByteArrayInputStream(xml));
+        java.util.Map<String, String> found = new java.util.LinkedHashMap<>();
+        for (int row = 0; row < rows; row++) {
+            org.w3c.dom.NodeList leaf = submitted.getElementsByTagNameNS(CASE_NAMESPACE, DATETIME_WRITES[row][0]);
+            assertEquals("One submitted " + DATETIME_WRITES[row][0], 1, leaf.getLength());
+            found.put(DATETIME_WRITES[row][0], leaf.item(0).getTextContent());
+        }
+        return found;
+    }
+    /** An instant as the device prints it in {@code zone}: milliseconds, and the offset as Core's %Z spells it. */
+    private static String devicePrinted(Instant instant, String zone) {
+        ZonedDateTime time = instant.atZone(ZoneId.of(zone));
+        int minutes = time.getOffset().getTotalSeconds() / 60;
+        String offset = "Z";
+        if (minutes != 0) {
+            int absolute = Math.abs(minutes);
+            offset = String.format(Locale.ROOT, "%s%02d", minutes < 0 ? "-" : "+", absolute / 60);
+            if (absolute % 60 != 0) offset += String.format(Locale.ROOT, ":%02d", absolute % 60);
+        }
+        return time.format(DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSS", Locale.ROOT)) + offset;
+    }
+    @Test public void datetimeWritesKeepTheInstantOnAnUntypedLeaf() throws Exception {
+        Instant instant = Instant.parse("2026-01-02T20:15:30.123Z");
+        try {
+            for (String zone : new String[]{"UTC", "Asia/Kolkata"}) {
+                clockZone(zone, instant);
+                java.util.Map<String, String> untyped = submittedDatetimes(DATETIME_WRITES.length, false, instant);
+                String context = "Device in " + zone;
+                assertEquals(context, devicePrinted(instant, zone), untyped.get("dt_question"));
+                assertEquals(context, devicePrinted(instant, zone), untyped.get("dt_now"));
+                // A saved datetime string is parsed and printed again in the device's zone; a date-only string is
+                // that day's local midnight; a blank stays blank.
+                assertEquals(context, devicePrinted(Instant.parse("2026-04-17T11:23:41Z"), zone), untyped.get("dt_stored"));
+                assertEquals(context, "", untyped.get("dt_blank"));
+                assertEquals(context, devicePrinted(java.time.LocalDate.parse("2026-04-17").atStartOfDay(ZoneId.of(zone)).toInstant(), zone),
+                    untyped.get("dt_date"));
+                // The question and the clock submit what the typed leaf submitted before.
+                java.util.Map<String, String> typed = submittedDatetimes(2, true, instant);
+                assertEquals(context, typed.get("dt_question"), untyped.get("dt_question"));
+                assertEquals(context, typed.get("dt_now"), untyped.get("dt_now"));
+            }
         } finally {
             DateUtils.resetTimezoneProvider();
         }

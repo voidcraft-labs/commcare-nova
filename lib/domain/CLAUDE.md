@@ -86,6 +86,12 @@ exact multiset and identity of every protected reference part. A source edit
 therefore makes overlays stale rather than rewriting them, while removal of the
 owning slot prunes its now-orphaned entries.
 
+`translationFill.ts::filledProse` is the fill a worker reads, which is the one
+HQ's form builder applies on a save: a blank itext value takes the default
+language's text, then the first non-blank value in language order, and stays
+blank only where every language is blank. Preview and the emitter read it;
+every editor keeps showing the stored value.
+
 `collectTranslationCoverageDiagnostics` is the adjacent honesty boundary for
 worker-facing carriers that the static overlay cannot represent. Lookup-backed
 labels on form fields and Search prompts, Connect text, shared media, and recipient-owned automation messages are

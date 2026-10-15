@@ -120,7 +120,6 @@ function caseOutput(property: string) {
 		element: "output",
 		attributes: {
 			value: `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/${property}`,
-			"vellum:value": `#case/${property}`,
 		},
 	};
 }
@@ -400,32 +399,17 @@ describe("expandDoc", () => {
 		).toMatchObject({
 			calculate:
 				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/total_visits + 1",
-			"vellum:calculate": "#case/total_visits + 1",
 		});
-		expect(one(xform, "vellum:hashtags").parent).toMatchObject({
-			name: "h:head",
-		});
+		// A case read carries no shadow: HQ's form builder names a listed
+		// property itself from the raw casedb path, so the head holds no
+		// hashtag maps either.
 		expect(
-			JSON.parse(textContent(one(xform, "vellum:hashtags")))[
-				"#case/total_visits"
+			one(xform, "bind", { nodeset: "/data/total_visits" }).attribs[
+				"vellum:calculate"
 			],
-		).toBe(
-			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/total_visits",
-		);
-		expect(
-			JSON.parse(textContent(one(xform, "vellum:hashtagTransforms"))).prefixes[
-				"#case/"
-			],
-		).toBe(
-			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
-		);
-		expect(
-			elements(xform).filter(
-				(element) =>
-					"vellum:hashtags" in element.attribs ||
-					"vellum:hashtagTransforms" in element.attribs,
-			),
-		).toEqual([]);
+		).toBeUndefined();
+		expect(elements(xform, "vellum:hashtags")).toEqual([]);
+		expect(elements(xform, "vellum:hashtagTransforms")).toEqual([]);
 	});
 
 	it("wires registration form actions correctly", () => {
@@ -528,9 +512,13 @@ describe("expandDoc", () => {
 		).toMatchObject({
 			value:
 				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/full_name",
-			"vellum:value": "#case/full_name",
 			event: "xforms-ready",
 		});
+		expect(
+			one(xform, "setvalue", { ref: "/data/full_name" }).attribs[
+				"vellum:value"
+			],
+		).toBeUndefined();
 	});
 
 	it("omits itext label for hidden fields without a label", () => {
@@ -1808,10 +1796,14 @@ describe("#form/ hashtag expansion", () => {
 		expect(
 			one(xform, "setvalue", { ref: "/data/total" }).attribs,
 		).toMatchObject({
-			value: "/data/score_a + /data/score_b",
-			"vellum:value": "#form/score_a + #form/score_b",
+			value: "current()/../score_a + current()/../score_b",
 			event: "xforms-ready",
 		});
+		// HQ's form builder refuses a `#form/` reference in a default, so the
+		// read is relative to the question it sets and carries no shadow.
+		expect(
+			one(xform, "setvalue", { ref: "/data/total" }).attribs["vellum:value"],
+		).toBeUndefined();
 	});
 
 	it("generates vellum:nodeset on all binds", () => {
@@ -2159,20 +2151,17 @@ describe("#form/ hashtag expansion", () => {
 				"/data/selected_medication != '' and contains(lower-case(" +
 				expandCaseToWire(0, "allergen") +
 				"), 'penicillin')",
-			"vellum:relevant":
-				"#form/selected_medication != '' and contains(lower-case(#case/allergen), 'penicillin')",
 		});
-		expect(JSON.parse(textContent(one(xform, "vellum:hashtags")))).toEqual({
-			"#case/allergen": expandCaseToWire(0, "allergen"),
-		});
+		// The shadow carries `#form/` alone, so an expression that reads a case
+		// has none, and the raw per-type namespace never reaches the wire.
 		expect(
-			JSON.parse(textContent(one(xform, "vellum:hashtagTransforms"))),
-		).toEqual({
-			prefixes: {
-				"#case/":
-					"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
-			},
-		});
+			one(xform, "bind", { nodeset: "/data/penicillin_allergy_alert" }).attribs[
+				"vellum:relevant"
+			],
+		).toBeUndefined();
+		expect(elements(xform, "vellum:hashtags")).toEqual([]);
+		expect(elements(xform, "vellum:hashtagTransforms")).toEqual([]);
+		expect(xform).not.toContain("#patient/");
 		expect(
 			hq.modules[0].forms[0].case_references_data.load[
 				"/data/penicillin_allergy_alert"
@@ -2181,10 +2170,10 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("records no case_id load for a registration form — the ref reads the form-local new-case id", () => {
-		// `#<own_type>/case_id` on a registration form expands to
-		// `/data/case/@case_id` (the registration narrowing), not a casedb read,
-		// so a `#case/case_id` load entry would tell HQ's App Summary the form
-		// loads a case property it never touches.
+		// `#<own_type>/case_id` on a registration form reads the session datum
+		// the entry mints the new case's id into (the registration narrowing),
+		// not a casedb read, so a `#case/case_id` load entry would tell HQ's App
+		// Summary the form loads a case property it never touches.
 		const doc = buildDoc({
 			appName: "RegLoad",
 			modules: [
@@ -2230,8 +2219,13 @@ describe("#form/ hashtag expansion", () => {
 		expect(hq.modules[0].forms[0].case_references_data.load).toEqual({});
 		const xform = Object.values(hq._attachments)[0];
 		const bind = one(xform, "bind", { nodeset: "/data/tracking_code" });
-		expect(bind.attribs.calculate).toBe("concat('P-', /data/case/@case_id)");
+		expect(bind.attribs.calculate).toBe(
+			"concat('P-', instance('commcaresession')/session/data/case_id_new_patient_0)",
+		);
 		expect(bind.attribs["vellum:calculate"]).toBeUndefined();
+		expect(one(xform, "instance", { id: "commcaresession" }).attribs.src).toBe(
+			"jr://instance/session",
+		);
 	});
 
 	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {
@@ -2502,8 +2496,12 @@ describe("conditional required", () => {
 		).toMatchObject({
 			required:
 				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/risk = 'high'",
-			"vellum:requiredCondition": "#case/risk = 'high'",
 		});
+		expect(
+			one(xform, "bind", { nodeset: "/data/notes" }).attribs[
+				"vellum:requiredCondition"
+			],
+		).toBeUndefined();
 	});
 });
 
