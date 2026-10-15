@@ -514,7 +514,33 @@ export async function executeWorkTool(
 			);
 		}
 	}
-	const work = await getWork(args);
+	// Policy needs only pending-state metadata. Rehydrate the document once,
+	// later, in the workspace that actually executes the operation.
+	const work = await withAppTx(async (tx) => {
+		const fresh = await assertAuthoringSessionAuthorityInTransaction(
+			tx,
+			authorityArgs(args),
+		);
+		if (!fresh.activeCandidateId) return { pendingChanges: 0, revision: null };
+		const candidate = await tx
+			.selectFrom("authoring_workspaces")
+			.select(["id", "revision", "next_ordinal"])
+			.where("id", "=", fresh.activeCandidateId)
+			.where("authoring_session_id", "=", fresh.id)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!candidate) throw new AuthoringAuthorityError();
+		return {
+			pendingChanges: safePersistedSequence(
+				candidate.next_ordinal,
+				"workspace ordinal",
+			),
+			revision: workRevision(
+				candidate.id,
+				safePersistedSequence(candidate.revision, "workspace revision"),
+			),
+		};
+	});
 	const policy = authoringExecutionPolicy(entry.policy, {
 		hasApp: session.appId !== null,
 		hasPendingChanges: work.pendingChanges > 0,

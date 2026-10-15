@@ -238,3 +238,8 @@ plain authored references instead of generic UUID prebinding. Whole-call
 request digests cover authored inputs before resolution; retries return the
 original list receipt. Evidence paging/inspection is the same contract on SA,
 MCP and Builder; it never drops an oversized persisted observation.
+
+Execution policy reads only authorized candidate revision and pending-count metadata.
+It does not build an app overview, rehydrate a document, or run diagnostics. The
+executing workspace still opens under its existing authority and revision locks;
+explicit work inspection retains the full diagnostics response.
