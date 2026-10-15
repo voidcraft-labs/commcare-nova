@@ -238,3 +238,8 @@ plain authored references instead of generic UUID prebinding. Whole-call
 request digests cover authored inputs before resolution; retries return the
 original list receipt. Evidence paging/inspection is the same contract on SA,
 MCP and Builder; it never drops an oversized persisted observation.
+
+Work IDs use one UUID grammar in lifecycle tools, generated shared schemas and
+the session service. Malformed values refuse as authoring input before database
+access. Valid IDs still pass the authority gate and reveal no inaccessible work.
+App, Project, thread and request IDs remain opaque text.

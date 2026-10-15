@@ -13,6 +13,7 @@ import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
+import { workIdJsonSchema } from "@/lib/agent/authoring/workId";
 import {
 	AUTHORABLE_IDENTITY_POINTER_REGISTRY,
 	collectIdentitySchemaPointers,
@@ -150,10 +151,11 @@ describe("shared-tool authored identity registry", () => {
 					expect(properties[name], `${mcpName}.${name}`).toBeDefined();
 					const { description, ...constraints } = properties[name];
 					expect(description, `${mcpName}.${name}`).toEqual(expect.any(String));
-					expect(constraints, `${mcpName}.${name}`).toEqual({
-						type: "string",
-						minLength: 1,
-					});
+					expect(constraints, `${mcpName}.${name}`).toEqual(
+						name === "work_id"
+							? workIdJsonSchema
+							: { type: "string", minLength: 1 },
+					);
 				} else {
 					expect(properties, mcpName).not.toHaveProperty(name);
 				}

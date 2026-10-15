@@ -139,9 +139,30 @@ it("publishes an exact choice between saved and private read targets", () => {
 	}).compile(tool.inputSchema);
 	const address = { moduleUuid: "Intake", formUuid: "Patient intake" };
 	expect(validate({ ...address, app_id: "saved-app" })).toBe(true);
-	expect(validate({ ...address, work_id: "private-work" })).toBe(true);
 	expect(
-		validate({ ...address, app_id: "saved-app", work_id: "private-work" }),
+		validate({ ...address, work_id: "00000000-0000-4000-8000-000000000001" }),
+	).toBe(true);
+	expect(
+		validate({
+			...address,
+			app_id: "saved-app",
+			work_id: "00000000-0000-4000-8000-000000000001",
+		}),
 	).toBe(false);
 	expect(validate(address)).toBe(false);
+});
+
+it("rejects malformed work IDs in lifecycle and shared schemas", () => {
+	for (const tool of listed) {
+		const properties = (tool.inputSchema as Json).properties;
+		if (!object(properties) || !properties.work_id) continue;
+		const validate = new Ajv2020({
+			strict: false,
+			validateFormats: false,
+		}).compile(properties.work_id as Json);
+		expect(validate("placeholder"), tool.name).toBe(false);
+		expect(validate("00000000-0000-4000-8000-000000000001"), tool.name).toBe(
+			true,
+		);
+	}
 });
