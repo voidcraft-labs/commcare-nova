@@ -3234,3 +3234,137 @@ it("keeps saved identities, language, pages and answers local to four retained s
 		).rows,
 	).toEqual([]);
 });
+
+it("returns invalid seed data as authoring input and retains a completed prefix when submission arithmetic refuses", async () => {
+	const doc = await createEvaluationApp(
+		[
+			{
+				name: "Inspections",
+				caseType: "inspection",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+		],
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Inspections",
+					formUuid: "Register",
+					fields: [
+						{
+							id: "duration",
+							kind: "decimal",
+							label: "Duration",
+							caseWrite: { caseType: "inspection", property: "flow" },
+						},
+					],
+				},
+			},
+			{
+				toolName: "addCaseOperations",
+				input: {
+					moduleUuid: "Inspections",
+					formUuid: "Register",
+					operations: [
+						{
+							operation: {
+								id: "flow_receipt",
+								action: "create",
+								caseType: "inspection",
+								target: { kind: "new" },
+								name: "'Flow receipt'",
+								writes: [{ property: "flow", value: "60 div #form/duration" }],
+							},
+						},
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Inspections",
+					formUuid: "Register",
+					recordName: "'Inspection'",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Inspections",
+					formUuid: "Register",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	await expect(
+		call("startAppTest", {
+			purpose: "Invalid seed",
+			scenario: {
+				records: [
+					{
+						id: "p2",
+						caseType: "inspection",
+						properties: { flow: "not a number" },
+					},
+				],
+			},
+		}),
+	).rejects.toMatchObject({
+		name: "AuthoringInputError",
+		cause: { name: "FormEvaluationInputError" },
+		message: expect.stringContaining("p2"),
+	});
+	const started = stepSchema.parse(
+		await call("startAppTest", { purpose: "Calculation refusal" }),
+	);
+	const input = {
+		testId: started.testId,
+		expectedStep: 0,
+		actions: [
+			{ action: { kind: "menu", moduleUuid: "Inspections" } },
+			{ action: { kind: "form", formUuid: "Register" } },
+			{
+				action: { kind: "answer", answers: [{ path: "duration", value: "0" }] },
+			},
+			{ action: { kind: "submit" } },
+		],
+	};
+	const refused = stepSchema.parse(
+		await call("continueAppTest", input, "failed-calculation"),
+	);
+	expect(refused.step).toBe(4);
+	expect(refused.observation).toMatchObject({
+		completed: false,
+		error: expect.stringContaining("flow_receipt"),
+	});
+	expect(JSON.stringify(refused.observation)).toContain("property: flow");
+	expect(
+		stepSchema.parse(
+			await call("continueAppTest", input, "failed-calculation"),
+		),
+	).toEqual(refused);
+	const repaired = stepSchema.parse(
+		await call("continueAppTest", {
+			testId: started.testId,
+			expectedStep: refused.step,
+			actions: [
+				{
+					action: {
+						kind: "answer",
+						answers: [{ path: "duration", value: "2" }],
+					},
+				},
+				{ action: { kind: "submit" } },
+			],
+		}),
+	);
+	expect(repaired.observation).not.toHaveProperty("completed", false);
+});

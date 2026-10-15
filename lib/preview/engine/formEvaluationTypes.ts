@@ -11,6 +11,7 @@ export interface FormEvaluationFault {
 	readonly reason?: XPathRuntimeFailureReason;
 }
 export class FormEvaluationInputError extends Error {
+	readonly name = "FormEvaluationInputError";
 	constructor(
 		message: string,
 		readonly fault?: FormEvaluationFault,

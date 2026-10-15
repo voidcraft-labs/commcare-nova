@@ -63,6 +63,7 @@ import {
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate/walk";
 import {
 	storageDatetimeValue,
 	storageTimeValue,
@@ -395,6 +396,9 @@ interface SessionAnchor {
 }
 
 interface EvalRequest {
+	readonly operationUuid: string;
+	readonly operationId: string;
+	readonly slot: string;
 	/** Physical instance index the projection belongs to. */
 	readonly instance: number;
 	readonly expression?: ValueExpression;
@@ -474,7 +478,61 @@ async function evaluateBatch(
 				.limit(1)
 				.as(alias);
 		});
-		const row = await trx.selectNoFrom(selections).executeTakeFirst();
+		await sql`SAVEPOINT submission_expression`.execute(trx);
+		let row: Record<string, unknown> | undefined;
+		try {
+			row = await trx.selectNoFrom(selections).executeTakeFirst();
+		} catch (error) {
+			const reasonFor = (failure: unknown) => {
+				const code =
+					failure !== null && typeof failure === "object" && "code" in failure
+						? failure.code
+						: undefined;
+				return code === "22P02"
+					? ("invalid-value" as const)
+					: code === "22012"
+						? ("division-by-zero" as const)
+						: code === "22003"
+							? ("numeric-overflow" as const)
+							: undefined;
+			};
+			if (!reasonFor(error)) throw error;
+			await sql`ROLLBACK TO SAVEPOINT submission_expression`.execute(trx);
+			// Only a failing batch pays for diagnosis. Re-evaluate each projection in
+			// the same pre-effect transaction and bindings to identify the exact slot.
+			for (const [offset, selection] of selections.entries()) {
+				try {
+					await trx.selectNoFrom(selection).executeTakeFirst();
+				} catch (cause) {
+					const reason = reasonFor(cause);
+					if (!reason) throw cause;
+					await sql`ROLLBACK TO SAVEPOINT submission_expression`.execute(trx);
+					await sql`RELEASE SAVEPOINT submission_expression`.execute(trx);
+					const request = chunk[offset];
+					const fields = new Set<string>();
+					const visit = (term: import("@/lib/domain/predicate/types").Term) => {
+						if (term.kind === "field") fields.add(term.uuid);
+					};
+					if (request.expression)
+						walkExpressionTerms(request.expression, visit);
+					if (request.predicate) walkTerms(request.predicate, visit);
+					throw new SubmissionRejectedError(
+						{
+							kind: "expression",
+							reason,
+							operationUuid: request.operationUuid,
+							operationId: request.operationId,
+							slot: request.slot,
+							fieldUuids: [...fields],
+						},
+						{ cause },
+					);
+				}
+			}
+			// A non-reproducible failure is still an infrastructure error, not a guess.
+			throw error;
+		}
+		await sql`RELEASE SAVEPOINT submission_expression`.execute(trx);
 		if (row === undefined) {
 			throw new Error(
 				compilerBugMessage({
@@ -946,7 +1004,13 @@ async function resolveOperationProgram(
 		];
 		conditionSlots.push({ instance: index, count: predicates.length });
 		for (const predicate of predicates) {
-			conditionRequests.push({ instance: index, predicate });
+			conditionRequests.push({
+				instance: index,
+				predicate,
+				operationUuid: instance.envelope.operation.uuid,
+				operationId: instance.envelope.operation.id,
+				slot: "condition",
+			});
 		}
 	}
 	const conditionResults = await evaluateBatch(
@@ -997,7 +1061,13 @@ async function resolveOperationProgram(
 		).entries()) {
 			if (write.condition === undefined) continue;
 			writeGuardSlots.push({ instance: index, write: writeIndex });
-			writeGuardRequests.push({ instance: index, predicate: write.condition });
+			writeGuardRequests.push({
+				instance: index,
+				predicate: write.condition,
+				operationUuid: instance.envelope.operation.uuid,
+				operationId: instance.envelope.operation.id,
+				slot: `write condition: ${write.property}`,
+			});
 		}
 	}
 	const writeGuardResults = await evaluateBatch(
@@ -1039,7 +1109,19 @@ async function resolveOperationProgram(
 		content: { expression?: ValueExpression; predicate?: Predicate },
 	) => {
 		valueSlots.push({ instance, kind });
-		valueRequests.push({ instance, ...content });
+		const operation = instances[instance].envelope.operation;
+		valueRequests.push({
+			instance,
+			...content,
+			operationUuid: operation.uuid,
+			operationId: operation.id,
+			slot:
+				typeof kind === "string"
+					? kind
+					: "write" in kind
+						? `property: ${operation.writes?.[kind.write].property}`
+						: `link: ${kind.link}`,
+		});
 	};
 	for (const [index, instance] of instances.entries()) {
 		if (!executing[index]) continue;
