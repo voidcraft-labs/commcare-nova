@@ -41,6 +41,7 @@ import { productionSourceMaterialDeps } from "@/lib/agent/sources.server";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
+import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
 import { isOpenAICompactionChunk } from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
@@ -775,6 +776,11 @@ export async function POST(req: Request) {
 						reservation = claimed.reservation;
 						holderNonce = claimed.holderNonce;
 					} catch (err) {
+						if (err instanceof ThreadAttachmentUnavailableError)
+							return Response.json(
+								{ error: err.message, type: "attachment_unavailable" },
+								{ status: 409 },
+							);
 						if (err instanceof InputRoundRejectedError)
 							return Response.json(err.reconciliation, { status: 409 });
 						if (err instanceof RunConflictError) {
@@ -1121,6 +1127,11 @@ export async function POST(req: Request) {
 					}
 				}
 			} catch (err) {
+				if (err instanceof ThreadAttachmentUnavailableError)
+					return Response.json(
+						{ error: err.message, type: "attachment_unavailable" },
+						{ status: 409 },
+					);
 				if (err instanceof InputRoundRejectedError)
 					return Response.json(err.reconciliation, { status: 409 });
 				if (err instanceof RunConflictError) {
@@ -1615,6 +1626,7 @@ export async function POST(req: Request) {
 						};
 						heldApp?: boolean;
 						failureSource?: string;
+						originalError?: unknown;
 						/** The typed failure already emitted its canonical structured
 						 * operational report. Finalization still publishes the safe
 						 * conversation event, but must not report it to Sentry again. */
@@ -1908,13 +1920,10 @@ export async function POST(req: Request) {
 							});
 						}
 						if (settleOutcome === "owned") {
-							ctx.emitError(
-								failure,
-								opts?.failureSource ?? "route:failure",
-								opts?.failureReportedAtSource === true
-									? { reportedAtSource: true }
-									: undefined,
-							);
+							ctx.emitError(failure, opts?.failureSource ?? "route:failure", {
+								reportedAtSource: opts?.failureReportedAtSource,
+								originalError: opts?.originalError,
+							});
 							if (chargeable && refundSettled && !refundSignalled) {
 								refundSignalled = true;
 								writer.write({
@@ -1935,13 +1944,10 @@ export async function POST(req: Request) {
 							/* Infrastructure uncertainty is not proof of holder loss. Surface the
 							 * original failure, but make no refund claim; the exact-holder reaper
 							 * remains the settlement backstop. */
-							ctx.emitError(
-								failure,
-								opts?.failureSource ?? "route:failure",
-								opts?.failureReportedAtSource === true
-									? { reportedAtSource: true }
-									: undefined,
-							);
+							ctx.emitError(failure, opts?.failureSource ?? "route:failure", {
+								reportedAtSource: opts?.failureReportedAtSource,
+								originalError: opts?.originalError,
+							});
 						}
 						/* Flip to `error` only for a BUILD (the app is `generating`). A failed
 						 * EDIT must NOT flip its already-`complete` app to `error`: that would
@@ -2052,7 +2058,7 @@ export async function POST(req: Request) {
 					const classified = opts?.classified ?? classifyError(error);
 					if (error instanceof RunHolderLostError) {
 						ctx.latchRunHolderLost(error);
-						ctx.emitError(classified, source);
+						ctx.emitError(classified, source, { originalError: error });
 						await finalizeRun(undefined, {
 							heldApp: false,
 							turnComplete: opts?.turnComplete,
@@ -2061,6 +2067,7 @@ export async function POST(req: Request) {
 					}
 					await finalizeRun(classified, {
 						failureSource: source,
+						originalError: error,
 						turnComplete: opts?.turnComplete,
 					});
 				};
@@ -2204,6 +2211,15 @@ export async function POST(req: Request) {
 							}
 							break;
 						} catch (err) {
+							if (err instanceof ThreadAttachmentUnavailableError) {
+								ctx.emitError(
+									classifyError(err),
+									"route:attachment-admission",
+									{ reportedAtSource: true },
+								);
+								await finalizeRun(undefined, { heldApp: false });
+								return;
+							}
 							if (err instanceof InputRoundRejectedError) {
 								writer.write({
 									type: "data-input-round-reconciliation",
@@ -2506,6 +2522,13 @@ export async function POST(req: Request) {
 							usage.configureRun({ holderNonce });
 						}
 					} catch (err) {
+						if (err instanceof ThreadAttachmentUnavailableError) {
+							ctx.emitError(classifyError(err), "route:attachment-admission", {
+								reportedAtSource: true,
+							});
+							await finalizeRun(undefined, { heldApp: false });
+							return;
+						}
 						if (err instanceof InputRoundRejectedError) {
 							writer.write({
 								type: "data-input-round-reconciliation",
@@ -2925,7 +2948,9 @@ export async function POST(req: Request) {
 									designSessionId: design.designSessionId,
 								});
 							}
-							ctx.emitError(classifyError(error), "route:design-build-throw");
+							ctx.emitError(classifyError(error), "route:design-build-throw", {
+								originalError: error,
+							});
 							/* Same reassurance as the failed-outcome arm: the refund is
 							 * already durable server-side, so tell the person they were
 							 * not charged for the turn that threw. */

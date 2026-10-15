@@ -181,7 +181,7 @@ export async function startAppTest(
 		authorized.projectId !== scope.projectId ||
 		authorized.baseSeq !== args.expectedBlueprintSeq
 	)
-		throw new Error(
+		throw new AppTestActionError(
 			"The app changed. Read its current design before starting a test.",
 		);
 	const snapshot = await captureAppTestSnapshot(

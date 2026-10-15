@@ -6,6 +6,7 @@ import { z } from "zod";
 import { executeWorkTool } from "@/lib/agent/authoring/session";
 import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
+import { workIdJsonSchema } from "@/lib/agent/authoring/workId";
 import type {
 	SharedToolRegistryEntry,
 	ToolExecutionPolicy,
@@ -60,8 +61,7 @@ function mcpAuthoringSchema(
 			...(write
 				? {
 						work_id: {
-							type: "string" as const,
-							minLength: 1,
+							...workIdJsonSchema,
 							description: "Private work from begin_work.",
 						},
 					}
@@ -75,8 +75,7 @@ function mcpAuthoringSchema(
 									: "Read the saved app. Choose exactly one of app_id or work_id.",
 						},
 						work_id: {
-							type: "string" as const,
-							minLength: 1,
+							...workIdJsonSchema,
 							description:
 								effect === "exercise-app"
 									? "Exercise this work's saved checkpoint after saving pending changes. Choose exactly one of app_id or work_id."

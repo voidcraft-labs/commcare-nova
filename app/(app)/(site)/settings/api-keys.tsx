@@ -81,10 +81,13 @@ import {
 } from "./api-key-actions";
 import { ScopesPopover } from "./scopes-popover";
 
+import { type SettingsClock, useSettingsClock } from "./useSettingsClock";
+
 // ── Types ──────────────────────────────────────────────────────────
 
 interface ApiKeysProps {
 	initial: ApiKeySummary[];
+	initialNow: number;
 }
 
 /** Per-row UI status. Each row owns its own copy. */
@@ -110,16 +113,6 @@ interface RowData extends ApiKeySummary {
  */
 const FLOOR_SCOPES_SET = new Set<string>(NOVA_MCP_FLOOR_SCOPES);
 
-/**
- * Renders "12 Apr 2026". Locale pinned to `en-GB` for stability, same
- * choice as `ConnectedApps`. Display in the row metadata strip.
- */
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
-	day: "numeric",
-	month: "short",
-	year: "numeric",
-});
-
 const RELATIVE_FORMATTER = new Intl.RelativeTimeFormat("en-US", {
 	numeric: "auto",
 });
@@ -130,9 +123,9 @@ const RELATIVE_FORMATTER = new Intl.RelativeTimeFormat("en-US", {
  * week falls back to absolute date: at that distance the relative
  * label loses information without saving any space.
  */
-function formatRelativePast(iso: string): string {
+function formatRelativePast(iso: string, clock: SettingsClock): string {
 	const past = new Date(iso).getTime();
-	const now = Date.now();
+	const now = clock.now;
 	const diffSeconds = Math.round((past - now) / 1000);
 	const absSeconds = Math.abs(diffSeconds);
 
@@ -143,7 +136,7 @@ function formatRelativePast(iso: string): string {
 		return RELATIVE_FORMATTER.format(Math.round(diffSeconds / 3600), "hour");
 	if (absSeconds < 60 * 60 * 24 * 7)
 		return RELATIVE_FORMATTER.format(Math.round(diffSeconds / 86400), "day");
-	return DATE_FORMATTER.format(new Date(iso));
+	return clock.dateFormatter.format(new Date(iso));
 }
 
 /**
@@ -157,9 +150,12 @@ function formatRelativePast(iso: string): string {
  */
 const NEVER_EXPIRES_THRESHOLD_SECONDS = (36500 - 50) * 24 * 60 * 60;
 
-function isEffectivelyNeverExpiring(iso: string): boolean {
+function isEffectivelyNeverExpiring(
+	iso: string,
+	clock: SettingsClock,
+): boolean {
 	const future = new Date(iso).getTime();
-	const now = Date.now();
+	const now = clock.now;
 	return (future - now) / 1000 > NEVER_EXPIRES_THRESHOLD_SECONDS;
 }
 
@@ -171,9 +167,9 @@ function isEffectivelyNeverExpiring(iso: string): boolean {
  * realistic distances and would emit "in 73 years" for the 100-year
  * sentinel otherwise.
  */
-function formatRelativeFuture(iso: string): string {
+function formatRelativeFuture(iso: string, clock: SettingsClock): string {
 	const future = new Date(iso).getTime();
-	const now = Date.now();
+	const now = clock.now;
 	const diffSeconds = Math.round((future - now) / 1000);
 	const absSeconds = Math.abs(diffSeconds);
 
@@ -204,7 +200,8 @@ const REVEAL_VARIANTS = {
 
 // ── Component ──────────────────────────────────────────────────────
 
-export function ApiKeys({ initial }: ApiKeysProps) {
+export function ApiKeys({ initial, initialNow }: ApiKeysProps) {
+	const clock = useSettingsClock(initialNow);
 	const [rows, setRows] = useState<RowData[]>(() =>
 		initial.map((r) => ({ ...r, status: { type: "idle" } as RowStatus })),
 	);
@@ -340,6 +337,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 									className="overflow-hidden"
 								>
 									<Row
+										clock={clock}
 										row={row}
 										onRequestConfirm={handleRequestConfirm}
 										onCancelConfirm={handleCancelConfirm}
@@ -409,6 +407,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 // ── Row ────────────────────────────────────────────────────────────
 
 interface RowProps {
+	clock: SettingsClock;
 	row: RowData;
 	onRequestConfirm: (keyId: string) => void;
 	onCancelConfirm: (keyId: string) => void;
@@ -417,6 +416,7 @@ interface RowProps {
 }
 
 function Row({
+	clock,
 	row,
 	onRequestConfirm,
 	onCancelConfirm,
@@ -427,11 +427,11 @@ function Row({
 		row;
 
 	const expiryLabel =
-		!expiresAt || isEffectivelyNeverExpiring(expiresAt)
+		!expiresAt || isEffectivelyNeverExpiring(expiresAt, clock)
 			? "Never expires"
-			: `Expires ${formatRelativeFuture(expiresAt)}`;
+			: `Expires ${formatRelativeFuture(expiresAt, clock)}`;
 	const lastUsedLabel = lastUsedAt
-		? `Last used ${formatRelativePast(lastUsedAt)}`
+		? `Last used ${formatRelativePast(lastUsedAt, clock)}`
 		: "Never used";
 
 	return (

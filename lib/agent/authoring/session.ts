@@ -61,6 +61,7 @@ import { AuthoringInputError } from "./errors";
 import { authoringExecutionPolicy } from "./executionPolicy";
 import { runSharedToolCall } from "./sharedToolCall";
 import { authoringToolSchema } from "./toolSchema";
+import { assertWorkId } from "./workId";
 
 const checkpointSchema = z.strictObject({
 	seq: z.number().int().nonnegative(),
@@ -128,6 +129,7 @@ function authorityArgs(args: WorkArgs, allowIdleChat = false) {
 	};
 }
 function authorize(args: WorkArgs, allowIdleChat = false) {
+	assertWorkId(args.workId);
 	return withAppTx((tx) =>
 		assertAuthoringSessionAuthorityInTransaction(
 			tx,
@@ -514,7 +516,33 @@ export async function executeWorkTool(
 			);
 		}
 	}
-	const work = await getWork(args);
+	// Policy needs only pending-state metadata. Rehydrate the document once,
+	// later, in the workspace that actually executes the operation.
+	const work = await withAppTx(async (tx) => {
+		const fresh = await assertAuthoringSessionAuthorityInTransaction(
+			tx,
+			authorityArgs(args),
+		);
+		if (!fresh.activeCandidateId) return { pendingChanges: 0, revision: null };
+		const candidate = await tx
+			.selectFrom("authoring_workspaces")
+			.select(["id", "revision", "next_ordinal"])
+			.where("id", "=", fresh.activeCandidateId)
+			.where("authoring_session_id", "=", fresh.id)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!candidate) throw new AuthoringAuthorityError();
+		return {
+			pendingChanges: safePersistedSequence(
+				candidate.next_ordinal,
+				"workspace ordinal",
+			),
+			revision: workRevision(
+				candidate.id,
+				safePersistedSequence(candidate.revision, "workspace revision"),
+			),
+		};
+	});
 	const policy = authoringExecutionPolicy(entry.policy, {
 		hasApp: session.appId !== null,
 		hasPendingChanges: work.pendingChanges > 0,
@@ -788,6 +816,7 @@ export async function saveWork(
 export async function discardWork(
 	args: WorkArgs & { requestId: string; expectedRevision: string },
 ) {
+	assertWorkId(args.workId);
 	const expected = parseWorkRevision(args.expectedRevision);
 	return withAppTx(async (tx) => {
 		const session = await assertAuthoringSessionAuthorityInTransaction(tx, {

@@ -202,3 +202,9 @@ A Previous-retained menu or selector carries its saved device world into every n
 An explicit module destination retires the destination's own leaf selection
 when the owner's target frame has no such slot. Parent selections and explicit
 form-link target selections retain their existing identities.
+
+Shared tools translate expected setup and evidence refusals into authoring input
+errors with their causes retained. Submission expression refusals identify the
+operation, slot and source field identities. The action savepoint retains earlier
+actions while rolling back the whole failed submission. Database connection,
+permission and compiler failures still abort the call as infrastructure faults.

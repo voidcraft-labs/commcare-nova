@@ -111,6 +111,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@sentry/nextjs", () => ({
 	captureException: vi.fn(),
 	captureMessage: vi.fn(),
+	captureEvent: vi.fn(),
 	setTag: vi.fn(),
 	setUser: vi.fn(),
 }));

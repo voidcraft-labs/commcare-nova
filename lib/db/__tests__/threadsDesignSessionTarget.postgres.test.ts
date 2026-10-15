@@ -895,6 +895,29 @@ describe("server-selected library sources", () => {
 		return { args, source };
 	}
 
+	it("keeps retained source failures durable when a new message attaches the same file", async () => {
+		const { args, source } = await selectedFixture();
+		await selectThreadSource({ ...args, actorUserId: ACTOR, source });
+		await h
+			.db()
+			.updateTable("media_assets")
+			.set({ status: "pending" })
+			.where("id", "=", source.assetId)
+			.execute();
+		await expect(
+			upsertThreadTurn({
+				...args,
+				messages: [attachmentMsg("new-attachment", source.assetId)],
+			}),
+		).rejects.toMatchObject({
+			admission: "durable",
+			cause: { assetId: source.assetId, reason: "not-ready" },
+		});
+		expect(await loadThreadSelectedSources(args.target, args.threadId)).toEqual(
+			[source],
+		);
+	});
+
 	it("protects selected documents across stale transcript writes and missing reference edges", async () => {
 		const { args, source } = await selectedFixture();
 		await selectThreadSource({ ...args, actorUserId: ACTOR, source });

@@ -254,3 +254,9 @@ candidate, #case reads the form's scalar selected record, and typed selected
 ancestor references retain that distinct meaning through read/edit round trips.
 The shared-data authoring guide describes restore scope and stable-roster checklist
 updates. Filters do not expand worker access.
+
+Generation failures keep their caught exception through finalization in
+`emitError` options. Only the safe classified payload reaches the conversation;
+operator reports retain the original stack, cause and run identity. Re-emitting
+the same exception in one context does not report it twice. Message-only
+logger reports use Sentry events without synthetic logger stack traces.

@@ -14,9 +14,10 @@
  * `logger.log` routes its entries through Nova's logger: `error` reaches Sentry,
  * `warn` / `info` stay Cloud-Logging-only, matching every other server module.
  *
- * Expected client errors (4xx such as `invalid_grant`) are returned by Better
- * Auth without logging, so they never arrive here — they stay out of Sentry by
- * design, which is correct: a user mistyping a flow is not a bug to alert on.
+ * Better Auth also logs expected OAuth state expiry/misses at error level.
+ * Only its known state-rejection shapes are reduced to sanitized info events.
+ * Unknown state failures, security mismatches and adapter failures still reach
+ * Sentry. Native callback tests pin this boundary to the installed provider.
  */
 import { log } from "./logger";
 
@@ -52,9 +53,57 @@ export function forwardBetterAuthLog(
 ): void {
 	const text = `[better-auth] ${message}`;
 	const error = args.find((arg) => arg instanceof Error);
+	const stateRefusal = expectedOAuthStateRefusal(level, message, args);
+	if (stateRefusal) {
+		// StateError.details can contain the OAuth state token; never forward
+		// that error or callback arguments for an expected rejection.
+		sink.info("[better-auth] Sign-in attempt needs restarting", {
+			event: "oauth_sign_in_rejected",
+			reason: stateRefusal,
+		});
+		return;
+	}
 	const rest = args.filter((arg) => !(arg instanceof Error));
 	const context = rest.length > 0 ? { args: rest } : undefined;
 	if (level === "error") sink.error(text, error, context);
 	else if (level === "warn") sink.warn(text, context);
 	else sink.info(text, context);
+}
+
+/** Fail closed on provider changes: a new shape remains an error until audited. */
+function expectedOAuthStateRefusal(
+	level: BetterAuthLogLevel,
+	message: string,
+	args: unknown[],
+): string | undefined {
+	if (
+		level === "error" &&
+		message === "State not found" &&
+		args.length <= 1 &&
+		args.every((arg) => arg === undefined || typeof arg === "string")
+	)
+		return "state_parameter_missing";
+	const errors = args.filter((arg) => arg instanceof Error);
+	const error = errors[0];
+	if (
+		level !== "error" ||
+		message !== "Failed to parse state" ||
+		errors.length !== 1 ||
+		!error ||
+		error.name !== "BetterAuthError" ||
+		error.cause !== undefined ||
+		!("code" in error)
+	)
+		return undefined;
+	if (error.code !== "state_mismatch") return undefined;
+	switch (error.message) {
+		case "State mismatch: verification not found":
+			return "verification_missing";
+		case "State mismatch: auth state cookie not found":
+			return "state_cookie_missing";
+		case "Invalid state: request expired":
+			return "state_expired";
+		default:
+			return undefined;
+	}
 }

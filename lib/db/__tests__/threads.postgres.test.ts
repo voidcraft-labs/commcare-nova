@@ -34,11 +34,17 @@
  *  app.
  */
 import type { UIMessage } from "ai";
+import { Client } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { classifyError } from "@/lib/agent/errorClassifier";
 import type { MediaAssetId } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import { RunHolderLostError } from "../commitGuard";
-import { deleteMediaAssetForActor } from "../mediaDeletion";
+import {
+	deleteMediaAssetForActor,
+	deleteMediaAssetMetadataInTransaction,
+} from "../mediaDeletion";
 import { getAppDb } from "../pg";
 import { appendStreamChunks } from "../streamChunks";
 import {
@@ -52,6 +58,7 @@ import {
 	ThreadAttachmentUnavailableError,
 } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
+import { createPerTestAppDb } from "./perTestAppDb";
 
 const NONCE = "00000000-0000-4000-8000-0000000000aa";
 const h = setupAppStateTestDb("threads_");
@@ -2017,3 +2024,190 @@ describe("loaders", () => {
 		expect(doc?.resume_interrupted).toBeUndefined();
 	});
 });
+
+it.each(["not-ready", "wrong-project", "wrong-kind"] as const)(
+	"classifies incoming attachment %s without exposing internal identities",
+	async (reason) => {
+		const assetId = testMediaAssetId("refused-attachment");
+		await seedReadyDocument(assetId);
+		await h
+			.db()
+			.updateTable("media_assets")
+			.set(
+				reason === "not-ready"
+					? { status: "pending" }
+					: reason === "wrong-kind"
+						? { kind: "image" }
+						: { project_id: "other-project" },
+			)
+			.where("id", "=", assetId)
+			.execute();
+		const args = {
+			appId: APP,
+			threadId: "refused-thread",
+			runId: "refused-run",
+			streamId: "refused-stream",
+			holderNonce: NONCE,
+			threadType: "build" as const,
+			messages: [attachmentMsg("incoming", assetId)],
+		};
+		let caught: unknown;
+		try {
+			await writeThreadTurnWithSeededHolder(args);
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toMatchObject({
+			name: "ThreadAttachmentUnavailableError",
+			admission: "incoming",
+			detail: { assetId, reason },
+			cause: { name: "MediaReferenceProjectionError", assetId, reason },
+		});
+		expect(classifyError(caught)).toMatchObject({
+			type: "attachment_unavailable",
+			recoverable: false,
+		});
+		expect(JSON.stringify(classifyError(caught))).not.toContain(assetId);
+		expect(log.error).not.toHaveBeenCalled();
+		expect(
+			await loadThread({ kind: "app", appId: APP }, args.threadId),
+		).toBeNull();
+	},
+);
+
+it("reports retained attachment failures with their original cause and preserves the stored transcript", async () => {
+	const assetId = testMediaAssetId("retained-attachment");
+	await seedReadyDocument(assetId);
+	const args = {
+		appId: APP,
+		threadId: "retained-thread",
+		runId: "retained-run",
+		streamId: "retained-stream",
+		holderNonce: NONCE,
+		threadType: "build" as const,
+		messages: [attachmentMsg("retained", assetId)],
+	};
+	await writeThreadTurnWithSeededHolder(args);
+	const before = await loadThread({ kind: "app", appId: APP }, args.threadId);
+	await h
+		.db()
+		.updateTable("media_assets")
+		.set({ status: "pending" })
+		.where("id", "=", assetId)
+		.execute();
+	await expect(
+		writeThreadTurnWithSeededHolder({
+			...args,
+			messages: [...args.messages, userMsg("new-message", "Continue")],
+		}),
+	).rejects.toMatchObject({
+		admission: "durable",
+		cause: { assetId, reason: "not-ready" },
+	});
+	expect(log.error).toHaveBeenCalledWith(
+		expect.any(String),
+		expect.objectContaining({ name: "ThreadAttachmentUnavailableError" }),
+		expect.objectContaining({
+			threadId: args.threadId,
+			assetId,
+			reason: "not-ready",
+			admission: "durable",
+		}),
+	);
+	const after = await loadThread({ kind: "app", appId: APP }, args.threadId);
+	expect(after?.messages).toEqual(before?.messages);
+});
+
+it.each(["attach", "delete"] as const)(
+	"serializes concurrent thread attachment and deletion when %s wins",
+	async (winner) => {
+		const assetId = testMediaAssetId("70000000-0000-4000-8000-000000000099");
+		await seedReadyDocument(assetId);
+		const gate = new Client({ connectionString: h.uri() });
+		const contender = createPerTestAppDb(h.uri());
+		const pending: Promise<unknown>[] = [];
+		const track = <T>(task: Promise<T>) => {
+			pending.push(Promise.allSettled([task]));
+			return task;
+		};
+		const gateKey = 8273651;
+		const blocked = async (minimum: number) => {
+			const deadline = Date.now() + 5000;
+			while (Date.now() < deadline) {
+				const result = await gate.query<{ count: string }>(`
+     SELECT count(*)::text AS count FROM pg_locks l
+     JOIN pg_stat_activity a ON a.pid = l.pid
+     WHERE a.datname = current_database() AND NOT l.granted`);
+				if (Number(result.rows[0]?.count ?? 0) >= minimum) return;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			throw new Error(`Expected ${minimum} blocked transactions`);
+		};
+		const attach = () =>
+			writeThreadTurnWithSeededHolder({
+				appId: APP,
+				threadId: "racing-thread",
+				streamId: "racing-stream",
+				runId: "racing-run",
+				holderNonce: NONCE,
+				threadType: "build",
+				messages: [attachmentMsg("racing-message", assetId)],
+			});
+		const remove = () =>
+			contender.appDb.transaction().execute((tx) =>
+				deleteMediaAssetMetadataInTransaction(tx, {
+					assetId,
+					actorUserId: "owner-test",
+					expectedProjectId: "project-test",
+				}),
+			);
+		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`CREATE FUNCTION pause_thread_media_race() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN PERFORM pg_advisory_xact_lock(${gateKey}); RETURN ${winner === "attach" ? "NEW" : "OLD"}; END $$;
+    CREATE TRIGGER pause_thread_media_race_trigger
+    ${winner === "attach" ? "AFTER INSERT ON thread_media_refs" : "AFTER DELETE ON media_assets"}
+    FOR EACH ROW EXECUTE FUNCTION pause_thread_media_race();`);
+			const first = winner === "attach" ? track(attach()) : track(remove());
+			await blocked(1); // Winner holds the asset lock and its uncommitted write.
+			const second = winner === "attach" ? track(remove()) : track(attach());
+			await blocked(2); // Loser really contends; it is not merely queued in JS.
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			if (winner === "attach") {
+				await expect(first).resolves.toBe(true);
+				await expect(second).resolves.toMatchObject({ kind: "referenced" });
+				expect(
+					await loadThread({ kind: "app", appId: APP }, "racing-thread"),
+				).toMatchObject({
+					messages: [
+						expect.objectContaining({
+							metadata: { attachments: [expect.objectContaining({ assetId })] },
+						}),
+					],
+				});
+			} else {
+				await expect(first).resolves.toMatchObject({ kind: "deleted" });
+				await expect(second).rejects.toMatchObject({
+					admission: "incoming",
+					detail: { reason: "missing" },
+				});
+				expect(
+					await loadThread({ kind: "app", appId: APP }, "racing-thread"),
+				).toBeNull();
+			}
+			const edges = await h
+				.db()
+				.selectFrom("thread_media_refs")
+				.select("asset_id")
+				.where("asset_id", "=", assetId)
+				.execute();
+			expect(edges).toHaveLength(winner === "attach" ? 1 : 0);
+		} finally {
+			await gate.end();
+			await Promise.all(pending);
+			await contender.destroy();
+		}
+	},
+	15000,
+);

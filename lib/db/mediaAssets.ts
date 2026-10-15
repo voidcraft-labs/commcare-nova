@@ -1377,6 +1377,13 @@ export class MediaReferenceProjectionError extends Error {
 	constructor(
 		message: string,
 		readonly assetId?: MediaAssetId,
+		readonly reason:
+			| "missing"
+			| "wrong-project"
+			| "not-ready"
+			| "wrong-kind"
+			| "invalid-projection" = "invalid-projection",
+		readonly expectedKind?: AssetKind,
 	) {
 		super(message);
 	}
@@ -1401,6 +1408,14 @@ export async function lockAndValidateMediaReferences(
 			throw new MediaReferenceProjectionError(
 				"A referenced media file is unavailable, not ready, outside this Project, or has the wrong kind for its authored slot.",
 				requirement.assetId,
+				asset === undefined
+					? "missing"
+					: asset.project_id !== projectId
+						? "wrong-project"
+						: asset.status !== "ready"
+							? "not-ready"
+							: "wrong-kind",
+				requirement.expectedKind,
 			);
 		}
 	}
