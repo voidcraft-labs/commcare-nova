@@ -7,7 +7,7 @@ below, each HQ step inside ``unit.operation(label, digest of its input)`` so
 the unit's state, entropy and clock are a function of the inputs alone:
 
 ```
-seed → create(D) [lookup upload, replace] → media(D) → HQ-side saves → build(A) (no previous) → admit (Core)
+seed → create(D) [shell, lookup upload, content] → media(D) → HQ-side saves → build(A) (no previous) → admit (Core)
   → identities, flag reads → saved(build(A)) → mark@A
   → A's restore for proof 3 (in a fork) → the intent hook at A
   → sensitivity: build(A | each gate HQ read, flipped), each in a fork
@@ -21,7 +21,10 @@ seed → create(D) [lookup upload, replace] → media(D) → HQ-side saves → b
 local: Core's admission of local.ccz, local-again.ccz and edit/local.ccz → the intent and manifest local hooks
 ```
 
-``media`` is the media upload Nova's publish sends after an import HQ
+``create`` is Nova's first publish (``proof.observe.publish.create``): the
+shell's create and the content that fills it, keyed by the digest of both
+imports, or one create for a control retained in the legacy layout.
+``media`` is the media upload Nova's publish sends after a content import HQ
 accepted (``proof.observe.publish.upload_media``), where the captured
 import names one: an operation of its own, keyed by the upload's request,
 as Nova sends it in a request of its own. A publish without media runs no
@@ -186,14 +189,32 @@ def _prefixed(prefix, part):
     return {f"{prefix}{role}": path for role, path in part.items()}
 
 
+def _two_imports(root, directory):
+    """Whether the first publish in ``directory`` is two imports: its create's sidecar is marked ``"layout": 2``
+    (``proof.checks.configurations.TWO_IMPORTS``)."""
+    from proof.checks.configurations import TWO_IMPORTS
+
+    return json.loads((root / f"{directory}/create.json").read_text(encoding="utf-8")).get("layout") == TWO_IMPORTS
+
+
+def _first_publish(root, directory, prefix=""):
+    """The first publish's files in ``directory``: the create under ``<prefix>create.`` and, in the two-import
+    layout, the content import under ``<prefix>content.``, which names the workbook and the media."""
+    part = _prefixed(f"{prefix}create.", _request(root, directory, "create"))
+    if _two_imports(root, directory):
+        part.update(_prefixed(f"{prefix}content.", _request(root, directory, "content")))
+    return part
+
+
 def input_files(document):
     """Each part's input files, by role, as paths relative to the document's directory, laid out as
     ``proof/corpus/inputs.ts`` lays out ``inputs.json``: ``{"configurations": {<name>: {"a", "b", "b_edit"?}},
     "local"}``. What each part's key reads (``computed_inputs``), and so what the evidence store's guard lets its
-    observation read (``proof.store.guard.input_files``)."""
+    observation read (``proof.store.guard.input_files``). Part ``a`` reads both imports of a first publish in the
+    two-import layout, and the privileges read both (``privileges.create.``, ``privileges.content.``)."""
     root = document.root
     edited = (root / "edit" / "batch.json").exists()
-    privileges = _prefixed("privileges.create.", _request(root, "export/minimum", "create"))
+    privileges = _first_publish(root, "export/minimum", "privileges.")
     if edited and (root / "edit/export/minimum/update.json").exists():
         privileges.update(_prefixed("privileges.update.", _request(root, "edit/export/minimum", "update")))
     # A control retains what the checks derive from D and D' in place of their document.json (Document.derived).
@@ -208,7 +229,7 @@ def input_files(document):
     configurations = {}
     for name in sorted(document.exports):
         part = {
-            "a": {**shared, **_prefixed("create.", _request(root, f"export/{name}", "create")), **privileges},
+            "a": {**shared, **_first_publish(root, f"export/{name}"), **privileges},
             "b": _request(root, f"export/{name}", "republish"),
         }
         if edited and (root / f"edit/export/{name}/update.json").exists():
@@ -651,9 +672,9 @@ class _Unit:
     def create_a(self, ops, *, full):
         from proof.observe import publish
 
-        with ops("create", publish.captured_digest(self.export.create)):
+        with ops("create", publish.first_publish_digest(self.export)):
             self.app_id, refusal, lookups = publish.create(self.unit, self.export)
-        media = None if self.app_id is None else self.upload_media(ops, self.export.create)
+        media = None if self.app_id is None else self.upload_media(ops, self.export.content)
         record = {"create": _publish_record(refusal, lookups, media)}
         if self.app_id is None:
             return record
@@ -682,11 +703,11 @@ class _Unit:
         return record
 
     def restore_for_sessions(self, ops):
-        """A's restore over D's cases for proof 3, with the tables D's create uploaded (in a fork at A)."""
+        """A's restore over D's cases for proof 3, with the tables D's first publish uploaded (in a fork at A)."""
         from proof.observe import casedata, sessions
 
         database = casedata.document_case_database(self.document)
-        outcome, restore = sessions.hq_restore(self.unit, database, self.export.create.lookups, "restore-a", ops)
+        outcome, restore = sessions.hq_restore(self.unit, database, self.export.content.lookups, "restore-a", ops)
         self.restore_a = restore
         return {"lookups": outcome, "restore": None if restore is None else self.blobs.put(restore)}
 
@@ -778,7 +799,7 @@ class _Unit:
     def b_context(self, ops, name, built, captured):
         from proof.observe import casedata, sessions
 
-        lookups = captured.lookups or self.export.create.lookups
+        lookups = captured.lookups or self.export.content.lookups
         database = casedata.document_case_database(self.document, edit=name == "B-edit")
         outcome, restore = sessions.hq_restore(self.unit, database, lookups, "restore-proof4", ops)
         return BContext(
@@ -892,6 +913,7 @@ class _Unit:
                 self.unit,
                 document=self.document,
                 export=self.export,
+                app_id=self.app_id,
                 a_build=self.a_built.outcome,
                 b_aligned=b_aligned,
                 b_differs=differs,

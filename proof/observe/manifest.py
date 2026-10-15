@@ -83,10 +83,17 @@ def read_entry(name):
 
 
 def uploads_of(document):
-    """Each captured publish request of the document: ``[(key, Captured, its sidecar's path)]``, in key order."""
+    """Each captured publish request of the document: ``[(key, Captured, its sidecar's path)]``, in key order.
+
+    A first publish in the two-import layout is two of them, ``<configuration>/create`` (the shell) and
+    ``<configuration>/content``, so the shell is read as every app Nova sends is."""
     found = []
     for name, export in sorted(document.exports.items()):
-        for step, captured in (("create", export.create), ("republish", export.republish)):
+        steps = [("create", export.create)]
+        if export.two_imports:
+            steps.append(("content", export.content))
+        steps.append(("republish", export.republish))
+        for step, captured in steps:
             found.append((f"{name}/{step}", captured, export.directory / f"{step}.json"))
     if document.edit is not None:
         for name, export in sorted(document.edit.exports.items()):

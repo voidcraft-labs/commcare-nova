@@ -1,6 +1,7 @@
 package nova.compatibility;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -14,6 +15,7 @@ import org.commcare.core.process.XmlFormRecordProcessor;
 import org.commcare.suite.model.*;
 import org.commcare.util.mocks.MockDataUtils;
 import org.commcare.util.mocks.MockUserDataSandbox;
+import org.commcare.xml.FixtureXmlParser;
 import org.commcare.xml.SuiteParser;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.FormIndex;
@@ -31,8 +33,17 @@ import org.javarosa.form.api.FormEntryPrompt;
 import org.javarosa.model.xform.XFormSerializingVisitor;
 import org.javarosa.test_utils.ExprEvalUtils;
 import org.javarosa.model.xform.XPathReference;
+import org.javarosa.xml.ElementParser;
 import org.javarosa.xpath.expr.FunctionUtils;
 import org.junit.Test;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 import static org.junit.Assert.*;
 
 /** Real SuiteParser fixture installation and CommCare fixture resolution. */
@@ -116,6 +127,54 @@ public class LookupRuntimeTest {
             assertFalse(FunctionUtils.toBoolean(reverseMenu.getMenuRelevance().eval(upgraded.context(reverseMenu.getInstances(null)))));
             assertEquals("Eastland", ExprEvalUtils.xpathEval(upgraded.form(".xml").getFormDef().getEvaluationContext(), "string(instance('regions')/regions_list/regions[1]/label)"));
         }
+    }
+
+    /**
+     * The table's {@code <fixture>} element as the named archive embeds it, with the {@code user_id} a restore
+     * writes on it: the same id and rows, as a sync delivers the project space's copy of the table.
+     */
+    private byte[] restoredFixture(String archive, String userId) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        Document suite;
+        try (InputStream input = getClass().getResourceAsStream("/lookup/" + archive + ".suite.xml")) {
+            assertNotNull(archive, input);
+            suite = factory.newDocumentBuilder().parse(input);
+        }
+        NodeList fixtures = suite.getElementsByTagName("fixture");
+        assertEquals(archive + " embeds one table", 1, fixtures.getLength());
+        Element fixture = (Element) fixtures.item(0);
+        assertEquals("item-list:regions", fixture.getAttribute("id"));
+        fixture.setAttribute("user_id", userId);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        javax.xml.transform.Transformer serializer = TransformerFactory.newInstance().newTransformer();
+        serializer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+        serializer.transform(new DOMSource(fixture), new StreamResult(bytes));
+        return bytes.toByteArray();
+    }
+
+    /**
+     * A restore's table is read before the archive's own. Core's fixture lookup reads the user's fixture
+     * storage, which a sync writes ({@code CommCareTransactionParserFactory} hands {@code FixtureXmlParser} the
+     * user fixture storage), before the app's, which the installed archive writes
+     * ({@code SandboxUtils.loadFixture}). So an archive ahead of its HQ app reads the rows the project space
+     * holds, and its own rows only for a table the sync did not bring.
+     */
+    @Test public void restoredTableIsReadBeforeTheArchivesOwn() throws Exception {
+        String region = "string(instance('regions')/regions_list/regions[1]/label)";
+        Runtime archiveOnly = new Runtime("north", "north");
+        archiveOnly.install("lookup-app", false);
+        assertEquals(0, archiveOnly.sandbox.getUserFixtureStorage().getNumRecords());
+        assertEquals("Northland", ExprEvalUtils.xpathEval(archiveOnly.form(".xml").getFormDef().getEvaluationContext(), region));
+
+        Runtime synced = new Runtime("north", "north");
+        synced.install("lookup-app", false);
+        byte[] fixture = restoredFixture("lookup-reversed", "worker-north");
+        new FixtureXmlParser(ElementParser.instantiateParser(new ByteArrayInputStream(fixture)), true,
+                synced.sandbox.getUserFixtureStorage()).parse();
+        assertEquals(1, synced.sandbox.getUserFixtureStorage().getNumRecords());
+        assertEquals(1, synced.sandbox.getAppFixtureStorage().getNumRecords());
+        assertEquals("Eastland", ExprEvalUtils.xpathEval(synced.form(".xml").getFormDef().getEvaluationContext(), region));
     }
 
     @Test public void suiteCalculatedColumnCorrelatesTheSelectedCase() throws Exception {

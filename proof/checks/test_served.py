@@ -30,7 +30,17 @@ Contracts (``proof.observe.served``, ``proof.formplayer.hq``, ``proof.checks.ser
   list in another order is its order; a response of another kind is its
   kind; a refused submission is its status and nothing that follows from
   it; a generated id's number and a build's version are no difference; the
-  client's own home tiles are read by their kind.
+  client's own home tiles are read by their kind; the translations of the
+  screen after a submit are read by their keys, as a response's are.
+- **A submission's address is a request's** (the comparator, on records
+  alone): a submission sent under the release's id and one sent under the
+  working app's are one address under the spelling rule
+  ``runtime_url_app_id``, and one sent to another project space's receiver
+  is another.
+- **A question is named by its own label** (``merged_text_ids``): an id
+  HQ's build merged maps where it is a question's own label, whatever a
+  group, a choice or a hint of another form keeps, and a label HQ merged
+  that is a group's or a choice's maps nothing.
 """
 
 from __future__ import annotations
@@ -42,6 +52,7 @@ import pytest
 from proof.checks import cases
 from proof.checks import served as compare
 from proof.observe.record import Blobs, canonical
+from proof.rules import runtime_url_app_id
 
 DOCUMENT = "targeted-survey-menu"
 PLANTED = "Planted menu name"
@@ -258,6 +269,39 @@ def test_a_refused_submission_is_its_status_and_nothing_that_follows_from_it():
     assert _compared(taken, copy.deepcopy(taken)) == []
 
 
+def test_the_screen_after_a_submit_has_its_translations_read_by_their_keys():
+    """Formplayer keys a screen's translations by the app's own ids, so a label the other side lacks is that
+    label, read as one class on every form that shows it."""
+
+    def submitted(translations):
+        submit = {"status": "success", "nextScreen": {"type": "commands", "translations": translations}}
+        return _trace({"answers": [], "submit": submit, "asked": [], "submissions": []}, end="submitted")
+
+    held = {"forms.m0f0.submit_label": "Submit", "forms.m1f0.submit_label": "Save"}
+    found = _compared(submitted(held), submitted({}))
+    assert _paths(found) == [("/runs/*/steps/*/submit/nextScreen/translations/*", "removed")]
+    assert sorted(d.at for d in found) == [
+        "/runs/0/steps/0/submit/nextScreen/translations/forms.m0f0.submit_label",
+        "/runs/0/steps/0/submit/nextScreen/translations/forms.m1f0.submit_label",
+    ]
+
+
+def test_a_submission_under_either_app_id_is_one_address_and_another_project_spaces_receiver_is_another():
+    def sent(path):
+        submit = {"status": "success", "nextScreen": {"type": "commands"}}
+        submissions = [{"path": path, "instance": "<data xmlns='x'/>", "files": 0}]
+        return _trace({"answers": [], "submit": submit, "asked": [], "submissions": submissions}, end="submitted")
+
+    release, working = sent("/a/space/receiver/@build/"), sent("/a/space/receiver/@app/")
+    rules = (runtime_url_app_id.RULE,)
+    assert _paths(_compared(release, working)) == [("/runs/*/steps/*/submissions/*/path", "changed")]
+    assert _compared(release, working, rules=rules) == []
+    found = _compared(release, sent("/a/other-space/receiver/@app/"), rules=rules)
+    assert [(d.path, d.before, d.after) for d in found] == [
+        ("/runs/*/steps/*/submissions/*/path", "/a/space/receiver/@app/", "/a/other-space/receiver/@app/")
+    ]
+
+
 def test_a_generated_ids_number_and_a_builds_version_are_no_difference_and_a_forms_version_is_the_version_clauses():
     def opened(session, version, app_version):
         instance = f"<data xmlns='http://form' version='{version}'><q>1</q></data>"
@@ -357,6 +401,57 @@ def test_a_question_named_by_a_text_hq_merged_is_the_same_question_and_another_q
     assert [d.path for d in compared("other-label", {"pick-label": "note-hint"})] == [
         "/runs/*/steps/*/response/exception"
     ]
+
+
+def _form_of(body, texts):
+    """A form whose body is ``body`` and whose one language holds ``texts`` by id."""
+    held = "".join(f'<text id="{name}"><value>{value}</value></text>' for name, value in texts.items())
+    return (
+        '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"'
+        ' xmlns:jr="http://openrosa.org/javarosa"><h:head><model><itext>'
+        f'<translation lang="en">{held}</translation></itext></model></h:head><h:body>{body}</h:body></h:html>'
+    ).encode()
+
+
+def _label(text_id):
+    return f"<label ref=\"jr:itext('{text_id}')\"/>"
+
+
+@pytest.mark.parametrize(
+    "kept",
+    [
+        f'<group ref="/data/g">{_label("pick-label")}</group>',
+        f'<select1 ref="/data/c">{_label("c-label")}<item>{_label("pick-label")}<value>a</value></item></select1>',
+        f'<input ref="/data/h">{_label("h-label")}<hint ref="jr:itext(\'pick-label\')"/></input>',
+    ],
+    ids=["group", "choice", "hint"],
+)
+def test_a_questions_merged_label_maps_whatever_another_forms_group_choice_or_hint_keeps(kept):
+    """Core names a question by its own label alone, so an id a group, a choice or a hint of another form keeps
+    names no question there, and the question's merged label still maps."""
+    path = "modules-0/forms-0.xml"
+    local = _form("pick-label", {"note-label": "Note", "note-hint": "Score", "pick-label": "Score"})
+    built = _form("note-hint", {"note-label": "Note", "note-hint": "Score"})
+    other = _form_of(kept, {"pick-label": "Score", "c-label": "Choose", "h-label": "Height"})
+    held = {"modules-1/forms-0.xml": other}
+    assert compare.merged_text_ids({path: built, **held}, {path: local, **held}) == {"pick-label": "note-hint"}
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda label: f'<group ref="/data/g">{label}<input ref="/data/q">{_label("q-label")}</input></group>',
+        lambda label: f'<select1 ref="/data/c">{_label("c-label")}<item>{label}<value>a</value></item></select1>',
+    ],
+    ids=["group", "choice"],
+)
+def test_a_merged_label_that_is_a_groups_or_a_choices_maps_nothing(wrap):
+    """A group's label and a choice's name no question in Core's message, so HQ's merge of one maps nothing."""
+    path = "modules-0/forms-0.xml"
+    texts = {"q-label": "Question", "c-label": "Choose", "first-label": "Same"}
+    local = _form_of(wrap(_label("second-label")), {**texts, "second-label": "Same"})
+    built = _form_of(wrap(_label("first-label")), texts)
+    assert compare.merged_text_ids({path: built}, {path: local}) == {}
 
 
 def test_a_run_that_left_the_walk_keeps_no_search_outcome_and_a_one_question_end_is_where_it_ended():

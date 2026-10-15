@@ -118,7 +118,7 @@ it("accepts an explicitly complete empty inventory and rejects malformed envelop
 			expect(
 				await listHqLookupTables(CREDS, DOMAIN),
 				JSON.stringify(data),
-			).toEqual({ success: false, status: 502 });
+			).toMatchObject({ success: false, status: 502 });
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual([]);
 		expect(
 			peer
@@ -171,10 +171,12 @@ it("classifies a disconnected or non-JSON inventory as unavailable", async () =>
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
 			status: 503,
+			cause: "network",
 		});
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
 			status: 502,
+			cause: "malformed",
 		});
 	});
 });

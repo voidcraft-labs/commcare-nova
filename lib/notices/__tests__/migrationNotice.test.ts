@@ -15,16 +15,48 @@ const REAL_ENTRIES = {
 		reason: "unsaved-assistant-work-discarded",
 		entity: { type: "app", nameAtMigration: "Clinic visits" },
 	},
-	"deep-links-need-republish": {
+	"ccz-needs-project-space": {
+		kind: "document",
+		reason: "ccz-needs-project-space",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+	},
+	"deep-links-need-republish": deploymentEntry("deep-links-need-republish"),
+	"hq-app-deleted": deploymentEntry("hq-app-deleted"),
+	"hq-app-not-nova-made": deploymentEntry("hq-app-not-nova-made"),
+	"ids-change-once-unreadable": deploymentEntry("ids-change-once-unreadable"),
+	"menu-id-changes-once": {
+		...deploymentEntry("menu-id-changes-once"),
+		entities: [
+			{
+				type: "module",
+				uuid: "01992000-0000-7000-8000-0000000000a1",
+				nameAtMigration: "Register",
+			},
+		],
+	},
+	"form-ids-change-once": {
+		...deploymentEntry("form-ids-change-once"),
+		entities: [
+			{
+				type: "form",
+				uuid: "01992000-0000-7000-8000-0000000000b1",
+				nameAtMigration: "Visit",
+			},
+		],
+	},
+} as const;
+
+function deploymentEntry<const R extends string>(reason: R) {
+	return {
 		kind: "deployment",
-		reason: "deep-links-need-republish",
+		reason,
 		deployment: {
 			deploymentId: DEPLOYMENT_ID,
 			server: "production",
 			domain: "field-ops",
 		},
-	},
-} as const;
+	} as const;
+}
 
 describe("migrationNoticeEntrySchema", () => {
 	it("accepts each reason's real entry", () => {

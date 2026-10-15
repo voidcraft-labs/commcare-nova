@@ -17,9 +17,13 @@
  *   <out>/<id>/expected.json          a targeted document's intent values
  *   <out>/<id>/<name>.xml|.json       a targeted document's own files its
  *                                     expectations read (restores)
- *   <out>/<id>/export/<config>/       create, republish, lookups and media
- *                                     (.body + .json), and outcome.json
+ *   <out>/<id>/export/<config>/       create (the empty shell), content (the
+ *                                     update that fills it), republish,
+ *                                     lookups and media (.body + .json), and
+ *                                     outcome.json
  *   <out>/<id>/local.ccz, local-again.ccz
+ *   <out>/<id>/import-file.zip        the HQ import file for D, as
+ *                                     `/api/compile/json` builds it
  *   <out>/<id>/edit/batch.json        the batch, its kinds, touched entities
  *                                     and footprint
  *   <out>/<id>/edit/document.json     D′ (the commit gate's nextDoc)
@@ -53,9 +57,9 @@
  * many worker processes (`./emitWorker.ts`) splitting the documents.
  *
  * Every file but `timings.json` is the same, byte for byte, on every run
- * at one seed, wherever it runs: each export draws its minted identities
- * from a generator seeded by the corpus seed, its ordinal and its
- * configuration (`./entropy.mts`), and every child process runs with a
+ * at one seed, wherever it runs: each export draws what it still draws from
+ * a generator seeded by the corpus seed, its ordinal and its configuration
+ * (`./entropy.mts`), and every child process runs with a
  * whitelisted environment (`./emissionProcess.ts`). With `select`, only the
  * selected documents are written, each exactly as the whole corpus writes
  * it: admission and edit batches still run over every document.

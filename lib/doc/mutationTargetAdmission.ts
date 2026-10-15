@@ -388,6 +388,9 @@ export function mutationTargetsInvalid(
 	let sourceLanguage = initialLocalization.sourceLanguage;
 	let defaultLanguage = initialLocalization.defaultLanguage;
 	const languages = new Set(initialLocalization.languageOrder);
+	const wireCodes = new Map<string, string>(
+		Object.entries(initialLocalization.wireCodes),
+	);
 	const translations = new Map<string, Map<string, TranslationEntry>>(
 		Object.entries(initialLocalization.translations).map(
 			([language, entries]) => [language, new Map(Object.entries(entries))],
@@ -1095,6 +1098,8 @@ export function mutationTargetsInvalid(
 				languages.clear();
 				languages.add(tag);
 				translations.clear();
+				wireCodes.clear();
+				wireCodes.set(tag, m.wireCode);
 				sourceLanguage = tag;
 				defaultLanguage = tag;
 				break;
@@ -1102,8 +1107,12 @@ export function mutationTargetsInvalid(
 			case "addLanguage": {
 				const tag = languageTag(m.language);
 				if (languages.has(tag)) return true;
+				// A wire code is an identity: one another language holds would
+				// give two languages one CommCare code.
+				if ([...wireCodes.values()].includes(m.wireCode)) return true;
 				languages.add(tag);
 				translations.set(tag, new Map());
+				wireCodes.set(tag, m.wireCode);
 				break;
 			}
 			case "removeLanguage":
@@ -1116,6 +1125,7 @@ export function mutationTargetsInvalid(
 				}
 				languages.delete(m.code);
 				translations.delete(m.code);
+				wireCodes.delete(m.code);
 				break;
 			case "setDefaultLanguage":
 				if (!languages.has(m.code)) return true;

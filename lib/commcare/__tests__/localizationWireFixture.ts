@@ -126,6 +126,7 @@ function bilingualDoc(): BlueprintDoc {
 		sourceLanguage: "eng",
 		defaultLanguage: "spa",
 		languageOrder: ["spa", "eng"],
+		wireCodes: { spa: "es", eng: "en" },
 		translations: { spa: entries },
 	};
 	return doc;
@@ -156,6 +157,7 @@ function mandarinBranchesDoc(): BlueprintDoc {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "cmn-Hans", "cmn-Hant"],
+		wireCodes: { eng: "en", "cmn-Hans": "zho", "cmn-Hant": "cmn-hant" },
 		translations: { "cmn-Hans": simplified, "cmn-Hant": traditional },
 	};
 	return doc;
@@ -282,6 +284,7 @@ function bilingualPromptDoc(): BlueprintDoc {
 		sourceLanguage: "eng",
 		defaultLanguage: "spa",
 		languageOrder: ["spa", "eng"],
+		wireCodes: { spa: "es", eng: "en" },
 		translations: { spa: entries },
 	};
 	return doc;
@@ -352,6 +355,7 @@ function targetOnlyDoc(): BlueprintDoc {
 		sourceLanguage: "eng",
 		defaultLanguage: "spa",
 		languageOrder: ["spa", "eng"],
+		wireCodes: { spa: "es", eng: "en" },
 		translations: { spa: entries },
 	};
 

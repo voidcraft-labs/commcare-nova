@@ -14,6 +14,7 @@ import {
 	extensionCaseFixture,
 	extensionScenarios,
 } from "./extensionCaseFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(nodes: Element[]): Element {
 	expect(nodes).toHaveLength(1);
@@ -55,7 +56,9 @@ it.each(extensionScenarios)(
 		]);
 		const source = hq._attachments[`${form.unique_id}.xml`];
 		if (typeof source !== "string") throw new Error("Missing source form");
-		const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		const suite = xmlTree(zip.readAsText("suite.xml"));
 		const entry = one(
 			findAll(

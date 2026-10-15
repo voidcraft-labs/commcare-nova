@@ -60,6 +60,7 @@ export function withSpanishFieldLabel(doc: BlueprintDoc): BlueprintDoc {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[unitId]: {

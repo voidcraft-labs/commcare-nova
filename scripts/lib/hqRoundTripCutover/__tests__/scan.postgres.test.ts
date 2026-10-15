@@ -181,6 +181,21 @@ describe("the advisory scan", () => {
 			INSERT INTO app_deployments (app_id, project_id, server, domain, state, phases, created_by)
 			VALUES ('app-a-clean', ${PROJECT}, 'production', 'never-mapped', 'preflight', '{}'::jsonb, ${OWNER})
 		`.execute(h.db());
+		// A live app mapping with no pushed revision is a blocker; a lookup
+		// table mapping holds none by design and is never counted.
+		const unpushed = await sql<{ id: string }>`
+			INSERT INTO app_deployments (app_id, project_id, server, domain, state, phases, created_by)
+			VALUES ('app-b-own-media', ${PROJECT}, 'production', 'unpushed', 'uploaded', '{}'::jsonb, ${OWNER})
+			RETURNING id::text AS id
+		`.execute(h.db());
+		await sql`
+			INSERT INTO app_deployment_resources (deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_revision, pushed_at)
+			VALUES (${unpushed.rows[0]?.id ?? ""}::uuid, 'app', 'app-b-own-media', 'hq-unpushed', 'nova-created', NULL, NULL)
+		`.execute(h.db());
+		await sql`
+			INSERT INTO app_deployment_resources (deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_revision, pushed_at)
+			VALUES (${deployments[0] ?? ""}::uuid, 'lookup-table', 'table-1', 'hq-table-1', 'nova-created', NULL, NULL)
+		`.execute(h.db());
 
 		await sql`CREATE ROLE cutover_scan_reader NOLOGIN`.execute(h.db());
 		await sql`GRANT USAGE ON SCHEMA public TO cutover_scan_reader`.execute(
@@ -223,13 +238,18 @@ describe("the advisory scan", () => {
 				count: 1,
 				apps: ["app-d-drifted"],
 			});
+			expect(blockers["app-mapping-without-pushed-revision"]).toMatchObject({
+				count: 1,
+				apps: ["app-b-own-media"],
+			});
 			expect(blockers["target-export-readiness"]).toMatchObject({
 				apps: ["app-c-foreign-media"],
 				findingCodes: ["MEDIA_ASSET_NOT_FOUND"],
 			});
 			expect(section(lines, "deployments")[0]).toMatchObject({
 				noAppMapping: 1,
-				noCredential: [deployments[1]],
+				noCredential: [deployments[1], unpushed.rows[0]?.id],
+				appMappingsWithoutPushedRevision: 1,
 				publishedDocumentStored: 2,
 			});
 			expect(section(lines, "outcome")[0]).toMatchObject({

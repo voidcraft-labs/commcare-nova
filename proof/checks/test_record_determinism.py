@@ -257,7 +257,12 @@ def _inputs():
     return {
         "configurations": {
             "minimum": {
-                "a": {"configurations": "sha256:c", "document": "sha256:d", "create.request.body": "sha256:1"},
+                "a": {
+                    "configurations": "sha256:c",
+                    "document": "sha256:d",
+                    "create.request.body": "sha256:1",
+                    "content.request.body": "sha256:4",
+                },
                 "b": {"request.body": "sha256:2", "request.json": "sha256:j"},
                 "b_edit": {
                     "request.body": "sha256:3",
@@ -315,11 +320,14 @@ def _hook(state):
     ("change", "moved"),
     [
         pytest.param(_set("a", "create.request.body"), {"a", "b", "b_aligned", "b_edit"}, id="create"),
+        # The import that fills the shell, which part a reads beside the shell's create.
+        pytest.param(_set("a", "content.request.body"), {"a", "b", "b_aligned", "b_edit"}, id="content"),
         pytest.param(_set("a", "configurations"), {"a", "b", "b_aligned", "b_edit"}, id="configurations"),
         pytest.param(_set("b", "request.body"), {"b", "b_aligned"}, id="republish"),
         pytest.param(_set("b", "lookups.body"), {"b", "b_aligned"}, id="republish workbook"),
         # The media upload each publish sends after its import, replayed in the part that publishes.
         pytest.param(_set("a", "create.media.body"), {"a", "b", "b_aligned", "b_edit"}, id="create media"),
+        pytest.param(_set("a", "content.media.body"), {"a", "b", "b_aligned", "b_edit"}, id="content media"),
         pytest.param(_set("b", "media.body"), {"b", "b_aligned"}, id="republish media"),
         pytest.param(_set("b_edit", "media.json"), {"b_edit"}, id="update media sidecar"),
         pytest.param(_set("b_edit", "request.json"), {"b_edit"}, id="update sidecar"),
@@ -586,7 +594,7 @@ def _matched(media):
 def test_a_create_that_sends_media_maps_it_into_a_the_same_way_in_every_unit(hq, core_runner):
     from proof.hq import operations
 
-    document, name = _cheapest_where(lambda d, n: d.exports[n].create.media is not None, "create sends media")
+    document, name = _cheapest_where(lambda d, n: d.exports[n].content.media is not None, "content sends media")
     made = []
     for _ in range(2):
         with _lane_unit(document, name, core_runner) as state:
@@ -594,8 +602,8 @@ def test_a_create_that_sends_media_maps_it_into_a_the_same_way_in_every_unit(hq,
             record = state.create_a(ops, full=False)
             media = record["create"]["media"]
             assert media["refused"] is None and _matched(media), document.id
-            assert _matched(media) <= _zip_paths(document.exports[name].create.media)
-            # Each file HQ matched names a medium HQ holds, where Nova's create named a content hash.
+            assert _matched(media) <= _zip_paths(document.exports[name].content.media)
+            # Each file HQ matched names a medium HQ holds: Nova's import carries no map, and the upload writes it.
             assert set(_hq_media(state)) == _matched(media)
             mapped = operations.held_app(state.unit, state.app_id).multimedia_map
             made.append(
@@ -624,8 +632,8 @@ def test_b_and_its_recreation_send_the_media_again_and_a_publish_hq_refuses_send
     returns the refusal before ``uploadMediaBytes``), so a republish whose import HQ refuses is followed by no
     media operation: here one carrying no app file (``_handle_import_app`` answers 400)."""
     document, name = _cheapest_where(
-        lambda d, n: d.exports[n].create.media is not None and d.exports[n].republish.media is not None,
-        "create and republish send media",
+        lambda d, n: d.exports[n].content.media is not None and d.exports[n].republish.media is not None,
+        "content and republish send media",
     )
     republish = document.exports[name].republish
     body = tmp_path / "refused.body"
@@ -662,7 +670,7 @@ def test_b_edit_maps_the_media_its_update_adds_over_an_a_that_had_none(hq, core_
     mapped only by the upload its publish sends after the update."""
     document, name = _cheapest_where(
         lambda d, n: (
-            d.exports[n].create.media is None
+            d.exports[n].content.media is None
             and d.edit is not None
             and n in d.edit.exports
             and d.edit.exports[n].update.media is not None

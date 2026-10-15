@@ -242,14 +242,30 @@ describe("compactTargetRows", () => {
 		expect(rows[0].stopped).toBe(true);
 	});
 
-	it("says an update lands in place only while a live app mapping exists", () => {
-		const updating = compactTargetRows(
-			[view({ active: [appResource()] })],
+	it("says what the next publish does: update the app there, fill the empty one, or create", () => {
+		const rows = compactTargetRows(
+			[
+				view({ domain: "updates", active: [appResource()] }),
+				view({
+					domain: "shell",
+					active: [{ ...appResource(null), pushedRevision: null }],
+				}),
+				view({
+					domain: "gone",
+					active: [
+						{ ...appResource(), remoteMissingAt: "2026-08-02T00:00:00Z" },
+					],
+				}),
+				view({ domain: "fresh" }),
+			],
 			"production",
 		);
-		expect(updating[0].updatesInPlace).toBe(true);
-		const fresh = compactTargetRows([view({})], "production");
-		expect(fresh[0].updatesInPlace).toBe(false);
+		expect(rows.map((row) => [row.domain, row.nextPublish])).toEqual([
+			["updates", "updates"],
+			["shell", "fills-shell"],
+			["gone", "creates"],
+			["fresh", "creates"],
+		]);
 	});
 
 	it("marks a record on another CommCare HQ installation unreachable", () => {

@@ -70,13 +70,24 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { type CommCareServer, deploymentServerLabel } from "@/lib/deployment";
 import {
 	type DeploymentView,
+	type DownloadTargetsView,
 	type RefreshedDeploymentView,
 	readDeploymentsAction,
+	readDownloadTargetsAction,
 } from "@/lib/deployment/actions";
-import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
+import {
+	type NextPublishAction,
+	nextPublishAction,
+} from "@/lib/deployment/resources";
+import {
+	NEEDS_PUBLISHED_PROJECT_SPACE,
+	projectSpaceLabel,
+	SELECTION_HELD_FROM_HQ,
+} from "@/lib/deployment/runtimeTarget";
 import type { DeploymentResourceConflict } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
+import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	useAccessPhase,
@@ -98,12 +109,13 @@ const PUBLISH_TARGET_OPTIONS = {
 	},
 	web: {
 		label: "CommCare HQ app file",
-		description: "Download a JSON file to import into CommCare HQ",
+		description: "Download a ZIP to import into CommCare HQ",
 		icon: tablerBrowser,
 	},
 	mobile: {
 		label: "CommCare mobile app file",
-		description: "Download a CCZ package for CommCare Android",
+		description:
+			"Download a CCZ for CommCare Android, made for a project space this app is published to",
 		icon: tablerDeviceMobile,
 	},
 } as const;
@@ -114,6 +126,8 @@ export type PublishDownloadOutcome =
 			readonly projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			/** What the file could not carry. Empty on an ordinary download. */
 			readonly advisories?: readonly ExportAdvisory[];
+			/** The import file's manual steps, as its README holds them. */
+			readonly manualImportGuide?: readonly ManualImportStep[];
 	  }
 	| { readonly ok: false };
 
@@ -147,7 +161,11 @@ interface PublishDialogProps {
 		signal: AbortSignal,
 	) => Promise<PublishProjectSpaceCompatibilityOutcome>;
 	onDownloadJson: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
-	onDownloadCcz: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
+	/** A CCZ is made for one project space this app is published to. */
+	onDownloadCcz: (target: {
+		readonly server: CommCareServer;
+		readonly domain: string;
+	}) => Promise<PublishDownloadOutcome>;
 }
 
 type PublishStatus =
@@ -185,6 +203,7 @@ type PublishStatus =
 			target: "web" | "mobile";
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			advisories?: readonly ExportAdvisory[];
+			manualImportGuide?: readonly ManualImportStep[];
 	  }
 	| { type: "error"; message: string; status: number; details: string[] };
 
@@ -214,6 +233,23 @@ function compatibilityTargetDisplayName(
 		domains.find((domain) => domain.name === targetDomain)?.displayName ??
 		targetDomain
 	);
+}
+
+/** What publishing to the selected project space will do, or "unknown" before Nova can say. */
+type PublishPlan = NextPublishAction | "unknown";
+
+/** The project spaces a CCZ can be made for, loaded when the dialog opens. */
+type DownloadTargets =
+	| { type: "loading" }
+	| { type: "ready"; view: DownloadTargetsView }
+	| { type: "error"; message: string };
+
+/** A select value for one project space: the server and the name together. */
+function downloadTargetKey(target: {
+	readonly server: CommCareServer;
+	readonly domain: string;
+}): string {
+	return `${target.server}:${target.domain}`;
 }
 
 /** The deployments this app already has, loaded when the dialog opens. */
@@ -254,6 +290,13 @@ export function PublishDialog({
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
 	const [downloadServer, setDownloadServer] = useState<CommCareServer | "">("");
+	const [downloadTargets, setDownloadTargets] = useState<DownloadTargets>({
+		type: "loading",
+	});
+	/** The CCZ's project space, as `downloadTargetKey` spells it; "" for none chosen. */
+	const [cczTargetKey, setCczTargetKey] = useState("");
+	/** Counts the publishes that landed while this is open, so the CCZ's project spaces are read again after each. */
+	const [landedPublishes, setLandedPublishes] = useState(0);
 	/**
 	 * Which of the tables already on the selected project space this person
 	 * has said Nova may take over.
@@ -342,6 +385,8 @@ export function PublishDialog({
 		setAdoptResourceIds([]);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
+		setDownloadTargets({ type: "loading" });
+		setCczTargetKey("");
 		setCompatibilityState({ type: "loading" });
 		setTarget(canUploadToHq ? "hq" : "web");
 		setAppName(storeAppName);
@@ -397,6 +442,48 @@ export function PublishDialog({
 			live = false;
 		};
 	}, [open, canUploadToHq, getAppId]);
+	/* Which project spaces a CCZ can be made for: the same ledger read and
+	 * the same lines the download itself answers from, so the dialog never
+	 * offers a space the download would refuse. It is read when this opens
+	 * and again after each publish that lands, since that publish can be
+	 * what puts the app on a space. A pick that is still offered stays; one
+	 * target is chosen for the person; several wait for their pick. */
+	useEffect(() => {
+		if (!open) return;
+		void landedPublishes;
+		let live = true;
+		void readDownloadTargetsAction(getAppId())
+			.then((result) => {
+				if (!live) return;
+				if (!result.success) {
+					setDownloadTargets({ type: "error", message: result.message });
+					return;
+				}
+				setDownloadTargets({ type: "ready", view: result.data });
+				const keys = result.data.targets.map(downloadTargetKey);
+				setCczTargetKey((current) =>
+					keys.includes(current) ? current : keys.length === 1 ? keys[0] : "",
+				);
+			})
+			.catch(() => {
+				if (!live) return;
+				setDownloadTargets({
+					type: "error",
+					message:
+						"Nova couldn't load where this app is published. Close and reopen to try again.",
+				});
+			});
+		return () => {
+			live = false;
+		};
+	}, [open, getAppId, landedPublishes]);
+	const cczTarget =
+		downloadTargets.type === "ready"
+			? (downloadTargets.view.targets.find(
+					(candidate) => downloadTargetKey(candidate) === cczTargetKey,
+				) ?? null)
+			: null;
+
 	/* ONE store for the records, keyed by target. The open-time read seeds
 	 * it, a publish response upserts into it, and Check status upserts into
 	 * it, so a record can never render twice with disagreeing contents,
@@ -433,25 +520,24 @@ export function PublishDialog({
 
 	/* What publishing to the selected project space will do. The SAME
 	 * predicate the publish lifecycle applies server-side
-	 * (`plannedInPlaceUpdate`), read off the records this dialog already
+	 * (`nextPublishAction`), read off the records this dialog already
 	 * loads, so the form's blurb promises exactly what the request that
 	 * follows will do — and "unknown" while the records are loading, when
 	 * the read failed, or before a domain is picked, because a claim made
 	 * in those windows would be a guess the upload could contradict. */
-	const publishPlan: "update" | "create" | "unknown" =
+	const publishPlan: PublishPlan =
 		existing.type !== "ready" || selectedDomain === ""
 			? "unknown"
-			: existing.views.some(
+			: nextPublishAction(
+					existing.views.find(
 						(view) =>
 							/* The server half matters: a record for a same-named
 							 * space on another CommCare HQ installation says nothing
 							 * about what this upload will do. */
 							view.deployment.deployment.server === connectionServer &&
-							view.deployment.deployment.domain === selectedDomain &&
-							plannedInPlaceUpdate(view.deployment) !== null,
-					)
-				? "update"
-				: "create";
+							view.deployment.deployment.domain === selectedDomain,
+					)?.deployment ?? null,
+				);
 
 	const compatibilityDomain =
 		target === "hq"
@@ -645,6 +731,7 @@ export function PublishDialog({
 				 * the next publish must not re-assert a choice nobody made
 				 * again. */
 				setAdoptResourceIds([]);
+				setLandedPublishes((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
 					type: "landed",
@@ -702,11 +789,14 @@ export function PublishDialog({
 
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
+			/* A CCZ is made for one project space; the button stays off until
+			 * one is chosen, so there is nothing to send without it. */
+			if (downloadTarget === "mobile" && cczTarget === null) return;
 			const generation = ++operationGenerationRef.current;
 			setStatus({ type: "downloading", target: downloadTarget });
-			const outcome = await (downloadTarget === "web"
-				? onDownloadJson(downloadServer || undefined)
-				: onDownloadCcz(downloadServer || undefined));
+			const outcome = await (cczTarget !== null && downloadTarget === "mobile"
+				? onDownloadCcz(cczTarget)
+				: onDownloadJson(downloadServer || undefined));
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
 				setStatus({ type: "idle" });
@@ -717,9 +807,10 @@ export function PublishDialog({
 				target: downloadTarget,
 				projectSpaceCompatibility: outcome.projectSpaceCompatibility,
 				advisories: outcome.advisories,
+				manualImportGuide: outcome.manualImportGuide,
 			});
 		},
-		[onDownloadCcz, onDownloadJson, downloadServer],
+		[onDownloadCcz, onDownloadJson, downloadServer, cczTarget],
 	);
 
 	const isWorking =
@@ -835,7 +926,7 @@ export function PublishDialog({
 							</FieldDescription>
 						</Field>
 
-						{target !== "hq" && (
+						{target === "web" && (
 							<Field className="mt-4 gap-1.5">
 								<FieldLabel htmlFor="download-server">
 									CommCare HQ server
@@ -870,11 +961,26 @@ export function PublishDialog({
 									</SelectContent>
 								</Select>
 								<FieldDescription>
-									Choose the server where this file will run. A single published
-									destination can supply it automatically; otherwise you can
-									select one here.
+									The file works in any project space. Links to captured files
+									point at the project space this app is published to on the
+									server you choose, and a single published destination supplies
+									it for you.
 								</FieldDescription>
 							</Field>
+						)}
+						{target === "mobile" && !downloadComplete && (
+							<CczTargetField
+								state={downloadTargets}
+								selectedKey={cczTargetKey}
+								onSelectedKeyChange={(key) => {
+									setCczTargetKey(key);
+									setStatus({ type: "idle" });
+								}}
+								disabled={isWorking}
+								onPublish={
+									canUploadToHq ? () => handleTargetChange("hq") : undefined
+								}
+							/>
 						)}
 						<div className="mt-5 border-t border-nova-border pt-5">
 							{target === "hq" ? (
@@ -1018,7 +1124,13 @@ export function PublishDialog({
 									}
 									projectSpaceCompatibility={status.projectSpaceCompatibility}
 									advisories={status.advisories}
-								/>
+								>
+									{target === "web" &&
+									status.manualImportGuide !== undefined &&
+									status.manualImportGuide.length > 0 ? (
+										<ManualImportGuide steps={status.manualImportGuide} />
+									) : null}
+								</PublishSuccess>
 							) : null}
 
 							{showCompatibilityPreflight && (
@@ -1099,6 +1211,13 @@ export function PublishDialog({
 						<Button type="button" variant="outline" onClick={handleClose}>
 							Done
 						</Button>
+					) : target === "mobile" &&
+						downloadTargets.type !== "loading" &&
+						(downloadTargets.type === "error" ||
+							downloadTargets.view.targets.length === 0) ? (
+						<DialogClose render={<Button variant="outline" />}>
+							Close
+						</DialogClose>
 					) : (
 						<>
 							<DialogClose render={<Button variant="outline" />}>
@@ -1107,7 +1226,10 @@ export function PublishDialog({
 							<Button
 								type="button"
 								onClick={() => handleDownload(downloadTarget)}
-								disabled={isWorking}
+								disabled={
+									isWorking ||
+									(downloadTarget === "mobile" && cczTarget === null)
+								}
 							>
 								{status.type === "downloading" ? (
 									<>
@@ -1120,9 +1242,7 @@ export function PublishDialog({
 								) : (
 									<>
 										<Icon icon={tablerDownload} className="size-4" />
-										{downloadTarget === "web"
-											? "Download JSON"
-											: "Download CCZ"}
+										{downloadTarget === "web" ? "Download ZIP" : "Download CCZ"}
 									</>
 								)}
 							</Button>
@@ -1169,7 +1289,7 @@ function ExistingTargetRows({
 									On CommCare HQ's {deploymentServerLabel(row.server)} server,
 									which this connection doesn't reach
 								</span>
-							) : !row.updatesInPlace && !row.stopped ? (
+							) : row.nextPublish === "creates" && !row.stopped ? (
 								<span className="block text-[12px] font-normal text-nova-text-muted">
 									Publishing again creates a fresh app here
 								</span>
@@ -1197,6 +1317,128 @@ function ExistingTargetRows({
 	);
 }
 
+/**
+ * Which project space the CCZ is for, in four exclusive states: none and
+ * nothing holding the app back, none because CommCare HQ cannot take it as
+ * it stands, one (chosen for the person), or several (theirs to pick).
+ */
+function CczTargetField({
+	state,
+	selectedKey,
+	onSelectedKeyChange,
+	disabled,
+	onPublish,
+}: {
+	state: DownloadTargets;
+	selectedKey: string;
+	onSelectedKeyChange: (key: string) => void;
+	disabled: boolean;
+	/** Switch the dialog to publishing; absent where this person cannot publish. */
+	onPublish?: () => void;
+}) {
+	if (state.type === "loading") {
+		return (
+			<div
+				role="status"
+				className="mt-4 flex items-center gap-2 text-xs text-nova-text-secondary"
+			>
+				<Icon
+					icon={tablerLoader2}
+					className="size-4 animate-spin text-nova-violet-bright"
+				/>
+				Finding the project spaces this app is published to
+			</div>
+		);
+	}
+	if (state.type === "error") {
+		return (
+			<p
+				role="alert"
+				className="mt-4 text-[13px] leading-relaxed text-nova-text-secondary"
+			>
+				{state.message}
+			</p>
+		);
+	}
+	const { targets, heldFromHq } = state.view;
+	if (targets.length === 0) {
+		return (
+			<div className="mt-4 rounded-lg border border-nova-border bg-nova-well px-3 py-3">
+				<p className="text-[13px] leading-relaxed text-nova-text">
+					{heldFromHq.length > 0
+						? SELECTION_HELD_FROM_HQ
+						: NEEDS_PUBLISHED_PROJECT_SPACE}
+				</p>
+				{heldFromHq.length > 0 ? (
+					<ul className="mt-2 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
+						{heldFromHq.map((line) => (
+							<li key={line}>{line}</li>
+						))}
+					</ul>
+				) : onPublish ? (
+					<div className="mt-2">
+						<Button type="button" variant="outline" onClick={onPublish}>
+							<Icon icon={tablerCloudUpload} className="size-4" />
+							Publish to CommCare HQ
+						</Button>
+					</div>
+				) : null}
+			</div>
+		);
+	}
+	const items = targets.map((target) => ({
+		value: downloadTargetKey(target),
+		label: projectSpaceLabel(target),
+	}));
+	return (
+		<Field className="mt-4 gap-1.5">
+			<FieldLabel htmlFor="ccz-project-space">Project space</FieldLabel>
+			<Select
+				items={items}
+				value={selectedKey}
+				onValueChange={(value) => onSelectedKeyChange(value ?? "")}
+				disabled={disabled}
+			>
+				<SelectTrigger id="ccz-project-space" className="w-full">
+					<SelectValue placeholder="Choose a project space" />
+				</SelectTrigger>
+				<SelectContent>
+					{items.map((item) => (
+						<SelectItem key={item.value} value={item.value}>
+							{item.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<FieldDescription>
+				The CCZ signs workers in to this project space and uses its app and form
+				ids, so its forms land with the ones already collected there.
+			</FieldDescription>
+		</Field>
+	);
+}
+
+/** The import file's manual steps, as its README holds them, once it has arrived. */
+function ManualImportGuide({ steps }: { steps: readonly ManualImportStep[] }) {
+	return (
+		<div className="mt-3 rounded-lg border border-nova-border bg-nova-well px-3 py-3 text-left">
+			<h4 className="text-xs font-semibold text-nova-text">
+				Import it into CommCare HQ
+			</h4>
+			<ol className="mt-2 flex list-decimal flex-col gap-3 pl-4">
+				{steps.map((step) => (
+					<li key={step.kind} className="text-xs leading-relaxed">
+						<p className="font-medium text-nova-text">{step.title}</p>
+						<p className="mt-1 whitespace-pre-wrap break-words text-nova-text-secondary">
+							{step.lines.join("\n")}
+						</p>
+					</li>
+				))}
+			</ol>
+		</div>
+	);
+}
+
 function UploadForm({
 	availableDomains,
 	domainItems,
@@ -1217,7 +1459,7 @@ function UploadForm({
 	onAppNameChange: (value: string) => void;
 	status: PublishStatus;
 	/** What publishing will do to the selected project space's app. */
-	publishPlan: "update" | "create" | "unknown";
+	publishPlan: PublishPlan;
 }) {
 	const uploading = status.type === "uploading";
 	return (
@@ -1288,11 +1530,13 @@ function UploadForm({
 				</Field>
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
-					{publishPlan === "update"
+					{publishPlan === "updates"
 						? "Uploading updates the app an earlier publish put on this project space, keeping the same app there. Nova checks that the project space can run this version before anything is sent."
-						: publishPlan === "create"
+						: publishPlan === "creates"
 							? "Uploading creates a new app in the selected project space. Nova checks that the project space can run it before anything is sent."
-							: "Nova checks that the selected project space can run this app before anything is sent."}
+							: publishPlan === "fills-shell"
+								? "Nova made an empty app here on an earlier try. Uploading fills it in."
+								: "Nova checks that the selected project space can run this app before anything is sent."}
 				</p>
 			</div>
 

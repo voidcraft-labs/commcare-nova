@@ -384,3 +384,73 @@ describe("userFacingError — date calculation findings", () => {
 		expect(line).toMatch(/days.*weeks/i);
 	});
 });
+
+describe("userFacingError — what CommCare HQ cannot take", () => {
+	const nested = (details: Record<string, string>) =>
+		userFacingError(
+			validationError(
+				"HQ_NESTED_SELECTION_UNREPRESENTABLE",
+				"module",
+				"INTERNAL DETAIL",
+				{ moduleUuid: testUuid("11111111-1111-4111-8111-111111111111") },
+				{ exportMode: "hq-upload", ...details },
+			),
+		);
+
+	it("names both menus and the one edit for each selection", () => {
+		expect(
+			nested({
+				reason: "multiple-parent-relation",
+				sourceModuleName: "Parents",
+				targetModuleName: "Child care",
+				sourceMaximum: "5",
+			}),
+		).toBe(
+			'CommCare HQ can\'t yet find the cases for "Child care" from several cases selected in "Parents". You can set "Parents" to select one case. Preview keeps this selection, and so does a CCZ for a project space the app is already published to.',
+		);
+		expect(
+			nested({
+				reason: "smaller-child-maximum",
+				sourceModuleName: "Parents",
+				targetModuleName: "Child care",
+				sourceMaximum: "5",
+				targetMaximum: "4",
+			}),
+		).toBe(
+			'CommCare HQ can\'t yet keep the limit of 4 selected cases in "Child care" under "Parents", which selects up to 5. You can raise the limit in "Child care" to 5 or more. Preview keeps this selection, and so does a CCZ for a project space the app is already published to.',
+		);
+	});
+
+	it("reads a menu with no name by its place in the selection", () => {
+		expect(
+			nested({ reason: "multiple-parent-relation", sourceMaximum: "5" }),
+		).toBe(
+			"CommCare HQ can't yet find the cases for this menu from several cases selected in the parent menu. You can set the parent menu to select one case. Preview keeps this selection, and so does a CCZ for a project space the app is already published to.",
+		);
+		expect(
+			nested({
+				reason: "smaller-child-maximum",
+				targetModuleName: "Child care",
+				sourceMaximum: "5",
+				targetMaximum: "4",
+			}),
+		).toBe(
+			'CommCare HQ can\'t yet keep the limit of 4 selected cases in "Child care" under the parent menu, which selects up to 5. You can raise the limit in "Child care" to 5 or more. Preview keeps this selection, and so does a CCZ for a project space the app is already published to.',
+		);
+	});
+
+	it("sends a padded lookup cell to Project data and to no download", () => {
+		const line = userFacingError(
+			validationError(
+				"LOOKUP_CELL_TEXT_CHANGED_BY_HQ",
+				"app",
+				"INTERNAL DETAIL",
+				{},
+				{ columnLabel: "Name", tableName: "Clinics" },
+			),
+		);
+		expect(line).toBe(
+			'The "Name" column in "Clinics" has leading or trailing whitespace that CommCare HQ would remove. You can remove that whitespace in Project data.',
+		);
+	});
+});

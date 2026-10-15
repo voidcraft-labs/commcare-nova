@@ -10,6 +10,12 @@ import type { AppDatabase } from "@/lib/db/pg";
 import { credentialOrder } from "./credentials";
 import { readHolderCensus, settleHolders } from "./holders";
 import {
+	HqReadPacer,
+	readDeployment,
+	readStoredCredentials,
+	storedCredentialSource,
+} from "./hqRead";
+import {
 	type DecryptClock,
 	KmsDecryptRefusedError,
 	type KmsDecryptTransport,
@@ -72,7 +78,11 @@ export interface MigrateOptions {
 	/** `--prove-decrypt`'s KMS transport and clock. */
 	readonly kms?: () => KmsDecryptTransport;
 	readonly clock?: DecryptClock;
-	/** How deployments are read; absent where no HQ read is made. */
+	/**
+	 * How deployments are read. Absent, a run reads HQ with the members'
+	 * stored keys, decrypted through `kms`, paced on `clock`; tests pass their
+	 * own reader.
+	 */
 	readonly plan?: BuildPlanOptions;
 	/** Tests only: throw right after the named step of the fleet transaction. */
 	readonly failAfter?: WriterStep;
@@ -184,11 +194,34 @@ export async function runMigrate(
 	if (mode === "rehearse" || mode === "execute") {
 		await runCaseStoreMigrationsWithReport(db as unknown as Kysely<unknown>);
 	}
+	const pacer = new HqReadPacer(options.clock ?? realClock);
+	const kms = options.kms;
+	let planOptions: BuildPlanOptions = {};
+	if (options.withoutHq !== true) {
+		const reader = options.plan?.readDeployment;
+		const stored =
+			reader === undefined ? await readStoredCredentials(db) : null;
+		planOptions = {
+			readDeployment:
+				reader ??
+				((deployment, credentials) => {
+					if (kms === undefined || stored === null) {
+						throw new Error(
+							"Reading CommCare HQ decrypts members' stored keys, so the run needs a KMS transport.",
+						);
+					}
+					return readDeployment(deployment, {
+						credentials,
+						credentialSource: storedCredentialSource(stored, kms),
+						pacer,
+						clock: options.clock ?? realClock,
+					});
+				}),
+			transientAsUnreadable: options.transientAsUnreadable === true,
+		};
+	}
 	const readStarted = performance.now();
-	const fleet = await readPlannedFleet(
-		db,
-		options.withoutHq === true ? {} : (options.plan ?? {}),
-	);
+	const fleet = await readPlannedFleet(db, planOptions);
 	const readMilliseconds = Math.round(performance.now() - readStarted);
 	const stoppedBy = [
 		...(planHasBlockers(fleet.build.plan) ? (["blocker"] as const) : []),
@@ -229,7 +262,13 @@ export async function runMigrate(
 		readMilliseconds,
 		...(writer === null ? {} : writerFields(writer)),
 	});
-	planSections(report, fleet.source, fleet.build, fleet.holders);
+	planSections(
+		report,
+		fleet.source,
+		fleet.build,
+		fleet.holders,
+		pacer.spaceReads(),
+	);
 	deploymentLines(report, fleet.build);
 	if (digestMoved) {
 		return finish(report, { outcome: "stopped", stoppedBy: ["digest"] });

@@ -277,7 +277,6 @@ export function applicationShell(
 			version: "2.54.0",
 			build_number: null,
 		},
-		multimedia_map: {},
 		translations: options?.translations ?? {},
 		auto_gps_capture: options?.autoGpsCapture ?? false,
 		...(options?.profileCustomProperties &&

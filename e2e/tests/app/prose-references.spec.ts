@@ -91,13 +91,23 @@ test("inspector explicitly converts literal references, preserves drafts and sav
 					.blueprint.fields[source].id,
 		)
 		.toBe("given_name");
-	const archive = await request.post("/api/compile", {
-		data: { appId: formSections.appId, server: "production" },
+	// The app is published to no project space, so the export it has is the
+	// HQ import file: its app JSON carries each form's XForm as an attachment
+	// named by the form's id.
+	const archive = await request.post("/api/compile/json", {
+		data: { appId: formSections.appId },
 	});
 	expect(archive.status()).toBe(200);
-	const xform = new AdmZip(await archive.body()).readAsText(
-		"modules-0/forms-0.xml",
-	);
+	const appFile = new AdmZip(await archive.body())
+		.getEntries()
+		.find((entry) => entry.entryName.endsWith(".json"));
+	expect(appFile).toBeDefined();
+	const hqApp = JSON.parse(appFile?.getData().toString("utf-8") ?? "{}") as {
+		modules: { forms: { unique_id: string }[] }[];
+		_attachments: Record<string, string>;
+	};
+	const xform =
+		hqApp._attachments[`${hqApp.modules[0].forms[0].unique_id}.xml`];
 	expect(xform).toContain('<output value="/data/about_you/given_name"');
 	expect(xform).not.toContain("#form/about_you/your_name");
 	await page.getByRole("button", { name: "Preview", exact: true }).click();

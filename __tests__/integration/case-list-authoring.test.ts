@@ -14,6 +14,7 @@ import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/rem
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
@@ -381,7 +382,9 @@ describe("wire emission", () => {
 		const doc = buildFixtureDoc();
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const hq = expandDoc(doc);
-		const buffer = compileCcz(hq, doc.appName, doc);
+		const buffer = compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		});
 		expect(buffer.length).toBeGreaterThan(0);
 
 		const zip = new AdmZip(buffer);

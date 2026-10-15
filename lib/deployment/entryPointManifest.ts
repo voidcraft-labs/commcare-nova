@@ -47,7 +47,7 @@ export function publishedEntryPoints(
 	});
 	return inventory.map(({ entryPoint, target }) => {
 		const signature = endpointSuiteSignature(suite, entryPoint.id, {
-			appIds: runtimeTarget.appId ? [runtimeTarget.appId] : [],
+			appIds: [runtimeTarget.appId],
 		});
 		if (!signature)
 			throw new Error("The compiled suite omitted a published entry point.");

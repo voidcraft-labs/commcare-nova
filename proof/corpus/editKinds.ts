@@ -78,6 +78,11 @@ import {
 	formIsSectioned,
 } from "@/lib/doc/formSectionVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+	relabelSourceLanguageMutation,
+} from "@/lib/doc/languageMutations";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import {
@@ -591,7 +596,9 @@ function targetLanguages(
 	return freshLanguages(ctx)
 		.slice(0, 1)
 		.map((language) => {
-			const prefix: Mutation[] = [{ kind: "addLanguage", language }];
+			const prefix: Mutation[] = [
+				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
+			];
 			return {
 				prefix,
 				doc: docAfter(ctx.doc, prefix),
@@ -703,14 +710,16 @@ const relabelSourceLanguage: KindGenerator = (ctx) => {
 	return freshLanguages(ctx)
 		.slice(0, 2)
 		.map((language) =>
-			batch([...prefix, { kind: "relabelSourceLanguage", language }]),
+			batch([...prefix, relabelSourceLanguageMutation(language)]),
 		);
 };
 
 const addLanguage: KindGenerator = (ctx) =>
 	freshLanguages(ctx)
 		.slice(0, MAX_TARGETS)
-		.map((language) => batch([{ kind: "addLanguage", language }]));
+		.map((language) =>
+			batch([addLanguageMutation(heldLanguageWireCodes(ctx.doc), language)]),
+		);
 
 const removeLanguage: KindGenerator = (ctx) => {
 	const localization = effectiveAppLocalization(ctx.doc.localization);
@@ -738,7 +747,7 @@ const setDefaultLanguage: KindGenerator = (ctx) => {
 		.slice(0, 1)
 		.map((language) =>
 			batch([
-				{ kind: "addLanguage", language },
+				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
 				{ kind: "setDefaultLanguage", code: languageTag(language) },
 			]),
 		);

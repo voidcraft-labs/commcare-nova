@@ -1,4 +1,7 @@
-import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import {
+	profileServerProperties,
+	type RuntimeTarget,
+} from "@/lib/commcare/runtimeTarget";
 import { buildEntryPointSuite } from "./entryPointSuite";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
@@ -129,7 +132,8 @@ import {
  *  bare `<text>` nav nodes — the same archive shape with no media
  *  artifacts). */
 export interface CompileOptions {
-	readonly runtimeTarget?: RuntimeTarget;
+	/** The deployment the archive is made for: no archive is compiled without one. */
+	readonly runtimeTarget: RuntimeTarget;
 	assets?: AssetManifest;
 	/**
 	 * Prepared lookup wire from the export boundary: identity naming plus
@@ -237,7 +241,7 @@ export function compileCcz(
 	hqJson: HqApplication,
 	appName: string,
 	authoredDoc: BlueprintDoc,
-	opts: CompileOptions = {},
+	opts: CompileOptions,
 ): Buffer {
 	// The same derived module sequence the expander walked
 	// (`emissionPlan.ts`): authored modules with their menu forms, then the
@@ -254,8 +258,7 @@ export function compileCcz(
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
 
-	// Media bundle: media_suite.xml descriptor, the multimedia_map (already
-	// stamped on `hqJson` by the expander), and the CCZ byte entries. With no
+	// Media bundle: media_suite.xml descriptor and the CCZ byte entries. With no
 	// manifest the bundle is empty and `mediaSuiteXml` is the byte-identical
 	// empty placeholder, so a media-free app's archive is unchanged.
 	const mediaBundle = buildMediaBundle(assets ?? new Map(), "compileCcz");
@@ -272,6 +275,7 @@ export function compileCcz(
 
 	files["profile.ccpr"] = generateProfile(
 		appName,
+		opts.runtimeTarget,
 		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
 		opts.compiledAtSeq,
 		derivedProfileProperties(doc),
@@ -1146,6 +1150,10 @@ export function compileCcz(
  * `CommCare App Name` property value; the serializer XML-escapes both
  * once at render time (`&` / `<` / `>` / `"` / `'`).
  *
+ * `runtimeTarget` gives the four server properties (`profileServerProperties`),
+ * each `force="true"` after `cc-app-version`, so a worker signs in, syncs and
+ * sends forms to the project space the archive is made for.
+ *
  * `logoProperty`, when present, is the web-apps banner
  * `<property key="brand-banner-web-apps" value="jr://file/..." force="true"/>`
  * built from `doc.logo`; it's appended to the property list. Absent =
@@ -1162,6 +1170,7 @@ export function compileCcz(
  */
 function generateProfile(
 	appName: string,
+	runtimeTarget: RuntimeTarget,
 	logoProperty?: Element,
 	compiledAtSeq?: number,
 	derivedProperties: Readonly<Record<string, string>> = {},
@@ -1182,6 +1191,9 @@ function generateProfile(
 				value: String(compiledAtSeq ?? 1),
 			}),
 			el("property", { key: "cc-app-version", value: "1" }),
+			...profileServerProperties(runtimeTarget).map(({ key, value }) =>
+				el("property", { key, value, force: "true" }),
+			),
 			...Object.entries(derivedProperties).map(([key, value]) =>
 				el("property", { key, value, force: "true" }),
 			),

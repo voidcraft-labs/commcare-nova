@@ -193,7 +193,7 @@ it.each([
 				.intercept({ path, method: "GET" })
 				.reply(200, { objects: [], meta: { next: null } });
 			for (const data of bodies)
-				expect(await read(CREDS, DOMAIN), JSON.stringify(data)).toEqual({
+				expect(await read(CREDS, DOMAIN), JSON.stringify(data)).toMatchObject({
 					success: false,
 					status: 502,
 				});
@@ -266,8 +266,15 @@ it.each([
 					status,
 					edgeRefusal: false,
 				});
-			for (const status of [502, 503])
-				expect(await read(CREDS, DOMAIN)).toEqual({ success: false, status });
+			for (const [status, cause] of [
+				[502, "malformed"],
+				[503, "network"],
+			] as const)
+				expect(await read(CREDS, DOMAIN)).toEqual({
+					success: false,
+					status,
+					cause,
+				});
 			expect(
 				peer
 					.getCallHistory()
@@ -476,7 +483,11 @@ it("owns one deadline across pages and releases it after a stalled second page",
 			firstRelease.resolve();
 			await secondReached.promise;
 			await vi.advanceTimersByTimeAsync(10_000);
-			expect(await pending).toEqual({ success: false, status: 503 });
+			expect(await pending).toEqual({
+				success: false,
+				status: 503,
+				cause: "timeout",
+			});
 			expect(vi.getTimerCount()).toBe(0);
 		} finally {
 			firstRelease.resolve();

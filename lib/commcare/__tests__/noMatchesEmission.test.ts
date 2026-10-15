@@ -27,7 +27,7 @@ import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan, syntheticModuleUuid } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
-import { CASE_FIXTURE_URL_TEMPLATE } from "@/lib/commcare/formLinkProjection";
+import { runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -39,6 +39,7 @@ import {
 	noMatchesWireFixture,
 	REGISTER_FORM,
 } from "./noMatchesWireFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 // ── Structural comparison ────────────────────────────────────────────
 
@@ -85,7 +86,9 @@ function compileSuite(doc: BlueprintDoc): {
 	xform: (path: string) => string;
 } {
 	admitNoMatchesDoc(doc);
-	const ccz = compileCcz(expandDoc(doc), "Registry", doc);
+	const ccz = compileCcz(expandDoc(doc), "Registry", doc, {
+		runtimeTarget: TEST_RUNTIME_TARGET,
+	});
 	const zip = new AdmZip(ccz);
 	const [suite] = parseXml(zip.readAsText("suite.xml"));
 	return { suite, xform: (path) => zip.readAsText(path) };
@@ -166,7 +169,7 @@ describe("no-matches registration form", () => {
 			<stack>
 				<create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm0'">
 					<command value="'m0'"/>
-					<query id="results:inline" value="${CASE_FIXTURE_URL_TEMPLATE}">
+					<query id="results:inline" value="${runtimeUrls(TEST_RUNTIME_TARGET).caseFixture}">
 						<data key="case_type" ref="'patient'"/>
 						<data key="case_id" ref="instance('commcaresession')/session/data/case_id_new_patient_0"/>
 					</query>

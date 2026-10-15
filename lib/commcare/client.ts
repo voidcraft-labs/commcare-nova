@@ -45,6 +45,7 @@ import {
 	isEdgeRefusal,
 	isValidDomainSlug,
 	logAndReturnError,
+	retryAfterMs,
 	WAF_PADDING,
 	warnAndReturnError,
 } from "./hq/http";
@@ -151,7 +152,9 @@ async function listDomainsMatching(
 	let url = target.toString();
 	let total: number | undefined;
 	for (let page = 0; page < 50; page++) {
-		const result = await readHqJson(creds, url, "project space list", signal);
+		const result = await readHqJson(creds, url, "project space list", {
+			signal,
+		});
 		if ("success" in result) return result;
 		const data = result.data;
 		if (
@@ -624,6 +627,22 @@ export async function discoverAccessibleDomains(
 	return accessible;
 }
 
+/** The most an import waits on a `Retry-After` before sending again. */
+export const IMPORT_RETRY_MAX_WAIT_MS = 2_000;
+
+/** How many times one import is sent at most: the first and two resends. */
+const IMPORT_SENDS = 3;
+
+/**
+ * The wait a 429's `Retry-After` asks of an import, or null when the import
+ * does not wait it out: the header's wait (`hq/http.ts::retryAfterMs`) where
+ * it is at most `IMPORT_RETRY_MAX_WAIT_MS`.
+ */
+export function importRetryWaitMs(retryAfter: string | null): number | null {
+	const ms = retryAfterMs(retryAfter);
+	return ms !== null && ms <= IMPORT_RETRY_MAX_WAIT_MS ? ms : null;
+}
+
 /**
  * Import an app into a CommCare HQ project space.
  *
@@ -639,6 +658,20 @@ export async function discoverAccessibleDomains(
  * `commcare-hq/.../app_manager/views/app_import_api.py::_handle_import_app`
  * (the optional `app_id` field) and
  * `models/applications.py::overwrite_app_from_source` (the in-place merge).
+ * An update of a deleted app answers 400 (its `doc_type` no longer matches
+ * the body's), and an update of an id HQ does not hold answers 404.
+ *
+ * A first publish sends two imports, the shell create and the update, and
+ * both pass `corehq/apps/api/decorators.py::api_throttle`, so the pair can
+ * trip the project space's per-second window by itself. HQ answers that 429
+ * before the view runs (`SETTLED_BEFORE_THE_VIEW`), with a `Retry-After` of
+ * the seconds left in the window, so the import is sent again after a wait
+ * of at most `IMPORT_RETRY_MAX_WAIT_MS`, and at most twice. A longer or
+ * absent `Retry-After`, or a third 429, is the refusal: the minute, hour and
+ * day windows are the project space's whole budget, and a wait cannot widen
+ * it. The wait runs inside the import's own deadline: one that would
+ * outlast it is not begun, and one the deadline cuts short sends nothing
+ * more, so either way the answer is HQ's 429.
  */
 export async function importApp(
 	creds: CommCareCredentials,
@@ -655,35 +688,57 @@ export async function importApp(
 	}
 	const base = baseUrl(creds);
 	const url = `${base}/a/${domain}/apps/api/import_app/`;
+	const appFile = JSON.stringify(appJson);
 
 	/* Multipart form: waf_padding (see WAF_PADDING) + app_name (string) +
 	 * optional app_id (the HQ app to update in place) + app_file (JSON
-	 * blob). */
-	const formData = new FormData();
-	formData.append("waf_padding", WAF_PADDING);
-	formData.append("app_name", appName);
-	if (updateAppId) {
-		formData.append("app_id", updateAppId);
-	}
-	formData.append(
-		"app_file",
-		new Blob([JSON.stringify(appJson)], { type: "application/json" }),
-		"app.json",
-	);
+	 * blob). Built for each send, so a resend carries the same bytes. */
+	const formData = () => {
+		const form = new FormData();
+		form.append("waf_padding", WAF_PADDING);
+		form.append("app_name", appName);
+		if (updateAppId) {
+			form.append("app_id", updateAppId);
+		}
+		form.append(
+			"app_file",
+			new Blob([appFile], { type: "application/json" }),
+			"app.json",
+		);
+		return form;
+	};
 
-	return withHqRequestDeadline(async (signal) => {
+	return withHqRequestDeadline(async (signal, deadline) => {
 		let res: Response;
-		try {
-			res = await fetch(url, {
-				method: "POST",
-				headers: { Authorization: authHeader(creds) },
-				body: formData,
-				redirect: "manual",
-				signal,
+		for (let sent = 1; ; sent++) {
+			try {
+				res = await fetch(url, {
+					method: "POST",
+					headers: { Authorization: authHeader(creds) },
+					body: formData(),
+					redirect: "manual",
+					signal,
+				});
+			} catch (error) {
+				log.error("[commcare] import response unavailable", error, {
+					domain,
+				});
+				return { success: false, status: 503 };
+			}
+			const wait =
+				res.status === 429 && sent < IMPORT_SENDS
+					? importRetryWaitMs(res.headers.get("retry-after"))
+					: null;
+			/* A resend the deadline would cut off is no resend: HQ's 429 is
+			 * the answer. */
+			if (wait === null || Date.now() + wait >= deadline) break;
+			await res.body?.cancel().catch(() => undefined);
+			log.warn("[commcare] import rate limited, sending again", {
+				domain,
+				waitMs: wait,
 			});
-		} catch (error) {
-			log.error("[commcare] import response unavailable", error, { domain });
-			return { success: false, status: 503 };
+			await delay(wait, signal);
+			if (signal.aborted) break;
 		}
 
 		if (!res.ok) {

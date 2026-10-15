@@ -1,0 +1,7 @@
+{
+	"status": 429,
+	"headers": {
+		"Content-Type": "text/html; charset=utf-8",
+		"Retry-After": "20.000000000000004"
+	}
+}

@@ -1,9 +1,11 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	type Mutation,
@@ -110,7 +112,7 @@ describe("language and translation commits", () => {
 		const before = fixture();
 		const unit = appUnit(before);
 		const next = commit(before, [
-			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			{
 				kind: "setTranslation",
 				language: "spa",
@@ -128,6 +130,7 @@ describe("language and translation commits", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[unit.id]: {
@@ -145,7 +148,7 @@ describe("language and translation commits", () => {
 		const before = fixture();
 		const unit = appUnit({ ...before, appName: "Updated" });
 		const next = commit(before, [
-			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			{ kind: "setAppName", name: "Updated" },
 			{
 				kind: "setTranslation",
@@ -192,7 +195,7 @@ describe("language and translation commits", () => {
 		if (!unit) throw new Error("Missing born field unit");
 		const next = commit(before, [
 			{ kind: "addField", parentUuid: formUuid, field },
-			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			{
 				kind: "setTranslation",
 				language: "spa",
@@ -213,17 +216,26 @@ describe("language and translation commits", () => {
 	});
 	it("relabels a single source and dematerializes the English-only result", () => {
 		const french = commit(fixture(), [
-			{ kind: "relabelSourceLanguage", language: { language: "fra" } },
+			{
+				kind: "relabelSourceLanguage",
+				language: { language: "fra" },
+				wireCode: "fra",
+			},
 		]);
 		expect(french.localization).toEqual({
 			sourceLanguage: "fra",
 			defaultLanguage: "fra",
 			languageOrder: ["fra"],
+			wireCodes: { fra: "fra" },
 			translations: {},
 		});
 		expect(
 			commit(french, [
-				{ kind: "relabelSourceLanguage", language: { language: "eng" } },
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "eng" },
+					wireCode: "en",
+				},
 			]).localization,
 		).toBeUndefined();
 	});
@@ -231,7 +243,7 @@ describe("language and translation commits", () => {
 		const before = fixture();
 		const oldUnit = appUnit(before);
 		const localized = commit(before, [
-			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			{
 				kind: "setTranslation",
 				language: "spa",
@@ -271,7 +283,7 @@ describe("language and translation commits", () => {
 	});
 	it("requires a new default before removing its language and removes the final target bag", () => {
 		const before = commit(fixture(), [
-			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			{ kind: "setDefaultLanguage", code: "spa" },
 		]);
 		expect(before.localization?.languageOrder).toEqual(["spa", "eng"]);
@@ -287,5 +299,73 @@ describe("language and translation commits", () => {
 			{ kind: "removeLanguage", code: "spa" },
 		]);
 		expect(next.localization).toBeUndefined();
+	});
+	it("refuses a language mutation that carries no CommCare code", () => {
+		for (const kind of ["addLanguage", "relabelSourceLanguage"]) {
+			expect(
+				mutationSchema.safeParse({ kind, language: { language: "spa" } })
+					.success,
+			).toBe(false);
+		}
+	});
+	it("stores exactly the carried code, even one a mint would not give", () => {
+		// A fresh mint gives Spanish "es" here; the carried code is stored as
+		// it is, so a replay never recomputes it from the language catalog.
+		const next = commit(fixture(), [
+			{
+				kind: "addLanguage",
+				language: { language: "spa" },
+				wireCode: "spa-x",
+			},
+		]);
+		expect(next.localization?.wireCodes).toEqual({ eng: "en", spa: "spa-x" });
+		const relabelled = commit(fixture(), [
+			{
+				kind: "relabelSourceLanguage",
+				language: { language: "fra" },
+				wireCode: "fr",
+			},
+		]);
+		expect(relabelled.localization?.wireCodes).toEqual({ fra: "fr" });
+	});
+	it("refuses a code another language holds and leaves the document unchanged", () => {
+		const before = commit(fixture(), [
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+		]);
+		const held: Mutation = {
+			kind: "addLanguage",
+			language: { language: "spa", region: "MX" },
+			wireCode: "es",
+		};
+		expect(
+			mutationCommitVerdict(before, [held], LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(false);
+		// Two adds of one batch that carry one code: the second is refused.
+		expect(
+			mutationCommitVerdict(
+				fixture(),
+				[
+					{
+						kind: "addLanguage",
+						language: { language: "spa" },
+						wireCode: "es",
+					},
+					held,
+				],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+		const reduced = produce(before, (draft) => {
+			applyMutations(draft, [held]);
+		});
+		expect(reduced.localization).toEqual(before.localization);
+	});
+	it("removes a language's code with the language", () => {
+		const before = commit(fixture(), [
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+			{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fra" },
+		]);
+		const next = commit(before, [{ kind: "removeLanguage", code: "spa" }]);
+		expect(next.localization?.wireCodes).toEqual({ eng: "en", fra: "fra" });
 	});
 });

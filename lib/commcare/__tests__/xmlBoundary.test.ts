@@ -32,6 +32,7 @@ import { validateSuite } from "../validator/suiteOracle";
 import { validateXForm } from "../validator/xformOracle";
 import { parseXForm } from "../xform/domSplice";
 import { parseXml, xmlParseIssue } from "../xmlParse";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const corpus = z
 	.array(
@@ -169,6 +170,7 @@ describe("XML admission and consumer boundaries", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[unit.id]: {
@@ -215,7 +217,9 @@ describe("XML admission and consumer boundaries", () => {
 			}),
 		).toEqual({ ok: true });
 		const hq = expandDoc(doc);
-		const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const archive = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		for (const entry of archive
 			.getEntries()
 			.filter((entry) => /\.(xml|ccpr)$/.test(entry.entryName))) {
@@ -257,6 +261,10 @@ describe("XML admission and consumer boundaries", () => {
 	it("checks the generated profile even when the form text is valid", () => {
 		const doc = authoredDoc();
 		const hq = expandDoc(doc);
-		expect(() => compileCcz(hq, "Bad \u0001 name", doc)).toThrow("U+0001");
+		expect(() =>
+			compileCcz(hq, "Bad \u0001 name", doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		).toThrow("U+0001");
 	});
 });

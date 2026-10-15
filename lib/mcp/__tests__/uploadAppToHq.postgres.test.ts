@@ -14,6 +14,12 @@ import {
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
+import {
+	type RetainedHqAnswer,
+	replyRetained,
+	retainedBodyJson,
+	retainedPublishRead,
+} from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
@@ -64,7 +70,8 @@ const SCOPE = {
 };
 const HOST = "https://india.commcarehq.org";
 const IMPORT = "/a/clinic/apps/api/import_app/";
-const SOURCE = "/a/clinic/apps/source/working-app/";
+const sourcePath = (appId = "working-app") => `/a/clinic/apps/source/${appId}/`;
+const SOURCE = sourcePath();
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
@@ -97,7 +104,9 @@ it.each(["parent-multiple", "same-smaller"] as const)(
 				const refusal = body(await call(client), true);
 				expect(refusal.error_type).toBe("invalid_input");
 				expect(refusal.message).toContain(
-					scenario === "parent-multiple" ? "parent cases" : "4 selected cases",
+					scenario === "parent-multiple"
+						? 'from several cases selected in "Parents"'
+						: 'the limit of 4 selected cases in "Child care"',
 				);
 				const target = await state();
 				expect(target).toBeNull();
@@ -137,11 +146,38 @@ function request(peer: MockAgent, path: string, method = "GET") {
 		headers: { authorization: "ApiKey account:fixture-key" },
 	});
 }
-function source(peer: MockAgent, profile: object = {}) {
-	request(peer, SOURCE).reply(200, { profile });
+/** HQ's retained read of a live app, with the profile a case names in place of its own. */
+function liveSource(profile?: object | null): RetainedHqAnswer {
+	const live = retainedPublishRead("source-live");
+	if (profile === undefined) return live;
+	return { ...live, body: { ...retainedBodyJson(live), profile } };
 }
-function imported(peer: MockAgent, appId = "working-app", version = 1) {
+function source(
+	peer: MockAgent,
+	profile?: object | null,
+	appId = "working-app",
+) {
+	replyRetained(request(peer, sourcePath(appId)), liveSource(profile));
+}
+/** HQ's retained read of the empty app a first publish creates. */
+function shellSource(peer: MockAgent, appId = "working-app") {
+	replyRetained(
+		request(peer, sourcePath(appId)),
+		retainedPublishRead("source-shell"),
+	);
+}
+/** A first publish's shell create, accepted, and HQ's read of that empty app. */
+function shellCreated(peer: MockAgent, appId = "working-app") {
 	request(peer, IMPORT, "POST").reply(201, {
+		success: true,
+		app_id: appId,
+		version: 1,
+	});
+	shellSource(peer, appId);
+}
+/** An in-place update, accepted. */
+function imported(peer: MockAgent, appId = "working-app", version = 2) {
+	request(peer, IMPORT, "POST").reply(200, {
 		success: true,
 		app_id: appId,
 		version,
@@ -192,9 +228,11 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 				};
 			});
 		accept(1);
+		shellSource(peer);
+		accept(2);
 		const profile = TARGET_OWNED_PROFILE;
 		source(peer, TARGET_PROFILE_WITH_DERIVED_KEY);
-		accept(2);
+		accept(3);
 		await asUser(async (client) => {
 			const created = body(await call(client));
 			expect(created).toMatchObject({
@@ -215,7 +253,7 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 				remoteId: "working-app",
 				ownership: "nova-created",
 				pushedRevision: 0,
-				remoteRevision: 1,
+				remoteRevision: 2,
 			});
 			expect(
 				body(await call(client, { app_name: "  Visiting program  " })),
@@ -229,29 +267,36 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 			expect(updated?.superseded).toEqual([]);
 			expect(updated?.active[0]).toMatchObject({
 				remoteId: "working-app",
-				remoteRevision: 2,
+				remoteRevision: 3,
 			});
 		});
 		expect(requests(peer)).toEqual([
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+			`POST ${HOST}${IMPORT}`,
 		]);
-		expect(uploads).toHaveLength(2);
+		expect(uploads).toHaveLength(3);
 		expect([...uploads[0].keys()]).toEqual([
 			"waf_padding",
 			"app_name",
 			"app_file",
 		]);
 		expect(uploads[0].get("app_name")).toBe("Clinic visits");
-		expect([...uploads[1].keys()]).toEqual([
-			"waf_padding",
-			"app_name",
-			"app_id",
-			"app_file",
-		]);
-		expect(uploads[1].get("app_name")).toBe("Visiting program");
-		expect(uploads[1].get("app_id")).toBe("working-app");
+		for (const [index, name] of [
+			[1, "Clinic visits"],
+			[2, "Visiting program"],
+		] as const) {
+			expect([...uploads[index].keys()]).toEqual([
+				"waf_padding",
+				"app_name",
+				"app_id",
+				"app_file",
+			]);
+			expect(uploads[index].get("app_name")).toBe(name);
+			expect(uploads[index].get("app_id")).toBe("working-app");
+		}
 		const applications = await Promise.all(
 			uploads.map(async (data) => {
 				const file = data.get("app_file");
@@ -261,16 +306,25 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 				return JSON.parse(await file.text());
 			}),
 		);
+		/* The empty app first, so HQ has no form id to re-mint; the update
+		 * fills it with the ids Nova derives. */
 		expect(applications[0]).toMatchObject({
+			doc_type: "Application",
+			name: "Clinic visits",
+			langs: ["en"],
+			modules: [],
+			_attachments: {},
+		});
+		expect(applications[1]).toMatchObject({
 			doc_type: "Application",
 			name: "Clinic visits",
 			langs: ["en"],
 			modules: [{ name: { en: "Visits" }, forms: [{ name: { en: "Visit" } }] }],
 		});
-		expect(Object.values(applications[0]._attachments)).toEqual([
+		expect(Object.values(applications[1]._attachments)).toEqual([
 			expect.stringContaining("<note/>"),
 		]);
-		expect(applications[1].profile).toEqual(profile);
+		expect(applications[2].profile).toEqual(profile);
 		expect(vi.mocked(decrypt).mock.calls).toEqual([
 			["ciphertext"],
 			["ciphertext"],
@@ -281,10 +335,11 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 it("refuses an unreadable update source without replacing the last published app, then resumes with a fresh source read", async () => {
 	await seed();
 	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
 		imported(peer);
-		request(peer, SOURCE).reply(200, { profile: null });
+		replyRetained(request(peer, SOURCE), liveSource(null));
 		source(peer);
-		imported(peer, "working-app", 2);
+		imported(peer, "working-app", 3);
 		await asUser(async (client) => {
 			body(await call(client));
 			const initial = await state();
@@ -302,24 +357,29 @@ it("refuses an unreadable update source without replacing the last published app
 		expect(requests(peer)).toEqual([
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 		]);
 	});
 });
 
-it.each(["source", "import"])(
-	"records an authoritative %s 404 and creates a replacement only on the next publish",
-	async (missingAt) => {
+it.each(["source-missing", "source-deleted", "update-missing"] as const)(
+	"records HQ's %s answer as the app gone and creates a replacement only on the next publish",
+	async (answer) => {
 		await seed();
 		await withHttpPeer(async (peer) => {
+			shellCreated(peer);
 			imported(peer);
-			if (missingAt === "source")
-				request(peer, SOURCE).reply(404, { error: "gone" });
-			else {
+			if (answer === "update-missing") {
 				source(peer);
-				request(peer, IMPORT, "POST").reply(404, { error: "gone" });
-			}
+				replyRetained(
+					request(peer, IMPORT, "POST"),
+					retainedPublishRead(answer),
+				);
+			} else replyRetained(request(peer, SOURCE), retainedPublishRead(answer));
+			shellCreated(peer, "replacement-app");
 			imported(peer, "replacement-app");
 			await asUser(async (client) => {
 				body(await call(client));
@@ -330,6 +390,7 @@ it.each(["source", "import"])(
 					state: "incomplete",
 					resumePhase: "upload",
 				});
+				expect((await state())?.active[0].remoteMissingAt).not.toBeNull();
 				expect(body(await call(client))).toMatchObject({
 					hq_app_action: "created",
 					hq_app_id: "replacement-app",
@@ -345,17 +406,22 @@ it.each(["source", "import"])(
 			expect(requests(peer)).toEqual([
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
-				...(missingAt === "import" ? [`POST ${HOST}${IMPORT}`] : []),
+				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${SOURCE}`,
+				...(answer === "update-missing" ? [`POST ${HOST}${IMPORT}`] : []),
+				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${sourcePath("replacement-app")}`,
 				`POST ${HOST}${IMPORT}`,
 			]);
 		});
 	},
 );
 
-it("retains a failed first import as resumable, then records the retry as one uploaded app", async () => {
+it("retains a refused shell create as resumable, then records the retry as one uploaded app", async () => {
 	await seed();
 	await withHttpPeer(async (peer) => {
 		request(peer, IMPORT, "POST").reply(503, "unavailable");
+		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			expect(body(await call(client), true)).toMatchObject({
@@ -364,7 +430,7 @@ it("retains a failed first import as resumable, then records the retry as one up
 			});
 			expect((await state())?.deployment).toMatchObject({
 				state: "incomplete",
-				resumePhase: "upload",
+				resumePhase: "resources",
 			});
 			expect((await state())?.active).toEqual([]);
 			expect(body(await call(client))).toMatchObject({
@@ -375,6 +441,8 @@ it("retains a failed first import as resumable, then records the retry as one up
 		});
 		expect(requests(peer)).toEqual([
 			`POST ${HOST}${IMPORT}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 		]);
 	});
@@ -520,9 +588,11 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 			};
 		});
 		tables(peer, [remoteTable]);
+		shellCreated(peer);
+		shellSource(peer);
 		request(peer, IMPORT, "POST").reply(async (opts) => {
 			const saved = await state();
-			expect(saved?.active).toEqual([
+			expect(saved?.active.filter((row) => row.kind !== "app")).toEqual([
 				expect.objectContaining({
 					kind: "lookup-table",
 					novaResourceId: table.id,
@@ -533,7 +603,7 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 			]);
 			uploads.push(await readMultipartRequest(opts));
 			return {
-				statusCode: 201,
+				statusCode: 200,
 				data: JSON.stringify({ success: true, app_id: "working-app" }),
 			};
 		});
@@ -585,8 +655,11 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 		expect(requests(peer)).toEqual([
 			`GET ${HOST}${TABLES}`,
 			`GET ${HOST}${TABLES}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 		]);
 		expect(uploads).toHaveLength(2);
@@ -643,17 +716,20 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 	const table = await seedLookup();
 	await withHttpPeer(async (peer) => {
 		tables(peer);
+		shellCreated(peer);
 		request(peer, WORKBOOK, "POST").reply(200, {
 			code: 402,
 			message: "One row could not be read",
 		});
 		tables(peer, [remoteTable]);
 		tables(peer, [remoteTable]);
+		shellSource(peer);
 		request(peer, WORKBOOK, "POST").reply(200, {
 			code: 200,
 			message: "Uploaded",
 		});
 		tables(peer, [remoteTable]);
+		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			const refused = body(await call(client), true);
@@ -661,11 +737,19 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 				error_type: "hq_upload_failed",
 				message: expect.stringContaining("took only part"),
 			});
+			expect(refused.message).toContain(
+				"Nova created the app there, and it is empty for now.",
+			);
 			expect((await state())?.deployment).toMatchObject({
 				state: "incomplete",
 				resumePhase: "resources",
 			});
 			expect((await state())?.active).toEqual([
+				expect.objectContaining({
+					kind: "app",
+					remoteId: "working-app",
+					pushedRevision: null,
+				}),
 				expect.objectContaining({
 					kind: "lookup-table",
 					novaResourceId: table.id,
@@ -675,6 +759,8 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			]);
 			expect(requests(peer)).toEqual([
 				`GET ${HOST}${TABLES}`,
+				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${WORKBOOK}`,
 				`GET ${HOST}${TABLES}`,
 			]);
@@ -686,11 +772,15 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 		});
 		expect(requests(peer)).toEqual([
 			`GET ${HOST}${TABLES}`,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
+			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 		]);
 	});
@@ -699,6 +789,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 it("keeps the MCP response pending until the actual upload conversation event is stored", async () => {
 	await seed();
 	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			const response = await whileBlocked(
@@ -795,6 +886,7 @@ it.each([
 			return png;
 		});
 		await withHttpPeer(async (peer) => {
+			shellCreated(peer);
 			imported(peer);
 			const media = "/a/clinic/apps/api/working-app/multimedia/";
 			const status = `${media}status/media-job/`;
@@ -851,6 +943,8 @@ it.each([
 				expect((await state())?.active).toHaveLength(1);
 			});
 			expect(requests(peer)).toEqual([
+				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
 				`POST ${HOST}${media}`,
 				...(outcome === "upload-disconnect" ? [] : [`GET ${HOST}${status}`]),
@@ -939,14 +1033,16 @@ it.each([
 				headers: { "content-type": contentType },
 			});
 			const uploads: FormData[] = [];
-			if (ready)
+			if (ready) {
+				shellCreated(peer);
 				request(peer, IMPORT, "POST").reply(async (opts) => {
 					uploads.push(await readMultipartRequest(opts));
 					return {
-						statusCode: 201,
+						statusCode: 200,
 						data: JSON.stringify({ success: true, app_id: "working-app" }),
 					};
 				});
+			}
 			await asUser(async (client) => {
 				const result = body(await call(client), !ready);
 				expect(JSON.stringify(result).includes("Mobile App Access")).toBe(
@@ -987,7 +1083,13 @@ it.each([
 			});
 			expect(requests(peer)).toEqual([
 				...paths.map((path) => `GET ${HOST}${path}`),
-				...(ready ? [`POST ${HOST}${IMPORT}`] : []),
+				...(ready
+					? [
+							`POST ${HOST}${IMPORT}`,
+							`GET ${HOST}${SOURCE}`,
+							`POST ${HOST}${IMPORT}`,
+						]
+					: []),
 			]);
 		});
 	},
@@ -1215,12 +1317,18 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 					),
 				};
 			});
+		shellCreated(peer);
+		shellSource(peer);
 		request(peer, IMPORT, "POST").reply(async () => {
 			const saved = await state();
-			expect(saved?.active).toHaveLength(105);
-			expect(saved?.active.every((row) => row.kind === "location")).toBe(true);
+			expect(
+				saved?.active.filter((row) => row.kind === "location"),
+			).toHaveLength(105);
+			expect(saved?.active.filter((row) => row.kind === "app")).toEqual([
+				expect.objectContaining({ pushedRevision: null }),
+			]);
 			return {
-				statusCode: 201,
+				statusCode: 200,
 				data: JSON.stringify({ success: true, app_id: "working-app" }),
 			};
 		});
@@ -1285,7 +1393,8 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 			acceptPlaces(peer, payloads, ["hq-north"]);
 			acceptPlaces(peer, payloads, ["hq-central"]);
 			source(peer);
-			imported(peer, "working-app", 2);
+			source(peer);
+			imported(peer, "working-app", 3);
 			expect(body(await call(client)).deployment_state).toBe("uploaded");
 			const final = await state();
 			expect(final?.active.map((row) => row.remoteId).sort()).toEqual([
@@ -1317,7 +1426,9 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 	await withHttpPeer(async (peer) => {
 		inventory(peer, [remote]);
 		inventory(peer, [remote]);
+		shellCreated(peer);
 		acceptPlaces(peer, payloads, ["hq-north"]);
+		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			expect(body(await call(client), true)).toMatchObject({
@@ -1375,6 +1486,7 @@ it.each(["refused", "lost response"] as const)(
 		const payloads: unknown[] = [];
 		await withHttpPeer(async (peer) => {
 			inventory(peer);
+			shellCreated(peer);
 			acceptPlaces(peer, payloads, ["hq-north"]);
 			if (mode === "refused")
 				request(peer, PLACE_PUSH, "PATCH").reply(400, {
@@ -1391,12 +1503,16 @@ it.each(["refused", "lost response"] as const)(
 					expect(failure.message).toContain("couldn’t confirm");
 					expect(failure.message).not.toContain("Nothing in the group");
 				} else expect(failure.message).toContain("Nothing in the group");
+				expect(failure.message).toContain(
+					"Nova created the app there, and it is empty for now.",
+				);
 				const partial = await state();
 				expect(partial?.deployment).toMatchObject({
 					state: "incomplete",
 					resumePhase: "resources",
 				});
 				expect(partial?.active).toEqual([
+					expect.objectContaining({ kind: "app", pushedRevision: null }),
 					expect.objectContaining({
 						novaResourceId: north.id,
 						remoteId: "hq-north",
@@ -1419,8 +1535,10 @@ it.each(["refused", "lost response"] as const)(
 					expect((await state())?.active).toEqual(partial?.active);
 				}
 				inventory(peer, remotes);
+				shellSource(peer);
 				acceptPlaces(peer, payloads, ["hq-north"]);
 				acceptPlaces(peer, payloads, ["hq-central"]);
+				shellSource(peer);
 				imported(peer);
 				expect(
 					body(
@@ -1441,7 +1559,7 @@ it.each(["refused", "lost response"] as const)(
 			});
 			expect(
 				requests(peer).filter((value) => value.startsWith("POST")),
-			).toEqual([`POST ${HOST}${IMPORT}`]);
+			).toEqual([`POST ${HOST}${IMPORT}`, `POST ${HOST}${IMPORT}`]);
 		});
 	},
 );
@@ -1484,11 +1602,12 @@ it.each([
 	"success then absent",
 	"lost acknowledgement",
 ] as const)(
-	"keeps lookup failure evidence and never sends the app after %s",
+	"keeps lookup failure evidence and never sends the app's content after %s",
 	async (mode) => {
 		await seedLookup();
 		await withHttpPeer(async (peer) => {
 			tables(peer);
+			shellCreated(peer);
 			if (mode === "lost acknowledgement")
 				request(peer, WORKBOOK, "POST").replyWithError(
 					new Error("response lost"),
@@ -1516,15 +1635,24 @@ it.each([
 				}
 				if (mode === "success then absent")
 					expect(result.message).toContain("does not list them all");
+				expect(result.message).toContain(
+					"Nova created the app there, and it is empty for now.",
+				);
 				expect((await state())?.deployment).toMatchObject({
 					state: "incomplete",
 					resumePhase: "resources",
 				});
-				expect((await state())?.active).toEqual([]);
+				expect((await state())?.active).toEqual([
+					expect.objectContaining({
+						kind: "app",
+						remoteId: "working-app",
+						pushedRevision: null,
+					}),
+				]);
 			});
 			expect(
 				requests(peer).filter((value) => value.startsWith("POST")),
-			).toEqual([`POST ${HOST}${WORKBOOK}`]);
+			).toEqual([`POST ${HOST}${IMPORT}`, `POST ${HOST}${WORKBOOK}`]);
 		});
 	},
 );
@@ -1532,6 +1660,7 @@ it.each([
 it("keeps an actually runnable deployment intact when a later publish has a missing key or a stale target server", async () => {
 	await seed();
 	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			body(await call(client));
@@ -1586,7 +1715,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			);
 		});
 		expect(await snapshot()).toEqual(before);
-		expect(requests(peer)).toHaveLength(4);
+		expect(requests(peer)).toHaveLength(6);
 	});
 });
 
@@ -1594,11 +1723,13 @@ it("records a recreated missing table as Nova-created while preserving the previ
 	const table = await seedLookup();
 	await withHttpPeer(async (peer) => {
 		tables(peer, [remoteTable]);
+		shellCreated(peer);
 		request(peer, WORKBOOK, "POST").reply(200, {
 			code: 200,
 			message: "Uploaded",
 		});
 		tables(peer, [remoteTable]);
+		shellSource(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			body(await call(client, { adopt_resources: [table.id] }));
@@ -1619,11 +1750,8 @@ it("records a recreated missing table as Nova-created while preserving the previ
 			});
 			tables(peer, [{ ...remoteTable, id: "replacement-table" }]);
 			source(peer);
-			request(peer, IMPORT, "POST").reply(200, {
-				success: true,
-				app_id: "working-app",
-				version: 2,
-			});
+			source(peer);
+			imported(peer, "working-app", 3);
 			body(await call(client));
 			const final = await state();
 			expect(

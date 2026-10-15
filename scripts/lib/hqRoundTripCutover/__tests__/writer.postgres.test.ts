@@ -17,7 +17,8 @@ import {
 import { loadAppInTransaction } from "@/lib/db/canonicalCommitKernel";
 import type { AppDatabase } from "@/lib/db/pg";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
-import { readPlannedFleet, unreadDeployment } from "../plan";
+import type { BuildPlanOptions } from "../plan";
+import { readPlannedFleet } from "../plan";
 import { runMigrate } from "../run";
 import {
 	type CutoverStoppedError,
@@ -406,9 +407,16 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				lastUsedAt: "2026-10-15T10:00:07.000Z",
 			},
 		];
-		const plan = {
-			classifyDeployment: async () => ({
-				...unreadDeployment(),
+		await sql`
+			INSERT INTO user_settings (user_id, commcare_username, commcare_api_key, commcare_server, approved_domains)
+			VALUES (${OWNER}, 'owner@example.org', 'ciphertext', 'production', '[{"name":"field-ops","displayName":"Field ops"}]'::jsonb)
+		`.execute(h.db());
+		// HQ refused the key the run sent, so the deployment is unreadable and
+		// the key's use is still recorded.
+		const plan: BuildPlanOptions = {
+			readDeployment: async () => ({
+				source: { kind: "refused", status: 401 },
+				formIds: null,
 				keyUses: uses,
 			}),
 		};
@@ -433,6 +441,15 @@ describe("the fleet transaction over the frozen fixtures", () => {
 				app_id: appId,
 				cutover: "hq-round-trip-emission",
 				entries: [
+					{
+						kind: "deployment",
+						reason: "ids-change-once-unreadable",
+						deployment: {
+							deploymentId: deployment,
+							server: "production",
+							domain: "field-ops",
+						},
+					},
 					{
 						kind: "deployment",
 						reason: "deep-links-need-republish",

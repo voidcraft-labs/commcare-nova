@@ -693,58 +693,6 @@ describe("HQ-JSON oracle — column finite-number slots", () => {
 	});
 });
 
-// ── Multimedia map shape regression ─────────────────────────────────
-
-describe("HQ-JSON oracle — multimedia_map shape", () => {
-	it("flags a multimedia_map key missing the jr://file/ prefix", () => {
-		const app = baselineApp();
-		// A bare path with no `jr://file/` prefix — CCHQ's media_resources
-		// raises MediaResourceError on the next suite regeneration. This is
-		// exactly the shape an earlier Segment-3 emit bug produced before
-		// CR-4 caught it.
-		app.multimedia_map["commcare/aaa.png"] = {
-			multimedia_id: "aaa",
-			media_type: "CommCareImage",
-			version: 1,
-		};
-		expect(codes(validateHqJson(app))).toEqual([
-			"HQJSON_BAD_MULTIMEDIA_MAP_KEY",
-		]);
-	});
-
-	it("flags an unknown multimedia_map media_type", () => {
-		const app = baselineApp();
-		app.multimedia_map["jr://file/commcare/aaa.png"] = {
-			multimedia_id: "aaa",
-			media_type: "CommCareTypo",
-			version: 1,
-		};
-		expect(codes(validateHqJson(app))).toEqual([
-			"HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE",
-		]);
-	});
-
-	it("accepts every live CommCare media class name", () => {
-		const app = baselineApp();
-		app.multimedia_map["jr://file/commcare/img.png"] = {
-			multimedia_id: "1",
-			media_type: "CommCareImage",
-			version: 1,
-		};
-		app.multimedia_map["jr://file/commcare/aud.mp3"] = {
-			multimedia_id: "2",
-			media_type: "CommCareAudio",
-			version: 1,
-		};
-		app.multimedia_map["jr://file/commcare/vid.mp4"] = {
-			multimedia_id: "3",
-			media_type: "CommCareVideo",
-			version: 1,
-		};
-		expect(validateHqJson(app)).toEqual([]);
-	});
-});
-
 // ── Nav media dict shape ───────────────────────────────────────────
 
 describe("HQ-JSON oracle — nav media dict shape", () => {

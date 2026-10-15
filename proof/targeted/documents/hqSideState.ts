@@ -18,12 +18,13 @@
  *   (`xform.py::XForm._add_meta_2`; defect 4, `auto_gps_capture`);
  * - a build profile holding Mandarin alone, by the code A gives it, `zho`
  *   (`views/releases.py::LanguageProfilesView`). Nova's import keeps build
- *   profiles, which it never sends. The edit adds Traditional Mandarin, so
- *   Nova's next publish codes the two `cmn-hans` and `cmn-hant`
- *   (`lib/commcare/languageWire.ts::planLanguageWire`), the profile names a
- *   code the app no longer holds, and HQ's build of it removes every
- *   translation of every form and fails ("Form does not contain any
- *   translations for any of the build languages",
+ *   profiles, which it never sends. The edit adds Traditional Mandarin as
+ *   `cmn-hant` while Simplified keeps `zho`, the code its root stores
+ *   (`localization.wireCodes`), so the profile still names a code the app
+ *   holds. Before step 2 Nova recoded both, as `cmn-hans` and `cmn-hant`,
+ *   the profile named a code the app no longer held, and HQ's build of it
+ *   removed every translation of every form and failed ("Form does not
+ *   contain any translations for any of the build languages",
  *   `xform.py::XForm.exclude_languages`; defect 1, language codes).
  *
  * A lookup table a person keeps in HQ has a document of its own
@@ -114,6 +115,7 @@ export function hqSideState() {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "cmn-Hans"],
+		wireCodes: { eng: "en", "cmn-Hans": "zho" },
 		translations: { "cmn-Hans": simplified },
 	};
 	const edited = structuredClone(doc);
@@ -121,6 +123,7 @@ export function hqSideState() {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "cmn-Hans", "cmn-Hant"],
+		wireCodes: { eng: "en", "cmn-Hans": "zho", "cmn-Hant": "cmn-hant" },
 		translations: {
 			"cmn-Hans": simplified,
 			"cmn-Hant": entriesFor(doc, texts("地區走訪", "備註")),

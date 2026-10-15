@@ -15,13 +15,19 @@ import {
 	temporalSearchFixture,
 	temporalSearchScenarios,
 } from "./compilerNavigationFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 function exported(doc: BlueprintDoc, compiledAtSeq?: number) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc);
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc, { compiledAtSeq }));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: TEST_RUNTIME_TARGET,
+			compiledAtSeq,
+		}),
+	);
 	return { hq, zip, suite: readXmlEvidence(zip.readAsText("suite.xml")) };
 }
 const model = (xml: string) =>
@@ -66,6 +72,28 @@ describe("CCZ compiler integration", () => {
 				{ key: "CommCare App Name", value: doc.appName },
 				{ key: "cc-content-version", value: String(sequence ?? 1) },
 				{ key: "cc-app-version", value: "1" },
+				{
+					key: "ota-restore-url",
+					value:
+						"https://www.commcarehq.org/a/nova-test/phone/restore/nova-test-app/",
+					force: "true",
+				},
+				{
+					key: "PostURL",
+					value:
+						"https://www.commcarehq.org/a/nova-test/receiver/nova-test-app/",
+					force: "true",
+				},
+				{
+					key: "key_server",
+					value: "https://www.commcarehq.org/a/nova-test/phone/keys/",
+					force: "true",
+				},
+				{
+					key: "cc_user_domain",
+					value: "nova-test.commcarehq.org",
+					force: "true",
+				},
 			]);
 			const locations = xmlChildren(profile, "suite").map((suite) =>
 				onlyXml(
@@ -87,6 +115,44 @@ describe("CCZ compiler integration", () => {
 		expect(identities.size).toBe(3);
 	});
 
+	it("names its one project space everywhere and writes none of HQ's build-only profile keys", () => {
+		for (const scenario of temporalSearchScenarios) {
+			const { zip } = exported(temporalSearchFixture(scenario));
+			const profile = readXmlEvidence(zip.readAsText("profile.ccpr"));
+			const keys = xmlChildren(profile, "property").map(
+				(property) => property.attributes.key,
+			);
+			for (const key of [
+				"heartbeat-url",
+				"PostTestURL",
+				"ota-restore-url-testing",
+				"BackupMode",
+				"backup-url",
+				"restore-url",
+				"jr_openrosa_api",
+			])
+				expect(keys).not.toContain(key);
+			const search = xmlChildren(
+				readXmlEvidence(zip.readAsText("suite.xml")),
+				"remote-request",
+			).flatMap((request) =>
+				xmlChildren(onlyXml(xmlChildren(request, "session")), "query"),
+			);
+			expect(search.map((query) => query.attributes.url)).toContain(
+				"https://www.commcarehq.org/a/nova-test/phone/search/nova-test-app/",
+			);
+			for (const entry of zip.getEntries()) {
+				const text = entry.getData().toString("utf8");
+				for (const placeholder of [
+					"__COMMCARE_HOST__",
+					"__DOMAIN__",
+					"__APP_ID__",
+				])
+					expect(text).not.toContain(placeholder);
+			}
+		}
+	});
+
 	it("refuses a damaged source after case/meta injection, naming the orphaned bind", () => {
 		const doc = compilerNavigationFixture("base");
 		const { hq } = exported(doc);
@@ -97,9 +163,9 @@ describe("CCZ compiler integration", () => {
 			"</model>",
 			'<bind nodeset="/data/meta/location" type="xsd:geopoint"/></model>',
 		);
-		expect(() => compileCcz(hq, doc.appName, doc)).toThrow(
-			/XForm validation failed[\s\S]*\/data\/meta\/location/,
-		);
+		expect(() =>
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).toThrow(/XForm validation failed[\s\S]*\/data\/meta\/location/);
 	});
 
 	it("places module and selected-case form conditions in their usable scopes", () => {

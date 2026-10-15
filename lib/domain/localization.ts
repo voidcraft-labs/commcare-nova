@@ -117,6 +117,20 @@ const translationMapSchema = ownRecordSchema(
 );
 
 /**
+ * CommCare HQ's language-code grammar (`models/applications.py::validate_lang`
+ * on HQ's languages page). A language's wire code is an identity the app
+ * holds from the moment the language is added: it is minted once by the
+ * producer that adds the language and never recomputed, so adding or
+ * removing another language never renames a code a deployment holds.
+ */
+export const languageWireCodeSchema = z
+	.string()
+	.regex(
+		/^[a-z]{2,3}(-[a-z]*)?$/,
+		"Use a CommCare language code: two or three lower-case letters, optionally followed by a hyphen and lower-case letters.",
+	);
+
+/**
  * Materialized multilingual state. The source language owns the ordinary
  * Blueprint strings and therefore never has a duplicate translation map.
  * Language records carry nothing beyond identity — names and direction are
@@ -128,6 +142,7 @@ export const appLocalizationSchema = z
 		defaultLanguage: languageTagSchema,
 		languageOrder: z.array(languageTagSchema).min(1),
 		translations: ownRecordSchema(languageTagSchema, translationMapSchema),
+		wireCodes: ownRecordSchema(languageTagSchema, languageWireCodeSchema),
 	})
 	.superRefine((localization, ctx) => {
 		const ordered = new Set<LanguageTag>();
@@ -189,6 +204,38 @@ export const appLocalizationSchema = z
 				});
 			}
 		}
+
+		for (const tag of Object.keys(localization.wireCodes)) {
+			if (!ordered.has(tag)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["wireCodes", tag],
+					message: `Language ${tag} has a CommCare code but is not an app language.`,
+				});
+			}
+		}
+		const languageByWireCode = new Map<string, LanguageTag>();
+		for (const tag of ordered) {
+			if (!Object.hasOwn(localization.wireCodes, tag)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["wireCodes", tag],
+					message: `Language ${tag} has no CommCare code.`,
+				});
+				continue;
+			}
+			const wireCode = localization.wireCodes[tag];
+			if (wireCode === undefined) continue;
+			const holder = languageByWireCode.get(wireCode);
+			if (holder !== undefined) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["wireCodes", tag],
+					message: `Languages ${holder} and ${tag} both hold the CommCare code ${wireCode}.`,
+				});
+			}
+			languageByWireCode.set(wireCode, tag);
+		}
 	});
 export type AppLocalization = z.infer<typeof appLocalizationSchema>;
 
@@ -199,6 +246,8 @@ export interface EffectiveAppLocalization {
 	readonly translations: Readonly<
 		Record<LanguageTag, Readonly<Record<TranslationUnitId, TranslationEntry>>>
 	>;
+	/** Each language's CommCare wire code, keyed by every tag of `languageOrder`. */
+	readonly wireCodes: Readonly<Record<LanguageTag, string>>;
 }
 
 /**
@@ -211,9 +260,14 @@ const ENGLISH_ONLY_LOCALIZATION: EffectiveAppLocalization = {
 	defaultLanguage: "eng",
 	languageOrder: ["eng"],
 	translations: {},
+	wireCodes: { eng: "en" },
 };
 
-/** Whether the effective English-only state must use the absent stored root. */
+/**
+ * Whether the effective English-only state must use the absent stored root.
+ * A root whose `eng` holds any code but `en` is not that state: it keeps its
+ * stored code, which the absent root could not spell.
+ */
 export function isEnglishOnlyLocalization(
 	localization: AppLocalization | undefined,
 ): boolean {
@@ -222,7 +276,8 @@ export function isEnglishOnlyLocalization(
 		localization.defaultLanguage === "eng" &&
 		localization.languageOrder.length === 1 &&
 		localization.languageOrder[0] === "eng" &&
-		Object.keys(localization.translations).length === 0
+		Object.keys(localization.translations).length === 0 &&
+		localization.wireCodes.eng === "en"
 	);
 }
 

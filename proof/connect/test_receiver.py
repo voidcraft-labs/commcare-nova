@@ -236,25 +236,30 @@ def test_the_form_that_delivers_also_completes_the_workers_assigned_task(world):
     assert state["access"]["paymentAccrued"] == PAY
 
 
-def test_a_local_archives_submission_names_no_app_and_connect_refuses_it(world, connect_apps):
-    """HQ's release tells the device to post to the receiver under the build's id; Nova's local archive names no
-    submission URL at all, so no post from it names the app. Posted to the project space's receiver with no app
-    named, HQ records no app, forwards a payload whose app id is null, and Connect refuses it and writes
-    nothing. The same submission received under the app's id is accepted (the two tests above)."""
+def test_a_local_archives_submission_names_the_app_and_connect_writes_what_it_writes_for_hqs_build(world):
+    """HQ's release tells the device to post to the receiver under the build's id, and Nova's local archive, made
+    for the deployment, under the app's id: its own ``PostURL`` names the app, so its submission reaches HQ's
+    receiver under it, is forwarded with the app's id, and Connect writes the rows it writes for HQ's build's
+    (the two tests above). The paired refusal is the deliver app's control's pre-fix archive, whose profile names
+    no submission URL: posted to the project space's receiver with no app named, HQ records no app, forwards a
+    payload whose app id is null, and Connect refuses it and writes nothing."""
     for app in (world.learn, world.deliver):
         release = app.downloads["built"]
         with zipfile.ZipFile(io.BytesIO(release.body)) as built:
             assert post_url(built.read("profile.ccpr")).endswith(f"/a/{app.domain}/receiver/{release.build_id}/")
-        assert post_url(app.local_profile) is None
-        unnamed = app.submissions["local-unnamed"]
-        assert unnamed.forwarded.forwards is True
-        assert (unnamed.payload["app_id"], unnamed.payload["build_id"]) == (None, None)
-        assert unnamed.xml == app.submissions["local"].xml
-        assert app.submissions["local"].payload["app_id"] == app.app_id
-        before = world.run("ready", world.ready())[-1]["state"]
-        posts, state = world.delivered(f"unnamed-{app.document}", world.post(app, "local-unnamed"))
-        assert answered(posts[0], 400) == {"app_id": ["This field may not be null."]}
-        assert state == before
+        assert post_url(app.local_profile).endswith(f"/a/{app.domain}/receiver/{app.app_id}/")
+        local = app.submissions["local"]
+        assert local.forwarded.forwards is True
+        assert local.payload["app_id"] == app.app_id
+    app = world.deliver
+    assert post_url(app.control_local_profile) is None
+    unnamed = app.submissions["control-local"]
+    assert unnamed.forwarded.forwards is True
+    assert (unnamed.payload["app_id"], unnamed.payload["build_id"]) == (None, None)
+    before = world.run("ready", world.ready())[-1]["state"]
+    posts, state = world.delivered(f"unnamed-{app.document}", world.post(app, "control-local"))
+    assert answered(posts[0], 400) == {"app_id": ["This field may not be null."]}
+    assert state == before
 
 
 # Finding 34: location ----------------------------------------------------------------------------------------------

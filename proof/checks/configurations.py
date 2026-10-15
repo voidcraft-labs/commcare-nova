@@ -391,8 +391,13 @@ def required_privileges(sources: Iterable[dict], *, lookup_push: bool = False) -
     return sorted(needed)
 
 
-# The captured publishes the privilege derivation reads: the minimum
-# configuration's create of D, and its update to D′ when the document has an edit.
+# The layout marker a sidecar written from step 2's capture carries: a first publish captured as two imports
+# (``proof/corpus/publish.ts::TWO_IMPORT_LAYOUT``). A sidecar without the key is the legacy layout.
+TWO_IMPORTS = 2
+
+# The captured publishes whose apps the privilege derivation reads: D's first publish and D′'s update under the
+# minimum configuration. Where the first publish is two imports (its create's sidecar marked ``"layout": 2``) the
+# app is the content's, since the shell holds no menu to derive a privilege from.
 PRIVILEGE_CAPTURES = (("export/minimum", "create"), ("edit/export/minimum", "update"))
 
 
@@ -408,6 +413,11 @@ def _captured_app(directory: Path, name: str):
     body = (directory / f"{name}.body").read_bytes()
     source = json.loads(upload_field(Upload(body, sidecar["contentType"]), "app_file"))
     return source, sidecar.get("lookups") is not None
+
+
+def _two_imports(directory: Path) -> bool:
+    """Whether the first publish in ``directory`` is two imports: its create's sidecar is marked."""
+    return json.loads((directory / "create.json").read_text(encoding="utf-8")).get("layout") == TWO_IMPORTS
 
 
 @functools.cache
@@ -426,6 +436,14 @@ def _content_privileges(root: Path) -> tuple[str, ...]:
                     " whose app the privileges are derived from; emit the corpus again."
                 )
             continue
+        if name == "create" and _two_imports(directory):
+            if not (directory / "content.json").exists():
+                raise PrivilegeInputError(
+                    f"{root} holds {relative}/create.json marked as the shell of a first publish in two imports,"
+                    f" and no {relative}/content.json, the import whose app the privileges are derived from; emit"
+                    " the corpus again."
+                )
+            name = "content"
         source, pushed = _captured_app(directory, name)
         sources.append(source)
         lookup_push = lookup_push or pushed

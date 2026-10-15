@@ -1,0 +1,19 @@
+{
+	"uiTranslations": {
+		"en": {
+			"home.start": "Begin a visit"
+		}
+	},
+	"appAttributes": {
+		"auto_gps_capture": true
+	},
+	"buildProfiles": [
+		{
+			"id": "mandarin-only",
+			"name": "Mandarin",
+			"langs": [
+				"zho"
+			]
+		}
+	]
+}

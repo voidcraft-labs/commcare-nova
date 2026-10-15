@@ -17,6 +17,7 @@ import {
 	type OperationScenario,
 	operationScenarios,
 } from "./caseOperationFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
@@ -71,7 +72,9 @@ it.each(operationScenarios)(
 		const source =
 			hq._attachments[`${hq.modules[moduleIndex].forms[0].unique_id}.xml`];
 		if (typeof source !== "string") throw new Error("Missing source XForm");
-		const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const archive = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		const device = archive.readAsText(`modules-${moduleIndex}/forms-0.xml`);
 		const repeated =
 			scenario === "repeat" || scenario === "query" || scenario === "key-query";

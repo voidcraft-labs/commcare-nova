@@ -8,10 +8,10 @@ import {
 	readXmlEvidence,
 	xmlChildren,
 } from "@/lib/commcare/__tests__/xmlEvidence";
-import { buildMediaBundle, buildMultimediaMap } from "../bundle";
+import { buildMediaBundle } from "../bundle";
 
 describe("resolved media bundle assembly", () => {
-	it("deduplicates shared content while retaining every media type and exact bytes", () => {
+	it("deduplicates shared content while retaining every file and its exact bytes", () => {
 		const assets = mediaManifest();
 		expect(assets.size).toBe(6);
 		const bundle = buildMediaBundle(assets, "test");
@@ -31,23 +31,6 @@ describe("resolved media bundle assembly", () => {
 					).text,
 			),
 		).toEqual([...expected.keys()].sort().map((path) => `./${path}`));
-		const map = buildMultimediaMap(assets.values());
-		expect(Object.keys(map).sort()).toEqual(
-			[...expected.keys()].sort().map((path) => `jr://file/${path}`),
-		);
-		for (const [key, mediaType] of [
-			["label", "CommCareImage"],
-			["audio", "CommCareAudio"],
-			["video", "CommCareVideo"],
-		] as const) {
-			const asset = assets.get(mediaIds[key]);
-			if (!asset) throw new Error("Missing asset");
-			expect(map[`jr://file/${asset.wirePath}`]).toEqual({
-				multimedia_id: asset.contentHash,
-				media_type: mediaType,
-				version: 1,
-			});
-		}
 	});
 	it("refuses a manifest that has not loaded referenced bytes", () => {
 		const assets = new Map(mediaManifest());

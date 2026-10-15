@@ -17,6 +17,10 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import {
+	decodeManualImportGuide,
+	MANUAL_IMPORT_GUIDE_HEADER,
+} from "@/lib/publish/manualImportGuide";
+import {
 	BuilderSessionProvider,
 	useBuilderSessionApi,
 } from "@/lib/session/provider";
@@ -84,14 +88,33 @@ async function loadCompatibility(
 		return { ok: false, message: "The compatibility check was canceled" };
 	}
 }
-async function download(
-	kind: string,
-	server?: string,
-): Promise<PublishDownloadOutcome> {
+async function downloadCcz(target: {
+	readonly server: string;
+	readonly domain: string;
+}): Promise<PublishDownloadOutcome> {
 	const response = await fetch(
-		`/publishing/download/${kind}?server=${server ?? ""}`,
+		`/publishing/download/ccz?server=${target.server}&domain=${target.domain}`,
 	);
 	return response.json();
+}
+/* The import file's answer as PublishPanel reads it: the bytes, and the
+ * guide's steps from the header beside them. */
+async function downloadImportFile(
+	server?: string,
+): Promise<PublishDownloadOutcome> {
+	const response = await fetch("/api/compile/json", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ appId, ...(server ? { server } : {}) }),
+	});
+	if (!response.ok) return { ok: false };
+	await response.blob();
+	return {
+		ok: true,
+		manualImportGuide: decodeManualImportGuide(
+			response.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
+		),
+	};
 }
 function Content() {
 	const [open, setOpen] = useState(false);
@@ -155,8 +178,8 @@ function Content() {
 						isRefreshingHqConnection={false}
 						onRefreshHqConnection={() => {}}
 						onLoadProjectSpaceCompatibility={loadCompatibility}
-						onDownloadJson={(server) => download("json", server)}
-						onDownloadCcz={(server) => download("ccz", server)}
+						onDownloadJson={downloadImportFile}
+						onDownloadCcz={downloadCcz}
 					/>
 				))}
 		</>

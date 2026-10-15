@@ -34,6 +34,7 @@ import {
 	sameTypeFormlessRootDoc,
 	setSharedFormAnswers,
 } from "./nestedMenuWireFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const regions = wireTable("regions", [{ name: "name", type: "text" }]);
 const REGIONS = regions.id,
@@ -245,7 +246,9 @@ describe("ordinary nested-menu wire projection", () => {
 			"case_id_guppy",
 		);
 
-		const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		const suite = zip.readAsText("suite.xml");
 		const menu = wireElement(suite, "menu", "id", "m1");
 		expect(menu.attribs.root).toBe("m0");
@@ -292,9 +295,9 @@ describe("ordinary nested-menu wire projection", () => {
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
 		expect(hq.modules[1].root_module_id).toBe(hq.modules[0].unique_id);
-		const suite = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-			"suite.xml",
-		);
+		const suite = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("suite.xml");
 		expect(suite).toContain('<menu root="m0" id="m1">');
 		const entry = entryByCommand(suite, "m1-f0");
 		expect(
@@ -325,7 +328,9 @@ describe("ordinary nested-menu wire projection", () => {
 
 		admitNestedDoc(doc);
 		const suite = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
 		).readAsText("suite.xml");
 		const rootEntry = entryByCommand(suite, "m0-case-list");
 		const childEntry = entryByCommand(suite, "m1-f0");
@@ -423,7 +428,9 @@ describe("ordinary nested-menu wire projection", () => {
 
 		admitNestedDoc(doc);
 		const suite = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
 		).readAsText("suite.xml");
 		const childEntry = entryByCommand(suite, "m1-f0");
 		expect(
@@ -466,7 +473,9 @@ describe("ordinary nested-menu wire projection", () => {
 
 		admitNestedDoc(doc);
 		const suite = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
 		).readAsText("suite.xml");
 		const childEntry = entryByCommand(suite, "m1-f0");
 		expect(
@@ -509,6 +518,7 @@ describe("ordinary nested-menu wire projection", () => {
 		const hq = expandDoc(doc, { lookupNaming });
 		const suite = new AdmZip(
 			compileCcz(hq, doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
 				lookup: { naming: lookupNaming, fixtures: lookupFixtures },
 			}),
 		).readAsText("suite.xml");
@@ -527,9 +537,9 @@ describe("ordinary nested-menu wire projection", () => {
 		const doc = followupNestedDoc({ parentSelect: true, caseListOnly: true });
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
-		const suite = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-			"suite.xml",
-		);
+		const suite = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("suite.xml");
 		expect(wireElement(suite, "menu", "id", "m1").attribs.root).toBe("m0");
 		const entry = entryByCommand(suite, "m1-case-list");
 		const datums = directChildren(directChildren(entry, "session")[0], "datum");
@@ -548,9 +558,9 @@ describe("ordinary nested-menu wire projection", () => {
 		for (const column of config.columns) column.visibleInDetail = false;
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
-		const suite = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-			"suite.xml",
-		);
+		const suite = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		).readAsText("suite.xml");
 		const entry = entryByCommand(suite, "m1-case-list");
 		const datums = findAll(
 			(element) => element.name === "datum",
@@ -616,7 +626,9 @@ describe("nested-menu navigation frames", () => {
 
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
-		const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		expect(
 			wireElement(zip.readAsText("suite.xml"), "menu", "id", "m1").attribs.root,
 		).toBe("m0");

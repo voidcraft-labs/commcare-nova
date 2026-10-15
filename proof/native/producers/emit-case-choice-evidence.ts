@@ -7,13 +7,18 @@ import {
 } from "../../../lib/__tests__/caseChoiceFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output) throw new Error("A case-choice evidence directory is required.");
 mkdirSync(output, { recursive: true });
 const doc = caseChoiceDoc();
 const hq = expandDoc(doc);
-const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+const zip = new AdmZip(
+	compileCcz(hq, doc.appName, doc, {
+		runtimeTarget: NATIVE_RUNTIME_TARGET,
+	}),
+);
 writeFileSync(resolve(output, "app.json"), JSON.stringify(hq));
 for (const [index, name] of ["directory", "attendance"].entries())
 	writeFileSync(

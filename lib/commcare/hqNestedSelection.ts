@@ -20,6 +20,21 @@ export function hqNestedSelectionFindings(
 	lookupNaming?: LookupWireNaming,
 ): ValidationError[] {
 	const findings = new Map<string, ValidationError>();
+	/* Each menu's name as the document holds it, for the finding's details;
+	 * a menu with no name gives none, and the copy names its role, unquoted,
+	 * instead. */
+	function menuNames(sourceModuleUuid: Uuid, targetModuleUuid: Uuid) {
+		const sourceModuleName = doc.modules[sourceModuleUuid]?.name.trim();
+		const targetModuleName = doc.modules[targetModuleUuid]?.name.trim();
+		return {
+			names: {
+				...(sourceModuleName && { sourceModuleName }),
+				...(targetModuleName && { targetModuleName }),
+			},
+			parent: sourceModuleName ? `"${sourceModuleName}"` : "the parent menu",
+			child: targetModuleName ? `"${targetModuleName}"` : "this menu",
+		};
+	}
 	function add(
 		moduleUuid: Uuid,
 		message: string,
@@ -41,18 +56,24 @@ export function hqNestedSelectionFindings(
 	}
 	const context = formLinkProjectionContext(doc, {
 		...(lookupNaming !== undefined && { lookupNaming }),
-		onHqSelectionBoundMismatch: (issue) =>
+		onHqSelectionBoundMismatch: (issue) => {
+			const { names, parent, child } = menuNames(
+				issue.sourceModuleUuid,
+				issue.targetModuleUuid,
+			);
 			add(
 				issue.moduleUuid,
-				`CommCare HQ would reuse a selection of up to ${issue.sourceMaximum} cases in a nested menu limited to ${issue.targetMaximum}. Download the app to keep this limit, or increase the nested menu's limit before exporting to HQ.`,
+				`CommCare HQ would reuse the selection of up to ${issue.sourceMaximum} cases from ${parent} in ${child}, which is limited to ${issue.targetMaximum}. Raise the limit in ${child} to ${issue.sourceMaximum} or more to publish this app or make its import file. Preview keeps this limit, and so does a CCZ for a project space the app is already published to.`,
 				{
 					reason: "smaller-child-maximum",
 					sourceModuleUuid: issue.sourceModuleUuid,
 					targetModuleUuid: issue.targetModuleUuid,
+					...names,
 					sourceMaximum: String(issue.sourceMaximum),
 					targetMaximum: String(issue.targetMaximum),
 				},
-			),
+			);
+		},
 	});
 	function inspect(
 		moduleUuid: Uuid,
@@ -66,13 +87,19 @@ export function hqNestedSelectionFindings(
 			const targetModuleUuid = context.selectionSourceModules.get(datum);
 			if (sourceModuleUuid === undefined || targetModuleUuid === undefined)
 				continue;
+			const {
+				names,
+				parent: parentName,
+				child: childName,
+			} = menuNames(sourceModuleUuid, targetModuleUuid);
 			add(
 				moduleUuid,
-				"CommCare HQ cannot filter related cases from a selection of several parent cases. Download the app to keep this workflow, or change the parent menu to select one case before exporting to HQ.",
+				`CommCare HQ cannot filter the cases of ${childName} by several cases selected in ${parentName}. Set ${parentName} to select one case to publish this app or make its import file. Preview keeps this selection, and so does a CCZ for a project space the app is already published to.`,
 				{
 					reason: "multiple-parent-relation",
 					sourceModuleUuid,
 					targetModuleUuid,
+					...names,
 					sourceMaximum: String(parent.maxSelectValue),
 					...(formUuid !== undefined && { formUuid }),
 				},

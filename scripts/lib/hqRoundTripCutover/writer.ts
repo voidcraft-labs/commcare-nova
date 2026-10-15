@@ -29,13 +29,21 @@ import {
 } from "@/lib/db/designSessions";
 import { replaceLookupReferenceEdges } from "@/lib/db/lookupReferenceEdges";
 import { type AppDatabase, notifyAppStream } from "@/lib/db/pg";
+import { applyObservation } from "@/lib/deployment/stateMachine";
+import {
+	type DeploymentRecord,
+	deploymentPhaseOutcomesSchema,
+	deploymentPhaseSchema,
+	deploymentStateSchema,
+	NO_DEPLOYMENT_PHASE_OUTCOMES,
+} from "@/lib/deployment/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { holderCensusIsEmpty, readHolderCensus } from "./holders";
-import { appNoticeEntries } from "./notice";
+import { appNoticeEntries, noticeEntityNames } from "./notice";
 import { rawDocumentDigest, readRawDocument } from "./oldShape";
 import {
 	type AppPlan,
@@ -57,6 +65,7 @@ export const WRITER_STEPS = [
 	"clear-streams",
 	"private-work",
 	"apps",
+	"ledger",
 	"notices",
 	"postconditions",
 ] as const;
@@ -98,6 +107,8 @@ export interface WriterReport {
 	/** WAL written from step 1 to step 11. */
 	readonly walBytes: number;
 	readonly appsWritten: number;
+	readonly identitiesWritten: number;
+	readonly deploymentsMarkedMissing: number;
 	readonly noticesWritten: number;
 	readonly keyReadersWritten: number;
 	readonly eventsArchived: number;
@@ -358,6 +369,93 @@ async function writeApp(
 	`.execute(tx);
 }
 
+/**
+ * Step 9: the ledger rows. Each deployment's identity rows, and, for a
+ * deployment whose HQ app the reads found deleted, `remote_missing_at` on its
+ * live `app` mapping with the `remote_app_missing` upload failure folded as
+ * an observation folds it, so its next publish creates a new app there.
+ */
+async function writeLedger(
+	tx: Transaction<AppDatabase>,
+	build: CutoverPlanBuild,
+): Promise<{ identities: number; missing: number }> {
+	const now = new Date();
+	let identities = 0;
+	let missing = 0;
+	for (const app of build.plan.apps) {
+		for (const deployment of app.deployments) {
+			if (deployment.identities.length > 0) {
+				await tx
+					.insertInto("app_deployment_identities")
+					.values(
+						deployment.identities.map((row) => ({
+							deployment_id: deployment.deploymentId,
+							entity_kind: row.entityKind,
+							nova_entity_uuid: row.novaEntityUuid,
+							unique_id: row.remoteUniqueId,
+							xmlns: row.remoteXmlns,
+						})),
+					)
+					.execute();
+				identities += deployment.identities.length;
+			}
+			if (deployment.outcome !== "deleted") continue;
+			await tx
+				.updateTable("app_deployment_resources")
+				.set({
+					remote_missing_at: sql<Date>`COALESCE(remote_missing_at, ${now})`,
+				})
+				.where("deployment_id", "=", deployment.deploymentId)
+				.where("kind", "=", "app")
+				.where("remote_id", "=", deployment.remoteAppId)
+				.where("superseded_at", "is", null)
+				.execute();
+			const row = await tx
+				.selectFrom("app_deployments")
+				.select(["state", "resume_phase", "phases"])
+				.where("id", "=", deployment.deploymentId)
+				.executeTakeFirstOrThrow();
+			const record = {
+				state: deploymentStateSchema.parse(row.state),
+				resumePhase:
+					row.resume_phase === null
+						? null
+						: deploymentPhaseSchema.parse(row.resume_phase),
+				phases: deploymentPhaseOutcomesSchema.parse({
+					...NO_DEPLOYMENT_PHASE_OUTCOMES,
+					...row.phases,
+				}),
+			} as DeploymentRecord;
+			const next = applyObservation(record, [
+				[
+					"upload",
+					{
+						status: "failed",
+						at: now.toISOString(),
+						failure: {
+							code: "remote_app_missing",
+							message: `The app Nova published to “${deployment.domain}” isn't there any more: CommCare HQ reported it deleted when Nova read it during an update. Publish again to create a new one.`,
+							details: [],
+						},
+					},
+				],
+			]);
+			await tx
+				.updateTable("app_deployments")
+				.set({
+					state: next.state,
+					resume_phase: next.resumePhase,
+					phases: JSON.stringify(next.phases),
+					updated_at: now,
+				})
+				.where("id", "=", deployment.deploymentId)
+				.execute();
+			missing += 1;
+		}
+	}
+	return { identities, missing };
+}
+
 /** Step 10: the notice rows and the key-readers record. */
 async function writeNotices(
 	tx: Transaction<AppDatabase>,
@@ -365,8 +463,7 @@ async function writeNotices(
 ): Promise<{ notices: number; keyReaders: number }> {
 	let notices = 0;
 	for (const app of build.plan.apps) {
-		const target = build.targets.get(app.appId);
-		const entries = appNoticeEntries(app, target?.raw.appName ?? "");
+		const entries = noticeEntriesOf(build, app);
 		if (entries.length === 0) continue;
 		await sql`
 			INSERT INTO app_migration_notices (app_id, cutover, entries)
@@ -387,6 +484,16 @@ async function writeNotices(
 		`.execute(tx);
 	}
 	return { notices, keyReaders: uses.length };
+}
+
+/** One app's notice entries, its entities named by its target. */
+export function noticeEntriesOf(build: CutoverPlanBuild, app: AppPlan) {
+	const target = build.targets.get(app.appId);
+	return appNoticeEntries(
+		app,
+		target?.raw.appName ?? "",
+		target === undefined ? new Map() : noticeEntityNames(target.raw),
+	);
 }
 
 /** Each member, server and domain whose key the run sent, with the span of its uses. */
@@ -528,15 +635,41 @@ async function checkPostconditions(
 		fail("private work was left open");
 	}
 	for (const app of build.plan.apps) {
-		const target = build.targets.get(app.appId);
-		const expected =
-			appNoticeEntries(app, target?.raw.appName ?? "").length > 0 ? 1 : 0;
+		const expected = noticeEntriesOf(build, app).length > 0 ? 1 : 0;
 		const notices = await sql<{ count: string }>`
 			SELECT count(*)::text AS count FROM app_migration_notices
 			WHERE app_id = ${app.appId} AND cutover = ${CUTOVER}
 		`.execute(tx);
 		if (Number(notices.rows[0]?.count ?? "0") !== expected) {
 			fail(`app ${app.appId} does not hold exactly its planned notice`);
+		}
+	}
+	for (const app of build.plan.apps) {
+		for (const deployment of app.deployments) {
+			const recorded = await sql<{ count: string }>`
+				SELECT count(*)::text AS count FROM app_deployment_identities
+				WHERE deployment_id = ${deployment.deploymentId}
+			`.execute(tx);
+			if (
+				Number(recorded.rows[0]?.count ?? "0") !== deployment.identities.length
+			) {
+				fail(
+					`deployment ${deployment.deploymentId} does not hold its planned identity rows`,
+				);
+			}
+			if (deployment.outcome !== "deleted") continue;
+			const gone = await sql<{ missing: boolean }>`
+				SELECT EXISTS (
+					SELECT 1 FROM app_deployment_resources
+					WHERE deployment_id = ${deployment.deploymentId} AND kind = 'app'
+						AND superseded_at IS NULL AND remote_missing_at IS NOT NULL
+				) AS missing
+			`.execute(tx);
+			if (gone.rows[0]?.missing !== true) {
+				fail(
+					`deployment ${deployment.deploymentId} was found deleted and its mapping does not say so`,
+				);
+			}
 		}
 	}
 	for (const use of keyReaderRows(build)) {
@@ -654,6 +787,7 @@ export async function runFleetTransaction(
 					await writeApp(tx, app, doc);
 				}
 			});
+			const ledger = await timed("ledger", () => writeLedger(tx, build));
 			const written = await timed("notices", () => writeNotices(tx, build));
 			const growth = await timed("postconditions", async () => {
 				await checkPostconditions(tx, build, before);
@@ -671,6 +805,8 @@ export async function runFleetTransaction(
 				durations,
 				...growth,
 				appsWritten: build.plan.apps.length,
+				identitiesWritten: ledger.identities,
+				deploymentsMarkedMissing: ledger.missing,
 				noticesWritten: written.notices,
 				keyReadersWritten: written.keyReaders,
 				eventsArchived: Number(before.mutationEvents.count),

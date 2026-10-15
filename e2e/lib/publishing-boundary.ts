@@ -12,6 +12,9 @@ async function post(path: string, args: unknown) {
 export function readDeploymentsAction(appId: string) {
 	return post("/publishing/read", { appId });
 }
+export function readDownloadTargetsAction(appId: string) {
+	return post("/publishing/download-targets", { appId });
+}
 export function refreshDeploymentAction(args: unknown) {
 	return post("/publishing/refresh", args);
 }

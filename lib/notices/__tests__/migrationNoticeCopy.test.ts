@@ -35,6 +35,30 @@ const MODULE_ENTITY = {
 	nameAtMigration: "Patients",
 } as const;
 
+const DEPLOYMENT = {
+	deploymentId: "01992000-0000-7000-8000-000000000011",
+	server: "production",
+	domain: "field-ops",
+} as const;
+const FORM_ENTITY = {
+	type: "form",
+	uuid: "01992000-0000-7000-8000-0000000000b1",
+	nameAtMigration: "Visit",
+} as const;
+
+/** A deployment reason's entries, with entities and without any. */
+function deploymentEntries(reason: string, entities: readonly unknown[]) {
+	return {
+		withDetail: {
+			kind: "deployment",
+			reason,
+			deployment: DEPLOYMENT,
+			entities,
+		},
+		bare: { kind: "deployment", reason, deployment: DEPLOYMENT },
+	};
+}
+
 /** Each reason's entry, built with its details and with none. */
 const ENTRIES: Record<
 	MigrationNoticeReason,
@@ -53,6 +77,32 @@ const ENTRIES: Record<
 			entity: APP_ENTITY,
 		},
 	},
+	"ccz-needs-project-space": {
+		withDetail: {
+			kind: "document",
+			reason: "ccz-needs-project-space",
+			entity: APP_ENTITY,
+			detail: { deployments: "0" },
+		},
+		bare: {
+			kind: "document",
+			reason: "ccz-needs-project-space",
+			entity: APP_ENTITY,
+		},
+	},
+	"hq-app-deleted": deploymentEntries("hq-app-deleted", []),
+	"hq-app-not-nova-made": deploymentEntries("hq-app-not-nova-made", []),
+	"ids-change-once-unreadable": deploymentEntries(
+		"ids-change-once-unreadable",
+		[],
+	),
+	"menu-id-changes-once": deploymentEntries("menu-id-changes-once", [
+		MODULE_ENTITY,
+		FORM_ENTITY,
+	]),
+	"form-ids-change-once": deploymentEntries("form-ids-change-once", [
+		FORM_ENTITY,
+	]),
 	"deep-links-need-republish": {
 		withDetail: {
 			kind: "deployment",
@@ -128,6 +178,78 @@ describe("the reason renderers", () => {
 			).text,
 		).toBe(
 			"Links to field-ops that you already shared keep working. New ones are ready after the next publish there.",
+		);
+	});
+});
+
+describe("the identity, gone app and download lines", () => {
+	const deployment = (reason: string, entities?: readonly unknown[]) =>
+		parsed({
+			kind: "deployment",
+			reason,
+			deployment: DEPLOYMENT,
+			...(entities && { entities }),
+		});
+	const register = {
+		type: "module",
+		uuid: MODULE_UUID,
+		nameAtMigration: "Register",
+	};
+	const visit = { ...FORM_ENTITY, nameAtMigration: "Visit" };
+	const followUp = {
+		type: "form",
+		uuid: "01992000-0000-7000-8000-0000000000b2",
+		nameAtMigration: "Follow-up",
+	};
+
+	it("name each menu and form whose id changes, joined as a list, and the keyword sentences only where a form is among them", () => {
+		expect(
+			renderNoticeEntry(deployment("menu-id-changes-once", [register]), REMOVED)
+				.text,
+		).toBe(
+			"At the next publish to field-ops, CommCare HQ gets new IDs for Register, once, because Nova couldn't match them to what that project space holds.",
+		);
+		const line = renderNoticeEntry(
+			deployment("menu-id-changes-once", [register, visit, followUp]),
+			REMOVED,
+		);
+		expect(line.text).toBe(
+			"At the next publish to field-ops, CommCare HQ gets new IDs for Register, Visit and Follow-up, once, because Nova couldn't match them to what that project space holds. Forms submitted before then stay under each form's earlier ID in CommCare HQ. If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.",
+		);
+		expect(
+			line.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Register", "Visit", "Follow-up"]);
+		expect(
+			renderNoticeEntry(
+				deployment("form-ids-change-once", [visit, followUp]),
+				REMOVED,
+			).text,
+		).toBe(
+			"At the next publish to field-ops, the CommCare HQ IDs of Visit and Follow-up change once, because Nova couldn't read the ones that project space holds. Their submissions stay together. If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.",
+		);
+	});
+
+	it("say what the whole-app lines say", () => {
+		expect(renderNoticeEntry(deployment("hq-app-deleted"), PRESENT).text).toBe(
+			"The app Nova made on field-ops was deleted in CommCare HQ, so the next publish there makes a new app in its place. If it was deleted by mistake, you can restore it in CommCare HQ and then choose Check status for field-ops, and the next publish updates it again.",
+		);
+		expect(
+			renderNoticeEntry(deployment("hq-app-not-nova-made"), PRESENT).text,
+		).toBe(
+			"The app on field-ops is a linked app in CommCare HQ, so Nova can't publish to it there. You can publish to another project space.",
+		);
+		expect(
+			renderNoticeEntry(deployment("ids-change-once-unreadable"), PRESENT).text,
+		).toBe(
+			"Nova couldn't read the app on field-ops during this update, so the next publish there asks before it writes over that copy. Once you confirm, every menu and form of the app there gets a new ID in CommCare HQ, once. Forms submitted before then stay under each form's earlier ID in CommCare HQ. If an SMS keyword or a scheduled message opens one of its forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.",
+		);
+		expect(
+			renderNoticeEntry(
+				parsed(ENTRIES["ccz-needs-project-space"].bare),
+				PRESENT,
+			).text,
+		).toBe(
+			"A CCZ of this app can be downloaded once the app is published to a project space. A CCZ downloaded earlier named no CommCare HQ server, so a phone that holds one cannot sign in or send forms with it.",
 		);
 	});
 });

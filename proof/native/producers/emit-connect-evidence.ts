@@ -4,6 +4,7 @@ import AdmZip from "adm-zip";
 import { connectWireFixtures } from "../../../lib/commcare/__tests__/connectWireFixtures";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outputArgument = process.argv[2];
 if (!outputArgument)
@@ -16,7 +17,11 @@ const scenarios = connectWireFixtures();
 for (const { name, doc } of scenarios) {
 	const hq = expandDoc(doc);
 	writeFileSync(resolve(output, `${name}.json`), JSON.stringify(hq));
-	const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const archive = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	);
 	writeFileSync(
 		resolve(output, `${name}.xml`),
 		archive.readAsText("modules-0/forms-0.xml"),

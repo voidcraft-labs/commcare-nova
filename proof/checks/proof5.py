@@ -100,9 +100,10 @@ Positions are D's (D''s for an entity only D' holds). Each module and form
 is placed by the wire layout the corpus recorded for D and for D'
 (``document.json``'s ``wire.modules``), and paired by Nova id, so an edit
 that moves, adds or removes one leaves every other entity paired with
-itself. Every export mints its module and form ids and ``xmlns`` anew
-(proof 1 judges that), so D''s are mapped to D's as proof 2 maps them
-(``proof.observe.alignment``): every value equal to one of D''s ids is
+itself. Every export derives its module and form ids and ``xmlns`` from
+the document, so on a corpus document D''s are D's; where they differ, as
+in a capture whose ids were drawn, D''s are mapped to D's as proof 2 maps
+them (``proof.observe.alignment``): every value equal to one of D''s ids is
 replaced by D's id for the same Nova entity, and each D' form's data node
 is moved into D's namespace. Nothing of D''s replaced ids may be left in
 what is compared (``AlignmentIncomplete``).

@@ -8,11 +8,17 @@
  * state goes through (`./writePublishCaptures.ts::readDocuments`), so a
  * worker writes exactly what the emitter's own process would.
  *
+ * A first publish is written as two imports, the shell's `create` and the
+ * `content` update that fills it, each sidecar marked with the layout
+ * (`./publish.ts::TWO_IMPORT_LAYOUT`); the content, the republish and the
+ * edit's update each name the placeholder app id and the fields of HQ's
+ * source they were built over (`assumedSource`). Beside the exports the
+ * directory holds the HQ import file (`import-file.zip`).
+ *
  * Every export is one seeded operation (`./entropy.mts`) of the corpus
- * seed: each configuration's create, republish and update (at the
- * republish's ordinal when it sends exactly the republish, and at its own
- * otherwise: `./publish.ts::capturePublish`), and the three local archives
- * at their own ordinals.
+ * seed: each update is captured once, in a stream of its own, the first
+ * publish, the republish of D and the update to D′ each at its ordinal
+ * (`./publish.ts::capturePublish`), and the three local archives at theirs.
  */
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -45,8 +51,11 @@ import {
 import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import { writeDocumentInputs } from "./inputs";
 import {
+	type AssumedSource,
 	type CapturedRequest,
+	type CompatibilityOutcome,
 	capturePublish,
+	importFile,
 	localCcz,
 	minimumConfiguration,
 	type NovaPublishVerdict,
@@ -56,7 +65,8 @@ import {
 	type PublishCapture,
 	type PublishConfiguration,
 	type PublishDocument,
-	type StepOutcome,
+	type SentImport,
+	TWO_IMPORT_LAYOUT,
 } from "./publish";
 import { readDocuments } from "./writePublishCaptures";
 
@@ -241,17 +251,17 @@ async function writeShared(
 }
 
 /**
- * One publish's files: its import as `<name>.body`, the lookup workbook
- * Nova pushes before it and the media upload it sends after it, each
- * written once per directory (`writeShared`) and named in the import's
- * sidecar (`lookups`, `media`).
+ * One import's files: the import as `<name>.body`, the lookup workbook Nova
+ * pushes before it and the media upload it sends after it, each written
+ * once per directory (`writeShared`) and named in the import's sidecar
+ * (`lookups`, `media`), with the layout marker, the placeholder app id the
+ * import names and the fields of HQ's source it was built over.
  */
 async function writeStep(
 	directory: string,
 	name: string,
-	step: Extract<StepOutcome, { status: "sent" }>,
+	step: SentImport & { readonly compatibility: CompatibilityOutcome },
 	written: WrittenRequests,
-	extra: Record<string, unknown> = {},
 ): Promise<void> {
 	const lookupFile =
 		step.lookup === undefined
@@ -265,11 +275,24 @@ async function writeStep(
 		compatibility: step.compatibility,
 		...(lookupFile !== undefined && { lookups: lookupFile }),
 		...(mediaFile !== undefined && { media: mediaFile }),
-		...extra,
+		...updateSidecar(step.assumedSource),
 	});
 }
 
-function outcomeJson(step: StepOutcome | undefined) {
+/** What an update's sidecar names beside its request. */
+function updateSidecar(assumedSource: AssumedSource) {
+	return {
+		layout: TWO_IMPORT_LAYOUT,
+		placeholderAppId: PLACEHOLDER_APP_ID,
+		assumedSource,
+	};
+}
+
+function outcomeJson(
+	step:
+		| { readonly status: string; readonly compatibility: CompatibilityOutcome }
+		| undefined,
+) {
 	if (step === undefined) return undefined;
 	return {
 		status: step.status,
@@ -396,13 +419,21 @@ export async function writeEntry(
 		const directory = join(root, "export", name);
 		await mkdir(directory, { recursive: true });
 		const written: WrittenRequests = new Map();
-		await writeStep(directory, "create", capture.create, written);
+		const { compatibility, create, content } = capture.create;
+		/* The shell pushes nothing before it and sends no media after it. */
+		await writeRequest(directory, "create", create.importApp, {
+			compatibility,
+			layout: TWO_IMPORT_LAYOUT,
+		});
+		await writeStep(
+			directory,
+			"content",
+			{ compatibility, ...content },
+			written,
+		);
 		const republish = capture.updates.republish;
 		if (republish?.status === "sent") {
-			await writeStep(directory, "republish", republish, written, {
-				placeholderAppId: PLACEHOLDER_APP_ID,
-				assumedSourceProfile: capture.assumedSourceProfile,
-			});
+			await writeStep(directory, "republish", republish, written);
 		}
 		await writeJson(join(directory, "outcome.json"), {
 			create: outcomeJson(capture.create),
@@ -417,6 +448,10 @@ export async function writeEntry(
 	await writeFile(
 		join(root, "local-again.ccz"),
 		await localCcz(publish, PROOF_DOMAIN, local(OPERATION_ORDINALS.localAgain)),
+	);
+	await writeFile(
+		join(root, "import-file.zip"),
+		await importFile(publish, PROOF_DOMAIN),
 	);
 
 	if (edit !== undefined && editVerdict !== undefined) {
@@ -444,10 +479,7 @@ export async function writeEntry(
 			if (capture?.status !== "sent" || update?.status !== "sent") continue;
 			const directory = join(editRoot, "export", name);
 			await mkdir(directory, { recursive: true });
-			await writeStep(directory, "update", update, new Map(), {
-				placeholderAppId: PLACEHOLDER_APP_ID,
-				assumedSourceProfile: capture.assumedSourceProfile,
-			});
+			await writeStep(directory, "update", update, new Map());
 			await writeJson(join(directory, "outcome.json"), {
 				create: outcomeJson(capture.create),
 				update: outcomeJson(update),

@@ -1,0 +1,36 @@
+{
+	"intent": [
+		{
+			"id": "amina-tile",
+			"export": "local",
+			"form": "32a8cab4-8966-56d8-a2be-9d4e5e92e384",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0"
+				},
+				"caseList": {
+					"searchText": "Amina"
+				}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-amina-visit"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/0",
+					"value": "Amina"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/1",
+					"value": "Riverside"
+				},
+				{
+					"pointer": "/caseList/rows/0/fields/2",
+					"value": "2026-01-10"
+				}
+			]
+		}
+	]
+}

@@ -75,6 +75,7 @@ describe("shared localization tools", () => {
 			languages: [
 				{
 					language: { language: "eng" },
+					commcareCode: "en",
 					endonym: "English",
 					qualifiers: [],
 					direction: "ltr",
@@ -88,6 +89,47 @@ describe("shared localization tools", () => {
 		expect(result.codePolicy).toContain("ISO 639:2023 Set 3");
 		expect(harness.currentDoc()).toBe(doc);
 		expect(harness.recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("returns each language's stored CommCare code, a suffixed one included", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		for (const language of [
+			{ language: "cmn", script: "Hans" },
+			{ language: "cmn", script: "Hant" },
+		]) {
+			expect(
+				mutateResult(await harness.runTool(addLanguageTool, { language }))
+					.result,
+			).not.toHaveProperty("error");
+		}
+		const languages = readData(await harness.runTool(getLanguagesTool, {}))
+			.languages as Array<Record<string, unknown>>;
+		expect(
+			languages.map((entry) => [entry.language, entry.commcareCode]),
+		).toEqual([
+			[{ language: "eng" }, "en"],
+			[{ language: "cmn", script: "Hans" }, "zho"],
+			[{ language: "cmn", script: "Hant" }, "cmn-hant"],
+		]);
+		// Changing Simplified to Singapore Simplified adds the replacement
+		// before removing the old language, so it mints beside the code the
+		// old one still holds.
+		expect(
+			mutateResult(
+				await harness.runTool(updateLanguageTool, {
+					action: "change-identity",
+					language: { language: "cmn", script: "Hans" },
+					replacement: { language: "cmn", script: "Hans", region: "SG" },
+				}),
+			).result,
+		).not.toHaveProperty("error");
+		expect(
+			effectiveAppLocalization(harness.currentDoc().localization).wireCodes,
+		).toEqual({
+			eng: "en",
+			"cmn-Hant": "cmn-hant",
+			"cmn-Hans-SG": "cmn-hanssg",
+		});
 	});
 
 	it("adds a target atomically with an explicit copied entry for every unit", async () => {
@@ -105,6 +147,7 @@ describe("shared localization tools", () => {
 		expect(outcome.mutations[0]).toEqual({
 			kind: "addLanguage",
 			language: { language: "spa" },
+			wireCode: "es",
 		});
 		expect(
 			outcome.mutations
@@ -652,7 +695,11 @@ describe("shared localization tools", () => {
 		);
 		expect(outcome.result).not.toHaveProperty("error");
 		expect(outcome.mutations).toEqual([
-			{ kind: "relabelSourceLanguage", language: { language: "fra" } },
+			{
+				kind: "relabelSourceLanguage",
+				language: { language: "fra" },
+				wireCode: "fra",
+			},
 		]);
 		const state = effectiveAppLocalization(harness.currentDoc().localization);
 		expect(state.sourceLanguage).toBe("fra");

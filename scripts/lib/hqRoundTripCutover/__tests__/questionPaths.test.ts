@@ -1,95 +1,26 @@
 /**
  * The matcher's Nova side, walked from the raw carriers, against its
- * definition and its retained output.
+ * retained output.
  *
- * The definition is the pre-step emitter's own: every menu of
- * `emissionPlan(doc)` in order, its name and case type, and under each form
- * the paths `collectFieldLocations` gives for every field that is not a
- * container, plus, for a container under which no such field sits, its own
- * path past `descendFormPathIntoField`. That definition reads a hydrated
- * document of the tree's current schema, so this half holds only while the
- * fixtures still parse under it; the walk is held to each fixture's
- * `paths.json` at every head.
+ * Each fixture's `paths.json` was held equal to the pre-step emitter's own
+ * definition (`emissionPlan` and `collectFieldLocations`) in the tree whose
+ * schema was still the pre-step one. The frozen fixtures no longer parse
+ * under the tree's schema, so from then on the walk is held to the retained
+ * files, which need no production function.
  */
 
 import { describe, expect, it } from "vitest";
-import { emissionPlan } from "@/lib/commcare/emissionPlan";
-import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
-import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
-import { assemblePersistedBlueprintJsonText } from "@/lib/db/persistedJson";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { asUuid, type BlueprintDoc, isContainerKindName } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import { readRawDocument } from "../oldShape";
-import { type QuestionPathMenu, questionPaths } from "../questionPaths";
+import { questionPaths } from "../questionPaths";
 import { HISTORIES } from "./fixtures/fixtureDocuments";
 import {
-	type FixtureCarriers,
 	readFixtureCarriers,
 	readFixtureHistory,
 	readFixtureManifest,
 	readFixturePaths,
 	readHistoryCarriers,
 } from "./fixtures/preStep";
-
-/** The production definition of the matcher's Nova side. */
-function definedPaths(doc: BlueprintDoc): QuestionPathMenu[] {
-	const plan = emissionPlan(doc);
-	return plan.doc.moduleOrder.map((menuUuid) => {
-		const menu = plan.doc.modules[menuUuid];
-		return {
-			uuid: menuUuid,
-			name: menu?.name ?? "",
-			caseType:
-				menu?.caseType === undefined || menu.caseType === ""
-					? null
-					: menu.caseType,
-			lifted: plan.synthetic.has(menuUuid),
-			forms: (plan.doc.formOrder[menuUuid] ?? []).map((formUuid) => {
-				const locations = collectFieldLocations(plan.doc, formUuid);
-				const paths: string[] = [];
-				for (const [fieldUuid, location] of locations) {
-					const field = plan.doc.fields[fieldUuid];
-					if (field === undefined) continue;
-					if (!isContainerKindName(field.kind)) {
-						paths.push(location.path.toXPath());
-						continue;
-					}
-					const holdsLeaf = [...locations].some(
-						([otherUuid, other]) =>
-							!isContainerKindName(plan.doc.fields[otherUuid]?.kind) &&
-							other.path.toXPath().startsWith(`${location.path.toXPath()}/`),
-					);
-					if (!holdsLeaf) {
-						paths.push(
-							descendFormPathIntoField(field, location.path).toXPath(),
-						);
-					}
-				}
-				return {
-					uuid: formUuid,
-					name: plan.doc.forms[formUuid]?.name ?? "",
-					paths,
-				};
-			}),
-		};
-	});
-}
-
-function hydrate(id: string, carriers: FixtureCarriers): BlueprintDoc {
-	return hydratePersistedBlueprint(
-		assemblePersistedBlueprintJsonText(id, carriers.root, carriers.rows),
-	);
-}
-
-function sorted(menus: readonly QuestionPathMenu[]) {
-	return menus.map((menu) => ({
-		...menu,
-		forms: menu.forms.map((form) => ({
-			...form,
-			paths: [...form.paths].sort(),
-		})),
-	}));
-}
 
 const fixtures = readFixtureManifest().fixtures.map((fixture) => fixture.id);
 
@@ -99,28 +30,14 @@ describe("the matcher's Nova side", () => {
 		expect(questionPaths(raw)).toEqual(readFixturePaths(id));
 	});
 
-	it.each(fixtures)(
-		"walks %s exactly as the pre-step emitter's definition",
-		(id) => {
-			const carriers = readFixtureCarriers(id);
-			expect(sorted(questionPaths(readRawDocument(id, carriers)))).toEqual(
-				sorted(definedPaths(hydrate(id, carriers))),
-			);
-		},
-	);
-
 	describe.each(HISTORIES.map((history) => [history.document, history.name]))(
 		"over %s's history %s",
 		(document, name) => {
-			it("walks every document after a row to its retained paths and the definition", () => {
+			it("walks every document after a row to its retained paths", () => {
 				for (const row of readFixtureHistory(document, name).rows) {
 					const carriers = readHistoryCarriers(document, name, row.seq);
-					const walked = questionPaths(readRawDocument(document, carriers));
-					expect(walked).toEqual(
+					expect(questionPaths(readRawDocument(document, carriers))).toEqual(
 						readFixturePaths(document, "histories", name, `after-${row.seq}`),
-					);
-					expect(sorted(walked)).toEqual(
-						sorted(definedPaths(hydrate(document, carriers))),
 					);
 				}
 			});

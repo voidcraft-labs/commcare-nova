@@ -63,6 +63,7 @@ function overlay(
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
 		translations: {
 			spa: {
 				[id]: {

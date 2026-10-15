@@ -27,6 +27,8 @@
 import {
 	activeRemoteApp,
 	leftBehindResources,
+	remoteAppHoldsContent,
+	remoteAppReportedGone,
 } from "@/lib/deployment/resources";
 import { deploymentResumeState } from "@/lib/deployment/stateMachine";
 import type {
@@ -57,7 +59,15 @@ export interface DeploymentProjection {
 	readonly retry_from: DeploymentPhase | null;
 	/** The state that retry resumes from. Null unless `incomplete`. */
 	readonly retry_from_state: string | null;
+	/** The HQ app id Nova holds for this project space, whatever it knows of the app. */
 	readonly hq_app_id: string | null;
+	/** CommCare HQ reported that app gone; the next publish makes a new one. */
+	readonly hq_app_gone: boolean;
+	/**
+	 * The app there is the empty one a first publish makes before it sends
+	 * the content; the next publish fills it.
+	 */
+	readonly hq_app_empty: boolean;
 	readonly ownership: string | null;
 	/** The Nova mutation sequence the remote app was built from. */
 	readonly pushed_revision: number | null;
@@ -119,6 +129,11 @@ export function describeDeployment(
 		retry_from: record.resumePhase,
 		retry_from_state: deploymentResumeState(record),
 		hq_app_id: remote?.remoteId ?? null,
+		hq_app_gone: remoteAppReportedGone(view),
+		hq_app_empty:
+			remote !== null &&
+			remote.remoteMissingAt === null &&
+			!remoteAppHoldsContent(remote),
 		ownership: remote?.ownership ?? null,
 		pushed_revision: remote?.pushedRevision ?? null,
 		remote_revision: remote?.remoteRevision ?? null,

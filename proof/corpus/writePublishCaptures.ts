@@ -48,25 +48,27 @@
  *
  * - `outcome.json`: the configuration, the target, and each publish's
  *   outcome: `sent`, or `refused` by Nova's project-space check;
- * - for each publish Nova sends (`create`, then `update` of D and
- *   `update-edited` of D′, each over the created app), `<publish>.import.body`,
- *   when it pushes lookup tables `<publish>.lookup.body`, and when the export
- *   carries media `<publish>.media.body` (the upload Nova sends after the
- *   import): the request bodies as sent, framed with a fixed multipart
- *   boundary; each with a `.json` sidecar naming the method, path, content
- *   type and fields, and for an update the placeholder app id and the source
- *   profile assumed for the created app;
+ * - for the first publish, `create.import.body` (the empty shell) and the
+ *   `content` update that fills it; then for each later publish (`update`
+ *   of D and `update-edited` of D′, each over the app the first publish
+ *   left), its import. Each import is `<publish>.import.body`, with
+ *   `<publish>.lookup.body` when it pushes lookup tables and
+ *   `<publish>.media.body` when the export carries media (the upload Nova
+ *   sends after the import): the request bodies as sent, framed with a fixed
+ *   multipart boundary; each with a `.json` sidecar naming the method, path,
+ *   content type and fields, every import's the layout marker
+ *   (`./publish.ts::TWO_IMPORT_LAYOUT`), and each update's the placeholder
+ *   app id and the fields of HQ's source it was built over (`assumedSource`);
  * - when Nova publishes there, `local-1.ccz` and `local-2.ccz`: two exports
  *   of D as Nova's compile route builds them for an app published to that
  *   project space.
  *
  * Every file is the same on every run for one seed (`--seed`, by default
- * the corpus's): each publish and each local export draws the identities
- * Nova mints from its own seeded generator (`./entropy.mts`), as the
- * corpus's exports do: the create at one ordinal, `update` (the republish)
- * at another, `update-edited` at the republish's when it sends exactly
- * what `update` sends and at its own otherwise
- * (`./publish.ts::capturePublish`), and the two local exports at theirs.
+ * the corpus's): a publish draws no id, and each publish and each local
+ * export runs in its own seeded stream (`./entropy.mts`), as the corpus's
+ * exports do: the first publish at one ordinal, `update` (the republish) at
+ * another, `update-edited` at its own (`./publish.ts::capturePublish`), and
+ * the two local exports at theirs, which still draw the profile `uniqueid`.
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -100,6 +102,7 @@ import type {
 import { DEFAULT_CORPUS_SEED } from "./defaults";
 import { LOCAL_CONFIGURATION, OPERATION_ORDINALS } from "./entropy.mts";
 import {
+	type AssumedSource,
 	type CapturedRequest,
 	CCZ_CLOCK,
 	capturePublish,
@@ -113,7 +116,9 @@ import {
 	PROOF_SERVER,
 	type PublishConfiguration,
 	type PublishDocument,
+	type SentImport,
 	type StepOutcome,
+	TWO_IMPORT_LAYOUT,
 	UnexportableDocumentError,
 	type UploadedMedia,
 	uploadedMediaProblem,
@@ -428,7 +433,7 @@ async function writeRequest(
 	directory: string,
 	name: string,
 	request: CapturedRequest,
-	update?: { readonly assumedSourceProfile: unknown },
+	sidecar: Record<string, unknown> = {},
 ): Promise<void> {
 	await writeFile(join(directory, `${name}.body`), request.body);
 	await writeFile(
@@ -439,15 +444,26 @@ async function writeRequest(
 			contentType: request.contentType,
 			body: `${name}.body`,
 			fields: request.fields,
-			...(update !== undefined && {
-				placeholderAppId: PLACEHOLDER_APP_ID,
-				assumedSourceProfile: update.assumedSourceProfile,
-			}),
+			...sidecar,
 		}),
 	);
 }
 
-function stepSummary(step: StepOutcome) {
+/** What an update's import sidecar names beside its request. */
+function updateSidecar(assumedSource: AssumedSource) {
+	return {
+		layout: TWO_IMPORT_LAYOUT,
+		placeholderAppId: PLACEHOLDER_APP_ID,
+		assumedSource,
+	};
+}
+
+function stepSummary(step: {
+	readonly status: string;
+	readonly compatibility: unknown;
+	readonly lookup?: unknown;
+	readonly media?: unknown;
+}) {
 	return {
 		status: step.status,
 		compatibility: step.compatibility,
@@ -461,20 +477,33 @@ function stepSummary(step: StepOutcome) {
 	};
 }
 
+/** One update's files: its import, and the workbook before it and the media after it. */
+async function writeImport(
+	directory: string,
+	name: string,
+	sent: SentImport,
+): Promise<void> {
+	if (sent.lookup !== undefined) {
+		await writeRequest(directory, `${name}.lookup`, sent.lookup);
+	}
+	await writeRequest(
+		directory,
+		`${name}.import`,
+		sent.importApp,
+		updateSidecar(sent.assumedSource),
+	);
+	if (sent.media !== undefined) {
+		await writeRequest(directory, `${name}.media`, sent.media);
+	}
+}
+
 async function writeStep(
 	directory: string,
 	name: string,
 	step: StepOutcome,
-	update?: { readonly assumedSourceProfile: unknown },
 ): Promise<void> {
 	if (step.status !== "sent") return;
-	if (step.lookup !== undefined) {
-		await writeRequest(directory, `${name}.lookup`, step.lookup);
-	}
-	await writeRequest(directory, `${name}.import`, step.importApp, update);
-	if (step.media !== undefined) {
-		await writeRequest(directory, `${name}.media`, step.media);
-	}
+	await writeImport(directory, name, step);
 }
 
 async function writeConfiguration(
@@ -508,11 +537,13 @@ async function writeConfiguration(
 		);
 		return "refused";
 	}
-	await writeStep(directory, "create", capture.create);
+	const { create, content } = capture.create;
+	await writeRequest(directory, "create.import", create.importApp, {
+		layout: TWO_IMPORT_LAYOUT,
+	});
+	await writeImport(directory, "content", content);
 	for (const [name, step] of Object.entries(capture.updates)) {
-		await writeStep(directory, name, step, {
-			assumedSourceProfile: capture.assumedSourceProfile,
-		});
+		await writeStep(directory, name, step);
 	}
 	for (const [copy, ordinal] of [
 		[1, OPERATION_ORDINALS.local],
@@ -532,14 +563,22 @@ async function writeConfiguration(
 		jsonText({
 			configuration: configurationJson(configuration),
 			target,
-			create: stepSummary(capture.create),
+			create: {
+				status: capture.create.status,
+				compatibility: capture.create.compatibility,
+				requests: ["import"],
+			},
+			content: stepSummary({
+				status: capture.create.status,
+				compatibility: capture.create.compatibility,
+				...content,
+			}),
 			updates: Object.fromEntries(
 				Object.entries(capture.updates).map(([name, step]) => [
 					name,
 					stepSummary(step),
 				]),
 			),
-			assumedSourceProfile: capture.assumedSourceProfile,
 			localCcz: {
 				files: ["local-1.ccz", "local-2.ccz"],
 				compiledAtSeq: entry.document.compiledAtSeq,

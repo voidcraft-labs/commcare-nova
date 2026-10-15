@@ -1,0 +1,7 @@
+{
+	"status": 401,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"error\": \"API access has been temporarily cut off due to too many requests.  To re-enable, please contact support.\"}"
+}

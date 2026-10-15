@@ -33,6 +33,12 @@ records what HQ asked it into the check's ``SeamRecord``:
 - Soft assertions: every one HQ notes while the seams are open, as
   production notes it (``proof.hq.boot.soft_assertions``), so an assertion
   that would have raised in a test boot is evidence in the record instead.
+- ``api_rate_limits``: HQ's rate limiter for its API views
+  (``corehq/project_limits``) counts each request in counters the harness's
+  cache does not hold (django-redis's ``incr(..., ignore_key_check=True)``
+  and ``expire``). The seam answers every count as within its limits and
+  records each count HQ asked it to make; ``RedisCounters`` answers as Redis
+  does, for a test that shows the limiter refusing (``rate_counters``).
 
 ``check_seams`` opens the seams every path runs under, and ``build_seams``
 the ones a build adds.
@@ -747,3 +753,92 @@ def build_seams(*, previous=None):
     """
     with previous_build(previous), resource_overrides():
         yield
+
+
+# HQ's rate counters ---------------------------------------------------------------------------------------------
+
+
+class RedisCounters:
+    """A counter store that answers HQ's rate counters as Redis does (``CounterCache``'s calls of django-redis):
+    ``incr`` adds to a key's count, from zero where none is held, ``expire`` and ``set`` keep what they are told,
+    and ``get`` answers a held count or the default. The windows the counters key by are read from the clock, so
+    under a determinism operation (``proof.hq.determinism``) every answer is the same on every run."""
+
+    def __init__(self):
+        self.counts = {}
+        self.expiries = {}
+
+    def incr(self, key, delta=1, ignore_key_check=False):
+        if not ignore_key_check and key not in self.counts:
+            raise ValueError(f"Key {key!r} not found")
+        self.counts[key] = self.counts.get(key, 0) + delta
+        return self.counts[key]
+
+    def expire(self, key, timeout):
+        self.expiries[key] = timeout
+
+    def get(self, key, default=None):
+        return self.counts.get(key, default)
+
+    def set(self, key, value, timeout=None):
+        self.counts[key] = value
+
+
+class WithinLimits:
+    """A counter store that answers every count of HQ's rate counters as within its limits (each read is zero)
+    and keeps each count HQ asked it to make, by key (``recorded``)."""
+
+    def __init__(self):
+        self.recorded = []
+
+    def incr(self, key, delta=1, ignore_key_check=False):
+        self.recorded.append((key, delta))
+        return delta
+
+    def expire(self, key, timeout):
+        pass
+
+    def get(self, key, default=None):
+        return default if default is not None else 0
+
+    def set(self, key, value, timeout=None):
+        pass
+
+
+def _preset_counters():
+    """The counter cache of each of HQ's preset rate counters (``project_limits/rate_counter/presets.py``), which
+    every rate limiter HQ's API views run (``api/resources/meta.py::api_rate_limiter``) counts in."""
+    from corehq.project_limits.rate_counter import presets
+
+    counters = (
+        presets.week_rate_counter,
+        presets.day_rate_counter,
+        presets.hour_rate_counter,
+        presets.minute_rate_counter,
+        presets.second_rate_counter,
+    )
+    return [counter.grain_counter.counter for counter in counters]
+
+
+@contextmanager
+def rate_counters(store):
+    """HQ's preset rate counters counting in ``store`` for the block, both their shared cache and their local
+    memo (``CounterCache.shared_cache``, ``local_cache``), put back after."""
+    caches = _preset_counters()
+    held = [(cache.shared_cache, cache.local_cache) for cache in caches]
+    for cache in caches:
+        cache.shared_cache = cache.local_cache = store
+    try:
+        yield store
+    finally:
+        for cache, (shared, local) in zip(caches, held, strict=True):
+            cache.shared_cache, cache.local_cache = shared, local
+
+
+@contextmanager
+def api_rate_limits(state):
+    """Every count of HQ's API rate limiter within its limits for the block (``WithinLimits``), so a test's many
+    requests to HQ's API views in one second are never refused at the limiter's floor; yields the store, whose
+    ``recorded`` holds each count HQ asked it to make. ``state`` is the HQ state the requests are made over."""
+    with rate_counters(WithinLimits()) as store:
+        yield store

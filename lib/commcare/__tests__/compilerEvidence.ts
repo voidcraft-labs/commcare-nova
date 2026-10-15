@@ -19,7 +19,7 @@ import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
-
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 // Real, small media. Multiple asset IDs sharing content exercise bundle dedup.
@@ -110,7 +110,10 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 		expect(validateXForm(source, path, doc.appName, manifestPaths)).toEqual([]);
 	}
 	const zip = new AdmZip(
-		compileCcz(hq, doc.appName, doc, { assets: manifest }),
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: TEST_RUNTIME_TARGET,
+			assets: manifest,
+		}),
 	);
 	const read = (path: string): string => {
 		const entry = zip.getEntry(path);

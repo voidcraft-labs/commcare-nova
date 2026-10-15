@@ -1,0 +1,7 @@
+{
+	"status": 400,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"success\": false, \"error\": \"Uploaded app type 'Application' does not match existing app type 'LinkedApplication'\"}"
+}

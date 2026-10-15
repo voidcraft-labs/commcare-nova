@@ -64,11 +64,18 @@ for the complete check.
 
 ### Data in place
 
-Two things go on the project space before the app does, because the app reaches
-for them by name while somebody is using it. An app that arrived first would
-install and then misbehave.
+Two things go on the project space before the app's content does, because the
+app reaches for them by name while somebody is using it. Content that arrived
+first would install and then misbehave.
 
 This step only appears when your app has one of them.
+
+The first publish to a project space makes an empty app there first, named for
+your app, then puts the lookup tables and places in place, and then fills the
+app in. The empty app holds nothing that reads a table or a place, and CommCare
+HQ makes no version of it. If the publish stops anywhere between making the
+empty app and filling it, the empty app stays on the project space, and your
+next publish there fills it rather than making a second one.
 
 **Lookup tables.** If your app reads any [lookup tables](/docs/project-data),
 Nova puts them there and replaces their rows with the rows in Nova. Tables your
@@ -86,7 +93,7 @@ this app does not use. Clearing one of your app's fields clears it on the
 project space too.
 
 If a connection drops while data is being sent, Nova reports what it could
-confirm and holds back the app. Some data may already have arrived. Publishing
+confirm and holds back the app's content. Some data may already have arrived. Publishing
 again checks what is there and may ask you to confirm which existing resources
 Nova can update. If CommCare HQ names an invalid row or place, that detail stays
 with the refusal so you can fix it before retrying.
@@ -119,15 +126,35 @@ Your app is now on the project space. It is not something workers can open yet.
 Publishing again **updates this same app in place**, name included, so the
 project space keeps one app that tracks what you build in Nova. The one
 exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
-tells you so when you try, and publishing once more creates a fresh one.
+tells you so when you try, and publishing once more makes a fresh one there.
+
+Each publish keeps every menu's and every form's ID in CommCare HQ. So anything
+there that opens a form by its ID, such as an SMS keyword or a scheduled
+message, keeps opening it.
+
+CommCare HQ keeps each form's last check for up to 7 days. If a form had failed
+that check in CommCare HQ before this publish replaced it, App Preview there can
+keep refusing to open the app for that long, with the old error. Making a new
+version in CommCare HQ checks the app afresh. Saving the form once in CommCare
+HQ's form builder clears the old check.
 
 If a status check overlaps a new publish, Nova keeps the new publish's status.
 Answers about the earlier version cannot replace it.
 
-Immediately before an update, Nova reads the current CommCare HQ app and keeps
-destination-specific behavior it does not own. If that app cannot be read
-safely, Nova leaves the existing HQ app unchanged instead of guessing what to
-keep.
+Before it sends your app's content, Nova reads the CommCare HQ app it is about
+to fill or update, and keeps destination-specific behavior it does not own. If
+that app cannot be read safely, Nova sends none of the app's content instead of
+guessing what to keep. On a first publish the empty app it made is already
+there, and your next publish fills it.
+
+If a publish is interrupted just after CommCare HQ makes the empty app and
+before Nova records it, Nova doesn't know that app, and the next publish makes
+another. That leaves an extra empty app named for your app, which you can
+delete in CommCare HQ.
+
+Media goes after the app's content. A version made in CommCare HQ between the
+two installs and shows no images until the media lands, so make the version
+once the publish has finished.
 
 If the app arrives but its media upload cannot be confirmed, Nova keeps the
 published app and reports the media warning. Publishing again updates that app
@@ -262,10 +289,12 @@ remembers where it stopped.
 
 What to do next depends on where it stopped, and Nova says which:
 
-- **Before the app reached CommCare HQ** (a connection problem, something in the
-  app itself, or a table or place Nova would not write over): fix it and publish
-  again. A publish that stopped on the data never sent the app, so trying again
-  picks up from there. Places go out in groups, one level at a time, and each
+- **Before the app's content reached CommCare HQ** (a connection problem,
+  something in the app itself, or a table or place Nova would not write over):
+  fix it and publish again. A publish that stopped on the data never sent the
+  app's content, so trying again picks up from there. If it was the first
+  publish to that project space, it left an empty app there, which the next
+  publish fills. Places go out in groups, one level at a time, and each
   group either lands whole or not at all, so a publish that stopped partway left
   the groups above it in place and the next one carries on from there rather
   than making a second copy.
@@ -311,9 +340,21 @@ copy it. Cases for these links use IDs from that CommCare HQ project space.
 When the app or destination changes, Nova clears earlier links and check messages.
 See [Deep links](/docs/deep-links) for Preview testing and release behavior.
 
-## Choosing a server for downloads
+## Downloads
 
-Downloads use the selected CommCare server for Search and case claims. When an
-app has one published destination, Nova can use it. Otherwise the download
-asks you to choose US, India, or EU. A server choice does not verify a project
-space's capabilities; publishing performs that check against the destination.
+**A CommCare mobile app file (CCZ) is made for one project space the app is
+published to.** It signs workers in there and sends their forms there. When
+your app is published to one project space, the download is made for it; with
+several, you choose which one. An app that isn't published anywhere has no CCZ
+yet, so publish it to a project space first.
+
+A newer CCZ for the same project space keeps every form's identity, so a phone
+that updates to it reopens the forms a worker saved incomplete.
+
+**The CommCare HQ app file is a ZIP** you can import by hand. It holds the app,
+a README with the steps for importing it, and, where your app has them, its
+lookup tables and its media. After the download, Nova shows the same steps. You
+can choose a server for it so that links to case attachments open there.
+
+Neither download checks a project space's capabilities; publishing performs
+that check against the destination.

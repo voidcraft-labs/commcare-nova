@@ -3,7 +3,9 @@
 Contract: for each media scenario HQ regenerates the form, suite, strings,
 profile and media suite, and its media suite's local resources (path,
 version and location) equal the local CCZ's; without media both are empty
-and HQ maps nothing. With media, HQ's whole bulk upload task over Nova's
+and HQ maps nothing. Nova's import carries no multimedia map in any
+scenario, so the app HQ imports maps nothing before the upload. With media,
+HQ's whole bulk upload task over Nova's
 upload zip completes with no error, unmatched or skipped file, classifies
 three images, one audio and one video, matches every file in the zip, maps
 each to the form path HQ derives from it, stores exactly the uploaded bytes,
@@ -69,8 +71,10 @@ def test_hq_media_resources_and_bulk_upload_match_novas_archive(native):
             _resource_shape(local_media),
             _resource_shape(native_media),
         )
+        # Nova's import carries no multimedia map, enabled or not: the upload alone maps the media.
+        assert record["multimediaMapBeforeUpload"] == 0, name
         if not record["enabled"]:
-            assert len(local_media) == 0 and record["multimediaMapBeforeUpload"] == 0
+            assert len(local_media) == 0
             results.append({"scenario": name, "mediaResources": 0})
             continue
         assert len(record["uploaded"]) == 5

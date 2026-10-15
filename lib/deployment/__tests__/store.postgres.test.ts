@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { activeRemoteApp } from "../resources";
+import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
 	applyDeploymentObservation,
 	beginDeploymentContentWrite,
@@ -25,9 +26,12 @@ import {
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
 	readDeployment,
+	readDeploymentIdentityOverrides,
 	readDeploymentPreviewRecords,
 	readDeploymentsForApp,
 	readEntryPointEvidence,
+	readReachedDeploymentTargets,
+	recordCreatedRemoteApp,
 	recordEntryPointObservation,
 	recordPushedResources,
 	recordRemoteResource,
@@ -1127,6 +1131,181 @@ describe("observation writes", () => {
 		expect(view.deployment.state).toBe("uploaded");
 		expect(view.deployment.lastObservedAt).toBeNull();
 		expect(activeRemoteApp(view)?.remoteRevision).toBeNull();
+	});
+});
+
+describe("the empty app and HQ reporting it gone", () => {
+	const gone = {
+		code: "remote_app_missing" as const,
+		message: "The app Nova published isn't there any more.",
+		details: [],
+	};
+
+	async function observe(
+		scope: DeploymentScope,
+		status: "failed" | "succeeded",
+	) {
+		const view = await readDeployment(scope, TARGET);
+		if (view === null) throw new Error("Expected a deployment");
+		const active = activeRemoteApp(view);
+		if (active === null) throw new Error("Expected an app mapping");
+		return applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: active.remoteId,
+			observedPushToken: active.pushToken,
+			outcomes: [
+				[
+					"upload",
+					status === "failed"
+						? { status, at: AT, failure: gone }
+						: { status, at: AT },
+				],
+			],
+			remoteRevision: null,
+		});
+	}
+
+	it("records the shell with no pushed revision and folds no rung", async () => {
+		const scope = await seed();
+		const created = await create(scope);
+		const view = await recordCreatedRemoteApp(scope, TARGET, {
+			remoteId: "hq-shell",
+		});
+		expect(view.deployment).toEqual(created.deployment);
+		expect(view.active).toEqual([
+			expect.objectContaining({
+				kind: "app",
+				remoteId: "hq-shell",
+				ownership: "nova-created",
+				pushedRevision: null,
+				pushedAt: null,
+				remoteRevision: null,
+				remoteMissingAt: null,
+			}),
+		]);
+	});
+
+	it("sets the gone marker on the observed mapping without rotating its push token, and clears it when HQ answers again", async () => {
+		const scope = await seed();
+		const published = await publish(scope, "hq-app", 3);
+		const token = pushToken(published);
+
+		const marked = await observe(scope, "failed");
+		expect(marked.applied).toBe(true);
+		expect(activeRemoteApp(marked.view)?.remoteMissingAt).not.toBeNull();
+		expect(pushToken(marked.view)).toBe(token);
+
+		const healed = await observe(scope, "succeeded");
+		expect(healed.applied).toBe(true);
+		expect(activeRemoteApp(healed.view)?.remoteMissingAt).toBeNull();
+		expect(pushToken(healed.view)).toBe(token);
+	});
+
+	it("clears the gone marker when a publish lands on the same app", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-app", 3);
+		await observe(scope, "failed");
+		const republished = await publish(scope, "hq-app", 4);
+		expect(activeRemoteApp(republished)?.remoteMissingAt).toBeNull();
+	});
+
+	it("keeps the gone mapping superseded, marker and all, when a new app replaces it", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-app", 3);
+		await observe(scope, "failed");
+		const replaced = await recordCreatedRemoteApp(scope, TARGET, {
+			remoteId: "hq-new",
+		});
+		expect(activeRemoteApp(replaced)).toMatchObject({
+			remoteId: "hq-new",
+			remoteMissingAt: null,
+		});
+		expect(replaced.superseded).toEqual([
+			expect.objectContaining({ remoteId: "hq-app" }),
+		]);
+		expect(replaced.superseded[0].remoteMissingAt).not.toBeNull();
+	});
+
+	it("names as reached only a deployment whose content is live there", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-app", 3);
+		const shellOnly = { server: "production" as const, domain: "shell" };
+		await create(scope, shellOnly);
+		await recordCreatedRemoteApp(scope, shellOnly, { remoteId: "hq-shell" });
+		const goneTarget = { server: "india" as const, domain: "gone" };
+		await create(scope, goneTarget);
+		const gonePublished = await recordRemoteResource(scope, goneTarget, {
+			kind: "app",
+			novaResourceId: scope.appId,
+			remoteId: "hq-gone",
+			ownership: "nova-created",
+			pushedRevision: 3,
+			uploadedAt: AT,
+			remoteRevision: null,
+		});
+		const goneMapping = activeRemoteApp(gonePublished);
+		if (goneMapping === null) throw new Error("Expected an app mapping");
+		await applyDeploymentObservation(scope, goneTarget, {
+			observedRemoteId: goneMapping.remoteId,
+			observedPushToken: goneMapping.pushToken,
+			outcomes: [["upload", { status: "failed", at: AT, failure: gone }]],
+			remoteRevision: null,
+		});
+		await create(scope, { server: "india", domain: "never" });
+		/* A record that displays as uploaded while its live mapping is an
+		 * empty app Nova made and never filled. The read names the app that
+		 * holds the content, so it does not name this one. */
+		const refilled = { server: "india" as const, domain: "refilled" };
+		await create(scope, refilled);
+		await recordRemoteResource(scope, refilled, {
+			kind: "app",
+			novaResourceId: scope.appId,
+			remoteId: "hq-before",
+			ownership: "nova-created",
+			pushedRevision: 3,
+			uploadedAt: AT,
+			remoteRevision: null,
+		});
+		const shellAfter = await recordCreatedRemoteApp(scope, refilled, {
+			remoteId: "hq-shell-after",
+		});
+		expect(deploymentDisplaysAsReached(shellAfter.deployment, "uploaded")).toBe(
+			true,
+		);
+
+		expect(await readReachedDeploymentTargets(scope)).toEqual([
+			{ server: "production", domain: "acme", hqAppId: "hq-app" },
+		]);
+	});
+
+	it("reads a target's identity overrides, and none for a target with no deployment", async () => {
+		const scope = await seed();
+		const view = await create(scope);
+		const form = "01992000-0000-7000-8000-0000000000b1";
+		await h
+			.db()
+			.insertInto("app_deployment_identities")
+			.values({
+				deployment_id: view.deployment.id,
+				entity_kind: "form",
+				nova_entity_uuid: form,
+				unique_id: null,
+				xmlns: "http://openrosa.org/formdesigner/hq-own",
+			})
+			.execute();
+		expect(await readDeploymentIdentityOverrides(scope, TARGET)).toEqual([
+			{
+				entityKind: "form",
+				novaEntityUuid: form,
+				uniqueId: null,
+				xmlns: "http://openrosa.org/formdesigner/hq-own",
+			},
+		]);
+		expect(
+			await readDeploymentIdentityOverrides(scope, {
+				server: "india",
+				domain: "acme",
+			}),
+		).toEqual([]);
 	});
 });
 

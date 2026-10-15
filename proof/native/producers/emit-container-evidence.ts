@@ -11,6 +11,7 @@ import {
 	liveCountEntryDoc,
 	sectionEntryDoc,
 } from "../../../lib/preview/engine/__tests__/fixtures/sectionEntry";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -33,7 +34,11 @@ for (const scenario of [
 					? sectionEntryDoc()
 					: containerWireFixture(scenario);
 	const hq = expandDoc(doc);
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	);
 	const form = Object.values(hq._attachments)[0];
 	if (typeof form !== "string") throw new Error("Missing XForm");
 	const local = zip

@@ -17,25 +17,26 @@
  * source of variation (a clock, an unordered collection, a random boundary,
  * a draw made outside its operation or shared between two) making every
  * comparison over the corpus noisy and no observation reusable. Seeding must
- * keep what Nova keeps apart: a document's create and republish mint
- * different module and form ids and `xmlns` (defect 1), and its two local
- * exports different profile `uniqueid`s (defect 9), or the corpus would hide
- * those defects from the checks that must see them. And seeding must keep
- * apart what proof 5 maps: an update to D′ that sends anything but the
- * republish of D mints none of the ids that republish minted, or an id of
- * D′ would name another entity of D (one stream mints, in order, D's ids
- * for whatever D′ holds in their places), while an update that sends
- * exactly the republish is byte-identical to it.
+ * keep what Nova keeps apart: a document's two local exports draw different
+ * profile `uniqueid`s (defect 9), or the corpus would hide that defect from
+ * the checks that must see it. And seeding must shape no id a publish
+ * sends: the republish carries the first publish's module and form ids and
+ * `xmlns`, and an update to D′ that changes nothing Nova sends is
+ * byte-identical to the republish though each is drawn in a stream of its
+ * own, so a change that mints an id per publish again fails here.
  *
- * A publish whose export carries media sends it after the import
+ * A first publish is two imports: the empty shell's create, which names
+ * neither a workbook nor media, and the content update that fills it. A
+ * publish whose export carries media sends it after its content import
  * (`lib/deployment/service.ts::uploadMediaBytes`), and the HQ side replays
  * that upload, so its capture must be written beside the import, named by
  * the import's sidecar and by the input manifest. The plausible failures: a
- * document whose import maps media with no upload written (HQ's state would
- * keep Nova's map, which no HQ ever holds after a publish), an upload that
- * carries other files than the paths the import maps, and a document
- * without media gaining any file or role (its records would change). The
- * observation is the import's `multimedia_map` beside the written upload.
+ * document whose export carries media with no upload written (HQ's app
+ * would reference media it never stores), an upload that carries other
+ * files than the export's prepared assets, a shell that names media, and a
+ * document without media gaining any file or role (its records would
+ * change). The observation is the export's prepared assets (the paths
+ * `buildMediaBulkUploadZip` writes) beside the written upload.
  *
  * Each document's `document.json` places its languages on the wire
  * (`wire.languages`), which proof 1 pairs across an edit by tag; the
@@ -101,6 +102,7 @@ import {
 } from "../emitCorpus";
 import { sampleFuzzDocuments } from "../fuzzSample";
 import { producerDocuments } from "../producers";
+import { PROOF_DOMAIN, preparedMediaPaths } from "../publish";
 import { workforceDocumentId, workforceDocuments } from "../workforce";
 import { readDocuments } from "../writePublishCaptures";
 
@@ -138,7 +140,7 @@ const NAMING = "case-worker-survey";
 
 interface ImportedApp {
 	readonly langs: string[];
-	readonly multimedia_map?: Record<string, unknown>;
+	readonly multimedia_map?: unknown;
 	readonly modules: {
 		readonly unique_id: string;
 		readonly forms: { readonly unique_id: string; readonly xmlns: string }[];
@@ -292,9 +294,15 @@ describe("the corpus emitter", () => {
 		for (const entry of index?.documents ?? []) {
 			const directory = join(root, "nova", entry.id);
 			const sides = [
-				{ root: directory, step: "create" },
+				{ root: directory, step: "create", imports: ["create", "content"] },
 				...(entry.edit
-					? [{ root: join(directory, "edit"), step: "update" }]
+					? [
+							{
+								root: join(directory, "edit"),
+								step: "update",
+								imports: ["update"],
+							},
+						]
 					: []),
 			];
 			for (const side of sides) {
@@ -311,14 +319,16 @@ describe("the corpus emitter", () => {
 					`${entry.id} ${side.step}`,
 				).toEqual(effectiveAppLocalization(stored.localization).languageOrder);
 				for (const configuration of entry.configurations) {
-					const app = await importedApp(
-						join(side.root, "export", configuration),
-						side.step,
-					);
-					expect(
-						languages.map((language) => language.code),
-						`${entry.id} ${side.step} ${configuration}`,
-					).toEqual(app.langs);
+					for (const name of side.imports) {
+						const app = await importedApp(
+							join(side.root, "export", configuration),
+							name,
+						);
+						expect(
+							languages.map((language) => language.code),
+							`${entry.id} ${name} ${configuration}`,
+						).toEqual(app.langs);
+					}
 				}
 				if (languages.length > 1) {
 					multilingual.push(`${entry.id} ${side.step}`);
@@ -336,7 +346,7 @@ describe("the corpus emitter", () => {
 		);
 	});
 
-	it("writes the media upload each publish sends after an import that maps media, once per directory, named by the import's sidecar and the input manifest", async () => {
+	it("writes the media upload each publish sends after its content import, exactly the export's prepared assets, once per directory, named by the import's sidecar and the input manifest", async () => {
 		const withMedia: string[] = [];
 		const without: string[] = [];
 		for (const entry of index?.documents ?? []) {
@@ -344,33 +354,65 @@ describe("the corpus emitter", () => {
 			const manifest = JSON.parse(
 				await readFile(join(directory, "inputs.json"), "utf8"),
 			);
+			const [stored] = readDocuments([
+				JSON.parse(await readFile(join(directory, "document.json"), "utf8")),
+			]);
+			const [edited] = entry.edit
+				? readDocuments([
+						JSON.parse(
+							await readFile(join(directory, "edit", "document.json"), "utf8"),
+						),
+					])
+				: [];
+			if (stored === undefined) throw new Error(`${entry.id} read as nothing.`);
+			const paths = await preparedMediaPaths(stored.document, PROOF_DOMAIN);
 			const steps = [
-				{ at: "export", name: "create", part: "a", role: "create.media" },
-				{ at: "export", name: "republish", part: "b", role: "media" },
-				...(entry.edit
+				{
+					at: "export",
+					name: "content",
+					part: "a",
+					role: "content.media",
+					paths,
+				},
+				{ at: "export", name: "republish", part: "b", role: "media", paths },
+				...(edited !== undefined
 					? [
 							{
 								at: "edit/export",
 								name: "update",
 								part: "b_edit",
 								role: "media",
+								paths: await preparedMediaPaths(edited.document, PROOF_DOMAIN),
 							},
 						]
 					: []),
 			];
 			for (const configuration of entry.configurations) {
+				// The shell names no media, and no workbook either.
+				const shell = JSON.parse(
+					await readFile(
+						join(directory, "export", configuration, "create.json"),
+						"utf8",
+					),
+				);
+				expect(shell.layout, entry.id).toBe(2);
+				expect(shell.media, entry.id).toBeUndefined();
+				expect(shell.lookups, entry.id).toBeUndefined();
+				expect(
+					manifest.configurations[configuration].a["create.media.body"],
+					entry.id,
+				).toBeUndefined();
 				for (const step of steps) {
 					const relativeDirectory = `${step.at}/${configuration}`;
 					const exported = join(directory, relativeDirectory);
 					const sidecar = JSON.parse(
 						await readFile(join(exported, `${step.name}.json`), "utf8"),
 					);
-					const mapped = Object.keys(
-						(await importedApp(exported, step.name)).multimedia_map ?? {},
-					).sort();
+					const app = await importedApp(exported, step.name);
 					const roles = manifest.configurations[configuration][step.part];
 					const where = `${entry.id} ${relativeDirectory}/${step.name}`;
-					if (mapped.length === 0) {
+					expect(app, where).not.toHaveProperty("multimedia_map");
+					if (step.paths.length === 0) {
 						expect(sidecar.media, where).toBeUndefined();
 						expect(roles[`${step.role}.body`], where).toBeUndefined();
 						without.push(where);
@@ -399,22 +441,22 @@ describe("the corpus emitter", () => {
 					if (!(zip instanceof File)) throw new Error(`${where} has no ZIP.`);
 					// HQ matches each file to the app's references by its path
 					// (`hqmedia/tasks.py::process_bulk_upload_zip`), so the ZIP
-					// holds a file for exactly the paths the import maps.
+					// holds a file at exactly each prepared asset's wire path.
 					const files = new AdmZip(Buffer.from(await zip.arrayBuffer()))
 						.getEntries()
 						.filter((file) => !file.isDirectory)
-						.map((file) => `jr://file/${file.entryName}`)
+						.map((file) => file.entryName)
 						.sort();
-					expect(files, where).toEqual(mapped);
+					expect(files, where).toEqual(step.paths);
 				}
-				// The republish sends the create's media: one file holds it.
+				// The republish sends the content's media: one file holds it.
 				const exported = join(directory, "export", configuration);
-				const [create, republish] = await Promise.all(
-					["create", "republish"].map(async (name) =>
+				const [content, republish] = await Promise.all(
+					["content", "republish"].map(async (name) =>
 						JSON.parse(await readFile(join(exported, `${name}.json`), "utf8")),
 					),
 				);
-				expect(republish.media, entry.id).toBe(create.media);
+				expect(republish.media, entry.id).toBe(content.media);
 			}
 		}
 		// This corpus has documents with media and documents without.
@@ -572,7 +614,7 @@ describe("the corpus emitter", () => {
 		}
 	});
 
-	it("writes the same bytes on every run for a seed, minted identities included, and keeps defects 1 and 9 visible", {
+	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and keeps defect 9 visible", {
 		// Two more emissions of the corpus, each capturing every publish and
 		// writing every archive: about a second on a laptop, and CI runners
 		// are slower.
@@ -604,12 +646,12 @@ describe("the corpus emitter", () => {
 		}
 		expect(nova.has("inputs.json")).toBe(true);
 
-		// Defect 1: the next publish of an unchanged document mints new ids.
-		// Defect 9: so does the second local export, in its profile.
+		// The next publish of an unchanged document sends the ids the first sent.
+		// Defect 9: the second local export draws another `uniqueid` for its profile.
 		const checked = ["arithmetic", "localization-mandarin"];
 		for (const id of checked) {
 			const directory = join(root, "nova", id, "export", "minimum");
-			const created = await importedApp(directory, "create");
+			const created = await importedApp(directory, "content");
 			const republished = await importedApp(directory, "republish");
 			const ids = (app: ImportedApp) =>
 				app.modules.flatMap((module) => [
@@ -619,11 +661,8 @@ describe("the corpus emitter", () => {
 			const before = ids(created);
 			const after = ids(republished);
 			expect(before.length, id).toBeGreaterThan(1);
-			expect(after).toHaveLength(before.length);
-			expect(
-				before.filter((value, at) => value === after[at]),
-				id,
-			).toEqual([]);
+			expect(after, id).toEqual(before);
+			expect(nova.has(`${id}/import-file.zip`), id).toBe(true);
 			const local = nova.get(`${id}/local.ccz`);
 			const again = nova.get(`${id}/local-again.ccz`);
 			if (local === undefined || again === undefined) {
@@ -637,12 +676,7 @@ describe("the corpus emitter", () => {
 		}
 	});
 
-	it("draws an update to D′ that sends anything but the republish from a stream of its own, and keeps one that sends the republish byte-identical", async () => {
-		const minted = (app: ImportedApp) =>
-			app.modules.flatMap((module) => [
-				module.unique_id,
-				...module.forms.flatMap((form) => [form.unique_id, form.xmlns]),
-			]);
+	it("sends an update to D′ that changes nothing Nova sends as the republish's bytes, each drawn in a stream of its own", async () => {
 		const same: string[] = [];
 		const changed: string[] = [];
 		for (const entry of index?.documents ?? []) {
@@ -661,15 +695,6 @@ describe("the corpus emitter", () => {
 					continue;
 				}
 				changed.push(name);
-				const before = new Set(
-					minted(await importedApp(republished, "republish")),
-				);
-				const after = minted(await importedApp(updated, "update"));
-				expect(after.length, name).toBeGreaterThan(0);
-				expect(
-					after.filter((value) => before.has(value)),
-					name,
-				).toEqual([]);
 			}
 		}
 		// Both kinds of edit are in this corpus, so both halves were held.

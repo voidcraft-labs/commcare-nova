@@ -6,7 +6,17 @@ database per observation: A, then B over it, and A again, then B-edit over
 it. Each observation here is a step of its unit (``unit.operation``), so the
 same steps under the same root key draw the same entropy and read the same
 clock (``proof.hq.determinism``) whichever mechanism holds the state; any
-byte that differs is state the branch failed to put back.
+byte that differs is state the branch failed to put back. The harness
+freezes Python's clock and not the database's, so a column Postgres's own
+``NOW()`` writes holds two times on two sides: ``DATABASE_CLOCK`` names each
+one HQ writes and reads nowhere under ``corehq``, and the comparison leaves it
+out where both states hold a value in it and compares every other column of
+its row. The one is ``blobs_deletedblobmeta.deleted_on``, which
+``corehq/blobs/sql_templates/delete_blob_meta_v2.sql`` writes when an update
+puts a form's source again under the attachment name it already has
+(``corehq/blobs/mixin.py::BlobMixin.atomic_blobs``, reached from
+``models/applications.py::ApplicationBase.save_attachments``): a republish
+sends the ids the first publish sent, so B replaces A's sources by name.
 
 The plausible failures: a sequence a restore leaves advanced (Postgres
 sequences are not transactional, and B's app document carries the blob
@@ -61,7 +71,6 @@ from unittest import mock
 import pytest
 
 from proof.checks import sharding
-from proof.checks.cases import load_corpus
 from proof.hq import branch, database, determinism, operations
 from proof.hq.branch import (
     AbortedTransaction,
@@ -74,7 +83,7 @@ from proof.hq.branch import (
 )
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.hq.conftest import hq_test_app, nova_shaped_upload
+from proof.hq.conftest import hq_test_app, load_corpus, nova_shaped_upload
 from proof.hq.seams import build_seams, formplayer_validation
 from proof.hq.state import hq_state, hq_unit, open_unit
 from proof.lane import blocks as lane_blocks
@@ -163,17 +172,20 @@ def _upload_lookups(unit, captured):
 
 
 def _create(unit, export):
-    with unit.operation("create", _captured_digest(export.create)):
-        _upload_lookups(unit, export.create)
-        result = operations.apply_upload(unit, export.create.upload())
-        assert 200 <= result.status < 300 and result.response.get("success"), result.response
-        return result.response["app_id"]
+    """Nova's first publish (``proof.observe.publish.create``: the shell, the workbook and the content), as one
+    operation keyed by the digest of both imports."""
+    from proof.observe import publish
+
+    with unit.operation("create", publish.first_publish_digest(export)):
+        app_id, refusal, lookups = publish.create(unit, export)
+        assert refusal is None, refusal
+        assert lookups is None or lookups["errors"] == [], lookups
+        return app_id
 
 
 def _publish_over(unit, app_id, captured, label):
     with unit.operation(label, _captured_digest(captured)):
-        served = operations.app_source(unit, app_id).get("profile")
-        assert served == captured.assumed_source_profile, "HQ serves A with a profile the capture was not built over"
+        operations.hold_assumed_source(unit, app_id, captured.assumed_source, f"captured {label}")
         _upload_lookups(unit, captured)
         result = operations.apply_upload(unit, operations.with_app_id(captured.upload(), app_id))
         assert 200 <= result.status < 300 and result.response.get("success"), result.response
@@ -264,7 +276,27 @@ def _observe(unit, app_id, built):
     }
 
 
+# The columns Postgres's own clock writes, by table, that HQ writes and reads nowhere under ``corehq``: the harness
+# freezes Python's clock (``proof.hq.determinism``) and not the database's, so two states hold two times in them.
+DATABASE_CLOCK = {"blobs_deletedblobmeta": {"deleted_on"}}
+
+
+def _database_clock(path, a, b):
+    """Whether ``path`` is a column ``DATABASE_CLOCK`` names (``/sql/<table>/<row>/<column>``) and both states
+    hold a value in it."""
+    parts = path.split("/")
+    return (
+        len(parts) == 5
+        and parts[1] == "sql"
+        and parts[4] in DATABASE_CLOCK.get(parts[2], ())
+        and a is not None
+        and b is not None
+    )
+
+
 def _differences(a, b, path=""):
+    if _database_clock(path, a, b):
+        return []
     if isinstance(a, dict) and isinstance(b, dict):
         found = []
         for key in sorted(set(a) | set(b), key=str):
@@ -274,7 +306,8 @@ def _differences(a, b, path=""):
         return [d for i, (x, y) in enumerate(zip(a, b, strict=True)) for d in _differences(x, y, f"{path}/{i}")]
     if a == b:
         return []
-    if path.startswith("/sql/") and isinstance(a, str) and isinstance(b, str):
+    # A table's rows are held as one JSON text (``_rows``), read as its rows; a value inside a row is compared as it is.
+    if path.startswith("/sql/") and path.count("/") == 2 and isinstance(a, str) and isinstance(b, str):
         return _differences(json.loads(a), json.loads(b), path)
     return [f"{path}: {json.dumps(a, default=str)[:160]} != {json.dumps(b, default=str)[:160]}"]
 
@@ -347,6 +380,32 @@ def test_branches_of_one_unit_equal_fresh_states(hq, core_runner, corpus, branch
         _assert_same(fresh_a, states["A"], f"A ({' then '.join(order)})")
         _assert_same(fresh_b, states["B"], f"B ({' then '.join(order)})")
         _assert_same(fresh_edit, states["B-edit"], f"B-edit ({' then '.join(order)})")
+
+
+def test_the_comparison_leaves_out_the_database_clock_and_nothing_else():
+    """A column the database's own clock writes (``DATABASE_CLOCK``) is left out where both states hold a value in
+    it; the row's other columns, a value one state lacks, a row one state lacks and the same column of another
+    table each still differ."""
+
+    def state(**tables):
+        return {"sql": {name: json.dumps(rows) for name, rows in tables.items()}}
+
+    def deleted(key, deleted_on):
+        return {"id": 1, "key": key, "deleted_on": deleted_on}
+
+    fresh = state(blobs_deletedblobmeta=[deleted("form.xml", "2026-10-15T04:00:00")])
+    assert _differences(fresh, state(blobs_deletedblobmeta=[deleted("form.xml", "2026-10-15T04:00:07")])) == []
+    assert _differences(fresh, state(blobs_deletedblobmeta=[deleted("other.xml", "2026-10-15T04:00:00")])) == [
+        '/sql/blobs_deletedblobmeta/0/key: "form.xml" != "other.xml"'
+    ]
+    assert _differences(fresh, state(blobs_deletedblobmeta=[deleted("form.xml", None)])) == [
+        '/sql/blobs_deletedblobmeta/0/deleted_on: "2026-10-15T04:00:00" != null'
+    ]
+    assert _differences(fresh, state(blobs_deletedblobmeta=[])) != []
+    other = state(blobs_blobmeta=[deleted("form.xml", "2026-10-15T04:00:00")])
+    assert _differences(other, state(blobs_blobmeta=[deleted("form.xml", "2026-10-15T04:00:07")])) == [
+        '/sql/blobs_blobmeta/0/deleted_on: "2026-10-15T04:00:00" != "2026-10-15T04:00:07"'
+    ]
 
 
 def test_each_documents_branches_run_in_its_own_group_unless_the_sample_leaves_it_out(monkeypatch):

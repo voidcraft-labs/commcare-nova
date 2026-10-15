@@ -24,9 +24,9 @@ public class LocalizationRuntimeTest {
  private Hashtable<String,String> strings(String scenario,String lang,boolean hq)throws Exception {
   try(InputStream input=resource(scenario+(hq?".hq":"")+"."+lang+".strings.txt")){return LocalizationUtils.parseLocaleInput(input);}
  }
- private static String[] languages(String scenario){return "mandarin".equals(scenario)?new String[]{"en","cmn-hans","cmn-hant"}:new String[]{"es","en"};}
+ private static String[] languages(String scenario){return "mandarin".equals(scenario)?new String[]{"en","zho","cmn-hant"}:new String[]{"es","en"};}
  private static String title(String scenario,String lang){
-  if("cmn-hans".equals(lang))return "健康应用";
+  if("zho".equals(lang))return "健康应用";
   if("cmn-hant".equals(lang))return "健康應用";
   if("optional".equals(scenario))return "Target-only prose";
   if("prompts".equals(scenario)||"stale".equals(scenario)||"en".equals(lang))return "Health app";
@@ -47,7 +47,7 @@ public class LocalizationRuntimeTest {
    assertEquals(scenario+lang,title(scenario,lang),Localization.get("homescreen.title"));
    assertEquals(title(scenario,lang),Localization.get("app.display.name"));
    assertEquals(lang,Localization.get("lang.current"));
-   for(String code:languages(scenario))assertEquals("en".equals(code)?"English":"es".equals(code)?"Español":"cmn-hans".equals(code)?"简体中文":"繁體中文",Localization.get(code));
+   for(String code:languages(scenario))assertEquals("en".equals(code)?"English":"es".equals(code)?"Español":"zho".equals(code)?"简体中文":"繁體中文",Localization.get(code));
    Suite suite=suite(scenario,hq);
    assertEquals("es".equals(lang)&&!"optional".equals(scenario)&&!"prompts".equals(scenario)?"Pacientes":"Patients",suite.getMenus().firstElement().getName().evaluate());
    if(!hq)assertEquals(strings(scenario,languages(scenario)[0],false),strings(scenario,"default",false));
@@ -76,7 +76,7 @@ public class LocalizationRuntimeTest {
      if(++steps>20)throw new AssertionError("Unexpected form traversal");
      if(parsed.getFormEntryModel().getEvent()!=FormEntryController.EVENT_QUESTION)continue;
      FormEntryPrompt prompt=parsed.getFormEntryModel().getQuestionPrompt();questions++;
-     String expected="cmn-hans".equals(lang)?"名称":"cmn-hant".equals(lang)?"名稱":"es".equals(lang)&&!"optional".equals(scenario)&&!"prompts".equals(scenario)?"Nombre":"Name";
+     String expected="zho".equals(lang)?"名称":"cmn-hant".equals(lang)?"名稱":"es".equals(lang)&&!"optional".equals(scenario)&&!"prompts".equals(scenario)?"Nombre":"Name";
      assertEquals(scenario+lang,expected,prompt.getLongText());
      if("optional".equals(scenario)&&"es".equals(lang)){
       assertEquals("Pista",prompt.getHintText());assertEquals("Ayuda",prompt.getHelpText());assertEquals("Obligatorio",prompt.getConstraintText());

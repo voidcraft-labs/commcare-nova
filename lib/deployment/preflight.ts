@@ -6,6 +6,11 @@ import type {
 } from "@/lib/commcare/client";
 import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import {
+	type HqAppSource,
+	type HqAppSourceRead,
+	readHqAppSource,
+} from "@/lib/commcare/hq/appSource";
+import {
 	listHqLocations,
 	listHqLocationTypes,
 } from "@/lib/commcare/hq/locations";
@@ -65,11 +70,13 @@ import {
  * value for a required worker property would refuse a publish that would
  * have worked, since Nova creates no workers yet.
  *
- * `project-data` and `organization` are the two edges that talk to
- * CommCare HQ here, and both are blocking for the same reason: each is
- * the only thing standing between a publish and quietly writing over a
- * lookup table or a place somebody else made. They appear only when the
- * app actually carries one.
+ * `project-data` and `organization` talk to CommCare HQ here, and both are
+ * blocking for the same reason: each is the only thing standing between a
+ * publish and quietly writing over a lookup table or a place somebody else
+ * made. They appear only when the app actually carries one. `target-app`
+ * reads the app this publish is about to update, and appears only when
+ * there is one: it is where a publish learns the app is gone, or is not an
+ * app Nova updates, before anything is written.
  *
  * `organization` is also where the shapes CommCare HQ will not hold are
  * caught. Places go out in atomic batches of a hundred, one level at a
@@ -83,6 +90,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"project-data",
 	"organization",
 	"project-space-compatibility",
+	"target-app",
 	"required-worker-data",
 	"worker-record-access",
 ] as const;
@@ -145,6 +153,14 @@ export type PreflightResult =
 				 * against rather than reading the organization a second time.
 				 */
 				readonly locations: readonly StoredLocation[];
+				/**
+				 * The `target-app` read of the app this publish updates in
+				 * place, or null when it creates one.
+				 */
+				readonly targetApp: {
+					readonly appId: string;
+					readonly source: HqAppSource;
+				} | null;
 			};
 			readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport;
 	  }
@@ -164,6 +180,12 @@ export type PreflightResult =
 			 * they recognize.
 			 */
 			readonly conflicts: readonly DeploymentResourceConflict[];
+			/**
+			 * The mapped app `target-app` found gone. A fact about the target
+			 * rather than the attempt, so the caller records it as an
+			 * observation of that mapping.
+			 */
+			readonly remoteAppGone?: DeploymentResource;
 	  };
 
 /** The tables to push, and what Nova may claim about each. */
@@ -196,6 +218,11 @@ export interface PreflightInput {
 	 */
 	readonly mappings: readonly DeploymentResource[];
 	/**
+	 * The mapped app this publish updates in place
+	 * (`resources.ts::plannedInPlaceUpdate`), or null when it creates one.
+	 */
+	readonly inPlaceUpdate: DeploymentResource | null;
+	/**
 	 * Nova table ids whose name clash on the target the caller has
 	 * explicitly resolved by taking the existing table over. Never
 	 * defaulted, never inferred from a previous attempt.
@@ -222,7 +249,9 @@ function blockedOutcome(
 		| "project_space_incompatible"
 		| "hq_resource_state_unknown"
 		| "hq_resource_conflict"
-		| "hq_organization_mismatch",
+		| "hq_organization_mismatch"
+		| "hq_app_state_unknown"
+		| "remote_app_missing",
 	message: string,
 	details: readonly string[] = [],
 ): {
@@ -768,7 +797,50 @@ export async function runDeploymentPreflight(
 		};
 	}
 
-	// ── 6. Will the workers you create there have what they need? ───
+	// ── 6. Is the app this publish updates still Nova's, and there? ──
+	// Blocking, and read before any table, place or content is written. A
+	// gone app is created afresh by the next publish; an app Nova did not
+	// make is never written over. Absent on a first publish, which creates
+	// the app and reads it then.
+	let targetApp: {
+		readonly appId: string;
+		readonly source: HqAppSource;
+	} | null = null;
+	if (input.inPlaceUpdate !== null) {
+		const appId = input.inPlaceUpdate.remoteId;
+		const read = await readHqAppSource(creds, domain, appId);
+		if ("success" in read || read.kind !== "source") {
+			const gone = !("success" in read) && read.kind === "gone";
+			const failure = gone
+				? remoteAppMissingFailure(domain)
+				: hqAppSourceReadFailure(read, domain, false);
+			checks.push({
+				id: "target-app",
+				title: "App on CommCare HQ",
+				status: "blocked",
+				detail: failure.message,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, failure.code, failure.message),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+				...(gone && { remoteAppGone: input.inPlaceUpdate }),
+			};
+		}
+		targetApp = { appId, source: read.source };
+		checks.push({
+			id: "target-app",
+			title: "App on CommCare HQ",
+			status: "passed",
+			detail: `Nova read the app on “${domain}” and will update it in place.`,
+			items: [],
+		});
+	}
+
+	// ── 7. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: a publish creates no workers, so
 	// refusing it over a gap would refuse a publish that would have
 	// worked. The same gap IS blocking on the call that provisions
@@ -811,7 +883,77 @@ export async function runDeploymentPreflight(
 			lookupPush,
 			locationPush,
 			locations,
+			targetApp,
 		},
 		projectSpaceCompatibility,
 	};
 }
+
+/**
+ * The refusal a publish gives when CommCare HQ reports the mapped app gone,
+ * in either form: the document does not exist, or HQ's own delete marked it
+ * deleted. The next publish creates a new app there.
+ */
+export function remoteAppMissingFailure(domain: string): {
+	readonly code: "remote_app_missing";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	return {
+		code: "remote_app_missing",
+		message: `The app Nova published to “${domain}” isn't there any more: CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
+		details: [],
+	};
+}
+
+/**
+ * The refusal for a read of the app's source that did not give a source
+ * Nova can update.
+ *
+ * `createdApp` is true when this publish made the app moments before, so
+ * the sentence names the empty app it left rather than a "current" app the
+ * person has never seen. A read in preflight is always of an app that was
+ * there before this publish.
+ */
+export function hqAppSourceReadFailure(
+	read: Exclude<HqAppSourceRead, { readonly kind: "source" }>,
+	domain: string,
+	createdApp: boolean,
+): {
+	readonly code: "hq_app_state_unknown";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	if (!("success" in read) && read.kind === "unsupported") {
+		return {
+			code: "hq_app_state_unknown",
+			message: `The app on “${domain}” is a linked app in CommCare HQ, and Nova only updates apps it made. Nova left it unchanged. You can publish to another project space, or remove the link in CommCare HQ and publish again.`,
+			details: [],
+		};
+	}
+	const permissions =
+		"success" in read && (read.status === 401 || read.status === 403);
+	if (createdApp) {
+		return {
+			code: "hq_app_state_unknown",
+			message: permissions
+				? `Nova couldn't read the app on “${domain}”, so Nova stopped before sending the app's content. ${CREATED_APP_IS_EMPTY} Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
+				: `Nova couldn't safely read the app on “${domain}”, so Nova stopped before sending the app's content. ${CREATED_APP_IS_EMPTY} Check that the app opens in CommCare HQ, then publish again.`,
+			details: [],
+		};
+	}
+	return {
+		code: "hq_app_state_unknown",
+		message: permissions
+			? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
+			: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+		details: [],
+	};
+}
+
+/**
+ * What a stop after a first publish's shell create adds: the empty app it
+ * made is on the project space, and the next publish fills that same app.
+ */
+export const CREATED_APP_IS_EMPTY =
+	"Nova created the app there, and it is empty for now.";

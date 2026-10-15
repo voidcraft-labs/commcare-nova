@@ -597,77 +597,18 @@ function checkColumnNumbers(
 	}
 }
 
-// ── Multimedia map + nav media + logo shape ────────────────────────────
+// ── Nav media + logo shape ───────────────────────────────────────────
 
 /**
  * The `jr://file/` prefix every CommCare media reference carries. CCHQ's
  * `suite_xml/generator.py::media_resources` RAISES `MediaResourceError` on
- * any `multimedia_map` key that doesn't start with this prefix — the next
- * suite regeneration (any "Make new version" click after the import) trips
- * it. Nav media dict values and the web-apps logo ref carry the same
- * prefix contract because the regenerated suite reads them through the
- * same install-path machinery.
+ * any media path that doesn't start with this prefix — the next suite
+ * regeneration (any "Make new version" click after the import) trips it.
+ * Nav media dict values and the web-apps logo ref carry that prefix
+ * contract because the regenerated suite reads them through the same
+ * install-path machinery.
  */
 const JR_FILE_PREFIX = "jr://file/";
-
-/**
- * The closed set of `media_type` values `multimedia_map` accepts.
- * `commcare-hq/.../hqmedia/models.py::ApplicationMediaMixin` resolves each
- * map item's `media_type` to a `CommCareMultimedia` subclass via the
- * `get_subclasses_dict` table — `CommCareImage` / `CommCareAudio` /
- * `CommCareVideo` (the abstract `CommCareMultimedia` parent is in the
- * dispatch table but never the live tag for an upload-bearing item).
- */
-const VALID_MEDIA_TYPES: ReadonlySet<string> = new Set([
-	"CommCareImage",
-	"CommCareAudio",
-	"CommCareVideo",
-]);
-
-/**
- * Validate one `(key, value)` pair of `multimedia_map`. Two contracts:
- *
- *   1. The key must start with `jr://file/` — verified against
- *      `commcare-hq/.../suite_xml/generator.py::media_resources`, which
- *      raises `MediaResourceError('<path> does not start with jr://file/')`
- *      on any non-prefixed entry. CCHQ accepts the upload but the next
- *      suite regeneration crashes.
- *   2. The `media_type` must be one of the three live CommCare media
- *      class names — verified against `commcare-hq/.../hqmedia/models.py::
- *      ApplicationMediaMixin.update_mm_map` (the lookup it routes through
- *      ignores unknown subclass names rather than raising, but the resulting
- *      suite resource carries no installable bytes).
- */
-function checkMultimediaMap(
-	map: Record<
-		string,
-		{ multimedia_id: string; media_type: string; version: number }
-	>,
-	errors: ValidationError[],
-): void {
-	for (const [key, item] of Object.entries(map)) {
-		if (!key.startsWith(JR_FILE_PREFIX)) {
-			errors.push(
-				validationError(
-					"HQJSON_BAD_MULTIMEDIA_MAP_KEY",
-					"app",
-					`The generated multimedia_map has a key "${key}" that doesn't start with "${JR_FILE_PREFIX}". CommCare HQ's media_resources generator raises MediaResourceError on the next suite regeneration when a key is missing the prefix. This is a bug in the app generator.`,
-					{},
-				),
-			);
-		}
-		if (!VALID_MEDIA_TYPES.has(item.media_type)) {
-			errors.push(
-				validationError(
-					"HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE",
-					"app",
-					`The generated multimedia_map entry for "${key}" declares media_type="${item.media_type}", but CommCare's media classes are CommCareImage, CommCareAudio, and CommCareVideo. CommCare doesn't reject an unknown value, its media_resources generator falls back to a generic "Media" descriptor, so this is an emitter regression rather than an import failure: the media_type comes from a closed kind→class table, never user input, and a value outside the three means that mapping drifted. This is a bug in the app generator.`,
-					{},
-				),
-			);
-		}
-	}
-}
 
 /**
  * Validate the values of a `media_image` / `media_audio` dict — the
@@ -929,14 +870,14 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 		checkModule(module, ids, errors);
 	}
 
-	// Application-level multimedia surfaces: the `multimedia_map` keys + the
-	// `logo_refs` paths. Both feed the suite regeneration on the next CCHQ
-	// build, so a malformed entry detonates at that point even though the
-	// initial import wraps clean. `logo_refs` is present only when the app
-	// has a Nova-authored logo (an emitted empty dict would remove an
-	// HQ-uploaded logo on the in-place update's overlay merge), so an
-	// absent slot is correct and there is nothing to check.
-	checkMultimediaMap(hqApp.multimedia_map, errors);
+	// The application-level media surface: the `logo_refs` paths, which feed
+	// the suite regeneration on the next CCHQ build, so a malformed entry
+	// detonates at that point even though the initial import wraps clean.
+	// `logo_refs` is present only when the app has a Nova-authored logo (an
+	// emitted empty dict would remove an HQ-uploaded logo on the in-place
+	// update's overlay merge), so an absent slot is correct and there is
+	// nothing to check. Nova emits no `multimedia_map`: HQ's media upload
+	// writes it.
 	if (hqApp.logo_refs !== undefined) checkLogoRefs(hqApp.logo_refs, errors);
 
 	return errors;

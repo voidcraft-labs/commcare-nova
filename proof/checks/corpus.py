@@ -22,12 +22,21 @@ way, where a run's sample leaves documents out, ``proof.store.queue.sampled``),
   is read where HQ is booted;
 - ``verdict.json``: Nova's publish verdict for D;
 - ``export/<configuration>/``: the captured requests of D's publish there,
-  each a body and a JSON sidecar naming its content type: ``create`` and
-  ``republish`` (the next publish of D). A sidecar's ``lookups`` names the
+  each a body and a JSON sidecar naming its content type: the first publish
+  and ``republish`` (the next publish of D). A sidecar's ``lookups`` names the
   lookup workbook Nova's push sent before that import, and its ``media`` the
   media upload Nova sent after it (``lib/deployment/service.ts::uploadMediaBytes``),
-  each a body with its own sidecar in the same directory;
+  each a body with its own sidecar in the same directory. The first publish
+  is in one of two layouts, which the create's sidecar marks (``_captured``,
+  ``Export``): with ``"layout": 2`` it is two imports, ``create`` (the empty
+  shell, which names neither workbook nor media) and ``content`` (the update
+  that fills it, which names both); without the key it is the legacy layout,
+  one ``create`` whose body is state A's whole app, which controls retained
+  before the two imports keep. ``Export.content`` is the import whose body is
+  state A's app in either layout;
 - ``local.ccz`` and ``local-again.ccz``: two local exports of D;
+- ``import-file.zip``: the HQ import file for D, as Nova's
+  ``/api/compile/json`` builds it (``Document.import_file``);
 - ``edit/``: ``batch.json`` (the edit batch and its footprint),
   ``document.json`` (D'), ``verdict.json`` (Nova's verdict for D'),
   ``export/<configuration>/update`` (the publish of D' over D's), and
@@ -72,6 +81,7 @@ from functools import cached_property
 from pathlib import Path
 
 from proof import processes
+from proof.checks.configurations import TWO_IMPORTS
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
 CONTROLS_DIR = PROOF_DIR / "controls"
@@ -263,14 +273,27 @@ class Captured:
         return upload_field(self.upload(), "file-to-upload")
 
     @property
-    def assumed_source_profile(self):
-        """The profile the capture assumed HQ holds for the app an update is sent over."""
-        if "assumedSourceProfile" not in self.meta:
-            raise CorpusLayoutError(
-                f"{self.body_path.with_suffix('.json')} is an update's capture and names no assumedSourceProfile,"
-                " the profile it was built over."
-            )
-        return self.meta["assumedSourceProfile"]
+    def assumed_source(self):
+        """The fields of HQ's app source the capture assumed HQ serves for the app an update is sent over, each by
+        its path in the source (``build_spec.version``), as ``proof/observe/publish.py::update`` holds them.
+
+        A sidecar of the two-import layout names them as ``assumedSource``; a legacy one names the profile alone as
+        ``assumedSourceProfile``, which is that one field.
+        """
+        if "assumedSource" in self.meta:
+            assumed = self.meta["assumedSource"]
+            if not isinstance(assumed, dict) or not assumed:
+                raise CorpusLayoutError(
+                    f"{self.body_path.with_suffix('.json')} names its assumedSource as {assumed!r}, which is not an"
+                    " object naming each field of HQ's source by its path."
+                )
+            return assumed
+        if "assumedSourceProfile" in self.meta:
+            return {"profile": self.meta["assumedSourceProfile"]}
+        raise CorpusLayoutError(
+            f"{self.body_path.with_suffix('.json')} is an update's capture and names neither assumedSource nor"
+            " assumedSourceProfile, the source it was built over."
+        )
 
 
 # What an import's sidecar may name beside it: the request each key names, as its message calls it.
@@ -278,12 +301,20 @@ _BESIDE = (("lookups", "the lookup workbook"), ("media", "the media upload"))
 
 
 def _captured(directory: Path, name: str):
+    """The captured request ``<name>`` in ``directory``. Its sidecar's layout marker is read here: no key is the
+    legacy layout, ``"layout": 2`` the two-import layout, and any other value is refused by name."""
     sidecar = directory / f"{name}.json"
     if not sidecar.exists():
         raise CorpusLayoutError(f"{directory} has no {name}.json, the captured {name} request.")
     meta = _read_json(sidecar)
     if not isinstance(meta, dict) or not isinstance(meta.get("contentType"), str):
         raise CorpusLayoutError(f"{sidecar} names no contentType for its body.")
+    if "layout" in meta and meta["layout"] != TWO_IMPORTS:
+        raise CorpusLayoutError(
+            f'{sidecar} is marked "layout": {json.dumps(meta["layout"])}, which the checks do not read. A sidecar'
+            f" is marked {TWO_IMPORTS} (a first publish captured as the shell's create and its content) or carries no"
+            " layout (the legacy layout, a first publish that is one create)."
+        )
     body = directory / meta.get("body", f"{name}.body")
     if not body.exists():
         raise CorpusLayoutError(f"{sidecar} names the body {body.name}, which {directory} does not hold.")
@@ -300,13 +331,40 @@ def _captured(directory: Path, name: str):
 
 @dataclass(frozen=True)
 class Export:
-    """What Nova's publish sends under one configuration."""
+    """What Nova's publish sends under one configuration.
+
+    ``create`` is the import a first publish sends first, and ``content`` the import whose body is the app state A
+    holds, which names the workbook pushed before it and the media sent after it. In the two-import layout the two
+    are the shell's create and the update that fills it; in the legacy layout ``content`` is ``create`` itself. A
+    reader of state A's app, workbook or media reads ``content``; the few that must know whether a first publish is
+    two imports ask ``two_imports``, the create's marker, never whether the two captures are one object.
+    """
 
     configuration: Configuration
     directory: Path
     create: Captured | None
     republish: Captured | None
     update: Captured | None
+    content: Captured | None = None
+
+    @property
+    def two_imports(self):
+        """Whether the first publish is two imports: the create's sidecar is marked ``"layout": 2``."""
+        return self.create is not None and self.create.meta.get("layout") == TWO_IMPORTS
+
+
+def _first_publish(directory: Path):
+    """The first publish in ``directory``: ``(create, content)``. A create marked with the two-import layout is
+    followed by ``content.json``, refused by name where the directory lacks it; a legacy create is its own content."""
+    create = _captured(directory, "create")
+    if create.meta.get("layout") != TWO_IMPORTS:
+        return create, create
+    if not (directory / "content.json").exists():
+        raise CorpusLayoutError(
+            f'{directory / "create.json"} is marked "layout": {TWO_IMPORTS}, a first publish captured as two imports,'
+            f" and {directory} has no content.json, the import that fills the shell."
+        )
+    return create, _captured(directory, "content")
 
 
 # What a control retains of D and D' in place of their ``document.json`` (``proof.checks.controls.derived``): each
@@ -404,12 +462,14 @@ class Document:
             return {}
         found = {}
         for child in sorted(p for p in directory.iterdir() if p.is_dir()):
+            create, content = _first_publish(child)
             found[child.name] = Export(
                 configuration=self._configuration(child.name, child, self.root / "verdict.json"),
                 directory=child,
-                create=_captured(child, "create"),
+                create=create,
                 republish=_captured(child, "republish"),
                 update=None,
+                content=content,
             )
         return found
 
@@ -522,6 +582,12 @@ class Document:
     @property
     def local_again_ccz(self):
         path = self.root / "local-again.ccz"
+        return path if path.exists() else None
+
+    @property
+    def import_file(self):
+        """The HQ import file for D (``import-file.zip``), or None where the document holds none (a control)."""
+        path = self.root / "import-file.zip"
         return path if path.exists() else None
 
     @cached_property

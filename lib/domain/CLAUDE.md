@@ -57,8 +57,11 @@ persistence layer never consults catalogs. Names, directions, and descriptors
 are never stored or authored anywhere; they derive from the identity through
 `languageRegistry/` (generated ISO/CLDR catalogs plus `search.ts`, the lazy
 big-name chunk behind `load.ts::loadLanguageRegistrySearch`). Neither registry
-module is exported from the `lib/domain` barrel. Two-letter codes exist only
-inside `lib/commcare` as emitted wire spellings.
+module is exported from the `lib/domain` barrel. Each language's CommCare wire
+code is part of the document: `localization.wireCodes` holds it from the
+mutation that adds the language, which carries it, and it never changes while
+the language stays in the app. No author chooses one, and `lib/commcare` is the
+only reader of its spelling.
 
 `translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
 worker-facing strings. A unit id is an injective, versioned projection of stable

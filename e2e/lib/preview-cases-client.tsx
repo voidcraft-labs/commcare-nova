@@ -91,6 +91,7 @@ function fixture(count: number) {
 		sourceLanguage: "eng",
 		defaultLanguage: "eng",
 		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
 		translations: { spa: {} },
 	};
 	return admittedControllerDoc(doc);

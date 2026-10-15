@@ -16,9 +16,18 @@ import {
 	decodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
+import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
+import {
+	type DownloadTarget,
+	resolveDownloadTarget,
+} from "@/lib/deployment/downloadTarget";
+import {
+	chooseDownloadTarget,
+	type ReachedDeploymentTarget,
+} from "@/lib/deployment/runtimeTarget";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
@@ -34,6 +43,11 @@ import {
 	decodeExportAdvisories,
 	EXPORT_ADVISORY_HEADER,
 } from "@/lib/publish/exportAdvisories";
+import {
+	decodeManualImportGuide,
+	MANUAL_IMPORT_GUIDE_HEADER,
+	renderManualImportGuide,
+} from "@/lib/publish/manualImportGuide";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { POST as jsonPost } from "../json/route";
 import { POST as cczPost } from "../route";
@@ -46,8 +60,9 @@ vi.mock("@/lib/db/appAccess", async (original) => ({
 vi.mock("@/lib/db/mediaAssets", () => ({ loadAssetsByIds: vi.fn() }));
 vi.mock("@/lib/lookup/service", () => ({ getLookupFixtureData: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
-vi.mock("@/lib/deployment/attachmentSpace", () => ({
-	attachmentDeploymentTargetFor: vi.fn(),
+vi.mock("@/lib/deployment/downloadTarget", async (original) => ({
+	...(await original<typeof import("@/lib/deployment/downloadTarget")>()),
+	resolveDownloadTarget: vi.fn(),
 }));
 
 const execFileAsync = promisify(execFile);
@@ -238,6 +253,46 @@ function fixture(
 	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 	return doc;
 }
+const ACME: ReachedDeploymentTarget = {
+	server: "india",
+	domain: "acme",
+	hqAppId: "0123456789abcdef0123456789abcdef",
+};
+/** What the ledger answers for a `.ccz` made for one reached deployment. */
+function cczFor(target: ReachedDeploymentTarget): DownloadTarget {
+	return {
+		format: "ccz",
+		target,
+		runtimeTarget: {
+			server: target.server,
+			domain: target.domain,
+			appId: target.hqAppId,
+		},
+		identity: DERIVED_WIRE_IDENTITY,
+		attachmentTarget: attachmentUrlTarget(target),
+		reached: [target],
+	};
+}
+/** What the ledger answers for the import file, scoped to `reached`. */
+function importFileFor(
+	reached: readonly ReachedDeploymentTarget[],
+): DownloadTarget {
+	const [only] = reached;
+	return {
+		format: "json",
+		attachmentTarget:
+			reached.length === 1 && only ? attachmentUrlTarget(only) : null,
+		reached,
+	};
+}
+function answers(
+	ccz: DownloadTarget,
+	json: DownloadTarget = importFileFor([]),
+) {
+	vi.mocked(resolveDownloadTarget).mockImplementation(async (_scope, input) =>
+		input.format === "ccz" ? ccz : json,
+	);
+}
 function loads(doc: BlueprintDoc, seq = 42) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: { blueprint: toPersistableDoc(doc), mutation_seq: seq },
@@ -258,7 +313,7 @@ beforeEach(() => {
 	vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 	vi.mocked(getLookupFixtureData).mockResolvedValue(snapshot());
 	vi.mocked(downloadAssetBytes).mockResolvedValue(PNG);
-	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({ kind: "none" });
+	answers(cczFor(ACME));
 	loads(fixture());
 });
 
@@ -273,7 +328,7 @@ for (const [mode, post, verb] of [
 			const bytes = new Uint8Array(await response.arrayBuffer());
 			expect(response.status).toBe(200);
 			expect(response.headers.get("content-disposition")).toBe(
-				`attachment; filename="Vaccine Tracker.${mode}"`,
+				`attachment; filename="Vaccine Tracker.${mode === "json" ? "zip" : "ccz"}"`,
 			);
 			expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "view");
 			expect(getLookupFixtureData).toHaveBeenCalledTimes(1);
@@ -283,11 +338,28 @@ for (const [mode, post, verb] of [
 			);
 			if (mode === "json") {
 				expect(response.headers.get("x-compiled-at-seq")).toBe("99");
-				const app = JSON.parse(Buffer.from(bytes).toString());
+				const entries = await unzip(bytes);
+				expect([...entries.keys()].sort()).toEqual([
+					"README.txt",
+					"Vaccine Tracker.json",
+				]);
+				const app = JSON.parse(
+					member(entries, "Vaccine Tracker.json").toString(),
+				);
 				expect(app.name).toBe("Vaccine Tracker");
 				expect(
 					app._attachments[`${app.modules[0].forms[0].unique_id}.xml`],
 				).toContain("case_name");
+				const guide = decodeManualImportGuide(
+					response.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
+				);
+				expect(guide.map((step) => step.kind)).toEqual([
+					"import-app",
+					"commcare-version",
+				]);
+				expect(member(entries, "README.txt").toString()).toBe(
+					renderManualImportGuide(guide),
+				);
 			} else {
 				expect(response.headers.get("content-length")).toBe(
 					String(bytes.length),
@@ -298,9 +370,15 @@ for (const [mode, post, verb] of [
 					.join("\n");
 				expect(xml).toContain('key="cc-content-version" value="99"');
 				expect(xml).toContain("case_name");
-				expect(member(entries, "profile.ccpr").toString()).toContain(
-					'key="cc-content-version" value="99"',
-				);
+				const profile = member(entries, "profile.ccpr").toString();
+				expect(profile).toContain('key="cc-content-version" value="99"');
+				for (const property of [
+					'key="ota-restore-url" value="https://india.commcarehq.org/a/acme/phone/restore/0123456789abcdef0123456789abcdef/" force="true"',
+					'key="PostURL" value="https://india.commcarehq.org/a/acme/receiver/0123456789abcdef0123456789abcdef/" force="true"',
+					'key="key_server" value="https://india.commcarehq.org/a/acme/phone/keys/" force="true"',
+					'key="cc_user_domain" value="acme.commcarehq.org" force="true"',
+				])
+					expect(profile).toContain(property);
 			}
 			expect(
 				decodeProjectSpaceCompatibilityReport(
@@ -332,8 +410,15 @@ for (const [mode, post, verb] of [
 		it.each(["parent-multiple", "same-smaller"] as const)(
 			"propagates the real HQ-only nested selection refusal for %s",
 			async (scenario) => {
-				loads(nestedMenuWireFixture(scenario));
+				const doc = nestedMenuWireFixture(scenario);
+				loads(doc);
 				const response = await post(request());
+				expect(resolveDownloadTarget).toHaveBeenCalledWith(
+					expect.objectContaining({ appId: "a1", projectId: "project-1" }),
+					expect.objectContaining({
+						doc: expect.objectContaining({ moduleOrder: doc.moduleOrder }),
+					}),
+				);
 				if (mode === "ccz") {
 					expect(response.status).toBe(200);
 					expect(
@@ -349,7 +434,7 @@ for (const [mode, post, verb] of [
 						details: [
 							expect.stringContaining(
 								scenario === "parent-multiple"
-									? "parent cases"
+									? "several cases selected"
 									: "4 selected cases",
 							),
 						],
@@ -397,33 +482,31 @@ for (const [mode, post, verb] of [
 			expect(report?.required_capabilities).toEqual([
 				expect.objectContaining({ id: "case-search", state: "not_checked" }),
 			]);
-			if (mode === "ccz")
-				expect((await unzip(new Uint8Array(bytes))).size).toBeGreaterThan(2);
-			else
-				expect(JSON.parse(Buffer.from(bytes).toString()).modules).toHaveLength(
-					1,
-				);
+			const entries = await unzip(new Uint8Array(bytes));
+			if (mode === "ccz") expect(entries.size).toBeGreaterThan(2);
+			else {
+				expect(
+					JSON.parse(member(entries, "Vaccine Tracker.json").toString())
+						.modules,
+				).toHaveLength(1);
+				expect(
+					decodeManualImportGuide(
+						response.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
+					).map((step) => step.kind),
+				).toEqual(["import-app", "commcare-version", "capabilities"]);
+			}
 		});
-		it.each([false, true])(
-			"binds captured links to the unique deployment when available: %s",
+		it.each(mode === "ccz" ? [true] : [false, true])(
+			"binds captured links to the deployment the download names: %s",
 			async (known) => {
 				loads(fixture({ photo: true }));
-				if (known)
-					vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
-						kind: "known",
-						target: { server: "india", domain: "acme" },
-					});
-				const response = await post(
-					request(known ? { appId: "a1" } : undefined),
-				);
+				answers(cczFor(ACME), importFileFor(known ? [ACME] : []));
+				const response = await post(request({ appId: "a1" }));
 				const bytes = new Uint8Array(await response.arrayBuffer());
 				expect(response.status).toBe(200);
-				const text =
-					mode === "ccz"
-						? [...(await unzip(bytes)).values()]
-								.map((entry) => entry.toString())
-								.join("\n")
-						: Buffer.from(bytes).toString();
+				const text = [...(await unzip(bytes)).values()]
+					.map((entry) => entry.toString())
+					.join("\n");
 				if (known)
 					expect(text).toContain("https://india.commcarehq.org/a/acme/");
 				else expect(text).not.toContain("https://india.commcarehq.org/a/acme/");
@@ -486,14 +569,85 @@ it("ships a readable workbook generated from the same lookup rows as the app ref
 	expect(getLookupFixtureData).toHaveBeenCalledWith(expect.anything(), [TABLE]);
 });
 
-it("requires a server choice when deployment state does not identify one", async () => {
-	const response = await cczPost(request({ appId: "a1" }));
-	expect(response.status).toBe(422);
-	expect(await response.json()).toEqual({
-		error: "Choose a CommCare server for this download, then try again.",
+const SEVERAL: readonly ReachedDeploymentTarget[] = [
+	ACME,
+	{ server: "production", domain: "acme", hqAppId: "1".repeat(32) },
+];
+it.each([
+	[
+		"needs-published-project-space",
+		chooseDownloadTarget([], { format: "ccz" }),
+		[],
+	],
+	[
+		"pick-project-space",
+		chooseDownloadTarget(SEVERAL, { format: "ccz" }),
+		["acme on India", "acme on US"],
+	],
+	[
+		"unknown-project-space",
+		chooseDownloadTarget(SEVERAL, { format: "ccz", domain: "field-ops" }),
+		["acme on India", "acme on US"],
+	],
+	[
+		"selection-held-from-hq",
+		chooseDownloadTarget([], {
+			format: "ccz",
+			heldFromHq: ["The first line.", "The second line."],
+		}),
+		["The first line.", "The second line."],
+	],
+] as const)(
+	"refuses a CCZ with %s, listing what the person can act on and reading no Project data",
+	async (reason, refusal, details) => {
+		expect(refusal).toMatchObject({ kind: "refused", reason });
+		if (refusal.kind !== "refused") throw new Error("Expected a refusal");
+		vi.mocked(resolveDownloadTarget).mockResolvedValueOnce(refusal);
+		const response = await cczPost(
+			request({ appId: "a1", server: "india", domain: "field-ops" }),
+		);
+		expect(response.status).toBe(422);
+		expect(await response.json()).toEqual({
+			error: refusal.message,
+			...(details.length > 0 && { details }),
+		});
+		expect(resolveDownloadTarget).toHaveBeenLastCalledWith(
+			expect.objectContaining({ appId: "a1" }),
+			expect.objectContaining({
+				format: "ccz",
+				server: "india",
+				domain: "field-ops",
+			}),
+		);
+		expect(getLookupFixtureData).not.toHaveBeenCalled();
+		expect(loadAssetsByIds).not.toHaveBeenCalled();
+	},
+);
+it("refuses a project space for the import file", async () => {
+	const refusal = chooseDownloadTarget([ACME], {
+		format: "json",
+		domain: "acme",
 	});
+	if (refusal.kind !== "refused") throw new Error("Expected a refusal");
+	vi.mocked(resolveDownloadTarget).mockResolvedValueOnce(refusal);
+	const response = await jsonPost(request({ appId: "a1", domain: "acme" }));
+	expect(response.status).toBe(422);
+	expect(await response.json()).toEqual({ error: refusal.message });
+	expect(refusal.reason).toBe("domain-not-for-import-file");
 	expect(getLookupFixtureData).not.toHaveBeenCalled();
 });
+it.each([42, "", {}])(
+	"refuses an invalid project space before any read: %j",
+	async (domain) => {
+		const response = await cczPost(request({ appId: "a1", domain }));
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error: "Choose a project space by its name.",
+		});
+		expect(resolveDownloadTarget).not.toHaveBeenCalled();
+		expect(getLookupFixtureData).not.toHaveBeenCalled();
+	},
+);
 it.each([42, "other-server", {}])(
 	"refuses an invalid server before export resource reads: %j",
 	async (server) => {
@@ -507,13 +661,20 @@ it.each([42, "other-server", {}])(
 );
 it("drops India capture addresses when explicitly exporting for EU", async () => {
 	loads(fixture({ photo: true }));
-	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
-		kind: "known",
-		target: { server: "india", domain: "acme" },
-	});
+	/* India holds the app and EU does not, so the server narrows to none. */
+	vi.mocked(resolveDownloadTarget).mockResolvedValueOnce(importFileFor([]));
 	const response = await jsonPost(request({ appId: "a1", server: "eu" }));
-	const app = await response.json();
 	expect(response.status).toBe(200);
+	expect(resolveDownloadTarget).toHaveBeenLastCalledWith(
+		expect.anything(),
+		expect.objectContaining({ format: "json", server: "eu" }),
+	);
+	const app = JSON.parse(
+		member(
+			await unzip(new Uint8Array(await response.arrayBuffer())),
+			"Vaccine Tracker.json",
+		).toString(),
+	);
 	const source = app._attachments[`${app.modules[0].forms[0].unique_id}.xml`];
 	expect(source).not.toContain("https://india.commcarehq.org/a/acme/");
 	expect(

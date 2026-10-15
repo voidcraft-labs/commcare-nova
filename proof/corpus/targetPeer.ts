@@ -29,13 +29,18 @@
  * - `POST /a/<domain>/fixtures/fixapi/` (`fixtures/views.py::upload_fixture_api`):
  *   recorded, and answered with HQ's success verdict (code 200).
  * - `GET /a/<domain>/apps/source/<app id>/` (`app_manager/views/apps.py::app_source`):
- *   the profile of the app the peer holds.
+ *   the source the peer holds for the app, 404 before a create. A create
+ *   makes it hold the shell's source (`shellSource`); the capture then holds
+ *   what the content import left (`holdSource`).
  * - `POST /a/<domain>/apps/api/import_app/`
  *   (`app_manager/views/app_import_api.py::_handle_import_app`): recorded,
- *   and answered as HQ answers a create (201, no `app_id` field) or an update
- *   (200) of the one app the peer holds, whose id is fixed. Every update is
- *   answered as the first update of the created app, since each one a
- *   capture makes stands for a separate next publish over that same app.
+ *   and answered as HQ answers a create (201) or an update (200) of the one
+ *   app the peer holds, whose id is fixed. The peer counts the imports into
+ *   the app's version as HQ does (`ApplicationBase.save` raises it by one):
+ *   the create leaves version 1, and the content import that fills it
+ *   version 2. Every later update is answered as the next save over the
+ *   state the capture holds, since each one a capture makes stands for a
+ *   separate next publish over that same app.
  * - `POST /a/<domain>/apps/api/<app id>/multimedia/`
  *   (`app_import_api.py::_handle_upload_multimedia`): recorded, and answered
  *   as HQ answers a ZIP it accepted for the app a create made (200, with a
@@ -62,8 +67,8 @@ import {
 import { createConnection } from "node:net";
 import AdmZip from "adm-zip";
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
-import type { HqApplicationProfile } from "@/lib/commcare";
 import type { CommCareCredentials } from "@/lib/commcare/client";
+import { APP_SHELL_KEYS } from "@/lib/commcare/expander";
 import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
@@ -93,6 +98,8 @@ export interface TargetState {
 	readonly caseSearchEnabled: boolean;
 	/** The id HQ answers for the app a create makes, and an update names. */
 	readonly appId: string;
+	/** The CommCare version HQ gives an app it creates there (`get_default_build_spec`). */
+	readonly commcareVersion: string;
 }
 
 interface Answer {
@@ -116,25 +123,65 @@ function json(status: number, body: unknown): Answer {
 	};
 }
 
+/**
+ * The keys HQ serves for an app created without them, each with the value
+ * its source read gives such an app. A shell holds none of them: they arrive
+ * with the update.
+ */
+const HQ_DEFAULTS_FOR_A_SHELL: Readonly<Record<string, unknown>> = {
+	profile: {},
+	multimedia_map: {},
+	logo_refs: {},
+};
+
+/**
+ * The source HQ serves for the app a shell's create made
+ * (`app_manager/views/apps.py::app_source`): each key of
+ * `lib/commcare/expander.ts::APP_SHELL_KEYS` as the shell sent it, but the
+ * CommCare version, which HQ never takes from the body
+ * (`models/applications.py::_import_app` deletes `build_spec`, and the app
+ * takes HQ's default, the configuration's version), and HQ's default for
+ * each key the shell does not hold.
+ */
+export function shellSource(
+	shell: Readonly<Record<string, unknown>>,
+	commcareVersion: string,
+): Record<string, unknown> {
+	const source: Record<string, unknown> = structuredClone(
+		HQ_DEFAULTS_FOR_A_SHELL,
+	);
+	for (const key of APP_SHELL_KEYS) {
+		if (Object.hasOwn(shell, key)) source[key] = structuredClone(shell[key]);
+	}
+	const buildSpec = source.build_spec;
+	source.build_spec = {
+		...(typeof buildSpec === "object" && buildSpec !== null ? buildSpec : {}),
+		version: commcareVersion,
+	};
+	return source;
+}
+
 export class TargetPeer {
 	readonly requests: PeerRequest[] = [];
 	readonly unexpected: PeerRequest[] = [];
-	/** The profile HQ holds for the app, once a create has made it. */
-	private profile: HqApplicationProfile | undefined;
-	/** Whether a create has made the app. */
-	private created = false;
+	/** The source HQ serves for the app, once a create has made it. */
+	private source: Readonly<Record<string, unknown>> | undefined;
+	/** The app's version: the number of imports HQ has saved it under. */
+	private version = 0;
 	/** How many files the last media upload's ZIP held, which its status reports matched. */
 	private mediaFiles: number | undefined;
 
 	constructor(readonly state: TargetState) {}
 
 	/**
-	 * Set the profile HQ holds for the app. The capture sets it to what HQ
-	 * keeps after the create (or what the caller says HQ holds by the time
-	 * of an update), because the peer does not run HQ's create.
+	 * Hold the source HQ serves for the app from now on, and the version the
+	 * import that left it saved: the capture holds what the content import
+	 * left, because the peer does not run HQ's update, and every later update
+	 * is answered over it.
 	 */
-	holdProfile(profile: HqApplicationProfile): void {
-		this.profile = profile;
+	holdSource(source: Readonly<Record<string, unknown>>, version = 2): void {
+		this.source = source;
+		this.version = version;
 	}
 
 	/** The requests received since `mark`, for one step of a capture. */
@@ -170,8 +217,8 @@ export class TargetPeer {
 			return json(200, { code: 200, message: "Lookup tables uploaded." });
 		}
 		if (route === `GET ${domainPath}/apps/source/${this.state.appId}/`) {
-			if (this.profile === undefined) return json(404, "Application not found");
-			return json(200, { profile: this.profile });
+			if (this.source === undefined) return json(404, "Application not found");
+			return json(200, this.source);
 		}
 		if (route === `POST ${domainPath}/apps/api/import_app/`) {
 			const form = await new Response(new Uint8Array(request.body), {
@@ -179,17 +226,29 @@ export class TargetPeer {
 			}).formData();
 			const appId = form.get("app_id");
 			if (appId === null) {
-				this.created = true;
+				const app = form.get("app_file");
+				if (!(app instanceof Blob)) {
+					return json(400, { success: false, error: "app_file is required" });
+				}
+				this.source = shellSource(
+					JSON.parse(await app.text()),
+					this.state.commcareVersion,
+				);
+				this.version = 1;
 				return json(201, { success: true, app_id: this.state.appId });
 			}
-			if (appId !== this.state.appId || this.profile === undefined) {
+			if (appId !== this.state.appId || this.source === undefined) {
 				return json(404, { success: false, error: "Application not found" });
 			}
-			return json(200, { success: true, app_id: this.state.appId, version: 2 });
+			return json(200, {
+				success: true,
+				app_id: this.state.appId,
+				version: this.version + 1,
+			});
 		}
 		const media = `${domainPath}/apps/api/${this.state.appId}/multimedia/`;
 		if (route === `POST ${media}`) {
-			if (!this.created) {
+			if (this.source === undefined) {
 				return json(404, { success: false, error: "Application not found" });
 			}
 			const form = await new Response(new Uint8Array(request.body), {

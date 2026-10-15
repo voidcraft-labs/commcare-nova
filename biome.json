@@ -139,6 +139,7 @@
 				"!lib/doc/entryPointProjection.ts",
 				"!lib/doc/formLinkReview.ts",
 				"!lib/doc/identifierVerdicts.ts",
+				"!lib/doc/languageMutations.ts",
 				"!lib/doc/mutations/pathRewrite.ts",
 				"!lib/doc/referenceIndex.ts",
 				"!lib/doc/userFacingErrors.ts",
@@ -157,7 +158,7 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}.",
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/languageMutations, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}.",
 									"@ai-sdk/openai": {
 										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
 										"allowImportNames": [
@@ -170,7 +171,7 @@
 								"patterns": [
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
-										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/languageMutations, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 									}
 								]
 							}
@@ -205,6 +206,7 @@
 				"!lib/doc/entryPointProjection.ts",
 				"!lib/doc/formLinkReview.ts",
 				"!lib/doc/identifierVerdicts.ts",
+				"!lib/doc/languageMutations.ts",
 				"!lib/doc/mutations/pathRewrite.ts",
 				"!lib/doc/referenceIndex.ts",
 				"!lib/doc/userFacingErrors.ts",
@@ -223,7 +225,7 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}.",
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/languageMutations, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}.",
 									"@ai-sdk/openai": {
 										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
 										"allowImportNames": [
@@ -259,7 +261,7 @@
 								"patterns": [
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
-										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/languageMutations, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 									}
 								]
 							}

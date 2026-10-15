@@ -197,6 +197,7 @@ describe("explicit app-wide case-property rename", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[beforeUnit.id]: {
@@ -273,6 +274,7 @@ describe("explicit app-wide case-property rename", () => {
 			sourceLanguage: "eng",
 			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
 			translations: {
 				spa: {
 					[beforeA.id]: {

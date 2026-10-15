@@ -1939,8 +1939,9 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
     """Every surface item a corpus document's exports use: D's and D′'s publishes and local archives.
 
     Each archive is its own artifact (``local.ccz``, ``local-again.ccz``,
-    ``edit/local.ccz``); every publish of D (its create and republish under
-    each configuration) is ``app.json`` and every publish of D′ is
+    ``edit/local.ccz``); every publish of D (its create, its content where
+    the first publish is two imports, and its republish, under each
+    configuration) is ``app.json`` and every publish of D′ is
     ``edit/app.json``, so an app file sent twice with the same bytes is read
     once, and each is read as HQ's import reads it (``as_imported``).
     """
@@ -1948,7 +1949,11 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
     blobs = records.blobs
     found = Uses()
     expected = {
-        *(f"{name}/{step}" for name in document.exports for step in ("create", "republish")),
+        *(
+            f"{name}/{step}"
+            for name, export in document.exports.items()
+            for step in ("create", *(("content",) if export.two_imports else ()), "republish")
+        ),
         *(f"edit/{name}/update" for name in (document.edit.exports if document.edit is not None else ())),
     }
     if set(observed["uploads"]) != expected:

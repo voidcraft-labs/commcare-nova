@@ -29,6 +29,7 @@ import {
 	ENDPOINT_FORM as F,
 	ENDPOINT_MODULE as M,
 } from "./endpointWireFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function fixture(multiple = false) {
 	return endpointWireFixture(multiple ? "multiple" : "single");
@@ -133,7 +134,9 @@ describe("entry points", () => {
 	it("compiles an oracle-clean endpoint and fingerprints its destination", () => {
 		const doc = fixture();
 		const suite = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
 		).readAsText("suite.xml");
 		expect(validateSuite(suite, new Set())).not.toEqual(
 			expect.arrayContaining([
@@ -163,7 +166,9 @@ describe("entry points", () => {
 			entryPointProjectionIssue(doc, { kind: "case-list", moduleUuid: M }),
 		).toContain("unbound");
 		const suite = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
 		).readAsText("suite.xml");
 		expect(endpointSuiteSignature(suite, "visit")).toBeDefined();
 	});
@@ -192,7 +197,9 @@ describe("entry points", () => {
 		(scenario) => {
 			const doc = endpointWireFixture(scenario);
 			const suite = new AdmZip(
-				compileCcz(expandDoc(doc), doc.appName, doc),
+				compileCcz(expandDoc(doc), doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
 			).readAsText("suite.xml");
 			expect(endpointSuiteSignature(suite, "visit")).toBeDefined();
 		},
@@ -207,7 +214,9 @@ describe("entry points", () => {
 	])("released closure detects %s corruption", (corruption) => {
 		const doc = fixture();
 		const suite = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
 		).readAsText("suite.xml");
 		const root = parseDocument(suite, { xmlMode: true }).children.filter(
 			isTag,

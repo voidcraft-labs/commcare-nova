@@ -1050,7 +1050,7 @@ export function hasSuiteMedia(doc: BlueprintDoc): boolean {
  * Whether the doc carries ANY media reference — app logo, suite-borne media
  * (`hasSuiteMedia`), or form-itext media (`hasFormItextMedia`). The union of
  * the three disjoint populations the three oracles each check; the hqJson fuzz
- * floors this because `multimedia_map` covers every referenced asset
+ * floors this because the media upload covers every referenced asset
  * regardless of carrier.
  */
 export function hasMedia(doc: BlueprintDoc): boolean {

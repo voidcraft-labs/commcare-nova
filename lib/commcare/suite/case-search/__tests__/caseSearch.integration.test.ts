@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import { makeCaseSearchFixture } from "@/lib/agent/tools/case-search-config/__tests__/fixtures";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { searchEmissionFixture } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import {
 	onlyXml,
@@ -70,7 +71,11 @@ it.each(["display-first", "advanced-first"])(
 		expect(hq.modules[0].search_config.search_button_display_condition).toBe(
 			"instance('commcaresession')/session/user/data/role = 'supervisor'",
 		);
-		const zip = new AdmZip(compileCcz(hq, current.appName, current));
+		const zip = new AdmZip(
+			compileCcz(hq, current.appName, current, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
 		const remote = onlyXml(
 			xmlChildren(
 				readXmlEvidence(zip.readAsText("suite.xml")),

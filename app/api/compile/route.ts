@@ -17,6 +17,11 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
 /**
  * CCZ compile endpoint: the binary twin of `/api/compile/json`.
  *
+ * A `.ccz` is made for one project space this app is published to, named by
+ * the optional `server` and `domain` beside the app id, or the only one
+ * there is. With none, or with several and no choice, the request is refused
+ * with 422 and the project spaces it could name.
+ *
  * Shares the auth + parse + boundary-gate + manifest preamble with the JSON twin
  * via `prepareCompileRequest`, then builds the archive with
  * `compileLocalArchive` (the one `.ccz` assembly) and returns its bytes
@@ -34,14 +39,20 @@ export async function POST(req: NextRequest) {
 			boundaryErrorVerb: "compile",
 			mode: "ccz",
 		});
-		const { doc, attachmentTargetState } = prepared;
+		const { doc, download, attachmentTargetState } = prepared;
 
 		// Compile is always media-ON: the archive bundles whatever the manifest
 		// resolved (an empty manifest simply emits no media artifacts), embeds
 		// the prepared lookup fixtures, and stamps the blueprint's
 		// `mutation_seq` into the profile's `cc-content-version` so the archive
-		// names the exact document version it was built from.
-		const buffer = compileLocalArchive(prepared, prepared.runtimeTarget);
+		// names the exact document version it was built from. It is made for
+		// the one project space the request named: its addresses, its HQ app
+		// id and its recorded ids.
+		const buffer = compileLocalArchive(
+			prepared,
+			download.runtimeTarget,
+			download.identity,
+		);
 
 		// Stream the freshly-built archive straight back to the caller. The
 		// download filename is sanitized because `appName` is user-controlled

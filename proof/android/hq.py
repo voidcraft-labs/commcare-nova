@@ -20,9 +20,13 @@ for the next, as each run of Formplayer's walk is a fork. A device made again af
 Each request runs as a request of the unit keyed by its walk and its place in it, so HQ draws the same ids
 for it on every run.
 
-Nova's local archive names no server (finding 59), so a device on it makes its requests to Android's own
-defaults (``R.string.ota_restore_url``, ``R.string.PostURL``, with the username as typed, no project space
-named), and HQ's views answer them as they answer anything else. A second device on the same archive
+Nova's local archive is made for the project space it is published to: its profile names the server, the
+project space and the working app (``ota-restore-url``, ``PostURL``, ``key_server``, ``cc_user_domain``), so a
+device on it signs in, syncs and sends each form to the addresses it names, through Android's own requester,
+and HQ's views answer them as they answer HQ's release. A control's pre-fix archive names no server (finding
+59), so a device on it alone makes its requests to Android's own defaults (``R.string.ota_restore_url``,
+``R.string.PostURL``, with the username as typed, no project space named), and HQ's views answer them as they
+answer anything else. A second device on the same archive
 (``delivered``) is given the input the lane gives Core over that archive: every request it makes carries the
 worker's own credentials, by the full username HQ made (an archive that names no server names no project space
 to qualify the username as typed), its restore is what HQ's own restore view answers the worker, asked at the

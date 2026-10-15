@@ -54,10 +54,16 @@ language and rewrites each reference to the others
 (``xform.py::XForm.normalize_itext``), so the same question of the same form
 is named by another id on HQ's build than on Nova's local archive.
 ``text_ids`` maps the local archive's id to HQ's (``merged_text_ids``, read
-from the two forms themselves: the reference in the same place of HQ's form
-names another id, and the local form holds the same texts under both), and
-the local side's messages are read with it. A
+from the two forms themselves, from each question's own label alone, since
+Core names a question by its label and nothing else by one: the label in the
+same place of HQ's form names another id, and the local form holds the same
+texts under both), and the local side's messages are read with it. A
 message that names another question stays a difference.
+
+A submission's ``path`` names the app it posts to: the working app's id from
+the local archive, the release's from HQ's build. It is an address a reader
+sent HQ, so it is handed to the spelling rules for one (``REQUEST_URL``), which
+read the two ids as one in a runtime URL (``proof.rules.runtime_url_app_id``).
 
 **The client's screens** (``webapps_differences``) are compared the same
 way: a case list's rows by the case each selects with their order beside
@@ -91,14 +97,17 @@ from proof.checks.differences import Difference, pointer_token
 XML = "<xml>"
 # The artifact a spelling rule names to read Formplayer's trace as it is compared (``proof.rules``).
 FORMPLAYER = "formplayer"
+# And the address of a request a reader sent HQ, as its record holds it: here, each submission's ``path``.
+REQUEST_URL = "request-url"
 # A generated id's mark as a trace writes it (``proof.formplayer.canonical.TOKEN`` and its number), and as read.
 GENERATED_MARK = re.compile(r"@generated:uuid:[0-9]+")
 GENERATED = "@generated"
 # Where Formplayer's trace holds an XML document: a submission's instance, and a form's instance as an answer or
 # a submission's response hands it back (``instanceXml.output``).
 XML_KEYS = frozenset({"instance", "output"})
-# Maps of a trace whose keys are the app's data: a list's cases by the case each row selects, and a search's
-# inputs by its prompts.
+# Maps of a trace whose keys are the app's data: a list's cases by the case each row selects, a search's
+# inputs by its prompts, and a screen's translations by the keys Formplayer gives them from the app's own ids
+# (``forms.m1f0.submit_label``), on a response and on the screen after a submit.
 TRACE_DATA_MAPS = frozenset(
     {
         "/runs/*/steps/*/response/entities",
@@ -106,6 +115,7 @@ TRACE_DATA_MAPS = frozenset(
         "/runs/*/steps/*/request/query_data",
         "/runs/*/steps/*/request/query_data/*/inputs",
         "/runs/*/steps/*/submit/nextScreen/entities",
+        "/runs/*/steps/*/submit/nextScreen/translations",
     }
 )
 SCREEN_DATA_MAPS = frozenset({"/runs/*/screens/*/list/rows", "/home/list/rows"})
@@ -276,6 +286,17 @@ def one_symptom(before, after):
     return before, after
 
 
+def _addressed(trace, rules):
+    """``trace`` with the address of each submission HQ received read by the spelling rules given for a
+    request's address (``REQUEST_URL``)."""
+    for run in trace.get("runs") or []:
+        for step in (run.get("steps") or []) if isinstance(run, dict) else []:
+            for submission in (step.get("submissions") or []) if isinstance(step, dict) else []:
+                if isinstance(submission, dict) and isinstance(submission.get("path"), str):
+                    submission["path"] = normalized(REQUEST_URL, submission["path"], rules)
+    return trace
+
+
 def comparable_trace(trace):
     """Formplayer's trace as it is compared (the module's first list)."""
     shown = _unnumbered(copy.deepcopy(trace))
@@ -434,6 +455,10 @@ def _content_version(root, changed):
 
 
 ITEXT_REFERENCE = re.compile(r"^jr:itext\('([^']*)'\)$")
+# The parents whose ``label`` is no question's own: Core's parser makes a group of ``group`` and ``repeat`` and a
+# question's choices of ``item`` and ``itemset``, and a question of every other control
+# (``org/javarosa/xform/parse/XFormParser.java::setupGroupLevelHandlers``).
+NOT_A_QUESTION = frozenset({"group", "repeat", "item", "itemset"})
 # Core's message for a value that is not one of a question's choices, as far as the question it names.
 NAMES_A_QUESTION = ("could not be loaded into question ", "is a valid option for question ")
 
@@ -443,14 +468,17 @@ def _local_name(element):
 
 
 def _text_references(root):
-    """Every reference a form's body makes to a text, in document order: (the element, the text's id)."""
+    """Every reference a form's body makes to a text, in document order: (the element, the text's id, whether it
+    is a question's own label, a ``label`` whose parent is none of ``NOT_A_QUESTION``)."""
     found = []
     for element in root.iter():
         if _local_name(element) in ("text", "value", None):
             continue
         match = ITEXT_REFERENCE.match(element.get("ref") or "")
         if match:
-            found.append((_local_name(element), match.group(1)))
+            parent = element.getparent()
+            question = _local_name(element) == "label" and (parent is None or _local_name(parent) not in NOT_A_QUESTION)
+            found.append((_local_name(element), match.group(1), question))
     return found
 
 
@@ -475,12 +503,14 @@ def _texts(root):
 
 
 def merged_text_ids(built, local) -> dict:
-    """``{the local archive's text id: HQ's}`` for each text reference HQ's build rewrote to another id whose
-    texts are the same (``XForm.normalize_itext``), read from the two builds' forms: ``built`` and ``local`` are
-    each ``{path: bytes}``. Only a form both hold, whose bodies make the same references in the same places, is
-    read; a reference HQ's build makes to an id whose texts in the local form are not the local id's maps
-    nothing, and neither does an id two forms would map two ways or one that HQ's build of any form kept, since
-    a message does not say which form its question is of."""
+    """``{the local archive's text id: HQ's}`` for each question's own label HQ's build rewrote to another id
+    whose texts are the same (``XForm.normalize_itext``), read from the two builds' forms: ``built`` and
+    ``local`` are each ``{path: bytes}``. Core names a question by its label alone, so only a question's own
+    label maps an id or refuses one; a group's label, a choice's and a hint are read by neither. Only a form both
+    hold, whose bodies make the same references in the same places, by element and by whether each is a
+    question's own label, is read; a label HQ's build points at an id whose texts in the local form are not the
+    local id's maps nothing, and neither does an id two forms' questions would map two ways or one that HQ's
+    build of any form's question kept, since a message does not say which form its question is of."""
     found, refused = {}, set()
     for path in sorted(set(built) & set(local)):
         try:
@@ -488,14 +518,16 @@ def merged_text_ids(built, local) -> dict:
         except XmlNotWellFormed:
             continue
         references_built, references_local = _text_references(root_built), _text_references(root_local)
-        if [name for name, _ in references_built] != [name for name, _ in references_local]:
+        if [(name, question) for name, _, question in references_built] != [
+            (name, question) for name, _, question in references_local
+        ]:
             continue
         texts_local = _texts(root_local)
-        for (_, id_built), (_, id_local) in zip(references_built, references_local, strict=True):
-            if id_local in refused:
+        for (_, id_built, question), (_, id_local, _) in zip(references_built, references_local, strict=True):
+            if not question or id_local in refused:
                 continue
             if id_built == id_local:
-                # A form whose reference to the id HQ's build kept: a message does not say which form it is of.
+                # A question whose label HQ's build kept: a message does not say which form it is of.
                 refused.add(id_local)
                 found.pop(id_local, None)
                 continue
@@ -532,16 +564,17 @@ def formplayer_differences(
     ``versions`` is each side's ``{xmlns: version}`` of the forms whose built content differs between the two
     builds (``proof.checks.proof4.content_versions``), whose versions are read as one (``_content_version``).
     ``rules`` are the spelling rules given (``compare.spelling``): those for ``formplayer`` are applied to each
-    trace as it is compared (what Formplayer hands the client), and those for ``instance`` to each XML document
-    the traces hold (a form's instance as Formplayer hands it back, a submission HQ received).
+    trace as it is compared (what Formplayer hands the client), those for ``request-url`` to each submission's
+    address, and those for ``instance`` to each XML document the traces hold (a form's instance as Formplayer
+    hands it back, a submission HQ received).
     """
     xmlns = xmlns or {}
     versions = versions or ({}, {})
     if text_ids:
         after = _named_by(after, text_ids)
     shown_before, shown_after = one_symptom(
-        normalized(FORMPLAYER, comparable_trace(before), rules),
-        normalized(FORMPLAYER, map_strings(comparable_trace(after), xmlns), rules),
+        normalized(FORMPLAYER, _addressed(comparable_trace(before), rules), rules),
+        normalized(FORMPLAYER, _addressed(map_strings(comparable_trace(after), xmlns), rules), rules),
     )
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)

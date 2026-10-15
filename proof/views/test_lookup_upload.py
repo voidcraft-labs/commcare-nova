@@ -97,7 +97,7 @@ def test_hq_answers_the_push_with_its_upgrade_page_and_status_200_where_the_plan
     withheld = dataclasses.replace(granted, privileges=granted.privileges - {PRIVILEGE})
 
     with published(document, "minimum", core_runner, create=False) as (unit, _, export):
-        answer = _push(unit, export.create.lookups)
+        answer = _push(unit, export.content.lookups)
         assert (answer.status, answer.content_type) == (200, "application/json"), answer
         assert json.loads(answer.body)["code"] == 200
         written = _tags(unit)
@@ -105,7 +105,7 @@ def test_hq_answers_the_push_with_its_upgrade_page_and_status_200_where_the_plan
 
     with published(document, "minimum", core_runner, configuration=withheld, create=False) as (unit, _, export):
         with base_page_script():
-            answer = _push(unit, export.create.lookups)
+            answer = _push(unit, export.content.lookups)
         # What Nova's own client is then handed, in ordinary CI (``__tests__/lookupUploadAnswer.test.ts``).
         retained = json.loads(RETAINED.read_text(encoding="utf-8"))
         assert (answer.status, answer.content_type) == (retained["status"], retained["contentType"]), answer
@@ -149,7 +149,7 @@ def test_hqs_upload_reads_a_table_whose_tag_holds_32_characters_and_fails_on_33(
         tag = ("region_" * 5)[:length]
         assert len(tag) == length
         with published(document, "minimum", core_runner, create=False) as (unit, _, export):
-            captured = export.create.lookups
+            captured = export.content.lookups
             answer = _push(unit, captured, _multipart(captured, _renamed(captured.workbook(), tag)), f"tag-{length}")
             code = json.loads(answer.body)["code"] if answer.content_type == "application/json" else None
             found[length] = (answer.status, code, _tags(unit) == [tag])

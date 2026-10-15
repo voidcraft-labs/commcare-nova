@@ -10,13 +10,16 @@ HQ's URLconf names. The walk is derived on the baseline state
 list, each list action once, each search) and replayed on every other, as
 Core's script is. Nova's local archive is walked too, with HQ answering
 everything but the archive itself, which HQ does not hold: Formplayer is
-handed Nova's bytes for it (``local``).
+handed Nova's bytes for it, its runtime URLs naming the working app as the
+archive Nova compiles for the deployment does
+(``proof.hq.operations.with_runtime_app_id``, ``local``).
 
 What a side's record holds (``walked``):
 
 - ``trace``: the marked trace as a blob (``proof.formplayer.canonical``;
-  the released build's id and the worker's user case's, which HQ draws
-  for each state it serves, are written ``@build`` and ``@usercase``): every
+  the released build's id, the working app's and the worker's user case's,
+  which HQ draws for each state it serves, are written ``@build``, ``@app``
+  and ``@usercase``): every
   request the client sends, Formplayer's own JSON for each, what Formplayer
   asked HQ during each (HQ's view by its URL name, and HQ's status), and
   each submission HQ received;
@@ -42,6 +45,9 @@ from proof.formplayer.walk import Walk, script_of
 
 # What a trace writes for the released build's id, which HQ draws afresh for every build it makes.
 BUILD = "@build"
+# And for the working app's id, which HQ draws for every state it serves and a local archive's runtime URLs name
+# (its search and case fixture URLs, its ``PostURL``), as the device's and Connect's records write it.
+APP = "@app"
 # And for the id of the user case HQ made for the worker, which HQ also draws afresh for every state it serves.
 USERCASE = "@usercase"
 # And for the address of Formplayer's own web server, a loopback port drawn as each runner starts, which Formplayer
@@ -66,10 +72,12 @@ def runner_origin(runner) -> str | None:
 
 def marked(trace, *, served, app_id=None, archives=(), runner=None):
     """A served state's trace as a record keeps it: every id Formplayer generated marked, the ids HQ's restores
-    and the archives hold left as they are, the id Formplayer was given for the app written ``BUILD``, and the
-    runner's own address written ``FORMPLAYER``."""
+    and the archives hold left as they are, the id Formplayer was given for the app written ``BUILD``, the working
+    app's id written ``APP``, and the runner's own address written ``FORMPLAYER``."""
     given = canonical.given_ids(served.hq.restores, archives)
     drawn = {app_id or served.build_id: BUILD}
+    if served.app_id and served.app_id not in drawn:
+        drawn[served.app_id] = APP
     origin = runner_origin(runner)
     if origin:
         drawn[origin] = FORMPLAYER
@@ -150,10 +158,12 @@ def release_is_the_build(served, files) -> dict | None:
 
 
 def local(served, runner, blobs, document, *, script):
-    """Formplayer's walk of Nova's local archive over the served state's HQ: the archive is Nova's bytes, handed
-    to Formplayer where it asks HQ's download for the app; the worker, the restore, each search and each claim
-    are HQ's own."""
-    archive = document.local_ccz.read_bytes()
+    """Formplayer's walk of Nova's local archive over the served state's HQ: the archive is Nova's bytes, its
+    runtime URLs naming the working app (``with_runtime_app_id``), handed to Formplayer where it asks HQ's download
+    for the app; the worker, the restore, each search, each claim and each submission are HQ's own."""
+    from proof.hq.operations import with_runtime_app_id
+
+    archive = with_runtime_app_id(document.local_ccz.read_bytes(), served.app_id)
     app_id = apps.build_id(LOCAL_APP, archive)
     served.hq.archives[app_id] = archive
     try:
@@ -162,4 +172,4 @@ def local(served, runner, blobs, document, *, script):
         served.hq.archives.pop(app_id, None)
 
 
-__all__ = ["BUILD", "local", "marked", "release_is_the_build", "runtime", "script_of", "walked"]
+__all__ = ["APP", "BUILD", "local", "marked", "release_is_the_build", "runtime", "script_of", "walked"]

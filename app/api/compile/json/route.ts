@@ -1,7 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/apiError";
 import { expandDoc } from "@/lib/commcare/expander";
-import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import {
+	buildHqJsonExportArchive,
+	hqImportFileGuide,
+} from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	encodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
@@ -12,25 +15,29 @@ import {
 	encodeExportAdvisories,
 	exportAdvisories,
 } from "@/lib/publish/exportAdvisories";
+import {
+	encodeManualImportGuide,
+	MANUAL_IMPORT_GUIDE_HEADER,
+	renderManualImportGuide,
+} from "@/lib/publish/manualImportGuide";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
 /**
- * HQ-JSON export endpoint: the manual-import twin of the HQ-upload path,
- * for users who import into CommCare HQ themselves rather than via an API key.
- * Shares the auth + parse + boundary-gate + manifest preamble with the `.ccz`
- * twin via `prepareCompileRequest`, then branches on whether the app depends on
- * anything CommCare HQ imports separately:
+ * HQ import file endpoint: the manual-import twin of the HQ-upload path,
+ * for people who import into CommCare HQ themselves rather than through an
+ * API key. Shares the auth + parse + boundary-gate + manifest preamble with
+ * the `.ccz` twin via `prepareCompileRequest`, then always answers a ZIP:
+ * the app JSON, the HQ bulk-upload `multimedia.zip` and the fixture workbook
+ * when the app has them, and a `README.txt` that is the rendered
+ * manual-import guide. The guide's steps also ride the
+ * `X-Nova-Manual-Import-Guide` header, so the publish dialog shows exactly
+ * what the README says once the file has arrived.
  *
- *   - App on its own → a plain `<app>.json` (import via HQ → Settings →
- *     Import App from Another Server). Byte-identical to the pre-media output:
- *     a media-free app expands media-OFF (no manifest) so its JSON never
- *     depends on an empty manifest reducing to the same shape.
- *   - App with media or lookup tables → a `<app>.zip` bundling the JSON with
- *     the HQ bulk-upload `multimedia.zip`, the fixture workbook, and a README
- *     covering the steps that apply, assembled by the shared
- *     `buildHqJsonExportArchive` so this download and the MCP `compile_app`
- *     json tool ship one format.
+ * The file is made for no project space: it carries derived ids and no
+ * runtime URL, because CommCare HQ writes its own when it builds the app, and
+ * a `domain` in the request is refused. A reached deployment on the chosen
+ * server scopes only its attachment links.
  *
  * The workbook is the SAME artifact the direct upload pushes through CommCare
  * HQ's fixture API, built from the generation the boundary validated, so a
@@ -39,7 +46,6 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
 export async function POST(req: NextRequest) {
 	try {
 		const {
-			runtimeTarget,
 			doc,
 			assets,
 			compiledAtSeq,
@@ -53,11 +59,10 @@ export async function POST(req: NextRequest) {
 		});
 
 		// Only a media-bearing app passes the manifest to `expandDoc`; a
-		// media-free app expands media-OFF so its JSON stays byte-identical to
-		// the pre-media output.
+		// media-free app expands media-OFF so its JSON never depends on an
+		// empty manifest reducing to the same shape.
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, {
-			runtimeTarget,
 			attachmentTarget,
 			...(hasMedia && { assets }),
 			...(lookupNaming && { lookupNaming }),
@@ -78,35 +83,26 @@ export async function POST(req: NextRequest) {
 			exportAdvisories(doc, attachmentTargetState),
 		);
 
-		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical:
-		// it's the artifact the user hands to HQ, and HQ's importer owns its
-		// version slots. The blueprint's `mutation_seq` rides out-of-band in the
-		// `X-Compiled-At-Seq` response header so the export still names its
-		// document version without perturbing the body.
-		if (!hasMedia && lookupWorkbook === undefined) {
-			// Nothing to carry alongside: the plain JSON file.
-			return new NextResponse(JSON.stringify(hqJson, null, 2), {
-				headers: {
-					"Content-Type": "application/json",
-					"Content-Disposition": `attachment; filename="${appName}.json"`,
-					"X-Compiled-At-Seq": String(compiledAtSeq),
-					[PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER]:
-						projectSpaceCompatibilityHeader,
-					[EXPORT_ADVISORY_HEADER]: advisoryHeader,
-				},
-			});
-		}
-
-		// Companions present: the json + whichever of the HQ-format multimedia
-		// zip and the fixture workbook this app needs + the import README.
-		// Pass the RAW name: the builder's Unicode-safe member sanitizer keeps
-		// non-Latin/accented names intact inside the archive.
+		// The RAW name goes to the builder and the guide: the archive's
+		// Unicode-safe member sanitizer keeps non-Latin and accented names
+		// intact inside the ZIP, and the README names that same member.
+		const guide = hqImportFileGuide({
+			appName: doc.appName,
+			doc,
+			assets,
+			lookupWorkbook,
+		});
 		const archive = buildHqJsonExportArchive(
 			doc.appName,
 			hqJson,
 			assets,
 			lookupWorkbook,
+			renderManualImportGuide(guide),
 		);
+		// The archive is the artifact the person hands to HQ, and HQ's importer
+		// owns its version slots. The blueprint's `mutation_seq` rides
+		// out-of-band in the `X-Compiled-At-Seq` response header so the export
+		// still names its document version without perturbing the body.
 		return new NextResponse(new Uint8Array(archive), {
 			headers: {
 				"Content-Type": "application/zip",
@@ -115,6 +111,7 @@ export async function POST(req: NextRequest) {
 				[PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER]:
 					projectSpaceCompatibilityHeader,
 				[EXPORT_ADVISORY_HEADER]: advisoryHeader,
+				[MANUAL_IMPORT_GUIDE_HEADER]: encodeManualImportGuide(guide),
 			},
 		});
 	} catch (err) {

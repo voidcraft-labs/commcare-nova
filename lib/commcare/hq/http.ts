@@ -31,6 +31,21 @@ export interface CommCareApiError {
 	 * slug.
 	 */
 	edgeRefusal?: boolean;
+	/**
+	 * Why a read synthesized its status rather than taking one CommCare HQ
+	 * answered: no answer reached Nova (`network`, a 503), the request's
+	 * deadline ran out first (`timeout`, a 503), or the answer could not be
+	 * read as what was asked for (`malformed`, a 502). Absent on a status
+	 * CommCare HQ or its edge answered. A caller that retries reads it to tell
+	 * a passing fault from an answer that will not change.
+	 */
+	cause?: "network" | "timeout" | "malformed";
+	/**
+	 * The wait the response's `Retry-After` asked for, in milliseconds, when
+	 * it was a count of seconds (`retryAfterMs`). Absent when the response
+	 * sent none, sent an HTTP date, or was never read.
+	 */
+	retryAfterMs?: number;
 }
 
 /**
@@ -136,6 +151,34 @@ export function isEdgeRefusal(body: string): boolean {
 }
 
 /**
+ * The wait a `Retry-After` header asks for, in milliseconds, or null when it
+ * names none Nova reads.
+ *
+ * HQ's limiter sends a decimal count of seconds, the time left in its
+ * current window (`corehq/apps/api/resources/meta.py::HQThrottle.retry_after`).
+ * The header's other form, an HTTP date, HQ does not send; it is read as no
+ * wait, as an absent header is.
+ */
+export function retryAfterMs(header: string | null): number | null {
+	if (header === null) return null;
+	const text = header.trim();
+	if (!/^\d+(\.\d+)?$/.test(text)) return null;
+	const ms = Math.ceil(Number(text) * 1000);
+	return Number.isFinite(ms) ? ms : null;
+}
+
+/** A failed response's error: its status, whether the edge refused it, and its `Retry-After`. */
+function failedResponseError(res: Response, body: string): CommCareApiError {
+	const wait = retryAfterMs(res.headers.get("retry-after"));
+	return {
+		success: false,
+		status: res.status,
+		edgeRefusal: isEdgeRefusal(body),
+		...(wait === null ? {} : { retryAfterMs: wait }),
+	};
+}
+
+/**
  * Log a failed CommCare HQ response for server-side debugging.
  * The body is never returned to callers or shown to users.
  */
@@ -151,11 +194,7 @@ export async function logAndReturnError(
 		status: res.status,
 		body: body.substring(0, 200),
 	});
-	return {
-		success: false,
-		status: res.status,
-		edgeRefusal: isEdgeRefusal(body),
-	};
+	return failedResponseError(res, body);
 }
 
 /**
@@ -180,11 +219,7 @@ export async function warnAndReturnError(
 		status: res.status,
 		body: body.substring(0, 200),
 	});
-	return {
-		success: false,
-		status: res.status,
-		edgeRefusal: isEdgeRefusal(body),
-	};
+	return failedResponseError(res, body);
 }
 
 /**
@@ -248,7 +283,19 @@ export function writeMayHaveLanded(
 	return !SETTLED_BEFORE_THE_VIEW.has(status);
 }
 
-/** Promise-returning sleep for the bounded status polls. */
-export function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+/** Promise-returning sleep for the bounded waits; it ends early when `signal` aborts. */
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) {
+			resolve();
+			return;
+		}
+		const done = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", done);
+			resolve();
+		};
+		const timer = setTimeout(done, ms);
+		signal?.addEventListener("abort", done, { once: true });
+	});
 }

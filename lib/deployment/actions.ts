@@ -5,6 +5,7 @@ import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import { selectionsHeldFromHq } from "./downloadTarget";
 import { getEntryPointLink } from "./entryPointLinks";
 import {
 	type EntryPointLink,
@@ -19,7 +20,12 @@ import {
 	setupArtifactFor,
 } from "./service";
 import type { SetupArtifact } from "./setupArtifact";
-import { type DeploymentScope, readDeploymentsForApp } from "./store";
+import {
+	type DeploymentScope,
+	type DeploymentTargetKey,
+	readDeploymentsForApp,
+	readReachedDeploymentTargets,
+} from "./store";
 import {
 	type DeploymentResource,
 	type DeploymentWithResources,
@@ -277,6 +283,59 @@ export async function readDeploymentsAction(
 					leftBehind: leftBehindResources(deployment, identities),
 				})),
 			),
+		};
+	} catch (error) {
+		return failure(error, "read", resolved.scope);
+	}
+}
+
+/** The project spaces a CCZ of this app can be made for, as the dialog offers them. */
+export interface DownloadTargetsView {
+	readonly targets: readonly DeploymentTargetKey[];
+	/**
+	 * With no target: one line per selection of the app CommCare HQ cannot
+	 * take, which is why it can be published nowhere yet. Empty otherwise.
+	 */
+	readonly heldFromHq: readonly string[];
+}
+
+/**
+ * Which project spaces the publish dialog offers a CCZ for.
+ *
+ * The same ledger read and the same lines the two compile surfaces answer
+ * from (`downloadTarget.ts`), so the dialog never offers a space the
+ * download would refuse. The document is read only when no project space
+ * holds the app, because only then does what it holds decide what the
+ * dialog says. A read authorizes as a view.
+ */
+export async function readDownloadTargetsAction(
+	input: unknown,
+): Promise<DeploymentActionResult<DownloadTargetsView>> {
+	const parsed = deploymentAppIdSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			success: false,
+			code: "invalid_input",
+			message: "That app request wasn't in a shape Nova understands.",
+		};
+	}
+	const resolved = await resolveScope(parsed.data, "view");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const reached = await readReachedDeploymentTargets(resolved.scope);
+		if (reached.length > 0) {
+			return {
+				success: true,
+				data: {
+					targets: reached.map(({ server, domain }) => ({ server, domain })),
+					heldFromHq: [],
+				},
+			};
+		}
+		const { doc } = await committedDocWithLocations(resolved.scope);
+		return {
+			success: true,
+			data: { targets: [], heldFromHq: selectionsHeldFromHq(doc) },
 		};
 	} catch (error) {
 		return failure(error, "read", resolved.scope);

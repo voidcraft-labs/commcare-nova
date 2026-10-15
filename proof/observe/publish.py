@@ -1,15 +1,23 @@
 """Nova's publishes applied through HQ's import, as Nova's publish client applies them (decision 14).
 
-``create`` applies a configuration's captured create (and, before it, the
-lookup workbook Nova's push sent, uploaded as the push uploads it:
-``replace``), and returns the app id HQ answered with. ``update`` applies a
-captured update (the republish of D, or the publish of D′) over the app:
-before it, the profile HQ serves for the app (``app_source``) must be the
-one the capture was built over, or the captured bytes are not what Nova
-would send there and the harness refuses (``CapturedProfileNotHeld``).
-``upload_media`` applies the media upload Nova's publish sends once an
-import landed (``lib/deployment/service.ts::uploadMediaBytes``), when the
-captured import names one; the unit runs it as an operation of its own,
+``create`` applies a configuration's captured first publish and returns the
+app id HQ answered with. In the two-import layout (``Export.two_imports``) a
+first publish is the empty shell's create, the fields of HQ's source the
+content was built over held to HQ's own read of the shell, the lookup
+workbook Nova's push sent (uploaded as the push uploads it: ``replace``),
+then the content import, which fills the shell with A's id
+(``operations.with_app_id``); HQ's refusal of either is the create's refusal,
+and state A is HQ app version 2 (3 after media). In the legacy layout a
+retained control replays it as one create, after its workbook, and its
+state A is version 1 (2 after media). ``update`` applies a captured update
+(the republish of D, or the publish of D′) over the app: before it, every
+field of HQ's source the capture was built over (its sidecar's
+``assumedSource``, ``Captured.assumed_source``) must be what HQ serves for
+the app (``app_source``), or the captured bytes are not what Nova would send
+there and the harness refuses (``operations.CapturedSourceNotHeld``).
+``upload_media`` applies the media upload Nova's publish sends once a
+content import landed (``lib/deployment/service.ts::uploadMediaBytes``), when
+the captured import names one; the unit runs it as an operation of its own,
 after the import's, as Nova sends it in a request of its own.
 
 Each returns what it saw as data: HQ's refusal of the upload (its status
@@ -39,6 +47,14 @@ def captured_digest(captured) -> bytes:
     return digest(parts).encode()
 
 
+def first_publish_digest(export) -> bytes:
+    """The digest of a configuration's first publish: of both imports in the two-import layout, each by
+    ``captured_digest``, and of the one create in the legacy layout."""
+    if not export.two_imports:
+        return captured_digest(export.create)
+    return digest([captured_digest(export.create).decode(), captured_digest(export.content).decode()]).encode()
+
+
 def upload_lookups(unit, captured):
     """HQ's upload of the captured lookup workbook, as Nova's push makes it before the import; None without one."""
     if captured is None:
@@ -56,30 +72,36 @@ def _refusal(result):
 
 
 def create(unit, export):
-    """Nova's first publish of D under the export's configuration.
+    """Nova's first publish of D under the export's configuration: both imports of the two-import layout, or the
+    one create of the legacy layout, each after the workbook the content names.
 
-    Returns ``(app id or None, HQ's refusal or None, the lookup upload's result or None)``.
+    Returns ``(A's id or None, HQ's refusal of either import or None, the lookup upload's result or None)``.
     """
     from proof.hq import operations
 
-    lookups = upload_lookups(unit, export.create.lookups)
-    result = operations.apply_upload(unit, export.create.upload())
-    refusal = _refusal(result)
-    return (None if refusal else result.response["app_id"]), refusal, lookups
+    if not export.two_imports:
+        lookups = upload_lookups(unit, export.create.lookups)
+        result = operations.apply_upload(unit, export.create.upload())
+        refusal = _refusal(result)
+        return (None if refusal else result.response["app_id"]), refusal, lookups
+    shell = operations.apply_upload(unit, export.create.upload())
+    refusal = _refusal(shell)
+    if refusal:
+        return None, refusal, None
+    app_id = shell.response["app_id"]
+    refusal, lookups = update(unit, app_id, export.content, "content")
+    return (None if refusal else app_id), refusal, lookups
 
 
 def update(unit, app_id, captured, name):
-    """A captured update over the app HQ holds: ``(HQ's refusal or None, the lookup upload's result or None)``."""
+    """A captured update over the app HQ holds: ``(HQ's refusal or None, the lookup upload's result or None)``.
+
+    Every field of HQ's source the capture names is held to HQ's own read first
+    (``operations.hold_assumed_source``), whichever fields they are.
+    """
     from proof.hq import operations
 
-    served = operations.app_source(unit, app_id).get("profile")
-    if served != captured.assumed_source_profile:
-        raise operations.CapturedProfileNotHeld(
-            f"The captured {name} was built over the profile"
-            f" {json.dumps(captured.assumed_source_profile, sort_keys=True)}, but HQ's app_source serves the app"
-            f" ({app_id}) with {json.dumps(served, sort_keys=True)}. Nova's publish"
-            " over this HQ would carry another profile, so the harness does not apply the captured one."
-        )
+    operations.hold_assumed_source(unit, app_id, captured.assumed_source, f"captured {name}")
     lookups = upload_lookups(unit, captured.lookups)
     result = operations.apply_upload(unit, operations.with_app_id(captured.upload(), app_id))
     return _refusal(result), lookups
@@ -140,8 +162,9 @@ def _unmatched_cause(app, archive, path):
 
 def _unmatched(unit, app_id, upload, unmatched_files):
     """Each file HQ's processing left unmatched, with its cause (``_unmatched_cause``) and the logos of the app at
-    its path (``_logo_refs``), read from the app HQ holds after the processing. The processing changed only its
-    ``multimedia_map`` and the version and time ``ApplicationBase.save`` stamps, none of which either reads."""
+    its path (``_logo_refs``), read from the app HQ holds after the processing. The processing changed only the
+    ``multimedia_map`` it writes and the version and time ``ApplicationBase.save`` stamps, none of which either
+    reads."""
     import io
     import zipfile
 

@@ -11,6 +11,7 @@ import {
 	setSharedFormAnswers,
 } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { expandDoc } from "@/lib/commcare/expander";
+import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
@@ -90,13 +91,40 @@ describe("HQ nested-selection target compatibility", () => {
 							reason,
 							sourceModuleUuid: doc.moduleOrder[0],
 							targetModuleUuid: doc.moduleOrder[1],
+							sourceModuleName: "Parents",
+							targetModuleName: "Child care",
 							sourceMaximum: "5",
 							...(reason === "smaller-child-maximum" && { targetMaximum: "4" }),
 						},
 					});
 					expect(resolveMediaManifest).not.toHaveBeenCalled();
-					expect(userFacingErrors(result.violations)[0]).toContain("HQ");
+					const [finding] = result.violations;
+					const [line] = userFacingErrors(result.violations);
+					for (const sentence of [finding.message, line]) {
+						expect(sentence).toContain('"Parents"');
+						expect(sentence).toContain('"Child care"');
+						expect(sentence.toLowerCase()).not.toContain("download");
+					}
+					expect(line).toContain(
+						reason === "multiple-parent-relation"
+							? "several cases selected"
+							: "4 selected cases",
+					);
 				}
+			}
+		},
+	);
+	it.each(["parent-multiple", "same-smaller"] as const)(
+		"names a menu with no name by its role, unquoted, in %s's finding and its line alike",
+		(scenario) => {
+			const doc = nestedMenuWireFixture(scenario);
+			for (const uuid of doc.moduleOrder) doc.modules[uuid].name = "";
+			const [finding] = hqNestedSelectionFindings(doc, "hq-json");
+			const [line] = userFacingErrors([finding]);
+			for (const sentence of [finding.message, line]) {
+				expect(sentence).toContain(" the parent menu");
+				expect(sentence).toContain(" this menu");
+				expect(sentence).not.toContain('"');
 			}
 		},
 	);
@@ -1145,6 +1173,9 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 				},
 			});
 			expect(resolveMediaManifest).not.toHaveBeenCalled();
+			const [finding] = result.violations;
+			for (const sentence of [finding.message, ...userFacingErrors([finding])])
+				expect(sentence.toLowerCase()).not.toContain("download");
 		}
 	},
 );

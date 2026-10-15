@@ -40,8 +40,14 @@ import {
 } from "@/components/shadcn/select";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { Textarea } from "@/components/shadcn/textarea";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useLocalizationWorkspace } from "@/lib/doc/hooks/useLocalizationWorkspace";
+import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+	relabelSourceLanguageMutation,
+} from "@/lib/doc/languageMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
@@ -594,6 +600,7 @@ function AddLanguageDialog({
 	readonly onAdded: (language: LanguageTag) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const docApi = useBlueprintDocApi();
 	const registry = useLanguageRegistrySearch(open);
 	const [choice, setChoice] = useState<LanguagePickerChoice>(
 		EMPTY_LANGUAGE_CHOICE,
@@ -643,7 +650,10 @@ function AddLanguageDialog({
 			return;
 		}
 		const mutations: Mutation[] = [
-			{ kind: "addLanguage", language: selection.identity },
+			addLanguageMutation(
+				heldLanguageWireCodes(docApi.getState()),
+				selection.identity,
+			),
 		];
 		for (const unit of unitsForLanguage(copySource.tag)) {
 			mutations.push({
@@ -835,11 +845,7 @@ function ChangeLanguageDialog({
 	const save = () => {
 		if (selection === undefined) return;
 		if (selection.tag !== currentTag) {
-			if (
-				!onCommit([
-					{ kind: "relabelSourceLanguage", language: selection.identity },
-				])
-			) {
+			if (!onCommit([relabelSourceLanguageMutation(selection.identity)])) {
 				return;
 			}
 		}

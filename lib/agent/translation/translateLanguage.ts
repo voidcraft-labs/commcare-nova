@@ -8,6 +8,10 @@ import {
 	type MutatingToolResult,
 } from "@/lib/agent/tools/common";
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
+import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+} from "@/lib/doc/languageMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
@@ -91,7 +95,7 @@ export async function translateLanguage(
 	});
 	const mutations: Mutation[] = exists
 		? []
-		: [{ kind: "addLanguage", language: target }];
+		: [addLanguageMutation(heldLanguageWireCodes(doc), target)];
 	if (units.length === 0 && exists)
 		return {
 			kind: "mutate",

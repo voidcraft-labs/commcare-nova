@@ -71,15 +71,22 @@ export function applyAppMutation(
 				defaultLanguage: tag,
 				languageOrder: [tag],
 				translations: {},
+				wireCodes: { [tag]: mut.wireCode },
 			};
 			return;
 		}
 		case "addLanguage": {
+			// The carried wire code is stored as it is: the producer minted it
+			// against the codes this document holds, and a replay must give the
+			// same code whatever the language catalog says by then. A code
+			// another language holds is refused like a held tag.
 			const localization = materializeLocalization(draft);
 			const tag = languageTag(mut.language);
 			if (localization.languageOrder.includes(tag)) return;
+			if (Object.values(localization.wireCodes).includes(mut.wireCode)) return;
 			localization.languageOrder.push(tag);
 			localization.translations[tag] = {};
+			localization.wireCodes[tag] = mut.wireCode;
 			return;
 		}
 		case "removeLanguage": {
@@ -95,6 +102,7 @@ export function applyAppMutation(
 				(code) => code !== mut.code,
 			);
 			delete localization.translations[mut.code];
+			delete localization.wireCodes[mut.code];
 			return;
 		}
 		case "setDefaultLanguage": {

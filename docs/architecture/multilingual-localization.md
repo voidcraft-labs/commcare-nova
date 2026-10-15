@@ -193,6 +193,7 @@ interface AppLocalization {
   defaultLanguage: LanguageTag;
   languageOrder: LanguageTag[];
   translations: Record<LanguageTag, Record<TranslationUnitId, TranslationEntry>>;
+  wireCodes: Record<LanguageTag, string>;
 }
 
 interface TranslationEntry {
@@ -206,6 +207,16 @@ interface TranslationEntry {
 
 There is no per-language metadata record: with names and direction derived
 from the identity, a metadata record would carry nothing beyond its keys.
+
+`wireCodes` holds each language's CommCare wire code, an identity of the app
+like the tag itself and one no author chooses. The schema requires a code for
+every tag of `languageOrder` and none for any other tag, and refuses two
+languages that hold one code. The mutation that adds a language carries its
+code (`addLanguage` and `relabelSourceLanguage` carry a required `wireCode`,
+which every producer mints through `lib/doc/languageMutations.ts`), the reducer
+stores it as carried, and removing the language removes it. The English-only
+state with no stored root reads as `wireCodes: { eng: "en" }`; a root whose
+`eng` holds any other code is not that state and stays stored.
 
 These are the implemented domain semantics:
 
@@ -709,19 +720,26 @@ separate durable edit-translation lifecycle exists.
 The compiler derives an effective localized projection without mutating or
 cloning `BlueprintDoc` into a second app model.
 
-- `lib/commcare/languageWire.ts::planLanguageWire` is the one tag→wire-code
-  mapping, computed once per emission over the ordered tag list, total and
-  injective. Each identity's preferred spelling is its Classic catalog row's
-  code, reached directly or by widening a macrolanguage member through its
-  macro (`cmn` widens through `zho` to Classic's Chinese row): three-letter
-  except the four grandfathered two-letter rows (`eng`→`en`, `spa`→`es`,
-  `swh`→`sw`, `afr`→`af`). An identity with no Classic reach emits its Set 3
-  code, which is always wire-valid. Identities colliding on one preferred
-  spelling each take a single lowercase suffix segment
-  (`cmn-Hans`/`cmn-Hant` → `cmn-hans`/`cmn-hant`), because Classic's grammar
-  allows exactly one hyphen; distinct identities sharing a language differ in
-  script or region, so suffixes are distinct by construction, and a final
-  injectivity assert throws as a compiler bug.
+- `lib/commcare/languageWire.ts::mintLanguageWireCode` chooses a wire code
+  once, when a language is added: the identity's preferred spelling where no
+  held language has it, else the suffixed form. The producer of the
+  `addLanguage` or `relabelSourceLanguage` mutation calls it and the mutation
+  carries the result; no reducer calls it. Each identity's preferred spelling
+  is its Classic catalog row's code, reached directly or by widening a
+  macrolanguage member through its macro (`cmn` widens through `zho` to
+  Classic's Chinese row): three-letter except the four grandfathered
+  two-letter rows (`eng`→`en`, `spa`→`es`, `swh`→`sw`, `afr`→`af`). An
+  identity with no Classic reach takes its Set 3 code, which is always
+  wire-valid. The suffixed form lowers the identity's script and region into
+  a single suffix segment (`cmn-Hant` → `cmn-hant`), because Classic's grammar
+  allows exactly one hyphen; no preferred spelling holds one, and distinct
+  identities sharing a language differ in script or region, so a suffixed
+  code never meets a held one.
+- `planLanguageWire` reads `localization.wireCodes` and computes no code; the
+  map is total and injective because the schema holds it so. A stored code
+  never changes while its language stays in the app, so adding or removing a
+  language never renames another's; removing a language frees its code. The
+  English-only state with no stored root still emits `en`.
 - Device-picker name rows come from the registry's baked display labels at
   the most specific key, so two branches of one language stay distinguishable
   in the device language menu. Never runtime `Intl`: Node/ICU variance must

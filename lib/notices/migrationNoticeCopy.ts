@@ -70,11 +70,79 @@ function projectSpace(entry: DeploymentNoticeEntry): string {
 	return entry.deployment.domain;
 }
 
+/** Entities joined as a sentence lists them: "Register, Visit and Follow-up". */
+function entityList(
+	entities: readonly NoticeEntityRef[],
+	ctx: NoticeRenderContext,
+): NoticeLinePart[] {
+	return entities.flatMap((entity, index) => [
+		...(index === 0
+			? []
+			: [text(index === entities.length - 1 ? " and " : ", ")]),
+		entityPart(entity, ctx),
+	]);
+}
+
+/** What a form's new id means for what HQ already holds that names it. */
+const FORM_ID_REPOINT =
+	"If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.";
+
 export const MIGRATION_NOTICE_COPY = {
 	"unsaved-assistant-work-discarded": () =>
 		noticeLine([
 			text(
 				"Changes the assistant was still working on here were not saved before this update. The saved app is unchanged. Ask again to pick the work back up.",
+			),
+		]),
+	"ccz-needs-project-space": () =>
+		noticeLine([
+			text(
+				"A CCZ of this app can be downloaded once the app is published to a project space. A CCZ downloaded earlier named no CommCare HQ server, so a phone that holds one cannot sign in or send forms with it.",
+			),
+		]),
+	"hq-app-deleted": (entry) =>
+		noticeLine([
+			text(
+				`The app Nova made on ${projectSpace(entry)} was deleted in CommCare HQ, so the next publish there makes a new app in its place. If it was deleted by mistake, you can restore it in CommCare HQ and then choose Check status for ${projectSpace(entry)}, and the next publish updates it again.`,
+			),
+		]),
+	"hq-app-not-nova-made": (entry) =>
+		noticeLine([
+			text(
+				`The app on ${projectSpace(entry)} is a linked app in CommCare HQ, so Nova can't publish to it there. You can publish to another project space.`,
+			),
+		]),
+	"ids-change-once-unreadable": (entry) =>
+		noticeLine([
+			text(
+				`Nova couldn't read the app on ${projectSpace(entry)} during this update, so the next publish there asks before it writes over that copy. Once you confirm, every menu and form of the app there gets a new ID in CommCare HQ, once. Forms submitted before then stay under each form's earlier ID in CommCare HQ. If an SMS keyword or a scheduled message opens one of its forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.`,
+			),
+		]),
+	"menu-id-changes-once": (entry: DeploymentNoticeEntry, ctx) => {
+		const entities = entry.entities ?? [];
+		const formAmong = entities.some((entity) => entity.type === "form");
+		return noticeLine([
+			text(
+				`At the next publish to ${projectSpace(entry)}, CommCare HQ gets new IDs for `,
+			),
+			...entityList(entities, ctx),
+			text(
+				`, once, because Nova couldn't match them to what that project space holds.${
+					formAmong
+						? ` Forms submitted before then stay under each form's earlier ID in CommCare HQ. ${FORM_ID_REPOINT}`
+						: ""
+				}`,
+			),
+		]);
+	},
+	"form-ids-change-once": (entry: DeploymentNoticeEntry, ctx) =>
+		noticeLine([
+			text(
+				`At the next publish to ${projectSpace(entry)}, the CommCare HQ IDs of `,
+			),
+			...entityList(entry.entities ?? [], ctx),
+			text(
+				` change once, because Nova couldn't read the ones that project space holds. Their submissions stay together. ${FORM_ID_REPOINT}`,
 			),
 		]),
 	"deep-links-need-republish": (entry) =>

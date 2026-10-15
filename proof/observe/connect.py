@@ -320,11 +320,14 @@ def release_post_path(served) -> str:
 
 
 def local_post_path(document, served) -> str:
-    """Where a device posts a form of Nova's local archive of the document: its profile's ``PostURL``, or the
-    project space's receiver with no app named, since the archive names none."""
+    """Where a device posts a form of Nova's local archive of the document, its runtime URLs naming the served
+    state's working app (``proof.hq.operations.with_runtime_app_id``): its profile's ``PostURL``, or the project
+    space's receiver with no app named where the archive names none (a control's pre-fix archive)."""
     from proof.connect import hq as connect_hq
+    from proof.hq.operations import with_runtime_app_id
 
-    with zipfile.ZipFile(document.local_ccz) as archive:
+    local = with_runtime_app_id(document.local_ccz.read_bytes(), served.app_id)
+    with zipfile.ZipFile(io.BytesIO(local)) as archive:
         profile = archive.read("profile.ccpr") if "profile.ccpr" in archive.namelist() else None
     return connect_hq.post_path(profile, served.domain)
 

@@ -4,8 +4,9 @@
 // Domain translation units remain the authority for identity, freshness, and
 // fallback. Emitters ask this object for one unit in one/all app languages;
 // they never walk the overlay or reinterpret review state themselves. The
-// facade computes the language wire plan once and speaks WIRE CODES on its
-// entire public surface — Nova's canonical language tags stay behind it.
+// facade reads the language wire plan once, from the codes the document
+// stores, and speaks WIRE CODES on its entire public surface — Nova's
+// canonical language tags stay behind it.
 
 import {
 	type BlueprintDoc,
@@ -50,10 +51,7 @@ export interface CommCareLocalization {
  */
 export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 	const effective = effectiveAppLocalization(doc.localization);
-	const plan = planLanguageWire(
-		effective.languageOrder,
-		effective.defaultLanguage,
-	);
+	const plan = planLanguageWire(effective);
 	const tagByWireCode = new Map<string, LanguageTag>(
 		[...plan.wireCodeByTag].map(([tag, code]) => [code, tag]),
 	);

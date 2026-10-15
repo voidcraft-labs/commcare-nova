@@ -1,10 +1,12 @@
 /**
  * Project Nova's derived profile properties onto one concrete HQ target.
  *
- * New apps have no target-owned profile to preserve. Updates do: CommCare HQ
- * shallow-replaces `profile` when an import includes it, so an update sends the
- * complete source profile only when one of Nova's owned keys actually changes.
- * A no-op omits `profile` and lets HQ retain its current bag untouched.
+ * Every content write is an update of an app Nova has read, a first publish's
+ * empty app included, so every projection starts from the target's profile.
+ * CommCare HQ shallow-replaces `profile` when an import includes it, so an
+ * update sends the complete source profile only when one of Nova's owned keys
+ * actually changes. A no-op omits `profile` and lets HQ retain its current bag
+ * untouched.
  */
 
 import type { HqApplication, HqApplicationProfile } from "@/lib/commcare";
@@ -54,41 +56,6 @@ function generatedProperties(
 				: [];
 		}),
 	);
-}
-
-function withoutOwnedGeneratedProperties(
-	application: HqApplication,
-): HqApplication {
-	const profile = application.profile;
-	if (profile === undefined) return application;
-	const customProperties = { ...(profile.custom_properties ?? {}) };
-	for (const key of NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS) {
-		delete customProperties[key];
-	}
-	const hasOtherProfileState =
-		Object.keys(customProperties).length > 0 ||
-		profile.features !== undefined ||
-		profile.properties !== undefined;
-	return withProfile(
-		application,
-		hasOtherProfileState
-			? { ...profile, custom_properties: customProperties }
-			: undefined,
-	);
-}
-
-/** Prepare a new-app import for a target whose advisory support is known. */
-export function projectNewAppProfileForTarget(
-	application: HqApplication,
-	targetState: DerivedProfileTargetState,
-): TargetProfileProjection {
-	if (targetState === "available" || application.profile === undefined) {
-		return { application, profileChanged: false };
-	}
-	return {
-		application: withoutOwnedGeneratedProperties(application),
-		profileChanged: false,
-	};
 }
 
 /**

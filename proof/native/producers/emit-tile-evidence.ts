@@ -11,6 +11,7 @@ import { runValidation } from "../../../lib/commcare/validator/runner";
 import { toPersistableDoc } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema } from "../../../lib/domain";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -24,7 +25,11 @@ for (const scenario of tileScenarios) {
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (findings.length) throw new Error(JSON.stringify(findings));
 	const hq = expandDoc(doc);
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	);
 	writeFileSync(resolve(output, `${scenario}.json`), JSON.stringify(hq));
 	writeFileSync(
 		resolve(output, `${scenario}.suite.xml`),

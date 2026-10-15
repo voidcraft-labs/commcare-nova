@@ -47,7 +47,13 @@ its own views (`app_import_api.py::_handle_import_app` and
 (`proof/observe/publish.py`):
 
 - **A** is what Nova's first publish of D leaves in HQ, and what a person
-  then saves there, where the document carries it (`hq-side.json`): UI
+  then saves there. A first publish is two imports, as Nova's is: a shell
+  create that makes the empty app, then the update that fills it with D's
+  content, so state A is HQ app version 2 (3 after its media). Every publish
+  derives its menu ids, form ids and `xmlns` from the document, so A, B and
+  B-edit carry the same ones for every menu and form D and D′ share. What a
+  person saves over it is part of A where the document carries it
+  (`hq-side.json`): UI
   translations, app settings, build profiles, and a lookup table kept with a
   field property, row attributes, owners and a description, each saved
   through the HQ view a person's page or upload reaches, before A is built
@@ -61,14 +67,19 @@ HQ builds each state (`validate_app()`, `create_all_files()` and
 are built with HQ's saved copy of `build(A)` as the previous build, so HQ's
 own `set_form_versions` decides each form's version. Beside them, Nova's local
 `.ccz` is exported twice for D (`local.ccz`, `local-again.ccz`) and once for
-D′.
+D′, each compiled for the configuration's project space as every archive Nova
+serves is, naming a placeholder app id that the HQ side replaces with A's id in
+the archive's runtime URLs before any reader takes it
+(`proof/hq/operations.py::with_runtime_app_id`).
 
 ### The bar
 
 On every export (`proof/checks/bar.py`):
 
-- HQ accepts each of Nova's uploads, each lookup workbook Nova's push sends
-  before them, and maps every file of the media upload after them;
+- HQ accepts each of Nova's uploads, both imports of a first publish among
+  them, each refusal reported under its own artifact, each lookup workbook
+  Nova's push sends before the app's content, and maps every file of the media
+  upload after them;
 - `validate_app()` returns no error and raises nothing, and
   `create_all_files()` and every build profile's
   `create_all_files(build_profile_id)` succeed, for A, B and B-edit;
@@ -1020,13 +1031,17 @@ node --conditions=react-server --import ./proof/corpus/entropy.mts \
 CI emits it once, in the `proof-corpus` job; a local run emits it inside the image
 unless `PROOF_CORPUS` names one. Every file but `timings.json` is the same,
 byte for byte, on every run at one seed, on every machine: the entropy preload
-answers every identity Nova's exports mint (`lib/commcare/ids.ts`, the `.ccz`
-profile's `uniqueid`, `lib/doc`'s `crypto.randomUUID`) from a generator seeded
-by the corpus seed, the operation's ordinal and the configuration
+answers every identity Nova's exports still draw (the `.ccz` profile's
+`uniqueid`, `lib/doc`'s `crypto.randomUUID`) from a generator seeded by the
+corpus seed, the operation's ordinal and the configuration
 (`proof/corpus/entropy.mts`). The seed names no document, so two documents
-with the same content export the same bytes; the ordinals keep apart what Nova
-keeps apart, so A and B mint different ids (defect 1 stays visible) and so do
-the two local exports (defect 9). `PROOF_ENTROPY=real` leaves every draw real,
+with the same content export the same bytes. A publish draws no id: it derives
+its menu ids, form ids and `xmlns` from the document, as a local archive
+derives its `xmlns`, so A and B carry the same ones. The ordinals keep apart
+what Nova keeps apart, so the two local exports draw different profile
+`uniqueid`s (defect 9), and they keep a regression visible: a change that
+mints an id per publish again draws another value at each ordinal, and proof 1
+reports it. `PROOF_ENTROPY=real` leaves every draw real,
 which the weekly audit compares against.
 
 ### The layout on disk
@@ -1038,9 +1053,22 @@ reads it. Per document, under its id:
   source, and where its modules, forms and languages sit on the wire
   (`wire.modules`, `wire.languages`);
 - `configurations.json`, `verdict.json` (Nova's publish verdict for D);
-- `export/<configuration>/`: the captured `create` and `republish` requests,
-  each a body and a JSON sidecar, with the lookup workbook and media upload a
-  sidecar names;
+- `export/<configuration>/`: the captured requests, each a body and a JSON
+  sidecar: `create` (the shell), `content` (the update that fills it, naming
+  the placeholder app id) and `republish`, with the lookup workbook and media
+  upload a sidecar names. Each sidecar carries `"layout": 2`, and an update's
+  names `assumedSource`, the fields of HQ's app source its body was built over,
+  which the HQ side holds to HQ's own read before it applies the update
+  (`CapturedSourceNotHeld`). A control retained before the shell create holds
+  the legacy layout: no `layout` key, one full `create` that is state A's whole
+  app, and `assumedSourceProfile` in place of `assumedSource`.
+  `proof/checks/corpus.py::Export.content` reads state A's app, workbook and
+  media from either, so no reader of them asks which layout a directory holds;
+  the few that must know ask the marker (`Export.two_imports`), and any other
+  value of it is refused by name (`CorpusLayoutError`);
+- `import-file.zip`: the HQ import file for D, built by the function
+  `/api/compile/json` calls, which `proof/hq/test_import_file.py` imports
+  through HQ's own import page (`Document.import_file`);
 - `local.ccz`, `local-again.ccz`;
 - `edit/`: the edit batch with its footprint (`batch.json`), D′
   (`document.json`), its verdict, its `update` capture per configuration and
@@ -1856,8 +1884,11 @@ Apps and keeps what its two readers make of it (`proof/observe/served.py`):
   names a question by its label's text id is read with HQ's id for the same
   texts, where HQ's build of that form merged them
   (`XForm.normalize_itext`; `merged_text_ids` reads the pairing from the two
-  forms, and a message naming another question stays a difference). The
-  client's screens the same way, its own home tiles by their kind. A difference is `formplayer@<state>` or
+  forms, from each question's own label alone, since Core names a question
+  by its label, and a message naming another question stays a difference). A
+  submission's `path` names the app it posts to, the working app's id from the
+  local archive and the release's from HQ's build, so the judge hands it to
+  the spelling rule `runtime_url_app_id`. The client's screens the same way, its own home tiles by their kind. A difference is `formplayer@<state>` or
   `webapps@<state>` in proof 3 (`local.ccz`, `B`) and
   `formplayer@<editor>@<B>@<configuration>` or `webapps@...` in proof 4,
   held by the register as any other. Each request HQ's views refused while
@@ -1904,9 +1935,12 @@ pins, and nothing is called on a system's behalf:
   its walks of the state saved each form ("Android in the unit"): to the
   address the archive's profile names, with the worker's own credentials,
   and with the location the form's own sensor poll wrote from the device's
-  GPS where the form holds the node. Nova's local archive names no address,
-  so its device given the lane's input sends each form to HQ's receiver
-  under the app's id.
+  GPS where the form holds the node. Nova's local archive names its
+  configuration's project space, so its device sends each form to HQ's
+  receiver at the address its profile names, under A's id. A control retained
+  before the archive named one holds an archive that names no address, so its
+  device given the lane's input sends each form to HQ's receiver under the
+  app's id.
 - **Each run is one worker's.** It meets HQ as the unit's fork leaves it
   and Connect as the opportunity stood, so no run reads what another's
   submission left in either. After it, Connect's queued tasks are run by
@@ -2038,12 +2072,21 @@ nothing a walk sent HQ is there for the next. Core's random source is
 seeded at each walk (`Peer.seed`), so the ids a device sends HQ (a form's
 instance id, a case it makes) are the same on every run.
 
-**Nova's local archive** names no server (finding 59), so its device meets
-Android's own defaults (`R.string.ota_restore_url`, `R.string.PostURL`,
-the username as typed): HQ's views answer those requests as they answer
-any, and the sign-in fails where HQ's build's succeeds
-(`android@local.ccz`, `/network/signIn`). A second device on the same
-archive is given the input the lane gives Core over that archive: every
+**Nova's local archive** names its configuration's project space: its
+profile's `ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain`
+name that space, and its runtime URLs name A's id, which the HQ side writes in
+(`proof/hq/operations.py::with_runtime_app_id`). So its device signs in,
+syncs, searches and sends each form at the addresses the archive names, and
+HQ's views answer them. A device on A installs HQ's release, whose id is not
+the working app's an archive names, and the two ids read as one in a runtime
+URL (the spelling rule `runtime_url_app_id`).
+
+**A control retained before the archive named a project space** holds an
+archive that names no server (finding 59), so its device meets Android's own
+defaults (`R.string.ota_restore_url`, `R.string.PostURL`, the username as
+typed): HQ's views answer those requests as they answer any, and the sign-in
+fails where HQ's build's succeeds (`android@local.ccz`, `/network/signIn`). A
+second device on the same archive is given the input the lane gives Core over that archive: every
 request it makes carries the worker's credentials by the full username HQ
 made, its restore is what HQ's own restore view answers the worker, and
 each form it sends is taken by HQ's receiver under the app's id, as the
@@ -2429,9 +2472,9 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 
 | Defect, part | Symptom | Shown by | Documents |
 |---|---|---|---|
-| 1, ids and `xmlns` | every module and form `unique_id` and form `xmlns` differs between A and B, so HQ gives every form a new version | proof 1 | any document, published twice |
-| 1, local path | two `.ccz` exports carry different form `xmlns` | proof 1, local path | any document, exported twice |
-| 1, language codes | adding a language whose code collides with an existing one, or removing one of a colliding pair, renames the existing language's code, and a build profile a person saved in HQ naming the old code then fails `create_all_files(profile)` ("Form does not contain any translations for any of the build languages", `xform.py::XForm.exclude_languages`) | proof 1 over the edit; the bar on B-edit, over A's build profile | `targeted-hq-side-state` (adds one, under a build profile saved over A); `localization-mandarin` (removes one) |
+| 1, ids and `xmlns` | every module and form `unique_id` and form `xmlns` differs between A and B, so HQ gives every form a new version. Fixed in step 2: every publish derives them from the document | proof 1 | fixed; still shown by the controls `case-operation-query` and, on a device's reopen of B's saved form, `case-capture-followup` |
+| 1, local path | two `.ccz` exports carry different form `xmlns`. Fixed in step 2: an archive derives each form's `xmlns` from the document | proof 1, local path | fixed; still shown by the control `case-operation-query` |
+| 1, language codes | adding a language whose code collides with an existing one, or removing one of a colliding pair, renames the existing language's code, and a build profile a person saved in HQ naming the old code then fails `create_all_files(profile)` ("Form does not contain any translations for any of the build languages", `xform.py::XForm.exclude_languages`). Fixed in step 2: the document stores each language's code from the mutation that adds it (`localization.wireCodes`) | proof 1 over the edit; the bar on B-edit, over A's build profile | fixed; still shown by the control `targeted-hq-side-state` |
 | 4, translations | a UI translation saved in HQ (`views/apps.py::edit_app_ui_translations`) is gone from `app_strings.txt` after the next publish, whose import replaces the app's translations with Nova's (`_merge_source_into_app`) | proof 2 | `targeted-hq-side-state` |
 | 4, `auto_gps_capture` | the setting saved in HQ (`views/apps.py::edit_app_attr`) is set back by the next import, so each form's meta loses its location and its poll of the location sensor (`xform.py::XForm._add_meta_2`) and its submission the location | proof 2; proof 3 between A's and B's builds | `targeted-hq-side-state` |
 | 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-lookup` (its control, `targeted-hq-side-state`, keeps the table from before the two documents were split) |
@@ -2533,8 +2576,13 @@ held walk stop moves with its fix the same way ("Walk stops").
 ### Identity moves
 
 `proof/identity-moves.json` lists each identity change a migration decides,
-`{"defect", "entity", "path"}`; proof 1 accepts exactly those. It is empty
-until a step decides one.
+`{"defect", "entity", "path"}`; proof 1 accepts exactly those. It stays empty
+by design. Proof 1 compares two exports of the current document by the current
+code (A with B, A with B-edit, the two local exports), so a fix's one-time
+change for a deployment made before it shows on neither side, and a move
+accepts its path on every document, so it would hide the very regression the
+fix removes. A step's one-time changes for existing deployments are held by its
+cutover's tests and notices.
 
 ### Walk stops
 
@@ -2716,6 +2764,24 @@ The rules whose readers reach past HQ's build and Core:
   client computes `align-self: start` for both, and Android's tile lays a
   text cell and an image cell out the same; `center` moves the cell, and
   the rule leaves it.
+- **`runtime-url-app-id`** (`runtime_url_app_id`): in a runtime URL (the
+  suite's search and case fixture URLs, the profile's `PostURL` and
+  `ota-restore-url`, and each request a reader sends to them) the release's
+  id and the working app's id read as one. A device on A installs HQ's
+  release, a copy of the app with an id of its own, and a `.ccz` names the
+  working app's id. Its test holds HQ's own search, restore and receiver views
+  answering alike under each id, and Formplayer's walk of the release with
+  the working app's id written in. It covers the URL alone, and it holds only
+  because the lane releases every state before it serves it, which is the
+  rule's condition. It reads one artifact, `request-url`, the address of a
+  request a reader sent HQ, which `proof/checks/served.py` hands it for each
+  submission in Formplayer's trace and `proof/checks/android.py` for each
+  address the device's answer holds; `proof/rules/__init__.py::ARTIFACT_READERS`
+  names Formplayer and the device as its readers. With `profile-required-minimal`
+  and `case-block-position` it is one of the three rules that compare the two
+  export paths; every other rule judges HQ's stored app, HQ's builds and HQ's
+  forms against each other, and `connect-work-area-empty` a form's data as
+  Connect reads it.
 
 To add a rule: write `proof/rules/<rule>.py` and its test, list its `RULE` in
 `RULES` where its artifact's rules apply, name each reader beyond HQ's build
@@ -2844,8 +2910,8 @@ reused is only what a key names whole, and the reuse is audited:
   no current run reads leaves the store once a week. Three more fresh runs,
   each with every reader, hold a 24-document sample: a baseline, one with
   Nova's emission and HQ unseeded, compared with the baseline (equal once
-  every drawn id and clock reading is read as one value, with defects 1 and
-  9 still showing), and one with HQ's speed seams off, compared with it
+  every drawn id and clock reading is read as one value, with defect 9 still
+  showing), and one with HQ's speed seams off, compared with it
   (equal). The sample turns each week: the run's ISO year and week is its
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
@@ -2878,7 +2944,8 @@ reused is only what a key names whole, and the reuse is audited:
 | A seam changes only what it names | a flag read leaking from one check into another | `proof/hq/test_seams.py` |
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
 | What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
-| The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends; `proof/hq/test_publish_capture.py`: an update applies only over the profile it was built from |
+| The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends, in its order, and three runs of it send the same menu ids, form ids and `xmlns` in every import body; `proof/hq/test_publish_capture.py`: an update applies only over the source it was built from |
+| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, and its `cutover` group over the legacy bodies in `proof/hq-reads/cutover/`) |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
 | HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |
@@ -3020,8 +3087,9 @@ carry the edit renaming their Connect ids), and, for finding 60,
 - A learn submission and a delivery, from HQ's build and from Nova's local
   archive, each received under the app's id, leave Connect the same rows: the
   module completed and the assessment scored; the visit approved and paid.
-- Nova's local archive names no submission URL. Its submission, received with
-  no app named, is forwarded with a null app id and Connect refuses it.
+- A local archive that names no submission URL, as a control retained before
+  the archive named its project space holds, has its submission received with
+  no app named, forwarded with a null app id, and refused by Connect.
 - Finding 34: with GPS verification on, a delivery with no location is
   flagged and left pending, the local archive's always; the distance check
   passes over it on both sides.
@@ -4128,6 +4196,12 @@ commcare-android asks for another Gradle, another compile SDK or another
 Robolectric Android runtime, the build stops and names what to move in the
 toolchain.
 
+A pin move can change what HQ answers the reads Nova's publish and cutover
+tests are served (`proof/hq-reads/`), and `proof/hq/test_retained_reads.py`
+fails on any byte it changes. The pull request that moves the pin regenerates
+them by copying `.proof/out/blocks/<id>/hq-reads/` over `proof/hq-reads/`, and
+its review reads the diff.
+
 ### The weekly pin pull request
 
 Upstream changes reach Nova as one pull request a week, alongside the weekly
@@ -4270,7 +4344,9 @@ each is stated here as it is built.
     `proof/identity-moves.json`.
 14. **The harness publishes the way Nova publishes** ("A, B and B-edit"), into
     a real Postgres and an in-memory Couch, so HQ's import and save paths run
-    whole.
+    whole. A first publish is a shell create and the update that fills it, as
+    Nova's is, and a control retained before that keeps its legacy layout, one
+    import, which the lane replays as it was captured.
 15. **Two builds of one document are compared as well as two publishes**:
     proof 3 compares Nova's local `.ccz` with HQ's build, and proof 1 two
     local exports of one document.

@@ -100,7 +100,7 @@ def _first_document_with_forms():
 
 
 def _sources(export):
-    app = json.loads(upload_field(export.create.upload(), "app_file"))
+    app = json.loads(upload_field(export.content.upload(), "app_file"))
     return {name: content for name, content in app.get("_attachments", {}).items() if name.endswith(".xml")}
 
 

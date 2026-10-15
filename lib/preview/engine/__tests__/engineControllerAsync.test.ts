@@ -1067,7 +1067,7 @@ describe("EngineController async runtime", () => {
 		);
 		if (unit === undefined) throw new Error("Expected translation unit");
 		applyControllerEdit(store, [
-			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
 			{
 				kind: "setTranslation",
 				language: "spa",

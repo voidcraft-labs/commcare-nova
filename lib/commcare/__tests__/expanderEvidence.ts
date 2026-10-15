@@ -7,6 +7,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import type { HqApplication } from "../types";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const destination = process.env.NOVA_EXPANDER_EVIDENCE_DIR;
 const records = new Map<
@@ -37,7 +38,9 @@ export function captureExpanderEvidence(
 		if (!existing.tests.includes(test)) existing.tests.push(test);
 		return;
 	}
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	const document = `${id}.document.json`;
 	writeFileSync(
 		resolve(destination, document),

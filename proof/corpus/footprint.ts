@@ -190,14 +190,12 @@ export interface WireLanguage {
 /**
  * A document's languages in the order the expander writes the app's `langs`
  * (`lib/commcare/localization.ts::commCareLocalization`: the language wire
- * plan over the effective localization, in its `languageOrder`).
+ * plan over the codes the effective localization stores, in its
+ * `languageOrder`).
  */
 export function wireLanguages(doc: BlueprintDoc): WireLanguage[] {
 	const localization = effectiveAppLocalization(doc.localization);
-	const plan = planLanguageWire(
-		localization.languageOrder,
-		localization.defaultLanguage,
-	);
+	const plan = planLanguageWire(localization);
 	return localization.languageOrder.map((tag) => {
 		const code = plan.wireCodeByTag.get(tag);
 		if (code === undefined) {

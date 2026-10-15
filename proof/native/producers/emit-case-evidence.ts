@@ -22,6 +22,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema } from "../../../lib/domain";
 
 import { operationRelevanceDoc } from "../../../lib/preview/engine/__tests__/fixtures/submissionProgram";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -64,7 +65,11 @@ for (const [scenario, doc, moduleIndex = 0] of [
 				}
 			: undefined,
 	);
-	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	);
 
 	writeFileSync(resolve(output, `${scenario}.json`), JSON.stringify(hq));
 	writeFileSync(

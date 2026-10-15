@@ -29,16 +29,19 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import {
 	applicationShell,
+	DERIVED_WIRE_IDENTITY,
 	detailPair,
 	formShell,
 	moduleShell,
+	type WireIdentity,
 } from "@/lib/commcare";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
-import { genHexId, genShortId } from "@/lib/commcare/ids";
-import { commCareLocalization } from "@/lib/commcare/localization";
+import {
+	type CommCareLocalization,
+	commCareLocalization,
+} from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
-import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
@@ -126,24 +129,34 @@ function toHqFormLink(
 /**
  * Expand a `BlueprintDoc` into an `HqApplication`.
  *
- * Every form gets a fresh HQ unique_id (hex) and xmlns (formdesigner
- * URI) generated on the fly; case types, case details, case list
- * columns, and `parent_select` wiring are derived from module metadata
- * + `doc.caseTypes`. Connect content and app mode must agree at admission;
- * the projection never hides dormant Connect configuration.
+ * Every menu's and form's HQ `unique_id` and every form's `xmlns` come from
+ * `opts.identity` (`./wireIdentity.ts`): derived from the entity's UUID, or
+ * a target's recorded override. They are stable across exports and are what
+ * HQ stores, since an update writes the ids it is sent. Case types, case
+ * details, case list columns, and `parent_select` wiring are derived from
+ * module metadata + `doc.caseTypes`. Connect content and app mode must
+ * agree at admission; the projection never hides dormant Connect
+ * configuration.
  *
  * `opts.assets` is the resolved media manifest. When present, the
  * emitted XForms gain media itext values, the module/form/case-list
  * shells gain `media_image` / `media_audio` dicts, and the application
- * gains its `multimedia_map` + `logo_refs` — everything CCHQ needs to
- * regenerate a media-bearing suite on import. When absent, media
- * emission is off (validation loop, asset-free preview): the output
- * is structurally identical to the with-manifest shape but carries
- * empty `media_image` / `media_audio` / `multimedia_map` and no
- * `logo_refs` (absent, not empty — see the assignment below).
+ * gains its `logo_refs` — everything CCHQ needs to regenerate a
+ * media-bearing suite once the media upload maps the files. When absent,
+ * media emission is off (validation loop, asset-free preview): the output
+ * is structurally identical to the with-manifest shape but carries empty
+ * `media_image` / `media_audio` and no `logo_refs` (absent, not empty —
+ * see the assignment below). No mode writes a `multimedia_map`: HQ's
+ * media upload writes it.
  */
 export interface ExpandOptions {
 	readonly runtimeTarget?: RuntimeTarget;
+	/**
+	 * The ids every menu and form takes. Absent means the derivation; a
+	 * publish to a target that holds other ids passes
+	 * `targetWireIdentity(overrides)`.
+	 */
+	readonly identity?: WireIdentity;
 	assets?: AssetManifest;
 	/**
 	 * Lookup wire naming from the validated definitions snapshot. Every export
@@ -182,6 +195,7 @@ export function expandDoc(
 	const assets = opts.assets;
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	const localization = commCareLocalization(authoredDoc);
+	const identity = opts.identity ?? DERIVED_WIRE_IDENTITY;
 
 	// `moduleOrder` and each `formOrder` array are the canonical display
 	// sequences. Every index this expander assigns (`mIdx`, menu/command order,
@@ -193,29 +207,32 @@ export function expandDoc(
 		sortedFormOrder[moduleUuid] = orderedFormUuids(doc, moduleUuid);
 	}
 
-	// Pre-generate each module's HQ `unique_id` up front. `parent_select`
-	// on a child module references its parent module's id, so building
-	// every module in a single pass requires the id table before the
-	// `.map()` runs. Generating here also keeps id allocation ordered
-	// with the sorted module sequence so reads into this array by `parentIdx`
-	// are always consistent with the module we're currently emitting.
-	const moduleUniqueIds = sortedModuleUuids.map(() => genHexId());
+	// Each module's HQ `unique_id`, read from the identity up front.
+	// `parent_select` and `root_module_id` on a child module reference
+	// another module's id, so the table exists before the `.map()` runs.
+	// The hidden module of a no-matches registration form is in this
+	// sequence under its synthetic UUID, so its id follows its form's UUID.
+	const moduleUniqueIds = sortedModuleUuids.map((moduleUuid) =>
+		identity.moduleUniqueId(moduleUuid),
+	);
 	const moduleUniqueIdOf = new Map<Uuid, string>(
 		sortedModuleUuids.map((moduleUuid, index) => [
 			moduleUuid,
 			moduleUniqueIds[index],
 		]),
 	);
-	// Every form's HQ `unique_id` is allocated before the module map for the
-	// same reason: a form link names its target form by id, and the target
-	// may sit in a later module. HQ re-ids forms on import
-	// (`Application.scrub_source` → `update_form_unique_ids`) and rewrites
-	// `form_links[*].form_id` with them, so the one requirement is that the
-	// ids be consistent inside this document.
+	// Every form's HQ `unique_id` is read before the module map for the same
+	// reason: a form link and a case list form name their target form by id,
+	// and the target may sit in a later module. The ids come from the
+	// identity, so they are stable across exports and are what HQ stores: an
+	// update writes them as sent. HQ re-mints form ids only when it creates
+	// an app from a body that holds forms, which a publish's create never
+	// does; a manual import of the HQ import file is such a create, and HQ
+	// rewrites `form_links[*].form_id` with the ids it mints there.
 	const formUniqueIdOf = new Map<Uuid, string>();
 	for (const moduleUuid of sortedModuleUuids) {
 		for (const formUuid of sortedFormOrder[moduleUuid] ?? []) {
-			formUniqueIdOf.set(formUuid, genHexId());
+			formUniqueIdOf.set(formUuid, identity.formUniqueId(formUuid));
 		}
 	}
 
@@ -256,7 +273,7 @@ export function expandDoc(
 			if (formUniqueId === undefined) {
 				throw new Error(`Cannot emit form ${formUuid}: no unique id allocated`);
 			}
-			const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`;
+			const xmlns = identity.formXmlns(form);
 
 			// The admitted Connect config for this form. buildConnectSlugMap
 			// checks mode/config agreement and preserves authored identities.
@@ -514,14 +531,53 @@ export function expandDoc(
 		return shell;
 	});
 
-	const appNameUnit = makeTranslationUnitId("app", "name");
-	const appNameByLanguage = localization.textMap(appNameUnit);
 	const derivedProfile = derivedProfileProperties(doc);
 	const app = applicationShell(doc.appName, modules, attachments, {
-		...(doc.connectType && { autoGpsCapture: true }),
+		...appLevelValues(doc, localization),
 		...(Object.keys(derivedProfile).length > 0 && {
 			profileCustomProperties: derivedProfile,
 		}),
+	});
+
+	// `logo_refs` (the web-apps banner) is assigned only when the app
+	// actually has a Nova-authored logo: CCHQ's in-place update is an
+	// overlay merge, so an emitted empty dict would remove a logo uploaded
+	// on CommCare HQ, while an absent field is retained. No
+	// `multimedia_map` is written: HQ's media upload maps each file by the
+	// path the app's content references and writes the map itself.
+	const logoRefs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
+	if (Object.keys(logoRefs).length > 0) app.logo_refs = logoRefs;
+
+	/* Same conditional-assignment rule as `logo_refs`, for the same
+	 * reason: only an app that actually reads `instance('locations')`
+	 * gets an opinion, so a republish never overwrites a fixture choice
+	 * somebody made on CommCare HQ for an app that has no place rule. */
+	if (readsLocationsFixture(doc)) {
+		app.location_fixture_restore = "both_fixtures";
+	}
+
+	return app;
+}
+
+/**
+ * The app-level values `expandDoc` and `expandAppShell` both write: the
+ * languages, each language's app-name strings and language names, and
+ * GPS capture for a Connect app. One helper feeds both, so the shell and
+ * the update a first publish sends never disagree on them.
+ */
+function appLevelValues(
+	doc: BlueprintDoc,
+	localization: CommCareLocalization,
+): {
+	readonly autoGpsCapture?: boolean;
+	readonly langs: string[];
+	readonly translations: Record<string, Record<string, string>>;
+} {
+	const appNameByLanguage = localization.textMap(
+		makeTranslationUnitId("app", "name"),
+	);
+	return {
+		...(doc.connectType && { autoGpsCapture: true }),
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => [
@@ -538,28 +594,56 @@ export function expandDoc(
 				},
 			]),
 		),
-	});
+	};
+}
 
-	// Application-level media registry. `multimedia_map` declares every
-	// referenced file (keyed by wire path) so CCHQ can reconcile the
-	// step-2 multimedia upload by path; it stays empty when media emission
-	// is off. `logo_refs` (the web-apps banner) is assigned only when the
-	// app actually has a Nova-authored logo: CCHQ's in-place update is an
-	// overlay merge, so an emitted empty dict would remove a logo uploaded
-	// on CommCare HQ, while an absent field is retained.
-	app.multimedia_map = assets ? buildMultimediaMap(assets.values()) : {};
-	const logoRefs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
-	if (Object.keys(logoRefs).length > 0) app.logo_refs = logoRefs;
+/**
+ * The keys of the empty app a first publish creates, in the order the body
+ * writes them. The list is its own, and does not follow what
+ * `applicationShell` writes: the shell is the one body that meets no source
+ * read and no overlay, and the create baseline's ownership and the capture
+ * peer's assumed source are both stated over these exact keys, so a key
+ * reaches the shell only where this list names it.
+ */
+export const APP_SHELL_KEYS = [
+	"doc_type",
+	"application_version",
+	"name",
+	"langs",
+	"build_spec",
+	"translations",
+	"auto_gps_capture",
+	"add_ons",
+	"modules",
+	"_attachments",
+] as const satisfies readonly (keyof HqApplication)[];
 
-	/* Same conditional-assignment rule as `logo_refs`, for the same
-	 * reason: only an app that actually reads `instance('locations')`
-	 * gets an opinion, so a republish never overwrites a fixture choice
-	 * somebody made on CommCare HQ for an app that has no place rule. */
-	if (readsLocationsFixture(doc)) {
-		app.location_fixture_restore = "both_fixtures";
+export type AppShellKey = (typeof APP_SHELL_KEYS)[number];
+
+/** The body of the empty app a first publish creates. */
+export type HqAppShell = Pick<HqApplication, AppShellKey>;
+
+/**
+ * The empty app a first publish creates before the ordinary in-place update
+ * fills it: no menus, no attachments, no `logo_refs` and no `profile`,
+ * which arrive with the update, and no `multimedia_map`, which Nova never
+ * sends. With no form there is
+ * no form id for HQ to re-mint, and HQ refuses to build an app with no menus
+ * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
+ * build can hold an id the update did not write.
+ */
+export function expandAppShell(doc: BlueprintDoc): HqAppShell {
+	const app = applicationShell(
+		doc.appName,
+		[],
+		{},
+		appLevelValues(doc, commCareLocalization(doc)),
+	);
+	const shell: Partial<Record<AppShellKey, unknown>> = {};
+	for (const key of APP_SHELL_KEYS) {
+		if (Object.hasOwn(app, key)) shell[key] = app[key];
 	}
-
-	return app;
+	return shell as HqAppShell;
 }
 
 /**

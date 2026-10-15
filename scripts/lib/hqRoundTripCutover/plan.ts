@@ -24,6 +24,11 @@ import { buildCaseTypeMap } from "@/lib/case-store/store";
 import type { PersistedEntityRowText } from "@/lib/db/persistedJson";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import type { AppDatabase } from "@/lib/db/pg";
+import { deploymentDisplaysAsReached } from "@/lib/deployment/stateMachine";
+import {
+	deploymentPhaseSchema,
+	deploymentStateSchema,
+} from "@/lib/deployment/types";
 import {
 	exportReadinessFindings,
 	mutationCommitVerdict,
@@ -40,14 +45,26 @@ import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import type { LookupDataType } from "@/lib/lookup/types";
-import type { DeploymentNoticeReason } from "@/lib/notices/migrationNotice";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { behaviorChanges } from "./behavior";
 import { credentialOrder, type MemberCredential } from "./credentials";
 import { type HolderCensus, readHolderCensus } from "./holders";
+import {
+	classifyDeployment,
+	type DeploymentClass,
+	type DeploymentReads,
+	type KeyUse,
+	type PublishedMenus,
+	unreadDeploymentClass,
+} from "./hqRead";
+import type { IdentityRow, MatchResult, UnpairedEntity } from "./matching";
 import { readProjectMediaManifest } from "./mediaManifest";
-import { deploymentNoticeReasons } from "./notice";
+import {
+	cczNeedsProjectSpace,
+	type DeploymentNotice,
+	deploymentNotices,
+} from "./notice";
 import {
 	type RawCarriers,
 	type RawDocument,
@@ -59,6 +76,7 @@ import {
 	type PublishedDocumentGap,
 	readPublishedDocument,
 } from "./publishedDocument";
+import { questionPaths } from "./questionPaths";
 import {
 	type DeploymentOutcome,
 	type DocumentChange,
@@ -116,12 +134,7 @@ export interface TagRename {
 }
 
 /** One `app_deployment_identities` row the matcher produced. */
-export interface DeploymentIdentityRow {
-	readonly entityKind: "module" | "form";
-	readonly novaEntityUuid: string;
-	readonly remoteUniqueId: string | null;
-	readonly remoteXmlns: string | null;
-}
+export type DeploymentIdentityRow = IdentityRow;
 
 export type DeploymentPairing =
 	| {
@@ -134,11 +147,7 @@ export type DeploymentPairing =
 	  }
 	| null;
 
-export interface KeyUse {
-	readonly userId: string;
-	readonly firstUsedAt: string;
-	readonly lastUsedAt: string;
-}
+export type { KeyUse };
 
 export interface DeploymentPlan {
 	readonly deploymentId: string;
@@ -152,8 +161,12 @@ export interface DeploymentPlan {
 	/** Which path paired it; null where no source was read. */
 	readonly pairing: DeploymentPairing;
 	readonly identities: readonly DeploymentIdentityRow[];
+	/** Entities of today's document whose ids change once there, by uuid. */
+	readonly unpaired: readonly UnpairedEntity[];
+	/** Paired forms whose stored form id no read gave, by uuid. */
+	readonly formIdsUnknown: readonly string[];
 	readonly keyUses: readonly KeyUse[];
-	readonly notices: readonly DeploymentNoticeReason[];
+	readonly notices: readonly DeploymentNotice[];
 }
 
 export interface AppPlan {
@@ -222,6 +235,8 @@ export interface SourceDeployment {
 	readonly pushedRevision: number | null;
 	/** The HQ table ids of the deployment's live `lookup-table` mappings. */
 	readonly mappedTableIds: readonly string[];
+	/** The app's content is on the project space: the deployment displays as uploaded. */
+	readonly reached: boolean;
 }
 
 export interface SourceApp {
@@ -500,12 +515,15 @@ export async function readFleetSource(
 		server: string;
 		domain: string;
 		created_by: string;
+		state: string;
+		resume_phase: string | null;
 		remote_id: string | null;
 		pushed_revision: string | null;
 		mapped_table_ids: string[];
 	}>`
 		SELECT deployment.id::text AS id, deployment.app_id, deployment.server,
 			deployment.domain, deployment.created_by,
+			deployment.state, deployment.resume_phase,
 			mapping.remote_id, mapping.pushed_revision::text AS pushed_revision,
 			ARRAY(SELECT table_mapping.remote_id FROM app_deployment_resources AS table_mapping
 				WHERE table_mapping.deployment_id = deployment.id
@@ -541,6 +559,20 @@ export async function readFleetSource(
 							`app_deployment_resources.pushed_revision for deployment ${row.id}`,
 						),
 			mappedTableIds: row.mapped_table_ids,
+			// The scan and the dry run read a database the ledger's DDL has not
+			// reached, so no `remote_missing_at` is read: before step 2 a live
+			// mapping beside a failed upload is the only "gone" there is, and
+			// such a deployment never displays as uploaded.
+			reached: deploymentDisplaysAsReached(
+				{
+					state: deploymentStateSchema.parse(row.state),
+					resumePhase:
+						row.resume_phase === null
+							? null
+							: deploymentPhaseSchema.parse(row.resume_phase),
+				},
+				"uploaded",
+			),
 		});
 		deploymentsByApp.set(row.app_id, list);
 	}
@@ -588,29 +620,17 @@ export async function readFleetSource(
 
 // ── Deployment classes ──────────────────────────────────────────────
 
-/**
- * How the plan reads one deployment's HQ copy. The scan and `--without-hq`
- * read none; the HQ reads arrive with the pull request that adds them.
- */
-export interface DeploymentClassification {
-	readonly outcome: DeploymentOutcome;
-	readonly buildSpecVersion: string | null;
-	readonly pairing: DeploymentPairing;
-	readonly identities: readonly DeploymentIdentityRow[];
-	readonly keyUses: readonly KeyUse[];
-	readonly profileProperties: Readonly<Record<string, unknown>> | null;
-}
-
-/** A deployment classed with no HQ read: `unreadable`, with nothing recorded. */
-export function unreadDeployment(): DeploymentClassification {
-	return {
-		outcome: "unreadable",
-		buildSpecVersion: null,
-		pairing: null,
-		identities: [],
-		keyUses: [],
-		profileProperties: null,
-	};
+/** The published document's menus, as the matcher reads them. */
+function publishedMenus(
+	published: Awaited<ReturnType<typeof readPublishedDocument>>,
+): PublishedMenus {
+	return published.kind === "document"
+		? {
+				kind: "document",
+				source: published.source,
+				menus: questionPaths(published.document),
+			}
+		: published;
 }
 
 // ── Building the plan ───────────────────────────────────────────────
@@ -642,6 +662,8 @@ export interface DeploymentPlanDetail {
 		| null;
 	/** The HQ table ids of the deployment's live `lookup-table` mappings. */
 	readonly mappedTableIds: readonly string[];
+	/** The pairs and their counts; null where no source was read. */
+	readonly match: MatchResult | null;
 }
 
 /** What the writer needs beside the plan: each app's target, kept in memory only. */
@@ -662,14 +684,16 @@ export interface CutoverPlanBuild {
 
 export interface BuildPlanOptions {
 	/**
-	 * Classes one deployment from its HQ reads. Absent in the scan and under
-	 * `--without-hq`, where every deployment is `unreadable`.
+	 * Reads one deployment's HQ copy with the members' keys, in the order
+	 * given. Absent in the scan and under `--without-hq`, where every
+	 * deployment is `unreadable` with no request.
 	 */
-	readonly classifyDeployment?: (
+	readonly readDeployment?: (
 		deployment: SourceDeployment,
-		app: SourceApp,
 		credentials: readonly string[],
-	) => Promise<DeploymentClassification>;
+	) => Promise<DeploymentReads>;
+	/** A read still transient classes its deployment `unreadable` or `no-form-ids`. */
+	readonly transientAsUnreadable?: boolean;
 }
 
 function lookupColumnTypesOf(
@@ -820,6 +844,83 @@ export async function buildCutoverPlan(
 	const lookupContexts = new Map<string, LookupValidationContext>();
 	const appPlans = new Map<string, AppPlan>();
 
+	// The published documents are read on the plan's transaction, one after
+	// another; the HQ reads then run together, paced per project space, and
+	// hold no lock.
+	const pending: {
+		app: SourceApp;
+		deployment: SourceDeployment;
+		credentials: readonly string[];
+		published: PublishedMenus | null;
+	}[] = [];
+	for (const app of source.apps) {
+		const members = source.projects.get(app.projectId)?.members ?? [];
+		for (const deployment of app.deployments) {
+			const credentials = credentialOrder(deployment, members);
+			const published =
+				deployment.pushedRevision === null
+					? null
+					: await readPublishedDocument(tx, {
+							appId: app.appId,
+							pushedRevision: deployment.pushedRevision,
+							baseSeq: app.baseSeq,
+							stored: app.raw,
+						});
+			pending.push({
+				app,
+				deployment,
+				credentials,
+				published: published === null ? null : publishedMenus(published),
+			});
+			deploymentDetails.push({
+				deploymentId: deployment.deploymentId,
+				appId: app.appId,
+				projectId: app.projectId,
+				server: deployment.server,
+				domain: deployment.domain,
+				noCredential: credentials.length === 0,
+				publishedDocument:
+					published === null
+						? null
+						: published.kind === "document"
+							? { kind: published.source }
+							: { kind: "none", reason: published.reason },
+				mappedTableIds: deployment.mappedTableIds,
+				match: null,
+			});
+		}
+	}
+	const { readDeployment } = options;
+	const classes = await Promise.all(
+		pending.map(async ({ app, deployment, credentials, published }) => {
+			// A mapping with no pushed revision is the blocker
+			// `app-mapping-without-pushed-revision`, and a deployment no key
+			// qualifies for is `no-credential`: neither sends a request.
+			if (
+				readDeployment === undefined ||
+				published === null ||
+				credentials.length === 0
+			) {
+				return unreadDeploymentClass();
+			}
+			return classifyDeployment({
+				reads: await readDeployment(deployment, credentials),
+				today: questionPaths(app.raw),
+				published,
+				transientAsUnreadable: options.transientAsUnreadable === true,
+			});
+		}),
+	);
+	const classOf = new Map<string, DeploymentClass>();
+	pending.forEach((entry, index) => {
+		const classification = classes[index] as DeploymentClass;
+		classOf.set(entry.deployment.deploymentId, classification);
+		const detail = deploymentDetails[index];
+		if (detail !== undefined) {
+			deploymentDetails[index] = { ...detail, match: classification.match };
+		}
+	});
+
 	for (const project of source.projects.values()) {
 		const projectApps = source.apps.filter(
 			(app) => app.projectId === project.projectId,
@@ -832,45 +933,11 @@ export async function buildCutoverPlan(
 
 		const transformed = [];
 		for (const app of projectApps) {
-			const classified = new Map<string, DeploymentClassification>();
-			for (const deployment of app.deployments) {
-				const credentials = credentialOrder(deployment, project.members);
-				classified.set(
-					deployment.deploymentId,
-					options.classifyDeployment === undefined
-						? unreadDeployment()
-						: await options.classifyDeployment(deployment, app, credentials),
-				);
-				const published =
-					deployment.pushedRevision === null
-						? null
-						: await readPublishedDocument(tx, {
-								appId: app.appId,
-								pushedRevision: deployment.pushedRevision,
-								baseSeq: app.baseSeq,
-								stored: app.raw,
-							});
-				deploymentDetails.push({
-					deploymentId: deployment.deploymentId,
-					appId: app.appId,
-					projectId: app.projectId,
-					server: deployment.server,
-					domain: deployment.domain,
-					noCredential: credentials.length === 0,
-					publishedDocument:
-						published === null
-							? null
-							: published.kind === "document"
-								? { kind: published.source }
-								: { kind: "none", reason: published.reason },
-					mappedTableIds: deployment.mappedTableIds,
-				});
-			}
 			const stepDeployments: StepDeployment[] = app.deployments.map(
 				(deployment) => {
-					const classification = classified.get(
+					const classification = classOf.get(
 						deployment.deploymentId,
-					) as DeploymentClassification;
+					) as DeploymentClass;
 					return {
 						deploymentId: deployment.deploymentId,
 						outcome: classification.outcome,
@@ -884,7 +951,7 @@ export async function buildCutoverPlan(
 				lookupColumnTypes,
 				deployments: stepDeployments,
 			});
-			transformed.push({ app, result, classified });
+			transformed.push({ app, result });
 		}
 
 		// One manifest per Project, over the union of every target's references.
@@ -900,8 +967,28 @@ export async function buildCutoverPlan(
 			parsedTargets,
 		);
 
-		for (const { app, result, classified } of transformed) {
+		for (const { app, result } of transformed) {
 			const judged = judgeTarget(app, result.target, lookupContext, media);
+			const withoutPushedRevision = app.deployments.filter(
+				(deployment) => deployment.pushedRevision === null,
+			).length;
+			const blockers: CutoverBlocker[] =
+				withoutPushedRevision === 0
+					? judged.blockers
+					: [
+							...judged.blockers,
+							{
+								code: "app-mapping-without-pushed-revision",
+								count: withoutPushedRevision,
+								findingCodes: [],
+							},
+						];
+			const classified = new Map(
+				app.deployments.map((deployment) => [
+					deployment.deploymentId,
+					classOf.get(deployment.deploymentId) as DeploymentClass,
+				]),
+			);
 			targets.set(app.appId, { raw: result.target, doc: judged.doc });
 			const behavior =
 				judged.doc === undefined ? [] : behaviorChanges(judged.doc);
@@ -926,13 +1013,25 @@ export async function buildCutoverPlan(
 				baseSeq: app.baseSeq,
 				baseDigest: rawDocumentDigest(app.raw),
 				targetDigest: rawDocumentDigest(result.target),
-				blockers: judged.blockers,
-				changes: [...result.changes, ...behavior],
+				blockers,
+				changes: [
+					...result.changes,
+					...behavior,
+					...cczNeedsProjectSpace({
+						appName: result.target.appName,
+						deleted: app.deleted,
+						reachedAfterCutover: app.deployments.some(
+							(deployment) =>
+								deployment.reached &&
+								classified.get(deployment.deploymentId)?.outcome !== "deleted",
+						),
+					}),
+				],
 				discardsPrivateWork: app.discardsPrivateWork,
 				deployments: app.deployments.map((deployment) => {
 					const classification = classified.get(
 						deployment.deploymentId,
-					) as DeploymentClassification;
+					) as DeploymentClass;
 					return {
 						deploymentId: deployment.deploymentId,
 						server: deployment.server,
@@ -942,11 +1041,13 @@ export async function buildCutoverPlan(
 						buildSpecVersion: classification.buildSpecVersion,
 						pairing: classification.pairing,
 						identities: classification.identities,
+						unpaired: classification.unpaired,
+						formIdsUnknown: classification.formIdsUnknown,
 						keyUses: classification.keyUses,
 						notices:
 							judged.doc === undefined
 								? []
-								: deploymentNoticeReasons(classification.outcome, judged.doc),
+								: deploymentNotices(classification, judged.doc),
 					};
 				}),
 			});

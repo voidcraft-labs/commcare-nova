@@ -161,6 +161,7 @@ describe("persisted language identity repair", () => {
 				defaultLanguage: "fra",
 				languageOrder: ["fra"],
 				translations: {},
+				wireCodes: { fra: "fra" },
 			},
 		},
 		{ code: "en", name: "English", localization: undefined },
@@ -307,6 +308,7 @@ describe("persisted language identity repair", () => {
 					defaultLanguage: "eng",
 					languageOrder: ["eng"],
 					translations: {},
+					wireCodes: { eng: "en" },
 				}),
 			})
 			.where("id", "=", appId)

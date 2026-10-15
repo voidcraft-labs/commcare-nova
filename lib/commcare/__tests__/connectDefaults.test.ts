@@ -12,6 +12,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, proseText } from "@/lib/domain";
 import { connectWireFixtures } from "./connectWireFixtures";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
@@ -35,7 +36,11 @@ describe("Connect blocks in delivered forms", () => {
 						}
 					: {},
 			);
-			const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+			const archive = new AdmZip(
+				compileCcz(hq, doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			);
 			for (const [delivery, xml] of [
 				[
 					"hq-source",

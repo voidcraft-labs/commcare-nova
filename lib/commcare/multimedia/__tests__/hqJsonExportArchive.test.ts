@@ -10,9 +10,10 @@
  * sanitizes at its own boundary; these prove no member name can carry a path
  * separator, drive colon, or CR/LF regardless of caller.
  *
- * The membership tests pin the other half: an app carries a companion only
- * when it HAS one, because a README step for a file that is not in the archive
- * sends somebody looking for it.
+ * The membership tests pin the other half: the file is always a ZIP holding
+ * the app JSON and the rendered guide as `README.txt`, and carries a companion
+ * only when the app HAS one, because a README step for a file that is not in
+ * the archive sends somebody looking for it.
  */
 
 import AdmZip from "adm-zip";
@@ -22,8 +23,13 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { lookupWireCorpus } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { buildLookupWorkbook } from "@/lib/commcare/lookup/workbook";
+import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
+import type { LookupWorkbook } from "../../lookup/workbook";
 import type { AssetManifest } from "../assetWirePath";
-import { buildHqJsonExportArchive } from "../hqJsonExportArchive";
+import {
+	buildHqJsonExportArchive,
+	hqImportFileGuide,
+} from "../hqJsonExportArchive";
 
 const { doc, assets: ONE_ASSET } = mediaWireFixture();
 const HQ = expandDoc(doc, { assets: ONE_ASSET });
@@ -33,6 +39,18 @@ const ONE_TABLE = buildLookupWorkbook(
 	lookupWireNaming(corpus.definitions),
 	corpus.rowsByTable,
 );
+
+/** The archive as both callers build it: with the guide over the same inputs. */
+function importFile(
+	appName: string,
+	assets: AssetManifest,
+	lookupWorkbook?: LookupWorkbook,
+): Buffer {
+	const readme = renderManualImportGuide(
+		hqImportFileGuide({ appName, doc, assets, lookupWorkbook }),
+	);
+	return buildHqJsonExportArchive(appName, HQ, assets, lookupWorkbook, readme);
+}
 
 function memberNames(buf: Buffer): string[] {
 	return new AdmZip(buf).getEntries().map((e) => e.entryName);
@@ -50,9 +68,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		"..\\..\\..\\x",
 		"a/b/c",
 	])("emits only safe leaf member names for %j", (evil) => {
-		const names = memberNames(
-			buildHqJsonExportArchive(evil, HQ, ONE_ASSET, ONE_TABLE),
-		);
+		const names = memberNames(importFile(evil, ONE_ASSET, ONE_TABLE));
 		// No member may contain a path separator, drive colon, or CR/LF.
 		for (const name of names) {
 			expect(name).not.toMatch(/[\\/:\r\n]/);
@@ -66,33 +82,26 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 	});
 
 	it("falls back to 'app.json' when the name sanitizes to empty", () => {
-		const names = memberNames(buildHqJsonExportArchive("///", HQ, NO_MEDIA));
+		const names = memberNames(importFile("///", NO_MEDIA));
 		expect(names).toContain("app.json");
 	});
 
 	it("leaves an already-clean name unchanged (idempotent on the HTTP path)", () => {
-		const names = memberNames(
-			buildHqJsonExportArchive("Vaccine Tracker (v2)", HQ, NO_MEDIA),
-		);
+		const names = memberNames(importFile("Vaccine Tracker (v2)", NO_MEDIA));
 		expect(names).toContain("Vaccine Tracker (v2).json");
 	});
 
 	it("carries a lookup workbook without an empty multimedia zip beside it", () => {
-		const archive = buildHqJsonExportArchive(
-			"Tracker",
-			HQ,
-			NO_MEDIA,
-			ONE_TABLE,
-		);
+		const archive = importFile("Tracker", NO_MEDIA, ONE_TABLE);
 		expect(memberNames(archive).sort()).toEqual([
 			"README.txt",
 			"Tracker.json",
 			"lookup-tables.xlsx",
 		]);
 		const text = readme(archive);
-		expect(text).toContain("This archive has two files");
 		expect(text).toContain("=== 1. Upload the lookup tables ===");
 		expect(text).toContain("=== 2. Import the app ===");
+		expect(text).toContain("=== 3. Check the app's CommCare version ===");
 		/* No media in this export, so no step about a file that isn't here. */
 		expect(text).not.toContain("multimedia.zip");
 		/* The tables are named, so a reader can see what replacing will touch. */
@@ -101,7 +110,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 	});
 
 	it("carries media alone without a workbook, keeping the app step numbered first", () => {
-		const archive = buildHqJsonExportArchive("Tracker", HQ, ONE_ASSET);
+		const archive = importFile("Tracker", ONE_ASSET);
 		expect(memberNames(archive).sort()).toEqual([
 			"README.txt",
 			"Tracker.json",
@@ -109,24 +118,36 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		]);
 		const text = readme(archive);
 		expect(text).toContain("=== 1. Import the app ===");
-		expect(text).toContain("=== 2. Import the media ===");
+		expect(text).toContain("=== 2. Check the app's CommCare version ===");
+		expect(text).toContain("=== 3. Import the media ===");
 		expect(text).not.toContain("lookup-tables.xlsx");
 	});
 
-	it("numbers all three steps when an app carries both companions", () => {
-		const text = readme(
-			buildHqJsonExportArchive("Tracker", HQ, ONE_ASSET, ONE_TABLE),
-		);
-		expect(text).toContain("This archive has three files");
+	it("numbers every step when an app carries both companions", () => {
+		const text = readme(importFile("Tracker", ONE_ASSET, ONE_TABLE));
 		expect(text).toContain("=== 1. Upload the lookup tables ===");
 		expect(text).toContain("=== 2. Import the app ===");
-		expect(text).toContain("=== 3. Import the media ===");
+		expect(text).toContain("=== 3. Check the app's CommCare version ===");
+		expect(text).toContain("=== 4. Import the media ===");
+	});
+
+	it("is a ZIP holding the app JSON and the rendered guide for an app with no companions", () => {
+		const archive = importFile("Tracker", NO_MEDIA);
+		expect(memberNames(archive).sort()).toEqual(["README.txt", "Tracker.json"]);
+		expect(readme(archive)).toBe(
+			renderManualImportGuide(
+				hqImportFileGuide({
+					appName: "Tracker",
+					doc,
+					assets: NO_MEDIA,
+					lookupWorkbook: undefined,
+				}),
+			),
+		);
 	});
 
 	it("preserves actual app, lookup and deduplicated media payloads through both archive layers", () => {
-		const zip = new AdmZip(
-			buildHqJsonExportArchive("Media proof", HQ, ONE_ASSET, ONE_TABLE),
-		);
+		const zip = new AdmZip(importFile("Media proof", ONE_ASSET, ONE_TABLE));
 		expect(JSON.parse(zip.readAsText("Media proof.json"))).toEqual(HQ);
 		expect(zip.readFile("lookup-tables.xlsx")).toEqual(
 			Buffer.from(ONE_TABLE.bytes),
@@ -149,11 +170,11 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		// The HTTP-header sanitizer is ASCII-only; the archive member is not, so an
 		// international app keeps its identity inside the bundle rather than
 		// collapsing to "app".
-		expect(
-			memberNames(buildHqJsonExportArchive("调查表", HQ, NO_MEDIA)),
-		).toContain("调查表.json");
-		expect(
-			memberNames(buildHqJsonExportArchive("Café Survey", HQ, NO_MEDIA)),
-		).toContain("Café Survey.json");
+		expect(memberNames(importFile("调查表", NO_MEDIA))).toContain(
+			"调查表.json",
+		);
+		expect(memberNames(importFile("Café Survey", NO_MEDIA))).toContain(
+			"Café Survey.json",
+		);
 	});
 });

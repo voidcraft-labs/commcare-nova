@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { csqlQuoteFixture } from "./csqlQuoteFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 // Artifact assembly only. CsqlQuoteRuntimeTest owns real input/guard execution;
@@ -10,7 +11,9 @@ import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 it("carries all six guarded queries and their two error prompts into both export paths", () => {
 	const doc = csqlQuoteFixture();
 	const hq = expandDoc(doc);
-	const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const archive = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
 	const suite = readXmlEvidence(archive.readAsText("suite.xml"));
 	const request = onlyXml(xmlChildren(suite, "remote-request"));
 	const query = onlyXml(

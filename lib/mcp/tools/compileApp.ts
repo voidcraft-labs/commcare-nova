@@ -1,28 +1,22 @@
-import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
-import {
-	downloadDeploymentTarget,
-	downloadRuntimeTarget,
-} from "@/lib/deployment/runtimeTarget";
 /**
  * `nova.compile_app` — produce CommCare artifacts for an app the caller can view.
  *
  * Scope: `nova.read`. Read-only.
  *
  * Two output formats:
- *   - `"json"` — the `HqApplication` JSON as compact text for a media-free
- *     app with no lookup data. When the app has media, the bytes ship with
- *     the references (HQ has
- *     no single "json + media" import): the result is instead the same
- *     `<app>.zip` bundle the HTTP export ships — MEDIA-ON JSON + HQ bulk-upload
- *     `multimedia.zip` + README — base64-encoded inside a
- *     `{ format: "zip", encoding, data }` wrapper. So a media-free app stays
- *     byte-identical to the pre-media output; a media-bearing app round-trips
- *     intact instead of emitting references to bytes the client never gets.
- *     Referenced Project lookup tables also select this ZIP form and travel
- *     as `lookup-tables.xlsx`, whether or not the app has media.
- *   - `"ccz"` — the `.ccz` archive HQ mobile pulls down, base64-encoded
- *     inside a `{ format: "ccz", encoding, data }` wrapper so the client
- *     knows to decode the `data` field.
+ *   - `"json"` — the HQ import file: always the same `<app>.zip` the HTTP
+ *     export ships (the app JSON, `multimedia.zip` and `lookup-tables.xlsx`
+ *     when the app has them, and `README.txt`, the manual-import guide),
+ *     base64-encoded inside a `{ format: "zip", encoding, data }` wrapper. The
+ *     guide's steps also lead the result as a `nova_manual_import_guide`
+ *     block, so a large base64 artifact cannot hide them. The file is made
+ *     for no project space, so a `domain` is refused.
+ *   - `"ccz"` — the `.ccz` archive a phone installs, made for one project
+ *     space the app is published to (the one `server` and `domain` name, or
+ *     the only one there is), base64-encoded inside a
+ *     `{ format: "ccz", encoding, data }` wrapper. Its profile names that
+ *     space's sign-in, sync and submission addresses, and
+ *     `_meta["nova/target"]` names the space and the HQ app its ids are.
  *
  * Both formats expand via `expandDoc`; the zero-tolerance boundary gate runs
  * first so any validator finding — a soundness error, missing completeness
@@ -31,19 +25,26 @@ import {
  *
  * Each result names the document version it was built from — the blueprint's
  * `mutation_seq`. The `"ccz"` path stamps it into the profile's
- * `cc-content-version`; the `"json"` path (whose `text` body must stay the
- * byte-identical HQ-import artifact) carries it on the result's `_meta`
+ * `cc-content-version`; the `"json"` path, whose archive must stay the
+ * HQ-import artifact, carries it on the result's `_meta`
  * (`nova/compiledAtSeq`) instead.
  */
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { expandDoc } from "@/lib/commcare/expander";
-import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import {
+	buildHqJsonExportArchive,
+	hqImportFileGuide,
+} from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { projectSpaceCompatibilityForDownload } from "@/lib/commcare/projectSpaceCompatibility";
+import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import { errorToString } from "@/lib/commcare/validator/errors";
-import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
-import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
+import {
+	downloadAttachmentState,
+	resolveDownloadTarget,
+} from "@/lib/deployment/downloadTarget";
+import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
 import {
 	type ExportMode,
 	prepareExportBoundary,
@@ -53,6 +54,10 @@ import {
 	type ExportAdvisory,
 	exportAdvisories,
 } from "@/lib/publish/exportAdvisories";
+import {
+	type ManualImportStep,
+	renderManualImportGuide,
+} from "@/lib/publish/manualImportGuide";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	McpInvalidInputError,
@@ -86,13 +91,20 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an app you can view to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media or Project data, a base64-encoded zip bundle so every companion artifact travels with it. `format: "ccz"` returns the binary archive base64-encoded. A download has no selected CommCare HQ project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile. When the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact so a large base64 result cannot hide it. Check one actual destination later with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
+				'Compile an app you can view. `format: "json"` returns the CommCare HQ import file, a base64-encoded zip holding the app JSON, its media and Project data when it has them, and a README with the manual import steps; the steps also come first as a `nova_manual_import_guide` text block. The import file works in any project space, so it takes no `domain`. `format: "ccz"` returns the mobile app file base64-encoded, made for one project space the app is already published to: it signs workers in there and sends their forms there. Pass `domain` (and `server` when two servers hold that name) to choose among several; an app published nowhere has no CCZ yet. `_meta["nova/target"]` names the project space and HQ app a CCZ is made for. A download checks no project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile; when the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact. Check one actual destination with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
 				server: z
 					.enum(COMMCARE_SERVER_IDS)
 					.optional()
 					.describe(
-						"CommCare server for the download. Required when this app has no unique deployed project space.",
+						"CommCare server of the project space a CCZ is for, when the app is published to more than one. For the import file it only scopes attachment links.",
+					),
+				domain: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						'Project space a CCZ is for, by name, when the app is published to more than one. Not taken for `format: "json"`.',
 					),
 				app_id: z
 					.string()
@@ -100,7 +112,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				format: z
 					.enum(["json", "ccz"])
 					.describe(
-						'"json" for the HQ wire JSON (a base64 zip bundle if the app has media or Project data), "ccz" for the binary archive (base64-encoded).',
+						'"json" for the CommCare HQ import file (a base64 zip), "ccz" for the mobile app file of one published project space (base64-encoded).',
 					),
 			}),
 		},
@@ -129,30 +141,33 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
 				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
-				/* Neither artifact carries a target of its own, so attachment
-				 * links resolve from the app's deployment record — exactly what
-				 * the browser download path does. With no project space holding
-				 * the app, or more than one, there is no honest address and the
-				 * links are left out. */
-				const attachmentDeploymentTarget = await attachmentDeploymentTargetFor({
-					appId,
-					projectId: access.projectId,
-					role: access.role,
-					actorUserId: access.actorUserId,
-				});
-				const runtimeTarget = downloadRuntimeTarget(
-					attachmentDeploymentTarget,
-					args.server,
+				/* A CCZ is made for one project space this app is published
+				 * to, and the import file for none: a reached deployment only
+				 * scopes its attachment links. The same choice the browser
+				 * download makes, over the document this call loaded. */
+				const download = await resolveDownloadTarget(
+					{
+						appId,
+						projectId: access.projectId,
+						role: access.role,
+						actorUserId: access.actorUserId,
+					},
+					{
+						format: args.format,
+						...(args.server !== undefined && { server: args.server }),
+						...(args.domain !== undefined && { domain: args.domain }),
+						doc,
+					},
 				);
-				if (!runtimeTarget)
+				if ("kind" in download) {
 					throw new McpInvalidInputError(
-						"Choose a CommCare server for this download, then try again.",
+						[
+							download.message,
+							...downloadRefusalLines(download).map((line) => `- ${line}`),
+						].join("\n"),
 					);
-				const selectedDeployment = downloadDeploymentTarget(
-					attachmentDeploymentTarget,
-					args.server,
-				);
-				const attachmentTarget = attachmentUrlTargetFor(selectedDeployment);
+				}
+				const { attachmentTarget } = download;
 				const boundary = await prepareExportBoundary({
 					mode,
 					access,
@@ -193,7 +208,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * complete for the target Nova could name. */
 				const advisories = exportAdvisories(
 					preparedDoc,
-					selectedDeployment.kind,
+					downloadAttachmentState(download),
 				);
 				const advisoryContent = exportAdvisoryContent(advisories);
 				const advisoryMeta =
@@ -207,57 +222,39 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the ccz path, the way a binary `if/else` would. */
 				switch (args.format) {
 					case "json": {
-						/* Only a media-bearing app passes the manifest, so a
-						 * media-free app expands media-OFF — its JSON stays
-						 * byte-identical to the pre-media output instead of
-						 * riding on an empty manifest collapsing to the same
-						 * shape. The blueprint's `mutation_seq` rides on the
-						 * result's `_meta` (protocol metadata, no `outputSchema`
-						 * needed) rather than the `text` body — the JSON export
-						 * is the byte-identical HQ-import artifact, so the seq
-						 * names its document version out-of-band. */
-						const compiledAtMeta = {
-							_meta: {
-								"nova/compiledAtSeq": compiledAtSeq,
-								...projectSpaceCompatibilityMeta,
-								...advisoryMeta,
-							},
-						};
+						/* The blueprint's `mutation_seq` rides on the result's
+						 * `_meta` (protocol metadata, no `outputSchema` needed)
+						 * rather than inside the archive, which is the
+						 * HQ-import artifact. The file carries no runtime URL:
+						 * CommCare HQ writes its own when it builds the app.
+						 * Only a media-bearing app passes the manifest, so a
+						 * media-free app expands media-OFF. */
 						const hqJson = expandDoc(preparedDoc, {
-							runtimeTarget,
 							attachmentTarget,
 							...(hasMedia && { assets }),
 							...(lookupNaming && { lookupNaming }),
 						});
-						if (!hasMedia && lookupWorkbook === undefined) {
-							/* Bare HQ JSON — the caller asked for JSON and, with
-							 * nothing to carry alongside it, gets JSON. */
-							return {
-								content: [
-									...projectSpaceCompatibilityContent,
-									...advisoryContent,
-									{ type: "text", text: JSON.stringify(hqJson) },
-								],
-								...compiledAtMeta,
-							};
-						}
-						/* Carrying companions: the same `<app>.zip` the HTTP
-						 * export ships, so the `jr://` references travel with
-						 * their bytes and the app's lookup tables travel with
-						 * the app. base64 inside a `{ format: "zip", ... }`
-						 * wrapper — MCP text content is UTF-8 only, and the
-						 * wrapper tells the client to decode rather than parse
-						 * the text as the app JSON. */
+						const guide = hqImportFileGuide({
+							appName: app.app_name,
+							doc: preparedDoc,
+							assets,
+							lookupWorkbook,
+						});
+						/* base64 inside a `{ format: "zip", ... }` wrapper: MCP
+						 * text content is UTF-8 only, and the wrapper tells the
+						 * client to decode rather than parse the text. */
 						const archive = buildHqJsonExportArchive(
 							app.app_name,
 							hqJson,
 							assets,
 							lookupWorkbook,
+							renderManualImportGuide(guide),
 						);
 						return {
 							content: [
 								...projectSpaceCompatibilityContent,
 								...advisoryContent,
+								manualImportGuideContent(guide),
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -267,22 +264,32 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									}),
 								},
 							],
-							...compiledAtMeta,
+							_meta: {
+								"nova/compiledAtSeq": compiledAtSeq,
+								...projectSpaceCompatibilityMeta,
+								...advisoryMeta,
+							},
 						};
 					}
 					case "ccz": {
-						/* The one `.ccz` assembly the browser download uses:
-						 * the archive bundles the bytes alongside the
-						 * references (an empty manifest bundles none) and
-						 * stamps the blueprint's `mutation_seq` into the
-						 * profile's `cc-content-version`. It returns a Node
-						 * `Buffer`; MCP text content is UTF-8 only, so base64
-						 * is the safest lossless escape, and the `encoding`
-						 * field inside the wrapper tells the caller to decode
-						 * it. */
+						if (download.format !== "ccz") {
+							throw new Error(
+								"A CCZ is always made for one project space, and the choice named none.",
+							);
+						}
+						/* The one `.ccz` assembly the browser download uses,
+						 * for the project space chosen above: the archive
+						 * bundles the bytes alongside the references (an empty
+						 * manifest bundles none) and stamps the blueprint's
+						 * `mutation_seq` into the profile's
+						 * `cc-content-version`. It returns a Node `Buffer`;
+						 * MCP text content is UTF-8 only, so base64 is the
+						 * safest lossless escape, and the `encoding` field
+						 * inside the wrapper tells the caller to decode it. */
 						const cczBuf = compileLocalArchive(
 							boundary.prepared,
-							runtimeTarget,
+							download.runtimeTarget,
+							download.identity,
 						);
 						return {
 							content: [
@@ -298,6 +305,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 								},
 							],
 							_meta: {
+								"nova/target": {
+									server: download.target.server,
+									domain: download.target.domain,
+									hq_app_id: download.target.hqAppId,
+								},
 								...projectSpaceCompatibilityMeta,
 								...advisoryMeta,
 							},
@@ -338,6 +350,18 @@ function compatibilityContent(report: ProjectSpaceCompatibilityReport) {
 			}),
 		},
 	];
+}
+
+/** The import file's manual steps, before the artifact for the reason the
+ * other leading blocks are: a large base64 result cannot hide them. */
+function manualImportGuideContent(guide: readonly ManualImportStep[]) {
+	return {
+		type: "text" as const,
+		text: JSON.stringify({
+			kind: "nova_manual_import_guide",
+			manual_import_guide: guide,
+		}),
+	};
 }
 
 /** The download path's advisories, in the same leading-block shape the

@@ -133,7 +133,11 @@ it.each([
 			try {
 				await reached.promise;
 				await vi.advanceTimersByTimeAsync(30_000);
-				expect(await pending).toEqual({ success: false, status: 503 });
+				expect(await pending).toEqual({
+					success: false,
+					status: 503,
+					cause: "timeout",
+				});
 				expect(vi.getTimerCount()).toBe(0);
 			} finally {
 				release.resolve();

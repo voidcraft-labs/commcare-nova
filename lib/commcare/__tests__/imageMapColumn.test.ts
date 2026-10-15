@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { mediaIds, mediaWireFixture } from "./mediaWireFixtures";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 
 const descend = (node: XmlEvidence): XmlEvidence[] =>
@@ -34,7 +35,12 @@ describe("image mapping at both export boundaries", () => {
 					},
 				]);
 			}
-			const zip = new AdmZip(compileCcz(hq, doc.appName, doc, options));
+			const zip = new AdmZip(
+				compileCcz(hq, doc.appName, doc, {
+					...options,
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			);
 			const suite = readXmlEvidence(zip.readAsText("suite.xml"));
 			const images = descend(suite).filter(
 				(node) => node.name === "template" && node.attributes.form === "image",

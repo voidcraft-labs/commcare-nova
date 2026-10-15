@@ -318,7 +318,9 @@ it.each([
 				expect(await pending).toEqual({
 					success: false,
 					status: 503,
-					...(method === "GET" ? {} : { message: "", mayHaveLanded: true }),
+					...(method === "GET"
+						? { cause: "timeout" }
+						: { message: "", mayHaveLanded: true }),
 				});
 				expect(vi.getTimerCount()).toBe(0);
 			} finally {

@@ -25,10 +25,10 @@ export type ExportAdvisoryId = "attachment_links_without_target";
  * Whether Nova could name the CommCare HQ project space an attachment link
  * resolves against.
  *
- * The three states mirror `lib/deployment/attachmentTarget.ts`'s resolution
- * without importing it: a caller passes its `kind` straight through. They are
- * named here rather than reduced to a boolean because "nowhere yet" and "more
- * than one place" leave a person with different next steps.
+ * A download's caller reads the state off the project space it resolved
+ * (`lib/deployment/downloadTarget.ts::downloadAttachmentState`). The three
+ * are named here rather than reduced to a boolean because "nowhere yet" and
+ * "more than one place" leave a person with different next steps.
  */
 export type AttachmentTargetState = "known" | "none" | "ambiguous";
 

@@ -5,6 +5,7 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function form(data: string, markup: string, body: string): string {
 	return `<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
@@ -61,7 +62,9 @@ describe("XForm definitions and instance data have separate scopes", () => {
 			],
 		});
 		const hq = expandDoc(doc);
-		const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		const xml = zip.readAsText("modules-0/forms-0.xml");
 		expect(xml).not.toBe("");
 		expect(validateXForm(xml, "Observations", "Survey")).toEqual([]);

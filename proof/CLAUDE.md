@@ -195,15 +195,20 @@ harness keeps, each with its reason.
   proofs also run HQ or Core, as package groups keyed by every file of the
   harness.
 - **Every HQ, Core and browser input is deterministic from a content key.**
-  Nova's exports draw their ids from a generator seeded by (corpus seed,
-  operation ordinal, configuration); HQ's entropy and clock inside an
+  The ids Nova's exports still draw come from a generator seeded by (corpus
+  seed, operation ordinal, configuration); HQ's entropy and clock inside an
   operation come from the unit's key and depth; the browser's clock is fixed
   and its randomness seeded from the run's spec. The store, its audits and
   every byte comparison rest on records being byte-identical run to run, and
-  the ordinals keep defects 1 and 9 visible. Never read the wall clock or the
+  the ordinals keep defect 9 visible and keep apart what a regression of
+  defect 1's fix would mint apart. Never read the wall clock or the
   system's entropy inside an operation, and wait with `time.perf_counter` or a
   C-level wait: `time.monotonic` is frozen there, so its timeouts never
   arrive.
+- **The capture moves with publish.** A change to what `publishAppToHq` reads
+  or sends changes `proof/corpus/publish.ts` in the same pull request, the
+  peer answers a read only with what the HQ side then holds to HQ's own view,
+  and retained controls replay the layout they were captured in.
 - **A state made again under a stored part is made by every call of the first
   observation that can write to HQ.** A part the store lacks is observed over
   A or B made again (`proof/observe/unit.py::recreate_a`, `recreate_b`), and
@@ -422,9 +427,11 @@ harness keeps, each with its reason.
   search view and real Elasticsearch, a claim to HQ's claim view. The device
   signs in at the state's base and each walk is a fork of the unit, as each
   Formplayer run is; Core's random source is seeded at each walk
-  (`Peer.seed`), so what the device sends HQ is the same on every run. Nova's
-  local archive names no server (finding 59), so its device meets Android's
-  own defaults, and a second device on it, and the device updated from one
+  (`Peer.seed`), so what the device sends HQ is the same on every run. A local
+  archive names its configuration's project space, so its device reaches HQ at
+  the addresses the archive names. A control retained before the archive named
+  one holds an archive that names no server (finding 59), so its device meets
+  Android's own defaults, and a second device on it, and the device updated from one
   local export to the other, are given the input the lane gives Core over
   that archive (the worker's credentials on every request, HQ's restore
   view's answer for the worker, each form taken by HQ's receiver under the

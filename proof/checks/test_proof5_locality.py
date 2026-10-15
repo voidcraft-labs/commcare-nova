@@ -31,8 +31,8 @@ that does neither is reported. An entity the edit moved is compared with
 itself, never with what took its place. A form's
 link that D' points at a form only D' holds is reported: no id D' minted
 for its own entity reads as an id of D's
-(``proof/corpus/publish.ts::capturePublish`` draws an update that sends
-anything but the republish from a stream of its own). The digest reads
+(an id is derived from its own entity's UUID alone,
+``lib/commcare/wireIdentity.ts``). The digest reads
 exactly what the comparators read, so it neither misses a change they
 report nor reports a spelling they do not read. An input the corpus
 lost (D''s publish under a configuration Nova's would send it to, one side's
@@ -495,9 +495,9 @@ def test_an_entity_the_edit_moves_is_compared_with_itself():
 def _retarget_subject():
     """An edited document whose D' adds a form ahead of one D holds, with the forms the control links.
 
-    The added form sits ahead of a form D holds on the wire, so the ids D''s
-    publish mints for it are drawn where D's republish drew another form's:
-    one generator for both publishes would give it that form's ids. Returns
+    The added form sits ahead of a form D holds on the wire, and its id is
+    derived from its own UUID (``lib/commcare/wireIdentity.ts``), so it is no
+    form's of D, wherever the form sits. Returns
     the document, a configuration both publish under, the form that links
     (one D and D' hold), the form its link names in D, and the added form.
     The form the link names is, in the first such publish where there is

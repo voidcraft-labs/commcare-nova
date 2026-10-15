@@ -9,6 +9,7 @@ import { evaluateCommit } from "../../../lib/commcare/validator/gate";
 import { toPersistableDoc } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema, proseText } from "../../../lib/domain";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outputArgument = process.argv[2];
 if (!outputArgument)
@@ -81,7 +82,11 @@ for (const scenario of scenarios) {
 	const hq = expandDoc(doc);
 	writeFileSync(resolve(output, `${scenario.name}.json`), JSON.stringify(hq));
 	if (scenario.accepted) {
-		const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const archive = new AdmZip(
+			compileCcz(hq, doc.appName, doc, {
+				runtimeTarget: NATIVE_RUNTIME_TARGET,
+			}),
+		);
 		writeFileSync(
 			resolve(output, `${scenario.name}.xml`),
 			archive.readAsText("modules-0/forms-0.xml"),

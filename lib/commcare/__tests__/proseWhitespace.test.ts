@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { proseWhitespaceFixture } from "./proseWhitespaceFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 
 function descendants(node: XmlEvidence, name: string): XmlEvidence[] {
@@ -18,7 +19,9 @@ describe("exported prose whitespace", () => {
 		const hq = expandDoc(doc);
 		const source = Object.values(hq._attachments)[0];
 		if (typeof source !== "string") throw new Error("Missing HQ form source.");
-		const archive = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const archive = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
 		for (const [path, xml] of [
 			["HQ source", source],
 			["local CCZ", archive.readAsText("modules-0/forms-0.xml")],

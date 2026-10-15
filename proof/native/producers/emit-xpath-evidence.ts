@@ -22,6 +22,7 @@ import {
 	FUNCTION_REGISTRY,
 	functionArityIssue,
 } from "../../../lib/domain/expressionFunctions";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const outputArgument = process.argv[2];
 if (!outputArgument)
@@ -75,7 +76,11 @@ blueprintDocSchema.parse(toPersistableDoc(doc));
 const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 if (findings.length) throw new Error(JSON.stringify(findings));
 const hq = expandDoc(doc);
-const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+const zip = new AdmZip(
+	compileCcz(hq, doc.appName, doc, {
+		runtimeTarget: NATIVE_RUNTIME_TARGET,
+	}),
+);
 writeFileSync(
 	resolve(output, "xpath-context.xml"),
 	zip.readAsText("modules-0/forms-0.xml"),
