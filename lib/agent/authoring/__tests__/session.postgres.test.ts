@@ -1,5 +1,7 @@
-import { expect, it } from "vitest";
+import { Client } from "pg";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { getAuthDb } from "@/lib/auth/db";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
@@ -597,4 +599,47 @@ it("isolates external identities between works and recovers a committed organiza
 			input: location("West", "3"),
 		}),
 	).rejects.toThrow(/Save/);
+});
+
+it("opens one executing workspace without diagnostics and preserves exact replay", async () => {
+	const { args } = await existing();
+	await executeWorkTool({
+		...args,
+		requestId: "first",
+		toolName: "updateApp",
+		input: { name: "Pending" },
+	});
+	const open = vi.spyOn(ChangeSetMutationWorkspace, "open");
+	const inspect = vi.spyOn(ChangeSetMutationWorkspace.prototype, "inspect");
+	const queries = vi.spyOn(Client.prototype, "query");
+	try {
+		const call = {
+			...args,
+			requestId: "second",
+			toolName: "updateApp",
+			input: { name: "Finished" },
+		};
+		const result = await executeWorkTool(call);
+		const count = queries.mock.calls.length;
+		// The full-diagnostics policy path issued 117 SQL calls for this operation.
+		expect(count).toBeLessThan(117);
+		expect(open).toHaveBeenCalledTimes(1);
+		expect(inspect).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			kind: "mutate",
+			result: { ok: true, saved: false },
+		});
+		open.mockClear();
+		queries.mockClear();
+		expect(await executeWorkTool(call)).toEqual(result);
+		expect(open).not.toHaveBeenCalled();
+		expect(inspect).not.toHaveBeenCalled();
+		const work = await getWork(args);
+		expect(work.app).toMatchObject({ name: "Finished" });
+		expect(inspect).toHaveBeenCalledTimes(1);
+	} finally {
+		queries.mockRestore();
+		inspect.mockRestore();
+		open.mockRestore();
+	}
 });

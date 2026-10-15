@@ -243,3 +243,8 @@ Work IDs use one UUID grammar in lifecycle tools, generated shared schemas and
 the session service. Malformed values refuse as authoring input before database
 access. Valid IDs still pass the authority gate and reveal no inaccessible work.
 App, Project, thread and request IDs remain opaque text.
+
+Execution policy reads only authorized candidate revision and pending-count metadata.
+It does not build an app overview, rehydrate a document, or run diagnostics. The
+executing workspace still opens under its existing authority and revision locks;
+explicit work inspection retains the full diagnostics response.
