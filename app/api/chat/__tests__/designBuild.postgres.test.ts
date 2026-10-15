@@ -576,3 +576,92 @@ describe("design-session build turns", () => {
 		expect(thread.active_stream_id).toBeNull();
 	});
 });
+
+it("returns an actionable attachment conflict without changing a paused claim or credits", async () => {
+	runBuildOrchestrationMock.mockImplementation(async (args) => {
+		args.meter?.track({ inputTokens: 10, outputTokens: 5 });
+		args.writer.write({ type: "start", messageId: args.responseMessageId });
+		args.writer.write({ type: "start-step" });
+		args.writer.write({ type: "text-start", id: "question" });
+		args.writer.write({
+			type: "text-delta",
+			id: "question",
+			delta: "What should the app collect?",
+		});
+		args.writer.write({ type: "text-end", id: "question" });
+		args.writer.write({ type: "finish-step" });
+		args.writer.write({ type: "finish" });
+		return {
+			kind: "awaiting-input",
+			pause: {
+				kind: "message",
+				origin: args.responseMessageId,
+				orchestration: {
+					expectedHead: await readOrchestrationHead(args.designSessionId),
+					state: { kind: "awaiting-input" },
+				},
+				toolCallIds: [],
+			},
+		};
+	});
+	await responseText(await POST(buildRequest()));
+	const before = await sessionRow();
+	const thread = await threadRow();
+	const credits = await appDb
+		.selectFrom("credit_months")
+		.selectAll()
+		.where("user_id", "=", USER)
+		.executeTakeFirstOrThrow();
+	const assetId = "00000000-0000-4000-8000-000000000123";
+	const response = await POST(
+		new Request("http://localhost/api/chat", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				designSessionId: before.id,
+				threadId: THREAD,
+				expectedProjectId: PROJECT,
+				runId: before.run_id,
+				holderNonce: before.run_holder_nonce,
+				messages: [
+					...(thread.messages as unknown[]),
+					{
+						id: "with-file",
+						role: "user",
+						parts: [{ type: "text", text: "Use these requirements" }],
+						metadata: {
+							attachments: [
+								{
+									assetId,
+									kind: "pdf",
+									filename: "requirements.pdf",
+									mimeType: "application/pdf",
+								},
+							],
+						},
+					},
+				],
+			}),
+		}),
+	);
+	expect(response.status).toBe(409);
+	const body = await response.json();
+	expect(body).toMatchObject({
+		type: "attachment_unavailable",
+		error: expect.stringContaining("Remove it"),
+	});
+	expect(JSON.stringify(body)).not.toContain(assetId);
+	const after = await sessionRow();
+	expect(after.run_id).toBe(before.run_id);
+	expect(after.run_holder_nonce).toBe(before.run_holder_nonce);
+	expect(after.res_reserved).toBe(before.res_reserved);
+	expect(await threadRow()).toEqual(thread);
+	expect(
+		await appDb
+			.selectFrom("credit_months")
+			.selectAll()
+			.where("user_id", "=", USER)
+			.executeTakeFirstOrThrow(),
+	).toEqual(credits);
+	expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(1);
+});
