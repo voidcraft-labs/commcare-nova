@@ -8,6 +8,7 @@ import {
 	listWork,
 	saveWork,
 } from "@/lib/agent/authoring/session";
+import { workIdSchema } from "@/lib/agent/authoring/workId";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { toMcpErrorResult } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
@@ -16,10 +17,9 @@ import { LARGE_RESULT_META } from "../resultSize";
 import type { ToolContext } from "../types";
 import { projectWorkPayload } from "../workProjection";
 
-const work_id = z
-	.string()
-	.min(1)
-	.describe("Stable private work ID returned by begin_work.");
+const work_id = workIdSchema.describe(
+	"Stable private work ID returned by begin_work.",
+);
 const request_id = z
 	.string()
 	.min(1)

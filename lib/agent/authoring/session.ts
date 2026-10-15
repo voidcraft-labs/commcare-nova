@@ -61,6 +61,7 @@ import { AuthoringInputError } from "./errors";
 import { authoringExecutionPolicy } from "./executionPolicy";
 import { runSharedToolCall } from "./sharedToolCall";
 import { authoringToolSchema } from "./toolSchema";
+import { assertWorkId } from "./workId";
 
 const checkpointSchema = z.strictObject({
 	seq: z.number().int().nonnegative(),
@@ -128,6 +129,7 @@ function authorityArgs(args: WorkArgs, allowIdleChat = false) {
 	};
 }
 function authorize(args: WorkArgs, allowIdleChat = false) {
+	assertWorkId(args.workId);
 	return withAppTx((tx) =>
 		assertAuthoringSessionAuthorityInTransaction(
 			tx,
@@ -788,6 +790,7 @@ export async function saveWork(
 export async function discardWork(
 	args: WorkArgs & { requestId: string; expectedRevision: string },
 ) {
+	assertWorkId(args.workId);
 	const expected = parseWorkRevision(args.expectedRevision);
 	return withAppTx(async (tx) => {
 		const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
