@@ -536,7 +536,16 @@ describe("conditional numeric writes", () => {
 			const store = makeStore();
 			await expect(
 				submit(store, program("yes", volume, duration)),
-			).rejects.toMatchObject({ code });
+			).rejects.toMatchObject({
+				name: "SubmissionRejectedError",
+				cause: { code },
+				rejection: {
+					kind: "expression",
+					operationUuid: OP_UUID,
+					slot: "property: flow",
+					fieldUuids: [VOLUME_FIELD, DURATION_FIELD],
+				},
+			});
 			expect(
 				await store.query({ appId: APP_ID, caseType: INSPECTION.name }),
 			).toEqual([]);

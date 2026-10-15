@@ -1,8 +1,16 @@
 import { z } from "zod";
+import { AuthoringInputError } from "@/lib/agent/authoring/errors";
 import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
-import { listAppTests, readAppTestSteps } from "@/lib/db/appTests";
+import {
+	AppTestUnavailableError,
+	listAppTests,
+	readAppTestSteps,
+} from "@/lib/db/appTests";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { appTestReadWindowSchema } from "@/lib/preview/app-tests/evidence";
+import {
+	AppTestEvidenceInputError,
+	appTestReadWindowSchema,
+} from "@/lib/preview/app-tests/evidence";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import {
 	appTestActionSchema,
@@ -10,7 +18,22 @@ import {
 	appTestAuthoredActionSchema,
 	appTestStartSchema,
 } from "@/lib/preview/app-tests/types";
+import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
 import type { ToolInvocationContext } from "../workspace/types";
+
+async function authoringJourney<T>(run: Promise<T>): Promise<T> {
+	try {
+		return await run;
+	} catch (cause) {
+		if (
+			cause instanceof FormEvaluationInputError ||
+			cause instanceof AppTestUnavailableError ||
+			cause instanceof AppTestEvidenceInputError
+		)
+			throw new AuthoringInputError(cause.message, { cause });
+		throw cause;
+	}
+}
 
 function scope(ctx: ToolInvocationContext) {
 	if (!ctx.appId) return null;
@@ -48,11 +71,13 @@ export const startAppTestTool = {
 			};
 		return {
 			kind: "read" as const,
-			data: await startAppTest(admitted, {
-				requestId: ctx.invocation.requestId,
-				expectedBlueprintSeq: ctx.snapshot.canonicalSeq,
-				input,
-			}),
+			data: await authoringJourney(
+				startAppTest(admitted, {
+					requestId: ctx.invocation.requestId,
+					expectedBlueprintSeq: ctx.snapshot.canonicalSeq,
+					input,
+				}),
+			),
 		};
 	},
 };
@@ -91,32 +116,34 @@ export const continueAppTestTool = {
 		if (!admitted) return unsavedApp;
 		return {
 			kind: "read" as const,
-			data: await continueAppTest(admitted, {
-				...input,
-				requestId: ctx.invocation.requestId,
-				legacyAction:
-					input.action === undefined
-						? undefined
-						: async (snapshot) => {
-								const prepared = await prepareAuthoringInput({
-									toolName: "continueAppTest",
-									schema: legacyContinueSchema,
-									input: {
-										testId: input.testId,
-										expectedStep: input.expectedStep,
-										action: input.action,
-									},
-									ctx: {
-										...ctx,
-										snapshot: {
-											...ctx.snapshot,
-											doc: hydratePersistedBlueprint(snapshot.blueprint),
+			data: await authoringJourney(
+				continueAppTest(admitted, {
+					...input,
+					requestId: ctx.invocation.requestId,
+					legacyAction:
+						input.action === undefined
+							? undefined
+							: async (snapshot) => {
+									const prepared = await prepareAuthoringInput({
+										toolName: "continueAppTest",
+										schema: legacyContinueSchema,
+										input: {
+											testId: input.testId,
+											expectedStep: input.expectedStep,
+											action: input.action,
 										},
-									},
-								});
-								return prepared.action;
-							},
-			}),
+										ctx: {
+											...ctx,
+											snapshot: {
+												...ctx.snapshot,
+												doc: hydratePersistedBlueprint(snapshot.blueprint),
+											},
+										},
+									});
+									return prepared.action;
+								},
+				}),
+			),
 		};
 	},
 };
@@ -134,12 +161,14 @@ export const readAppTestTool = {
 			kind: "read" as const,
 			data:
 				input.testId === undefined
-					? await listAppTests(admitted)
-					: await readAppTestSteps({
-							...admitted,
-							...input,
-							testId: input.testId,
-						}),
+					? await authoringJourney(listAppTests(admitted))
+					: await authoringJourney(
+							readAppTestSteps({
+								...admitted,
+								...input,
+								testId: input.testId,
+							}),
+						),
 		};
 	},
 };

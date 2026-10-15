@@ -1367,3 +1367,9 @@ apps reach DDL, then proves both converge without an invalid index or pending
 marker. Recovery from other transient failures rereads durable pending
 work and rebuilds invalid indexes; exhausted transient failures and deterministic
 faults still propagate to the caller. It never retries a case-data write.
+
+Submission expression batches use a savepoint. On numeric conversion, division
+by zero or numeric overflow only, the executor diagnoses individual projections
+in the same pre-effect transaction. The typed expression refusal preserves the
+original cause and identifies operation, slot and source fields without SQL or
+record values. Other database failures propagate unchanged.

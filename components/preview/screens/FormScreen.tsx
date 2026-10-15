@@ -239,6 +239,8 @@ function describeSubmissionRejection(
 	>["rejection"],
 ): string {
 	switch (rejection.kind) {
+		case "expression":
+			return `Nothing was saved: a calculation in ${rejection.operationId} could not run. An app editor can review ${rejection.slot} and its source answers.`;
 		case "selection": {
 			switch (rejection.reason) {
 				case "empty":

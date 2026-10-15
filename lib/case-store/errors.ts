@@ -348,6 +348,17 @@ export class CaptureSubmissionRejectedError extends Error {
  */
 export type SubmissionRejection =
 	| {
+			readonly kind: "expression";
+			readonly reason:
+				| "invalid-value"
+				| "division-by-zero"
+				| "numeric-overflow";
+			readonly operationUuid: string;
+			readonly operationId: string;
+			readonly slot: string;
+			readonly fieldUuids: readonly string[];
+	  }
+	| {
 			readonly kind: "selection";
 			readonly reason:
 				| "empty"
@@ -411,13 +422,20 @@ export class SubmissionRejectedError extends Error {
 	readonly name = "SubmissionRejectedError";
 	readonly rejection: SubmissionRejection;
 
-	constructor(rejection: SubmissionRejection) {
+	constructor(rejection: SubmissionRejection, options?: ErrorOptions) {
 		const detail: string[] = [`${INDENT}kind: '${rejection.kind}'`];
 		if (rejection.kind !== "retype-not-portable") {
 			detail.push(`${INDENT}reason: '${rejection.reason}'`);
 		}
 		if ("operationUuid" in rejection) {
 			detail.push(`${INDENT}operation: '${rejection.operationUuid}'`);
+		}
+		if (rejection.kind === "expression") {
+			detail.push(
+				`operation name: ${rejection.operationId}`,
+				`calculation: ${rejection.slot}`,
+				`source fields: ${rejection.fieldUuids.join(", ")}`,
+			);
 		}
 		if (rejection.kind === "selection") {
 			if (rejection.caseId !== undefined) {
@@ -439,6 +457,7 @@ export class SubmissionRejectedError extends Error {
 				"failure so the worker sees one atomic rejection, mirroring how Core",
 				"and HQ fail the same submission's XML transaction.",
 			].join("\n"),
+			options,
 		);
 		this.rejection = rejection;
 	}
