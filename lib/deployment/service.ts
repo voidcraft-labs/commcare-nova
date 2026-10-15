@@ -588,6 +588,7 @@ export async function publishAppToHq(
 		targetApp,
 		appBaseline,
 		confirmedChanges,
+		targetEmptyCaseListText,
 	} = preflight.ready;
 	const identity = targetWireIdentity(overrides);
 	const contentGeneration = await beginDeploymentContentWrite(
@@ -936,6 +937,9 @@ export async function publishAppToHq(
 			remoteRevision: result.version,
 			uploadedAt: new Date().toISOString(),
 			baseline: pushBaseline.write,
+			/* A failed read leaves the column as an earlier publish wrote it,
+			 * and never blocks: the flag only decides a `.ccz`'s empty-list text. */
+			...(targetEmptyCaseListText !== null && { targetEmptyCaseListText }),
 		});
 
 		const entries = publishedEntryPoints(prepared, hqJson, input.appName, {

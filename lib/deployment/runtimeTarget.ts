@@ -13,6 +13,18 @@ export interface ReachedDeploymentTarget {
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly hqAppId: string;
+	/**
+	 * The target holds `USH_EMPTY_CASE_LIST_TEXT`, as the last publish read
+	 * it: a `.ccz` made for it writes the empty-list text where HQ's build
+	 * there does. False where no publish has read it.
+	 */
+	readonly emptyCaseListText: boolean;
+	/**
+	 * How many HQ apps the deployment held before the one it holds now. A
+	 * `.ccz`'s version is the document's sequence plus this, so the file
+	 * made after the target's HQ app was made afresh is newer to a phone.
+	 */
+	readonly earlierHqApps: number;
 }
 
 export interface DownloadTargetInput {

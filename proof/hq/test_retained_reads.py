@@ -736,7 +736,7 @@ def _document_reads(documents, document_id, member_name):
                     retained.keep(
                         f"fixture-rows-{table['tag']}", operations.fixture_rows_read(state, table["id"], member)
                     )
-    unread = sorted(set(saves) - {kind for kind, _ in hqside.SAVES})
+    unread = sorted(set(saves) - {kind for kind, _ in hqside.SAVES} - set(hqside.STATEMENTS))
     assert not unread, unread
     forms = [form["unique_id"] for form in _forms(_body(first))]
     assert forms and not set(forms) & {form["unique_id"] for form in _forms(_body(again))}, document_id

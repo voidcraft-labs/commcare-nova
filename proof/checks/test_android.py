@@ -10,8 +10,12 @@ The plausible failures: a reader's changed answer lost, or reported once more fo
 reads differently (an equivalence reported as a harm); an app's own id or version read as a difference between
 two builds of one app; a walk that takes other screens reported once a step; a menu item, a case or a search
 term compared by where it stands, so one added item reports every item after it; a worker's own setting an
-update replaced lost, or one the update left reported; an incomplete form that no longer opens lost; two
-exports that install as two apps not told from two that install as one. Each test plants one such change in an
+update replaced lost, or one the update left reported, or one a forced setting resets at every update reported
+as the save's doing (the update to the state's own next build resets it too); an incomplete form that no longer
+opens lost; two exports that install as two apps not told from two that install as one; and an update between
+two exports of one revision, which Android answers ``UpToDate`` by design, reported as another outcome than
+HQ's, or one that answers so for another app, a lower version, archives it does not name or a file it refused,
+read as the same outcome. Each test plants one such change in an
 answer shaped as the reader writes it and holds the judge to exactly it, beside the unchanged answer it
 accepts.
 """
@@ -856,3 +860,42 @@ def test_the_judges_read_a_tablet_from_the_keys_a_tablet_is_kept_under():
     record = android.document_record(_Records(blobs, {"minimum": parts}), tablet=True)
     assert record["configurations"]["minimum"]["A"]["app"] is tablet
     assert record["configurations"]["minimum"]["local"] == {"app": local_tablet}
+
+
+def test_a_reset_the_states_own_next_build_makes_too_is_no_difference_the_save_made():
+    """Both apps force cc-enable-tts: the save's update and the update to the state's own next build reset it to the
+    same value, so the save made no difference there; the setting the saved app forces and the state does not is
+    still reported."""
+    saved = _update()
+    saved["after"]["stored"].update({"cc-enable-tts": "no", "cc-autoup-freq": "freq-never"})
+    own = _update()
+    own["after"]["stored"].update({"cc-enable-tts": "no"})
+    found = _proof4({"editor": "app settings", "over": None, "app": _app(), "update": saved, "nextBuild": own})
+    assert _paths(found) == [("android@app settings@B@minimum", "/update/workerSettings/cc-autoup-freq", "changed")]
+    assert (found[0].before, found[0].after) == ("freq-daily", "freq-never")
+    # A next build that resets the setting to another value than the save's leaves the save's reset reported.
+    other = _update()
+    other["after"]["stored"].update({"cc-enable-tts": "maybe", "cc-autoup-freq": "freq-never"})
+    found = _proof4({"editor": "app settings", "over": None, "app": _app(), "update": saved, "nextBuild": other})
+    assert _paths(found) == [("android@app settings@B@minimum", "/update/workerSettings/cc-enable-tts", "changed")]
+
+
+def _archives(before=("u-1", "7"), after=("u-1", "7")):
+    return {
+        "before": {"uniqueid": before[0], "version": before[1]},
+        "after": {"uniqueid": after[0], "version": after[1]},
+    }
+
+
+def test_an_up_to_date_update_between_two_exports_of_one_revision_is_the_outcome_hqs_newer_build_has():
+    same = _update(staged="UpToDate", updated=None, archives=_archives())
+    assert _proof1(_installs("Installed", "DuplicateApp"), same) == []
+    for name, planted in (
+        ("another app", _update(staged="UpToDate", updated=None, archives=_archives(after=("u-2", "7")))),
+        ("a lower version", _update(staged="UpToDate", updated=None, archives=_archives(after=("u-1", "6")))),
+        ("no archive named", _update(staged="UpToDate", updated=None)),
+        ("a file it refused", _update(staged="InvalidResource", updated=None, archives=_archives())),
+    ):
+        assert _paths(_proof1(_installs("Installed", "DuplicateApp"), planted)) == [
+            ("android@local.ccz", "/update", "changed")
+        ], name

@@ -34,7 +34,15 @@ way, where a run's sample leaves documents out, ``proof.store.queue.sampled``),
   one ``create`` whose body is state A's whole app, which controls retained
   before the two imports keep. ``Export.content`` is the import whose body is
   state A's app in either layout;
-- ``local.ccz`` and ``local-again.ccz``: two local exports of D;
+- ``local.ccz`` and ``local-again.ccz``: two local exports of D, compiled for
+  a project space without ``USH_EMPTY_CASE_LIST_TEXT``; and, where a
+  configuration the document runs under holds that flag,
+  ``local-empty-list-text.ccz``, the same export of D compiled for a project
+  space that holds it, whose short details carry the empty-list text as
+  HQ's build there does. Each configuration's local archive is the one
+  compiled for its flags (``Document.local_ccz_for``), and a control retained
+  before the archives were compiled per configuration holds ``local.ccz``
+  alone, which is then every configuration's;
 - ``import-file.zip``: the HQ import file for D, as Nova's
   ``/api/compile/json`` builds it (``Document.import_file``);
 - ``edit/``: ``batch.json`` (the edit batch and its footprint),
@@ -91,6 +99,10 @@ CONFIGURATION_KEYS = frozenset(
     {"flags", "namedPrivileges", "commcareVersion", "commtrack", "syncCasesOnFormEntry", "caseSearchEnabled"}
 )
 BASE_CONFIGURATIONS = ("minimum", "maximum")
+# The flag a local archive's bytes depend on, and the archive compiled for a project space that holds it
+# (proof/corpus/inputs.ts::EMPTY_LIST_TEXT_FLAG, ::EMPTY_LIST_TEXT_ARCHIVE).
+EMPTY_LIST_TEXT_FLAG = "USH_EMPTY_CASE_LIST_TEXT"
+EMPTY_LIST_TEXT_ARCHIVE = "local-empty-list-text.ccz"
 
 
 class CorpusLayoutError(ValueError):
@@ -583,6 +595,33 @@ class Document:
     def local_again_ccz(self):
         path = self.root / "local-again.ccz"
         return path if path.exists() else None
+
+    @property
+    def local_empty_list_text_ccz(self):
+        """D's local archive compiled for a project space that holds ``EMPTY_LIST_TEXT_FLAG``, or None."""
+        path = self.root / EMPTY_LIST_TEXT_ARCHIVE
+        return path if path.exists() else None
+
+    def local_ccz_for(self, configuration):
+        """The local archive of D compiled for the project space the configuration ``configuration`` names: the
+        one compiled with ``EMPTY_LIST_TEXT_FLAG`` where the configuration holds it and the document carries that
+        archive, ``local.ccz`` otherwise (a control retained before the archives were compiled per configuration
+        holds ``local.ccz`` alone)."""
+        flagged = self.local_empty_list_text_ccz
+        if flagged is not None and EMPTY_LIST_TEXT_FLAG in self.configurations[configuration].flags:
+            return flagged
+        return self.local_ccz
+
+    @property
+    def local_archives(self):
+        """Each local archive the document carries, by its name in the document."""
+        found = {
+            "local.ccz": self.local_ccz,
+            "local-again.ccz": self.local_again_ccz,
+            EMPTY_LIST_TEXT_ARCHIVE: self.local_empty_list_text_ccz,
+            "edit/local.ccz": self.edit.local_ccz if self.edit is not None else None,
+        }
+        return {name: path for name, path in found.items() if path is not None}
 
     @property
     def import_file(self):

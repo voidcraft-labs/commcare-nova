@@ -7,7 +7,7 @@
  * schema and full validation, read back from the files the checks read); a
  * document Nova's publish refuses is left out and named with the boundary's
  * findings; and two emissions of one corpus at one seed are byte-identical
- * file for file, the minted identities included, whatever the time, the
+ * file for file, whatever the time, the
  * process that writes a document, or which other documents are written
  * with it (`./entropy.mts` seeds each export by the corpus seed, its
  * ordinal and its configuration). The plausible failures: a written
@@ -17,13 +17,12 @@
  * source of variation (a clock, an unordered collection, a random boundary,
  * a draw made outside its operation or shared between two) making every
  * comparison over the corpus noisy and no observation reusable. Seeding must
- * keep what Nova keeps apart: a document's two local exports draw different
- * profile `uniqueid`s (defect 9), or the corpus would hide that defect from
- * the checks that must see it. And seeding must shape no id a publish
- * sends: the republish carries the first publish's module and form ids and
- * `xmlns`, and an update to D′ that changes nothing Nova sends is
- * byte-identical to the republish though each is drawn in a stream of its
- * own, so a change that mints an id per publish again fails here.
+ * shape no id an export carries. The republish carries the first publish's
+ * module and form ids and `xmlns`; an update to D′ that changes nothing
+ * Nova sends is byte-identical to the republish; and a document's two local
+ * exports are one archive, byte for byte. The two of each pair are drawn in
+ * streams of their own, so a change that mints an id per export again fails
+ * here.
  *
  * A first publish is two imports: the empty shell's create, which names
  * neither a workbook nor media, and the content update that fills it. A
@@ -84,6 +83,7 @@ import AdmZip from "adm-zip";
 import { isTag } from "domhandler";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
+import { profileUniqueId as derivedUniqueId } from "@/lib/commcare/runtimeTarget";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -102,7 +102,12 @@ import {
 } from "../emitCorpus";
 import { sampleFuzzDocuments } from "../fuzzSample";
 import { producerDocuments } from "../producers";
-import { PROOF_DOMAIN, preparedMediaPaths } from "../publish";
+import {
+	PLACEHOLDER_APP_ID,
+	PROOF_DOMAIN,
+	PROOF_SERVER,
+	preparedMediaPaths,
+} from "../publish";
 import { workforceDocumentId, workforceDocuments } from "../workforce";
 import { readDocuments } from "../writePublishCaptures";
 
@@ -614,7 +619,7 @@ describe("the corpus emitter", () => {
 		}
 	});
 
-	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and keeps defect 9 visible", {
+	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and writes a document's two local exports as one archive", {
 		// Two more emissions of the corpus, each capturing every publish and
 		// writing every archive: about a second on a laptop, and CI runners
 		// are slower.
@@ -647,7 +652,7 @@ describe("the corpus emitter", () => {
 		expect(nova.has("inputs.json")).toBe(true);
 
 		// The next publish of an unchanged document sends the ids the first sent.
-		// Defect 9: the second local export draws another `uniqueid` for its profile.
+		// A document's two local exports are one archive: the profile's `uniqueid` is derived from the app's id and the project space.
 		const checked = ["arithmetic", "localization-mandarin"];
 		for (const id of checked) {
 			const directory = join(root, "nova", id, "export", "minimum");
@@ -668,11 +673,17 @@ describe("the corpus emitter", () => {
 			if (local === undefined || again === undefined) {
 				throw new Error(`${id} has no local archives.`);
 			}
-			const first = profileUniqueId(local);
-			expect(first, id).toMatch(
-				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-			);
-			expect(profileUniqueId(again), id).not.toBe(first);
+			const document = JSON.parse(
+				(nova.get(`${id}/document.json`) ?? Buffer.alloc(0)).toString("utf-8"),
+			) as { readonly doc: { readonly appId: string } };
+			const derived = derivedUniqueId(document.doc.appId, {
+				server: PROOF_SERVER,
+				domain: PROOF_DOMAIN,
+				appId: PLACEHOLDER_APP_ID,
+			});
+			expect(profileUniqueId(local), id).toBe(derived);
+			expect(profileUniqueId(again), id).toBe(derived);
+			expect(local.equals(again), id).toBe(true);
 		}
 	});
 

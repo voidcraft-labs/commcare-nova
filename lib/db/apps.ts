@@ -269,7 +269,10 @@ export interface SearchAppsResult {
 }
 
 type AppRow = Selectable<AppsTable>;
-type AppSummaryRow = Omit<AppRow, "case_types" | "localization">;
+type AppSummaryRow = Omit<
+	AppRow,
+	"case_types" | "localization" | "app_settings"
+>;
 
 /**
  * Delete one media metadata row for a live chat run under the same app-row,
@@ -795,7 +798,7 @@ async function authorizeProjectMoveGovernance(
 }
 
 function projectMoveRunDisposition(
-	fresh: Omit<AppRow, "case_types" | "localization">,
+	fresh: Omit<AppRow, "case_types" | "localization" | "app_settings">,
 ): Extract<
 	PrepareProjectMoveResult,
 	{ kind: "busy" | "reapable" | "corrupt_holder" }
@@ -2462,6 +2465,11 @@ async function loadAppForReadOnlyInspection(
 				.select(
 					sql<string | null>`${sql.ref("apps.localization")}::text`.as(
 						"localization_text",
+					),
+				)
+				.select(
+					sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+						"app_settings_text",
 					),
 				)
 				.where("id", "=", appId)

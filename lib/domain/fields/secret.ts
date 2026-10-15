@@ -33,6 +33,7 @@ export const secretFieldMetadata: FieldKindMetadata<"secret"> = {
 	label: "Secret",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs: "Sensitive input (password, PIN).",
 	convertTargets: ["text"],
 };

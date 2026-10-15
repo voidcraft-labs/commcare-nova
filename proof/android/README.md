@@ -250,7 +250,19 @@ The requests (`Reader.java`):
   suite (or the one a request names), a form saved incomplete before the
   update, the session Android stored for it
   (`SessionStateDescriptor.getSessionDescriptor`), and what home does when
-  the worker reopens it after.
+  the worker reopens it after. Proof 1 reads an update between two exports
+  of one revision, which Android answers `UpToDate` since it compares
+  versions alone, by the archives it was given, so the answer names each
+  archive's profile `uniqueid` and `version` (`archives`, which
+  `observe.py::update` adds from the archives' own profiles).
+- **`location`**: a device on an archive opens a command's form, allows the
+  location permission its poll asks for, and is handed each of the
+  request's fixes in turn through Android's own location listener
+  (`Location.java`); after each, whether the form's poll of the location
+  sensor still runs (`PollSensorController`'s pending actions) and what the
+  node the request names holds. A walk gives a form one fix, finer than any
+  accuracy a profile names, so the auto-capture accuracy a profile states
+  is read here (`predicates.py::test_automatic_capture_stops_at_the_accuracy_the_profile_names`).
 
 An answer holds what Android gave: a status Android reports, a screen's own
 alert, what the app itself raised on a walk. A request the reader itself could

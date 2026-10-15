@@ -59,6 +59,7 @@ import {
 	type PersistedEntityRowText,
 } from "@/lib/db/persistedJson";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 
 const SESSION_MODES = "'build', 'edit'";
 const SESSION_STATES = "'active', 'materialized', 'completed', 'abandoned'";
@@ -475,6 +476,10 @@ async function rebuildBlueprintOnlyMediaRefs(
 				app_name: app.app_name,
 				connect_type: app.connect_type,
 				case_types_text: app.case_types_text,
+				// `apps.app_settings` is later than this migration, and the
+				// media references it rebuilds never read the settings, so
+				// the document assembles with a new app's.
+				app_settings_text: JSON.stringify(NEW_APP_SETTINGS),
 				logo: app.logo,
 			} as PersistedBlueprintRootText,
 			entities.rows as unknown as PersistedEntityRowText[],

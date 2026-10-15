@@ -46,6 +46,12 @@ const FORM_ENTITY = {
 	nameAtMigration: "Visit",
 } as const;
 
+const FIELD_ENTITY = {
+	type: "field",
+	uuid: "01992000-0000-7000-8000-0000000000e1",
+	nameAtMigration: "Card number",
+} as const;
+
 const LOOKUP_ENTITY = {
 	type: "lookupTable",
 	uuid: "01992000-0000-7000-8000-0000000000c1",
@@ -101,6 +107,66 @@ const ENTRIES: Record<
 			entity: APP_ENTITY,
 		},
 	},
+	"android-form-lists-setting-stored": {
+		withDetail: {
+			kind: "document",
+			reason: "android-form-lists-setting-stored",
+			entity: APP_ENTITY,
+			detail: { saved: "off", incomplete: "on" },
+		},
+		bare: {
+			kind: "document",
+			reason: "android-form-lists-setting-stored",
+			entity: APP_ENTITY,
+		},
+	},
+	"validation-now-enforced": {
+		withDetail: {
+			kind: "document",
+			reason: "validation-now-enforced",
+			entity: FIELD_ENTITY,
+			detail: { form: "Intake", kind: "barcode" },
+		},
+		bare: {
+			kind: "document",
+			reason: "validation-now-enforced",
+			entity: FIELD_ENTITY,
+		},
+	},
+	"local-archive-changes": {
+		withDetail: {
+			kind: "document",
+			reason: "local-archive-changes",
+			entity: APP_ENTITY,
+			detail: { apps: "1" },
+		},
+		bare: {
+			kind: "document",
+			reason: "local-archive-changes",
+			entity: APP_ENTITY,
+		},
+	},
+	"setting-changes-at-next-publish": {
+		withDetail: {
+			kind: "deployment",
+			reason: "setting-changes-at-next-publish",
+			deployment: DEPLOYMENT,
+			detail: { setting: "saved", readers: "android" },
+		},
+		bare: {
+			kind: "deployment",
+			reason: "setting-changes-at-next-publish",
+			deployment: DEPLOYMENT,
+		},
+	},
+	"settings-unknown-unreadable": deploymentEntries(
+		"settings-unknown-unreadable",
+		[],
+	),
+	"worker-settings-reset-at-next-publish": deploymentEntries(
+		"worker-settings-reset-at-next-publish",
+		[],
+	),
 	"hq-app-deleted": deploymentEntries("hq-app-deleted", []),
 	"hq-app-not-nova-made": deploymentEntries("hq-app-not-nova-made", []),
 	"ids-change-once-unreadable": deploymentEntries(
@@ -313,6 +379,122 @@ describe("the lines about what the next publish writes over", () => {
 		expect(
 			line.parts.filter((part) => part.kind === "entity").map((p) => p.text),
 		).toEqual(["Clinics", "District 4"]);
+	});
+});
+
+describe("the form-list, validation and download lines", () => {
+	const document = (reason: string, entity: unknown, detail?: object) =>
+		parsed({ kind: "document", reason, entity, ...(detail && { detail }) });
+	const deployment = (reason: string, detail?: object) =>
+		parsed({
+			kind: "deployment",
+			reason,
+			deployment: DEPLOYMENT,
+			...(detail && { detail }),
+		});
+
+	it("states both stored form-list settings, naming the readers of each", () => {
+		expect(
+			renderNoticeEntry(
+				document("android-form-lists-setting-stored", APP_ENTITY, {
+					saved: "off",
+					incomplete: "on",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"This app now states whether workers see saved forms and incomplete forms on their home screen: saved forms off, incomplete forms on. Android reads both settings, and Web Apps reads the incomplete forms one. Nova kept each list on wherever a project space of this app shows it today. They are yours to change in App settings.",
+		);
+	});
+
+	it("names the form and the question whose validation now runs, by its kind", () => {
+		const line = renderNoticeEntry(
+			document("validation-now-enforced", FIELD_ENTITY, {
+				form: "Intake",
+				kind: "barcode",
+			}),
+			REMOVED,
+		);
+		expect(line.text).toBe(
+			"Intake, Card number: its validation now runs on this barcode question. Workers see its message when an answer doesn't pass.",
+		);
+		expect(
+			line.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Card number"]);
+		expect(
+			renderNoticeEntry(
+				document("validation-now-enforced", FIELD_ENTITY, {
+					form: "Intake",
+					kind: "secret",
+				}),
+				REMOVED,
+			).text,
+		).toContain("on this secret question.");
+	});
+
+	it("says what a downloaded file now needs, the same for every app", () => {
+		const connect = { ...APP_ENTITY, nameAtMigration: "Deliveries" };
+		for (const entity of [APP_ENTITY, connect]) {
+			expect(
+				renderNoticeEntry(document("local-archive-changes", entity), PRESENT)
+					.text,
+			).toBe(
+				"A CommCare file downloaded from Nova now needs CommCare 2.57 or later.",
+			);
+		}
+	});
+
+	it("says which list workers gain at the next publish, and on which readers", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("setting-changes-at-next-publish", {
+					setting: "saved",
+					readers: "android",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"Workers on field-ops will see saved forms on Android after the next publish there. They don't today, and another project space of this app shows them. You can turn them off in App settings.",
+		);
+		expect(
+			renderNoticeEntry(
+				deployment("setting-changes-at-next-publish", {
+					setting: "incomplete",
+					readers: "android",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"Workers on field-ops will see incomplete forms on Android after the next publish there, as they already do in Web Apps. You can turn them off in App settings.",
+		);
+		expect(
+			renderNoticeEntry(
+				deployment("setting-changes-at-next-publish", {
+					setting: "incomplete",
+					readers: "android-and-webapps",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"Workers on field-ops will see incomplete forms on Android and in Web Apps after the next publish there. They don't today, and another project space of this app shows them. You can turn them off in App settings.",
+		);
+	});
+
+	it("says what the next publish does where the settings could not be read, and which worker settings it resets", () => {
+		expect(
+			renderNoticeEntry(deployment("settings-unknown-unreadable"), PRESENT)
+				.text,
+		).toBe(
+			"Nova couldn't read field-ops, so it could not tell whether workers see saved and incomplete forms there. The next publish there sets them to this app's settings. They are yours to change in App settings.",
+		);
+		expect(
+			renderNoticeEntry(
+				deployment("worker-settings-reset-at-next-publish"),
+				PRESENT,
+			).text,
+		).toBe(
+			"After the next publish to field-ops, each app update resets three of a worker's own settings: fuzzy search, automatic updates and text to speech.",
+		);
 	});
 });
 

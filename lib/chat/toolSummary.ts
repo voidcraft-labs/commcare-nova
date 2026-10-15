@@ -130,12 +130,13 @@ const CONNECT_ACTIONS: Record<string, string> = {
 	off: "Turned off CommCare Connect",
 };
 
-/** `updateApp` owns only the app name, so its row names the act itself —
- *  "Named the app" / "Renamed the app" — instead of the generic "Updated app
- *  settings". The name renders on the secondary "→"
- *  line (see `toolLocation`), never inline where a long title truncates the
- *  headline. Falls back to the generic phrase for a row recorded before the
- *  tool reported these facts. */
+/** `updateApp` sets the app name and the form-list settings. A call that set
+ *  a name names the act itself — "Named the app" / "Renamed the app" — and
+ *  one that changed settings alone reads the generic "Updated app settings".
+ *  The name and each changed setting render on the secondary "→" line (see
+ *  `toolLocation`), never inline where a long title truncates the headline.
+ *  Falls back to the generic phrase for a row recorded before the tool
+ *  reported these facts. */
 const updateAppAction = (
 	summary: ToolCallSummary | undefined,
 	tense: keyof ActionPhrases,
@@ -402,14 +403,31 @@ export const toolAction = (part: ToolUIPart): string => {
 		: action;
 };
 
+/** `updateApp`'s "→" line: the name it set, then each form-list setting it
+ *  changed, joined by " · " ("Village Health · Incomplete forms off"). */
+const updateAppLocation = (summary: ToolCallSummary): string | null => {
+	const parts = [
+		...(summary.subject !== undefined ? [summary.subject] : []),
+		...(summary.formLists?.saved !== undefined
+			? [`Saved forms ${summary.formLists.saved ? "on" : "off"}`]
+			: []),
+		...(summary.formLists?.incomplete !== undefined
+			? [`Incomplete forms ${summary.formLists.incomplete ? "on" : "off"}`]
+			: []),
+	];
+	return parts.length > 0 ? parts.join(" · ") : null;
+};
+
 /** The secondary "→" line beneath the action: the container breadcrumb
  *  ("Clients") for a scoped edit, or — for the app-level `updateApp`, which has
- *  no container — the app's new name, so the row reads "Named the app →
- *  Client Registration" with the full title on its own line. Null when the act
+ *  no container — the app's new name and each setting it changed, so the row
+ *  reads "Named the app → Client Registration" with the full title on its own
+ *  line. Null when the act
  *  is top-level with nothing to point at or the call carries no summary. */
 export const toolLocation = (part: ToolUIPart): string | null => {
 	const summary = outputOf(part)?.summary;
 	if (!summary) return null;
+	if (toolName(part) === "updateApp") return updateAppLocation(summary);
 	if (SUBJECT_ON_LOCATION_LINE.has(toolName(part))) {
 		return summary.subject ?? null;
 	}

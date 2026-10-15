@@ -59,6 +59,7 @@ import type {
 	HqProjectSpaceCapabilityProbePlan,
 	HqProjectSpaceCompatibilityProbePlan,
 } from "./projectSpaceCompatibility";
+import { domainFeatureFlag } from "./surface/gates";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
  * base-URL catalog, one auth scheme, and one WAF padding field. They are
@@ -245,6 +246,23 @@ export interface HqProjectSpaceCompatibilityProbeResult {
 	readonly advisories: readonly ProjectSpaceAdvisoryProbe[];
 	readonly availableAdvisories: readonly ProjectSpaceAdvisoryId[];
 	readonly report: ReturnType<typeof projectSpaceCompatibilityForTarget>;
+	/**
+	 * Whether the project space holds `USH_EMPTY_CASE_LIST_TEXT`, under which
+	 * HQ's build gives every case list an empty-list text. `null` when the
+	 * read was not asked for, when the unfiltered list did not hold the
+	 * target, or when the filtered read failed. It never changes a verdict.
+	 */
+	readonly emptyCaseListText: boolean | null;
+}
+
+export interface HqProjectSpaceCompatibilityProbeOptions {
+	/**
+	 * Also read `USH_EMPTY_CASE_LIST_TEXT` for the target, whatever the plan
+	 * holds: a publish stores the answer with the deployment, and a `.ccz`
+	 * made for it writes the empty-list text exactly where HQ's build there
+	 * does.
+	 */
+	readonly readEmptyCaseListText?: boolean;
 }
 
 /**
@@ -259,13 +277,20 @@ export async function probeHqProjectSpaceCompatibility(
 	creds: CommCareCredentials,
 	domain: string,
 	plan: HqProjectSpaceCompatibilityProbePlan,
+	options: HqProjectSpaceCompatibilityProbeOptions = {},
 ): Promise<HqProjectSpaceCompatibilityProbeResult> {
-	if (plan.capabilities.length === 0 && plan.advisories.length === 0) {
+	const readEmptyCaseListText = options.readEmptyCaseListText === true;
+	if (
+		!readEmptyCaseListText &&
+		plan.capabilities.length === 0 &&
+		plan.advisories.length === 0
+	) {
 		return {
 			capabilities: [],
 			advisories: [],
 			availableAdvisories: [],
 			report: projectSpaceCompatibilityForTarget(domain, [], []),
+			emptyCaseListText: null,
 		};
 	}
 	if (!isValidDomainSlug(domain)) {
@@ -311,20 +336,24 @@ export async function probeHqProjectSpaceCompatibility(
 	const needsCaseSearchRuntime = allPlans.some((item) =>
 		item.runtimeProbes.includes("case-search"),
 	);
-	const [flagEntries, caseSearchRuntime] = await Promise.all([
-		Promise.all(
-			[...privateFlags.values()].map(
-				async (flag) =>
-					[
-						flag.id,
-						await probePrivateFeatureFlag(creds, domain, flag),
-					] as const,
+	const [flagEntries, caseSearchRuntime, emptyCaseListTextState] =
+		await Promise.all([
+			Promise.all(
+				[...privateFlags.values()].map(
+					async (flag) =>
+						[
+							flag.id,
+							await probePrivateFeatureFlag(creds, domain, flag),
+						] as const,
+				),
 			),
-		),
-		needsCaseSearchRuntime
-			? probeCaseSearchRuntime(creds, domain)
-			: Promise.resolve(undefined),
-	]);
+			needsCaseSearchRuntime
+				? probeCaseSearchRuntime(creds, domain)
+				: Promise.resolve(undefined),
+			readEmptyCaseListText
+				? probePrivateFeatureFlag(creds, domain, EMPTY_CASE_LIST_TEXT_FLAG)
+				: Promise.resolve(undefined),
+		]);
 	const flagResults = new Map(flagEntries);
 
 	const capabilities: ProjectSpaceCapabilityProbe[] = plan.capabilities.map(
@@ -351,8 +380,28 @@ export async function probeHqProjectSpaceCompatibility(
 			capabilities,
 			advisories,
 		),
+		emptyCaseListText:
+			emptyCaseListTextState === "available"
+				? true
+				: emptyCaseListTextState === "missing"
+					? false
+					: null,
 	};
 }
+
+/**
+ * `USH_EMPTY_CASE_LIST_TEXT`, a flag HQ keys by project space alone, so a
+ * filtered list that holds the target is the project space's own flag and
+ * never the publisher's (`toggles/__init__.py`, `namespaces=[NAMESPACE_DOMAIN]`).
+ */
+const EMPTY_CASE_LIST_TEXT_FLAG = (() => {
+	const flag = domainFeatureFlag("USH_EMPTY_CASE_LIST_TEXT");
+	return {
+		id: "empty-case-list-text",
+		slug: flag.slug,
+		namespace: flag.namespace,
+	} as const;
+})();
 
 type PrivateProbeState = "available" | "missing" | "unverified";
 type PrivateProbeAssessment = {
@@ -363,7 +412,9 @@ type PrivateProbeAssessment = {
 async function probePrivateFeatureFlag(
 	creds: CommCareCredentials,
 	domain: string,
-	requirement: HqPrivateFeatureFlagRequirement,
+	requirement: Omit<HqPrivateFeatureFlagRequirement, "id"> & {
+		readonly id: string;
+	},
 ): Promise<PrivateProbeState> {
 	if (requirement.namespace !== "domain") {
 		log.warn("[commcare/project-space] unsafe private probe namespace", {
@@ -512,6 +563,7 @@ function unverifiedProjectSpaceResult(
 			capabilities,
 			advisories,
 		),
+		emptyCaseListText: null,
 	};
 }
 

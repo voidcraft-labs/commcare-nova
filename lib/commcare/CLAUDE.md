@@ -83,6 +83,29 @@ four server properties (`ota-restore-url`, `PostURL`, `key_server` and
 that is published nowhere is offered no `.ccz`. The HQ import file carries
 derived ids and no target.
 
+A local `.ccz` names something stable. Its profile's `uniqueid` is Nova's own
+id for the app on one project space (`runtimeTarget.ts::profileUniqueId`, from
+`doc.appId` and the target's server and domain, never its HQ app id), so every
+`.ccz` of an app for one project space is one app to a phone, the files for
+two project spaces are two, and none is HQ's build, whose `uniqueid` is HQ's
+app id. `cc-content-version`, `cc-app-version`, every form resource and every
+locale resource take the app's sequence (`apps.mutation_seq`), and each form's
+data node takes it as `version` (`xform/formVersion.ts::setFormVersion`);
+media resources keep `1`. The profile's `version`, its two suite resources and
+`<suite>` take the sequence plus `CompileOptions.earlierHqApps`, the number of
+HQ apps the target's deployment held before the one it holds, so the file made
+after a deleted HQ app is made afresh is newer to a phone though the document
+did not change. The profile requires CommCare 2.57 (`requiredMajor`,
+`requiredMinor` from `versionFloor.ts::COMMCARE_VERSION_FLOOR`,
+`requiredMinimal="0"`). `cur_locale` is the first language's wire code,
+`force="false"`. `<features>` opens with `<checkoff active="true"/>`, without
+which a device hides its saved forms whatever the setting says. The seventeen
+settings of `appProfileSettings.ts::appProfileProperties` follow in its order,
+each with the `force` its table gives. The archive writes neither
+`heartbeat-url` nor HQ's six other server properties: a `.ccz` is no HQ build,
+and a phone on one takes a newer `.ccz` for the same project space through
+Offline Update, on CommCare's update screen.
+
 ### The surface manifest
 
 `surface/` records everything CommCare's upstreams accept in an app and what
@@ -228,8 +251,13 @@ class must equal its surface item (`surface/__tests__/gates.test.ts`), so a
 changed flag fails CI on that pull request. It is the retirement/GA or
 probe-compatibility review signal.
 
-Nova derives profile properties from app behavior; they are not authored
-settings and never enter `BlueprintDoc`. Effective remote Search derives
+Nova derives one profile property from app behavior, the custom property
+`cc-index-case-search-results`; it is not an authored setting and never
+enters `BlueprintDoc`. Seventeen ordinary profile properties are stated by
+`appProfileSettings.ts::appProfileProperties`: `cc-show-saved` and
+`cc-show-incomplete` are app content (`appSettings`), and the other fifteen
+are constants, each the value a device reads when the key is absent.
+Effective remote Search derives
 `cc-index-case-search-results=yes`, which indexes Search results in CommCare's
 temporary case storage and does not request or imitate a sync. Local CCZ emits
 the property because its supported runtime is fixed. Targetless HQ JSON carries
@@ -238,14 +266,23 @@ project space supports the performance advisory. An inconclusive advisory
 preserves the target's current owned value on update; confirmed missing support
 removes it, as does removing Search from the app.
 
-HQ shallow-replaces the full `profile` object when an import includes one, so
-in-place updates read and validate the current source profile immediately
-before import. Nova preserves every foreign profile section and custom property,
-changes or removes only `NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS`, and omits
-`profile` entirely when its owned state is already correct. A source read or
-shape failure stops the app import; never invent an empty profile bag. New apps
-have no target state to preserve. `_attachments` remains the final HQ JSON key
-after every projection.
+HQ's import replaces every top-level key an update's body carries and keeps
+every key it leaves out (`models/applications.py::_merge_source_into_app`), so
+three keys need the target's current value: `profile`, `translations` and
+`add_ons`. Every read of the app's source goes through one reader
+(`hq/appSource.ts::readHqAppSource`), and
+`targetOverlay.ts::projectApplicationForTarget` projects all three against the
+one read the publish hands it, its last before the import
+(`lib/deployment/CLAUDE.md` says which): it carries what the target owns,
+writes Nova's own values over it (`cc-show-saved` and `cc-show-incomplete`
+always; a constant setting only where the target holds no value for it), and
+leaves a key out of the body when the result equals that read's value.
+`profile.properties` is projected whatever the Search advisory says; an
+`unverified` advisory leaves `custom_properties` as the target's bag. A source
+that fails the shape check stops the import with `hq_app_state_unknown` and is
+never read as empty. Every content write is an update of an app Nova has
+read, the empty app a first publish makes included, so no body is sent blind.
+`_attachments` remains the final HQ JSON key after every projection.
 
 ### Shared field-string accessor
 
@@ -410,7 +447,11 @@ as a native negative control.
 `applanguage`. Both the binding-resolution oracle and Preview's structural
 instance template consume that set. The primary instance root follows the same
 rule: `xform/dataRootAttributes.ts` is the shared projection for emitted and
-Preview-visible `uiVersion`, `version`, and slugged `name` attributes.
+Preview-visible `uiVersion`, `version`, and slugged `name` attributes. The
+source and Preview keep `version` `1`; a local archive's forms take the app's
+sequence at compile time (`xform/formVersion.ts::setFormVersion`, called by
+`compileCcz` beside `addCaseBlocks` and `addMetaBlock`), as HQ's build
+overwrites the source's `1` with its own.
 
 ### `post_submit` defaults
 
@@ -757,6 +798,8 @@ The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`
 
 `addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep — one splice-into-`<data>`/`<model>` path, one idempotent secondary-instance declaration (`casedb` / `commcaresession`), one `serializeXml` escaping authority.
 
+For a Connect app the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture`): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
+
 ### Hashtag form-context
 
 `hashtags/formContext.ts::expandHashtagsInContext` is the sole form-context projection for canonical case references. References are **per-case-type**: `#<case_type>/<prop>` names the form's own module case type or an ancestor up the parent-index chain (never a child type — a form loads one case and can only reach up the index at runtime). The resolver looks the namespace up in the form's reachable-type depths (`lib/domain/caseTypes.ts::reachableCaseTypes`: own = 0, parent = 1, …) and sends that depth through the single `expandCaseToWire` casedb walk. Raw authored `#case/...` throws at this boundary; only the emitter may generate HQ's private `#case/`, `#case/parent/`, or `#case/grandparent/` editor/metadata spelling from a typed reference.
@@ -766,6 +809,8 @@ Registration narrowing: the form's own new case isn't in `casedb` at form-init, 
 ### Case-list emission
 
 Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share one per-kind column emitter via a `DetailKind` discriminator — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice. Don't fork the emitters per surface.
+
+Every short detail of the local suite, the search target's included, carries `<select_text>` (`m<N>_select_text=Continue`), written after the fields and the action; every form has `forms.m<N>f<M>.submit_label=Submit` in every language; every image-map field carries `<alt_text>` as its last child, built as HQ's `EnumImage.alt_text` builds it. `<no_items_text>` (`List is empty.`) is written exactly where HQ's build writes it, which is where the target's flag is on: every publish reads that flag, stores it as `app_deployments.target_empty_case_list_text`, and a `.ccz` made for that deployment reads it. The texts are one constant each (`suite/case-list/detailTexts.ts::SELECT_TEXT`, `EMPTY_CASE_LIST_TEXT`, `suite/formStrings.ts::FORM_SUBMIT_LABEL`).
 
 ### Case-tile emission
 
@@ -1217,8 +1262,13 @@ Module conditions emit to `<menu relevant>` and HQ `module_filter`; their
 secondary instances are child `<instance>` elements on that menu, requiring the
 fixed HQ build 2.54. Form conditions emit to the menu's `<command relevant>` and
 HQ `form_filter`; direct self properties structurally anchor through the
-selected `commcaresession/session/data/<projected-own-case-id>` in local suite XML and through
-HQ's `#case` interpolation in JSON. The matching entry declares the condition's
+selected `commcaresession/session/data/<projected-own-case-id>` in local suite
+XML. In HQ JSON a read of `case_id`, `case_type`, `owner_id` or `status` is
+printed as that same expanded read,
+`instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/<datum>]/@<property>`,
+because HQ's `validate_app()` refuses `#case/@<property>` (`form filter has
+xpath error`); every other property keeps `#case/<property>`, which lets HQ
+choose its own datum. The matching entry declares the condition's
 instances, including both `casedb` and `commcaresession` for a selected-case
 read. Emit raw comparisons: Core's absent node-set becomes `""` for string
 comparison and NaN for numeric comparison, so a generic presence guard would
@@ -1338,19 +1388,34 @@ and PUT own a 30-second deadline through body reads, refuse redirects, and requi
 body or malformed acknowledgement may have landed; return that uncertainty with
 no response body in logging so the provisioning caller preserves its credential.
 
-**The generated app shell carries only fields Nova authors.** HQ's update is an
-overlay merge (`_merge_source_into_app`): a field present in the source
-overwrites the HQ app's value, and an absent one is retained. So target-owned
-settings and state — `cloudcare_enabled`, `case_sharing`,
-`secure_submissions`, the build/release metadata, and the rest of HQ's app
-Settings page — are never emitted by `hqShells.ts::applicationShell`, and
-`logo_refs` is emitted only when the app has a Nova-authored logo. `profile` is
-the narrow exception added by the derived projection above: a new-app artifact
-may carry Nova's allowlisted derived properties, and an in-place update may
-emit the target's complete current profile only to change those properties. An
-inconclusive advisory update omits `profile` and preserves the target's current
-value. Adding any other shell field means deciding whether Nova authors it,
-because every emitted field stomps the target's value on every republish.
+**The generated app shell carries the fields Nova authors, and in three keys
+the target's own part beside them.** HQ's update is an overlay merge
+(`_merge_source_into_app`): a field present in the source overwrites the HQ
+app's value, and an absent one is retained. So target-owned settings and
+state — `cloudcare_enabled`, `case_sharing`, `secure_submissions`, the
+build/release metadata, and the rest of HQ's app Settings page — are never
+emitted by `hqShells.ts::applicationShell`, and `logo_refs` is emitted only
+when the app has a Nova-authored logo. `cc-show-saved` and
+`cc-show-incomplete` are app content (`appSettings`), written as a key-level
+overlay, and they are the only two profile settings Nova owns on HQ. The
+fifteen other explicit settings, constants at today's device behavior, are
+seeded on HQ only where the target's profile holds no value (absent, null or
+empty) and never written over a value the target holds, because Nova does not
+yet hold them as settings an author sets, and writing over a person's choice
+in HQ would undo it at every publish; the local `.ccz` writes all seventeen.
+In `translations`, of the keys HQ generates Nova writes only
+`app.display.name` and `homescreen.title`, each only in a language whose
+localized app name differs from `appName`, and it writes every current
+language's name; `android.package.name.*`, every runtime UI-catalog key and
+any other key keep HQ's value verbatim, and a generated key is never carried
+(`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides.
+`add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
+`true` for a Connect app and otherwise omitted. `profile`, `translations` and
+`add_ons` are the three keys an update projects against the target's current
+value (`targetOverlay.ts`), and an update carries `profile` whenever a
+projected key differs from what the target holds, under any Search advisory.
+Adding any other shell field means deciding whether Nova authors it, because
+every emitted field stomps the target's value on every republish.
 
 ## Not-yet-modeled
 

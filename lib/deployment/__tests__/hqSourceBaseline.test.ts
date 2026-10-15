@@ -254,7 +254,7 @@ describe("comparing two reads", () => {
 			app.name = "Renamed in HQ";
 			app.langs = ["en", "fr"];
 			app.application_version = "1.0";
-			app.translations = { en: { "homescreen.title": "Changed" } };
+			app.translations = { en: { en: "Anglais" } };
 		});
 		expect(diff(base, changed, ownership).map((part) => part.kind)).toEqual([
 			"menu",
@@ -264,6 +264,29 @@ describe("comparing two reads", () => {
 			"settings",
 			"text",
 		]);
+	});
+
+	it("reads only Nova's part of the translations: a target key and an add-on Nova does not need are no change, a language's name is one", () => {
+		const target = edited((app) => {
+			const translations = app.translations as Record<
+				string,
+				Record<string, string>
+			>;
+			translations.en = { ...translations.en, "home.start": "Begin a visit" };
+			translations.fr = { "home.start": "Commencer" };
+		});
+		const needed = { ...ownership, addOns: ["display_conditions"] };
+		expect(diff(base, target, needed)).toEqual([]);
+		const addOn = edited((app) => {
+			(app.add_ons as Record<string, boolean>).advanced_itemsets = false;
+			(app.add_ons as Record<string, boolean>).menu_mode = true;
+		});
+		expect(diff(base, addOn, needed)).toEqual([]);
+		const languageName = edited((app) => {
+			(app.translations as Record<string, Record<string, string>>).en.en =
+				"Anglais";
+		});
+		expect(diff(base, languageName, needed)).toEqual([{ kind: "text" }]);
 	});
 
 	it("reads add-ons and profile keys only under the baseline's ownership", () => {
@@ -414,13 +437,15 @@ describe("HQ's reads after its own saves", () => {
 
 	/* Decision 7's table, row by row: each page of HQ saved with nothing
 	 * changed, over `navigation-base` (one menu holding `Visit`, then
-	 * `Register`). */
+	 * `Register`). The app needs no add-on, so its publish carries no
+	 * `add_ons` and owns none, and the Add-ons save, which stores every slug
+	 * as `false`, changes nothing it owns. */
 	const SAVES: readonly [string, readonly AppChangePart["kind"][]][] = [
 		["app-settings", []],
 		["ui-translations", []],
 		["case-management-visit", []],
 		["case-management-register", ["form"]],
-		["add-ons", ["settings"]],
+		["add-ons", []],
 		["menu-settings", ["menu"]],
 		["case-list", ["menu"]],
 		["case-detail", ["menu"]],
@@ -445,17 +470,22 @@ describe("HQ's reads after its own saves", () => {
 	);
 
 	/* Each save a document's `hq-side.json` names, made over Nova's first
-	 * publish in a fork of its own: a UI translation is text Nova writes, the
-	 * location capture a setting it writes, and a build profile and a lookup
-	 * table's upload touch nothing of the app Nova compares. */
+	 * publish in a fork of its own: a UI translation is the target's own key,
+	 * which the next publish carries back; the location capture on an app that
+	 * is not a Connect app, two add-ons the app does not need and a profile
+	 * setting Nova does not own are HQ's, which the publish leaves as they are;
+	 * and a build profile and a lookup table's upload touch nothing of the app
+	 * Nova compares. */
 	const HQ_SIDE_SAVES: readonly [
 		string,
 		string,
 		readonly AppChangePart["kind"][],
 	][] = [
-		["targeted-hq-side-state", "uiTranslations", ["text"]],
-		["targeted-hq-side-state", "appAttributes", ["settings"]],
+		["targeted-hq-side-state", "uiTranslations", []],
+		["targeted-hq-side-state", "appAttributes", []],
 		["targeted-hq-side-state", "buildProfiles", []],
+		["targeted-hq-side-state", "addOns", []],
+		["targeted-hq-side-state", "profileProperties", []],
 		["targeted-hq-side-lookup", "lookupTable", []],
 	];
 	it.each(HQ_SIDE_SAVES)(

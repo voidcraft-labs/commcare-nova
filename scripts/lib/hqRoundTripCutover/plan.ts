@@ -312,7 +312,12 @@ export async function readPrivateWorkCensus(
 	};
 }
 
-/** Read the root carriers of every app, deleted ones included. */
+/**
+ * Read the root carriers of every app, deleted ones included. No
+ * `app_settings` is read: the plan runs only over a fleet the already-applied
+ * check found wholly pre-step, where the column is NULL or, before the
+ * ledgered DDL, absent.
+ */
 async function readRootCarriers(tx: Transaction<AppDatabase>) {
 	return sql<{
 		id: string;
@@ -333,7 +338,12 @@ async function readRootCarriers(tx: Transaction<AppDatabase>) {
 	`.execute(tx);
 }
 
-/** The raw carriers of one app as the writer and the plan read them. */
+/**
+ * The raw carriers of one app as the writer reads them inside the fleet
+ * transaction, after the ledgered DDL: before its writes, where
+ * `app_settings` is NULL, and after them, for the postcondition, where step
+ * `app-settings` has filled it.
+ */
 export async function readAppCarriers(
 	tx: Transaction<AppDatabase>,
 	appId: string,
@@ -344,11 +354,13 @@ export async function readAppCarriers(
 		connect_type: string | null;
 		case_types_text: string | null;
 		localization_text: string | null;
+		app_settings_text: string | null;
 		logo: string | null;
 	}>`
 		SELECT mutation_seq::text AS mutation_seq, app_name, connect_type,
 			case_types::text AS case_types_text,
-			localization::text AS localization_text, logo
+			localization::text AS localization_text,
+			app_settings::text AS app_settings_text, logo
 		FROM apps WHERE id = ${appId}
 	`.execute(tx);
 	const row = root.rows[0];
@@ -365,6 +377,7 @@ export async function readAppCarriers(
 				connect_type: row.connect_type as RawCarriers["root"]["connect_type"],
 				case_types_text: row.case_types_text,
 				localization_text: row.localization_text,
+				app_settings_text: row.app_settings_text,
 				logo: row.logo as RawCarriers["root"]["logo"],
 			},
 			rows: rows.get(appId) ?? [],
@@ -596,6 +609,7 @@ export async function readFleetSource(
 				connect_type: root.connect_type as RawCarriers["root"]["connect_type"],
 				case_types_text: root.case_types_text,
 				localization_text: root.localization_text,
+				app_settings_text: null,
 				logo: root.logo as RawCarriers["root"]["logo"],
 			},
 			rows: entityRows.get(root.id) ?? [],

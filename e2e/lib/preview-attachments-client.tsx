@@ -22,6 +22,7 @@ const doc = admittedControllerDoc({
 	appId: "native-attachments",
 	appName: "Attachment controls",
 	connectType: null,
+	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: null,
 	modules: { [MODULE]: { uuid: MODULE, id: "capture", name: "Capture" } },
 	forms: { [FORM]: { uuid: FORM, id: "visit", name: "Visit", type: "survey" } },

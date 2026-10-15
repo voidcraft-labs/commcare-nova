@@ -32,8 +32,10 @@ import {
 	connectConfigSchema,
 	type Field,
 	type Form,
+	fieldKindCarriesValidation,
 	type Media,
 	type Module,
+	NEW_APP_SETTINGS,
 	opaqueXPathExpression,
 	plainColumn,
 	type Uuid,
@@ -125,26 +127,6 @@ const LEAF_KINDS = [
 	"label",
 	"secret",
 ] as const;
-
-/**
- * Leaf kinds that legally carry a `validate` constraint — the field-rule
- * `VALIDATION_ON_NON_INPUT_KIND` rejects it on any other kind. Mirrors
- * `lib/commcare/constants.ts::VALIDATABLE_KINDS`; kept local so the generator
- * stays a self-contained test fixture rather than importing the wire-emission
- * boundary's internals.
- */
-const VALIDATABLE_KINDS = new Set<string>([
-	"text",
-	"int",
-	"decimal",
-	"date",
-	"time",
-	"datetime",
-	"single_select",
-	"multi_select",
-	"barcode",
-	"secret",
-]);
 
 /**
  * XPath expressions known to parse cleanly AND to type-check against the
@@ -393,8 +375,9 @@ export function buildField(
 	// Leaf kind. Layer the optional XPath surfaces on. Each is gated on the
 	// kind that legally carries it so the doc stays schema-valid:
 	//   - relevant / required / hint — any input kind.
-	//   - validate (+ validate_msg) — only VALIDATABLE_KINDS (the
-	//     VALIDATION_ON_NON_INPUT_KIND rule rejects it elsewhere); a boolean
+	//   - validate (+ validate_msg) — only a kind that carries validation
+	//     (`fieldKindCarriesValidation`; the VALIDATION_ON_NON_INPUT_KIND rule
+	//     rejects it elsewhere); a boolean
 	//     constraint over the node value type-checks for every such kind.
 	//   - default_value — every validatable kind, drawing the type-correct
 	//     literal from DEFAULT_VALUE_BY_KIND (the validator type-checks
@@ -405,7 +388,7 @@ export function buildField(
 	// lowers to a `<setvalue event="xforms-ready">` (exercising the setvalue
 	// ref-PATH / value-parse / event invariants through the emitter, not just
 	// hand-built fixtures).
-	const validatable = VALIDATABLE_KINDS.has(spec.kind);
+	const validatable = fieldKindCarriesValidation(spec.kind);
 	const typedDefault = spec.wantsDefault
 		? DEFAULT_VALUE_BY_KIND[spec.kind]
 		: undefined;
@@ -692,8 +675,8 @@ const leafSpecArb: fc.Arbitrary<FieldGenSpec> = fc.record(
 		}),
 		hint: fc.option(labelArb, { nil: undefined }),
 		// `validate` is a boolean constraint over the node value; `validateMsg`
-		// is the paired itext message. `buildField` only attaches them on a
-		// VALIDATABLE_KIND, so generating them on every leaf is safe — they're
+		// is the paired itext message. `buildField` only attaches them on a kind
+		// that carries validation, so generating them on every leaf is safe — they're
 		// dropped on the kinds that can't carry them.
 		validate: fc.option(fc.constantFrom(...SAFE_BOOLEAN_XPATH), {
 			nil: undefined,
@@ -1409,6 +1392,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		appId: "fuzz-app",
 		appName: "Fuzz App",
 		connectType: spec.connectType,
+		appSettings: { ...NEW_APP_SETTINGS },
 		caseTypes,
 		modules,
 		forms,

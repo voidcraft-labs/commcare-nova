@@ -205,7 +205,7 @@ async function main() {
 		const stored = await db
 			.selectFrom("apps")
 			.select(
-				sql<string>`(to_jsonb(apps) - 'case_types' - 'localization')::text`.as(
+				sql<string>`(to_jsonb(apps) - 'case_types' - 'localization' - 'app_settings')::text`.as(
 					"row_text",
 				),
 			)
@@ -217,6 +217,11 @@ async function main() {
 			.select(
 				sql<string | null>`${sql.ref("apps.localization")}::text`.as(
 					"localization_text",
+				),
+			)
+			.select(
+				sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+					"app_settings_text",
 				),
 			)
 			.where("id", "=", appId)
@@ -242,6 +247,13 @@ async function main() {
 					: parsePersistedJsonText(
 							stored?.localization_text ?? "",
 							`apps.localization for ${appId}`,
+						);
+			row.app_settings =
+				stored?.app_settings_text === null
+					? null
+					: parsePersistedJsonText(
+							stored?.app_settings_text ?? "",
+							`apps.app_settings for ${appId}`,
 						);
 		}
 		printSection("Raw App Row (apps table)");

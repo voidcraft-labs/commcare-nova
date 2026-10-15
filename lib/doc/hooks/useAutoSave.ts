@@ -72,7 +72,8 @@ const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
  * The membership arrays carry that risk directly, because sequence lives in
  * them: a reorder changes ONLY an ordering array, so omitting one would let a
  * reorder apply locally and silently never save.
- * `setAppLogo` mutates only `s.logo`, so `logo` belongs here; entity maps
+ * `setAppLogo` mutates only `s.logo` and `setAppSettings` only
+ * `s.appSettings`, so both belong here; entity maps
  * (`modules` / `forms` / `fields`) cover their nested media, so the standalone
  * top-level slots are the ones to watch.
  *
@@ -100,6 +101,7 @@ export function projectSaveSlice(
 		connectType: s.connectType,
 		caseTypes: s.caseTypes,
 		localization: s.localization,
+		appSettings: s.appSettings,
 		logo: s.logo,
 		userProperties: s.userProperties,
 		userPropertyOrder: s.userPropertyOrder,

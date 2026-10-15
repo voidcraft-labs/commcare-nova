@@ -378,6 +378,9 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 
 	lines.push(`### App: "${doc.appName}"`);
 	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
+	lines.push(
+		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
+	);
 
 	if (doc.caseTypes?.length) {
 		lines.push("");

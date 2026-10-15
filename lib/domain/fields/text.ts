@@ -32,6 +32,7 @@ export const textFieldMetadata: FieldKindMetadata<"text"> = {
 	label: "Text",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs:
 		"Free-text field for single-line string input. Supports XPath validation.",
 	// The string-compatible tier: every target stores the same string

@@ -35,6 +35,8 @@ import {
 	moduleShell,
 	type WireIdentity,
 } from "@/lib/commcare";
+import { addOnsNeededBy } from "@/lib/commcare/addOns";
+import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
 	type CommCareLocalization,
@@ -374,6 +376,7 @@ export function expandDoc(
 					mod.caseType,
 					opts.lookupNaming,
 					userPropertySlugs,
+					ownCaseDatumId,
 				) ?? null;
 
 			// Stamp the form's menu-command media (icon + audio label) onto
@@ -534,6 +537,8 @@ export function expandDoc(
 	const derivedProfile = derivedProfileProperties(doc);
 	const app = applicationShell(doc.appName, modules, attachments, {
 		...appLevelValues(doc, localization),
+		addOns: addOnsNeededBy({ modules, _attachments: attachments }),
+		profileProperties: appProfileProperties(authoredDoc),
 		...(Object.keys(derivedProfile).length > 0 && {
 			profileCustomProperties: derivedProfile,
 		}),
@@ -561,9 +566,16 @@ export function expandDoc(
 
 /**
  * The app-level values `expandDoc` and `expandAppShell` both write: the
- * languages, each language's app-name strings and language names, and
- * GPS capture for a Connect app. One helper feeds both, so the shell and
- * the update a first publish sends never disagree on them.
+ * languages, each language's strings, and GPS capture for a Connect app.
+ * One helper feeds both, so the shell and the update a first publish sends
+ * never disagree on them.
+ *
+ * A language's strings are its language names, and `app.display.name` and
+ * `homescreen.title` only where that language localizes the app's name:
+ * HQ's build writes both at the app's name for a language that stores
+ * neither, so writing them there changes no built string and leaves none
+ * stale after a rename. Every other key of HQ's `translations` is the
+ * target's (`appStringKeys.ts`), and the update carries it from HQ's read.
  */
 function appLevelValues(
 	doc: BlueprintDoc,
@@ -580,19 +592,25 @@ function appLevelValues(
 		...(doc.connectType && { autoGpsCapture: true }),
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
-			localization.languages.map((language) => [
-				language,
-				{
-					"homescreen.title": appNameByLanguage[language],
-					"app.display.name": appNameByLanguage[language],
-					...Object.fromEntries(
-						localization.languages.map((code) => [
-							code,
-							localization.languageName(code),
-						]),
-					),
-				},
-			]),
+			localization.languages.map((language) => {
+				const appName = appNameByLanguage[language];
+				return [
+					language,
+					{
+						...(appName !== undefined &&
+							appName !== doc.appName && {
+								"homescreen.title": appName,
+								"app.display.name": appName,
+							}),
+						...Object.fromEntries(
+							localization.languages.map((code) => [
+								code,
+								localization.languageName(code),
+							]),
+						),
+					},
+				];
+			}),
 		),
 	};
 }
@@ -613,7 +631,6 @@ export const APP_SHELL_KEYS = [
 	"build_spec",
 	"translations",
 	"auto_gps_capture",
-	"add_ons",
 	"modules",
 	"_attachments",
 ] as const satisfies readonly (keyof HqApplication)[];
@@ -625,9 +642,10 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
 
 /**
  * The empty app a first publish creates before the ordinary in-place update
- * fills it: no menus, no attachments, no `logo_refs` and no `profile`,
- * which arrive with the update, and no `multimedia_map`, which Nova never
- * sends. With no form there is
+ * fills it: no menus, no attachments, no `logo_refs`, no `add_ons` and no
+ * `profile`, which the update writes over the shell's source read, and no
+ * `multimedia_map`, which Nova never sends. `auto_gps_capture` is there only
+ * for a Connect app. With no form there is
  * no form id for HQ to re-mint, and HQ refuses to build an app with no menus
  * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
  * build can hold an id the update did not write.

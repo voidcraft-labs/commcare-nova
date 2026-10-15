@@ -8,7 +8,9 @@
  * `deleted` deployment gets `hq-app-deleted` alone and an `unsupported` one
  * `hq-app-not-nova-made` alone, and a line about the next publish to a
  * project space is written only for a class that has one (`read-in-full`,
- * `no-form-ids`, `unreadable`). The two lines that are facts of the database
+ * `no-form-ids`, `unreadable`). The settings lines read the deployment's
+ * `profile.properties` as the source read gave them, beside the migrated
+ * document's `appSettings`. The two lines that are facts of the database
  * and the ledger rather than of the document come from the plan:
  * `unsaved-assistant-work-discarded` from `discardsPrivateWork`, and
  * `ccz-needs-project-space` from whether any deployment still holds the
@@ -50,10 +52,11 @@ export interface NoticeEntity {
 	readonly name?: string;
 }
 
-/** One deployment line, content-free: its reason and the entities it names. */
+/** One deployment line, content-free: its reason, the entities it names and its detail. */
 export interface DeploymentNotice {
 	readonly reason: DeploymentNoticeReason;
 	readonly entities?: readonly NoticeEntity[];
+	readonly detail?: Readonly<Record<string, string>>;
 }
 
 /** What a deployment's lines are read from. */
@@ -63,6 +66,71 @@ export interface DeploymentNoticeSource {
 	readonly unpaired?: readonly NoticeEntity[];
 	/** Paired forms whose stored form id no read gave. */
 	readonly formIdsUnknown?: readonly string[];
+	/** The source read's `profile.properties`; null or absent where no source was read. */
+	readonly profileProperties?: Readonly<Record<string, unknown>> | null;
+}
+
+/** The classes whose source the cutover read, so whose profile it knows. */
+const READ: ReadonlySet<DeploymentOutcome> = new Set([
+	"read-in-full",
+	"no-form-ids",
+]);
+
+/**
+ * The three worker preferences HQ's build forces at each update once a
+ * publish seeds them (part 04 of step 2's plan, finding 40).
+ */
+const WORKER_SETTING_KEYS = [
+	"cc-fuzzy-search-enabled",
+	"cc-autoup-freq",
+	"cc-enable-tts",
+] as const;
+
+/** A value HQ's build writes nothing for: absent, `null` or `""`. */
+function holdsNoValue(
+	properties: Readonly<Record<string, unknown>>,
+	key: string,
+): boolean {
+	return (
+		!Object.hasOwn(properties, key) ||
+		properties[key] === null ||
+		properties[key] === ""
+	);
+}
+
+/**
+ * `setting-changes-at-next-publish` for one read deployment: one line per
+ * list a reader hides there today that the app's stored value shows. Android
+ * shows saved forms only for `"yes"`; it shows incomplete forms only for
+ * `"yes"`, and the Web Apps client shows its tile unless the value is
+ * `"no"`. Step `app-settings` never stores a value that hides a list a reader
+ * shows, so every line is a list workers there gain, and none turns one off.
+ */
+function settingChanges(
+	properties: Readonly<Record<string, unknown>>,
+	target: BlueprintDoc,
+): DeploymentNotice[] {
+	const notices: DeploymentNotice[] = [];
+	if (
+		target.appSettings.showSavedForms &&
+		properties["cc-show-saved"] !== "yes"
+	) {
+		notices.push({
+			reason: "setting-changes-at-next-publish",
+			detail: { setting: "saved", readers: "android" },
+		});
+	}
+	const incomplete = properties["cc-show-incomplete"];
+	if (target.appSettings.showIncompleteForms && incomplete !== "yes") {
+		notices.push({
+			reason: "setting-changes-at-next-publish",
+			detail: {
+				setting: "incomplete",
+				readers: incomplete === "no" ? "android-and-webapps" : "android",
+			},
+		});
+	}
+	return notices;
 }
 
 /** The deployment reasons one deployment gets, in the enum's order. */
@@ -86,35 +154,36 @@ export function deploymentNotices(
 	if (outcome === "deleted") return [{ reason: "hq-app-deleted" }];
 	if (outcome === "unsupported") return [{ reason: "hq-app-not-nova-made" }];
 	if (!PUBLISHABLE.has(outcome)) return [];
-	const notices = new Map<DeploymentNoticeReason, DeploymentNotice>();
+	const notices: DeploymentNotice[] = [];
 	if (outcome === "unreadable") {
-		notices.set("ids-change-once-unreadable", {
-			reason: "ids-change-once-unreadable",
-		});
+		notices.push({ reason: "ids-change-once-unreadable" });
+		notices.push({ reason: "settings-unknown-unreadable" });
 	}
 	const unpaired = source.unpaired ?? [];
 	if (unpaired.length > 0) {
-		notices.set("menu-id-changes-once", {
+		notices.push({
 			reason: "menu-id-changes-once",
 			entities: unpaired.map(({ kind, uuid }) => ({ kind, uuid })),
 		});
 	}
 	const formIdsUnknown = source.formIdsUnknown ?? [];
 	if (outcome === "no-form-ids" && formIdsUnknown.length > 0) {
-		notices.set("form-ids-change-once", {
+		notices.push({
 			reason: "form-ids-change-once",
 			entities: formIdsUnknown.map((uuid) => ({ kind: "form", uuid })),
 		});
 	}
 	if (entryPointInventory(target).length > 0) {
-		notices.set("deep-links-need-republish", {
-			reason: "deep-links-need-republish",
-		});
+		notices.push({ reason: "deep-links-need-republish" });
 	}
-	return DEPLOYMENT_NOTICE_REASONS.flatMap((reason) => {
-		const notice = notices.get(reason);
-		return notice === undefined ? [] : [notice];
-	});
+	if (READ.has(outcome)) {
+		const properties = source.profileProperties ?? {};
+		notices.push(...settingChanges(properties, target));
+		if (WORKER_SETTING_KEYS.some((key) => holdsNoValue(properties, key))) {
+			notices.push({ reason: "worker-settings-reset-at-next-publish" });
+		}
+	}
+	return mergeDeploymentNotices(notices, []);
 }
 
 /** What the cutover's baseline step recorded for one deployment. */
@@ -247,6 +316,7 @@ export function appNoticeEntries(
 				...(notice.entities !== undefined && {
 					entities: notice.entities.map(entityRef),
 				}),
+				...(notice.detail !== undefined && { detail: notice.detail }),
 			});
 		}
 	}

@@ -1,11 +1,9 @@
 /**
  * Defect 8: a barcode question and a secret question, each with a validation.
  *
- * Nova's gate admits `validate` on both kinds
- * (`lib/commcare/validator/rules/field.ts::KINDS_SUPPORTING_VALIDATION`), and
- * its emitter writes a constraint only for kinds
- * `lib/commcare/constants.ts::supportsValidation` names, which excludes both,
- * so Core accepts an answer the author's validation refuses
+ * Nova's gate admits `validate` on both kinds and its emitter writes the
+ * constraint on both, each reading `lib/domain::fieldKindCarriesValidation`,
+ * so Core refuses an answer the author's validation refuses
  * (`javarosa form/api/FormEntryController.java::answerQuestion`).
  *
  * Fixed values: each validation asks for exactly six characters, so a

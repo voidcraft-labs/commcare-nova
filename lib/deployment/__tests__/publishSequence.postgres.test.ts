@@ -17,6 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,8 +33,10 @@ import {
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
+import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
-import { APP_SHELL_KEYS } from "@/lib/commcare/expander";
+import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
 import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -44,6 +47,7 @@ import {
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { createLocation } from "@/lib/organization/service";
 import { downloadAssetBytes } from "@/lib/storage/media";
+import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
 import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
 import {
@@ -174,7 +178,22 @@ function accepted(
 		};
 	});
 }
+/** The project-space list every preflight reads for the empty-list text flag. */
+const PROJECT_SPACES = "/api/user_domains/v1/?limit=100";
+const EMPTY_LIST_FLAG = `${PROJECT_SPACES}&feature_flag=empty_case_list_text`;
+
+/**
+ * Every request the publish sent to the app's own endpoints, in order. The
+ * project-space list reads preflight makes for the empty-list text flag are
+ * left out: they change no step of the sequence, and the flag's own cases
+ * below hold them.
+ */
 function requests(peer: MockAgent): string[] {
+	return allRequests(peer).filter(
+		(line) => !line.startsWith(`GET ${PROJECT_SPACES}`),
+	);
+}
+function allRequests(peer: MockAgent): string[] {
 	return (
 		peer
 			.getCallHistory()
@@ -441,9 +460,15 @@ describe("a first publish", () => {
 
 		const [shell, update] = bodies;
 		expect(shell.appId).toBeNull();
-		expect(Object.keys(shell.app)).toEqual([...APP_SHELL_KEYS]);
+		// Eight keys: `auto_gps_capture` is written only for a Connect app, and
+		// `add_ons` and `profile` arrive with the update over the shell's read.
+		expect(Object.keys(shell.app)).toEqual(
+			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
+		);
 		expect(shell.app).toMatchObject({ modules: [], _attachments: {} });
 		for (const key of [
+			"add_ons",
+			"auto_gps_capture",
 			"multimedia_map",
 			"logo_refs",
 			"profile",
@@ -1189,6 +1214,33 @@ describe("the app on HQ at the target-app edge", () => {
 	});
 
 	it.each([
+		["translations", ["not a language's strings"]],
+		["add_ons", "every add-on"],
+	] as const)(
+		"refuses at the target-app read when the app's %s is not the shape HQ writes, and sends nothing",
+		async (key, value) => {
+			const doc = await seed();
+			await withHttpPeer(async (peer) => {
+				await landed(doc, peer);
+				const unchanged = await snapshot();
+				serveEdited(peer, SOURCE, "source-live", (source) => {
+					source[key] = value;
+				});
+				const outcome = await publish(doc);
+				expect(refusal(outcome)).toMatchObject({
+					phase: "preflight",
+					failure: { code: "hq_app_state_unknown" },
+				});
+				expect(
+					outcome.checks.find((check) => check.id === "target-app"),
+				).toMatchObject({ status: "blocked" });
+				expect(await snapshot()).toEqual(unchanged);
+				expect(requests(peer).slice(4)).toEqual([`GET ${SOURCE}`]);
+			});
+		},
+	);
+
+	it.each([
 		[
 			403,
 			"Nova couldn't read the current app on “clinic”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.",
@@ -1675,6 +1727,129 @@ describe("changes made in CommCare HQ", () => {
 				},
 				remoteChanges: [],
 			});
+		});
+	});
+});
+
+// ── What a download made for a published project space reads ───────────
+
+describe("the deployment facts a download reads", () => {
+	const visible = {
+		meta: { total_count: 1 },
+		objects: [{ domain_name: "clinic", project_name: "Clinic" }],
+	};
+	const none = { meta: { total_count: 0 }, objects: [] };
+	/** HQ's two project-space lists: every space, then those holding the flag. */
+	function projectSpaces(peer: MockAgent, flag: "on" | "off" | "refused") {
+		request(peer, PROJECT_SPACES).reply(200, visible);
+		const filtered = request(peer, EMPTY_LIST_FLAG);
+		if (flag === "refused") filtered.reply(500, "");
+		else filtered.reply(200, flag === "on" ? visible : none);
+	}
+	async function republish(doc: BlueprintDoc, peer: MockAgent) {
+		serve(peer, SOURCE, "source-live");
+		accepted(peer, 200);
+		serve(peer, SOURCE, "source-live");
+		return publish(doc);
+	}
+	async function download(doc: BlueprintDoc) {
+		const chosen = await resolveDownloadTarget(SCOPE, { format: "ccz", doc });
+		if (!("format" in chosen) || chosen.format !== "ccz")
+			throw new Error(`Expected a CCZ target, got ${JSON.stringify(chosen)}`);
+		return chosen;
+	}
+
+	it("records the empty-list text flag each publish reads, keeps it over a refused read, and hands it to the download", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			projectSpaces(peer, "on");
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			expect(allRequests(peer)).toContain(`GET ${EMPTY_LIST_FLAG}`);
+			expect((await state())?.deployment.targetEmptyCaseListText).toBe(true);
+			expect((await download(doc)).target.emptyCaseListText).toBe(true);
+
+			// A refused read never blocks, and never erases an earlier answer.
+			projectSpaces(peer, "refused");
+			expect((await republish(doc, peer)).landed).toBe(true);
+			expect((await state())?.deployment.targetEmptyCaseListText).toBe(true);
+
+			projectSpaces(peer, "off");
+			expect((await republish(doc, peer)).landed).toBe(true);
+			expect((await state())?.deployment.targetEmptyCaseListText).toBe(false);
+			expect((await download(doc)).target.emptyCaseListText).toBe(false);
+		});
+	});
+
+	it("makes the file for a project space whose HQ app was made afresh newer at an unchanged sequence", async () => {
+		const doc = await seed();
+		const archive = async () => {
+			const chosen = await download(doc);
+			const profile = readXmlEvidence(
+				new AdmZip(
+					compileCcz(
+						expandDoc(doc, {
+							runtimeTarget: chosen.runtimeTarget,
+							identity: chosen.identity,
+						}),
+						doc.appName,
+						doc,
+						{
+							runtimeTarget: chosen.runtimeTarget,
+							compiledAtSeq: 5,
+							earlierHqApps: chosen.target.earlierHqApps,
+						},
+					),
+				).readAsText("profile.ccpr"),
+			);
+			const property = (key: string) =>
+				profile.children.find(
+					(node) => node.name === "property" && node.attributes.key === key,
+				)?.attributes.value;
+			return {
+				chosen,
+				version: profile.attributes.version,
+				suite: profile.children
+					.filter((node) => node.name === "suite")
+					.map((node) => node.children[0]?.attributes.version),
+				postUrl: property("PostURL"),
+				restoreUrl: property("ota-restore-url"),
+				uniqueId: profile.attributes.uniqueid,
+			};
+		};
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			const before = await archive();
+			expect(before.chosen.target).toMatchObject({
+				hqAppId: HQ_APP,
+				earlierHqApps: 0,
+			});
+			expect([before.version, ...before.suite]).toEqual(["5", "5", "5"]);
+
+			serve(peer, SOURCE, "source-deleted");
+			expect((await publish(doc)).landed).toBe(false);
+			accepted(peer, 201, "replacement-app");
+			serve(peer, sourcePath("replacement-app"), "source-shell");
+			accepted(peer, 200, "replacement-app");
+			serve(peer, sourcePath("replacement-app"), "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+
+			const after = await archive();
+			expect(after.chosen.target).toMatchObject({
+				hqAppId: "replacement-app",
+				earlierHqApps: 1,
+			});
+			expect([after.version, ...after.suite]).toEqual(["6", "6", "6"]);
+			expect(after.postUrl).toContain("/receiver/replacement-app/");
+			expect(after.restoreUrl).toContain("/phone/restore/replacement-app/");
+			expect(after.uniqueId).toBe(before.uniqueId);
 		});
 	});
 });

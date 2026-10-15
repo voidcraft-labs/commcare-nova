@@ -29,7 +29,7 @@
  *     `removeMediaAsset`, `uploadMediaAsset`, `getLookupTables`,
  *     `getLookupTableRows`, `createLookupTable`, `updateLookupTable`,
  *     `editLookupColumns`, `editLookupRows`, `replaceLookupRows`,
- *     `removeLookupTable`.
+ *     `removeLookupTable`, `updateApp`, `generateSchema`.
  */
 import "./lib/loadEnv";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -285,7 +285,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateAppTool.description,
 		schema: updateAppTool.inputSchema,
 		prompt:
-			"Use updateApp to set the app's name to 'Village Health' and make it a standard app (connect off).",
+			"Use updateApp to name the app 'Village Health' and turn its incomplete forms list on.",
 	},
 	/* Language tools — the two identity-object schemas most exposed to
 	 * provider-side normalization: the nested refined identity with

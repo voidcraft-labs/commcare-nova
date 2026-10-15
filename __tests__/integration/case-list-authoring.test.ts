@@ -336,6 +336,7 @@ describe("wire emission", () => {
 			appId: APP_ID,
 			appName: "Visibility",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: [
 				{
 					name: "patient",
@@ -442,6 +443,7 @@ describe("calc-column comparator-type fallback", () => {
 			appId: APP_ID,
 			appName: "Calc Fallback",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: [{ name: "patient", properties: [] }],
 			modules: { [moduleUuid]: mod },
 			forms: {},
@@ -650,6 +652,7 @@ describe("orphan Search-input identity surfaces a validator error", () => {
 			appId: APP_ID,
 			appName: "Orphan Input",
 			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: [
 				{
 					name: "patient",

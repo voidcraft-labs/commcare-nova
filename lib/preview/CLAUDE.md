@@ -263,7 +263,11 @@ trailing empty ids do not.
 
 The structural world includes nodes the emitted form supplies even when Nova
 has no value for them. The main `/data` root exposes the same `uiVersion`,
-`version`, and slugged `name` attributes as the XForm. The
+`version`, and slugged `name` attributes as the XForm. Preview's `version`
+stays `1`: a submission's version is each export path's own counter (HQ's
+form version on an HQ build, the app's sequence in a local archive), the
+client engine also runs documents with unsaved edits, which have no
+sequence, and a stored app test would change with every unrelated edit. The
 `commcaresession/session/context` template uses the complete Core namespace,
 including `drift`, `window_width`, and `applanguage`; an unavailable value is
 an absent node, not an unknown path.

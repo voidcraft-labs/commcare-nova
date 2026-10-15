@@ -41,6 +41,7 @@ export const multiSelectFieldMetadata: FieldKindMetadata<"multi_select"> = {
 	label: "Multi Select",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs:
 		"Multi-choice from inline choices, a Project data table, or cases available to the worker. Case choices save exact record IDs.",
 	// Both targets store a plain string where this kind stores a JSONB

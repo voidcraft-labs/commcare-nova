@@ -13,12 +13,19 @@ five as the app settings save writes them: HQ's two builds differ by those
 property elements alone, which the rule erases, and Core's sessions on both
 compare equal as proof 3 compares them. With ``cc-fuzzy-search-enabled``
 written as well, the traces differ, and the rule leaves it.
+
+The save also stores the five in the app, with ``log_prop_weekly`` at
+``log_short`` (``SAVED_WITH_WEEKLY``): the stored apps differ by those six
+keys alone, which the rule erases, and HQ's build of the app holding
+``log_short`` is the build of the app holding no ``log_prop_weekly``, profile
+for profile. Stored at ``log_full``, the build writes another value, and the
+rule leaves the stored key.
 """
 
 from __future__ import annotations
 
-from proof.rules.conftest import build_differences, edited, published, runs_alike, shown
-from proof.rules.profile_unread_properties import RULE, UNREAD
+from proof.rules.conftest import build_differences, edited, published, runs_alike, shown, stored_differences
+from proof.rules.profile_unread_properties import BUILT_WHEN_ABSENT, RULE, UNREAD
 
 DOCUMENT = "arithmetic"
 SAVED = {
@@ -28,6 +35,7 @@ SAVED = {
     "restore-tolerance": "loose",
     "user_reg_server": "required",
 }
+SAVED_WITH_WEEKLY = {**SAVED, **BUILT_WHEN_ABSENT}
 
 
 def _properties(values):
@@ -50,3 +58,21 @@ def test_core_runs_a_build_alike_whatever_its_unread_profile_properties(rule_doc
     assert alike == [], shown(alike)
     assert any("cc-fuzzy-search-enabled" in path for _, path, _ in shown(read)), shown(read)
     assert build_differences(nova.build, fuzzy.build, rules=(RULE,))
+
+
+def test_a_stored_weekly_log_at_its_build_default_builds_as_none(rule_documents, hq):
+    assert BUILT_WHEN_ABSENT == {"log_prop_weekly": "log_short"}
+    with published(rule_documents[DOCUMENT], None) as app:
+        nova = app.spell()
+        weekly = app.spell(doc=_properties({"log_prop_weekly": "log_short"}))
+        saved = app.spell(doc=_properties(SAVED_WITH_WEEKLY))
+        full = app.spell(doc=_properties({"log_prop_weekly": "log_full"}))
+
+    assert shown(build_differences(nova.build, weekly.build)) == []
+    stored = shown(stored_differences(nova.stored, saved.stored))
+    assert {path.rsplit("/", 1)[1] for _, path, _ in stored} == set(SAVED_WITH_WEEKLY), stored
+    assert all(path.startswith("/profile/properties/") for _, path, _ in stored), stored
+    assert stored_differences(nova.stored, saved.stored, rules=(RULE,)) == []
+    assert any("log_prop_weekly" in path for _, path, _ in shown(build_differences(nova.build, full.build)))
+    left = shown(stored_differences(nova.stored, full.stored, rules=(RULE,)))
+    assert [path for _, path, _ in left] == ["/profile/properties/log_prop_weekly"], left

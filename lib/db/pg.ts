@@ -34,6 +34,7 @@ import type { EntityRowKind } from "@/lib/db/blueprintRows";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	AppLocalization,
+	AppSettings,
 	CaseType,
 	ConnectType,
 	MediaAssetId,
@@ -78,6 +79,13 @@ export interface AppsTable {
 	case_types: JSONColumnType<CaseType[] | null, string | null, string | null>;
 	localization: JSONColumnType<
 		AppLocalization | null,
+		string | null,
+		string | null
+	>;
+	/** The document's `appSettings` root. Nullable only in its DDL: every row
+	 * holds an object, and a NULL fails the document's strict parse. */
+	app_settings: JSONColumnType<
+		AppSettings | null,
 		string | null,
 		string | null
 	>;

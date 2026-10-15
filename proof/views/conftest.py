@@ -22,6 +22,7 @@ DOCUMENTS = (
     "lookup-app",
     "media-only",
     "search-multiple",
+    "targeted-hq-side-state",
     "targeted-repeat-count-copy",
 )
 

@@ -112,6 +112,7 @@ import {
 } from "@/lib/doc/userMutations";
 import type { XPathExpression } from "@/lib/domain";
 import {
+	type AppSettings,
 	type Automation,
 	type AutomationSchedule,
 	asUuid,
@@ -590,6 +591,12 @@ export interface BlueprintMutations {
 	 * validate.
 	 */
 	setAppLogo: (logo: MediaAssetId | null) => CommitOutcome;
+	/**
+	 * Change one or both app settings. The patch names only the keys it
+	 * changes, so a switch that sets one never writes over a peer's change to
+	 * the other.
+	 */
+	setAppSettings: (settings: Partial<AppSettings>) => CommitOutcome;
 	/**
 	 * Rename one or more case properties app-wide as one simultaneous,
 	 * batch-exclusive relation. This is the only builder mutation that changes
@@ -1831,6 +1838,11 @@ export function createBlueprintMutations(
 				// explicit `MediaAssetId | null`; the reducer maps `null →
 				// undefined` so a clear drops the optional key off the doc.
 				return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
+			},
+
+			setAppSettings(settings) {
+				// App-level like the logo: no entity to validate.
+				return toOutcome(guardedApply([{ kind: "setAppSettings", settings }]));
 			},
 
 			renameCaseProperties(renames) {

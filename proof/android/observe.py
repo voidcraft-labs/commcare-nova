@@ -103,7 +103,9 @@ def _answers() -> dict:
     return json.loads(ANSWERS.read_text(encoding="utf-8"))
 
 
-def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None) -> dict:
+def _read(
+    served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None, about=None
+) -> dict:
     from proof.android.hq import DevicePeer
     from proof.formplayer.hq import DEVICE_REPORT
     from proof.observe import services
@@ -137,7 +139,7 @@ def _read(served, blobs, label, op, archives: dict, options: dict, *, delivered:
     from proof.formplayer import canonical
 
     ids = {served.app_id: "@app", served.build_id: "@build"}
-    answer = canonical.replace_text(answer, ids)
+    answer = canonical.replace_text({**answer, **(about or {})}, ids)
     asked = canonical.replace_text([asdict(entry) for entry in peer.exchanges], ids)
     found = {"answer": blobs.put_json(answer), "hq": blobs.put_json(asked)}
     if pictures:
@@ -189,12 +191,34 @@ def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:
     return _read(served, blobs, label, "installs", {"first": first, "second": second}, {})
 
 
+def profile_identity(archive: bytes) -> dict:
+    """What an archive's profile names the app it is and its version by: its ``uniqueid`` and ``version``."""
+    from lxml import etree
+
+    with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+        profile = zipped.read("profile.ccpr")
+    root = etree.fromstring(profile, etree.XMLParser(resolve_entities=False, no_network=True))
+    return {"uniqueid": root.get("uniqueid"), "version": root.get("version")}
+
+
 def update(
     served, blobs, *, label: str, before: bytes, after: bytes, incomplete: bool, delivered: bool = False
 ) -> dict:
     """A device on ``before`` updated to ``after``, over a worker's own settings, with every form left incomplete
-    before it where ``incomplete``; with ``delivered``, its requests made as ``app``'s are with it."""
+    before it where ``incomplete``; with ``delivered``, its requests made as ``app``'s are with it. The answer
+    names each archive's profile ``uniqueid`` and ``version`` (``archives``), since Android's ``UpToDate`` names
+    only the app the device holds."""
     options = {"preferences": dict(WORKER_SETTINGS)}
     if incomplete:
         options["incompleteForms"] = True
-    return _read(served, blobs, label, "update", {"archive": before, "update": after}, options, delivered=delivered)
+    archives = {"archives": {"before": profile_identity(before), "after": profile_identity(after)}}
+    return _read(
+        served,
+        blobs,
+        label,
+        "update",
+        {"archive": before, "update": after},
+        options,
+        delivered=delivered,
+        about=archives,
+    )

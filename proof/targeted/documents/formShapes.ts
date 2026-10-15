@@ -5,7 +5,11 @@
  * - `targeted-survey-menu` (defect 14, survey menus): a menu of the
  *   household case type whose forms are all surveys, so it lists no cases.
  *   Nova publishes its case type as `''`
- *   (`lib/commcare/formLinkProjection.ts::moduleCaseTypeForActions`).
+ *   (`lib/commcare/formLinkProjection.ts::moduleCaseTypeForActions`). It
+ *   shows incomplete forms and not saved forms (defect 7 and finding 62),
+ *   the document the Web Apps client's Incomplete Forms tile is read on
+ *   (`proof/webapps/test_app_list.py`); `targeted-attribute-display-condition`
+ *   holds the two the other way round.
  * - `targeted-invalid-question-ids` (defect 15): question ids with a
  *   leading underscore, a leading `XML` and `Meta`, which Nova's id rule
  *   admits (`lib/commcare/constants.ts::XML_ELEMENT_NAME_REGEX`) and Vellum's
@@ -55,6 +59,9 @@ export function surveyMenu() {
 	const doc = buildDoc({
 		appId: id,
 		appName: "Household surveys",
+		// The witness of the Web Apps client's Incomplete Forms tile: saved
+		// forms off and incomplete forms on, the two settings never equal.
+		appSettings: { showSavedForms: false, showIncompleteForms: true },
 		caseTypes: [
 			{
 				name: "household",

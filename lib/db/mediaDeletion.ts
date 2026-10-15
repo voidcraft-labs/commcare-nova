@@ -130,6 +130,11 @@ async function persistedAppReferencesInTransaction(
 				"localization_text",
 			),
 		)
+		.select(
+			sql<string | null>`${sql.ref("app.app_settings")}::text`.as(
+				"app_settings_text",
+			),
+		)
 		.select((eb) => [
 			jsonArrayFrom(
 				eb
@@ -158,6 +163,7 @@ async function persistedAppReferencesInTransaction(
 				connect_type: app.connect_type,
 				case_types_text: app.case_types_text,
 				localization_text: app.localization_text,
+				app_settings_text: app.app_settings_text,
 				logo: app.logo,
 			},
 			app.entities as PersistedEntityRowText[],

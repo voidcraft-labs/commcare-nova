@@ -2172,16 +2172,35 @@ mapping is superseded only by the recreate after an HQ-side deletion, and the
 superseded row is retained rather than deleted so an app left behind stays
 nameable.
 
-The emitted app document carries only fields Nova authors. Target-owned
-settings and state (`cloudcare_enabled`, `case_sharing`, the build/release
-metadata, and the rest of the `commcare-app-settings.yml` attributes) are
-absent, so the overlay merge retains a project's HQ-side configuration across
-republishes, and `logo_refs` appears only when the app has a Nova-authored logo.
-The narrow profile exception is derived Search tuning: a new-app JSON may carry
-Nova's one owned optimization, while a direct update reads the current HQ app
-source immediately before import and sends the complete existing profile only
-when that owned value must change. `lib/commcare/hqShells.ts`,
-`derivedProfile.ts`, and `targetProfile.ts` state the rule.
+The emitted app document carries the fields Nova authors, and in three keys
+the target's own part beside them. Target-owned settings and state
+(`cloudcare_enabled`, `case_sharing`, the build/release metadata, and the rest
+of the `commcare-app-settings.yml` attributes) are absent, so the overlay merge
+retains a project's HQ-side configuration across republishes, and `logo_refs`
+appears only when the app has a Nova-authored logo. `cc-show-saved` and
+`cc-show-incomplete` are app content (`appSettings`), written as a key-level
+overlay, and they are the only two profile settings Nova owns on HQ. The
+fifteen other explicit settings, constants at today's device behavior, are
+seeded on HQ only where the target's profile holds no value (absent, null or
+empty) and never written over a value the target holds, because Nova does not
+yet hold them as settings an author sets, and writing over a person's choice
+in HQ would undo it at every publish; the local `.ccz` writes all seventeen.
+In `translations`, of the keys HQ generates Nova writes only
+`app.display.name` and `homescreen.title`, each only in a language whose
+localized app name differs from `appName`, and it writes every current
+language's name; `android.package.name.*`, every runtime UI-catalog key and
+any other key keep HQ's value verbatim, and a generated key is never carried
+(`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides.
+`add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
+`true` for a Connect app and otherwise omitted.
+A publish reads the current HQ app source before it imports: in preflight for
+an app that is already there, after the create for one it makes, and once more
+where it pushed a lookup table or a place in between.
+`lib/commcare/targetOverlay.ts` projects `profile`, `translations` and
+`add_ons` against the last of those reads: each carries what the target owns,
+and a key whose result equals that read's value is left out of the body.
+`lib/commcare/hqShells.ts`, `appProfileSettings.ts`, `derivedProfile.ts` and
+`targetOverlay.ts` state the rule.
 
 Preflight is a dependency graph with two kinds of edge. A blocking edge is a
 real prerequisite: no connection, an app the export boundary refuses, required

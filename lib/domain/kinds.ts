@@ -59,6 +59,12 @@ export type FieldKindMetadata<K extends FieldKind> = {
 	label: string;
 	isStructural: boolean;
 	isContainer: boolean;
+	/**
+	 * Whether the kind's schema declares `validate`: the one predicate the
+	 * validator admits a validation by and the emitter writes one by, read
+	 * through `fieldKindCarriesValidation`.
+	 */
+	carriesValidation: boolean;
 	saDocs: string;
 	/**
 	 * Sibling kinds this kind can be converted into. The type excludes

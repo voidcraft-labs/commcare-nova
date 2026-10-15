@@ -156,6 +156,366 @@
 			"usedInForm": null,
 			"usedInModule": "lambda m: hasattr(m, 'root_module_id') and m.root_module_id"
 		},
+		"app-string-id:android.package.name.*": {
+			"regex": "android\\.package\\.name\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:app.display.name": {
+			"regex": "app\\.display\\.name",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_list_form.m#": {
+			"regex": "case_list_form\\.m[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_list_form.m#.audio": {
+			"regex": "case_list_form\\.m[0-9]+\\.audio",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_list_form.m#.icon": {
+			"regex": "case_list_form\\.m[0-9]+\\.icon",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_lists.m#": {
+			"regex": "case_lists\\.m[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_lists.m#.audio": {
+			"regex": "case_lists\\.m[0-9]+\\.audio",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_lists.m#.callout.header": {
+			"regex": "case_lists\\.m[0-9]+\\.callout\\.header",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_lists.m#.icon": {
+			"regex": "case_lists\\.m[0-9]+\\.icon",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_search.m#": {
+			"regex": "case_search\\.m[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_search.m#.again": {
+			"regex": "case_search\\.m[0-9]+\\.again",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_search.m#.again.audio": {
+			"regex": "case_search\\.m[0-9]+\\.again\\.audio",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_search.m#.description": {
+			"regex": "case_search\\.m[0-9]+\\.description",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_search.m#.inputs": {
+			"regex": "case_search\\.m[0-9]+\\.inputs",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:case_search_again.m#.again.icon": {
+			"regex": "case_search_again\\.m[0-9]+\\.again\\.icon",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.case": {
+			"regex": "cchq\\.case",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.referral": {
+			"regex": "cchq\\.referral",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.report_data_table": {
+			"regex": "cchq\\.report_data_table",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.report_description_header": {
+			"regex": "cchq\\.report_description_header",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.report_last_sync": {
+			"regex": "cchq\\.report_last_sync",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.report_menu": {
+			"regex": "cchq\\.report_menu",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.report_name_header": {
+			"regex": "cchq\\.report_name_header",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.reports.*.description": {
+			"regex": "cchq\\.reports\\..*\\.description",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.reports.*.headers.*": {
+			"regex": "cchq\\.reports\\..*\\.headers\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.reports.*.name": {
+			"regex": "cchq\\.reports\\..*\\.name",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:cchq.reports_last_updated_on": {
+			"regex": "cchq\\.reports_last_updated_on",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:custom_assertion.*.#": {
+			"regex": "custom_assertion\\..*\\.[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:forms.m#f#": {
+			"regex": "forms\\.m[0-9]+f[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:forms.m#f#.*": {
+			"regex": "forms\\.m[0-9]+f[0-9]+\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:forms.m#f#.audio": {
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.audio",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:forms.m#f#.icon": {
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.icon",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:forms.m#f#.submit_label": {
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.submit_label",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:forms.m#f#.submit_notification_label": {
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.submit_notification_label",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:homescreen.title": {
+			"regex": "homescreen\\.title",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:lang.current": {
+			"regex": "lang\\.current",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.*_*_#.header": {
+			"regex": "m[0-9]+\\..*\\..*_.*_[0-9]+\\.header",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.*_*_*.alt_text.*": {
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.alt_text\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.*_*_*.enum.*": {
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.enum\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.*_*_*.graph.a.#": {
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.graph\\.a\\.[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.*_*_*.graph.key.*": {
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.graph\\.key\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.*_*_*.graph.series_#.key.*": {
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.graph\\.series_[0-9]+\\.key\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.graph.a.#": {
+			"regex": "m[0-9]+\\..*\\.graph\\.a\\.[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.graph.key.*": {
+			"regex": "m[0-9]+\\..*\\.graph\\.key\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.graph.series_#.key.*": {
+			"regex": "m[0-9]+\\..*\\.graph\\.series_[0-9]+\\.key\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.tab.#.title": {
+			"regex": "m[0-9]+\\..*\\.tab\\.[0-9]+\\.title",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#.*.title": {
+			"regex": "m[0-9]+\\..*\\.title",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#_no_items_text": {
+			"regex": "m[0-9]+_no_items_text",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:m#_select_text": {
+			"regex": "m[0-9]+_select_text",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:modules.m#": {
+			"regex": "modules\\.m[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:modules.m#.*": {
+			"regex": "modules\\.m[0-9]+\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:modules.m#.audio": {
+			"regex": "modules\\.m[0-9]+\\.audio",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:modules.m#.icon": {
+			"regex": "modules\\.m[0-9]+\\.icon",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:referral_lists.m#": {
+			"regex": "referral_lists\\.m[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:reports.*": {
+			"regex": "reports\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:search_command.m#": {
+			"regex": "search_command\\.m[0-9]+",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:search_property.m#.*": {
+			"regex": "search_property\\.m[0-9]+\\..*",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:search_property.m#.*.hint": {
+			"regex": "search_property\\.m[0-9]+\\..*\\.hint",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:search_property.m#.*.required.text": {
+			"regex": "search_property\\.m[0-9]+\\..*\\.required\\.text",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:search_property.m#.*.validation.#.text": {
+			"regex": "search_property\\.m[0-9]+\\..*\\.validation\\.[0-9]+\\.text",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
+		"app-string-id:training.root.title": {
+			"regex": "training\\.root\\.title",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/id_strings.py::REGEXES"
+			]
+		},
 		"appearance:android-IntentExtensionParser/quick": {
 			"reads": [
 				{
@@ -16808,6 +17168,59 @@
 				"commcare-hq/corehq/privileges.py::ZAPIER_INTEGRATION"
 			]
 		},
+		"profile-feature:checkoff": {
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/templates/app_manager/profile.xml"
+			],
+			"written": [
+				{
+					"active": [
+						{
+							"value": "true",
+							"when": [
+								"if is_odk"
+							]
+						},
+						{
+							"value": "false",
+							"when": [
+								"if is_odk / else"
+							]
+						}
+					]
+				}
+			]
+		},
+		"profile-feature:package": {
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/templates/app_manager/profile.xml"
+			],
+			"written": [
+				{
+					"active": [
+						{
+							"value": "false",
+							"when": []
+						}
+					]
+				}
+			]
+		},
+		"profile-feature:reminders": {
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/templates/app_manager/profile.xml"
+			],
+			"written": [
+				{
+					"active": [
+						{
+							"value": "false",
+							"when": []
+						}
+					]
+				}
+			]
+		},
 		"profile-property:BackupMode": {
 			"source": [
 				"commcare-hq/corehq/apps/app_manager/templates/app_manager/profile.xml"
@@ -16935,7 +17348,7 @@
 			"authored": true,
 			"hqWrites": false,
 			"note": "no code in Core, Android or Formplayer reads this key at the pins (Android's HiddenPreferences reads cc-app-version-tag, another key)",
-			"novaWrites": "1",
+			"novaWrites": "the document's mutation sequence the archive was compiled at (1 without one)",
 			"readBy": [],
 			"source": [
 				"commcare-core/src/main/java/org/commcare/xml/ProfileParser.java::ProfileParser.addPropertySetter",

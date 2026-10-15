@@ -19,10 +19,10 @@ import {
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
-import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
 	expressionInspectionSource,
-	fieldRegistry,
+	fieldKindCarriesValidation,
 	hiddenFieldCarriesBothValueSources,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
@@ -71,29 +71,6 @@ function readXPath(
 ): string | undefined {
 	const value = expressionInspectionSource(field, key, ctx.doc);
 	return value !== undefined && value.length > 0 ? value : undefined;
-}
-
-/**
- * A field kind supports validation (constraint + constraint message) if the
- * user can actually see the error. Structural containers (group, repeat),
- * display-only labels, and computed hidden fields cannot — setting
- * `validate` / `validate_msg` on them is a category mistake. Derived from
- * the registry metadata so adding a new kind doesn't require touching this
- * check.
- */
-const KINDS_SUPPORTING_VALIDATION: ReadonlySet<FieldKind> = (() => {
-	const kinds = new Set<FieldKind>();
-	for (const kind of Object.keys(fieldRegistry) as FieldKind[]) {
-		const meta = fieldRegistry[kind];
-		if (meta.isStructural) continue;
-		if (kind === "hidden") continue;
-		kinds.add(kind);
-	}
-	return kinds;
-})();
-
-function supportsValidation(kind: FieldKind): boolean {
-	return KINDS_SUPPORTING_VALIDATION.has(kind);
 }
 
 /** Context passed to each per-field rule so errors carry full provenance. */
@@ -397,7 +374,7 @@ function validationOnNonInputType(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
-	if (supportsValidation(field.kind)) return [];
+	if (fieldKindCarriesValidation(field.kind)) return [];
 	const validateExpr = readXPath(field, "validate", ctx);
 	const validateMsg = (field as unknown as Record<string, unknown>)
 		.validate_msg;

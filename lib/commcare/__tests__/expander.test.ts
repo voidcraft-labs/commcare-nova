@@ -13,6 +13,7 @@ import {
 	resolveCaseListConfig,
 	xp,
 } from "@/lib/__tests__/docHelpers";
+import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import {
 	APP_SHELL_KEYS,
 	expandAppShell,
@@ -56,6 +57,7 @@ import {
 	toValueExpression,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { connectWireFixtures } from "./connectWireFixtures";
 import { captureExpanderEvidence } from "./expanderEvidence";
 
 function expandDoc(doc: BlueprintDoc) {
@@ -189,7 +191,11 @@ describe("display-condition HQ projection", () => {
 		expect(hq.modules[0].module_filter).toBe(
 			"instance('commcaresession')/session/user/data/role = 'supervisor'",
 		);
-		expect(hq.modules[0].forms[0].form_filter).toBe("#case/@status = 'open'");
+		// A reserved attribute is read through the menu's selected case, the
+		// one spelling HQ builds; `#case/@status` fails its form filter parse.
+		expect(hq.modules[0].forms[0].form_filter).toBe(
+			"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@status = 'open'",
+		);
 	});
 
 	it("folds always-true conditions to null in HQ shells", () => {
@@ -5451,31 +5457,100 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 	});
 });
 
+describe("the app-level keys of the HQ import file", () => {
+	it("holds the seventeen settings in profile order, at the document's two values", () => {
+		for (const appSettings of [
+			{ showSavedForms: false, showIncompleteForms: true },
+			{ showSavedForms: true, showIncompleteForms: false },
+		]) {
+			const doc = { ...registrationDoc, appSettings };
+			const properties = expandDoc(doc).profile?.properties ?? {};
+			expect(Object.entries(properties)).toEqual(
+				appProfileProperties(doc).map(({ key, value }) => [key, value]),
+			);
+			expect(properties["cc-show-saved"]).toBe(
+				appSettings.showSavedForms ? "yes" : "no",
+			);
+			expect(properties["cc-show-incomplete"]).toBe(
+				appSettings.showIncompleteForms ? "yes" : "no",
+			);
+		}
+	});
+
+	it("holds only the add-ons the app needs, and no add_ons where it needs none", () => {
+		const hq = expandDoc(registrationDoc);
+		expect(hq.add_ons).toBeUndefined();
+		const withFilter = expandDoc(
+			buildDoc({
+				appName: "Filtered",
+				modules: [
+					{
+						name: "Surveys",
+						displayCondition: eq(sessionUser("role"), literal("lead")),
+						forms: [
+							{
+								name: "Check",
+								type: "survey",
+								fields: [
+									f({ kind: "text", id: "note", label: proseText("Note") }),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		expect(withFilter.add_ons).toEqual({ display_conditions: true });
+	});
+
+	it("writes Auto Capture Location only for a Connect app", () => {
+		for (const { doc } of connectWireFixtures()) {
+			const hq = expandDoc(doc);
+			if (doc.connectType === null) {
+				expect(Object.hasOwn(hq, "auto_gps_capture")).toBe(false);
+			} else {
+				expect(hq.auto_gps_capture).toBe(true);
+			}
+		}
+	});
+});
+
 describe("expandAppShell", () => {
 	it("holds exactly the shell's keys in their order, with no menu and no attachment", () => {
-		const shell = expandAppShell(registrationDoc);
-		expect(Object.keys(shell)).toEqual([
+		const connect = connectWireFixtures().find(
+			(fixture) => fixture.name === "deliver-default",
+		)?.doc;
+		if (connect === undefined) throw new Error("Missing the Connect fixture.");
+		const keys = (connectApp: boolean) => [
 			"doc_type",
 			"application_version",
 			"name",
 			"langs",
 			"build_spec",
 			"translations",
-			"auto_gps_capture",
-			"add_ons",
+			...(connectApp ? ["auto_gps_capture"] : []),
 			"modules",
 			"_attachments",
-		]);
-		expect(Object.keys(shell)).toEqual([...APP_SHELL_KEYS]);
-		expect(shell.modules).toEqual([]);
-		expect(shell._attachments).toEqual({});
-		for (const absent of [
-			"multimedia_map",
-			"logo_refs",
-			"profile",
-			"location_fixture_restore",
-		]) {
-			expect(Object.hasOwn(shell, absent)).toBe(false);
+		];
+		for (const [doc, connectApp] of [
+			[registrationDoc, false],
+			[connect, true],
+		] as const) {
+			const shell = expandAppShell(doc);
+			expect(Object.keys(shell)).toEqual(keys(connectApp));
+			expect(APP_SHELL_KEYS).toEqual(keys(true));
+			expect(shell.modules).toEqual([]);
+			expect(shell._attachments).toEqual({});
+			if (connectApp) expect(shell.auto_gps_capture).toBe(true);
+			for (const absent of [
+				"add_ons",
+				"multimedia_map",
+				"logo_refs",
+				"profile",
+				"location_fixture_restore",
+			]) {
+				expect(Object.hasOwn(shell, absent)).toBe(false);
+			}
 		}
 	});
 

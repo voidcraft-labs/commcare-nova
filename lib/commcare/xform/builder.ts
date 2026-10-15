@@ -41,7 +41,6 @@ import { decodeXML } from "entities";
 import {
 	buildVellumTransforms,
 	RESERVED_XFORM_NODE_PREFIX,
-	supportsValidation,
 } from "@/lib/commcare";
 import {
 	effectiveAssessmentUserScore,
@@ -107,6 +106,7 @@ import {
 	type Field,
 	type FieldKind,
 	fieldExpressionValue,
+	fieldKindCarriesValidation,
 	isCaptureField,
 	isCaptureFieldKind,
 	isContainer,
@@ -1161,7 +1161,7 @@ function buildFieldParts(
 	const hintMedia = readFieldMedia(field, "hint_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
-	const canValidate = supportsValidation(field.kind);
+	const canValidate = fieldKindCarriesValidation(field.kind);
 	const isContainerKind = isContainer(field);
 	const hasLabel =
 		field.kind !== "hidden" &&

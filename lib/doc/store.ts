@@ -75,6 +75,7 @@ import {
 } from "@/lib/domain";
 import {
 	APP_GENESIS_FALLBACK_NAME,
+	NEW_APP_SETTINGS,
 	type PersistableDoc,
 } from "@/lib/domain/blueprint";
 
@@ -251,6 +252,7 @@ const EMPTY_DOC: BlueprintDoc = {
 	appName: APP_GENESIS_FALLBACK_NAME,
 	connectType: null,
 	caseTypes: null,
+	appSettings: { ...NEW_APP_SETTINGS },
 	modules: recordFromEntries([]),
 	forms: recordFromEntries([]),
 	fields: recordFromEntries([]),
@@ -388,6 +390,7 @@ function affectsCaseWriteProjection(
 		case "updateModule":
 			return Object.hasOwn(mutation.patch, "caseType");
 		case "setAppLogo":
+		case "setAppSettings":
 		case "setAppName":
 		case "setConnectType":
 		case "addModule":

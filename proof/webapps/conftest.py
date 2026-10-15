@@ -29,6 +29,8 @@ DOCUMENTS = (
     "targeted-media-slots",
     "targeted-survey-menu",
 )
+# Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
+CONTROLS = ("case-operation-query",)
 
 
 class _Named(dict):
@@ -53,6 +55,21 @@ def webapps_documents():
             " the Web Apps tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+
+@pytest.fixture(scope="session")
+def webapps_controls():
+    """The retained controls ``CONTROLS`` names, by id; a test of a control ``proof/controls/`` lacks fails."""
+    from proof.checks import corpus
+
+    found = {control.id: control for control in corpus.load_controls() if control.id in CONTROLS}
+    missing = sorted(set(CONTROLS) - set(found))
+    if missing:
+        pytest.fail(
+            f"proof/controls holds no {missing}, which proof/webapps/conftest.py::CONTROLS names as the controls"
+            " the Web Apps tests read. Name controls proof/controls holds."
+        )
+    return found
 
 
 @pytest.fixture

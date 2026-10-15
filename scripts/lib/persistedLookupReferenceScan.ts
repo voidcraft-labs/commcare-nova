@@ -23,6 +23,7 @@ type PersistedAppRow = Pick<
 > & {
 	readonly case_types_text: string | null;
 	readonly localization_text: string | null;
+	readonly app_settings_text: string | null;
 };
 
 function errorMessage(error: unknown): string {
@@ -77,6 +78,7 @@ async function readStructuralTargets(
 				connect_type: row.connect_type,
 				case_types_text: row.case_types_text,
 				localization_text: row.localization_text,
+				app_settings_text: row.app_settings_text,
 				logo: row.logo,
 			},
 			entityRows,
@@ -161,6 +163,11 @@ export async function scanPersistedLookupReferences(
 				.select(
 					sql<string | null>`${sql.ref("apps.localization")}::text`.as(
 						"localization_text",
+					),
+				)
+				.select(
+					sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+						"app_settings_text",
 					),
 				)
 				.orderBy("id", "asc")

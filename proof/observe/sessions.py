@@ -436,7 +436,9 @@ def observe(
     ``app_id`` is A's id: the local archive is replayed with its runtime URLs
     naming it in place of the placeholder its capture named
     (``proof.hq.operations.with_runtime_app_id``), as the archive Nova
-    compiles for the deployment names the app HQ holds there. ``restore_a``
+    compiles for the deployment names the app HQ holds there; the archive is the
+    one Nova compiles for the project space the export's configuration names
+    (``Document.local_ccz_for``). ``restore_a``
     is the ``a`` record's restore over A (its lookup outcome and restore
     bytes); ``b_differs`` whether the raw builds of A and of B aligned to A
     differ, so that B's sessions run; ``operation`` the unit's operation each
@@ -446,7 +448,8 @@ def observe(
     from proof.hq.operations import with_runtime_app_id
 
     operation = operation or unit.operation
-    if a_build is None or unbuildable(a_build) is not None or document.local_ccz is None:
+    archive = document.local_ccz_for(export.configuration.name)
+    if a_build is None or unbuildable(a_build) is not None or archive is None:
         return None
     database = casedata.document_case_database(document)
     lookups_a, restore_hq = restore_a
@@ -472,7 +475,7 @@ def observe(
         )
         script = script_of(baseline.trace)
         local = Path(scratch, "local.ccz")
-        local.write_bytes(with_runtime_app_id(document.local_ccz.read_bytes(), app_id))
+        local.write_bytes(with_runtime_app_id(archive.read_bytes(), app_id))
         _, recorded["local"] = _side(
             core_runner,
             unit,

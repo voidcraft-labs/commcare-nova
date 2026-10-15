@@ -16,8 +16,6 @@ import {
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
-import { assemblePersistedBlueprintJsonText } from "@/lib/db/persistedJson";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	classifyDeployment,
 	type DeploymentReads,
@@ -28,7 +26,10 @@ import type { DecryptClock } from "../kmsDecrypt";
 import { deploymentNotices } from "../notice";
 import { readRawDocument } from "../oldShape";
 import { questionPaths } from "../questionPaths";
-import { readFixtureCarriers } from "./fixtures/preStep";
+import {
+	migratedFixtureDocument,
+	readFixtureCarriers,
+} from "./fixtures/preStep";
 import {
 	FORM_IDS_PATH,
 	PEER_APP,
@@ -42,13 +43,7 @@ const DOCUMENT = "navigation-base";
 const today = questionPaths(
 	readRawDocument(DOCUMENT, readFixtureCarriers(DOCUMENT)),
 );
-const target = hydratePersistedBlueprint(
-	assemblePersistedBlueprintJsonText(
-		DOCUMENT,
-		readFixtureCarriers(DOCUMENT).root,
-		readFixtureCarriers(DOCUMENT).rows,
-	),
-);
+const target = migratedFixtureDocument(DOCUMENT);
 
 const credentialsOf = (userId: string): CommCareCredentials => ({
 	username: `${userId}@example.org`,
@@ -166,6 +161,7 @@ describe("the credential order over HQ's refusals", () => {
 			expect(result.outcome).toBe("unreadable");
 			expect(deploymentNotices(result, target).map((n) => n.reason)).toEqual([
 				"ids-change-once-unreadable",
+				"settings-unknown-unreadable",
 			]);
 		});
 	});

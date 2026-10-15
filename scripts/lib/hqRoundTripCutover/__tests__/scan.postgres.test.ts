@@ -9,12 +9,8 @@ import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { assemblePersistedBlueprintJsonText } from "@/lib/db/persistedJson";
 import type { AppDatabase } from "@/lib/db/pg";
-import {
-	hydratePersistedBlueprint,
-	toPersistableDoc,
-} from "@/lib/doc/fieldParent";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { asUuid } from "@/lib/domain";
 import { MODULE_BUILTIN_ICON_REFS } from "@/lib/domain/builtinIcons";
@@ -23,7 +19,7 @@ import type { ReportLine } from "../report";
 import { runScan } from "../run";
 import {
 	carriersOf,
-	readFixtureCarriers,
+	migratedFixtureDocument,
 	readFixtureSchemas,
 } from "./fixtures/preStep";
 import { fixtureApp, seedFixtureApp } from "./fixtures/seed";
@@ -40,14 +36,7 @@ function section(lines: readonly ReportLine[], name: string) {
 
 /** navigation-base with a built-in menu icon and an uploaded form icon. */
 function withIcons(assetId: string) {
-	const carriers = readFixtureCarriers("navigation-base");
-	const doc = hydratePersistedBlueprint(
-		assemblePersistedBlueprintJsonText(
-			"navigation-base",
-			carriers.root,
-			carriers.rows,
-		),
-	);
+	const doc = migratedFixtureDocument("navigation-base");
 	const [menu] = doc.moduleOrder;
 	const [form] = doc.formOrder[menu ?? asUuid("")] ?? [];
 	const next = produce(doc, (draft) => {

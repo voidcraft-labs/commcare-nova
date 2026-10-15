@@ -286,7 +286,8 @@ def test_a_media_upload_maps_each_file_the_app_references_into_that_app_with_its
 
 # The publish sequence (part 01, A3): a shell create, then the update that fills it -----------------------------
 
-# ``lib/commcare/expander.ts::APP_SHELL_KEYS``, the keys of the empty shell a first publish creates.
+# ``lib/commcare/expander.ts::APP_SHELL_KEYS``, the keys of the empty shell a first publish creates, in its order:
+# no ``add_ons``, which the update's overlay writes, and ``auto_gps_capture`` only for a Connect app.
 APP_SHELL_KEYS = (
     "doc_type",
     "application_version",
@@ -295,10 +296,11 @@ APP_SHELL_KEYS = (
     "build_spec",
     "translations",
     "auto_gps_capture",
-    "add_ons",
     "modules",
     "_attachments",
 )
+# The shell of an app that is not a Connect app, as the three documents below are.
+APP_SHELL_KEYS_WITHOUT_CONNECT = tuple(key for key in APP_SHELL_KEYS if key != "auto_gps_capture")
 MEMBER = "member@example.org"
 MISSING_APP = "nova-proof-missing-app"
 
@@ -351,7 +353,7 @@ def test_a_shell_create_then_an_update_leaves_what_the_update_describes(hq, core
     export = documents[document_id].exports["minimum"]
     assert export.two_imports
     shell, content = _app_file(export.create.upload()), _app_file(export.content.upload())
-    assert tuple(shell) == APP_SHELL_KEYS
+    assert tuple(shell) == APP_SHELL_KEYS_WITHOUT_CONNECT
     assert shell["modules"] == [] and shell["_attachments"] == {}
     with hq_check(export.configuration.hq()) as (state, _):
         app_id, (created,) = operations.publish(state, [export.create.upload()])

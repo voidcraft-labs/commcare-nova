@@ -347,16 +347,15 @@ describe("the cutover's baselines", () => {
 		expect(text).toBe(normalized.text);
 		expect(app?.source_digest).toBe(normalized.digest);
 		expect(app?.source_bytes).toBe(normalized.bytes);
-		// The ownership is the body's over this read: the body carries the
-		// read's own profile, so every key the read holds is in it.
+		// The ownership is the body's over this read: the two form list
+		// settings of the profile, and the add-ons the document needs, which
+		// for this fixture are none.
 		const ownership = app?.ownership as AppOwnership;
-		const profile = first.value.raw.profile as {
-			properties?: Record<string, unknown>;
-		};
-		for (const key of Object.keys(profile.properties ?? {})) {
-			expect(ownership.profileProperties).toContain(key);
-		}
-		expect(ownership.addOns.length).toBeGreaterThan(0);
+		expect(ownership.profileProperties).toEqual([
+			"cc-show-saved",
+			"cc-show-incomplete",
+		]);
+		expect(ownership.addOns).toEqual([]);
 
 		// HQ's second read of the unchanged app compares equal to the stored
 		// baseline, so the first publish after the cutover proceeds.
@@ -453,6 +452,7 @@ describe("the cutover's baselines", () => {
 		expect(notices.map((entry) => entry.reason)).toEqual([
 			"ids-change-once-unreadable",
 			"next-publish-asks-before-overwriting",
+			"settings-unknown-unreadable",
 		]);
 		// The app's own baseline is the one not read, so the line names no table or place.
 		expect(notices[1]?.entities).toBeUndefined();

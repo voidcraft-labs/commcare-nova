@@ -157,13 +157,14 @@ def release_is_the_build(served, files) -> dict | None:
     return {"differing": differing} if differing else None
 
 
-def local(served, runner, blobs, document, *, script):
-    """Formplayer's walk of Nova's local archive over the served state's HQ: the archive is Nova's bytes, its
-    runtime URLs naming the working app (``with_runtime_app_id``), handed to Formplayer where it asks HQ's download
-    for the app; the worker, the restore, each search, each claim and each submission are HQ's own."""
+def local(served, runner, blobs, document, *, script, configuration):
+    """Formplayer's walk of Nova's local archive over the served state's HQ: the archive Nova compiles for the
+    project space the configuration ``configuration`` names (``Document.local_ccz_for``), its runtime URLs naming
+    the working app (``with_runtime_app_id``), handed to Formplayer where it asks HQ's download for the app; the
+    worker, the restore, each search, each claim and each submission are HQ's own."""
     from proof.hq.operations import with_runtime_app_id
 
-    archive = with_runtime_app_id(document.local_ccz.read_bytes(), served.app_id)
+    archive = with_runtime_app_id(document.local_ccz_for(configuration).read_bytes(), served.app_id)
     app_id = apps.build_id(LOCAL_APP, archive)
     served.hq.archives[app_id] = archive
     try:

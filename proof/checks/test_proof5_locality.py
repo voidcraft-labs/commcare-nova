@@ -37,7 +37,10 @@ exactly what the comparators read, so it neither misses a change they
 report nor reports a spelling they do not read. An input the corpus
 lost (D''s publish under a configuration Nova's would send it to, one side's
 local archive) is refused rather than skipped, while a configuration where
-Nova's publish refuses D' (decision 19) is left out.
+Nova's publish refuses D' (decision 19) is left out. A local form is compared
+without its data node's ``version``, the sequence every local form carries
+and D''s archive raises (the version clause): two forms that differ in it
+alone read alike, and one more difference on such a form is still reported.
 
 Every difference must fall in a class of ``proof/known-defects.json``.
 """
@@ -725,3 +728,31 @@ def test_a_configuration_novas_publish_refuses_for_the_edit_is_left_out(tmp_path
         root.joinpath("local.ccz").unlink()
     with pytest.raises(corpus.CorpusLayoutError, match="compare nothing"):
         proof5.locality(_reread(document))
+
+
+LOCAL_FORM = (
+    '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><h:title>F</h:title>'
+    '<model><instance><data xmlns="urn:form" version="{version}"{extra}><q>{answer}</q></data></instance>'
+    "</model></h:head><h:body/></h:html>"
+)
+
+
+def _local_form(version, extra="", answer=""):
+    return LOCAL_FORM.format(version=version, extra=extra, answer=answer).encode()
+
+
+def test_a_local_forms_version_is_the_intent_checks_and_every_other_change_is_compared():
+    artifact = "local:form:0.0"
+    before = proof5.Record.of_local_form(artifact, _local_form("4"))
+    assert proof5.Record.of_local_form(artifact, _local_form("5")).digest == before.digest
+    for changed in (_local_form("5", extra=' uiVersion="2"'), _local_form("5", answer="seen")):
+        after = proof5.Record.of_local_form(artifact, changed)
+        assert after.digest != before.digest
+        found = compare_xml_trees(
+            before.value, after.value, check="proof5", document="xml", artifact=artifact, blank_text="exact"
+        )
+        assert found and not any("@version" in difference.path for difference in found), found
+    # A form HQ reads from Nova's publish keeps its version in what is compared.
+    assert proof5.Record.of_xml("form:0.0", _local_form("4")).digest != (
+        proof5.Record.of_xml("form:0.0", _local_form("5")).digest
+    )

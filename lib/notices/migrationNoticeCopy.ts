@@ -14,6 +14,7 @@
 
 import type {
 	DeploymentNoticeEntry,
+	DocumentNoticeEntry,
 	KeyReaderNotice,
 	MigrationNoticeCutover,
 	MigrationNoticeEntry,
@@ -83,11 +84,54 @@ function entityList(
 	]);
 }
 
+/** "on" or "off", as a stored `detail` value names a list's setting. */
+function onOff(value: string | undefined): "on" | "off" | undefined {
+	return value === "on" || value === "off" ? value : undefined;
+}
+
 /** What a form's new id means for what HQ already holds that names it. */
 const FORM_ID_REPOINT =
 	"If an SMS keyword or a scheduled message opens one of these forms, you can point it at the form again in CommCare HQ once you release a build made after that publish.";
 
 export const MIGRATION_NOTICE_COPY = {
+	/* `detail.saved` and `detail.incomplete`: the app's two settings after the
+	 * cutover, each "on" or "off". */
+	"android-form-lists-setting-stored": (entry: DocumentNoticeEntry) => {
+		const saved = onOff(entry.detail?.saved);
+		const incomplete = onOff(entry.detail?.incomplete);
+		const values =
+			saved === undefined || incomplete === undefined
+				? ""
+				: `: saved forms ${saved}, incomplete forms ${incomplete}`;
+		return noticeLine([
+			text(
+				`This app now states whether workers see saved forms and incomplete forms on their home screen${values}. Android reads both settings, and Web Apps reads the incomplete forms one. Nova kept each list on wherever a project space of this app shows it today. They are yours to change in App settings.`,
+			),
+		]);
+	},
+	/* The entity is the question; `detail.form` its form's name and
+	 * `detail.kind` its kind, `barcode` or `secret`. */
+	"validation-now-enforced": (entry: DocumentNoticeEntry, ctx) => {
+		const form = entry.detail?.form;
+		const kind = entry.detail?.kind;
+		const noun =
+			kind === "barcode" || kind === "secret"
+				? `this ${kind} question`
+				: "this question";
+		return noticeLine([
+			...(form === undefined ? [] : [text(`${form}, `)]),
+			entityPart(entry.entity, ctx),
+			text(
+				`: its validation now runs on ${noun}. Workers see its message when an answer doesn't pass.`,
+			),
+		]);
+	},
+	"local-archive-changes": () =>
+		noticeLine([
+			text(
+				"A CommCare file downloaded from Nova now needs CommCare 2.57 or later.",
+			),
+		]),
 	"unsaved-assistant-work-discarded": () =>
 		noticeLine([
 			text(
@@ -178,6 +222,44 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* `detail.setting` is `saved` or `incomplete`, and `detail.readers` the
+	 * readers that gain the list there: `android`, or `android-and-webapps`.
+	 * Every entry is a list workers gain; none turns one off. */
+	"setting-changes-at-next-publish": (entry: DeploymentNoticeEntry) => {
+		const space = projectSpace(entry);
+		const turnOff = "You can turn them off in App settings.";
+		if (entry.detail?.setting === "saved") {
+			return noticeLine([
+				text(
+					`Workers on ${space} will see saved forms on Android after the next publish there. They don't today, and another project space of this app shows them. ${turnOff}`,
+				),
+			]);
+		}
+		if (entry.detail?.readers === "android") {
+			return noticeLine([
+				text(
+					`Workers on ${space} will see incomplete forms on Android after the next publish there, as they already do in Web Apps. ${turnOff}`,
+				),
+			]);
+		}
+		return noticeLine([
+			text(
+				`Workers on ${space} will see incomplete forms on Android and in Web Apps after the next publish there. They don't today, and another project space of this app shows them. ${turnOff}`,
+			),
+		]);
+	},
+	"settings-unknown-unreadable": (entry) =>
+		noticeLine([
+			text(
+				`Nova couldn't read ${projectSpace(entry)}, so it could not tell whether workers see saved and incomplete forms there. The next publish there sets them to this app's settings. They are yours to change in App settings.`,
+			),
+		]),
+	"worker-settings-reset-at-next-publish": (entry) =>
+		noticeLine([
+			text(
+				`After the next publish to ${projectSpace(entry)}, each app update resets three of a worker's own settings: fuzzy search, automatic updates and text to speech.`,
+			),
+		]),
 } satisfies {
 	readonly [R in MigrationNoticeReason]: (
 		entry: Extract<MigrationNoticeEntry, { reason: R }>,

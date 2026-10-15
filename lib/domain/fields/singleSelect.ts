@@ -40,6 +40,7 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	label: "Single Select",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs:
 		"Single-choice from inline choices, a Project data table, or cases available to the worker. Case choices save exact record IDs.",
 	// `text` is the demotion path — a select's stored value is a plain

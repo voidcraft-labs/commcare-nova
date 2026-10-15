@@ -102,6 +102,8 @@ describe("assemblePersistedBlueprintJsonText", () => {
 				app_name: "Historical app",
 				connect_type: null,
 				case_types_text: null,
+				app_settings_text:
+					'{"showSavedForms":false,"showIncompleteForms":true}',
 				logo: null,
 			},
 			[],
@@ -109,6 +111,26 @@ describe("assemblePersistedBlueprintJsonText", () => {
 
 		expect(doc.appName).toBe("Historical app");
 		expect(doc.localization).toBeUndefined();
+		expect(doc.appSettings).toEqual({
+			showSavedForms: false,
+			showIncompleteForms: true,
+		});
+	});
+
+	it("refuses a row that holds no app settings rather than reading a default", () => {
+		expect(() =>
+			assemblePersistedBlueprintJsonText(
+				"unsettled-app",
+				{
+					app_name: "Unsettled app",
+					connect_type: null,
+					case_types_text: null,
+					app_settings_text: null,
+					logo: null,
+				},
+				[],
+			),
+		).toThrow(/appSettings/);
 	});
 });
 
@@ -344,10 +366,11 @@ describe("persisted JSON source boundaries", () => {
 			"utf8",
 		);
 		expect(inspector).toContain(
-			"(to_jsonb(apps) - 'case_types' - 'localization')::text",
+			"(to_jsonb(apps) - 'case_types' - 'localization' - 'app_settings')::text",
 		);
 		expect(inspector).toMatch(/apps\.case_types.+::text/s);
 		expect(inspector).toMatch(/apps\.localization.+::text/s);
+		expect(inspector).toMatch(/apps\.app_settings.+::text/s);
 		expect(inspector).toContain("parsePersistedJsonText");
 	});
 

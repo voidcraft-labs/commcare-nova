@@ -68,6 +68,7 @@ function dispatchMutation(
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
+		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":

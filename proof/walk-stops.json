@@ -132,6 +132,12 @@
 		"reason": "Formplayer cannot install the app: a question of its form is bound to a node the form does not hold (UnresolvedResourceException), which is the document's witness of defect 15, so the walk ends at its first request."
 	},
 	{
+		"control": "targeted-invalid-question-ids-after-9",
+		"reader": "formplayer",
+		"cause": "notification:question-bound-to-non-existent-node",
+		"reason": "The control retains the document from before step 2 rewrote its question ids: a question of its form is bound to a node the form does not hold (UnresolvedResourceException), so Formplayer cannot install the app and the walk ends at its first request."
+	},
+	{
 		"document": "targeted-lookup-reserved-tags",
 		"reader": "formplayer",
 		"cause": "notification:make-sure-the-lookup-table-is-available-and-that-its-contents-are-accessible-to-the-current-user",

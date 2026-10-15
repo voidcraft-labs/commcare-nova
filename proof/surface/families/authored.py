@@ -69,7 +69,7 @@ AUTHORED = {
     "profile-property:cc-app-version": {
         "source": [f"{COMPILER}::generateProfile", PROFILE_PARSER],
         "facts": {
-            "novaWrites": "1",
+            "novaWrites": "the document's mutation sequence the archive was compiled at (1 without one)",
             "readBy": [],
             "hqWrites": False,
             "note": f"{NO_READER} (Android's HiddenPreferences reads cc-app-version-tag, another key)",

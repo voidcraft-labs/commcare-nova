@@ -10,16 +10,22 @@ const US_ACME: ReachedDeploymentTarget = {
 	server: "production",
 	domain: "acme",
 	hqAppId: "0123456789abcdef0123456789abcdef",
+	emptyCaseListText: false,
+	earlierHqApps: 0,
 };
 const INDIA_ACME: ReachedDeploymentTarget = {
 	server: "india",
 	domain: "acme",
 	hqAppId: "11111111111111111111111111111111",
+	emptyCaseListText: false,
+	earlierHqApps: 0,
 };
 const INDIA_FIELD: ReachedDeploymentTarget = {
 	server: "india",
 	domain: "field-ops",
 	hqAppId: "22222222222222222222222222222222",
+	emptyCaseListText: false,
+	earlierHqApps: 0,
 };
 const REACHED = [US_ACME, INDIA_ACME, INDIA_FIELD];
 

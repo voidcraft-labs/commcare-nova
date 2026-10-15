@@ -34,6 +34,7 @@ export const barcodeFieldMetadata: FieldKindMetadata<"barcode"> = {
 	label: "Barcode",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs: "Barcode/QR scan.",
 	// Barcodes scan as plain strings (same wire type as text), so the
 	// demotion to a typed text question is data-free in both directions.

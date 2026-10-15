@@ -1,31 +1,42 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { commCareLocalization } from "@/lib/commcare/localization";
+import {
+	profileUniqueId,
+	type RuntimeTarget,
+} from "@/lib/commcare/runtimeTarget";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	type BlueprintDoc,
-	blueprintDocSchema,
-	uuidSchema,
-} from "@/lib/domain";
+import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import {
 	compilerNavigationFixture,
 	temporalSearchFixture,
 	temporalSearchScenarios,
 } from "./compilerNavigationFixture";
+import { localizationWireFixture } from "./localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
-function exported(doc: BlueprintDoc, compiledAtSeq?: number) {
+function exported(
+	doc: BlueprintDoc,
+	options: {
+		readonly compiledAtSeq?: number;
+		readonly earlierHqApps?: number;
+		readonly emptyCaseListText?: boolean;
+		readonly runtimeTarget?: RuntimeTarget;
+	} = {},
+) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc);
 	const zip = new AdmZip(
 		compileCcz(hq, doc.appName, doc, {
 			runtimeTarget: TEST_RUNTIME_TARGET,
-			compiledAtSeq,
+			...options,
 		}),
 	);
 	return { hq, zip, suite: readXmlEvidence(zip.readAsText("suite.xml")) };
@@ -42,11 +53,10 @@ const model = (xml: string) =>
 // Native case operation/capture and tile proofs own those consumer contracts.
 // This suite owns archive identity, compiler refusal and navigation integration.
 describe("CCZ compiler integration", () => {
-	it("packages resolvable profile resources and fresh installation identities at each document sequence", () => {
+	it("packages resolvable profile resources under one identity for the app on its project space", () => {
 		const doc = compilerNavigationFixture("base");
-		const identities = new Set<string>();
-		for (const sequence of [undefined, 0, 42]) {
-			const { zip } = exported(doc, sequence);
+		for (const sequence of [undefined, 1, 42]) {
+			const { zip } = exported(doc, { compiledAtSeq: sequence });
 			expect(
 				zip
 					.getEntries()
@@ -62,16 +72,24 @@ describe("CCZ compiler integration", () => {
 				"suite.xml",
 			]);
 			const profile = readXmlEvidence(zip.readAsText("profile.ccpr"));
+			const version = String(sequence ?? 1);
 			expect(profile.uri).toBe("http://cihi.commcarehq.org/jad");
-			expect(profile.attributes.name).toBe(doc.appName);
-			uuidSchema.parse(profile.attributes.uniqueid);
-			identities.add(profile.attributes.uniqueid);
+			expect(profile.attributes).toEqual({
+				xmlns: "http://cihi.commcarehq.org/jad",
+				version,
+				uniqueid: profileUniqueId(doc.appId, TEST_RUNTIME_TARGET),
+				requiredMajor: "2",
+				requiredMinor: "57",
+				requiredMinimal: "0",
+				name: doc.appName,
+				update: "http://localhost/update",
+			});
 			expect(
 				xmlChildren(profile, "property").map((property) => property.attributes),
 			).toEqual([
 				{ key: "CommCare App Name", value: doc.appName },
-				{ key: "cc-content-version", value: String(sequence ?? 1) },
-				{ key: "cc-app-version", value: "1" },
+				{ key: "cc-content-version", value: version },
+				{ key: "cc-app-version", value: version },
 				{
 					key: "ota-restore-url",
 					value:
@@ -94,11 +112,31 @@ describe("CCZ compiler integration", () => {
 					value: "nova-test.commcarehq.org",
 					force: "true",
 				},
+				{ key: "cur_locale", value: "en", force: "false" },
+				...appProfileProperties(doc).map(({ key, value, force }) => ({
+					key,
+					value,
+					...(force && { force: "true" }),
+				})),
 			]);
-			const locations = xmlChildren(profile, "suite").map((suite) =>
-				onlyXml(
-					xmlChildren(onlyXml(xmlChildren(suite, "resource")), "location"),
-				),
+			expect(
+				onlyXml(xmlChildren(profile, "features")).children.map((feature) => [
+					feature.name,
+					feature.attributes.active,
+				]),
+			).toEqual([
+				["checkoff", "true"],
+				["users", "true"],
+			]);
+			const resources = xmlChildren(profile, "suite").map((suite) =>
+				onlyXml(xmlChildren(suite, "resource")),
+			);
+			expect(resources.map((resource) => resource.attributes.version)).toEqual([
+				version,
+				version,
+			]);
+			const locations = resources.map((resource) =>
+				onlyXml(xmlChildren(resource, "location")),
 			);
 			expect(
 				locations.map((location) => [
@@ -112,7 +150,92 @@ describe("CCZ compiler integration", () => {
 			for (const location of locations)
 				expect(zip.getEntry(location.text.slice(2))).not.toBeNull();
 		}
-		expect(identities.size).toBe(3);
+	});
+
+	it("derives one uniqueid per app and project space, whatever HQ app the space holds", () => {
+		const doc = compilerNavigationFixture("base");
+		const uniqueId = (runtimeTarget: RuntimeTarget) =>
+			readXmlEvidence(
+				exported(doc, { runtimeTarget }).zip.readAsText("profile.ccpr"),
+			).attributes.uniqueid;
+		const same = uniqueId(TEST_RUNTIME_TARGET);
+		expect(uniqueId(TEST_RUNTIME_TARGET)).toBe(same);
+		expect(same).toBe(profileUniqueId(doc.appId, TEST_RUNTIME_TARGET));
+		expect(uniqueId({ ...TEST_RUNTIME_TARGET, appId: "remade-hq-app" })).toBe(
+			same,
+		);
+		expect(
+			uniqueId({ ...TEST_RUNTIME_TARGET, domain: "other-space" }),
+		).not.toBe(same);
+		expect(uniqueId({ ...TEST_RUNTIME_TARGET, server: "india" })).not.toBe(
+			same,
+		);
+	});
+
+	it("writes one archive for one document, sequence and target", () => {
+		const doc = compilerNavigationFixture("base");
+		const bytes = () =>
+			new Map(
+				exported(doc, { compiledAtSeq: 7 })
+					.zip.getEntries()
+					.map((entry) => [entry.entryName, entry.getData().toString("utf8")]),
+			);
+		expect(bytes()).toEqual(bytes());
+	});
+
+	it("versions every resource by the sequence, and the profile and suite by the archive's version", () => {
+		const doc = compilerNavigationFixture("base");
+		for (const [earlierHqApps, archive] of [
+			[0, "7"],
+			[2, "9"],
+		] as const) {
+			const { zip, suite } = exported(doc, { compiledAtSeq: 7, earlierHqApps });
+			const profile = readXmlEvidence(zip.readAsText("profile.ccpr"));
+			expect(profile.attributes.version).toBe(archive);
+			expect(
+				xmlChildren(profile, "suite").map(
+					(block) => onlyXml(xmlChildren(block, "resource")).attributes.version,
+				),
+			).toEqual([archive, archive]);
+			expect(suite.attributes.version).toBe(archive);
+			const property = (key: string) =>
+				xmlChildren(profile, "property").find(
+					(candidate) => candidate.attributes.key === key,
+				)?.attributes.value;
+			expect(property("cc-content-version")).toBe("7");
+			expect(property("cc-app-version")).toBe("7");
+			const resources = [
+				...xmlChildren(suite, "xform"),
+				...xmlChildren(suite, "locale"),
+			].map(
+				(block) => onlyXml(xmlChildren(block, "resource")).attributes.version,
+			);
+			expect(resources.length).toBeGreaterThan(0);
+			for (const version of resources) expect(version).toBe("7");
+			for (const path of ["modules-0/forms-0.xml", "modules-0/forms-1.xml"]) {
+				const instance = onlyXml(
+					model(zip.readAsText(path)).children.filter(
+						(node) => node.name === "instance" && !node.attributes.id,
+					),
+				);
+				expect(onlyXml(instance.children).attributes.version).toBe("7");
+			}
+		}
+	});
+
+	it("starts a two-language app in its first language", () => {
+		const doc = localizationWireFixture("bilingual");
+		const { zip } = exported(doc);
+		const locale = xmlChildren(
+			readXmlEvidence(zip.readAsText("profile.ccpr")),
+			"property",
+		).find((property) => property.attributes.key === "cur_locale");
+		expect(locale?.attributes).toEqual({
+			key: "cur_locale",
+			value: commCareLocalization(doc).languages[0],
+			force: "false",
+		});
+		expect(commCareLocalization(doc).languages).toHaveLength(2);
 	});
 
 	it("names its one project space everywhere and writes none of HQ's build-only profile keys", () => {
@@ -336,4 +459,76 @@ describe("CCZ compiler integration", () => {
 			// verifies date arithmetic and inclusive/exclusive UTC query bounds.
 		},
 	);
+});
+
+/** One `app_strings.txt`, read as Core reads a locale file: one `key=value` per line. */
+function appStrings(zip: AdmZip, dir: string): ReadonlyMap<string, string> {
+	return new Map(
+		zip
+			.readAsText(`${dir}/app_strings.txt`)
+			.split("\n")
+			.map((line) => {
+				const at = line.indexOf("=");
+				return [line.slice(0, at), line.slice(at + 1)] as const;
+			}),
+	);
+}
+
+describe("the texts HQ's build writes for a list and a form", () => {
+	const shortDetails = (suite: ReturnType<typeof readXmlEvidence>) =>
+		xmlChildren(suite, "detail").filter((detail) =>
+			detail.attributes.id?.endsWith("_short"),
+		);
+	const textLocale = (block: ReturnType<typeof readXmlEvidence>) =>
+		onlyXml(xmlChildren(onlyXml(xmlChildren(block, "text")), "locale"))
+			.attributes.id;
+
+	it("gives every short detail its select text, and every language the text and each form's submit label", () => {
+		const doc = temporalSearchFixture("legacy");
+		const { zip, suite } = exported(doc);
+		const details = shortDetails(suite);
+		expect(details.map((detail) => detail.attributes.id)).toEqual([
+			"m0_case_short",
+			"m0_search_short",
+		]);
+		for (const detail of details) {
+			const children = detail.children.map((child) => child.name);
+			expect(children.at(-1)).toBe("select_text");
+			expect(children).not.toContain("no_items_text");
+			expect(textLocale(onlyXml(xmlChildren(detail, "select_text")))).toBe(
+				"m0_select_text",
+			);
+		}
+		const forms = xmlChildren(suite, "entry").length;
+		expect(forms).toBeGreaterThan(0);
+		for (const dir of ["default", ...commCareLocalization(doc).languages]) {
+			const table = appStrings(zip, dir);
+			expect(table.get("m0_select_text")).toBe("Continue");
+			expect(table.has("m0_no_items_text")).toBe(false);
+			for (
+				let form = 0;
+				form < doc.formOrder[doc.moduleOrder[0]].length;
+				form++
+			)
+				expect(table.get(`forms.m0f${form}.submit_label`)).toBe("Submit");
+		}
+	});
+
+	it("writes the empty-list text after the select text where the target holds the flag", () => {
+		const doc = temporalSearchFixture("legacy");
+		const { zip, suite } = exported(doc, { emptyCaseListText: true });
+		for (const detail of shortDetails(suite)) {
+			expect(detail.children.slice(-2).map((child) => child.name)).toEqual([
+				"select_text",
+				"no_items_text",
+			]);
+			expect(textLocale(onlyXml(xmlChildren(detail, "no_items_text")))).toBe(
+				"m0_no_items_text",
+			);
+		}
+		for (const dir of ["default", ...commCareLocalization(doc).languages])
+			expect(appStrings(zip, dir).get("m0_no_items_text")).toBe(
+				"List is empty.",
+			);
+	});
 });

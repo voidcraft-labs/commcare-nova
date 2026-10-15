@@ -16,7 +16,8 @@
  * The table has a document of its own, apart from the other saves a person
  * makes in HQ (`./hqSideState.ts`), because its republish is the one Nova
  * stops once defect 5 is fixed, and the other saves' symptoms need a
- * republish that lands.
+ * republish that lands. Until then the republish goes through after the
+ * discard a person would confirm (`republish: "discards"`).
  *
  * Fixed values: the form holds the note the worker enters (`./echo.ts`), over
  * a restore holding the district table as HQ serves it, which the form's
@@ -136,6 +137,7 @@ export function hqSideLookup() {
 				},
 				description: "The districts the health team visits",
 			},
+			republish: "discards",
 		},
 	});
 }

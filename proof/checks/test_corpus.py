@@ -53,6 +53,11 @@ import pytest
 from proof.checks import cases, configurations, corpus
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 
+# The fields of HQ's source a captured update is built over (``proof/corpus/publish.ts::AssumedSource``).
+ASSUMED_SOURCE_FIELDS = frozenset(
+    {"doc_type", "build_spec.version", "profile", "translations", "add_ons", "langs", "auto_gps_capture"}
+)
+
 
 @pytest.fixture
 def copied(tmp_path):
@@ -281,9 +286,11 @@ def test_a_first_publish_is_read_in_the_layout_its_create_marks(copied):
         assert _app_file(export.content)["modules"], name
         assert "app_id" not in operations.upload_field_names(export.create.upload())
         assert export.content.meta["placeholderAppId"] == operations.PLACEHOLDER_APP_ID
-        assert set(export.content.assumed_source) == {"doc_type", "build_spec.version", "profile"}
+        assert set(export.content.assumed_source) == ASSUMED_SOURCE_FIELDS
+        # The shell holds no profile and no add-ons: the content's overlays write both.
         assert export.content.assumed_source["profile"] == {}
-        assert set(export.republish.assumed_source) == {"doc_type", "build_spec.version", "profile"}
+        assert export.content.assumed_source["add_ons"] == {}
+        assert set(export.republish.assumed_source) == ASSUMED_SOURCE_FIELDS
     # A control retained before the two imports: one create, which is its own content, and the profile its
     # updates were built over.
     control = next(document for document in corpus.load_controls() if document.id == "navigation-base")

@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
 			prepared,
 			download.runtimeTarget,
 			download.identity,
+			download.target,
 		);
 
 		// Stream the freshly-built archive straight back to the caller. The

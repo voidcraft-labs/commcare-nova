@@ -37,6 +37,7 @@ export const sectionFieldMetadata: FieldKindMetadata<"section"> = {
 	label: "Section",
 	isStructural: true,
 	isContainer: true,
+	carriesValidation: false,
 	saDocs:
 		"One page of a form. Sections live only at the form's top level, and once a form has one, every top-level field is a section (put questions inside them). A section carries a title and nothing else: no display condition, no media. On a phone each section is one screen: Next checks the section's answers, Back does not. A repeat whose entries the worker adds can't live inside a section; a repeat with a fixed count or a case query can.",
 	convertTargets: [],

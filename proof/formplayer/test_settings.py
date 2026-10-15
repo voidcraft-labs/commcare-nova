@@ -1,14 +1,23 @@
 """The profile settings Formplayer reads, on Nova's export and on the profile HQ's settings page saves.
 
-Finding 40: a save of HQ's settings page writes HQ's defaults into the
-profile Nova leaves empty, and HQ's build then forces them. Two of those are
+Finding 40: every Nova app states the settings a device reads where a
+profile names none (``lib/commcare/appProfileSettings.ts``), so a save of HQ's
+settings page that changes nothing keeps each of them, where it used to write
+HQ's own defaults into a profile Nova left empty. Two of those are
 Formplayer's to read, and each is observed on HQ's releases of
 ``case-operation-query``, served to Formplayer by HQ's own views
-(``proof.formplayer.hq``): Nova's export, where both are absent; the app
-after HQ's own App Settings page saved it without a change, in Chromium
-(``cc-autosync-freq: freq-never`` and ``cc-fuzzy-search-enabled: yes``
-among what it stores); and, for the control, the app after HQ's own settings
-view took a person's change of the sync frequency to daily.
+(``proof.formplayer.hq``), in four arms:
+
+- ``absent``: the app with ``cc-autosync-freq`` and ``cc-fuzzy-search-enabled``
+  taken out of its stored profile before the release (``apps.served``'s
+  ``change``), which is what an app published before step 2 holds;
+- ``nova``: the document as Nova publishes it, whose built profile holds
+  ``freq-never`` and ``no``;
+- ``saved``: the app after HQ's own App Settings page saved it without a
+  change, in Chromium, whose built profile holds the same two;
+- ``changed``, the control for both settings: the app after HQ's own
+  settings view took a person's change of the sync frequency to daily and of
+  fuzzy search to on.
 
 - **``cc-autosync-freq``** (``RestoreFactory.getSyncFreqency``,
   ``isRestoreXmlExpired``). Contract: a worker back after eight days is not
@@ -19,8 +28,10 @@ view took a person's change of the sync frequency to daily.
   restore.
 - **``cc-fuzzy-search-enabled``** (``FormplayerPropertyManager.
   isFuzzySearchEnabled``). Contract: a case list search one letter off a
-  case's name finds nothing when the setting is absent and finds the case
-  after the save, so this one changes what a worker sees.
+  case's name finds nothing when the setting is absent and when it is ``no``,
+  and finds the case where a person turned it on. Plausible failure: a page
+  save that turns fuzzy search on, as HQ's own defaults did, which changes
+  what a worker sees.
 
 A worker's absence is not waited for: their last sync, which Formplayer keeps
 in Redis (``RestoreFactory.setLastSyncTime``), is moved back eight days
@@ -42,6 +53,7 @@ DOCUMENT = "case-operation-query"
 EIGHT_DAYS = 8 * 24 * 3600
 # One letter more than "proof", the first word of a case's name in the lane's case database.
 NEAR_MISS = "prooof"
+SETTINGS = ("cc-autosync-freq", "cc-fuzzy-search-enabled")
 
 
 def _built_setting(served, key):
@@ -78,47 +90,59 @@ def _returning_worker(formplayer_runner, served):
     }
 
 
+def _without_settings(stored):
+    """The stored app as one published before step 2 holds it: neither setting in its profile."""
+    properties = (stored.get("profile") or {}).get("properties") or {}
+    for key in SETTINGS:
+        properties.pop(key, None)
+
+
 def test_formplayer_reads_an_absent_sync_frequency_as_never_and_an_absent_fuzzy_search_as_off(
     hq, core_runner, formplayer_runner, editor_driver, formplayer_documents, evidence
 ):
     from proof.editors import pages
 
-    def nova(_published):
+    def unchanged(_published):
         pass
 
     def page_saved(published):
         apps.saved_page(published, editor_driver, pages.APP_SETTINGS)
 
-    def daily(published):
-        apps.saved_profile(published, {"cc-autosync-freq": "freq-daily"})
+    def changed(published):
+        apps.saved_profile(published, {"cc-autosync-freq": "freq-daily", "cc-fuzzy-search-enabled": "yes"})
 
+    arms = (
+        ("absent", unchanged, _without_settings),
+        ("nova", unchanged, None),
+        ("saved", page_saved, None),
+        ("changed", changed, None),
+    )
     with apps.published(formplayer_documents[DOCUMENT], core_runner) as published:
         built, read = {}, {}
-        for name, save in (("nova", nova), ("saved", page_saved), ("daily", daily)):
+        for name, save, change in arms:
             with published.unit.fork():
                 save(published)
-                with apps.served(published, formplayer_runner, label=name) as served:
-                    built[name] = {
-                        "cc-autosync-freq": _built_setting(served, "cc-autosync-freq"),
-                        "cc-fuzzy-search-enabled": _built_setting(served, "cc-fuzzy-search-enabled"),
-                    }
+                with apps.served(published, formplayer_runner, label=name, change=change) as served:
+                    built[name] = {key: _built_setting(served, key) for key in SETTINGS}
                     read[name] = _returning_worker(formplayer_runner, served)
         evidence("settings", {name: {"profile": built[name], **read[name]} for name in built})
 
-        # The releases are the ones meant: Nova's profile holds neither setting, the page's save both at its
-        # values, and the person's change the daily sync alone.
+        # The releases are the ones meant: the app published before step 2 holds neither setting, Nova's and the
+        # page's save hold Nova's values, and the person's change the daily sync and fuzzy search on.
         assert built == {
-            "nova": {"cc-autosync-freq": None, "cc-fuzzy-search-enabled": None},
-            "saved": {"cc-autosync-freq": "freq-never", "cc-fuzzy-search-enabled": "yes"},
-            "daily": {"cc-autosync-freq": "freq-daily", "cc-fuzzy-search-enabled": None},
+            "absent": {"cc-autosync-freq": None, "cc-fuzzy-search-enabled": None},
+            "nova": {"cc-autosync-freq": "freq-never", "cc-fuzzy-search-enabled": "no"},
+            "saved": {"cc-autosync-freq": "freq-never", "cc-fuzzy-search-enabled": "no"},
+            "changed": {"cc-autosync-freq": "freq-daily", "cc-fuzzy-search-enabled": "yes"},
         }
         # Every first visit restores once.
         assert all(visit["firstVisit"].count(RESTORE) == 1 for visit in read.values()), read
-        # Absent and freq-never: no restore on return. freq-daily, the control: one.
-        assert RESTORE not in read["nova"]["onReturn"]
-        assert RESTORE not in read["saved"]["onReturn"]
-        assert read["daily"]["onReturn"].count(RESTORE) == 1
-        # Every release lists the same cases; only the saved app, with fuzzy search on, finds the near miss.
+        # Absent, Nova's and the page's save: no restore on return, and nothing found for the near miss.
+        for name in ("absent", "nova", "saved"):
+            assert RESTORE not in read[name]["onReturn"], name
+            assert read[name]["nearMiss"] == [], name
+        # The person's change, the control: one restore on return, and the near miss finds the case.
+        assert read["changed"]["onReturn"].count(RESTORE) == 1
+        assert read["changed"]["nearMiss"] == ["patient-1"]
+        # Every release lists the same cases.
         assert len({tuple(visit["listed"]) for visit in read.values()}) == 1 and read["nova"]["listed"]
-        assert read["nova"]["nearMiss"] == read["daily"]["nearMiss"] == []
-        assert read["saved"]["nearMiss"] == ["patient-1"]

@@ -66,6 +66,7 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 		appId: "test-app",
 		appName: "Nav Test",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[moduleUuid]: { uuid: moduleUuid, id: "survey", name: "Survey" },

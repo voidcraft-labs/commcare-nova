@@ -16,6 +16,15 @@ Keys:
   true value, no ``force`` for a false one). The properties the template writes
   from the app's settings (its ``{% for %}`` over ``app_profile.properties``)
   are the ``setting`` family's.
+- ``profile-feature:<name>``: each child of the template's ``<features>`` HQ
+  writes for every app whatever its settings: a child with a constant name,
+  outside every ``{% if %}`` and ``{% for %}``, whose ``active`` reads no
+  template variable (``checkoff``, ``reminders`` and ``package`` at the
+  pins). Each records ``active`` as the template writes it, one part per
+  branch of a block tag inside the attribute, each with the blocks it is
+  written under (``checkoff`` is ``true`` under ``if is_odk`` and ``false``
+  under its ``else``). ``users``, ``dependencies``, ``credentials`` and the
+  loop over ``app_profile.features`` are the ``setting`` family's.
 """
 
 from __future__ import annotations
@@ -44,32 +53,44 @@ def extract(sources: Sources) -> list[Item]:
         found[key]["written"].append(facts)
     if not found:
         raise SurfaceError("The surface extractor found no profile property HQ's build writes.")
+    features: dict[str, dict] = {}
+    for feature, facts in template_features(sources, sources.hq / TEMPLATE):
+        features.setdefault(feature, {"source": set(), "written": []})
+        features[feature]["source"].add(facts.pop("at"))
+        features[feature]["written"].append(facts)
     return [
-        item(f"profile-property:{name(key)}", sorted(facts["source"]), written=facts["written"])
-        for key, facts in sorted(found.items())
+        *(
+            item(f"profile-property:{name(key)}", sorted(facts["source"]), written=facts["written"])
+            for key, facts in sorted(found.items())
+        ),
+        *(
+            item(f"profile-feature:{name(feature)}", sorted(facts["source"]), written=facts["written"])
+            for feature, facts in sorted(features.items())
+        ),
     ]
 
 
-def template_properties(sources: Sources, path: Path) -> list[tuple[str, dict]]:
-    """Each `<property>` the template writes, with its key, value, force and the blocks around it.
+def _flattened(path: Path) -> tuple[str, dict[str, str], dict[str, tuple[str, ...]], list]:
+    """The template's markup flattened from its own Django tokens (``django.template.base.Lexer``).
 
-    The template's markup is flattened from its own Django tokens (each variable a placeholder, each block
-    tag dropped and noted at its byte offset), parsed with expat, and each `<property>` is matched to the
-    blocks open where its start tag begins."""
+    Each variable is a placeholder (``novavar<n>x``, mapped to the variable it renders). A block tag is a marker
+    (``novablock<n>x``, mapped to the blocks open after it) where expat parses the markup with that marker in
+    place, which is inside an attribute's value or between elements, so a value can be read back by the parts its
+    block tags divide it into; a block tag between a tag's attributes is dropped. ``marks`` holds each block
+    tag's byte offset in the flat text with the blocks open after it."""
     from django.template.base import Lexer, TokenType
 
     tokens = Lexer(path.read_text(encoding="utf-8")).tokenize()
     variables: dict[str, str] = {}
     blocks: list[str] = []
-    marks: list[tuple[int, tuple[str, ...]]] = [(0, ())]
-    flat: list[str] = []
-    length = 0
+    pieces: list[tuple[str, tuple[str, ...] | None]] = []
     for token in tokens:
         if token.token_type == TokenType.TEXT:
-            text = token.contents
+            pieces.append((token.contents, None))
         elif token.token_type == TokenType.VAR:
             text = f"novavar{len(variables)}x"
             variables[text] = "{{ " + token.contents + " }}"
+            pieces.append((text, None))
         elif token.token_type == TokenType.BLOCK:
             words = token.split_contents()
             if words[0] in ("if", "for", "with"):
@@ -78,14 +99,42 @@ def template_properties(sources: Sources, path: Path) -> list[tuple[str, dict]]:
                 blocks[-1] = f"{blocks[-1]} / {token.contents}"
             elif words[0] in ("endif", "endfor", "endwith") and blocks:
                 blocks.pop()
-            marks.append((length, tuple(blocks)))
-            continue
-        else:
-            continue
-        flat.append(text)
+            pieces.append((f"novablock{len(pieces)}x", tuple(blocks)))
+
+    def markup(kept: set[int]) -> str:
+        return "".join(text for at, (text, stack) in enumerate(pieces) if stack is None or at in kept)
+
+    def parses(text: str) -> bool:
+        try:
+            expat.ParserCreate().Parse(text.encode("utf-8"), True)
+        except expat.ExpatError:
+            return False
+        return True
+
+    kept = {at for at, (_, stack) in enumerate(pieces) if stack is not None and parses(markup({at}))}
+    block_markers: dict[str, tuple[str, ...]] = {}
+    marks: list[tuple[int, tuple[str, ...]]] = [(0, ())]
+    length = 0
+    for at, (text, stack) in enumerate(pieces):
+        if stack is not None:
+            marks.append((length, stack))
+            if at not in kept:
+                continue
+            block_markers[text] = stack
         length += len(text.encode("utf-8"))
+    return markup(kept), variables, block_markers, marks
+
+
+def template_properties(sources: Sources, path: Path) -> list[tuple[str, dict]]:
+    """Each `<property>` the template writes, with its key, value, force and the blocks around it.
+
+    The template's markup is flattened (``_flattened``), parsed with expat, and each `<property>` is matched to
+    the blocks open where its start tag begins."""
+    flat, variables, block_markers, marks = _flattened(path)
 
     def rendered(value: str) -> str:
+        for marker in block_markers:
+            value = value.replace(marker, "")
         for marker, expression in variables.items():
             value = value.replace(marker, expression)
         return value
@@ -116,10 +165,78 @@ def template_properties(sources: Sources, path: Path) -> list[tuple[str, dict]]:
         )
 
     parser.StartElementHandler = start
-    parser.Parse("".join(flat).encode("utf-8"), True)
+    parser.Parse(flat.encode("utf-8"), True)
     if not found:
         raise SurfaceError(f"The surface extractor found no constant <property> in {where}.")
     return found
+
+
+def template_features(sources: Sources, path: Path) -> list[tuple[str, dict]]:
+    """Each child of the template's `<features>` HQ writes for every app whatever its settings.
+
+    That is a child with a constant name, outside every block, whose ``active`` reads no template variable.
+    Its ``active`` is recorded as the template writes it: one part per branch of a block tag inside the
+    attribute, each with the blocks it is written under, so ``checkoff`` is ``true`` under ``if is_odk`` and
+    ``false`` under its ``else``. A child under an ``{% if %}`` or ``{% for %}``, one whose name or ``active``
+    the template renders from a variable (``users``, ``dependencies``, ``credentials`` and the loop over
+    ``app_profile.features``) is an app's setting, the ``setting`` family's."""
+    flat, variables, block_markers, marks = _flattened(path)
+    found: list[tuple[str, dict]] = []
+    where = sources.relative(path)
+    parser = expat.ParserCreate()
+    depth: list[str] = []
+
+    def parts(value: str, outer: tuple[str, ...]) -> list[dict]:
+        written = []
+        stack = outer
+        for piece in _split_markers(value, block_markers):
+            if piece in block_markers:
+                stack = block_markers[piece]
+            elif piece:
+                written.append({"value": piece, "when": list(stack[len(outer) :])})
+        return written
+
+    def start(tag, attributes):
+        parent = depth[-1] if depth else None
+        depth.append(tag)
+        if parent != "features":
+            return
+        offset = parser.CurrentByteIndex
+        open_blocks = [stack for at, stack in marks if at <= offset][-1]
+        active = attributes.get("active")
+        if (
+            open_blocks
+            or any(marker in tag for marker in (*variables, *block_markers))
+            or active is None
+            or any(marker in active for marker in variables)
+        ):
+            return
+        found.append((tag, {"at": where, "active": parts(active, open_blocks)}))
+
+    def end(tag):
+        depth.pop()
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.Parse(flat.encode("utf-8"), True)
+    if not found:
+        raise SurfaceError(f"The surface extractor found no constant child of <features> in {where}.")
+    return found
+
+
+def _split_markers(value: str, markers: dict[str, tuple[str, ...]]) -> list[str]:
+    """``value`` as its text pieces and the block markers between them, in order."""
+    pieces: list[str] = []
+    rest = value
+    while rest:
+        found = [(rest.find(marker), marker) for marker in markers if marker in rest]
+        if not found:
+            pieces.append(rest)
+            break
+        at, marker = min(found)
+        pieces.extend([rest[:at], marker])
+        rest = rest[at + len(marker) :]
+    return pieces
 
 
 def created_properties(sources: Sources, path: Path) -> list[tuple[str, dict]]:

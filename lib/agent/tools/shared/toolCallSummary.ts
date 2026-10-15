@@ -46,6 +46,12 @@ export interface ToolCallSummary {
 	 */
 	connect?: "learn" | "deliver" | "off";
 	/**
+	 * For a call that changed the app's form-list settings: each setting it
+	 * changed, at its new value. Absent when it changed none, so a row
+	 * recorded before the settings existed reads as it always did.
+	 */
+	formLists?: { saved?: boolean; incomplete?: boolean };
+	/**
 	 * For a call that deliberately changed NOTHING because it first needs the
 	 * user's go-ahead — `editField`'s conversion consent round. The transcript
 	 * renders "Checked a conversion" instead of claiming the edit landed (the

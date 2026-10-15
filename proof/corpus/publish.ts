@@ -69,14 +69,18 @@
  * answered for each table before the publish wrote anything is recorded
  * beside its body (`AssumedResources`) for the HQ side to hold to HQ's own
  * resources. A publish over a person's saves in HQ (`PublishInput.hqSide`)
- * stops as Nova's would and is sent again with what that person confirms
- * (`StopConfirmation`, recorded beside the body); a stop anywhere else ends
- * the capture.
+ * does what the document states it does (`HqSideSaves.republish`): it goes
+ * through untouched, or it stops as Nova's would and is sent again with what
+ * that person confirms (`StopConfirmation`, recorded beside the body), or
+ * Nova stops it with the code the document names. An outcome other than the
+ * statement, and a stop anywhere else, ends the capture.
  *
- * A publish draws no id: its menu ids, form ids and `xmlns` are derived from
- * the document. Every output is deterministic apart from what a `.ccz` still
- * draws, the profile `uniqueid`. Given a corpus seed, each publish step and
- * each local export runs in its own seeded stream (`./entropy.mts`): the
+ * No export draws an id: a publish derives its menu ids, form ids and
+ * `xmlns` from the document, and a `.ccz` profile's `uniqueid` is derived
+ * from the app's id and its project space. Given a corpus seed, each publish
+ * step and each local export runs in its own seeded stream
+ * (`./entropy.mts`), so a change that draws inside an export again writes
+ * bytes that are a function of the emission's inputs: the
  * first publish at `OPERATION_ORDINALS.create`, the republish at
  * `OPERATION_ORDINALS.republish`, and each later update at its own
  * (`capturePublish`). undici draws a random multipart boundary per request,
@@ -760,24 +764,41 @@ function compatibilityOutcome(
  * The fields of HQ's app source a captured import depends on, each by its
  * path in the source HQ serves (`app_manager/views/apps.py::app_source`).
  * Nova's import accepts a read only of an `Application` with a CommCare
- * version (`readHqAppSource`), and builds an update's profile over the
- * read's `profile` (`lib/commcare/targetProfile.ts`), so these are what the
- * peer answered the read the import was built on with. The HQ side holds
- * each to HQ's own read before it applies the import
+ * version (`readHqAppSource`), and projects an update's `profile`,
+ * `translations` and `add_ons` over the read's (`lib/commcare/targetOverlay.ts`,
+ * which reads `langs` for the language names), so these are what the peer
+ * answered the read the import was built on with. `auto_gps_capture` is read
+ * by no body: it is held because the peer applies a person's saves to it
+ * (`./targetPeer.ts::applyHqSide`), and holding it proves that model. The HQ
+ * side holds each to HQ's own read before it applies the import
  * (`proof/observe/publish.py::update`, `proof/hq/operations.py::publish_capture`).
  */
 export interface AssumedSource {
 	readonly doc_type: "Application";
 	readonly "build_spec.version": string;
 	readonly profile: HqApplicationProfile;
+	readonly translations: HqAppSource["translations"];
+	readonly add_ons: HqAppSource["addOns"];
+	readonly langs: HqAppSource["langs"];
+	readonly auto_gps_capture: boolean;
 }
 
 /** The fields of `source` a captured import depends on. */
 function assumedSourceOf(source: HqAppSource): AssumedSource {
+	const autoGpsCapture = source.raw.auto_gps_capture;
+	if (typeof autoGpsCapture !== "boolean") {
+		throw new Error(
+			`The capture peer served an app source whose auto_gps_capture is ${JSON.stringify(autoGpsCapture)}; HQ serves the setting as a boolean for every app (Application.auto_gps_capture).`,
+		);
+	}
 	return {
 		doc_type: source.docType,
 		"build_spec.version": source.buildSpecVersion,
 		profile: source.profile,
+		translations: source.translations,
+		add_ons: source.addOns,
+		langs: source.langs,
+		auto_gps_capture: autoGpsCapture,
 	};
 }
 
@@ -1001,7 +1022,11 @@ function sequenceOf(requests: readonly PeerRequest[]): string[] {
 	return requests.map((request) => `${request.method} ${request.path}`);
 }
 
-/** The compatibility check `publishAppToHq`'s preflight makes before any write. */
+/**
+ * The compatibility check `publishAppToHq`'s preflight makes before any
+ * write, with its read of the target's empty-list text flag, which never
+ * changes the report.
+ */
 async function compatibilityCheck(
 	peer: TargetPeer,
 	prepared: PreparedDocument,
@@ -1010,6 +1035,7 @@ async function compatibilityCheck(
 		CREDENTIALS,
 		peer.state.domain,
 		projectSpaceCompatibilityProbePlan(prepared.export.doc),
+		{ readEmptyCaseListText: true },
 	);
 	return { report: probe.report, outcome: compatibilityOutcome(probe.report) };
 }
@@ -1560,11 +1586,15 @@ export interface PublishInput {
 	readonly source?: Partial<AssumedSource>;
 	/**
 	 * What a person saves in HQ over A before the updates (the document's
-	 * `hq-side.json`). Each update then meets them, stops, and is sent again
-	 * with what a person who saw each stop confirms: every table in conflict
-	 * taken over, and every change listed with the digest shown. A stop over
-	 * a document without them stops the capture: Nova's own push must never
-	 * read as a change.
+	 * `hq-side.json`), and what each update over them then does
+	 * (`republish`): it goes through untouched (`"proceeds"`); it stops and
+	 * is sent again with what a person who saw each stop confirms, every
+	 * table in conflict taken over and every change listed with the digest
+	 * shown (`"discards"`); or Nova stops it with `stopCode` and offers no
+	 * discard (`"stops"`). An update whose outcome is another stops the
+	 * capture, naming the document and what the stop listed, and so does a
+	 * stop over a document without them: Nova's own push must never read as
+	 * a change.
 	 */
 	readonly hqSide?: HqSideSaves;
 }
@@ -1584,9 +1614,13 @@ export type PublishCapture =
  * Whether two publish steps sent the same bytes: the same import and the
  * same lookup workbook, or none. The media upload follows from the prepared
  * assets (one ZIP entry per asset `buildMediaBulkUploadZip` writes), so the
- * same document sends the same media.
+ * same document sends the same media. Two steps Nova stopped send nothing,
+ * and are the same where they stopped with the same code.
  */
 function sendsTheSame(left: StepOutcome, right: StepOutcome): boolean {
+	if (left.status === "stopped" && right.status === "stopped") {
+		return left.code === right.code;
+	}
 	if (left.status !== "sent" || right.status !== "sent") return false;
 	const lookups =
 		left.lookup === undefined || right.lookup === undefined
@@ -1708,6 +1742,7 @@ export async function capturePublish(
 			) =>
 				seeded(operation(ordinal), async (): Promise<StepOutcome> => {
 					const appName = update.appName ?? prepared.export.doc.appName;
+					const statement = input.hqSide?.republish;
 					let confirm: StopConfirmation | undefined;
 					for (let stops = 0; ; stops += 1) {
 						peer.restore(stateA);
@@ -1718,14 +1753,39 @@ export async function capturePublish(
 							ledger,
 							confirm,
 						);
-						if (step.status !== "stopped" || stops === CONFIRMED_STOPS) {
+						if (step.status !== "stopped") {
+							if (
+								(statement === "discards" && confirm === undefined) ||
+								statement === "stops"
+							) {
+								throw new Error(
+									`hq-side.json states that Nova's ${update.name} of ${prepared.source.id} over a person's saves in HQ ${statement === "stops" ? `stops with ${input.hqSide?.stopCode}` : "stops until a person discards what HQ holds"}, and it went through with no stop. Look at what the comparison reads of the saves, or at the statement.`,
+								);
+							}
 							return step;
 						}
+						const listed = JSON.stringify(
+							step.code === "hq_changed" ? step.remoteChanges : step.conflicts,
+						);
 						if (input.hqSide === undefined) {
 							throw new Error(
-								`Nova's ${update.name} of ${prepared.source.id} stopped with ${step.code} (${JSON.stringify(step.code === "hq_changed" ? step.remoteChanges : step.conflicts)}), and nothing was saved in HQ over the app: Nova's own push read as a change. Look at what the comparison reads of the peer's answers.`,
+								`Nova's ${update.name} of ${prepared.source.id} stopped with ${step.code} (${listed}), and nothing was saved in HQ over the app: Nova's own push read as a change. Look at what the comparison reads of the peer's answers.`,
 							);
 						}
+						if (statement === "proceeds") {
+							throw new Error(
+								`hq-side.json states that Nova's ${update.name} of ${prepared.source.id} proceeds over a person's saves in HQ, and it stopped with ${step.code} over these changes: ${listed}. None of the saves is a value Nova owns, so the overlay or the drift comparison read one as Nova's; fix that rather than the statement.`,
+							);
+						}
+						if (statement === "stops") {
+							if (step.code !== input.hqSide.stopCode) {
+								throw new Error(
+									`hq-side.json states that Nova stops its ${update.name} of ${prepared.source.id} with ${input.hqSide.stopCode}, and it stopped with ${step.code} (${listed}).`,
+								);
+							}
+							return step;
+						}
+						if (stops === CONFIRMED_STOPS) return step;
 						confirm = confirming(confirm, step);
 					}
 				});
@@ -1812,18 +1872,33 @@ function atInstant<T>(instant: number, build: () => T): T {
  * reached deployment, whose HQ app is `PLACEHOLDER_APP_ID`, for the profile's
  * server properties and runtime URLs and the attachment links, with the
  * derived ids the ledger's absent overrides give. The archive embeds the
- * referenced lookup tables as fixtures and stamps the app's sequence.
- * Throws `UnexportableDocumentError` where the route's boundary refuses.
- * With an operation, the archive's draws come from its seeded stream
- * (`./entropy.mts`).
+ * referenced lookup tables as fixtures and stamps the app's sequence. The
+ * deployment is the one a publish there leaves: its HQ app was never made
+ * afresh (`earlierHqApps` 0), and it holds `USH_EMPTY_CASE_LIST_TEXT` where
+ * `emptyCaseListText` says the configuration does, as the publish would have
+ * read it, so the archive writes the empty-list text exactly where HQ's
+ * build there does. Throws `UnexportableDocumentError` where the route's
+ * boundary refuses. With an operation, a draw made while the archive is
+ * built is answered from its seeded generator (`./entropy.mts`); the build
+ * makes none.
  */
 export async function localCcz(
 	source: PublishDocument,
 	domain: string,
 	operation?: EntropyOperation,
+	options: { readonly emptyCaseListText?: boolean } = {},
 ): Promise<Buffer> {
+	const emptyCaseListText = options.emptyCaseListText === true;
 	const choice = chooseDownloadTarget(
-		[{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }],
+		[
+			{
+				server: PROOF_SERVER,
+				domain,
+				hqAppId: PLACEHOLDER_APP_ID,
+				emptyCaseListText,
+				earlierHqApps: 0,
+			},
+		],
 		{ format: "ccz", domain },
 	);
 	if (choice.kind !== "project-space") {
@@ -1843,6 +1918,10 @@ export async function localCcz(
 				prepared,
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
 				DERIVED_WIRE_IDENTITY,
+				{
+					emptyCaseListText: target.emptyCaseListText,
+					earlierHqApps: target.earlierHqApps,
+				},
 			),
 		),
 	);
@@ -1863,7 +1942,15 @@ export async function importFile(
 	domain: string,
 ): Promise<Buffer> {
 	const choice = chooseDownloadTarget(
-		[{ server: PROOF_SERVER, domain, hqAppId: PLACEHOLDER_APP_ID }],
+		[
+			{
+				server: PROOF_SERVER,
+				domain,
+				hqAppId: PLACEHOLDER_APP_ID,
+				emptyCaseListText: false,
+				earlierHqApps: 0,
+			},
+		],
 		{ format: "json" },
 	);
 	const { export: prepared } = await prepareDocument(

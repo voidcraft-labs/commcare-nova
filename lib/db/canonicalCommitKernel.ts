@@ -159,10 +159,11 @@ type AppRow = Selectable<AppsTable>;
 
 export type PersistedBlueprintAppRow = Omit<
 	AppRow,
-	"case_types" | "localization"
+	"case_types" | "localization" | "app_settings"
 > & {
 	readonly case_types_text: string | null;
 	readonly localization_text: string | null;
+	readonly app_settings_text: string | null;
 };
 
 /**
@@ -250,6 +251,11 @@ export async function lockAppRow(
 				"localization_text",
 			),
 		)
+		.select(
+			sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+				"app_settings_text",
+			),
+		)
 		.where("id", "=", appId)
 		.forUpdate()
 		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
@@ -320,6 +326,7 @@ export async function loadSchemaAdmittedAppSnapshotFromRowInTransaction(
 			connect_type: row.connect_type,
 			case_types_text: row.case_types_text,
 			localization_text: row.localization_text,
+			app_settings_text: row.app_settings_text,
 			logo: row.logo,
 		},
 		entities,
@@ -404,6 +411,11 @@ export async function loadAppInTransaction(
 				"localization_text",
 			),
 		)
+		.select(
+			sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+				"app_settings_text",
+			),
+		)
 		.where("id", "=", appId)
 		.forShare()
 		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
@@ -426,6 +438,7 @@ export function denormalize(doc: PersistableDoc) {
 		case_types: doc.caseTypes === null ? null : JSON.stringify(doc.caseTypes),
 		localization:
 			doc.localization === undefined ? null : JSON.stringify(doc.localization),
+		app_settings: JSON.stringify(doc.appSettings),
 		logo: doc.logo ?? null,
 		module_count: doc.moduleOrder.length,
 		form_count: formCount,

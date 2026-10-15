@@ -129,6 +129,8 @@ Publishing again **updates this same app in place**, name included, so the
 project space keeps one app that tracks what you build in Nova. The one
 exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
 tells you so when you try, and publishing once more makes a fresh one there.
+A phone that has the app from a CCZ still points at the deleted app until it
+takes the next CCZ through Offline Update.
 
 Each publish keeps every menu's and every form's ID in CommCare HQ. So anything
 there that opens a form by its ID, such as an SMS keyword or a scheduled
@@ -142,6 +144,20 @@ to fill or update, and keeps destination-specific behavior it does not own. If
 that app cannot be read safely, Nova sends none of the app's content instead of
 guessing what to keep. On a first publish the empty app it made is already
 there, and your next publish fills it.
+
+In your app's settings you can show workers their saved forms, on the Android
+home screen, and their incomplete forms, on Android and in Web Apps. A publish
+writes both to CommCare HQ.
+
+Your app also states fifteen more of CommCare's app settings, each at the value
+a phone uses when the app sets none, so a publish changes nothing a phone does
+from install. A publish writes each of them only where CommCare HQ holds no
+value for it, so a setting someone chose on CommCare HQ's app settings page
+stays as they chose it. A CCZ always carries the app's own values. Three of
+these settings are also a worker's own choices on their phone: fuzzy search,
+automatic updates and text to speech. Once CommCare HQ holds them, each app
+update on a phone sets them back to the app's values, as it does for any app
+whose settings were saved on CommCare HQ.
 
 If a publish is interrupted just after CommCare HQ makes the empty app and
 before Nova records it, Nova doesn't know that app, and the next publish makes
@@ -227,6 +243,12 @@ Some changes read a little differently:
 - **A publish interrupted after CommCare HQ took the app's content and before
   Nova recorded it.** The next publish lists the app as changed, though the
   change is Nova's own. Publishing over it sends this app again.
+
+**A publish keeps what was set in CommCare HQ for things Nova doesn't hold**:
+UI translations, add-ons and Auto Capture Location, along with the app settings
+above that Nova only writes where none is set. It replaces what Nova holds: the
+app's name, each language's name, and the saved and incomplete forms settings.
+What it keeps is what CommCare HQ held when the publish last read your app.
 
 A publish reads your app in CommCare HQ and then writes to it, and CommCare HQ
 gives Nova no way to write only if nothing changed in between. So a change
@@ -402,6 +424,20 @@ yet, so publish it to a project space first.
 
 A newer CCZ for the same project space keeps every form's identity, so a phone
 that updates to it reopens the forms a worker saved incomplete.
+
+A CCZ needs CommCare 2.57 or later. Each project space's CCZ is its own app to
+CommCare: a phone that already has it won't install it a second time, and a
+CCZ of the same app for another project space installs beside it. A newer CCZ
+for the same project space reaches that phone through Offline Update, on
+CommCare's update screen. Offline Update replaces the open app with the file it
+is given, whichever app that file was made for, so a CCZ for another project
+space would point that app at the other project space.
+
+If a phone installs your app from CommCare HQ and also from a file downloaded
+here, CommCare keeps them as two separate apps.
+
+A CCZ of a Connect app records the worker's location with each form, as
+CommCare HQ's build of the app does.
 
 **The CommCare HQ app file is a ZIP** you can import by hand. It holds the app,
 a README with the steps for importing it, and, where your app has them, its

@@ -20,6 +20,7 @@ import {
 } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
+	type AppSettings,
 	type BlueprintDoc,
 	type CaseProperty,
 	type CaseType,
@@ -32,6 +33,7 @@ import {
 	fieldPathResolver,
 	isContainerKindName,
 	type Module,
+	NEW_APP_SETTINGS,
 	type ProseTemplate,
 	plainColumn,
 	proseText,
@@ -251,6 +253,8 @@ export interface DocSpec {
 	appName?: string;
 	connectType?: ConnectType | null;
 	caseTypes?: FixtureCaseType[] | null;
+	/** Defaults to a new app's settings, both lists off. */
+	appSettings?: AppSettings;
 	modules?: ModuleSpec[];
 }
 
@@ -360,6 +364,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		appName: spec.appName ?? "Test",
 		connectType: spec.connectType ?? null,
 		caseTypes: normalizeFixtureCaseTypes(spec.caseTypes),
+		appSettings: { ...(spec.appSettings ?? NEW_APP_SETTINGS) },
 		modules,
 		forms,
 		fields,

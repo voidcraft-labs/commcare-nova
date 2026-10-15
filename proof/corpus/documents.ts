@@ -152,9 +152,29 @@ export interface TargetedEdit {
  *   attribute and an owner (a mobile worker, a group and a location the
  *   project space holds) on every row, and uploaded through HQ's lookup
  *   upload (`fixtures/upload/run_upload.py::_run_upload`), then described
- *   in HQ's table editor (`fixtures/views.py::update_tables`).
+ *   in HQ's table editor (`fixtures/views.py::update_tables`);
+ * - `addOns`: the app's add-ons section as it saves, every slug HQ lists on
+ *   or off (`app_manager/js/add_ons.js`, `EditAddOns`, posts each at the
+ *   value it shows), which `views/apps.py::edit_add_ons` stores over the
+ *   add-ons Nova wrote;
+ * - `profileProperties`: on the app's settings page, each setting's value
+ *   by key (`views/settings.py::edit_commcare_profile`), beside the settings
+ *   A holds.
+ *
+ * It also states what Nova's next publish over the saves does, which the
+ * capture holds (`./publish.ts`): `republish` is `"proceeds"` (it goes
+ * through untouched), `"discards"` (it goes through after the discard a
+ * person would confirm) or `"stops"` (Nova stops it and offers no discard),
+ * with `stopCode`, the publish's failure code, exactly when it stops.
  */
-export interface HqSideSaves {
+export type HqSideSaves = HqSideSaveKinds &
+	(
+		| { readonly republish: "proceeds" | "discards"; readonly stopCode?: never }
+		| { readonly republish: "stops"; readonly stopCode: string }
+	);
+
+/** The saves of `HqSideSaves`, each through the HQ view a person's save reaches. */
+export interface HqSideSaveKinds {
 	readonly uiTranslations?: Readonly<
 		Record<string, Readonly<Record<string, string>>>
 	>;
@@ -185,6 +205,8 @@ export interface HqSideSaves {
 		};
 		readonly description: string;
 	};
+	readonly addOns?: Readonly<Record<string, boolean>>;
+	readonly profileProperties?: Readonly<Record<string, string>>;
 }
 
 /**

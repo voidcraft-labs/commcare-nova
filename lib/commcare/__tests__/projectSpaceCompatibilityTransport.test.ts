@@ -158,3 +158,90 @@ it.each([
 		}
 	},
 );
+
+/*
+ * The empty-list text flag a publish reads beside the plan, over controlled
+ * HQ answers: the project space's own `empty_case_list_text`, read through
+ * the same filtered list as every other flag.
+ */
+const EMPTY_LIST = `${DOMAINS}&feature_flag=empty_case_list_text`;
+const none = JSON.stringify({ meta: { total_count: 0 }, objects: [] });
+
+async function withEmptyListAnswer(
+	answer: { status: number; body: string },
+	run: (paths: (string | undefined)[]) => Promise<void>,
+) {
+	const paths: (string | undefined)[] = [];
+	await withSocketHttpPeer(
+		"india.commcarehq.org",
+		(request, response) => {
+			paths.push(request.url);
+			request.resume();
+			if (request.url === EMPTY_LIST) {
+				response.writeHead(answer.status, {
+					"content-type": "application/json",
+				});
+				response.end(answer.body);
+			} else if (request.url === DOMAINS || request.url === FLAG) {
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(visible);
+			} else if (request.url === SEARCH) {
+				response.writeHead(200, { "content-type": "text/xml; charset=utf-8" });
+				response.end("<fixture/>");
+			} else {
+				response.writeHead(500);
+				response.end("Unexpected path");
+			}
+		},
+		() => run(paths),
+	);
+}
+
+it.each([
+	{ answer: { status: 200, body: visible }, expected: true },
+	{ answer: { status: 200, body: none }, expected: false },
+	{ answer: { status: 500, body: "{}" }, expected: null },
+])(
+	"reads the empty-list text flag as $expected and changes no verdict",
+	async ({ answer, expected }) => {
+		await withEmptyListAnswer(answer, async (paths) => {
+			const result = await probeHqProjectSpaceCompatibility(
+				CREDS,
+				"clinic",
+				plan,
+				{ readEmptyCaseListText: true },
+			);
+			expect(result.emptyCaseListText).toBe(expected);
+			expect(result.capabilities.map((item) => item.state)).toEqual([
+				"available",
+			]);
+			expect(paths).toContain(EMPTY_LIST);
+		});
+	},
+);
+
+it("reads the flag for an app whose plan holds nothing, and makes no request without the option", async () => {
+	const empty: HqProjectSpaceCompatibilityProbePlan = {
+		capabilities: [],
+		advisories: [],
+	};
+	await withEmptyListAnswer({ status: 200, body: visible }, async (paths) => {
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic",
+			empty,
+			{ readEmptyCaseListText: true },
+		);
+		expect(result.emptyCaseListText).toBe(true);
+		expect(paths).toEqual([DOMAINS, EMPTY_LIST]);
+	});
+	await withEmptyListAnswer({ status: 200, body: visible }, async (paths) => {
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic",
+			empty,
+		);
+		expect(result.emptyCaseListText).toBeNull();
+		expect(paths).toEqual([]);
+	});
+});

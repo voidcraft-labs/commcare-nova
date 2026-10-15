@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { DeploymentNoticeReason } from "@/lib/notices/migrationNotice";
 import type { HolderCensus } from "../holders";
 import { readRawDocument } from "../oldShape";
 import type {
@@ -222,6 +223,10 @@ describe("the report", () => {
 		);
 	});
 
+	it("prints no settings line, since the scan reads no source to count", () => {
+		expect(lines.some((line) => line.section === "settings")).toBe(false);
+	});
+
 	it("counts each space's limited reads, the table list, rows and places once per Project, and names a space whose window would pass the hour's or the day's floor", () => {
 		const spaces = lines.filter((line) => line.section === "space");
 		expect(spaces).toEqual([
@@ -354,6 +359,87 @@ describe("the deployment lines of a run that read HQ", () => {
 			userId: "member-a",
 			server: "production",
 			domain: "field-ops",
+		});
+	});
+});
+
+describe("the settings line of a run that read HQ", () => {
+	const plannedDeployment = (
+		deploymentId: string,
+		reasons: readonly DeploymentNoticeReason[],
+	) => ({
+		deploymentId,
+		server: "production",
+		domain: "field-ops",
+		remoteAppId: `hq-${deploymentId}`,
+		outcome: "read-in-full" as const,
+		buildSpecVersion: "2.53.0",
+		pairing: null,
+		identities: [],
+		unpaired: [],
+		formIdsUnknown: [],
+		keyUses: [],
+		notices: reasons.map((reason) => ({ reason })),
+	});
+	const target = (
+		showSavedForms: boolean,
+		showIncompleteForms: boolean,
+	): { raw: typeof RAW; doc: object | undefined } => ({
+		raw: RAW,
+		doc: { appSettings: { showSavedForms, showIncompleteForms } },
+	});
+	const build = {
+		plan: {
+			format: "hq-round-trip-emission-1",
+			apps: [
+				appPlan("app-1", {
+					deployments: [
+						plannedDeployment("d-1", [
+							"setting-changes-at-next-publish",
+							"setting-changes-at-next-publish",
+							"worker-settings-reset-at-next-publish",
+						]),
+						plannedDeployment("d-2", ["worker-settings-reset-at-next-publish"]),
+					],
+				}),
+				appPlan("app-2", { deployments: [plannedDeployment("d-3", [])] }),
+				appPlan("app-3"),
+				appPlan("app-4"),
+			],
+			lookupTagRenames: [],
+			projectBlockers: [],
+			digest: "d".repeat(64),
+		},
+		targets: new Map([
+			["app-1", target(true, true)],
+			["app-2", target(false, true)],
+			["app-3", target(true, false)],
+			["app-4", { raw: RAW, doc: undefined }],
+		]),
+		apps: [],
+		deployments: [],
+		lookupContexts: new Map(),
+	} as unknown as CutoverPlanBuild;
+	const source: FleetSource = {
+		apps: [app("app-1"), app("app-2"), app("app-3"), app("app-4")],
+		projects: new Map(),
+		privateWork: {
+			openWorkspaces: 0,
+			openChangeSets: 0,
+			activeCandidates: 0,
+			endingSessions: [],
+		},
+	};
+
+	it("counts the apps that hide a form list and the deployments each publish-time setting line names, once a deployment", () => {
+		const report = new CutoverReport("dry-run");
+		planSections(report, source, build, NO_HOLDERS);
+		expect(
+			report.all().find((line) => line.section === "settings"),
+		).toMatchObject({
+			appsHidingAFormList: 2,
+			deploymentsWhoseSettingChanges: 1,
+			deploymentsWhoseWorkerSettingsReset: 2,
 		});
 	});
 });

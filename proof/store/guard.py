@@ -349,9 +349,16 @@ def part_scope(document, configuration: str | None, part: str, hooks=None) -> Sc
             for name in CHAINS[part]
         ]
         if part == "b_aligned":
-            # The local archive proof 3's sessions replay on, and the local export a device installs after it
-            # (proof.observe.unit.part_keys keys b_aligned by both).
-            roles.append({role: files["local"][role] for role in ("local", "local-again") if files["local"].get(role)})
+            # The local archives proof 3's sessions replay on (the one compiled for a project space holding the
+            # empty-list text flag among them, where the document carries it), and the local export a device
+            # installs after them (proof.observe.unit.part_keys keys b_aligned by each).
+            roles.append(
+                {
+                    role: files["local"][role]
+                    for role in ("local", "local-again", "local-empty-list-text")
+                    if files["local"].get(role)
+                }
+            )
     paths = {str(root / INPUTS)}
     for entries in roles:
         paths.update(os.path.abspath(root / path) for path in entries.values())

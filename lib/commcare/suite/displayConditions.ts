@@ -1,6 +1,9 @@
 /** Typed navigation display-condition emission for suite.xml and HQ JSON. */
 
-import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
+import {
+	emitCasePropertyWirePath,
+	RESERVED_CASE_ATTRIBUTES,
+} from "@/lib/commcare/casePropertyWire";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { Uuid } from "@/lib/domain";
@@ -73,14 +76,22 @@ export function emitFormDisplayConditionForSuite(
 }
 
 /**
- * HQ owns `#case` interpolation while regenerating suite.xml. Preserve that
- * contract in `form_filter`, including `@` on reserved case attributes.
+ * HQ expands `#case/<property>` in `form_filter` to the menu's selected case
+ * while regenerating suite.xml (`suite_xml/sections/menus.py::
+ * MenuContributor._get_commands`), choosing the datum itself. Its parser
+ * expects a name after `#case/`, so a reserved case attribute cannot be read
+ * that way: `#case/@status` fails `validate_app()` with a form filter xpath
+ * error and the app does not build. A read of `case_id`, `case_type`,
+ * `owner_id` or `status` is therefore written expanded, through the selected
+ * case's session datum, the one spelling HQ builds for an attribute; every
+ * other property keeps `#case/<property>`.
  */
 export function emitFormDisplayConditionForHq(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
 	userPropertySlugs?: ReadonlyMap<Uuid, string>,
+	selectedCaseDatumId?: string,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
@@ -94,7 +105,9 @@ export function emitFormDisplayConditionForHq(
 		undefined,
 		{
 			emitSelfProperty: (property) =>
-				`#case/${emitCasePropertyWirePath(property.property)}`,
+				RESERVED_CASE_ATTRIBUTES.has(property.property)
+					? `${selectedCase(selectedCaseDatumId)}/@${property.property}`
+					: `#case/${property.property}`,
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming, instanceScope: "suite" },
 			}),

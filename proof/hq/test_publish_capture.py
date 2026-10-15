@@ -48,6 +48,11 @@ from proof.hq.configuration import Configuration
 from proof.hq.conftest import timed
 from proof.native import produce
 
+# The fields of HQ's source a captured update is built over (``proof/corpus/publish.ts::AssumedSource``).
+ASSUMED_SOURCE_FIELDS = frozenset(
+    {"doc_type", "build_spec.version", "profile", "translations", "add_ons", "langs", "auto_gps_capture"}
+)
+
 
 @pytest.fixture(scope="module")
 def captures(tmp_path_factory):
@@ -117,7 +122,7 @@ def test_the_peers_shell_source_is_hqs_read_of_the_shell(hq, core_runner, captur
     field by field as the content's sidecar names it, is what HQ's own ``app_source`` serves for the shell."""
     directory = captures / "clinic-visits" / "minimum"
     create, _, content_source = _first_publish(directory)
-    assert set(content_source) == {"doc_type", "build_spec.version", "profile"}
+    assert set(content_source) == ASSUMED_SOURCE_FIELDS
     with hq_check(_configuration(directory)) as (state, _):
         app_id, _ = operations.publish(state, [create])
         assert operations.source_differences(operations.app_source(state, app_id), content_source) == []

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { fieldKinds, fieldRegistry } from "../fields";
+import {
+	fieldKindCarriesValidation,
+	fieldKindDeclaresKey,
+	fieldKinds,
+	fieldRegistry,
+} from "../fields";
 
 describe("field metadata consumed by pickers", () => {
 	it("provides one named, drawable entry and distinct conversion targets per kind", () => {
@@ -16,5 +21,29 @@ describe("field metadata consumed by pickers", () => {
 			for (const target of meta.convertTargets)
 				expect(Object.hasOwn(fieldRegistry, target)).toBe(true);
 		}
+	});
+});
+
+describe("which kinds carry a validation", () => {
+	it("is exactly the kinds whose schema declares validate", () => {
+		for (const kind of fieldKinds) {
+			expect(fieldKindCarriesValidation(kind), kind).toBe(
+				fieldKindDeclaresKey(kind, "validate"),
+			);
+		}
+		expect(fieldKinds.filter(fieldKindCarriesValidation).sort()).toEqual(
+			[
+				"barcode",
+				"date",
+				"datetime",
+				"decimal",
+				"int",
+				"multi_select",
+				"secret",
+				"single_select",
+				"text",
+				"time",
+			].sort(),
+		);
 	});
 });

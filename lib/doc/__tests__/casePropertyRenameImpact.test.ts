@@ -20,6 +20,7 @@ function fixture(): BlueprintDoc {
 		appId: "impact-app",
 		appName: "Impact",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{
 				name: "patient",

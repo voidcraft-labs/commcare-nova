@@ -34,12 +34,20 @@
  * `timeEnd` lives on a parallel `<bind type="xsd:dateTime">`, which is what
  * `_add_meta_2` emits.
  *
- * Known gap vs `_add_meta_2`: Nova does not yet model auto-GPS capture (which
- * would add a `<location>` meta element and an `xforms-ready` pollsensor action).
- * When auto-GPS lands in the authoring layer it follows this same injection shape.
+ * Location follows `_add_meta_2` too. A form of an app that captures the
+ * worker's location (a Connect app, whose HQ JSON sets `auto_gps_capture`)
+ * gets `<cc:location/>` as the meta block's last child, and the model's last
+ * two children are `<orx:pollsensor event="xforms-ready"
+ * ref="/data/meta/location"/>` and its `geopoint` bind: Android starts a
+ * location poll when the form opens and writes the fix there. Any other form
+ * whose model holds a `geopoint` bind gets the bare `<orx:pollsensor
+ * event="xforms-ready"/>` as the model's last child, as HQ's `elif` arm
+ * writes it, so Android starts the same poll for a GPS question on both
+ * builds. A model holds one pollsensor or none.
  */
 
-import type { Element } from "domhandler";
+import { Element } from "domhandler";
+import { getChildren } from "domutils";
 import { el } from "@/lib/commcare/elementBuilders";
 import {
 	appendChildren,
@@ -81,7 +89,7 @@ interface MetaBlockEmission {
  * on every form save, so the closing timestamp and drift reflect the actual
  * submission moment, not the form-open moment.
  */
-function buildMetaBlock(): MetaBlockEmission {
+function buildMetaBlock(captureLocation: boolean): MetaBlockEmission {
 	// Children of `<orx:meta>`. The meta nodes carry the OpenRosa `orx:`
 	// namespace (declared on the `h:html` root), with `appVersion` in the
 	// CommCare `cc:` namespace declared on the meta element itself — exactly
@@ -100,6 +108,7 @@ function buildMetaBlock(): MetaBlockEmission {
 			el("orx:instanceID", {}),
 			el("cc:appVersion", {}),
 			el("orx:drift", {}),
+			...(captureLocation ? [el("cc:location", {})] : []),
 		],
 	);
 
@@ -184,11 +193,47 @@ function buildMetaBlock(): MetaBlockEmission {
 	return { dataElement, setvalues, binds };
 }
 
+/** The location node a capturing form's poll writes its fix into. */
+const LOCATION_PATH = FormPath.root().child("meta").child("location").toXPath();
+
+/** Whether the model holds a `geopoint` bind, the shape HQ's `elif` reads. */
+function holdsGeopointBind(model: Element): boolean {
+	return getChildren(model).some(
+		(child) =>
+			child instanceof Element &&
+			child.name === "bind" &&
+			child.attribs.type === "geopoint",
+	);
+}
+
+/**
+ * The pollsensor HQ's `_add_meta_2` appends to the model, as its last
+ * children: with location capture, the one that writes `meta/location` and
+ * that node's `geopoint` bind; without it, the bare one where the form holds
+ * a `geopoint` bind; otherwise none.
+ */
+function pollsensorNodes(model: Element, captureLocation: boolean): Element[] {
+	if (captureLocation) {
+		return [
+			el("orx:pollsensor", { event: "xforms-ready", ref: LOCATION_PATH }),
+			el("bind", { nodeset: LOCATION_PATH, type: "geopoint" }),
+		];
+	}
+	return holdsGeopointBind(model)
+		? [el("orx:pollsensor", { event: "xforms-ready" })]
+		: [];
+}
+
 /**
  * Splice the OpenRosa meta block into a serialized XForm. Mirrors CCHQ's
  * build-time `_add_meta_2`: append `<orx:meta>` under the primary `<data>`
- * instance, insert the eight setvalues + two dateTime binds into `<model>`, and
- * declare the `commcaresession` instance the setvalues read from.
+ * instance, insert the eight setvalues + two dateTime binds into `<model>`,
+ * declare the `commcaresession` instance the setvalues read from, and append
+ * the pollsensor HQ appends (`pollsensorNodes`).
+ *
+ * `captureLocation` is the local twin of the HQ JSON's `auto_gps_capture`:
+ * the compiler sets it for a Connect app, the same condition `expandDoc`
+ * writes the HQ value under.
  *
  * Runs only on the local `.ccz` path (after `addCaseBlocks`), never on the
  * HQ-upload source — CCHQ injects its own meta block at render time, and a meta
@@ -200,8 +245,12 @@ function buildMetaBlock(): MetaBlockEmission {
  * declaration; a survey form with no other session reference gets it here so the
  * meta setvalues' `instance('commcaresession')` refs resolve.
  */
-export function addMetaBlock(xform: string): string {
-	const meta = buildMetaBlock();
+export function addMetaBlock(
+	xform: string,
+	options: { readonly captureLocation?: boolean } = {},
+): string {
+	const captureLocation = options.captureLocation === true;
+	const meta = buildMetaBlock(captureLocation);
 	const doc = parseXForm(xform);
 
 	// Append `<orx:meta>` last under `<data>`. On the `.ccz` path `addCaseBlocks`
@@ -216,6 +265,9 @@ export function addMetaBlock(xform: string): string {
 	// `add_instance('commcaresession', src='jr://instance/session')`.
 	ensureInstance(modelEl, "commcaresession", "jr://instance/session");
 	insertBeforeItext(modelEl, [...meta.binds, ...meta.setvalues]);
+	// HQ appends its pollsensor after everything else in the model, itext
+	// included.
+	appendChildren(modelEl, pollsensorNodes(modelEl, captureLocation));
 
 	return serializeXForm(doc);
 }

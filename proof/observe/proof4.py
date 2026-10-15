@@ -1335,7 +1335,7 @@ class _Observation:
                 record.update(serving.devices_on("save"))
                 updated = self._device_update(serving, over, held, outcome)
                 if updated is not None:
-                    record["androidUpdate"] = updated
+                    record["androidUpdate"], record["androidNextBuild"] = updated
                 core = self.blobs.get_json(traced["trace"]) if traced and traced.get("trace") else None
                 kept_connect = self._forwards(forwarder, serving, trace, core)
                 if kept_connect is not None:
@@ -1362,7 +1362,11 @@ class _Observation:
 
     def _device_update(self, serving, over, held, outcome):
         """A device on ``over``'s archive updated to the saved app's, over a worker's own settings, where the save
-        changed the profile; None where it did not."""
+        changed the profile, and a device on the same archive updated to the state's own next build over the same
+        settings: that archive with its profile's ``version`` raised by one (``next_build``), which Android stages
+        as the next build of the same app. A setting the profile forces resets a worker's own at every update,
+        whatever the save did, and the second update says which do (``proof.checks.android.settings_replaced``).
+        None where the save did not change the profile."""
         from proof.android import observe as android
         from proof.observe import served
         from proof.observe.build import device_archive
@@ -1375,14 +1379,24 @@ class _Observation:
             return None
         if dict(before["entries"]).get("profile.ccpr") == dict(after["entries"]).get("profile.ccpr"):
             return None
-        return android.update(
+        state = android.archive_bytes(before["entries"])
+        saved = android.update(
             serving.served,
             self.blobs,
             label="save:update",
-            before=android.archive_bytes(before["entries"]),
+            before=state,
             after=android.archive_bytes(after["entries"]),
             incomplete=False,
         )
+        own = android.update(
+            serving.served,
+            self.blobs,
+            label="save:next-build",
+            before=state,
+            after=android.archive_bytes(next_build(before["entries"])),
+            incomplete=False,
+        )
+        return saved, own
 
     # One save's stored app, build and trace ----------------------------------------------------------------
 
@@ -1773,3 +1787,18 @@ def observe_b(ctx, *, order=hq_order, views=None, forms=None):
     record = observation.observe(views, forms)
     COUNTS.append({"document": ctx.document.id, "over": ctx.over, **observation.counts.as_json()})
     return record
+
+
+def next_build(entries):
+    """A device archive's entries (``proof.observe.build.device_archive``) as the same app's next build: its
+    profile's ``version`` raised by one, every other entry as it is."""
+    from lxml import etree
+
+    found = []
+    for name, content in entries:
+        if name == "profile.ccpr":
+            root = etree.fromstring(content, etree.XMLParser(resolve_entities=False, no_network=True))
+            root.set("version", str(int(root.get("version")) + 1))
+            content = etree.tostring(root, xml_declaration=True, encoding="utf-8")
+        found.append((name, content))
+    return found

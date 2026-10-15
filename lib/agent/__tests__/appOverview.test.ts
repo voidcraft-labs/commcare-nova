@@ -54,3 +54,13 @@ it("orients an edit without sending every question's content", () => {
 		"question_219",
 	);
 });
+
+it("holds the document's form-list settings", () => {
+	const doc = buildDoc({
+		appSettings: { showSavedForms: true, showIncompleteForms: false },
+	});
+	expect(appOverview(doc).settings).toEqual({
+		showSavedForms: true,
+		showIncompleteForms: false,
+	});
+});

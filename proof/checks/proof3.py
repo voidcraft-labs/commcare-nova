@@ -4,8 +4,11 @@ Two comparisons, each over the document's case database
 (``proof.checks.casedata``):
 
 - **the two export paths**, always (decision 15): Nova's local archive
-  (``local.ccz``) against ``build(A)``, HQ's build of what Nova's first
-  publish left there;
+  against ``build(A)``, HQ's build of what Nova's first publish left there,
+  each configuration's A against the archive Nova compiles for that
+  configuration's project space (``Document.local_ccz_for``: the empty-list
+  text follows the project space's flag, as HQ's build does), named
+  ``local.ccz`` whichever it is;
 - **two publishes**, wherever proof 2 still finds a difference between
   ``build(A)`` and the build of B aligned to A (``proof.checks.proof2``):
   that build against ``build(A)``.
@@ -148,7 +151,26 @@ by its prompts alone.
 Identity is proof 1's: before the local archive's trace is compared, each
 form ``xmlns`` it carries is mapped to the one ``build(A)`` carries for the
 same suite entry (command id), in the trace and in the submission's
-namespaces. The B build is aligned to A already.
+namespaces, and so is each form's version: HQ's is its own form version
+(``models/forms.py::FormBase.get_version``) and the local archive's is the
+document's sequence, so they agree only by coincidence. A submission whose
+data ``version`` is the one its own build's form declares reads it as the
+content's own on both sides (``declared_versions``, ``local_versions``); a
+version a form does not declare is compared as it is. The B build is aligned
+to A already.
+
+A value a person saved only in HQ (``hq-side.json``) is one the local archive
+cannot hold, so on such a document the local archive's comparisons hold it
+both ways (``stated_hq_side_values``): Auto Capture Location saved on an app
+that is not a Connect app is a location HQ's side holds and the local
+archive's lacks, on Core's trace (``trace@local.ccz``), on Formplayer's
+output and submissions (``formplayer@local.ccz``) and on a device's walks
+(``android@local.ccz``: the location the form asks for, the fix it is given
+and the location the saved record holds); a profile setting saved in HQ is
+the saved value in HQ's trace and Nova's constant in the local archive's,
+and the device's readers of it differ accordingly. Each is a difference of
+exactly that shape, which the check takes as the statement holding; one of
+another shape, or none where the comparison ran, is reported.
 
 The sessions, HQ's restores and HQ's case processing are observed over B's
 state, or A's where HQ refused B (``proof.observe.sessions``), and kept in
@@ -836,7 +858,20 @@ def _processed(recorded, blobs):
     return blobs.get_json(recorded["processed"])
 
 
-def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, local_admission=None):
+def declared_versions(files) -> dict:
+    """Each form's data ``version`` a build or an archive declares, by the form's ``xmlns``: ``files`` its
+    entries, by path."""
+    from proof.checks.proof4 import _built_forms
+
+    return {xmlns: version for xmlns, version, _ in _built_forms(_FilesOnly(files)).values() if version is not None}
+
+
+@dataclass(frozen=True)
+class _FilesOnly:
+    files: dict
+
+
+def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, local_admission=None, local_files=None):
     """Proof 3's differences for one document under one configuration.
 
     ``observed`` is the republish's view (``observations.Republish``) and
@@ -844,7 +879,8 @@ def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, lo
     (``proof.observe.sessions``), made whether or not HQ accepted B; proof 2's
     judgment of the same configuration decides whether the B build's sessions
     are compared. ``local_admission`` is Core's admission of the local
-    archive the bar holds (``observations.local_reports``).
+    archive the bar holds (``observations.local_reports``), and ``local_files`` the local archive's entries, whose
+    forms' declared versions a submission's are mapped by (``declared_versions``).
     """
     if observed.a is None:
         if any(refusal.state == "A" for refusal in observed.refusals):
@@ -870,9 +906,17 @@ def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, lo
         return admission_refusals(document, "trace@A", baseline.admission)
     baseline_processed = _processed(sessions["baseline"], blobs)
     local = _run(sessions["local"], "local.ccz", blobs)
+    from proof.checks.proof4 import trace_versions
+
+    local_baseline = baseline
+    if local.trace is not None and local_files is not None:
+        local_baseline = replace(
+            baseline, trace=trace_versions(baseline.trace, declared_versions(observed.a.build.files or {}))
+        )
+        local = replace(local, trace=trace_versions(local.trace, declared_versions(local_files)))
     found = compare_runs(
         document,
-        baseline,
+        local_baseline,
         baseline_processed,
         local,
         _processed(sessions["local"], blobs) if local.trace is not None else None,
@@ -1017,6 +1061,15 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
         xmlns = None
         if sessions is not None and sessions.get("baseline") and sessions.get("local"):
             xmlns = xmlns_alignment(sessions["local"]["admission"], sessions["baseline"]["admission"])
+        versions = None
+        if local_ccz is not None:
+            # Each form's version as each side's form declares it, the local archive's by the namespace A's form of
+            # the same suite entry holds, since the comparison renamespaces the local side first.
+            local_declared = declared_versions(_archive_forms(local_ccz))
+            versions = (
+                declared_versions(observed.a.build.files or {}),
+                {(xmlns or {}).get(namespace, namespace): v for namespace, v in local_declared.items()},
+            )
         found += served.formplayer_differences(
             trace_a,
             blobs.get_json(local["formplayer"]["trace"]),
@@ -1025,6 +1078,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             artifact=f"{FORMPLAYER}@local.ccz",
             rules=RULES,
             xmlns=xmlns,
+            versions=versions,
             text_ids=served.merged_text_ids(observed.a.build.files or {}, _archive_forms(local_ccz))
             if local_ccz is not None
             else None,
@@ -1072,36 +1126,167 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
 
 
 def document_behavior(document, records):
-    """Proof 3's differences on one document: each configuration it is exported under, judged from its records."""
+    """Proof 3's differences on one document: each configuration it is exported under, judged from its records,
+    each against the local archive Nova compiles for that configuration's project space."""
     from proof.checks import observations
 
     found = []
-    local_admission = observations.local_reports(records).get("local.ccz")
+    compared = set()
+    reports = observations.local_reports(records)
     for name in sorted(document.exports):
         observed = observations.republish_view(records, name)
         sessions = observations.sessions_record(records, name)
+        local_ccz = document.local_ccz_for(name)
+        local_files = None if local_ccz is None else _archive_files(local_ccz)
         found += behavioral_equivalence(
             document.id,
             observed,
             sessions,
             records.blobs,
-            has_local=document.local_ccz is not None,
-            local_admission=local_admission,
+            has_local=local_ccz is not None,
+            local_admission=reports.get(local_ccz.name) if local_ccz is not None else None,
+            local_files=local_files,
         )
+        if (sessions or {}).get("local", {}).get("trace") is not None:
+            compared.add("trace@local.ccz")
         found += served_equivalence(
             document.id,
             records,
             name,
             observed,
             sessions,
-            has_local=document.local_ccz is not None,
-            local_ccz=document.local_ccz,
+            has_local=local_ccz is not None,
+            local_ccz=local_ccz,
         )
+        if _served_a(records, name) is not None and (
+            (records.configurations[name].b_aligned or {}).get("served") or {}
+        ).get("local"):
+            compared.add(f"{FORMPLAYER}@local.ccz")
     from proof.checks import android
 
-    phone = android.behavior(document.id, android.document_record(records), rules=RULES)
+    phone_record = android.document_record(records)
+    phone = android.behavior(document.id, phone_record, rules=RULES)
     tablet = android.behavior(
         document.id, android.document_record(records, tablet=True), device=android.TABLET, rules=RULES
     )
+    if any(
+        "A" in held and (held.get("local") or {}).get("app") is not None
+        for held in phone_record["configurations"].values()
+    ):
+        compared.add(android.LOCAL)
     found += phone + android.tablet_only(phone, tablet)
+    found = stated_hq_side_values(document.id, document.hq_side, found, compared)
     return found + observations.soft_assertion_differences(records, CHECK)
+
+
+def _archive_files(path) -> dict:
+    """Each entry of a local archive, by its path in it."""
+    import zipfile
+
+    with zipfile.ZipFile(path) as archive:
+        return {entry: archive.read(entry) for entry in archive.namelist()}
+
+
+# A value a person saved only in HQ ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StatedValue:
+    """One difference a value saved only in HQ makes between HQ's side and the local archive's: on ``artifact``,
+    at ``path``, of ``kind``, with ``values`` (before, after) where the difference must carry them."""
+
+    save: str
+    artifact: str
+    path: str
+    kind: str
+    values: tuple | None = None
+
+
+# The paths a location HQ's side holds and the local archive's lacks shows at, on each reader's comparison.
+LOCATION_PATHS = {
+    "trace@local.ccz": ("/runs/*/trace/*/submission/data/meta[*]/location[*]",),
+    f"{FORMPLAYER}@local.ccz": (
+        "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+        "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
+    ),
+    "android@local.ccz": (
+        "/walks/*/steps/*/form/deviceAsked",
+        "/walks/*/steps/*/form/deviceGave",
+        "/walks/*/steps/*/form/saved/records/*/metaLocation",
+    ),
+}
+# The device's readers that answer from a profile setting (``proof/android/src/nova/proof/android/Profile.java``).
+SETTING_READERS = {
+    "cc-autoup-freq": (
+        "UpdateHelper.getAutoUpdateFrequency",
+        "UpdateHelper.getAutoUpdatePeriodicity",
+        "UpdateHelper.isAutoUpdateOn",
+    ),
+}
+
+
+def stated_values(hq_side) -> list:
+    """What a document's ``hq-side.json`` says HQ's side holds and the local archive cannot, as ``StatedValue``s."""
+    from proof.checks.intent import NOVA_PROFILE_CONSTANTS
+
+    found = []
+    if not hq_side:
+        return found
+    if ((hq_side.get("appAttributes") or {}).get("auto_gps_capture")) is True:
+        for artifact, paths in LOCATION_PATHS.items():
+            found += [StatedValue("auto_gps_capture", artifact, path, "removed") for path in paths]
+    for key, value in sorted((hq_side.get("profileProperties") or {}).items()):
+        found.append(
+            StatedValue(
+                key,
+                "trace@local.ccz",
+                f"/profile/properties/{pointer_token(key)}/value",
+                "changed",
+                (value, NOVA_PROFILE_CONSTANTS.get(key)),
+            )
+        )
+        found += [
+            StatedValue(key, "android@local.ccz", f"/profile/readers/{reader}", "changed")
+            for reader in SETTING_READERS.get(key, ())
+        ]
+    return found
+
+
+def stated_hq_side_values(document, hq_side, found, compared) -> list:
+    """``found`` with each difference a value saved only in HQ makes held as the statement holding, on each
+    comparison that ran (``compared``, by artifact): a difference of the stated shape is taken, one of another
+    shape at the same path is kept, and a stated difference no comparison shows is reported at
+    ``/stated-hq-side/<save><path>``."""
+    stated = [value for value in stated_values(hq_side) if value.artifact in compared]
+    if not stated:
+        return found
+    kept, met = [], set()
+    for difference in found:
+        claim = next(
+            (value for value in stated if value.artifact == difference.artifact and value.path == difference.path),
+            None,
+        )
+        if (
+            claim is not None
+            and difference.kind == claim.kind
+            and (claim.values is None or (difference.before, difference.after) == claim.values)
+        ):
+            met.add(claim)
+            continue
+        kept.append(difference)
+    for claim in stated:
+        if claim not in met:
+            path = f"/stated-hq-side/{pointer_token(claim.save)}{claim.path}"
+            kept.append(
+                Difference(
+                    CHECK,
+                    document,
+                    claim.artifact,
+                    path,
+                    path,
+                    "removed",
+                    {"heldOnlyByHq": claim.save, "kind": claim.kind, "values": claim.values},
+                    None,
+                )
+            )
+    return kept

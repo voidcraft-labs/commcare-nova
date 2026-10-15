@@ -41,6 +41,7 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	label: "Signature",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: false,
 	saDocs:
 		"Signature, the worker signs on a drawing pad and the app saves a PNG. The only capture kind that does not attach an existing file.",
 	convertTargets: ["image", "audio", "video", "file"],

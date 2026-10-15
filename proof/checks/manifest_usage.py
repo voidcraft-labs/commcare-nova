@@ -66,7 +66,10 @@ family is read by the reader the surface records for it:
   prompt's name, ``csql-key:<key>`` where it is one HQ's search reads as its
   own rather than a case property), a prompt's input and appearance
   (``prompt-input:<input>``, ``prompt-appearance:<appearance>``) and the CSQL
-  its ``_xpath_query`` sends (below). HQ's settings of type ``hq`` are the
+  its ``_xpath_query`` sends (below). A UI translation or an add-on an
+  upload holds at the value the document's ``hq-side.json`` says a person
+  saved in HQ is the target's value carried back (``without_carried``), not
+  a use of Nova's. HQ's settings of type ``hq`` are the
   ``Application``'s own fields (``commcare-app-settings.yml``), so their use
   is that field's (``schema:Application.<id>``).
 - **Every XForm** (each source in the app JSON's ``_attachments``, by the
@@ -154,7 +157,10 @@ family is read by the reader the surface records for it:
   ``parser:<Parser>/<element>`` and each attribute as
   ``parser:<Parser>/<element>@<attribute>`` (or the parser's wildcard
   ``parser:<Parser>/<parent>/*@<attribute>``), a key no parser holds being
-  used all the same; each profile property and feature uses its setting; a
+  used all the same; each profile property uses its setting, and each
+  feature its setting where HQ's settings hold it, else the feature HQ's
+  profile template writes for every app (``profile-feature:<name>``,
+  ``feature_key``); a
   search's instances, keys, prompts and CSQL are read as above (a search is
   the ``<query>`` a session's datums hold, ``SessionDatumParser``'s); a stack
   operation's ``<query>`` is a request to the HQ view its ``value`` names
@@ -180,6 +186,7 @@ while it read the exports is a difference of this check.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -428,12 +435,35 @@ def _same(a, b):
 # The app JSON ---------------------------------------------------------------
 
 
-def app_json_uses(app: dict, manifest: Manifest, artifact: str, found: Uses):
+def without_carried(app: dict, hq_side) -> dict:
+    """``app`` without the values an upload carries back from the target: each UI translation and add-on at the
+    value the document's ``hq-side.json`` says a person saved in HQ (``uiTranslations``, ``addOns``). Nova's
+    publish carries the target's own part of ``translations`` and ``add_ons`` as HQ held it
+    (``lib/commcare/targetOverlay.ts``), so such a value is the target's, not a use of Nova's."""
+    if not hq_side:
+        return app
+    app = copy.deepcopy(app)
+    translations = app.get("translations") if isinstance(app.get("translations"), dict) else {}
+    for lang, texts in (hq_side.get("uiTranslations") or {}).items():
+        held = translations.get(lang)
+        for key, text in texts.items():
+            if isinstance(held, dict) and held.get(key) == text:
+                del held[key]
+    add_ons = app.get("add_ons") if isinstance(app.get("add_ons"), dict) else {}
+    for slug, on in (hq_side.get("addOns") or {}).items():
+        if slug in add_ons and add_ons[slug] == on:
+            del add_ons[slug]
+    return app
+
+
+def app_json_uses(app: dict, manifest: Manifest, artifact: str, found: Uses, carried=None):
     """The surface items one app JSON uses, its XForm sources included (by their forms' positions), each parsed form
     keeping the form object that names it (``Form.app_form``), which the value classes read of a form's own case
-    actions and type."""
+    actions and type. ``carried`` is the document's ``hq-side.json``, whose saved values the upload carries back
+    from the target and does not use (``without_carried``)."""
     if not isinstance(app, dict):
         raise ManifestError(f"{artifact} is not a JSON object, so it is no app HQ's import reads.")
+    app = without_carried(app, carried)
     root = app.get("doc_type") or "Application"
     document = App(app, artifact)
     found.documents.append(document)
@@ -1465,13 +1495,26 @@ def _view_routes(manifest):
     )
 
 
+def feature_key(manifest, name):
+    """A feature a profile names, by the item that holds it: HQ's setting where HQ's settings hold the feature
+    (``setting:features.<name>``), else the feature HQ's profile template writes for every app
+    (``profile-feature:<name>``), else the setting spelling, which no item holds. A feature an app JSON stores
+    stays the setting spelling (``setting_key``), since HQ's template would write it a second time beside its
+    own."""
+    key = f"setting:features.{name}"
+    template_key = f"profile-feature:{key_name(name)}"
+    if key not in manifest.items and template_key in manifest.items:
+        return template_key
+    return key
+
+
 def _profile_setting(element, manifest, artifact, where, found, at=None):
     local = etree.QName(element).localname
     parent = element.getparent()
     if local == "property" and element.get("key"):
         found.add(setting_key(manifest, "properties", element.get("key")), artifact, where, at)
     elif parent is not None and etree.QName(parent).localname == "features":
-        found.add(setting_key(manifest, "features", local), artifact, where, at)
+        found.add(feature_key(manifest, local), artifact, where, at)
 
 
 def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses):
@@ -1971,7 +2014,7 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
             app = json.loads(blobs.get(ref))
         except json.JSONDecodeError as error:
             raise ManifestError(f"{document.id}'s {key} app_file is not JSON ({error}).") from error
-        app_json_uses(as_imported(app), manifest, artifact, found)
+        app_json_uses(as_imported(app), manifest, artifact, found, carried=document.hq_side)
     for artifact, entries in sorted(observed["archives"].items()):
         archive_uses({name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found)
     read_observed(found, manifest, Readings.of(blobs.get_json(observed["readings"])))

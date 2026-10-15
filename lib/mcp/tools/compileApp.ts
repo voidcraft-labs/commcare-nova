@@ -290,6 +290,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							boundary.prepared,
 							download.runtimeTarget,
 							download.identity,
+							download.target,
 						);
 						return {
 							content: [

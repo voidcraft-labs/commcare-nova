@@ -38,6 +38,9 @@ import java.nio.file.Files;
  * menus offer and every case each list shows, then all of it again in each of {@code languages}, chosen on home's
  * own Change Language dialog; or, with {@code commands}, the forms they name.</li>
  * <li>{@code update}: install {@code archive}, then update the device to {@code update} (Updates).</li>
+ * <li>{@code location}: install {@code archive}, open the form of {@code command}, hand the device's location
+ * listener each of {@code fixes} in turn, and after each, whether the form's poll of the location sensor still
+ * runs and what {@code node} holds (Location).</li>
  * </ul>
  */
 @Config(application = ProofApplication.class, sdk = 29)
@@ -91,6 +94,8 @@ public class Reader {
                 return Screens.read(request);
             case "update":
                 return Updates.read(request);
+            case "location":
+                return Location.read(request);
             default:
                 throw new IllegalArgumentException("The Android reader has no request named " + op + ".");
         }

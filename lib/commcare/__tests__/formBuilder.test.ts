@@ -19,6 +19,8 @@ import {
 import { assertAndProjectCaseWriteInventory } from "../caseWriteAdmission";
 import { deriveCaseConfig } from "../deriveCaseConfig";
 import { runValidation } from "../validator/runner";
+import { buildXForm } from "../xform/builder";
+import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 
 const FORM = testUuid("planner-form"),
 	GROUP = testUuid("planner-group"),
@@ -254,4 +256,105 @@ describe("private case-write projection", () => {
 			expect(doc).toEqual(before);
 		},
 	);
+});
+
+describe("validation on a barcode and a secret question", () => {
+	const CARD = testUuid("validated-card"),
+		PIN = testUuid("validated-pin");
+
+	function validatedForm(secretMessageShowsAnswer: boolean) {
+		const doc = admitted(
+			buildDoc({
+				modules: [
+					{
+						name: "Intake",
+						forms: [
+							{
+								name: "Register",
+								type: "survey",
+								fields: [
+									f({
+										kind: "barcode",
+										uuid: CARD,
+										id: "card",
+										label: proseText("Card number"),
+										validate: "string-length(.) = 6",
+										validate_msg: proseText("Enter six characters"),
+									}),
+									f({
+										kind: "secret",
+										uuid: PIN,
+										id: "pin",
+										label: proseText("PIN"),
+										validate: "string-length(.) = 6",
+										validate_msg: secretMessageShowsAnswer
+											? {
+													parts: [
+														{ kind: "text", text: "Not six: " },
+														{ kind: "field-ref", uuid: PIN },
+													],
+												}
+											: proseText("Enter six characters"),
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		return readXmlEvidence(
+			buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+				xmlns: "http://openrosa.org/formdesigner/validated-barcode-secret",
+			}),
+		);
+	}
+
+	function descendants(node: XmlEvidence): XmlEvidence[] {
+		return node.children.flatMap((child) => [child, ...descendants(child)]);
+	}
+
+	it("writes each one's constraint, its message and its alert, as for a text question", () => {
+		const form = validatedForm(false);
+		const nodes = descendants(form);
+		for (const [id, control] of [
+			["card", "input"],
+			["pin", "secret"],
+		] as const) {
+			const bind = nodes.find(
+				(node) =>
+					node.name === "bind" && node.attributes.nodeset === `/data/${id}`,
+			);
+			expect(bind?.attributes.constraint).toBe("string-length(.) = 6");
+			expect(bind?.attributes["jr:constraintMsg"]).toBe(
+				`jr:itext('${id}-constraintMsg')`,
+			);
+			const body = nodes.find(
+				(node) =>
+					node.name === control && node.attributes.ref === `/data/${id}`,
+			);
+			expect(
+				body?.children.find((child) => child.name === "alert")?.attributes,
+			).toEqual({ ref: `jr:itext('${id}-constraintMsg')` });
+			expect(
+				nodes.some(
+					(node) =>
+						node.name === "text" &&
+						node.attributes.id === `${id}-constraintMsg`,
+				),
+			).toBe(true);
+		}
+	});
+
+	it("protects a secret's message that shows its answer, as any other", () => {
+		const nodes = descendants(validatedForm(true));
+		expect(
+			nodes.some(
+				(node) =>
+					node.name === "bind" &&
+					node.attributes.nodeset?.endsWith("/nova_constraint_message_pin") ===
+						true,
+			),
+		).toBe(true);
+	});
 });

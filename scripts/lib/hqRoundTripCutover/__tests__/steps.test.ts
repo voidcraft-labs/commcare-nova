@@ -34,6 +34,7 @@ import {
 import { readLegacyApp } from "./fixtures/legacyBodies";
 import {
 	fixtureMediaRecords,
+	migratedFixtureDocument,
 	readFixtureCarriers,
 	readFixtureManifest,
 	readFixturePaths,
@@ -205,11 +206,7 @@ describe("the ordered transform", () => {
 
 	it("counts a stored schema that differs, a derived type with no row and a row with no derived type", () => {
 		const id = "case-operation-query";
-		const doc = hydratePersistedBlueprint(
-			blueprintDocSchema.parse(
-				rawDocumentAssembly(id, readRawDocument(id, readFixtureCarriers(id))),
-			),
-		);
+		const doc = migratedFixtureDocument(id);
 		const stored = new Map(
 			Object.entries(readFixtureSchemas(id)).map(([name, schema]) => [
 				name,

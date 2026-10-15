@@ -257,6 +257,8 @@ const ACME: ReachedDeploymentTarget = {
 	server: "india",
 	domain: "acme",
 	hqAppId: "0123456789abcdef0123456789abcdef",
+	emptyCaseListText: false,
+	earlierHqApps: 0,
 };
 /** What the ledger answers for a `.ccz` made for one reached deployment. */
 function cczFor(target: ReachedDeploymentTarget): DownloadTarget {
@@ -571,7 +573,13 @@ it("ships a readable workbook generated from the same lookup rows as the app ref
 
 const SEVERAL: readonly ReachedDeploymentTarget[] = [
 	ACME,
-	{ server: "production", domain: "acme", hqAppId: "1".repeat(32) },
+	{
+		server: "production",
+		domain: "acme",
+		hqAppId: "1".repeat(32),
+		emptyCaseListText: false,
+		earlierHqApps: 0,
+	},
 ];
 it.each([
 	[

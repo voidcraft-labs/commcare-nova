@@ -690,6 +690,25 @@ const setAppLogo: KindGenerator = (ctx) => [
 	batch(setAppLogoMutations(ctx.mint.mediaId())),
 ];
 
+/** Each form-list setting flipped from what the document holds, saved forms
+ *  first, as one of the builder's switches commits it. */
+const setAppSettings: KindGenerator = (ctx) => [
+	batch([
+		{
+			kind: "setAppSettings",
+			settings: { showSavedForms: !ctx.doc.appSettings.showSavedForms },
+		},
+	]),
+	batch([
+		{
+			kind: "setAppSettings",
+			settings: {
+				showIncompleteForms: !ctx.doc.appSettings.showIncompleteForms,
+			},
+		},
+	]),
+];
+
 /**
  * The source language is relabelled only while it is the app's one language
  * (`relabelSourceLanguage` applies to a single-language app), so a
@@ -2751,6 +2770,7 @@ export const EDIT_KIND_GENERATORS = {
 	setAppName,
 	setConnectType: hosted(FORM_HOST, setConnectType),
 	setAppLogo,
+	setAppSettings,
 	relabelSourceLanguage,
 	addLanguage,
 	removeLanguage,

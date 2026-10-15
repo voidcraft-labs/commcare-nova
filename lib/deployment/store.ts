@@ -502,6 +502,13 @@ export interface ReachedDeploymentTargetRow {
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly hqAppId: string;
+	/**
+	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as the last publish read it;
+	 * false where no publish has read it.
+	 */
+	readonly emptyCaseListText: boolean;
+	/** How many HQ apps the deployment held before this one: its superseded `app` mappings. */
+	readonly earlierHqApps: number;
 }
 
 /**
@@ -527,6 +534,10 @@ export async function readReachedDeploymentTargets(
 				server: view.deployment.server,
 				domain: view.deployment.domain,
 				hqAppId: remote.remoteId,
+				emptyCaseListText: view.deployment.targetEmptyCaseListText === true,
+				earlierHqApps: view.superseded.filter(
+					(resource) => resource.kind === "app",
+				).length,
 			},
 		];
 	});
@@ -705,6 +716,12 @@ export interface RecordRemoteResourceInput {
 export interface RecordRemoteAppInput extends RecordRemoteResourceInput {
 	readonly uploadedAt: string;
 	/**
+	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as this publish read it, written
+	 * with the upload's fold. Left out where the read failed, so the column
+	 * keeps what an earlier publish read.
+	 */
+	readonly targetEmptyCaseListText?: boolean;
+	/**
 	 * HQ's read of the app right after this upload, or the fact that Nova
 	 * could not read it, written with the mapping so the two never disagree.
 	 */
@@ -742,13 +759,16 @@ export async function recordRemoteResource(
 			});
 			await tx
 				.updateTable("app_deployments")
-				.set(
-					progressUpdate(
+				.set({
+					...progressUpdate(
 						progress,
 						clearObservationOutcomes(progress.phases),
 						now,
 					),
-				)
+					...(input.targetEmptyCaseListText !== undefined && {
+						target_empty_case_list_text: input.targetEmptyCaseListText,
+					}),
+				})
 				.where("id", "=", row.id)
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);

@@ -62,6 +62,7 @@ function makeDoc(): PersistableDoc {
 		appId: "test-app",
 		appName: "Test App",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {
 			[MODULE_UUID]: { uuid: MODULE_UUID, id: "module-1", name: "Module 1" },

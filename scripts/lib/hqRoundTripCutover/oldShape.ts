@@ -237,6 +237,10 @@ export function readRawDocument(
 						`apps.localization for app ${appId}`,
 					) as Json),
 		logo: root.logo,
+		...(root.app_settings_text !== null &&
+			root.app_settings_text !== undefined && {
+				appSettings: readAppSettings(appId, root.app_settings_text),
+			}),
 		modules,
 		forms,
 		fields,
@@ -245,6 +249,20 @@ export function readRawDocument(
 		fieldOrder,
 		...flat,
 	};
+}
+
+/** A stored `apps.app_settings`, which only step `app-settings` writes. */
+function readAppSettings(appId: string, text: string): JsonRecord {
+	const value = parsePersistedJsonText(
+		text,
+		`apps.app_settings for app ${appId}`,
+	);
+	if (!isRecord(value)) {
+		throw new Error(
+			`App ${appId} stores app settings that are not an object, so the cutover cannot read its document.`,
+		);
+	}
+	return value;
 }
 
 /** `AppPlan.baseDigest` and `targetDigest`: the canonical digest of a raw document. */

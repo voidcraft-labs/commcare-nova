@@ -1,18 +1,19 @@
 /**
  * The capture writer's output is the same, byte for byte, on every run for
- * a seed, and every publish of a document sends the same ids.
+ * a seed, every publish of a document sends the same ids, and no identity in
+ * it is drawn.
  *
  * Contract: `writePublishCaptures` writes, for each document and
  * configuration, the files the HQ side of the harness reads: a first
  * publish as the empty shell's create and the content update that fills
- * it, then each later update, each export's draws (`randomUUID` for a
- * `.ccz` profile's `uniqueid`) answered from its operation's seeded
- * generator (`../entropy.mts`). The plausible failures: a source of
- * variation reaching the files (a draw left unseeded, a multipart boundary,
- * an archive timestamp or zone, an unordered collection), which would make
- * every comparison over them noisy; the profile `uniqueid`s collapsing,
- * which would hide defect 9 from the checks that must see it (the two local
- * exports must differ); an update of an unchanged document sending other
+ * it, then each later update, each export run under its operation's seeded
+ * generator (`../entropy.mts`), from which it draws no identity. The
+ * plausible failures: a source of variation reaching the files (a draw left
+ * unseeded, a multipart boundary, an archive timestamp or zone, an
+ * unordered collection), which would make every comparison over them noisy;
+ * a local export drawing an identity again, which would make a document's
+ * two local exports differ (they must be one archive, byte for byte); an
+ * update of an unchanged document sending other
  * bytes than the republish, which would make every unchanged edit look like
  * a change; a publish sending other module or form ids than the publish
  * before it, which is defect 1; a shell that carries a menu, a workbook or
@@ -277,7 +278,8 @@ it("writes the same bytes on every run for a seed, sends every publish of a docu
 			nova.get("clinic-visits/none/local-2.ccz"),
 		];
 		expect(local1 !== undefined && local2 !== undefined).toBe(true);
-		expect(local1?.equals(local2 ?? Buffer.alloc(0))).toBe(false);
+		// A document's two local exports are one archive.
+		expect(local1?.equals(local2 ?? Buffer.alloc(0))).toBe(true);
 
 		// An edit that changes nothing sends exactly the republish; a rename
 		// does not, and sends the republish's ids.

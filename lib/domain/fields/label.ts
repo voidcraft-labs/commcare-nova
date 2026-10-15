@@ -26,6 +26,7 @@ export const labelFieldMetadata: FieldKindMetadata<"label"> = {
 	label: "Label",
 	isStructural: true,
 	isContainer: false,
+	carriesValidation: false,
 	saDocs: "Display-only text. Renders a read-only message. Collects no input.",
 	convertTargets: [],
 };

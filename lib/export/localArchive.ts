@@ -22,19 +22,27 @@ import type { PreparedExportBoundary } from "./boundaryValidation";
  * names its server, its project space and the HQ app that holds the app
  * there, and `identity` gives that deployment's menu and form ids. So no
  * archive is compiled without a target, and its profile tells a phone where
- * to sign in, sync and send forms.
+ * to sign in, sync and send forms. `deployment` gives the two other facts of
+ * that deployment the archive reads: whether the project space holds
+ * `USH_EMPTY_CASE_LIST_TEXT`, so every case list carries the empty-list text
+ * exactly where HQ's build there does, and how many HQ apps the deployment
+ * held before this one, which the archive's version counts.
  *
  * The expander stamps the prepared media manifest's references, resolves
  * attachment links against the prepared target, and names lookup tables
  * as the validated snapshot does; the compiler bundles the media bytes,
  * embeds the budget-checked lookup fixtures, and writes the document's
- * `mutation_seq` into the profile's `cc-content-version`, so the archive
- * names the exact document version it was built from.
+ * `mutation_seq`, the sequence, as every form's and locale's version, so a
+ * later download is newer in every resource the document changed.
  */
 export function compileLocalArchive(
 	prepared: PreparedExportBoundary,
 	runtimeTarget: RuntimeTarget,
 	identity: WireIdentity,
+	deployment: {
+		readonly emptyCaseListText: boolean;
+		readonly earlierHqApps: number;
+	},
 ): Buffer {
 	if (prepared.mode !== "ccz") {
 		throw new Error(
@@ -55,6 +63,8 @@ export function compileLocalArchive(
 		runtimeTarget,
 		assets,
 		compiledAtSeq,
+		earlierHqApps: deployment.earlierHqApps,
+		emptyCaseListText: deployment.emptyCaseListText,
 		...(prepared.lookupWire !== undefined && { lookup: prepared.lookupWire }),
 	});
 }

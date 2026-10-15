@@ -80,9 +80,9 @@ import {
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../predicate/caseListFilterEmitter";
-import { quoteLiteral } from "../predicate/stringQuoting";
 import {
 	idMappingDisplayXpath,
+	imageMapEnumKey,
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
 	plainSelectDisplayXpath,
@@ -293,10 +293,7 @@ function projectColumnToDetail(
 			// the column degrades to the plain `base` (raw property value).
 			if (!assets) return base;
 			const enumEntries = column.mapping.map((entry) => ({
-				// HQ EnumImage treats plain keys as equality and punctuation as
-				// expressions. An explicit predicate preserves Nova token matching
-				// while quoting every authored value as data. HQ interpolates dot.
-				key: `selected(., ${quoteLiteral(entry.value, "case-list-filter")})`,
+				key: imageMapEnumKey(entry.value),
 				value: repeatForLanguages(
 					localization.languages,
 					requireAssetRef(

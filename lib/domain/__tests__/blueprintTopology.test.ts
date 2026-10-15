@@ -26,6 +26,7 @@ function emptyDoc(): PersistableDoc {
 		appId: "topology-app",
 		appName: "Topology",
 		connectType: null,
+		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
 		forms: {},

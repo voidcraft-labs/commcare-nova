@@ -563,12 +563,20 @@ export interface HqModule {
 /**
  * CommCare HQ's complete profile bag on an existing app source.
  *
- * Nova creates only `custom_properties`, but the direct-update path carries
- * every validated foreign/future member through unchanged while overlaying
- * Nova's narrowly owned keys.
+ * Nova writes `properties` (the seventeen settings of
+ * `appProfileSettings.ts`) and, where it derives one, `custom_properties`.
+ * The update path carries every foreign or future member of the target's
+ * bag through unchanged while overlaying Nova's own keys
+ * (`targetOverlay.ts::projectProfileForTarget`).
  */
 export interface HqApplicationProfile {
 	[key: string]: unknown;
+	/**
+	 * HQ's settings, `{ key: value }`; its build adds each setting's `force`.
+	 * A target app may hold any JSON value under a key, which the overlay
+	 * carries as it is.
+	 */
+	properties?: Record<string, unknown>;
 	/**
 	 * HQ persists this inside an unschematized DictProperty. Nova-authored
 	 * values are strings, but a target app may already contain any JSON value;
@@ -583,11 +591,11 @@ export interface HqApplicationProfile {
  *
  * Target-owned settings and state — `cloudcare_enabled`, `case_sharing`,
  * `secure_submissions`, the build/release metadata, and the rest of HQ's App
- * Settings fields — are deliberately absent. `profile` is the narrow
- * exception: a newly generated app may carry Nova-owned derived custom
- * properties, while the direct-update path overlays those keys onto the
- * complete profile it just read from HQ. The rule lives at
- * `hqShells.ts::applicationShell` and `derivedProfile.ts`.
+ * Settings fields — are deliberately absent. Three keys hold Nova's values
+ * beside the target's own: `translations`, `add_ons` and `profile`. An
+ * update replaces each whole, so the publish projects each onto the
+ * target's current value (`targetOverlay.ts`) and leaves a key out where the
+ * result equals what HQ holds.
  */
 export interface HqApplication {
 	doc_type: "Application";
@@ -595,13 +603,22 @@ export interface HqApplication {
 	name: string;
 	langs: string[];
 	build_spec: { doc_type: "BuildSpec"; version: string; build_number: null };
-	/** Per-language app_strings overrides. */
-	translations: Record<string, Record<string, string>>;
-	auto_gps_capture: boolean;
 	/**
-	 * Newly generated HQ JSON includes this only when Nova derives a profile
-	 * optimization from the app. On direct updates it may instead hold the
-	 * complete target profile after Nova overlays only its owned custom keys.
+	 * Per-language app_strings overrides: Nova's language names, and its app
+	 * name only where a language localizes it. On an update the target's own
+	 * keys are carried beside them, and the key is absent where that equals
+	 * what HQ holds.
+	 */
+	translations?: Record<string, Record<string, string>>;
+	/**
+	 * `true` for a Connect app, and absent otherwise, so an update keeps the
+	 * Auto Capture Location a person turned on in HQ.
+	 */
+	auto_gps_capture?: boolean;
+	/**
+	 * The seventeen settings, and the derived custom properties where Nova
+	 * derives any. On an update it holds the target's complete profile with
+	 * Nova's keys overlaid, or is absent where that equals HQ's.
 	 */
 	profile?: HqApplicationProfile;
 	/**
@@ -636,7 +653,12 @@ export interface HqApplication {
 	 * choice somebody made on CommCare HQ on every republish.
 	 */
 	location_fixture_restore?: "both_fixtures";
-	add_ons: Record<string, boolean>;
+	/**
+	 * The add-ons the app needs (`addOns.ts::addOnsNeededBy`), each `true`,
+	 * and absent where it needs none. Nova never writes `false`; an update
+	 * carries the target's other slugs beside them.
+	 */
+	add_ons?: Record<string, boolean>;
 	modules: HqModule[];
 	_attachments: Record<string, string>;
 }

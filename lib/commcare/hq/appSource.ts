@@ -11,7 +11,7 @@ import "server-only";
  *
  * The source view (`app_manager/views/apps.py::app_source`) needs edit-apps
  * and no API access. It serves `doc_type`, `build_spec`, `profile`, `langs`,
- * each module's `unique_id` and each form's `xmlns`, and the form XML under
+ * `translations`, `add_ons`, each module's `unique_id` and each form's `xmlns`, and the form XML under
  * `_attachments`. It serves no `version` and no `_id`, and every read mints
  * its own form ids (`models/applications.py::Application.scrub_source`,
  * `util.py::update_form_unique_ids`), so a form id from one read is a key
@@ -61,6 +61,12 @@ export interface HqAppSource {
 	readonly profile: HqApplicationProfile;
 	/** `langs`, HQ's language codes in order. */
 	readonly langs: readonly string[];
+	/** `translations`: per language, the app string overrides HQ holds. */
+	readonly translations: Readonly<
+		Record<string, Readonly<Record<string, string>>>
+	>;
+	/** `add_ons`: each slug HQ holds, on or off. */
+	readonly addOns: Readonly<Record<string, boolean>>;
 	readonly modules: readonly HqAppSourceModule[];
 	/** The whole parsed body, for work item B's baseline and work item D's overlays. */
 	readonly raw: Readonly<Record<string, unknown>>;
@@ -76,6 +82,20 @@ export type HqAppSourceRead =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** An object of language entries, each an object of strings. */
+function isStringBagByLanguage(
+	value: unknown,
+): value is Record<string, Record<string, string>> {
+	return (
+		isRecord(value) &&
+		Object.values(value).every(
+			(entry) =>
+				isRecord(entry) &&
+				Object.values(entry).every((text) => typeof text === "string"),
+		)
+	);
 }
 
 const MALFORMED: CommCareApiError = {
@@ -95,8 +115,8 @@ const MALFORMED: CommCareApiError = {
  * serves is `LinkedApplication`.
  *
  * Anything short of the expected shape is a refusal, never an empty
- * default: an empty profile would make the next import erase configuration
- * HQ owns, and a menu with no id cannot be paired.
+ * default: an empty profile, `translations` or `add_ons` would make the next
+ * import erase configuration HQ owns, and a menu with no id cannot be paired.
  */
 export async function readHqAppSource(
 	creds: CommCareCredentials,
@@ -124,7 +144,9 @@ export async function readHqAppSource(
 		return { kind: "unsupported", docType: body.doc_type };
 	}
 
-	const { modules, _attachments, profile, langs, build_spec } = body;
+	const { modules, _attachments, profile, langs, build_spec, translations } =
+		body;
+	const addOns = body.add_ons;
 	if (!Array.isArray(modules)) return malformed(domain, appId, "modules");
 	if (!isRecord(_attachments)) return malformed(domain, appId, "_attachments");
 	if (!isRecord(profile)) return malformed(domain, appId, "profile");
@@ -142,6 +164,15 @@ export async function readHqAppSource(
 	}
 	if (!isRecord(build_spec) || typeof build_spec.version !== "string") {
 		return malformed(domain, appId, "build_spec");
+	}
+	if (!isStringBagByLanguage(translations)) {
+		return malformed(domain, appId, "translations");
+	}
+	if (
+		!isRecord(addOns) ||
+		!Object.values(addOns).every((value) => typeof value === "boolean")
+	) {
+		return malformed(domain, appId, "add_ons");
 	}
 
 	const parsedModules: HqAppSourceModule[] = [];
@@ -187,6 +218,8 @@ export async function readHqAppSource(
 			buildSpecVersion: build_spec.version,
 			profile,
 			langs,
+			translations,
+			addOns: addOns as Readonly<Record<string, boolean>>,
 			modules: parsedModules,
 			raw: body,
 		},

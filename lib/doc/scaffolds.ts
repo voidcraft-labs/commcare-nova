@@ -344,7 +344,10 @@ export function surveyModuleMutations(
 
 // ── Canonical app genesis ────────────────────────────────────────────
 
-import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
+import {
+	APP_GENESIS_FALLBACK_NAME,
+	NEW_APP_SETTINGS,
+} from "@/lib/domain/blueprint";
 
 export { APP_GENESIS_FALLBACK_NAME };
 
@@ -361,6 +364,7 @@ export function emptyBlueprintDoc(appId: string): BlueprintDoc {
 		appName: APP_GENESIS_FALLBACK_NAME,
 		connectType: null,
 		caseTypes: null,
+		appSettings: { ...NEW_APP_SETTINGS },
 		modules: {},
 		forms: {},
 		fields: {},

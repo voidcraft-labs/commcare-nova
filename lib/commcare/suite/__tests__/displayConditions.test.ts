@@ -59,14 +59,48 @@ describe("navigation expression projection", () => {
 		).toBe(
 			`${anchor}/@owner_id = instance('commcaresession')/session/context/userid`,
 		);
-		expect(emitFormDisplayConditionForHq(condition, "patient")).toBe(
-			"#case/@owner_id = instance('commcaresession')/session/context/userid",
+		// HQ's `#case/` parser takes no attribute, so the HQ JSON reads one
+		// through the selected case as the local suite does.
+		expect(
+			emitFormDisplayConditionForHq(
+				condition,
+				"patient",
+				undefined,
+				undefined,
+				"selected_patient",
+			),
+		).toBe(
+			`${anchor}/@owner_id = instance('commcaresession')/session/context/userid`,
 		);
 		expect(
 			emitModuleDisplayCondition(
 				eq(sessionUser("role"), literal("supervisor")),
 			),
 		).toBe("instance('commcaresession')/session/user/data/role = 'supervisor'");
+	});
+	it("reads a property through HQ's case placeholder and an attribute through the selected case's datum", () => {
+		const condition = and(
+			neq(prop("patient", "x"), literal("")),
+			eq(prop("patient", "status"), literal("open")),
+		);
+		expect(
+			emitFormDisplayConditionForHq(
+				condition,
+				"patient",
+				undefined,
+				undefined,
+				"selected_patient",
+			),
+		).toBe(`#case/x != '' and ${anchor}/@status = 'open'`);
+		const withoutAttribute = emitFormDisplayConditionForHq(
+			neq(prop("patient", "x"), literal("")),
+			"patient",
+			undefined,
+			undefined,
+			"selected_patient",
+		);
+		expect(withoutAttribute).toBe("#case/x != ''");
+		expect(withoutAttribute).not.toContain("instance('casedb')");
 	});
 	it.each([
 		[eq(prop("patient", "nickname"), literal("")), "nickname = ''"],

@@ -373,6 +373,17 @@ describe("the fleet transaction over the frozen fixtures", () => {
 		expect(after.rows.map((row) => Number(row.mutation_seq))).toEqual(
 			before.rows.map((row) => Number(row.mutation_seq) + 1),
 		);
+		// Step app-settings counts no deployment here, so every app holds what
+		// a Nova archive showed before the cutover.
+		const settings = await sql<{ id: string; app_settings: unknown }>`
+			SELECT id, app_settings FROM apps ORDER BY id
+		`.execute(h.db());
+		expect(settings.rows).toEqual(
+			after.rows.map((row) => ({
+				id: row.id,
+				app_settings: { showSavedForms: false, showIncompleteForms: true },
+			})),
+		);
 		const markers = await sql<{ app_id: string; seq: string }>`
 			SELECT app_id, seq::text AS seq FROM app_changes
 			WHERE batch_id = 'fold-baseline:hq-round-trip-emission'
@@ -501,6 +512,22 @@ describe("the fleet transaction over the frozen fixtures", () => {
 							server: "production",
 							domain: "field-ops",
 						},
+					},
+					{
+						kind: "deployment",
+						reason: "settings-unknown-unreadable",
+						deployment: {
+							deploymentId: deployment,
+							server: "production",
+							domain: "field-ops",
+						},
+					},
+					// No deployment was read, so the stored settings get no
+					// line; every app is told about the downloaded file.
+					{
+						kind: "document",
+						reason: "local-archive-changes",
+						entity: { type: "app", nameAtMigration: "Question ids" },
 					},
 				],
 			},

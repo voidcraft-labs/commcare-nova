@@ -912,6 +912,41 @@ QUESTIONS = _form(
 )
 
 
+# A form whose one SaveToCase block creates a patient named by the answer and writes its risk, and the map Vellum
+# computes from it (logic.js::LogicManager.caseReferences, saveToCase.js::getCaseSaveData), doc_type and all.
+SAVE_TO_CASE_FORM = _form(
+    data=f"""<q/><save vellum:role="SaveToCase" vellum:case_type="patient"><case xmlns="{CASE_NS}" case_id=""
+     date_modified="" user_id=""><create><case_type/><case_name/></create><update><risk/></update></case></save>""",
+    model="""<bind nodeset="/data/save/case/create/case_type" calculate="'patient'"/>
+     <bind nodeset="/data/save/case/create/case_name" calculate="/data/q"/>
+     <bind nodeset="/data/save/case/update/risk" calculate="/data/q"/>""",
+    body='<input ref="/data/q"><label>Q</label></input>',
+)
+SAVED = {
+    "/data/save": {
+        "doc_type": "CaseSaveReference",
+        "case_type": "patient",
+        "properties": ["risk", "case_type", "case_name"],
+        "create": True,
+        "close": False,
+    }
+}
+
+
+ORX = "http://openrosa.org/jr/xforms"
+
+
+def _pollsensor_form(ref=None):
+    """A form holding a GPS question and the ``pollsensor`` HQ's build writes: the bare one (``_add_pollsensor``'s
+    ``elif``), or, with ``ref``, the one capturing the location into the meta block (``auto_gps_capture``)."""
+    attributes = 'event="xforms-ready"' + (f' ref="{ref}"' if ref else "")
+    return _form(
+        data="<place/>",
+        model=f'<bind nodeset="/data/place" type="geopoint"/><orx:pollsensor xmlns:orx="{ORX}" {attributes}/>',
+        body='<input ref="/data/place"><label>P</label></input>',
+    )
+
+
 def _question_app(form, **fields):
     """An app whose one module holds ``form`` (unique_id ``f``), its XForm being QUESTIONS."""
     return _with_forms(_app([_module([form])], **fields), f=QUESTIONS)
@@ -1084,6 +1119,10 @@ def _questions():
     setvalue = "jr-action:setvalue"
     group = "body[1]/group[{}]/repeat[1]"
     return {
+        "questions/authored-orx-pollsensor": (
+            refused("form", _pollsensor_form(), "jr-action:pollsensor", "pollsensor[1]"),
+            refused("form", _pollsensor_form(), "jr-extension:PollSensorExtensionParser", "pollsensor[1]"),
+        ),
         "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": (
             refused("form", heads, "jr-control:input", "{http://example.org/elsewhere}input[1]"),
             accepted("form", heads, "jr-control:input", "h:body[1]/input[1]"),
@@ -1280,6 +1319,27 @@ def _settings_and_forms():
                 ),
                 "schema:Application.logo_refs",
                 "/logo_refs",
+            ),
+        ),
+        "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": (
+            refused(
+                "app",
+                app(profile={"properties": {"cc-autoup-freq": "freq-hourly"}}),
+                "setting:properties.cc-autoup-freq",
+                "/profile/properties/cc-autoup-freq",
+            ),
+            accepted(
+                "app",
+                app(profile={"properties": {"cc-autoup-freq": "freq-never"}}),
+                "setting:properties.cc-autoup-freq",
+                "/profile/properties/cc-autoup-freq",
+            ),
+            # The number HQ's own save stores for the GPS accuracy is the row before's, not one outside the choices.
+            accepted(
+                "app",
+                app(profile={"properties": {"cc-gps-auto-capture-accuracy": 10}}),
+                "setting:properties.cc-gps-auto-capture-accuracy",
+                "/profile/properties/cc-gps-auto-capture-accuracy",
             ),
         ),
         "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys": (
@@ -1538,6 +1598,45 @@ def _settings_and_forms():
             accepted(
                 "app",
                 _question_app({**_form_json(), "case_references_data": {"load": {"/data/q": ["dob"]}, "save": {}}}),
+                "schema:Form.case_references_data",
+                "/modules/0/forms/0/case_references_data",
+            ),
+            # A form holding a SaveToCase block: the map Vellum computes from it, and the same map without the
+            # case name the block's create binds.
+            accepted(
+                "app",
+                _with_forms(
+                    _app([_module([{**_form_json(), "case_references_data": {"load": {}, "save": SAVED}}])]),
+                    f=SAVE_TO_CASE_FORM,
+                ),
+                "schema:Form.case_references_data",
+                "/modules/0/forms/0/case_references_data",
+            ),
+            refused(
+                "app",
+                _with_forms(
+                    _app(
+                        [
+                            _module(
+                                [
+                                    {
+                                        **_form_json(),
+                                        "case_references_data": {
+                                            "load": {},
+                                            "save": {
+                                                "/data/save": {
+                                                    **SAVED["/data/save"],
+                                                    "properties": ["risk", "case_type"],
+                                                }
+                                            },
+                                        },
+                                    }
+                                ]
+                            )
+                        ]
+                    ),
+                    f=SAVE_TO_CASE_FORM,
+                ),
                 "schema:Form.case_references_data",
                 "/modules/0/forms/0/case_references_data",
             ),
@@ -2852,6 +2951,27 @@ def _search_and_menus():
             accepted("suite", INPUTS_SUITE, "instance-scheme:search-input", "remote-request[1]/instance[1]/@id"),
         ),
         "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (
+            # With the verification on: a reference whose file the local archive lacks, and one it holds.
+            refused(
+                "app",
+                _media_app(
+                    "commcare/not-in-the-archive.png",
+                    "CommCareImage",
+                    profile={"properties": {"cc-content-valid": "no"}},
+                ),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                _media_app("commcare/held.png", "CommCareImage", profile={"properties": {"cc-content-valid": "no"}}),
+                "schema:Application.multimedia_map",
+                "/multimedia_map",
+                readings=True,
+                media=(("commcare/held.png", _png()),),
+            ),
+            # Without the observation's readings the export does not say; with the verification off nothing is.
             unsettled(
                 "app",
                 _media_app("commcare/a.png", "CommCareImage", profile={"properties": {"cc-content-valid": "no"}}),
@@ -3433,12 +3553,12 @@ UNSETTLED = {
     "forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with": (
         "DONT_INDEX_SAME_CASETYPE is the project space's, which no export carries"
     ),
-    "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (
-        "whether a reference has its file is the media's, which the app JSON does not carry"
-    ),
 }
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
+    "questions/authored-orx-pollsensor": (
+        "every pollsensor a form's source holds is authored, since HQ's build writes its own only into what it builds"
+    ),
     "case-search/search-button-label-any-other-value": (
         "every value but HQ's default is in the class, and HQ's default is no use"
     ),
@@ -3546,7 +3666,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
         "application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
         "application-and-settings/non-empty-custom-assertions-app",
-        "application-and-settings/profile-properties-or-features-dependencies-value-outside-its",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is",
         "expressions-and-data/commtrack-locations-hierarchical",
@@ -3605,7 +3724,6 @@ KNOWN_GAPS = frozenset(
         "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
-        "questions/authored-orx-pollsensor",
         "questions/bare-repeat-with-no-group-wrapper",
         "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
         "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",
@@ -3686,3 +3804,34 @@ def test_the_observation_reads_a_call_after_a_comma_and_vellums_hashtags(hq):
     assert observed_manifest.hashtag_tree("#form/a[1]") is None
     assert observed_manifest.hashtag_tree("#form/a/@b") is None
     assert observed_manifest.expression_tree("#form/a = 'x'") is None
+
+
+@pytest.mark.parametrize("ref", [None, "/data/place"])
+def test_the_pollsensor_hqs_build_writes_is_held_in_a_local_archive_and_refused_in_a_source(manifest, ref):
+    """The ``pollsensor`` HQ's build writes (bare, and capturing the location) is a held use of a local archive:
+    every key it uses stands held there (``questions/hq-generated-pollsensor``), and each of the four setvalue
+    readers answers False for the event it carries, which no setvalue carries. In a form's source the refused
+    entry's two keys rest on ``questions/authored-orx-pollsensor``, and the element's other keys are held."""
+    xml = _pollsensor_form(ref)
+    refused_keys = {"jr-action:pollsensor", "jr-extension:PollSensorExtensionParser"}
+    for artifact in ("local.ccz/form:0.0", "form:0.0"):
+        found = manifest_usage.Uses()
+        manifest_usage.xform_uses(xml, manifest, artifact, found)
+        uses = [use for use in found.uses if "pollsensor" in use.where]
+        keys = {use.key for use in uses}
+        assert refused_keys <= keys and "xform:pollsensor@event" in keys, keys
+        assert ("xform:pollsensor@ref" in keys) is (ref is not None)
+        for use in uses:
+            kind, held = manifest_usage.standing(manifest, use)
+            source = artifact == "form:0.0" and use.key in refused_keys
+            assert kind == (manifest_usage.REFUSED if source else manifest_usage.HELD), (artifact, use.key, kind)
+            if source:
+                assert "questions/authored-orx-pollsensor" in [entry.id for entry in held]
+            if use.key == "jr-event:xforms-ready":
+                for reader in (
+                    classes.default_event_mismatching_placement,
+                    classes.form_level_setvalue,
+                    classes.savetocase_blank_create_id,
+                    classes.second_default,
+                ):
+                    assert reader(use, manifest) is False, (reader.__name__, use.where)

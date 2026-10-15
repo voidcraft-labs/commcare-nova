@@ -133,10 +133,10 @@ class Serving:
                 places = webapps.derived_places(self.served, services.client_browser(), runner=self.runner)
         return observe.walked(self.served, self.runner, self.blobs, script=script, places=places)
 
-    def local(self, document, script):
+    def local(self, document, script, configuration):
         from proof.formplayer import observe
 
-        return observe.local(self.served, self.runner, self.blobs, document, script=script)
+        return observe.local(self.served, self.runner, self.blobs, document, script=script, configuration=configuration)
 
     def webapps(self, trace):
         """The client's screens on ``trace``'s walk, as a blob, shown in the client's own browser
@@ -350,6 +350,7 @@ def aligned(
     unit,
     *,
     document,
+    configuration,
     app_id,
     a_record,
     a_build,
@@ -363,7 +364,8 @@ def aligned(
     sessions=None,
     b_record=None,
 ):
-    """What the unit records with ``b_aligned``: the local archive's walk over HQ's state, and, where the raw
+    """What the unit records with ``b_aligned``: the local archive's walk over HQ's state (the archive compiled for
+    the project space the unit's configuration names, ``Document.local_ccz_for``), and, where the raw
     builds of A and of B aligned to A differ, that build's walk and the client's screens on it. None where A
     was not served (its hook did not run, or HQ releases no build of A).
 
@@ -409,10 +411,11 @@ def aligned(
                         if kept is not None:
                             recorded["B"]["connect"] = kept
                 recorded["devices"] = _devices(held, document, app_id, a_record, b_record, blobs)
-                if document.local_ccz is not None:
-                    local = local_archive(document.local_ccz, app_id)
+                archive = document.local_ccz_for(configuration)
+                if archive is not None:
+                    local = local_archive(archive, app_id)
                     with connect_.reading(forwarder, "formplayer"):
-                        local_side, local_trace = held.local(document, script)
+                        local_side, local_trace = held.local(document, script, configuration)
                     # A device on Nova's local archive as Android meets it (its requests to the addresses its
                     # profile names; on a control's pre-fix archive, to Android's own defaults, finding 59), and one
                     # given the input the lane gives Core over that archive.

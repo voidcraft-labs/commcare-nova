@@ -115,10 +115,17 @@ describe("the stable harness witnesses", () => {
 
 	it("keep every emitted byte when another document changes the balance and fixture counter", async () => {
 		for (const document of witnesses) {
-			expect(
-				await files(join(root, "beside-another", document.id)),
-				document.id,
-			).toEqual(await files(join(root, "alone", document.id)));
+			const alone = await files(join(root, "alone", document.id));
+			const beside = await files(join(root, "beside-another", document.id));
+			expect([...beside.keys()], document.id).toEqual([...alone.keys()]);
+			// Each file's bytes compared natively and named when they differ: a
+			// deep equality walks every byte of the local archives one by one.
+			const differing = [...alone]
+				.filter(
+					([path, bytes]) => !bytes.equals(beside.get(path) ?? Buffer.alloc(0)),
+				)
+				.map(([path]) => path);
+			expect(differing, document.id).toEqual([]);
 		}
 	});
 

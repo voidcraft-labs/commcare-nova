@@ -33,6 +33,7 @@ export const decimalFieldMetadata: FieldKindMetadata<"decimal"> = {
 	label: "Decimal",
 	isStructural: false,
 	isContainer: false,
+	carriesValidation: true,
 	saDocs: "Decimal-number input for measurements (weight, height, price).",
 	convertTargets: ["int"],
 };
