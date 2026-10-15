@@ -23,6 +23,22 @@
  *   question named `instance` or `bind`): questions named `instance`, `bind` and `itext`, names Nova
  *   admits and Vellum's parser looks up by bare name in the whole form
  *   (`Vellum src/parser.js::_getInstances`, `xml.find("instance")`).
+ * - `targeted-parsererror-node-name` (defect 43, a question named
+ *   `parsererror`): one question so named. Vellum loads a form through
+ *   jQuery's `parseXML`, which takes any element named `parsererror` for the
+ *   browser's own parse failure and throws "Invalid XML", so HQ's form
+ *   builder cannot open the form and saves nothing.
+ * - `targeted-reserved-question-names` (finding 70): questions named
+ *   `registration` and `script`, which Vellum warns about on every save
+ *   (`Vellum src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question
+ *   named `case` in a registration form, which HQ takes for the form's own
+ *   case block (`xform.py::XForm.case_node`), so its build and its form
+ *   settings and Case Management pages refuse the form.
+ * - `targeted-form-root-read` (finding 71): a Hidden Value that counts the
+ *   form's root, a repeat counted by it and a repeat over the root as its
+ *   list of ids. Nova's path check reads only paths under `/data/`
+ *   (`lib/preview/xpath/dependencies.ts::extractPathRefs`), so it admits
+ *   each, and HQ's form builder reports the first two as an unknown question.
  *
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
  */
@@ -301,6 +317,233 @@ export function reservedNodeNames() {
 					"kept",
 				),
 			),
+		},
+	});
+}
+
+export function parsererrorNodeName() {
+	const id = "targeted-parsererror-node-name";
+	const uuid = (name: string) => targetedUuid(id, name);
+	const form = uuid("form");
+	const doc = buildDoc({
+		appId: id,
+		appName: "Node name",
+		modules: [
+			{
+				uuid: uuid("module"),
+				name: "Names",
+				forms: [
+					{
+						uuid: form,
+						name: "Named parsererror",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("field"),
+								id: "parsererror",
+								label: proseText("The parsererror"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return targetedDocument({
+		id,
+		rows: ["43 (a question named parsererror)"],
+		doc,
+		expected: {
+			intent: [
+				answerHeld("parsererror-held", form, "/data/parsererror", "kept"),
+			],
+		},
+	});
+}
+
+export function reservedQuestionNames() {
+	const id = "targeted-reserved-question-names";
+	const uuid = (name: string) => targetedUuid(id, name);
+	const survey = uuid("survey");
+	const doc = buildDoc({
+		appId: id,
+		appName: "Question names",
+		caseTypes: [
+			{
+				name: "client",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{
+						name: "case_reference",
+						label: proseText("Case reference"),
+						data_type: "text",
+					},
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: uuid("survey-module"),
+				name: "Notes",
+				forms: [
+					{
+						uuid: survey,
+						name: "Notes",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("registration"),
+								id: "registration",
+								label: proseText("Registration"),
+							}),
+							f({
+								kind: "text",
+								uuid: uuid("script"),
+								id: "script",
+								label: proseText("Script"),
+							}),
+							f({
+								kind: "text",
+								uuid: uuid("notes"),
+								id: "notes",
+								label: proseText("Notes"),
+							}),
+						],
+					},
+				],
+			},
+			{
+				uuid: uuid("client-module"),
+				name: "Clients",
+				caseType: "client",
+				caseListConfig: caseListOf([
+					plainColumn(uuid("name"), "case_name", "Name"),
+				]),
+				forms: [
+					{
+						uuid: uuid("register"),
+						name: "Register",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("full-name"),
+								id: "full_name",
+								label: proseText("Full name"),
+								caseWrite: { caseType: "client", property: "case_name" },
+							}),
+							f({
+								kind: "text",
+								uuid: uuid("case"),
+								id: "case",
+								label: proseText("Case reference"),
+								caseWrite: { caseType: "client", property: "case_reference" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return targetedDocument({
+		id,
+		rows: ["70"],
+		doc,
+		expected: {
+			intent: [answerHeld("notes-held", survey, "/data/notes", "kept")],
+		},
+	});
+}
+
+export function formRootRead() {
+	const id = "targeted-form-root-read";
+	const uuid = (name: string) => targetedUuid(id, name);
+	const calculated = uuid("calculated");
+	const doc = buildDoc({
+		appId: id,
+		appName: "Form root",
+		modules: [
+			{
+				uuid: uuid("module"),
+				name: "Root reads",
+				forms: [
+					{
+						uuid: calculated,
+						name: "Calculated",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("name"),
+								id: "name",
+								label: proseText("Name"),
+							}),
+							f({
+								kind: "hidden",
+								uuid: uuid("total"),
+								id: "total",
+								calculate: "count(/data)",
+							}),
+						],
+					},
+					{
+						uuid: uuid("counted"),
+						name: "Counted",
+						type: "survey",
+						fields: [
+							f({
+								kind: "repeat",
+								uuid: uuid("rows"),
+								id: "rows",
+								label: proseText("Rows"),
+								repeat_mode: "count_bound",
+								repeat_count: "count(/data)",
+								children: [
+									f({
+										kind: "text",
+										uuid: uuid("row"),
+										id: "row",
+										label: proseText("Row"),
+									}),
+								],
+							}),
+						],
+					},
+					{
+						uuid: uuid("queried"),
+						name: "Queried",
+						type: "survey",
+						fields: [
+							f({
+								kind: "repeat",
+								uuid: uuid("items"),
+								id: "items",
+								label: proseText("Items"),
+								repeat_mode: "query_bound",
+								data_source: { ids_query: "/data" },
+								children: [
+									f({
+										kind: "text",
+										uuid: uuid("item"),
+										id: "item",
+										label: proseText("Item"),
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return targetedDocument({
+		id,
+		rows: ["71"],
+		doc,
+		expected: {
+			intent: [answerHeld("name-held", calculated, "/data/name", "kept")],
 		},
 	});
 }

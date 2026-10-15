@@ -46,3 +46,48 @@ it("runs as many of a lane's shards at once as the planner fills its rounds with
 	);
 	expect(bounded.map(([name]) => name)).toEqual(["shard"]);
 });
+
+// A pattern download of one artifact extracts it loose into its path, with no directory named for it
+// (actions/download-artifact, src/download-artifact.ts, lines 185-194), and every step that reads the
+// shards' outputs globs proof-shards/proof-out-*. So each download of the outputs into proof-shards is
+// followed at once by proof/ci/shard-outputs.mjs, run whenever the download runs, or a lane of one
+// shard reads no output and its gate refuses.
+it("gives a lone shard's output its directory after every download of the shards' outputs", async () => {
+	const expression = (name: string) => `\${{ ${name} }}`;
+	const downloads: string[] = [];
+	for (const file of ["proof-lane.yml", "ci.yml"]) {
+		const workflow = parse(
+			await readFile(join(WORKTREE, ".github/workflows", file), "utf8"),
+		);
+		for (const [name, job] of Object.entries(workflow.jobs)) {
+			const steps = ((job as { steps?: unknown[] }).steps ?? []) as Record<
+				string,
+				// biome-ignore lint/suspicious/noExplicitAny: a workflow step's fields are YAML of any shape.
+				any
+			>[];
+			steps.forEach((step, index) => {
+				if (
+					!`${step.uses ?? ""}`.startsWith("actions/download-artifact@") ||
+					step.with?.path !== `${expression("runner.temp")}/proof-shards`
+				) {
+					return;
+				}
+				downloads.push(`${file}:${name}`);
+				const next = steps[index + 1];
+				expect(next?.run ?? "").toContain("node proof/ci/shard-outputs.mjs");
+				expect(next?.if).toBe(step.if);
+				// The lone output's name is the pattern's with the first shard in place of its wildcard.
+				const pattern = `${step.with.pattern}`
+					.replaceAll(expression("inputs.label"), "$LABEL")
+					.replaceAll(expression("github.run_attempt"), "$GITHUB_RUN_ATTEMPT");
+				expect(pattern.endsWith("-*")).toBe(true);
+				expect(next.run).toContain(`--name "${pattern.slice(0, -1)}1"`);
+			});
+		}
+	}
+	expect(downloads.sort()).toEqual([
+		"ci.yml:proof-store",
+		"ci.yml:proofs-gate",
+		"proof-lane.yml:gate",
+	]);
+});

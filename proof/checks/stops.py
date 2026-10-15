@@ -34,10 +34,13 @@ the alert the client shows where it stopped (``alert:index-n-out-of-bounds``),
 or, with no alert, what the client did not show (``case-not-listed``: no row
 for the case the run takes) or held (``form-held``).
 
-**The list** (``walk-stops.json``) holds one entry a document and cause::
+**The list** (``walk-stops.json``) holds one entry a document or control and
+cause::
 
-    {"document", "reader", "cause", "reason"}
+    {"document" | "control", "reader", "cause", "reason"}
 
+An entry names where its stop shows by exactly one of two keys: ``document``,
+a corpus document, or ``control``, a directory under ``proof/controls/``.
 ``reader`` is ``formplayer``, ``webapps`` (the client on Web Apps' own page,
 a desktop's window and a phone's) or ``preview`` (the client in App Preview,
 which shows a form one question a screen); ``reason`` is one line saying why
@@ -49,11 +52,16 @@ real end on the reader, never an answer the lane failed to give: a stop a
 worker would get past is the walk's to fix (``proof/README.md``, "Walk
 stops").
 
-A control's walks are held as its document's are (an entry names a document
-and holds for its control too); an entry must show on the corpus document.
-A run that hands its states to no reader, or to some, holds the entries of
-the readers it observes (``held_entries``) and leaves the rest to the run
-with every reader.
+A ``document`` entry holds the walks of its document and of the control of
+the same name, and must show on the document; it need not show on the
+control. A ``control`` entry holds that control's walks and no document's,
+and must show on the control: a fix that takes a stop off its document moves
+the entry to the control that keeps the pre-fix bytes, by changing its key,
+and the control's stop stays strict both ways. A ``control`` entry beside the
+``document`` entry of the same name, reader and cause would hold one stop
+twice, so the list refuses it. A run that hands its states to no reader, or
+to some, holds the entries of the readers it observes (``held_entries``) and
+leaves the rest to the run with every reader.
 
 Standard library only: the gate reads it with no image.
 """
@@ -78,7 +86,9 @@ PREVIEW = "preview"
 READERS = (FORMPLAYER, WEBAPPS, PREVIEW)
 # The served reader (``proof.lane.readers.READERS``) whose record shows each: App Preview is the Web Apps client.
 OBSERVED_BY = {FORMPLAYER: "formplayer", WEBAPPS: "webapps", PREVIEW: "webapps"}
-ENTRY_KEYS = frozenset({"document", "reader", "cause", "reason"})
+# What every entry holds, and the two keys of which it holds exactly one: where its stop shows.
+SHARED_KEYS = frozenset({"reader", "cause", "reason"})
+WHERE_KEYS = ("document", "control")
 
 # The ends of a Formplayer run that are the app's own (``proof.formplayer.walk``): every other is a stop.
 ENDS = frozenset({"submitted", "empty-menu", "empty-list"})
@@ -105,14 +115,35 @@ class StopsError(ValueError):
 
 @dataclass(frozen=True)
 class Held:
-    document: str
+    """One held stop: on ``document`` (a corpus document, and the control of the same name) or on ``control`` (a
+    directory under ``proof/controls/``, and no document), exactly one of the two."""
+
+    document: str | None
     reader: str
     cause: str
     reason: str
+    control: str | None = None
+
+    @property
+    def name(self) -> str:
+        """The document or control the entry names."""
+        return self.document if self.document is not None else self.control
 
     @property
     def key(self) -> tuple[str, str, str]:
-        return (self.document, self.reader, self.cause)
+        return (self.name, self.reader, self.cause)
+
+    def holds(self, name: str, *, control: bool) -> bool:
+        """Whether the entry holds the walks of ``name``, a control's where ``control``: a ``document`` entry
+        holds its document's and its namesake control's, a ``control`` entry its control's alone."""
+        if self.control is not None:
+            return control and self.control == name
+        return self.document == name
+
+    def shows_on(self, name: str, *, control: bool) -> bool:
+        """Whether the entry must show on the walks of ``name``: a ``document`` entry on its document, a
+        ``control`` entry on its control."""
+        return (self.control if control else self.document) == name
 
 
 @dataclass(frozen=True)
@@ -146,10 +177,14 @@ def stops_path() -> Path:
     return Path(named) if named else WALK_STOPS
 
 
-def load(path: Path | None = None, *, documents: Iterable[str] | None = None) -> tuple[Held, ...]:
-    """The held stops, each entry checked: its keys, its reader, a one-line reason, no two for one document,
-    reader and cause, in order (by document, reader, cause), and, with ``documents`` (the corpus's ids), a
-    document the corpus holds."""
+def load(
+    path: Path | None = None, *, documents: Iterable[str] | None = None, controls: Iterable[str] | None = None
+) -> tuple[Held, ...]:
+    """The held stops, each entry checked: its keys (the shared three and exactly one of ``document`` and
+    ``control``), its reader, a one-line reason, no two for one name, reader and cause (a ``control`` entry beside
+    the ``document`` entry of its name would hold one stop twice), in order (by the name either key holds, then
+    reader, then cause), and, with ``documents`` (the corpus's ids) and ``controls`` (the names of the directories
+    under ``proof/controls/``), a document the corpus holds and a control directory that exists."""
     path = stops_path() if path is None else path
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -160,41 +195,71 @@ def load(path: Path | None = None, *, documents: Iterable[str] | None = None) ->
     if not isinstance(value, list):
         raise StopsError(f"The walk-stops list {path} holds a list of entries.")
     known = None if documents is None else frozenset(documents)
-    entries, problems, seen = [], [], set()
+    directories = None if controls is None else frozenset(controls)
+    entries, problems, seen = [], [], {}
     for index, raw in enumerate(value):
         where = f"{path.name} entry {index}"
-        if not isinstance(raw, dict) or set(raw) != ENTRY_KEYS:
-            problems.append(f"{where} holds exactly {sorted(ENTRY_KEYS)}.")
+        if not isinstance(raw, dict) or not SHARED_KEYS <= set(raw):
+            problems.append(f"{where} holds {sorted(SHARED_KEYS)} and exactly one of {', '.join(WHERE_KEYS)}.")
             continue
-        if not all(isinstance(raw[key], str) and raw[key] for key in ENTRY_KEYS):
-            problems.append(f"{where}: each of {sorted(ENTRY_KEYS)} is a non-empty string.")
+        named = [key for key in WHERE_KEYS if key in raw]
+        if len(named) != 1 or set(raw) - SHARED_KEYS - set(WHERE_KEYS):
+            problems.append(
+                f"{where} holds {sorted(SHARED_KEYS)} and exactly one of {', '.join(WHERE_KEYS)}, the document or"
+                f" the control its stop shows on; it holds {sorted(raw)}."
+            )
             continue
-        entry = Held(**raw)
-        where = f"{path.name} entry {entry.document} {entry.reader} {entry.cause}"
+        keys = SHARED_KEYS | set(named)
+        if not all(isinstance(raw[key], str) and raw[key] for key in keys):
+            problems.append(f"{where}: each of {sorted(keys)} is a non-empty string.")
+            continue
+        entry = Held(**{"document": None, **raw})
+        where = f"{path.name} entry {named[0]} {entry.name} {entry.reader} {entry.cause}"
         if entry.reader not in READERS:
             problems.append(f"{where}: reader is one of {', '.join(READERS)}.")
         if "\n" in entry.reason or entry.reason != entry.reason.strip():
             problems.append(f"{where}: reason is one line, with no space at either end.")
         if entry.key in seen:
-            problems.append(f"{where}: two entries hold the same stop.")
-        seen.add(entry.key)
-        if known is not None and entry.document not in known:
+            if seen[entry.key] == named[0]:
+                problems.append(f"{where}: two entries hold the same stop.")
+            else:
+                problems.append(
+                    f"{where}: the document entry of {entry.name} already holds that stop on the control of its"
+                    " name, so the two would hold one stop twice. A stop moves to its control by its entry changing"
+                    " its key, never by a second entry."
+                )
+        seen.setdefault(entry.key, named[0])
+        if entry.document is not None and known is not None and entry.document not in known:
             problems.append(f"{where} names a document the corpus does not hold.")
+        if entry.control is not None and directories is not None and entry.control not in directories:
+            problems.append(f"{where} names a control proof/controls/ holds no directory of.")
         entries.append(entry)
     if [entry.key for entry in entries] != sorted(entry.key for entry in entries):
-        problems.append(f"{path.name} lists its entries by document, then reader, then cause.")
+        problems.append(
+            f"{path.name} lists its entries by the document or control each names, then reader, then cause."
+        )
     if problems:
         raise StopsError("The walk-stops list is not one the check can hold to:\n  " + "\n  ".join(problems))
     return tuple(entries)
 
 
-def held_entries(entries: Sequence[Held], *, readers=True) -> tuple[Held, ...]:
+def _field(entry, key: str):
+    """One key of an entry, loaded (``Held``) or as the list's file holds it (the queue reads the file unchecked)."""
+    return entry.get(key) if isinstance(entry, dict) else getattr(entry, key)
+
+
+def control_names(entries: Iterable) -> frozenset[str]:
+    """The controls the list's ``control`` entries name."""
+    return frozenset(name for entry in entries if isinstance(name := _field(entry, "control"), str))
+
+
+def held_entries(entries: Sequence, *, readers=True) -> tuple:
     """The entries a run holds: those whose reader it observes. ``readers`` is the set of served readers it hands
     its states to (``proof.lane.readers``), true for every one and false for none."""
     if readers is True:
         return tuple(entries)
     observed = frozenset() if readers is False else frozenset(readers)
-    return tuple(entry for entry in entries if OBSERVED_BY[entry.reader] in observed)
+    return tuple(entry for entry in entries if OBSERVED_BY.get(_field(entry, "reader")) in observed)
 
 
 # A stop's cause -----------------------------------------------------------------------------------
@@ -384,26 +449,31 @@ def classed(stopped: Iterable[Mapping]) -> list[Stop]:
 # Holding them -----------------------------------------------------------------------------------
 
 
-def unheld(document: str, shown: Iterable[tuple[str, str]], entries: Sequence[Held]) -> list[str]:
-    """Why a document's stops (each a reader and a cause) are not all held, one line each."""
-    held = {entry.key for entry in entries}
+def unheld(name: str, shown: Iterable[tuple[str, str]], entries: Sequence[Held], *, control=False) -> list[str]:
+    """Why the stops of a document's walks, or a control's where ``control`` (each a reader and a cause), are not
+    all held, one line each. A control's are held by the ``control`` entries of its name and by the ``document``
+    entries of its name; a document's by its ``document`` entries alone."""
+    held = {(entry.reader, entry.cause) for entry in entries if entry.holds(name, control=control)}
+    adding = "an entry naming the control" if control else "the entry"
     return [
-        f"{document}: a run of {_who(reader)} stops for {cause}, and proof/walk-stops.json holds no such stop."
+        f"{name}: a run of {_who(reader)} stops for {cause}, and proof/walk-stops.json holds no such stop."
         " Read the run (the check's evidence names one): where a worker would get past it, the walk or the replay"
-        " is to give what a worker gives; where the reader itself ends there, add the entry with its reason."
+        f" is to give what a worker gives; where the reader itself ends there, add {adding} with its reason."
         for reader, cause in sorted(set(shown))
-        if (document, reader, cause) not in held
+        if (reader, cause) not in held
     ]
 
 
-def unshown(document: str, shown: Iterable[tuple[str, str]], entries: Sequence[Held]) -> list[str]:
-    """Why the entries naming a document are not all shown by its stops, one line each."""
+def unshown(name: str, shown: Iterable[tuple[str, str]], entries: Sequence[Held], *, control=False) -> list[str]:
+    """Why the entries that must show on a document's walks, or a control's where ``control``, are not all shown by
+    its stops, one line each: a ``document`` entry on its document, a ``control`` entry on its control."""
     seen = set(shown)
+    what = "control" if control else "document"
     return [
-        f"{document}: proof/walk-stops.json holds a stop of {_who(entry.reader)} for {entry.cause}, and no run of"
-        " the document stops so now. Remove the entry."
+        f"{name}: proof/walk-stops.json holds a stop of {_who(entry.reader)} for {entry.cause}, and no run of"
+        f" the {what} stops so now. Remove the entry."
         for entry in entries
-        if entry.document == document and (entry.reader, entry.cause) not in seen
+        if entry.shows_on(name, control=control) and (entry.reader, entry.cause) not in seen
     ]
 
 
@@ -429,33 +499,50 @@ def _evidence(directories) -> dict[tuple[str, str], list[tuple[str, str]]]:
 
 
 def held_evidence(
-    directories, entries: Sequence[Held], *, unrun=frozenset(), readers=True
+    directories, entries: Sequence[Held], *, unrun=frozenset(), unrun_controls=frozenset(), readers=True
 ) -> list[tuple[str, tuple[str, ...]]]:
     """Why a whole run of the lane does not hold to the walk-stops list, as person-readable problems, each with
     the lane's group a rerun of which shows it again (``corpus:<id>`` or ``control:<id>``): a stop a document or a
-    control showed that no entry holds, and an entry whose stop its document's run did not show, or whose
-    document's check never ran. ``unrun`` names the corpus documents the run did not run (left out of its
-    sample), whose entries are held by the run that runs them; ``readers`` is as ``held_entries`` takes it."""
+    control showed that no entry holds, and an entry whose stop its document's or control's run did not show, or
+    whose document's or control's check never ran. ``unrun`` names the corpus documents the run did not run (left
+    out of its sample or its selection) and ``unrun_controls`` the controls a selection did not queue, whose
+    entries are held by the run that runs them; ``readers`` is as ``held_entries`` takes it."""
     entries = held_entries(entries, readers=readers)
     records = _evidence(directories)
     problems: list[tuple[str, tuple[str, ...]]] = []
-    for (kind, document), shown in sorted(records.items()):
-        problems += [(problem, (f"{kind}:{document}",)) for problem in unheld(document, shown, entries)]
-    for document in sorted({entry.document for entry in entries} - set(unrun)):
-        shown = records.get(("corpus", document))
+    for (kind, name), shown in sorted(records.items()):
+        problems += [
+            (problem, (f"{kind}:{name}",)) for problem in unheld(name, shown, entries, control=kind == "control")
+        ]
+    must = sorted(
+        {("corpus", entry.document) for entry in entries if entry.document is not None and entry.document not in unrun}
+        | {
+            ("control", entry.control)
+            for entry in entries
+            if entry.control is not None and entry.control not in unrun_controls
+        }
+    )
+    for kind, name in must:
+        shown = records.get((kind, name))
         if shown is None:
+            what = "stops of this control" if kind == "control" else "its stops"
             problems.append(
                 (
-                    f"{document}: proof/walk-stops.json holds its stops, and no shard ran the stops check on it, so"
+                    f"{name}: proof/walk-stops.json holds {what}, and no shard ran the stops check on it, so"
                     " nothing shows its walks still end there.",
-                    (f"corpus:{document}",),
+                    (f"{kind}:{name}",),
                 )
             )
             continue
-        problems += [(problem, (f"corpus:{document}",)) for problem in unshown(document, shown, entries)]
+        problems += [
+            (problem, (f"{kind}:{name}",)) for problem in unshown(name, shown, entries, control=kind == "control")
+        ]
     return problems
 
 
-def verify_evidence(directories, entries: Sequence[Held], *, unrun=frozenset(), readers=True) -> list[str]:
+def verify_evidence(
+    directories, entries: Sequence[Held], *, unrun=frozenset(), unrun_controls=frozenset(), readers=True
+) -> list[str]:
     """``held_evidence``'s problems alone."""
-    return [problem for problem, _ in held_evidence(directories, entries, unrun=unrun, readers=readers)]
+    found = held_evidence(directories, entries, unrun=unrun, unrun_controls=unrun_controls, readers=readers)
+    return [problem for problem, _ in found]

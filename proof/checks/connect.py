@@ -62,7 +62,10 @@ Proof 3 reports A's own (``connect@A``) and compares Nova's local archive and
 B aligned to A with A; proof 4 compares each save with the state it was made
 over, and reports of B and of B-edit what stands on its own there and not at
 A (``beyond``): an edit changes what a form submits, so its rows are not
-held to A's, and what it breaks in Connect is.
+held to A's, and what it breaks in Connect is. What Connect does itself
+with a block whose id the edit renamed, the same for an app HQ's own editors
+renamed one in, is not B-edit's to report (``proof.checks.hq_own_reports``,
+``connect_block_renamed``).
 """
 
 from __future__ import annotations
@@ -70,8 +73,10 @@ from __future__ import annotations
 import copy
 import re
 
+from proof.checks import hq_own_reports
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.differences import Difference, pointer_token
+from proof.checks.hq_own_reports import NEW, OLD
 
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 GENERATED_MARK = re.compile(r"@generated:uuid:[0-9]+")
@@ -249,8 +254,13 @@ def differences(before, after, *, check, document, artifact, readers=None) -> li
     )
 
 
-def _own(reader, run) -> list:
-    """What stands on its own of one run: ``[(path under the run, value)]``."""
+def _named(payload) -> tuple:
+    """The blocks a payload names that Connect keys its rows by, as a report names them (``hq_own_reports``)."""
+    return tuple((name, block_id, NEW) for name, block_id in blocks(payload) if name in CATALOG)
+
+
+def _reports(run) -> list:
+    """What stands on its own of one run: ``[(path under the run, value, the blocks it names)]``."""
     found = []
     state = run.get("state") or {}
     for post in run.get("posts") or []:
@@ -258,40 +268,52 @@ def _own(reader, run) -> list:
         # project space), and Connect answers that it holds nothing of its own: no refusal of anything Connect
         # was to read.
         if post.get("status") != TAKEN and blocks(post.get("payload")):
-            found.append((f"refused/{post.get('status')}/{pointer_token(refusal_cause(post))}", post.get("body")))
+            path = f"refused/{post.get('status')}/{pointer_token(refusal_cause(post))}"
+            found.append((path, post.get("body"), _named(post.get("payload"))))
     completed = {
         task.get("xform") for task in state.get("assignedTasks") or [] if task.get("status") == "completed"
     } - {None}
     for visit in state.get("visits") or []:
         codes = [code for code, _ in visit.get("flags") or []]
         if "pending_task" in codes and visit.get("xform") in completed:
-            found.append(("visit-rejected-for-the-task-its-form-completes", visit.get("deliverUnit")))
+            found.append(("visit-rejected-for-the-task-its-form-completes", visit.get("deliverUnit"), ()))
     for post in run.get("posts") or []:
         if post.get("status") != TAKEN:
             continue
         named = [block_id for name, block_id in blocks(post.get("payload")) if name == "task"]
         if named and not completed:
-            found.append(("task-completed-nothing", named))
+            found.append(("task-completed-nothing", named, tuple(("task", block_id, NEW) for block_id in named)))
     return found
 
 
-def absolute(record, catalog=None) -> list:
-    """What stands on its own of one state's record: ``[(path, at, value)]``, ``catalog`` the opportunity's rows
-    as it was made (``{"learnModules", "deliverUnits", "taskTypes"}``)."""
+def _own(reader, run) -> list:
+    """What stands on its own of one run: ``[(path under the run, value)]``."""
+    return [(path, value) for path, value, _ in _reports(run)]
+
+
+def _absolute(record, catalog=None) -> list:
+    """``absolute``, each with the blocks it names: ``[(path, at, value, blocks)]``."""
     found = []
     runs = (record or {}).get("runs") or {}
     for reader in sorted(runs):
         token = pointer_token(reader)
         for run in runs[reader]:
             at = f"/runs/{token}:{pointer_token(run['run'])}"
-            for path, value in _own(reader, run):
-                found.append((f"/runs/*/{path}", f"{at}/{path}", value))
-            for rows in CATALOG.values():
+            for path, value, named in _reports(run):
+                found.append((f"/runs/*/{path}", f"{at}/{path}", value, named))
+            for kind, rows in CATALOG.items():
                 held = {row["slug"] for row in (catalog or {}).get(rows) or []}
                 grown = sorted({row["slug"] for row in (run.get("state") or {}).get(rows) or []} - held)
                 if catalog is not None and grown:
-                    found.append((f"/runs/*/catalog/{rows}/added", f"{at}/catalog/{rows}/added", grown))
+                    named = tuple((kind, slug, NEW) for slug in grown)
+                    found.append((f"/runs/*/catalog/{rows}/added", f"{at}/catalog/{rows}/added", grown, named))
     return found
+
+
+def absolute(record, catalog=None) -> list:
+    """What stands on its own of one state's record: ``[(path, at, value)]``, ``catalog`` the opportunity's rows
+    as it was made (``{"learnModules", "deliverUnits", "taskTypes"}``)."""
+    return [(path, at, value) for path, at, value, _ in _absolute(record, catalog)]
 
 
 def moved_ids(record, catalog) -> list:
@@ -313,18 +335,40 @@ def moved_ids(record, catalog) -> list:
     return found
 
 
-def absolute_differences(record, catalog, *, check, document, artifact, beyond=None, moved=False) -> list:
+def absolute_differences(record, catalog, *, check, document, artifact, beyond=None, moved=False, forms=None) -> list:
     """A state's own differences (``absolute``, and ``moved_ids`` with ``moved``), as ``artifact``; with
-    ``beyond`` (another state's record), only those whose path that state does not show."""
+    ``beyond`` (another state's record), only those whose path that state does not show.
+
+    With ``forms`` (the artifact as the register names it, the forms of the
+    state the opportunity was made from and this state's, each
+    ``hq_own_reports.connect_forms``), a report that is what Connect does
+    itself with a block renamed is not this state's: the set of HQ's own
+    reports decides it from the blocks the report names
+    (``proof.checks.hq_own_reports``).
+    """
+
+    renamed = hq_own_reports.renamed_blocks(forms[1], forms[2]) if forms is not None else frozenset()
+
+    def own(path, named):
+        return forms is not None and hq_own_reports.held(forms[0], path, renamed, named) is not None
+
     shown = {path for path, _, _ in absolute(beyond, catalog)} if beyond is not None else set()
     found = [
         Difference(check, document, artifact, path, at, "error", None, value)
-        for path, at, value in absolute(record, catalog)
-        if path not in shown
+        for path, at, value, named in _absolute(record, catalog)
+        if path not in shown and not own(path, named)
     ]
     if moved:
         found += [
             Difference(check, document, artifact, path, at, "changed", gone, new)
             for path, at, gone, new in moved_ids(record, catalog)
+            if not own(path, _moved_blocks(path, gone, new))
         ]
     return found
+
+
+def _moved_blocks(path, gone, new) -> tuple:
+    """The blocks a moved id report names (``/ids/<kind>/moved``): the opportunity's ids no payload names, and the
+    payloads' ids the opportunity does not hold."""
+    kind = path.split("/")[2]
+    return (*((kind, block_id, OLD) for block_id in gone), *((kind, block_id, NEW) for block_id in new))

@@ -44,7 +44,8 @@ them: each install's status and the apps the device then holds, whether the upda
 and whether it is the same app at no lower a version; and, of each path alone (``android@local.ccz``,
 ``android@B``), each form a worker left incomplete before the update that the device no longer opens after it
 (``/update/reopened/*``: before, how the device held the form; after, what it holds and shows), or whose
-session, as Android itself stored it, home cannot read (``/update/reopened/*/session``).
+session, as Android itself stored it, home cannot read (``/update/reopened/*/session``), but where that is what
+CommCare does itself with any app HQ builds (``proof.checks.hq_own_reports``).
 
 One symptom is one difference. Two walks that opened another case at a list are compared as far as that list
 (``/list/chose``), since every screen past it is of another case; a list that shows its cases in another
@@ -74,6 +75,7 @@ from __future__ import annotations
 import copy
 import json
 
+from proof.checks import hq_own_reports
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.differences import ANDROID, ANDROID_TABLET, Difference, pointer_token
 
@@ -707,17 +709,34 @@ def _held(records) -> list:
     )
 
 
-def not_reopened(update: dict | None) -> list[tuple[str, str, object, object]]:
-    """Each form a worker left incomplete before an update that the device does not open after it:
-    ``(structural path, concrete path, before, after)``. Where home could not read the session Android itself
-    kept for the form, that is the symptom (``/update/reopened/*/session``: before, the session as Android
-    stored it; after, what home raised reading it), and it is the form's own, whatever the update was. Else
-    (``/update/reopened/*``) before is how the device held and opened the form, after what it holds and shows."""
+class ReaderRaised(AssertionError):
+    """The Android reader raised where it reads what the device does, so its answer holds no observation of the
+    app: the reader's own failure, which no register entry holds and no difference stands in for."""
+
+
+def not_reopened(update: dict | None, artifact: str) -> list[tuple[str, str, object, object]]:
+    """Each form a worker left incomplete before an update that the device does not open after it, on the
+    archive ``artifact`` names: ``(structural path, concrete path, before, after)``. Where home could not read
+    the session Android itself kept for the form, that is the symptom (``/update/reopened/*/session``: before,
+    the session as Android stored it; after, what home raised reading it), and it is the form's own, whatever the
+    update was, but where it is CommCare's own reading of grouped tiles, which the set of HQ's own reports
+    decides (``proof.checks.hq_own_reports``). Else (``/update/reopened/*``) before is how the device held and
+    opened the form, after what it holds and shows. Where the reader itself raised reading the form
+    (``raised``, not home's ``homeRaised``), there is nothing to compare, and that fails by name
+    (``ReaderRaised``)."""
     if not update or update.get("install") != INSTALLED:
         return []
     found = []
     saved = update.get("incompleteForms") or {}
     for command, after in sorted((update.get("reopened") or {}).items()):
+        if isinstance(after.get("raised"), dict):
+            raised = after["raised"]
+            raise ReaderRaised(
+                f"The Android reader raised {raised.get('class')} ({raised.get('message')}) on {artifact} while it"
+                f" read what home does with the form {command} left incomplete before the update, so its answer"
+                " says nothing of the app. Fix the reader where its stack (the answer's reopened"
+                f" {command} raised) points; no register entry holds a reader's own failure."
+            )
         before = saved.get(command) or {}
         opened = next(
             (step.get("loaded") for step in (before.get("walk") or {}).get("steps") or [] if "loaded" in step), None
@@ -728,6 +747,8 @@ def not_reopened(update: dict | None) -> list[tuple[str, str, object, object]]:
         at = f"/update/reopened/{pointer_token(command)}"
         raised = after.get("homeRaised")
         if isinstance(raised, dict):
+            if hq_own_reports.held(artifact, "/update/reopened/*/session", after):
+                continue
             kept = after.get("SessionStateDescriptor.getSessionDescriptor")
             unread = {"raised": raised.get("class"), "message": raised.get("message")}
             found.append(("/update/reopened/*/session", f"{at}/session", {"kept": kept}, unread))
@@ -753,7 +774,7 @@ def identity(document: str, record: dict) -> list:
     found = []
 
     def reopened(update, artifact):
-        for path, at, before, after in not_reopened(update):
+        for path, at, before, after in not_reopened(update, artifact):
             found.append(Difference("proof1", document, artifact, path, at, "changed", before, after))
 
     for name in sorted(record.get("configurations") or {}):

@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "name-held",
+			"export": "local",
+			"form": "3df2cd66-6b96-597a-a9ab-91bcb9bda0b6",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/name",
+						"value": "kept"
+					}
+				],
+				"expressions": [
+					"/data/name"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "kept"
+				}
+			]
+		}
+	]
+}

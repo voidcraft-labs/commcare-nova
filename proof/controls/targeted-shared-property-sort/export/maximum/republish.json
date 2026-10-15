@@ -13,6 +13,7 @@
 		"capabilities": [],
 		"advisories": []
 	},
+	"media": "media.body",
 	"placeholderAppId": "nova-proof-placeholder-app",
 	"assumedSourceProfile": {}
 }

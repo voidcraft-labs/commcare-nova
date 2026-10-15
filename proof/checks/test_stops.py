@@ -9,7 +9,10 @@ a stop, and the list holds it by its document, reader and cause, with the
 reason the reader ends there. Proofs 3 and 4 compare two states' walks and
 pass a run both sides cut short alike; this check reads each walk on its own,
 so a stop is never silent: one the list does not hold fails here by name, and
-so does an entry no run of its document shows any more.
+so does an entry no run of its document shows any more. A held stop moves to
+its control with its fix: an entry names a document or a control, a
+``control`` entry holds that control's walks alone and must show there, and
+every control the list or either register names is read.
 
 The plausible failures each test here catches:
 
@@ -24,7 +27,10 @@ The plausible failures each test here catches:
   read;
 - a client run that stopped read as one that followed the walk, or a stop in
   App Preview, which shows a form one question a screen, read as Web Apps'
-  own.
+  own;
+- a control whose document's stop a fix removed, whose walks still stop on
+  the pre-fix bytes, failing as a stop no entry holds, or read by no item at
+  all where only the list or the fixed register names it.
 """
 
 from __future__ import annotations
@@ -35,9 +41,13 @@ from proof.checks import cases, corpus, observations, stops
 
 
 def _controls():
-    """The controls a held register entry names, of any check: the ones a run queues
-    (``proof.store.queue.control_groups``), each observed whole by the check its entry names."""
-    named = {entry.control for entry in cases.load_register()}
+    """The controls a run queues (``proof.store.queue.control_groups``): those a held entry of either register
+    names, of any check, each observed whole by the check its entry names, and those the list's ``control``
+    entries name whose reader the run observes, which only this check reads."""
+    from proof.lane import readers
+
+    named = {entry.control for entry in (*cases.load_register(), *cases.load_fixed())}
+    named |= stops.control_names(stops.held_entries(stops.load(), readers=readers.named()))
     return [
         pytest.param(document, id=f"control-{document.id}")
         for document in corpus.load_controls()
@@ -77,10 +87,11 @@ def test_every_walk_reaches_its_end_or_a_held_stop(document, hq, core_runner, ed
     )
     entries = stops.held_entries(stops.load(), readers=readers.named())
     classes = [(stop.reader, stop.cause) for stop in shown]
-    problems = stops.unheld(document.id, classes, entries)
-    if document.kind == "corpus":
-        # An entry shows on its document; a control retains inputs of another day, whose walks need not stop so.
-        problems += stops.unshown(document.id, classes, entries)
+    control = document.kind == "control"
+    # A document entry shows on its document and need not on the control of its name, which retains inputs of
+    # another day; a control entry shows on its control.
+    problems = stops.unheld(document.id, classes, entries, control=control)
+    problems += stops.unshown(document.id, classes, entries, control=control)
     assert not problems, "\n".join(
         [*problems, "The stops this document's walks showed:", *(f"  {stop.as_json()}" for stop in shown)]
     )
@@ -218,9 +229,9 @@ def _list(tmp_path, entries):
     return path
 
 
-def test_the_committed_list_loads_and_names_documents_the_corpus_holds():
+def test_the_committed_list_loads_and_names_documents_the_corpus_holds_and_controls_proof_controls_holds():
     documents = {document.id for document in cases.load_corpus().emitted}
-    stops.load(documents=documents)
+    stops.load(documents=documents, controls={control.id for control in corpus.load_controls()})
 
 
 def test_the_list_refuses_an_entry_it_could_not_hold_a_stop_to(tmp_path):
@@ -229,17 +240,97 @@ def test_the_list_refuses_an_entry_it_could_not_hold_a_stop_to(tmp_path):
         ("b", "preview", "form-held"),
     ]
     for entries, why in (
-        ([{**_entry(), "extra": 1}], "holds exactly"),
+        ([{**_entry(), "extra": 1}], "exactly one of document, control"),
         ([_entry(reader="android")], "reader is one of"),
         ([_entry(reason="Two\nlines.")], "one line"),
         ([_entry(), _entry()], "the same stop"),
-        ([_entry("b"), _entry("a")], "by document"),
+        ([_entry("b"), _entry("a")], "by the document or control each names"),
         ([_entry(reason="")], "non-empty"),
     ):
         with pytest.raises(stops.StopsError, match=why):
             stops.load(_list(tmp_path, entries))
     with pytest.raises(stops.StopsError, match="corpus does not hold"):
         stops.load(_list(tmp_path, [_entry("gone")]), documents={"doc"})
+
+
+def _on_control(control="doc-after", reader="preview", cause="form-held", reason="Because."):
+    return {"control": control, "reader": reader, "cause": cause, "reason": reason}
+
+
+def test_an_entry_names_a_document_or_a_control_and_one_stop_once(tmp_path):
+    """An entry names where its stop shows by exactly one of ``document`` and ``control``; a control names a
+    directory ``proof/controls/`` holds; and a ``control`` entry beside the ``document`` entry of the same name,
+    reader and cause would hold one stop twice, since the document's entry already holds its namesake control."""
+    loaded = stops.load(_list(tmp_path, [_entry("a"), _on_control("b")]), documents={"a"}, controls={"b"})
+    assert [(entry.document, entry.control, entry.key) for entry in loaded] == [
+        ("a", None, ("a", "preview", "form-held")),
+        (None, "b", ("b", "preview", "form-held")),
+    ]
+    assert stops.control_names(loaded) == {"b"}
+    for entries, why in (
+        ([{**_entry(), "control": "doc"}], "exactly one of document, control"),
+        ([{key: value for key, value in _entry().items() if key != "document"}], "exactly one of document, control"),
+        ([_on_control(reason="")], "non-empty"),
+        ([_entry("doc"), _on_control("doc")], "already holds that stop on the control of its name"),
+        ([_on_control("b"), _entry("a")], "by the document or control each names"),
+    ):
+        with pytest.raises(stops.StopsError, match=why):
+            stops.load(_list(tmp_path, entries))
+    with pytest.raises(stops.StopsError, match="proof/controls/ holds no directory of"):
+        stops.load(_list(tmp_path, [_on_control("gone")]), controls={"doc-after"})
+
+
+def test_a_control_entry_holds_its_controls_stop_and_no_documents_and_must_show_there():
+    """A ``control`` entry holds the walks of its control alone, strict both ways there: a stop of the control no
+    entry holds fails by name, and so does a ``control`` entry its control's run did not show. A ``document``
+    entry holds its namesake control's walks and need not show there, so a control stops, held, while its
+    document's entry stands, and by its own once a fix moves the entry to it."""
+    moved = (stops.Held(None, "formplayer", "c", "Because.", control="doc"),)
+    stopped = [("formplayer", "c")]
+    assert stops.unheld("doc", stopped, moved, control=True) == []
+    assert stops.unshown("doc", stopped, moved, control=True) == []
+    # The document of the same name is no control: the moved entry holds nothing there and need not show there.
+    (unheld,) = stops.unheld("doc", stopped, moved)
+    assert "Formplayer's walk stops for c" in unheld and "add the entry with its reason" in unheld
+    assert stops.unshown("doc", [], moved) == []
+    # A control's stop no entry holds, and a control entry no run of its control showed.
+    (stray,) = stops.unheld("doc", [*stopped, ("webapps", "case-not-listed")], moved, control=True)
+    assert stray.startswith("doc: a run of the Web Apps client stops for case-not-listed")
+    assert "add an entry naming the control" in stray
+    (stale,) = stops.unshown("doc", [], moved, control=True)
+    assert stale == (
+        "doc: proof/walk-stops.json holds a stop of Formplayer's walk for c, and no run of the control stops so now."
+        " Remove the entry."
+    )
+    # While the document's entry stands it holds the control's stop and need not show there; once the fix moves
+    # it, the control is held by its own entry.
+    standing = (stops.Held("doc", "formplayer", "c", "Because."),)
+    assert stops.unheld("doc", stopped, standing, control=True) == []
+    assert stops.unshown("doc", [], standing, control=True) == []
+    assert stops.unheld("doc", stopped, (), control=True) != []
+
+
+def test_a_whole_run_holds_each_control_entry_on_its_controls_record_by_its_group(tmp_path):
+    """Over a run's evidence a ``control`` entry is held to its control's record, each problem named by the group
+    a rerun shows it under (``control:<id>``), and a selection that did not run the control leaves it."""
+    entries = (
+        stops.Held("doc", "preview", "form-held", "Because."),
+        stops.Held(None, "formplayer", "c", "R.", control="kept"),
+    )
+    _evidence(tmp_path, "corpus", "doc", [("preview", "form-held")])
+    _evidence(tmp_path, "control", "kept", [("formplayer", "c")])
+    assert stops.held_evidence([tmp_path], entries) == []
+    _evidence(tmp_path, "control", "kept", [])
+    [(problem, groups)] = stops.held_evidence([tmp_path], entries)
+    assert groups == ("control:kept",) and "no run of the control stops so now" in problem
+    _evidence(tmp_path, "control", "kept", [("formplayer", "c"), ("formplayer", "d")])
+    [(problem, groups)] = stops.held_evidence([tmp_path], entries)
+    assert groups == ("control:kept",) and problem.startswith("kept: a run of Formplayer's walk stops for d")
+    (tmp_path / "checks" / stops.CHECK / "control-kept.json").unlink()
+    [(problem, groups)] = stops.held_evidence([tmp_path], entries)
+    assert groups == ("control:kept",) and "holds stops of this control, and no shard ran the stops check" in problem
+    assert stops.held_evidence([tmp_path], entries, unrun_controls={"kept"}) == []
+    assert stops.held_evidence([tmp_path], entries, readers=frozenset({"webapps"})) == []
 
 
 def test_a_stop_no_entry_holds_and_an_entry_no_run_shows_each_fail_by_name():

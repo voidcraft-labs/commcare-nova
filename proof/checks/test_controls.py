@@ -16,6 +16,14 @@ reads (an edit only proofs 2 and 3 name it for, whose B-edit the unit would
 then observe, or an archive its checks never open), or drops one a check
 does.
 
+A control is retained under its document's id, or under a name of its own
+(``--as``), which leaves the document's own control as it was; and a
+directory a fixed-defect entry names is never retained again, since its bytes
+are the pre-fix inputs that entry must keep showing on. The plausible
+failures: a retention under a new name that overwrites the document's own
+control, and a re-retention that replaces a fixed entry's pre-fix bytes with
+the fixed ones, so the entry stops showing and the check's blindness hides.
+
 The accepted case is the lane's own corpus: a document with an edit and a
 targeted one with expectations and a restore, each retained into a directory
 of its own.
@@ -27,7 +35,7 @@ import json
 
 import pytest
 
-from proof.checks import cases, controls, corpus
+from proof.checks import cases, controls, corpus, registers
 from proof.checks.intent import intent_of
 from proof.checks.proof1 import document_lookup_tags
 from proof.observe import unit
@@ -95,3 +103,49 @@ def test_a_control_keeps_the_edit_and_each_local_archive_only_for_a_check_that_r
     # Configuration sensitivity builds A alone.
     _, kept = files(["sensitivity"])
     assert not kept & archives and not any(path.startswith("edit/") for path in kept)
+
+
+@pytest.mark.parametrize("document", _documents()[:1])
+def test_a_control_retained_under_a_name_is_written_there_and_a_fixed_or_stopped_control_is_never_retained_again(
+    document, tmp_path, monkeypatch
+):
+    root = corpus.corpus_root()
+    into = tmp_path / "controls"
+    own = into / document.id
+    own.mkdir(parents=True)
+    (own / "configurations.json").write_text("the document's own control\n", encoding="utf-8")
+
+    def untouched():
+        return {path.relative_to(own).as_posix(): path.read_bytes() for path in own.rglob("*") if path.is_file()}
+
+    before = untouched()
+    assert controls.main([str(root), document.id, "proof1", str(into), "--as", "named-after"]) == 0
+    retained = into / "named-after"
+    assert (retained / corpus.DERIVED).is_file() and (retained / "verdict.json").is_file()
+    assert untouched() == before
+    # Without <into>, into proof/controls (here a directory of the test's own).
+    monkeypatch.setattr(corpus, "CONTROLS_DIR", tmp_path / "default")
+    assert controls.main([str(root), document.id, "proof1", "--as", "also-named"]) == 0
+    assert [path.name for path in (tmp_path / "default").iterdir()] == ["also-named"]
+    assert controls.main([str(root), document.id, "proof1", "--as"]) == 2
+
+    # A directory a fixed entry names is never retained again, under its own name or another's.
+    fixed_control = next(path.name for path in sorted(registers.CONTROLS.iterdir()) if path.is_dir())
+    register = tmp_path / "registers" / "known-defects.json"
+    register.parent.mkdir()
+    register.write_text("[]\n", encoding="utf-8")
+    entry = {"id": "fixed", "defect": 1, "part": "p", "check": "proof1", "artifact": "app.json", "path": "/x"}
+    (register.parent / "fixed-defects.json").write_text(json.dumps([{**entry, "control": fixed_control}]))
+    monkeypatch.setenv("PROOF_KNOWN_DEFECTS", str(register))
+    with pytest.raises(corpus.CorpusLayoutError, match="never retained again"):
+        controls.retain(document, ["proof1"], into, name=fixed_control)
+    assert not (into / fixed_control).exists()
+
+    # Nor is a directory a held stop's control entry names: its walks stop where the entry holds them.
+    walk_stops = tmp_path / "registers" / "walk-stops.json"
+    held = {"control": "stopped", "reader": "formplayer", "cause": "notification:x", "reason": "Because."}
+    walk_stops.write_text(json.dumps([held]), encoding="utf-8")
+    monkeypatch.setenv("PROOF_WALK_STOPS", str(walk_stops))
+    with pytest.raises(corpus.CorpusLayoutError, match="held stops formplayer notification:x"):
+        controls.retain(document, ["proof1"], into, name="stopped")
+    assert not (into / "stopped").exists()

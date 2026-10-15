@@ -18,9 +18,12 @@ runs it on your machine.
 
 Each check reports the complete set of differences it finds, never only the
 first. The lane passes when every difference is erased by a proven spelling
-rule or held by an entry of the known-defect register, and every register
-entry still shows its symptom on its document and on its control. So a new
-failure fails CI, and so does a fixed defect whose entry is left behind.
+rule or held by an entry of the known-defect register, every known-defect
+entry still shows its symptom on its document and on its control, and every
+entry of the fixed-defect register still shows its symptom on its control.
+So a new failure fails CI, and so does a fixed defect whose entry is left in
+the known-defect register, and a control that stops showing what its fix
+took off the corpus.
 
 `proof/CLAUDE.md` holds the rules every change to the harness keeps, each with
 its reason. This document says what the lane proves, how to run it and read
@@ -324,6 +327,20 @@ and holds each to the effects as written.
    mutations touch, every entity the reference index says reads one of them,
    and every entity whose wire Nova derives from what the batch edits.
 
+A few of the reports a check makes are no part of Nova's export: a reader
+makes the same report of an app made in HQ's own pages, and nothing Nova can
+spell removes it. Each is a member of the closed set
+`proof/checks/hq_own_reports.py::HQ_OWN_REPORTS` ("Spelling rules and the
+registers"), and the check that makes it asks the set. Proof 4's report of a
+Vellum save leaves out the alert "This registration form is missing a case
+name" on a follow-up form that opens one child case outside a repeat
+(`registration_alert_child_case`, finding 50); proof 1's Android comparison
+leaves out home's failure to reopen a form whose stored session ends at
+grouped tiles' empty `<case datum>_parent_ids` datum (`android_grouped_tile_reopen`,
+finding 67); and the Connect judge leaves out of B-edit's report what Connect
+does with a block the edit renamed under the opportunity
+(`connect_block_renamed`, "Connect in the unit").
+
 ### Spelling rules and the registers
 
 A spelling rule erases one difference in how an artifact is spelled that no
@@ -333,11 +350,42 @@ client, Connect and CommCare Android ("Spelling rules", below). Every other
 difference is a symptom: it is held by an entry of the known-defect register
 or it fails the lane ("The registers", below).
 
+What HQ, CommCare or Connect does itself is neither. A report a reader makes
+of an app HQ's own pages made, with no Nova bytes in it, is no symptom of
+Nova's export. Each such report is a member of `HQ_OWN_REPORTS`
+(`proof/checks/hq_own_reports.py`): the artifacts and the structural paths of
+the reports it names, and the condition under which a report it names is the
+reader's own, read from what the check holds of the state. A check asks the
+set for each report it makes at a member's path and leaves the report out
+only where that member names it and its condition holds; no check carries a
+condition of its own. The set is closed and proven, as the spelling rules
+are: every member names the lane test module that proves it, which holds
+`test_<member id>` and runs the reader's own code over an app made in HQ's
+own pages, with no Nova export, to the same report, and
+`proof/checks/test_hq_own_reports.py` fails on a member with no proof and on
+a proof module (`test_hq_own_*.py`) no member names. A proof whose reader is
+served is marked as that reader's and runs where it runs, so the pull
+request lane leaves it to the nightly. The members:
+
+| Member | The check that asks | Its proof |
+| --- | --- | --- |
+| `registration_alert_child_case` (finding 50) | proof 4, Vellum's pre-save alerts | `proof/editors/test_hq_own_registration_alert.py` |
+| `android_grouped_tile_reopen` (finding 67) | proof 1, Android's reopen of an incomplete form | `proof/android/test_hq_own_grouped_tile_reopen.py` |
+| `connect_block_renamed` (defect 15's Connect ids) | the Connect judge's report of B-edit beyond A | `proof/connect/test_hq_own_rename.py` |
+
+To add one, settle at source that an app made in HQ's own pages meets the
+report, write its proof, add the member with the narrowest condition that
+holds, have the check that makes the report ask the set, and record it under
+"What HQ does itself" in `docs/research/2026-09-26-hq-round-trip/harness-findings.md`.
+A pin at which the reader no longer makes the report fails the member's
+proof, and the member leaves the set in that pin's pull request.
+
 ### Every walk reaches its end
 
 Proofs 3 and 4 compare two states' walks, so a run that ends early on both
 sides alike passes with the rest of it unseen. The `stops` check reads each
-walk on its own (`proof/checks/stops.py`, one item per document): on every
+walk on its own (`proof/checks/stops.py`, one item per document and per
+control): on every
 state a document's unit serves as a baseline (A, and proof 4's B and
 B-edit), each run of Formplayer's walk ends where the app ends it, and the
 Web Apps client's replay follows it there in a desktop's window, a phone's
@@ -660,7 +708,17 @@ it holds a run over documents named by hand ("The gate"):
 - it fails by name where an entry of the slice's was not seen, where the
   control an entry retains did not run, and where a document it was told
   did not run;
+- every fixed entry and every `control` walk-stop entry of a control the run
+  ran is held there, strict both ways, whichever documents the slice names;
+  the rest are left and counted;
 - the surface is left to the lane that extracts it, every pull request's.
+
+A slice of controls alone (`proof/checks -k control-<id>`) has no gate:
+`--documents` takes at least one document, and without it the gate holds
+the whole lane. Its items are its verdict, so run every check on each
+control, never the stops module alone where the control also holds fixed
+entries. A walk stop whose document left the corpus is run by its control,
+and the gate is never told the document's name.
 
 A run of package tests (`proof/formplayer`, `proof/connect` and the like)
 names no document: its own exit is its verdict, every item passed.
@@ -888,10 +946,15 @@ its message says which of three things happened
 - **differences no entry names**: a new failure. They are listed by class
   (check, artifact, structural path), with one example of each;
 - **an entry the check no longer shows** on its document: a defect fixed, or a
-  symptom moved. Remove the entry in the same change, or find where the
-  symptom went;
+  symptom moved. Move the entry to `proof/fixed-defects.json` in the same
+  change ("Fixed defects"), or find where the symptom went;
 - **an entry every one of whose differences another entry also holds**: one of
   the two is redundant.
+
+Where a difference no entry names is in the class of a fixed defect, the
+message says which: the defect is back, or a new symptom shares its class.
+A fixed entry its control no longer shows fails under the control's group,
+`control:<id>`, and is repaired only as "Fixed defects" says.
 
 The evidence file (`blocks/<id>/checks/<check>/corpus-<id>.json`) holds every
 difference the check found, whether the register held it or not. A difference
@@ -1090,7 +1153,24 @@ Web Apps driver's: an app written in Spanish alone, whose empty-list message
 `proof/webapps/test_empty_list.py` reads in Web Apps before and after HQ's
 module settings save (finding 41), and whose second menu lists no case, so
 the lane's own walk of each state shows the client that message too and
-proof 4's records hold it (`webapps@module settings@*`). The focused `stableWitnesses.test.ts` holds every emitted byte
+proof 4's records hold it (`webapps@module settings@*`).
+`targeted-hq-side-state` and `targeted-hq-side-lookup` carry what a person
+saves in HQ over A: the first a UI translation, location capture and a build
+profile, whose republish lands; the second a lookup table and its
+`lookupTable` save, which defect 5's table entries need on a republish of
+its own. Five more show a finding each, with its entries and its control:
+`targeted-datetime-ordering` (finding 56: a survey form that orders two
+date and time answers an hour apart, and a follow-up form that orders two
+case properties held as text), `targeted-case-id-column` (finding 57: a
+list showing `case_id`, with a hidden order rule over `owner_id`),
+`targeted-reserved-question-names` (finding 70), `targeted-form-root-read`
+(finding 71: a calculation and a repeat's count over `/data`, and a repeat's
+ids query over it) and `targeted-parsererror-node-name` (finding 43: a
+question named `parsererror`, which stops HQ's form builder opening the
+form). `targeted-shared-property-sort` holds two menus: a shown and a hidden
+column over one property, and a list whose hidden column carries the order
+rule beside a shown image map over the same property, the one shape where a
+sort key on another field changes what a fuzzy search finds (finding 51). The focused `stableWitnesses.test.ts` holds every emitted byte
 to an emission after an unrelated document advances the fixture counter and
 changes that balance.
 
@@ -1138,8 +1218,9 @@ its side's fingerprint:
   container configuration (`LANE_FILES`: `proof/compose.yaml` and
   `proof/run.mjs`), which decides what that code runs under;
 - **browser**: the editor driver, `proof/editors/driver/`, which node runs;
-- **judge**: the rest of `proof/checks`, `proof/rules`, both registers and
-  the rest of `lib/commcare/surface/`.
+- **judge**: the rest of `proof/checks`, `proof/rules`, the registers (the
+  known and fixed defects, the identity moves and the walk stops) and the
+  rest of `lib/commcare/surface/`.
 
 The judges are pure functions of records: `proof/checks/test_judge_purity.py`
 imports every judge where HQ cannot be imported, and holds the observation's
@@ -1855,6 +1936,17 @@ pins, and nothing is called on a system's behalf:
   (`connect@A`); proof 4 reports B's and B-edit's that A did not show
   (`connect@<B>@<configuration>`). An edit changes what a form submits, so
   B-edit's rows are not held to A's; what the edit breaks in Connect is.
+  What Connect does itself with a block the edit renamed under the
+  opportunity is left out of B-edit's report: the block's id moved, every
+  delivery of a renamed deliver unit refused for its payment unit, and a
+  second learn module. Connect keys an opportunity's rows by each block's id,
+  so an app whose block is renamed in HQ's own form builder meets the same
+  (`HQ_OWN_REPORTS`, `connect_block_renamed`, proven by
+  `proof/connect/test_hq_own_rename.py`). A report is left out only for a
+  block A's forms hold that B-edit's forms hold under another id at the same
+  place, where that place lost one block of its kind and gained one; a
+  refusal of another cause, an id that moved with no block renamed, and a
+  block added beside the old ones are still reported.
 - **Cost.** Connect starts once per worker that meets a Connect document
   (its fetch and its migrations, about thirteen seconds); an opportunity
   costs about two seconds, and a run that reaches Connect about a third of
@@ -1985,7 +2077,13 @@ records, called from proofs 1, 3 and 4, each difference under an
   incomplete before the update that the device no longer opens after it
   (`/update/reopened/*`, under `android@local.ccz` and `android@B`), or
   whose session, as Android itself stored it, home cannot read
-  (`/update/reopened/*/session`).
+  (`/update/reopened/*/session`). A session that ends at the
+  `<case datum>_parent_ids` datum HQ's build gives every form under grouped
+  tiles (`case_id_parent_ids` for one selected case), with no value after it, which home raises
+  `ArrayIndexOutOfBoundsException` reading, is CommCare's own reading of
+  grouped tiles on any app HQ builds, and is left out (`HQ_OWN_REPORTS`,
+  `android_grouped_tile_reopen`, proven by
+  `proof/android/test_hq_own_grouped_tile_reopen.py`).
 - **Of each state alone**, under proofs 3 and 4: a search that sent, for
   an answer holding both quote marks, the query HQ refuses, whatever errors
   Core holds for its prompts, which the screen never reads (`android@A`,
@@ -2206,16 +2304,20 @@ only a run that reused no stored judgment and checked the whole corpus: a
 local `npm run proof` with no `PROOF_STORE`, or `proof-lane.yml`'s fresh run
 of every document (every block of every shard).
 So a new failure fails, and a fixed defect left listed fails until its pull
-request removes the entry; `test_registers.py` proves both, including that
-removing any one entry fails.
+request moves the entry to the fixed-defect register ("Fixed defects",
+below); `test_registers.py` proves both, including that removing any one
+entry fails.
 
 A control is a retained pre-fix input: a directory under `proof/controls/`
 holding one document's files in the corpus layout, the upload bodies and
 export bytes the checks read and the expected values they compare against. The
 checks read it the way they read a corpus document (`control:<id>`, a group of
 its own in the main queue), and every entry naming it must show its symptom
-there. A check runs on a control only while an entry of that check names it
-(`proof/checks/cases.py::control_params`). One control serves every entry its
+there. A check runs on a control only while an entry of that check, in
+either register, names it (`proof/checks/cases.py::control_params`), and
+every directory under `proof/controls/` is named by an entry of one of the
+two registers, so no control stops running unseen
+(`proof/checks/test_registers.py`). One control serves every entry its
 document shows, so the controls are kept to the smallest set of documents
 that covers every entry, each keeping only what its entries' checks read
 (`proof/checks/controls.py`): the edit only where the bar, the intent or
@@ -2238,6 +2340,73 @@ so a control edited by hand is keyed by what it holds, and its records and
 judgments are kept and read back as a document's are ("The evidence store
 and its audits", below).
 
+### Fixed defects
+
+`proof/fixed-defects.json` holds the entries of the defects a fix took off
+the corpus (`[]` when it holds none; the file must exist). A fix moves its
+entries there in its own pull request, each without `document` and with the
+id, check, artifact, path, kind, values and control it had:
+
+```json
+{"id": "d52-output-in-validation-form-alert", "defect": 52,
+ "part": "validation message with an output", "check": "proof4",
+ "artifact": "form:*@vellum@*", "path": "/html/body[*]/input[*]/alert[*]",
+ "control": "expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0"}
+```
+
+The control keeps the bytes from before the fix, so it keeps showing the
+symptom, and every check that read it keeps reading it: a fix that also
+blinds a check (a comparator, a spelling rule or a name the check reads)
+fails on the control. `proof/checks/registers.py` loads the file, and the
+loader and the gate hold eight rules:
+
+1. A fixed entry meets the field checks of a known one: its check is one the
+   register holds, its path is from the root, its kind is a known kind, it
+   names no undecided manifest use, and its control directory exists.
+2. An id is in one register only, and no two fixed entries share check,
+   artifact, path, kind, values and control.
+3. A fixed entry is held on its control alone, by every run that runs its
+   control: the check ran there and some difference matches it (its class,
+   and its values where pinned). It fails by name under `control:<id>` where
+   its control ran without its check or does not show it. A sampled run and
+   a whole run run every control; a run over documents named by hand holds
+   the fixed entries of the controls it ran and leaves the rest, since a
+   fixed entry names no document. A run that observes some readers, or
+   none, leaves a fixed entry whose artifact only an unobserved reader
+   writes to the nightly, as it does a known one.
+4. A fixed entry owns nothing on a corpus document. A difference in a fixed
+   class there fails as unregistered, and its message names the fixed
+   defect whose class it is in: the defect is back, or a new symptom shares
+   its class. Where a known and a fixed entry share a check, a path and
+   artifacts, the gate says so in a note, never a failure.
+5. Every directory under `proof/controls/` is named by an entry of one of
+   the two registers or by a `control` entry of `proof/walk-stops.json`,
+   and every control either register names is a directory.
+6. A directory a fixed entry or a held stop's `control` entry names is
+   never retained again (`proof/checks/controls.py::retain` refuses it). A remaining defect whose
+   symptom moves on such a document gets a new control under a new name
+   (`--as`, "Adding a register entry and its control").
+7. A fixed entry pins `values` without a targeted document: it names none.
+8. A fixed entry is repaired in exactly two ways, each named in its pull
+   request with its citation. Where the check's vocabulary or the pinned
+   upstream text moved (a renamed Vellum message, a moved HQ function, a
+   renamed value class) and the control shows the same symptom at a new
+   path, it is re-pathed from the control's evidence. Where upstream changed
+   the behavior so the bytes from before the fix are no longer a symptom,
+   where a judge change deliberately stops reporting the class on the
+   control too, or where a change to how the lane runs a control (the
+   privileges its oracle grants it) takes the symptom off the control with
+   no configuration left that shows it, it is deleted, with its control
+   where no other entry names it. A fixed entry is never loosened or widened
+   to a pattern, and one that stops showing for any other reason is the
+   regression in the harness its control is there to catch.
+
+A control runs while an entry of either register names it: the stops
+check, the queue (`proof/store/queue.py::control_groups`) and each check's
+items (`proof/checks/cases.py::control_params`) read both files. Editing
+`proof/fixed-defects.json` changes the judge's fingerprint and no
+observation key.
+
 ### The defect rows
 
 Step 1's plan (its work item 12) named a row for each defect part whose harm
@@ -2251,6 +2420,9 @@ class; the table names it where it shows what the row's other checks do not.
 "Correction n" is the research claim `harness-findings.md` corrects under that
 number.
 
+Four findings made while step 2 was planned have rows of their own at the
+table's end (56, 57, 70 and 71), each shown by a targeted document.
+
 One row is not reproduced: "12, same-type child", whose input no Nova document
 holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
 left out the same way, is a row again: Nova's gate admits the read it needs.
@@ -2262,7 +2434,7 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 1, language codes | adding a language whose code collides with an existing one, or removing one of a colliding pair, renames the existing language's code, and a build profile a person saved in HQ naming the old code then fails `create_all_files(profile)` ("Form does not contain any translations for any of the build languages", `xform.py::XForm.exclude_languages`) | proof 1 over the edit; the bar on B-edit, over A's build profile | `targeted-hq-side-state` (adds one, under a build profile saved over A); `localization-mandarin` (removes one) |
 | 4, translations | a UI translation saved in HQ (`views/apps.py::edit_app_ui_translations`) is gone from `app_strings.txt` after the next publish, whose import replaces the app's translations with Nova's (`_merge_source_into_app`) | proof 2 | `targeted-hq-side-state` |
 | 4, `auto_gps_capture` | the setting saved in HQ (`views/apps.py::edit_app_attr`) is set back by the next import, so each form's meta loses its location and its poll of the location sensor (`xform.py::XForm._add_meta_2`) and its submission the location | proof 2; proof 3 between A's and B's builds | `targeted-hq-side-state` |
-| 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-state` |
+| 5, table content | Nova's next push uploads its workbook for a table a person keeps in HQ (a field property, row attributes, owners and a description) with `replace`; HQ's upload sees another table (`run_upload.py::table_key`), deletes it and makes it again, so the table and its rows get new ids and lose the property, the attributes, the owners and the description | proof 1 (the project's lookup tables) | `targeted-hq-side-lookup` (its control, `targeted-hq-side-state`, keeps the table from before the two documents were split) |
 | 2 | `validate_app` fails with "Expecting 'QNAME', got 'AT'" (`helpers/validators.py`, the form's `validate_for_build`) | the bar | a form display condition on the loaded case's status, id, type or owner |
 | 3 | the case properties HQ learns each form writes (`FormBase.get_all_case_updates`) and the data dictionary rows its save writes (`refresh_data_dictionary_from_app`) lack the properties Nova's Save to Case blocks write, and a Vellum save rewrites `case_references_data.save` | intent (HQ); proof 4 | a form with case operations, under a configuration with `save_to_case`, which HQ's refresh requires |
 | 3, unknown question | HQ's form builder warns "Unknown question: #case/<property>" where a form reads a property only a Save to Case block writes, and not where an ordinary field writes it | proof 4 (Vellum's report) | `targeted-save-to-case-read` |
@@ -2297,7 +2469,7 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
 | 14, tiles | the save writes a font size and places unplaced columns, changing the suite, and aligns every custom-tile cell (defect 42) | proof 4, then 2 | a tile without sizes or positions; `targeted-custom-tile` |
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name | proof 4, then 3 | any form |
-| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). Renaming a Connect id under an opportunity that holds it breaks the opportunity: Connect refuses every delivery of a renamed deliver unit ("Payment unit is not configured for the deliver unit"), makes a second learn module of a renamed one, and completes no assigned task for a renamed task | proof 4; the bar; proof 4 over B-edit, on what Connect made of the edit's submissions | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids`, `targeted-connect-deliver-rename`, `targeted-connect-learn-rename` |
+| 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit") | proof 4; the bar | `targeted-invalid-question-ids`, `targeted-invalid-connect-ids` |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | `targeted-hidden-column` |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
@@ -2307,6 +2479,10 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group | proof 4 | `targeted-labelled-group-repeat` |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | `targeted-repeat-count-copy` |
+| 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant | intent (Core), on the local export and on A | `targeted-datetime-ordering` |
+| 57, `case_id` column | a case list column over `case_id` is blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` makes HQ's Case List page refuse to save | manifest; proof 3 across the two paths; proof 4 | `targeted-case-id-column` |
+| 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`) | the bar; proof 4 | `targeted-reserved-question-names` |
+| 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admits | proof 4 | `targeted-form-root-read` |
 
 The harness's own findings, numbered from 31, are in
 `docs/research/2026-09-26-hq-round-trip/harness-findings.md`, each with what
@@ -2326,13 +2502,33 @@ it corrects, if any.
    the check that reports it like any other.
 2. Name a non-fuzz document that shows it, or write a targeted document that
    does. Pin `values` only on a targeted document.
-3. Retain that document from an emitted corpus, unless a control already
-   retains it: `python3 -m proof.checks.controls <corpus> <document id>
-   <check>[,<check>...]` writes `proof/controls/<document id>/` with the files
-   those checks read and what they derive from the document.
+3. Retain that document from an emitted corpus before its fix, unless a
+   control already retains it: `python3 -m proof.checks.controls <corpus>
+   <document id> <check>[,<check>...] [<controls dir>] [--as <control
+   name>]` writes `proof/controls/<document id>/` with the files those checks
+   read and what they derive from the document. Name every check an entry of
+   that control names: a control keeps an archive or the edit only for a
+   check that reads it. `--as` writes the control under another name and
+   leaves the document's own directory as it is, for a control that must
+   keep other bytes than one of the document's id already keeps. A directory
+   a fixed entry or a held stop's `control` entry names is never retained
+   again: `retain` refuses the name, because its bytes are what those
+   entries are held to.
 4. Add the entry, run the document's checks and its control
    (`npm run proof -- proof/checks -k <document id>` and `-k control-<name>`),
    and confirm the entry holds what the check reported and nothing more.
+
+**Moving an entry when its defect is fixed.** The fix's pull request moves
+each entry the fix takes off its document from `proof/known-defects.json` to
+`proof/fixed-defects.json`, in the same change: the same id, check,
+artifact, path, kind, values and control, without `document`. Its control
+was retained before the fix, since after it Nova no longer emits the bytes,
+so the entry keeps showing there. A remaining entry whose class a fix moves
+to a new path on its document is re-pathed from the run's evidence
+(`blocks/<id>/checks/<check>/corpus-<id>.json`), never by editing the old
+path's text, and where its control keeps the old bytes and a fixed entry
+names that directory, it gets a new control under a new name (`--as`). A
+held walk stop moves with its fix the same way ("Walk stops").
 
 ### Identity moves
 
@@ -2374,13 +2570,33 @@ short of the app's own end (`proof/checks/stops.py` loads and enforces it;
   it held its form (`form-held`).
 - **`reason`** is one line saying why the reader ends there.
 
+An entry names where its stop shows by exactly one of two keys: `document`,
+a corpus document, or `control`, a directory under `proof/controls/`
+(`{"control": "<control>", "reader": ..., "cause": ..., "reason": ...}`).
 The list is strict both ways, as the known-defect register is: a stop no
-entry holds fails its document's check and the gate by name, and so does an
-entry whose stop no run of its document showed. One entry holds one
-document, reader and cause; a control's walks are held by its document's
-entries, and an entry must show on the corpus document. A run that hands its
-states to some readers holds the entries of those readers and leaves the
-rest to the run with every reader. An entry may name a fuzz document, since a
+entry holds fails its document's or its control's check and the gate by
+name, and so does an entry whose stop no run of its document or its control
+showed. A `document` entry holds the walks of its document and of the
+control of the same name, and must show on the document; a `control` entry
+holds its control's walks alone and must show there. One stop has one
+entry: the loader refuses an entry with both keys or neither, a `document`
+the corpus does not hold, a `control` that names no directory, and a
+`control` entry beside the `document` entry of the same name, reader and
+cause, which already holds that control. The stops check and the queue read
+every control the list's `control` entries name, beside the controls the
+two registers name, so a control only the list names still runs.
+
+A held stop moves with its fix, as a register entry does. A pull request
+that takes a stop off its document, or removes the document, changes the
+entry in the same change: where a control keeps the bytes from before the
+fix and its walks still stop there, the entry's `document` key becomes
+`control`, naming that control, with reader and cause unchanged and a reason
+that says what the control retains; where no control shows the stop, the
+entry is removed. A control retained under another name than its document,
+from a document that stops, gets a `control` entry of its own.
+
+A run that hands its states to some readers holds the entries of those
+readers and leaves the rest to the run with every reader. An entry may name a fuzz document, since a
 reader's own limit shows wherever a form meets it; when the fuzz sample
 changes, the gate names each entry to remove and each stop to add.
 
@@ -2543,7 +2759,8 @@ the observation's environment (the parts that drive the editors, B's and
 B-edit's, name the browser's code in their own keys); each check's evidence on
 a document under the document's files, the observation's and the browser's
 code, every record it was judged from and the judge's code (which includes
-both registers); a browser transcript under the observation's and the
+the registers: the known and fixed defects, the identity moves and the walk
+stops); a browser transcript under the observation's and the
 browser's code (which start the browser, hand it what HQ does not answer and
 record what it did), the platform, the environment and the run's spec and
 first answer, replayed only where HQ, really run again, answers every recorded
@@ -2684,6 +2901,9 @@ reused is only what a key names whole, and the reuse is audited:
 | HQ's own pages and views answer a real Nova export | a page read before its bindings ran; a view answered around its decorators; a request other than the one Nova's client sent | `proof/views/test_*.py`: each pairs what it shows with its counterpart (the flag on, the privilege granted, the project setting on) |
 | An aligned source keeps its own spelling | HQ's build of B aligned to A reading a source another way than it reads B's own (its CommTrack test is a substring test on the stored text) | `proof/checks/test_alignment.py` |
 | The register is strict | a fixed defect left listed, or a new failure absorbed | `proof/checks/test_registers.py`: removing any one entry fails |
+| A fixed defect stays visible on its control | a fix that also blinds the check that showed it; an id in both registers | `proof/checks/test_registers.py`: a fixed entry its control stops showing fails, and so does one whose control ran without its check |
+| Every control is named | a control no entry names, which no check reads | `proof/checks/test_registers.py`: every directory under `proof/controls/` is named by an entry of one of the two registers, and every control they name is a directory |
+| A report left out as HQ's own is HQ's own | a member that hides a symptom of Nova's export; a member with no proof | `proof/checks/test_hq_own_reports.py` (each member's condition, and the set closed over its proofs), and each member's proof over an app made in HQ's own pages |
 | The editor driver saves as HQ does | a page rendered without HQ's template gates | `proof/editors/test_control.py` |
 | A reused page and a warm Vellum host save as fresh ones | state one view or form leaves for the next | `proof/editors/test_view_equivalence.py`, `test_vellum_warm_equivalence.py`, and the in-band audit |
 | Judges are pure | a judge that runs HQ, so a stored record no longer stands for its observation | `proof/checks/test_judge_purity.py` |
@@ -3401,19 +3621,28 @@ its problems:
    is that lane's purpose.
 3. **Register**: the evidence of every block that ran, with the cached groups'
    evidence read from the store, held to `proof/known-defects.json`, and
-   every entry seen on its document and its control. A run over documents
-   named by hand (a queue built with `--documents only:`, or a slice run by
-   `-k` whose documents the gate is told with `--documents`) holds every
-   difference to the whole register and asks to see only the entries naming
-   those documents; a document it was to be held to and did not run fails by
-   name.
+   every entry seen on its document and its control; and every entry of
+   `proof/fixed-defects.json` seen on its control, a failure named to the
+   control's group (`control:<id>`). A run over documents named by hand (a
+   queue built with `--documents only:`, or a slice run by `-k` whose
+   documents the gate is told with `--documents`) holds every difference to
+   the whole register and asks to see only the entries naming those
+   documents; a document it was to be held to and did not run fails by
+   name. Such a run holds the fixed entries of the controls it ran, run or
+   cached, and leaves the rest: a fixed entry names no document, so its
+   control's own run is what brings it into a slice. The section counts the
+   fixed entries it held and those it left (`fixedHeld`, `fixedLeft`), and
+   notes each known entry that shares a class with a fixed one.
 4. **Walk stops**: the stops every document's and control's walks showed,
    read as the register's evidence is, held to `proof/walk-stops.json`: a
    stop no entry holds fails by name, and so does an entry whose document's
-   run showed no such stop. A run holds the entries of the readers it handed
-   its states to and says how many it left to the run with every reader; a
-   run over documents named by hand ran no other document, so it leaves the
-   entries naming one to the run that runs it, and says how many.
+   or control's run showed no such stop. A run holds the entries of the
+   readers it handed its states to and says how many it left to the run with
+   every reader; a run over documents named by hand ran no other document, so
+   it leaves the `document` entries naming one, and the `control` entries
+   whose control it did not run, to the run that runs them, and says on how
+   many documents and how many controls. Its counts (`held`,
+   `leftToNightly`) are of both kinds.
 5. **Surface**: the surface block's extraction, or the store's for this image
    and extractor, is byte for byte the committed `surface.json`. A run over
    documents named by hand whose queues hold no surface block leaves it to
@@ -3933,6 +4162,17 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    the failed step, so CI on the pull request is red: HQ changed something the
    harness depends on.
 
+A fixed entry has no document to fall back on, and its path can hold
+upstream text (a Vellum message, an HQ function's name, a Java frame), so a
+pin move can break one. The prewarm, and the lane with every reader beside
+it, observe every control fresh, so the repair surfaces there and is
+committed to the same branch before it merges, as rule 8 of "Fixed defects"
+gives it: re-pathed from the control's evidence where the same symptom shows
+at a new path, deleted with its citation where upstream changed the
+behavior. A member of `HQ_OWN_REPORTS` whose reader no longer makes its
+report at the new pin fails its proof, and leaves the set on the same
+branch.
+
 There is only ever one such pull request, and a week with nothing new leaves
 it as it is, with a stale date. The work a change needs (an entry for a new
 item, a register entry for a newly visible defect, a seam HQ's refactor moved)
@@ -4024,7 +4264,8 @@ each is stated here as it is built.
     modelled), and the nightly and weekly runs hold the lane with the readers
     ("The lane in CI", "Timings and what the lane is expected to take").
 12. **A known defect is a strict register entry, not a skipped test** ("The
-    registers").
+    registers"). A fixed one stays a strict entry, in the fixed-defect
+    register, held on its control.
 13. **Accepted identity moves are a register too**,
     `proof/identity-moves.json`.
 14. **The harness publishes the way Nova publishes** ("A, B and B-edit"), into

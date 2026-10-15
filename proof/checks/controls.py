@@ -1,7 +1,8 @@
 """Retaining a control: one document's inputs, kept so each check keeps showing the symptoms its register entries
 name there after the emitter that made them is fixed (plan decision 12).
 
-A control (``proof/controls/<document id>/``) is the corpus layout
+A control (``proof/controls/<name>/``, the document's id unless it is retained
+under another name) is the corpus layout
 (``proof.checks.corpus``) of the files its checks read:
 
 - ``configurations.json`` and ``verdict.json`` (and ``edit/verdict.json``);
@@ -32,7 +33,14 @@ by hand is keyed and guarded by what it holds, and its observation and
 judgments are stored as a document's are; nor an export's ``outcome.json``,
 which no check reads.
 
+A directory a fixed-defect entry or a held stop's ``control`` entry
+(``proof/walk-stops.json``) names is never retained again: its bytes are the
+pre-fix inputs that entry must keep showing on (``retain`` refuses it). A
+remaining defect whose symptom moves on such a document gets a control of its
+own, retained under a new name (``--as``).
+
     python3 -m proof.checks.controls <corpus directory> <document id> <check>[,<check>...] [<controls directory>]
+        [--as <control name>]
 """
 
 from __future__ import annotations
@@ -42,7 +50,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from proof.checks import corpus
+from proof.checks import corpus, registers, stops
 from proof.checks.intent import document_intent, intent_json
 from proof.checks.proof1 import lookup_tags
 from proof.observe.casedata import case_database, database_json
@@ -110,11 +118,27 @@ def kept(document, checks) -> list:
     return found
 
 
-def retain(document, checks, into: Path) -> Path:
-    """A control of ``document`` (a corpus document) for ``checks``, written into ``into/<document id>``."""
+def retain(document, checks, into: Path, *, name=None) -> Path:
+    """A control of ``document`` (a corpus document) for ``checks``, written into ``into/<name>``, the document's id
+    unless ``name`` names another. A name a fixed-defect entry's control names, or a held stop's ``control`` entry,
+    is refused: that directory holds the pre-fix bytes the entry must keep showing on, which a retention would
+    replace."""
     if document.kind != "corpus":
         raise corpus.CorpusLayoutError(f"{document.root} is a {document.kind}; a control retains a corpus document.")
-    target = Path(into) / document.id
+    name = document.id if name is None else name
+    if not name or "/" in name or name in (".", ".."):
+        raise corpus.CorpusLayoutError(f"A control's name is one directory name, and {name!r} is not one.")
+    fixed = sorted(entry.id for entry in registers.load_fixed_defects() if entry.control == name)
+    held = sorted(f"{entry.reader} {entry.cause}" for entry in stops.load() if entry.control == name)
+    if fixed or held:
+        holders = [f"the fixed-defect entries {', '.join(fixed)}"] if fixed else []
+        holders += [f"the held stops {', '.join(held)} of proof/walk-stops.json"] if held else []
+        raise corpus.CorpusLayoutError(
+            f"The control {name} holds the pre-fix bytes {' and '.join(holders)} keep showing on, so it is never"
+            " retained again. Retain the document under a new name (--as <control name>) and point the entries that"
+            " need its new bytes at that one."
+        )
+    target = Path(into) / name
     if target.exists():
         shutil.rmtree(target)
     for relative in kept(document, checks):
@@ -134,13 +158,18 @@ def retain(document, checks, into: Path) -> Path:
 
 
 def main(argv):
-    if len(argv) not in (3, 4):
+    argv, name = list(argv), None
+    if "--as" in argv:
+        at = argv.index("--as")
+        name = argv[at + 1] if at + 1 < len(argv) and not argv[at + 1].startswith("-") else ""
+        del argv[at : at + 2]
+    if len(argv) not in (3, 4) or name == "" or "--as" in argv:
         print(__doc__.rsplit("\n\n", 1)[-1].strip(), file=sys.stderr)
         return 2
     root, document_id, checks = Path(argv[0]), argv[1], argv[2].split(",")
     into = Path(argv[3]) if len(argv) == 4 else corpus.CONTROLS_DIR
     document = corpus.load(root).document(document_id)
-    print(retain(document, checks, into))
+    print(retain(document, checks, into, name=name))
     return 0
 
 

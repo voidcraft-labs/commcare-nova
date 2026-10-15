@@ -135,7 +135,7 @@ from pathlib import PurePosixPath
 
 from lxml import etree
 
-from proof.checks import observations, proof3
+from proof.checks import hq_own_reports, observations, proof3
 from proof.checks.bar import admission_differences, error_path, problem_value, refusal_differences
 from proof.checks.compare import names
 from proof.checks.compare.build_files import compare_parsed_builds
@@ -877,7 +877,7 @@ def _answer(body):
     return value if isinstance(value, dict) else {"body": value}
 
 
-def vellum_report(report, *, document, editor, scope):
+def vellum_report(report, *, document, editor, scope, form=None):
     """What Vellum reports opening and saving a form: everything that is not a clean open and save.
 
     Each is keyed by what it says (``message_key``, the form's data node
@@ -897,6 +897,10 @@ def vellum_report(report, *, document, editor, scope):
     not record it, ``driver/steps/vellum/record.js``): it is
     ``logic.js::hasBrokenReferences`` over the same unknown references the
     questions' logic warnings name, each of which is reported.
+
+    A pre-save alert that is HQ's own on the stored form Vellum opened
+    (``form``, its app document's form) is not reported: the set of HQ's
+    own reports decides it (``proof.checks.hq_own_reports``).
     """
     if report["kind"] == "broken":
         return broken_report(report, document=document, editor=editor, scope=scope)
@@ -951,7 +955,10 @@ def vellum_report(report, *, document, editor, scope):
             warning,
         )
     for alert in record.get("preSaveAlerts", []):
-        said("/pre_save_alerts", str(alert), alert)
+        path, at = _said("/pre_save_alerts", str(alert), data_root=data)
+        if hq_own_reports.held(f"editor:{editor}", f"{scope.path}{path}", form):
+            continue
+        add(path, at, "error", alert)
     if record["loaded"] and not saved["saved"]:
         reason = str(saved.get("reason") or "")
         add(f"/save/{pointer_token(reason)}", f"/save/{pointer_token(reason)}", "refused", saved.get("reason"))
@@ -1227,7 +1234,11 @@ class _Judged:
             base = self.b
             for editor, entry in zip((VELLUM, VELLUM_AGAIN), form["runs"], strict=False):
                 reported = vellum_report(
-                    self._blob(entry["report"]), document=self.document, editor=editor, scope=scope
+                    self._blob(entry["report"]),
+                    document=self.document,
+                    editor=editor,
+                    scope=scope,
+                    form=base.stored.doc["modules"][scope.module]["forms"][scope.form],
                 )
                 base = self.judge_save("vellum", editor, scope, form["target"], entry, reported, base)
             if "again" in form:
@@ -1268,12 +1279,14 @@ def edit_refusals(document, records, name, record):
     return compare.refusal_differences(new, check=CHECK, document=document, artifact=FORMPLAYER)
 
 
-def connect_beyond_a(document, records, name, record, *, moved):
+def connect_beyond_a(document, records, name, record, *, moved, view=None):
     """For a Connect app, what CommCare Connect made of B's (or B-edit's) submissions that stands on its own and
     that A's did not show (``connect``, ``proof.checks.connect.absolute_differences``): the opportunity was made
     from A's release and goes on receiving the app's forms after Nova's next publish. An edit changes what a
     form submits, so B-edit's rows are not held to A's; with ``moved`` (the edit), an id the opportunity keys
-    its rows by that moved is a difference too (``/ids/<kind>/moved``). A's own are proof 3's."""
+    its rows by that moved is a difference too (``/ids/<kind>/moved``). A's own are proof 3's. With ``moved``,
+    where ``view`` (the state's ``observations`` view) holds A's build and this state's, what Connect does itself
+    with a block the edit renamed between their forms is left out (``proof.checks.hq_own_reports``)."""
     from proof.checks import connect
 
     a = ((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}
@@ -1293,6 +1306,13 @@ def connect_beyond_a(document, records, name, record, *, moved):
     if a.get("connect") is None:
         return []
     connect_a = (a.get("A") or {}).get("connect")
+    forms = None
+    if moved and view is not None and view.a is not None and view.b is not None:
+        forms = (
+            f"{CONNECT}@{EDIT}@{name}",
+            hq_own_reports.connect_forms(view.a.build),
+            hq_own_reports.connect_forms(view.b.build),
+        )
     return connect.absolute_differences(
         records.blobs.get_json(held["connect"]),
         a["connect"]["catalog"],
@@ -1301,6 +1321,7 @@ def connect_beyond_a(document, records, name, record, *, moved):
         artifact=CONNECT,
         beyond=records.blobs.get_json(connect_a) if connect_a else {},
         moved=moved,
+        forms=forms,
     )
 
 
@@ -1338,7 +1359,9 @@ def document_editability(document, records):
         saves += judged
         if state == EDIT:
             found += [over.named(d) for d in edit_refusals(document.id, records, name, record)]
-        found += [over.named(d) for d in connect_beyond_a(document.id, records, name, record, moved=state == EDIT)]
+        found += [
+            over.named(d) for d in connect_beyond_a(document.id, records, name, record, moved=state == EDIT, view=view)
+        ]
     from proof.checks import android
 
     phone = android.editability(document.id, android.document_record(records))

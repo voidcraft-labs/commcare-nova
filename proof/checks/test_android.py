@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from proof.checks import android
 
 READERS = {
@@ -492,13 +494,14 @@ def test_an_incomplete_form_that_no_longer_opens_after_an_update_is_reported_on_
 
 
 def test_a_stored_session_home_cannot_read_is_that_forms_own_symptom():
-    """A menu with grouped tiles on a device: the session Android kept ends at a datum with no value, and home
-    raises reading it, on HQ's build and the local archive alike."""
+    """The session Android kept ends at a datum with no value, and home raises reading it, on HQ's build and the
+    local archive alike. The datum is no grouped tiles' parent ids, so it is no report CommCare makes itself of
+    any app HQ builds (``proof.checks.hq_own_reports``)."""
     unread = _update(**_reopening())
     unread["reopened"]["m0-f0"] = {
         "records": [{"status": "incomplete", "AndroidCommCarePlatform.getFormDefId": "held"}],
-        "SessionStateDescriptor.getSessionDescriptor": "COMMAND_ID m0-f0 CASE_ID case_id c CASE_ID case_id_parent_ids",
-        "homeRaised": {"class": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 7", "stack": "..."},
+        "SessionStateDescriptor.getSessionDescriptor": "COMMAND_ID m0-f0 CASE_ID case_id",
+        "homeRaised": {"class": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 4", "stack": "..."},
     }
     found = _proof1(_installs("Installed", "DuplicateApp"), unread, unread)
     assert _paths(found) == [
@@ -506,8 +509,22 @@ def test_a_stored_session_home_cannot_read_is_that_forms_own_symptom():
         ("android@local.ccz", "/update/reopened/*/session", "changed"),
     ]
     assert found[0].at == "/update/reopened/m0-f0/session"
-    assert found[0].before == {"kept": "COMMAND_ID m0-f0 CASE_ID case_id c CASE_ID case_id_parent_ids"}
-    assert found[0].after == {"raised": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 7"}
+    assert found[0].before == {"kept": "COMMAND_ID m0-f0 CASE_ID case_id"}
+    assert found[0].after == {"raised": "java.lang.ArrayIndexOutOfBoundsException", "message": "Index 4"}
+
+
+def test_a_reader_that_raised_reading_a_reopened_form_fails_by_name_rather_than_as_a_form_that_did_not_open():
+    """The reader's own raise (``raised`` beside the form's command, where Updates.reopen threw) leaves nothing
+    of what home did: read as an answer, it would be a form that no longer opens."""
+    kept = _update(**_reopening())
+    broken = _update(**_reopening())
+    broken["reopened"]["m0-f0"] = {
+        "raised": {"class": "java.io.FileNotFoundException", "message": "forms-0.xml (No such file)", "stack": "..."}
+    }
+    with pytest.raises(android.ReaderRaised, match="FileNotFoundException.*android@local.ccz.*m0-f0"):
+        _proof1(_installs("Installed", "DuplicateApp"), broken, kept)
+    with pytest.raises(android.ReaderRaised, match="android@B"):
+        _proof1(_installs("Installed", "DuplicateApp"), kept, broken)
 
 
 def test_a_form_the_device_refused_and_yet_applied_is_reported_of_that_archive_alone():

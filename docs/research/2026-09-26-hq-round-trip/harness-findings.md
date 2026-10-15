@@ -6,7 +6,13 @@ claims they proved wrong, and the differences every reader reads alike, each
 proven so by tests that run those readers. Every difference the lane reports
 is held by a register entry (`proof/known-defects.json`), whose `defect` is
 the research's number or one of these, or erased by a spelling rule
-(`proof/rules`); the register holds no entry for an equivalence.
+(`proof/rules`); the register holds no entry for an equivalence. A defect's
+fix moves its entries to the fixed-defect register
+(`proof/fixed-defects.json`), held on the control that keeps its bytes from
+before the fix. What HQ's editors, CommCare's runtimes or Connect report of
+an app Nova never touched is left out by a member of the closed set
+`proof/checks/hq_own_reports.py::HQ_OWN_REPORTS`, each proven on an app made
+in HQ's own pages, and recorded under "What HQ does itself".
 
 Findings 31 to 55 and corrections 1 to 11 came from the lane's whole-corpus
 runs (316 documents, two configurations each) after the register round's
@@ -30,6 +36,9 @@ first run of Formplayer. Those commits are commcare-hq `d6c6e16d8ae1`, commcare-
 `046c7fd78081` and formplayer `24383ac71bfb`, with the Vellum HQ vendors at
 its pin, still `01215f251c57` (`proof/hq/test_boot.py`). Core, Formplayer
 and Vellum are where the research read them; HQ, Android and Connect moved.
+Findings 56, 57, 70 and 71, found while step 2 was planned ("Found while
+planning step 2"), were executed at those same commits, which
+`proof/pins.json` still named.
 
 Citations use `file::symbol`; documents are the corpus ids that show the
 symptom.
@@ -297,9 +306,15 @@ symptom.
     throws "multiple unnamed instance elements found in the form!" on a data
     node named `instance`, and `parseXForm` (`head.find('bind')`) hands a data
     node named `bind` to `parseBindElement`, which fails with a `TypeError`.
-    A node named `itext` opens. *Harm:* the form cannot be edited in
-    HQ at all; HQ builds it and Core runs it unchanged. *Documents:* 20 fuzz
-    documents, `targeted-reserved-node-names`.
+    A node named `itext` opens. A question named `parsererror` stops it the
+    same way, found while step 2 was planned: Vellum loads a form through
+    jQuery's `parseXML` (`src/xml.js::parseXML`), which takes any element of
+    that name for the browser's own parse failure and throws "Invalid XML",
+    and Vellum shows "Parsing Error. Please check that your form is valid
+    XML." (`src/core.js`) and saves nothing. *Harm:* the form cannot be
+    edited in HQ at all; HQ builds it and Core runs it unchanged.
+    *Documents:* 20 fuzz documents, `targeted-reserved-node-names`;
+    `targeted-parsererror-node-name` (proof 4 on Vellum's load).
 
 44. **Duplicate option values are admitted, and HQ's form builder marks them
     an error.** Nova admits two options of one select with the same value, on
@@ -381,18 +396,6 @@ symptom.
     on publish; the upload that follows maps every file. *Documents:* the 36
     whose first publish carries media.
 
-### HQ's editors, continued
-
-50. **A follow-up form that opens one child case draws HQ's registration
-    alert.** HQ counts a form with one child case outside a repeat a
-    registration form (`models/forms.py::Form.is_registration_form`) and maps
-    a case name only from the form's own case
-    (`form_action_diff.py::get_case_mappings`), so Vellum's save alerts "This
-    registration form is missing a case name." (`src/caseManagement.js`,
-    pre-save validation). HQ shows the same alert for a form of that shape its
-    own editors make. *Harm:* an alert on every save; the save goes through.
-    *Documents:* `nested-menu-previous`.
-
 ### Found in the register round
 
 51. **The two installs keep a list's sort keys on different columns, so a
@@ -416,7 +419,15 @@ symptom.
     hidden sort column the other way round. This narrows defect 10's
     unsorted variant, whose order differs only where correction 10 says.
     *Documents:* every document with an unsorted list (`case-operation-query`
-    and 162 others); `targeted-shared-property-sort`.
+    and 162 others); `targeted-shared-property-sort`, whose second menu
+    holds a shown image map and a hidden column over one property, the
+    hidden one carrying the list's order rule: HQ's build keys the image
+    map by its mapping position and the local archive keys the hidden
+    field by the stored value, so a misspelled value finds its case on the
+    local install and nothing on HQ's (Android,
+    `/walks/*/steps/*/list/searches/fuzzyOn/*`). Its first menu, a shown
+    and a hidden column over one property that hold the same text, shows
+    no such difference.
 
 52. **A validation message that shows an answer reaches the worker
     unfilled.** Nova writes a field's validation message on its bind alone
@@ -426,35 +437,39 @@ symptom.
     `Constraint.getConstraintMessage`), while a message read from the
     control's `<alert>`, which Vellum's save adds
     (`src/writer.js::createAlert`), is localized with each output filled
-    (`localizeText`, `FormDef.fillTemplateString`); the spelling rule for
-    the alert (`proof/rules/vellum_alert.py`) leaves such a message.
+    (`localizeText`, `FormDef.fillTemplateString`); the spelling rule the
+    lane then held for the alert (`vellum_alert`, retired once Nova wrote
+    the alert itself) left such a message.
     *Harm:* where the message names an answer, the worker reads `${0}` in
     its place on Nova's export, and the value after a save in HQ.
     *Documents:* `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`.
     *Fixed (#712):* Nova now writes the control's `<alert>` beside the bind
     for a plain message, and composes a message that shows an answer as the
     constraint expression itself (`lib/commcare/xform/constraintMessage.ts`),
-    so the worker reads the value on Nova's export too. The register holds no
-    entry for this finding.
+    so the worker reads the value on Nova's export too. Its two classes are
+    entries of the fixed-defect register (`proof/fixed-defects.json`,
+    `d52-output-in-validation-form-alert` and
+    `d52-output-in-validation-source-alert`), held on the control
+    `expander-form-hashtag-expansion-declares-the-casedb-02e7ce76-0`, which
+    keeps the form from before the fix.
 
-53. **HQ reports an exception for every search Nova's zero-input sentinel
-    sends.** Nova's HQ JSON gives a search with no inputs a default filter
+53. **The two export paths send a search with no inputs differently.**
+    Nova's HQ JSON gives a search with no inputs a default filter
     `_xpath_query` of `match-all()`
     (`lib/commcare/hqJson/caseList.ts::ZERO_INPUT_SEARCH_SENTINEL`), which
     Nova's local archive does not send. HQ returns the same cases (the filter
-    matches every case), but it calls `_require_case_search_advanced` for any
-    `_xpath_query` (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`),
-    which, without `CASE_SEARCH_ADVANCED`, reports "Advanced case search
-    feature attempted" (`notify_exception`). *Harm:* an error report on HQ's
-    side for every such search from an install of HQ's build; the worker
-    sees the same results. *Documents:* `search-automatic`.
+    matches every case), and it notes the filter as a use of Advanced Case
+    Search where the project space lacks it, at most once per project space
+    per day ("What HQ does itself"). *Harm:* a search from an install of
+    HQ's build carries a filter one from the local archive does not; the
+    worker sees the same results. *Documents:* `search-automatic`.
 
 ### Found by running the other readers
 
 Findings 58 to 64 were found by running the readers the lane had only cited:
 Formplayer's application, Connect's receiver, HQ's Web Apps client and
 commcare-android. Numbers 56 and 57 belong to two findings made while step 2
-was planned, which its first pull request records.
+was planned ("Found while planning step 2").
 
 ### Found by running Formplayer
 
@@ -597,23 +612,6 @@ refuses is not sent again when the cause is put right.
     and `connect-deliver-custom` hold such a form too, whose submission
     Connect fails before it reads either (finding 60).
 
-What the same chain shows of defect 15 (Connect ids Vellum rejects, whose
-fix renames them): Connect keys an opportunity's rows by each block's id, so a
-rename under an opportunity that holds the old id breaks it. On the two
-documents whose edit renames their Connect ids (`targeted-connect-deliver-rename`,
-`targeted-connect-learn-rename`), with the opportunity made from A's release
-and B-edit's submissions forwarded to it (`connect@B-edit@…`, proof 4):
-Connect refuses every delivery of the renamed deliver unit (400, "Payment unit
-is not configured for the deliver unit", `/runs/*/refused/400/…`), and HQ
-does not send a refused forward again; the receiver makes a second learn
-module of the renamed one (`/runs/*/catalog/learnModules/added`), so a
-learner who finishes the course stands at half; and the renamed task
-completes no task the worker was assigned. Each is reported with the ids that
-moved (`/ids/deliver/moved`, `/ids/task/moved`, `/ids/module/moved`).
-`proof/connect/test_receiver.py` runs what a manager can do after it (asking
-for the units again and paying for the new one restores deliveries; nothing
-restores the learner or the assigned task).
-
 ### Found by running the Web Apps client
 
 The Web Apps driver (`proof/webapps`) runs HQ's own client, at the HQ pin, in
@@ -681,23 +679,8 @@ installers, activities and views, at the Android pin beside the Core pin,
 under Robolectric, beside HQ's live unit in every proof shard, over each
 state the shard serves: Nova's local exports and HQ's builds of A, B, B-edit
 and every editor save, its network answered by HQ's own views in that
-state's fork (`proof/android/README.md`).
-
-63. **HQ's build installs on Android only with its media.** The lane hands
-    Core HQ's build as HQ's index download arranges it
-    (`hqmedia/views.py::iter_index_files`: the suite, the profile, the app
-    strings and the forms), and Core admits that. Android's install of the
-    same archive fails (`AppInstallStatus.UnknownFailure`): its media
-    installer goes to the network for each file the media suite names. HQ's
-    download with multimedia (`iter_app_files`) installs, and so does Nova's
-    local `.ccz`, which carries its media. *Harm:* none to a worker, who
-    installs from HQ or from a file that holds the media. It bounds the
-    lane: Core's admission of an index-only archive does not stand for a
-    device's install, so each built state's record keeps the archive a
-    device installs (`state.archive`,
-    `proof/observe/build.py::device_archive`), which
-    `proof/checks/test_device_archive.py` holds to HQ's own download.
-    *Documents:* every document whose build names media.
+state's fork (`proof/android/README.md`). The first thing it showed, finding
+63, is HQ's own download arrangement ("What HQ does itself").
 
 The same runs corrected four earlier findings, each amended where it stands
 above: finding 39 (the language picker is the same on both installs and marks
@@ -718,33 +701,9 @@ installs of every document: Nova's local exports and HQ's builds of A, B,
 B-edit and every editor save, each walked from the first menu through every
 list, search, claim and form, installed twice, and updated with forms left
 incomplete (`proof/README.md`, "Android in the unit"). Proofs 1, 3 and 4 judge
-what it read. What that showed that the reader's own tests had not:
-
-67. **An incomplete form in a menu with grouped tiles cannot be reopened
-    where its case has no parent.** A menu whose list groups its tiles gives
-    every form that loads a case a second datum, the ids of the case's
-    parents joined by spaces
-    (`suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`,
-    `<datum id="case_id_parent_ids" function="join(' ', distinct-values(…/index/parent))"/>`),
-    and Nova writes the same datum on both export paths
-    (`lib/commcare/session.ts::deriveSessionDatums`). Android keeps an
-    incomplete form's session as one line of words
-    (`SessionDescriptorUtil.createSessionDescriptor`: each step's type, id
-    and value, joined by spaces) and reads it back by splitting on the
-    spaces (`loadSessionFromDescriptor`). For a case with no parent the
-    datum's value is empty, so the line ends at the datum's id
-    (`COMMAND_ID m0-f0 CASE_ID case_id visit-2 CASE_ID case_id_parent_ids`),
-    and home raises `ArrayIndexOutOfBoundsException` reading it
-    (`HomeScreenBaseActivity.onActivityResultSessionSafe`,
-    `AndroidSessionWrapper.loadFromStateDescription`). *Harm:* a worker who
-    leaves such a form incomplete cannot open it again; the app stops when
-    they pick it from the incomplete forms. It is HQ's own shape and
-    Android's own reader, the same on HQ's build and on Nova's local
-    archive, so no export path avoids it; Nova could leave the datum out
-    only by giving up what HQ's build reads it for. *Documents:*
-    `tile-grouped-one`, `tile-grouped-two`, `tile-grouped-search`
-    (`android@B` and `android@local.ccz`, proof 1,
-    `/update/reopened/*/session`).
+what it read. What that showed that the reader's own tests had not was
+finding 67, which is CommCare's own reading of grouped tiles ("What HQ does
+itself").
 
 What the device shows of earlier defects and findings, each as a worker's
 device meets it, on the documents the register names:
@@ -978,8 +937,8 @@ Formplayer's walk of every state ends where the app ends it, or at a stop
 `proof/walk-stops.json` holds by name (`proof/README.md`, "Walk stops"). Most
 of the stops it holds are the refusal a numbered defect already is (5, 6, 12,
 13, 14, 15 and 20). Three are not, and each ends a form no check had seen
-past. Numbers 70 and 71 belong to two findings step 2's first pull request
-registers.
+past. Numbers 70 and 71 belong to two findings made while step 2 was
+planned ("Found while planning step 2").
 
 72. **Nova admits a choice question whose default is none of its options,
     and Web Apps cannot open the form.** A single or multiple choice field
@@ -1055,7 +1014,10 @@ registers.
     Submit keeps the text: a worker who adds a repetition that holds a date
     and time question, and has nothing after it to answer, submits "Not
     Supported by Web Entry" as that question's answer
-    (`web_form_session.js::submitForm`). *Harm:* Formplayer refuses the
+    (`web_form_session.js::submitForm`). A form whose only questions are
+    date and time questions does the same with no repeat: nothing a worker
+    answers sends a request, so the client holds the text for each and
+    submits it. *Harm:* Formplayer refuses the
     submission (`validation-error`, the question an `illegal-argument`),
     and by the client's code the question then keeps the error and no later
     answer clears it, so every later Submit goes without it as not
@@ -1069,8 +1031,10 @@ registers.
     widget for it. The lane's Formplayer walk now submits what the client
     holds (`proof/formplayer/walk.py::UNSUPPORTED`,
     `proof/webapps/observe.py::submitted_alike` holds the two alike).
-    *Documents:* `fuzz-xform-20260930-10`; it holds the stop Formplayer,
-    `submit-refused:validation-error`.
+    *Documents:* `fuzz-xform-20260930-10`, in a repetition added last;
+    `targeted-datetime-ordering`, whose survey form asks two date and time
+    questions and nothing else (finding 56). Each holds the stop
+    Formplayer, `submit-refused:validation-error`.
 
 The same check found that Formplayer's walk had never pressed the Add of a
 repeat a worker adds to, so no repetition, nor the case it creates, was ever
@@ -1087,6 +1051,103 @@ App Preview's one-question form cannot show a repeat a worker adds to, nor
 a form with no question, which its "Use one question per screen" setting
 answers (38 documents; the lane's replay switches it off there, as a person
 does).
+
+### Found while planning step 2
+
+Step 2's plan ran its fixes and its new targeted documents through the lane
+before writing them, and four things it ran were defects no check had yet
+shown. Each has a targeted document with its register entries and its
+control.
+
+56. **An ordering comparison on a date and time never orders by instant on
+    a device.** Nova's type checker admits an ordering over a date and time
+    (`lib/domain/predicate/typeChecker.ts::ORDERED_TYPES`), Nova writes the
+    comparison bare (`lib/commcare/predicate/caseListFilterEmitter.ts`,
+    with its operands from
+    `lib/commcare/expression/onDeviceEmitter.ts::emitOnDeviceExpression`),
+    and Preview orders it by instant. Core compares by what it holds,
+    executed against Core in three device time zones with the same results:
+
+    | Operand at run time | Examples | Result |
+    |---|---|---|
+    | A date and time held as text | a custom datetime case property, a literal, a lookup column, a worker property, a search input | not a number to `FunctionUtils.toNumeric`, so every ordering is false, in both directions |
+    | A typed date | `now()`, a datetime answer in a form | ordered by calendar day only: two values an hour apart are not `<`, and are both `<=` and `>=` |
+    | `date(...)` of text | a coerced case property or literal | a date with a clock, so by day as the row above; and `date()` of text that is no date raises, where the bare comparison is a quiet false |
+    | `date_opened`, `last_modified` | Core holds them as dates | by day, as documented |
+
+    Core's parse of a date and time that carries an offset
+    (`DateUtils.parseTimeAndStore`) converts the clock to the reader's zone
+    and keeps the written date, so `date(<text>)` is a whole day off
+    wherever the reader's local date for that instant differs from the
+    written one: no one wrapper is right for every operand. HQ's case
+    search is right: its range query compares instants
+    (`date_opened > '2026-01-01T10:00:00.000Z'`). *Harm:* a comparison of
+    two moments that Preview finds true is false on a device, or compares
+    days where the author compared moments. Defect 6 covers a time of day
+    only. Step 3's typed expression model lowers each operand by its type
+    (`docs/plans/hq-round-trip/3-expressions.md`, "Carried from step 2").
+    *Documents:* `targeted-datetime-ordering` (intent, `/values/*/value` on
+    the local export and on A: two answers an hour apart in a survey form,
+    and two case properties held as text in a follow-up form).
+
+57. **A case list column over `case_id` is blank on HQ's build.** Nova
+    writes a shown column over `case_id` as a property column
+    (`field: "case_id"`, `lib/commcare/hqJson/caseList.ts::projectColumnToDetail`),
+    which HQ's build reads as a child element of the case:
+    `detail_screen.py::CASE_PROPERTY_MAP` turns `owner_id` and `status`
+    into attribute reads and has no entry for `case_id`, and the case
+    database holds the id only as an attribute. Nova's local suite reads
+    `@case_id` and shows it. A hidden sort column over `case_id`,
+    `owner_id` or `status` is written with the attribute spelling in a
+    property field (`projectColumnForShortDetail`), which HQ's Case List
+    page refuses to save ("There is an error in your property name",
+    `helpers/validators.py::ModuleDetailValidatorMixin._validate_detail_screen_field`,
+    and the page's `details/utils.js::isValidPropertyName`, neither of
+    which takes `@`). *Harm:* on an install from HQ the column shows
+    nothing, its search matches nothing there, and a person cannot save
+    the app's Case List page in HQ. *Documents:* `targeted-case-id-column`
+    (the manifest; proof 3 on Core's trace, Formplayer and Android; proof
+    4 on the Case List save).
+
+70. **A question named `case`, `registration` or `script` draws HQ's form
+    builder's warning, and `case` in a form that saves a case stops HQ's
+    build.** Vellum adds "The ID '<id>' may cause problems with form
+    parsing. It is recommended to pick a different Question ID." to each
+    such question, in any letter case (`src/mugs/baseSpecs.js`,
+    `RESERVED_NAMES`), on its first save and its second. A root question
+    named `case` in a form with case actions is taken for the form's own
+    case block (`xform.py::XForm.case_node`), so HQ's build raises "You
+    cannot use the Case Management UI if you already have a case block in
+    your form." (`XForm._create_casexml`), and `validate_app`, the form
+    settings page and the Case Management page say the same. *Harm:* a
+    warning on every save of the form; with `case`, nothing can be built
+    or installed from HQ for the app. *Documents:*
+    `targeted-reserved-question-names` (the bar; proof 4 on the Case
+    Management, form settings and Vellum saves).
+
+71. **A read of the form's root is admitted, and HQ's form builder calls it
+    an unknown question.** Nova's gate holds every absolute path of form
+    logic to the form's fields
+    (`lib/commcare/validator/xpathValidator.ts::validateXPath`), reading
+    them from `lib/preview/xpath/dependencies.ts::extractPathRefs`, which
+    collects only paths that start `/data/`, so the root alone (`/data`)
+    is never looked at. Both fuzz generators draw it
+    (`lib/commcare/__tests__/xformDocArbitrary.ts`: `count(/data)` as a
+    counted repeat's count, `/data` as a repeat's ids query).
+
+    | Shape | HQ's form builder | Every other check and reader |
+    |---|---|---|
+    | A Hidden Value whose calculate is `count(/data)` | "Unknown question: #form" on the question, on its first save and its second (`src/logic.js`, `logic-bad-path-warning`) | nothing: HQ builds it, and Core, Formplayer, the Web Apps client and Android run it |
+    | A counted repeat whose count is `count(/data)` | the same, on the hidden node Nova writes to hold the count | nothing |
+    | A repeat over a list of ids whose query is `/data` | nothing | nothing of its own |
+
+    *Harm:* a warning on every save of the form, and a read no author
+    means: the root is the whole form, never a question, a number of rows
+    or a list of ids. It was found when step 2's rules for question names,
+    run over the whole corpus, let HQ's form builder open three fuzz forms
+    it could not open while each also held a question named `instance`.
+    *Documents:* `targeted-form-root-read` (proof 4 on Vellum's two
+    saves).
 
 ### Found of the lane itself
 
@@ -1318,3 +1379,102 @@ HQ joins every entry's text with a space
 (`suite_xml/xml_models.py::XPathEnum.build`, `replace(join(' ', …))`), and
 Nova's local archive writes the same, so the two paths agree and no check
 reports it.
+
+HQ's case search notes a search filter (`_xpath_query`) as a use
+of Advanced Case Search where the project space lacks it: HQ's search calls
+`_require_case_search_advanced` for every such filter
+(`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`), which
+reports "Advanced case search feature attempted" (`notify_exception`) at
+most once per project space per day, since its answer is cached a day by
+project space (`_require_case_search_advanced`, `quickcache` with a
+24-hour timeout). Finding 53's filter meets it.
+
+50. **A follow-up form that opens one child case draws HQ's registration
+    alert.** HQ counts a form with one child case outside a repeat a
+    registration form (`models/forms.py::Form.is_registration_form`) and maps
+    a case name only from the form's own case
+    (`form_action_diff.py::get_case_mappings`), so Vellum's save alerts "This
+    registration form is missing a case name." (`src/caseManagement.js`,
+    pre-save validation). HQ shows the same alert for a form of that shape its
+    own editors make, and nothing Nova can spell removes it: proof 4 leaves
+    it out where HQ counts the form so (`proof/checks/hq_own_reports.py`,
+    `registration_alert_child_case`, proven on a form made in HQ's own
+    pages by `proof/editors/test_hq_own_registration_alert.py`). *Harm:* an
+    alert on every save; the save goes through. *Documents:*
+    `nested-menu-previous`.
+
+63. **HQ's build installs on Android only with its media.** The lane hands
+    Core HQ's build as HQ's index download arranges it
+    (`hqmedia/views.py::iter_index_files`: the suite, the profile, the app
+    strings and the forms), and Core admits that. Android's install of the
+    same archive fails (`AppInstallStatus.UnknownFailure`): its media
+    installer goes to the network for each file the media suite names. HQ's
+    download with multimedia (`iter_app_files`) installs, and so does Nova's
+    local `.ccz`, which carries its media. *Harm:* none to a worker, who
+    installs from HQ or from a file that holds the media. It bounds the
+    lane: Core's admission of an index-only archive does not stand for a
+    device's install, so each built state's record keeps the archive a
+    device installs (`state.archive`,
+    `proof/observe/build.py::device_archive`), which
+    `proof/checks/test_device_archive.py` holds to HQ's own download.
+    It is HQ's own download arrangement and Android's own installer, and
+    Nova's export takes no part in it, so no register entry ever named it.
+    *Documents:* every document whose build names media.
+
+67. **An incomplete form in a menu with grouped tiles cannot be reopened
+    where its case has no parent.** A menu whose list groups its tiles gives
+    every form that loads a case a second datum, the ids of the case's
+    parents joined by spaces
+    (`suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`,
+    `<datum id="case_id_parent_ids" function="join(' ', distinct-values(…/index/parent))"/>`),
+    and Nova writes the same datum on both export paths
+    (`lib/commcare/session.ts::deriveSessionDatums`). Android keeps an
+    incomplete form's session as one line of words
+    (`SessionDescriptorUtil.createSessionDescriptor`: each step's type, id
+    and value, joined by spaces) and reads it back by splitting on the
+    spaces (`loadSessionFromDescriptor`). For a case with no parent the
+    datum's value is empty, so the line ends at the datum's id
+    (`COMMAND_ID m0-f0 CASE_ID case_id visit-2 CASE_ID case_id_parent_ids`),
+    and home raises `ArrayIndexOutOfBoundsException` reading it
+    (`HomeScreenBaseActivity.onActivityResultSessionSafe`,
+    `AndroidSessionWrapper.loadFromStateDescription`). *Harm:* a worker who
+    leaves such a form incomplete cannot open it again; the app stops when
+    they pick it from the incomplete forms. It is HQ's own shape and
+    CommCare's own reader, the same on HQ's build and on Nova's local
+    archive, so no export path avoids it; Nova could leave the datum out
+    only by giving up what HQ's build reads it for. The reader that fails
+    is commcare-core's `SessionDescriptorUtil.loadSessionFromDescriptor`,
+    as commcare-android's `AndroidSessionWrapper.loadFromStateDescription`
+    calls it, and an app made in HQ's own pages with grouped tiles stops
+    the same way: proof 1 leaves the reopen out where the stored session
+    ends at that datum's id and home raised so
+    (`proof/checks/hq_own_reports.py`, `android_grouped_tile_reopen`,
+    proven by `proof/android/test_hq_own_grouped_tile_reopen.py`, which
+    fails at a commcare-core pin that reads such a session). *Documents:*
+    `tile-grouped-one`, `tile-grouped-two`, `tile-grouped-search`
+    (`android@B` and `android@local.ccz`, proof 1,
+    `/update/reopened/*/session`).
+
+What Connect does with a renamed block (defect 15's Connect ids, whose fix
+renames them): Connect keys an opportunity's rows by each block's id
+(commcare-connect `form_receiver/processor.py::get_or_create_learn_module`,
+`get_or_create_deliver_unit`, `process_task_modules`), so a rename under an
+opportunity that holds the old id breaks it, whoever renamed the block. On the two
+documents whose edit renames their Connect ids (`targeted-connect-deliver-rename`,
+`targeted-connect-learn-rename`), with the opportunity made from A's release
+and B-edit's submissions forwarded to it (`connect@B-edit@…`, proof 4):
+Connect refuses every delivery of the renamed deliver unit (400, "Payment unit
+is not configured for the deliver unit", `/runs/*/refused/400/…`), and HQ
+does not send a refused forward again; the receiver makes a second learn
+module of the renamed one (`/runs/*/catalog/learnModules/added`), so a
+learner who finishes the course stands at half; and the renamed task
+completes no task the worker was assigned. Each is reported with the ids that
+moved (`/ids/deliver/moved`, `/ids/task/moved`, `/ids/module/moved`), and the
+Connect judge leaves each out where the edit renamed that block
+(`proof/checks/hq_own_reports.py`, `connect_block_renamed`), since an app
+whose block is renamed in HQ's own form builder meets the same
+(`proof/connect/test_hq_own_rename.py`). What Nova owns is the order of a
+rename and the manager's payment unit for the new id.
+`proof/connect/test_receiver.py` runs what a manager can do after it (asking
+for the units again and paying for the new one restores deliveries; nothing
+restores the learner or the assigned task).

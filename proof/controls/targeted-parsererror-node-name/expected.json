@@ -1,0 +1,30 @@
+{
+	"intent": [
+		{
+			"id": "parsererror-held",
+			"export": "local",
+			"form": "3cdf25c2-611b-5866-af07-392452a610f2",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/parsererror",
+						"value": "kept"
+					}
+				],
+				"expressions": [
+					"/data/parsererror"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "kept"
+				}
+			]
+		}
+	]
+}

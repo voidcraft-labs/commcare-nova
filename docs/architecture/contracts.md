@@ -152,8 +152,9 @@ is either erased by a spelling rule whose own tests show that each reader it
 names reads both spellings alike, or held by an entry of the known-defect
 register (`proof/known-defects.json`). The register is strict: a new
 difference fails, and so does an entry nothing shows any more on its document
-or on its retained control, so a fix removes its entry in the same pull
-request. A reader's walk that stops short of its end is held the same way, by
+or on its retained control, so a fix moves its entries to the fixed-defect
+register (`proof/fixed-defects.json`) in the same pull request, where each
+still shows on its retained control and is held on no document. A reader's walk that stops short of its end is held the same way, by
 name (`proof/walk-stops.json`). A symptom that shows only under a
 project-space configuration Nova's publish refuses reaches no one, and is not
 a defect.

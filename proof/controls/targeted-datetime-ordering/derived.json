@@ -1,0 +1,195 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"due",
+							"2026-01-10T08:00:00.000Z"
+						],
+						[
+							"seen",
+							"2026-01-10T08:00:00.000Z"
+						],
+						[
+							"notes",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"due",
+							"2001-02-03T04:05:06.000Z"
+						],
+						[
+							"seen",
+							"2001-02-03T04:05:06.000Z"
+						],
+						[
+							"notes",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"due",
+							"2099-06-15T14:30:00.000Z"
+						],
+						[
+							"seen",
+							"2099-06-15T14:30:00.000Z"
+						],
+						[
+							"notes",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Visit instants",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "3513c3ec-4d61-5408-a8c5-b71e989dca9c",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"visit",
+					[
+						{
+							"creates": [
+								"visit"
+							],
+							"fieldWrites": {
+								"visit": {
+									"due": "value",
+									"seen": "value"
+								}
+							},
+							"formType": "registration",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "3ac8b7bb-ba60-5f77-a4a8-8ac5f433c6ab",
+							"validations": {},
+							"writes": {
+								"visit": {
+									"due": "value",
+									"seen": "value"
+								}
+							}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {
+								"visit": {
+									"notes": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "47dd4b56-9fe9-55b2-a635-bef8327d53a6",
+							"validations": {},
+							"writes": {
+								"visit": {
+									"notes": "value"
+								}
+							}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"3513c3ec-4d61-5408-a8c5-b71e989dca9c"
+					],
+					"uuid": "ea242b03-e9fc-5db7-a863-43d9c7fd49d3"
+				},
+				{
+					"forms": [
+						"3ac8b7bb-ba60-5f77-a4a8-8ac5f433c6ab",
+						"47dd4b56-9fe9-55b2-a635-bef8327d53a6"
+					],
+					"uuid": "778335b0-5dc9-5554-a4e5-2e8eeaf4fca0"
+				}
+			]
+		}
+	}
+}

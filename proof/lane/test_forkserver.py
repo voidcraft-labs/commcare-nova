@@ -109,7 +109,11 @@ def _nested_base() -> int:
     return NESTED_BASE + 10 * sharding.parse_shard(os.environ.get("PROOF_WORKER", "1/1"), "PROOF_WORKER")[0]
 
 
+# How long a nested run may take before it is interrupted: a run that serves no reader observes its documents in
+# seconds, and one that serves every reader observes the two cheapest documents that build in about 2,113 seconds at
+# a whole lane's density, measured. Each is a limit that ends a stuck run; a run that ends sooner costs nothing for it.
 DEADLINE_SECONDS = 1200
+READERS_DEADLINE_SECONDS = 7200
 # How long an interrupted run has to stop what it started before its group is killed.
 GRACE_SECONDS = 120
 # What the nested runs must not inherit from the session running this test: they are runs of their own.
@@ -164,14 +168,30 @@ def _failure_section(output: str, name: str) -> str:
     return "\n".join(lines[first:end])[:6000]
 
 
+def _deadline() -> int:
+    """The seconds a nested run may take, read as it starts: ``READERS_DEADLINE_SECONDS`` where the session serves a
+    reader (``proof.lane.readers.served``), whose nested runs serve it too, else ``DEADLINE_SECONDS``."""
+    return READERS_DEADLINE_SECONDS if lane_readers.served() else DEADLINE_SECONDS
+
+
+def test_a_nested_run_has_the_time_the_readers_it_serves_take(monkeypatch):
+    """A nested run with every reader serves its two documents to each of them, which takes far past the limit a
+    run without them needs; a limit that ignored the readers fails the run before it compares anything."""
+    monkeypatch.setenv(lane_readers.VARIABLE, "formplayer")
+    assert _deadline() == READERS_DEADLINE_SECONDS == 7200
+    monkeypatch.setenv(lane_readers.VARIABLE, "0")
+    assert _deadline() == DEADLINE_SECONDS == 1200
+
+
 def _run_to_end(command, log: Path, **extra) -> Finished:
     """``command`` run from the worktree to its end, its output (standard output and error) kept in ``log``.
 
-    Past ``DEADLINE_SECONDS`` it is sent SIGINT, on which the server stops its
-    workers and reaps what they started, and pytest tears its session's
-    services down; ``GRACE_SECONDS`` later everything left in its group is
-    killed and reaped.
+    Past its deadline (``_deadline``) it is sent SIGINT, on which the server
+    stops its workers and reaps what they started, and pytest tears its
+    session's services down; ``GRACE_SECONDS`` later everything left in its
+    group is killed and reaped.
     """
+    deadline = _deadline()
     with (
         log.open("wb") as output,
         processes.ProcessGroup(
@@ -182,12 +202,12 @@ def _run_to_end(command, log: Path, **extra) -> Finished:
             stderr=subprocess.STDOUT,
         ) as group,
     ):
-        finished = group.wait(DEADLINE_SECONDS)
+        finished = group.wait(deadline)
         if not finished:
             os.kill(group.group, signal.SIGINT)
             group.wait(GRACE_SECONDS)
     text = log.read_text(encoding="utf-8", errors="replace")
-    assert finished, f"`{shlex.join(str(part) for part in command)}` ran past {DEADLINE_SECONDS} s:\n{text[-9000:]}"
+    assert finished, f"`{shlex.join(str(part) for part in command)}` ran past {deadline} s:\n{text[-9000:]}"
     return Finished(group.returncode, text)
 
 

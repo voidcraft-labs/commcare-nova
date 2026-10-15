@@ -120,6 +120,12 @@
 		"reason": "Formplayer cannot install the app: Core does not parse the close condition its form's case block carries (UnresolvedResourceException), which is the document's witness of defect 14, so the walk ends at its first request."
 	},
 	{
+		"document": "targeted-datetime-ordering",
+		"reader": "formplayer",
+		"cause": "submit-refused:validation-error",
+		"reason": "The client draws no widget for a date and time question, holds \"Not Supported by Web Entry\" as the answer of each of the survey form's two, and submits them (entries.js::UnsupportedEntry); Formplayer refuses the submission as two illegal arguments, on every state of HQ's builds."
+	},
+	{
 		"document": "targeted-invalid-question-ids",
 		"reader": "formplayer",
 		"cause": "notification:question-bound-to-non-existent-node",

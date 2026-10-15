@@ -114,7 +114,6 @@ from proof.rules import (  # noqa: E402
     tile_cell_fields,
     tile_vertical_align_start,
     update_never_beside_actions,
-    vellum_alert,
     vellum_attributes,
     vellum_hashtags,
 )
@@ -124,7 +123,6 @@ RULES: tuple[SpellingRule, ...] = (
     vellum_attributes.RULE,
     vellum_hashtags.RULE,
     required_condition.RULE,
-    vellum_alert.RULE,
     # Before empty_binds: a select's bind left with its node set alone is then an empty bind.
     select_string_type.RULE,
     empty_binds.RULE,
