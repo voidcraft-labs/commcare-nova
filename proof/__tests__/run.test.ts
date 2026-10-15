@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { parse } from "yaml";
 import {
 	androidRuntime,
 	laneOptions,
@@ -1012,3 +1013,87 @@ it("leaves the committed surface alone when the extraction fails", async () => {
 	expect(await regenerate(destination, join(scratch, "extraction"))).toBe(4);
 	expect(await readFile(destination, "utf8")).toBe("committed\n");
 });
+
+// Execute the workflow's actual shell and the runner's real CLI; Docker alone is controlled.
+// This catches a cold cache being refused before the server starts, and shell status mapping
+// hiding that refusal as a check failure. No HQ image or long-running proof is needed.
+it.each([
+	{ readers: "0", warm: false, server: 0, missingQueue: false, expected: 0 },
+	{ readers: "all", warm: false, server: 0, missingQueue: false, expected: 0 },
+	{ readers: "0", warm: true, server: 1, missingQueue: false, expected: 0 },
+	{ readers: "0", warm: false, server: 3, missingQueue: false, expected: 3 },
+	{ readers: "0", warm: false, server: 0, missingQueue: true, expected: 2 },
+])(
+	"holds the shard workflow boundary: $readers, warm=$warm, server=$server, missingQueue=$missingQueue",
+	async ({ readers, warm, server, missingQueue, expected }) => {
+		const workflow = parse(
+			await readFile(
+				join(WORKTREE, ".github/workflows/proof-lane.yml"),
+				"utf8",
+			),
+		);
+		const steps = workflow.jobs.shard.steps as {
+			name?: string;
+			run?: string;
+			with?: Record<string, string>;
+		}[];
+		const prepare = steps.find(
+			(step) => step.name === "Prepare the shard's evidence store",
+		);
+		const lane = steps.find((step) => step.name === "Proof lane");
+		expect(prepare?.run).toBeDefined();
+		expect(lane?.run).toBeDefined();
+		const store = join(scratch, "store/main");
+		if (warm) {
+			await mkdir(store, { recursive: true });
+			await writeFile(join(store, "retained"), "restored evidence");
+		}
+		await mkdir(join(scratch, "lane"));
+		if (!missingQueue)
+			await writeFile(
+				join(scratch, "lane/proof-early-queue-audit-1.json"),
+				"{}\n",
+			);
+		const log = await fakeDocker({ installed: 0, npmCi: 0, harness: server });
+		const env = environmentOf({
+			RUNNER_TEMP: scratch,
+			LABEL: "audit",
+			ATTEMPT: "1",
+			SHARD: "1/1",
+			WORKERS: "1",
+			LANE_ENV: "",
+			CLAIMS: "static",
+			PROOF_READERS: readers,
+			PROOF_STORE: store,
+			PROOF_CORPUS: join(scratch, "corpus"),
+			PROOF_OUT_DIR: join(scratch, "out"),
+		});
+		await run("bash", ["-e", "-c", prepare?.run ?? ""], { cwd: WORKTREE, env });
+		let code = 0;
+		let stderr = "";
+		try {
+			await run("bash", ["-e", "-c", lane?.run ?? ""], { cwd: WORKTREE, env });
+		} catch (error) {
+			({ code, stderr } = error as { code: number; stderr: string });
+		}
+		expect(code).toBe(expected);
+		const invoked = await calls(log);
+		if (missingQueue) {
+			expect(stderr).toContain("download it before starting the shard");
+			expect(invoked).toEqual([]);
+		} else {
+			expect(invoked.find(composeRun)).toContain(`${store}:/store:ro`);
+			expect(invoked.filter(composeDown)).toHaveLength(1);
+		}
+		if (warm)
+			expect(await readFile(join(store, "retained"), "utf8")).toBe(
+				"restored evidence",
+			);
+		// Even a process that dies before producing evidence must fail at the upload boundary.
+		expect(
+			steps.find((step) => step.with?.path?.endsWith("/proof-out/"))?.with?.[
+				"if-no-files-found"
+			],
+		).toBe("error");
+	},
+);

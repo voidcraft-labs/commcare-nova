@@ -3463,7 +3463,11 @@ written from where a pull request's own run read documents from the store
   candidate image in the checkout's lock first (`proof/ci/candidate.mjs`), so
   every key the run computes names the image it pulls. As `store` asks, it
   compares the fresh records with main's store, saves them as main's newest
-  snapshot, or packs them for its caller to merge (`store: pack`).
+  snapshot, or packs them for its caller to merge (`store: pack`). A cache
+  miss starts with an empty store, including the first run for an image.
+  A runner startup error fails its shard; only completed checks returning
+  0 or 1 defer to the gate. A shard that uploads no output fails too, so a
+  green shard alone is never a passing proof verdict.
   `ci.yml`'s `lane_sample` input runs it from a branch over a sample of that
   many documents, storing nothing, to hold a change to it before main's
   audit runs it. `documents` names what it queues (`all`, `sample:<n>`, or
