@@ -1,12 +1,19 @@
 /** The source tools must find library documents without conversation attachments,
  * isolate Projects, and keep paged evidence on one prepared revision. */
 import { beforeEach, expect, it, vi } from "vitest";
+import { validateChatMessages } from "@/lib/chat/validateMessages";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
 	findSourceAssets,
 	loadAssetById,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
+import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
+import {
+	loadThread,
+	persistResponseSnapshot,
+	upsertThreadTurn,
+} from "@/lib/db/threads";
 import {
 	ASSET_KINDS,
 	type AssetKind,
@@ -14,6 +21,7 @@ import {
 	EXTRACTOR_VERSION,
 	extractGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
+import { resolveAttachments } from "../resolveAttachments";
 import {
 	readSourceDocument,
 	type SourceDocumentRuntime,
@@ -264,4 +272,124 @@ it("exposes whole-Project search and every file kind through the existing shared
 	for (const kind of ASSET_KINDS)
 		expect(listMediaAssetsInputSchema.parse({ kind }).kind).toBe(kind);
 	expect(await findSourceAssets("another-project", match.id)).toEqual([]);
+});
+
+it("reopens saved attachment history after a refused deletion without reattaching or extracting again", async () => {
+	const asset = await seed({
+		text: "Collect the visit date and referral reason.",
+	});
+	const nonce = "70000000-0000-4000-8000-000000000001";
+	const appId = await h.seedApp({
+		owner: "source-owner",
+		project_id: "source-project",
+		status: "generating",
+		run_id: "old-run",
+		run_holder_nonce: nonce,
+	});
+	const target = { kind: "app", appId } as const;
+	const threadId = "historical-source-thread";
+	await upsertThreadTurn({
+		target,
+		expectedProjectId: "source-project",
+		threadId,
+		runId: "old-run",
+		holderNonce: nonce,
+		streamId: "old-stream",
+		threadType: "build",
+		messages: [
+			{
+				id: "old-message",
+				role: "user",
+				parts: [{ type: "text", text: "Use these requirements" }],
+				metadata: {
+					attachments: [
+						{
+							assetId: asset.id,
+							kind: "text",
+							filename: asset.originalFilename,
+							mimeType: asset.mimeType,
+						},
+					],
+				},
+			},
+		],
+	});
+	await persistResponseSnapshot({
+		target,
+		threadId,
+		streamId: "old-stream",
+		expectedProjectId: "source-project",
+		responseMessage: null,
+		clearMarker: true,
+	});
+	// Exercise the legacy/missing-index backstop as well as the current edge guard.
+	await h
+		.db()
+		.deleteFrom("thread_media_refs")
+		.where("thread_id", "=", threadId)
+		.execute();
+	expect(
+		await deleteMediaAssetForActor({
+			assetId: asset.id,
+			actorUserId: "source-owner",
+			expectedProjectId: "source-project",
+		}),
+	).toMatchObject({ kind: "referenced" });
+	await h
+		.db()
+		.updateTable("apps")
+		.set({ run_id: "new-run" })
+		.where("id", "=", appId)
+		.execute();
+	// A client sends only its new message; canonical history supplies the old file.
+	await upsertThreadTurn({
+		target,
+		expectedProjectId: "source-project",
+		threadId,
+		runId: "new-run",
+		holderNonce: nonce,
+		streamId: "new-stream",
+		threadType: "build",
+		messages: [
+			{
+				id: "new-message",
+				role: "user",
+				parts: [{ type: "text", text: "Now add a follow-up" }],
+			},
+		],
+	});
+	const loaded = await loadThread(target, threadId);
+	if (!loaded) throw new Error("Saved conversation disappeared");
+	const extractDocumentStructured = vi.fn(async () => {
+		throw new Error("A retained ready extract must not call a model");
+	});
+	const validated = validateChatMessages(loaded.messages);
+	if (!validated.ok) throw new Error("Invalid saved transcript");
+	const resolved = await resolveAttachments(
+		validated.messages,
+		"source-project",
+		{
+			extractDocumentStructured,
+		},
+	);
+	expect(resolved.find((m) => m.id === "old-message")?.parts).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				type: "text",
+				text: expect.stringContaining(
+					"Collect the visit date and referral reason.",
+				),
+			}),
+		]),
+	);
+	expect(resolved.find((m) => m.id === "new-message")).toBeDefined();
+	expect(extractDocumentStructured).not.toHaveBeenCalled();
+	expect(
+		await h
+			.db()
+			.selectFrom("thread_media_refs")
+			.select("asset_id")
+			.where("thread_id", "=", threadId)
+			.execute(),
+	).toEqual([{ asset_id: asset.id }]);
 });

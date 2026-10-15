@@ -9,7 +9,7 @@ export class ThreadAttachmentUnavailableError extends Error {
 	) {
 		super(
 			admission === "durable"
-				? "A file already used by this conversation is unavailable. We've recorded the problem. You can start a new conversation while we investigate."
+				? "A file saved with this conversation is unavailable. We've recorded the problem. Your conversation has not been changed."
 				: detail.reason === "not-ready"
 					? "One of this message's files is not ready. Once it finishes uploading, you can attach it again."
 					: "One of this message's files is unavailable. Remove it and choose a file from this Project before trying again.",
