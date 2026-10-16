@@ -14,8 +14,7 @@
  *   - `same-value`: two order rules whose elements have one join text (one
  *     property name, one `@<name>`, or one expression text). Only the later
  *     survives on HQ's build, while a downloaded app and Preview follow
- *     both. The finding is on the later rule in priority order, the one the
- *     cutover removes.
+ *     both. The finding is on the later rule in priority order.
  *   - `first-column-differs`: an element that lands on an earlier column
  *     whose sort key differs from the key the authored column would have
  *     under the rule (a plain column after an ID mapping over its property,

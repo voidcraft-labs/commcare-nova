@@ -209,17 +209,6 @@ names members by user id, so the future whole-tenant deletion lifecycle must
 list it. Do not delete them until a successful release no longer refreshes
 them. Historical schema migrations are immutable.
 
-The HQ round-trip emission cutover runs through its own Job,
-`commcare-nova-hq-round-trip-cutover`, from the same maintenance image. Its
-stored arguments are the dry run, which writes nothing. `--prove-decrypt`,
-`--settle-holders`, `--rehearse` and `--execute --expect-plan-digest <digest>`
-are its only allowlisted overrides, the last two also with
-`--transient-as-unreadable`, and `--without-hq` is refused. It is the one Job
-that decrypts a member's stored CommCare HQ key, under a grant on that key
-which the operator makes for one run and revokes after it. Its runbook is
-`docs/plans/hq-round-trip/2-cutover-runbook.md`; the Job, the runbook and this
-paragraph are removed together once the cutover has run.
-
 ## Benchmarking
 
 `cloudbuild.benchmark.yaml` builds and inspects the full final image with a fresh

@@ -23,7 +23,7 @@
  * image map on HQ's build, whose key is the mapping position, while the
  * hidden column orders by the stored value, so Nova refuses it
  * (`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`) and the rule is on the image map, as
- * the cutover's `sort-property-ownership` step moves it. Amina's code is
+ * the cutover's `sort-property-ownership` step moved it. Amina's code is
  * `alpha`, the mapping's first entry, Baraka's `bravo`, its second, and
  * Chausiku has none, a blank key, so the second list, in mapping order with
  * blanks first, shows Chausiku, Amina, then Baraka.

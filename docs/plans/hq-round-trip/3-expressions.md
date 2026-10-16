@@ -44,10 +44,11 @@ each in the app's notice.
 
 ## Carried from step 2
 
-Finding 56 (`2-emission-and-publish.md`, "Finding 56"): an ordering comparison
-on a datetime never orders by instant on a device. A datetime held as text is
-not a number to Core (`commcare-core` `FunctionUtils.toNumeric`), so the
-comparison is always false, and a typed date orders by calendar day only. Step
+Finding 56 (`harness-findings.md`, "Found while planning step 2"): an
+ordering comparison on a datetime never orders by instant on a device. A
+datetime held as text is not a number to Core (`commcare-core`
+`FunctionUtils.toNumeric`), so the comparison is always false, and a typed
+date orders by calendar day only. Step
 2 holds it in the register with its control; this step fixes it, because the
 typed model is what knows each operand's type: a lowering chosen per operand
 that compares instants in every device zone, or a refusal where none exists.
@@ -76,7 +77,7 @@ made (`docs/research/2026-09-26-hq-round-trip/harness-findings.md`, finding
   converts the clock to the reader's zone and keeps the written date.
 
 Findings 72 and 73 (`harness-findings.md`, "Found by holding every walk to its
-end"; `2-emission-and-publish/09-proof.md`, "The held walk stops"): two forms
+end"; `proof/README.md`, "Walk stops"): two forms
 Nova admits that a reader refuses to open. Each fails alike on HQ's build and
 on Nova's local archive, so the register holds neither, and the lane holds
 each as a walk stop in `proof/walk-stops.json`.

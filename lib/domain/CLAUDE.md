@@ -261,9 +261,8 @@ It stores nothing and imports nothing from `lib/commcare`: the three options it
 cannot compute (`mediaOn`, a calculated column's resolved type, an expression
 column's printed text) come from
 `lib/commcare/suite/case-list/orderPlanOptions.ts::caseListOrderOptions`. The
-HQ JSON, the local suite, Preview's case store read, the order rules of the
-validator and the cutover all read this one plan, so none decides an order on
-its own. A date column's `pattern` is any pattern Core formats; the schema keeps
+HQ JSON, the local suite, Preview's case store read and the validator's order
+rules all read this one plan, so none decides an order on its own. A date column's `pattern` is any pattern Core formats; the schema keeps
 its pattern check, and the validator alone refuses a straight apostrophe
 (`CASE_LIST_DATE_PATTERN_APOSTROPHE`), which HQ's build writes unescaped.
 `modules.ts::imageMapShowsImages` says whether an image map is written as

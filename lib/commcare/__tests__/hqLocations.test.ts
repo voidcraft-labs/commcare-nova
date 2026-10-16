@@ -535,8 +535,7 @@ it("requires HTTP 202 and keeps known permission refusals distinct from uncertai
 
 it("reads coordinates as HQ's own strings, and null where HQ holds none, from HQ's retained inventory", async () => {
 	/* `proof/hq-reads/places/locations.json`: a parent the resource created
-	 * with coordinates and a child created without (part 02, The retained
-	 * HQ reads). */
+	 * with coordinates and a child created without. */
 	const answer = JSON.parse(
 		readFileSync(
 			path.join(process.cwd(), "proof/hq-reads/places/locations.json"),

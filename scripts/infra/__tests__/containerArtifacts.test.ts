@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DockerfileParser, Run } from "dockerfile-ast";
 import { describe, expect, test } from "vitest";
-import jobs from "@/config/deployment-jobs.json";
 
 const dockerfile = DockerfileParser.parse(readFileSync("Dockerfile", "utf8"));
 function stage(name: string) {
@@ -155,28 +154,6 @@ describe("container artifact declarations", () => {
 				},
 			]),
 		);
-	});
-
-	test("the HQ round-trip emission cutover's Job runs a maintenance bundle of its migrate script", () => {
-		const bundles = stage("maintenance-build")
-			.getInstructions()
-			.filter((item) => item instanceof Run)
-			.map((run) => run.getArguments().map((arg) => arg.getValue()));
-		const cutover = bundles.filter((args) =>
-			args.includes("--outfile=hq-round-trip-cutover.cjs"),
-		);
-		expect(cutover).toHaveLength(1);
-		expect(cutover[0]?.slice(0, 3)).toEqual([
-			"npx",
-			"esbuild",
-			"scripts/migrate-hq-round-trip-cutover.ts",
-		]);
-		expect(jobs["commcare-nova-hq-round-trip-cutover"]).toMatchObject({
-			command: ["node"],
-			args: ["hq-round-trip-cutover.cjs"],
-			maxRetries: 0,
-		});
-		expect(dependencies("runner").has("maintenance-build")).toBe(false);
 	});
 
 	test("the authored job bundle commands produce self-contained operator executables", () => {

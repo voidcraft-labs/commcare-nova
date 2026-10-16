@@ -423,7 +423,7 @@ describe("an ordering on a time of day", () => {
 		);
 	});
 
-	it("is refused at every carrier the cutover's step reads", () => {
+	it("is refused at every registered expression carrier", () => {
 		const registered = new Set([
 			...FIELD_REFERENCE_SLOTS.filter((slot) => slot.kind === "xpath-ast").map(
 				(slot) => slot.slot,

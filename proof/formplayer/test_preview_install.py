@@ -4,8 +4,8 @@ reaches it.
 HQ keeps each form's last validation verdict for 7 days under the app's id and
 the form's (``models/forms.py::FormBase.validation_cache``), and an import
 clears nothing, so a form that failed its check in HQ before Nova's publish
-replaced it keeps reading as failing there (part 02, Work item B, the 7-day
-App Preview statement; ``proof/hq/test_publish.py`` holds HQ's side of it).
+replaced it keeps reading as failing there (the 7-day App Preview
+statement; ``proof/hq/test_publish.py`` holds HQ's side of it).
 App Preview hands Formplayer the app's own id, and Formplayer installs it
 from HQ's download of the unbuilt app (``util/SessionUtils.java::
 resolveInstallReference`` → ``getReferenceToLatest``: ``download_ccz`` with

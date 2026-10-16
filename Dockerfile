@@ -107,10 +107,6 @@ RUN npx esbuild scripts/migrate-select-option-values.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=select-option-value-repair.cjs
-RUN npx esbuild scripts/migrate-hq-round-trip-cutover.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=hq-round-trip-cutover.cjs
 
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app

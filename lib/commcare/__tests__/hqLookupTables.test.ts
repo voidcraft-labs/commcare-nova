@@ -411,8 +411,7 @@ it("refuses an upload redirect without resending workbook bytes to another desti
 
 /*
  * HQ's own answers to the two reads the drift check makes, retained by the
- * lane under `proof/hq-reads/lookups/` (part 02, The retained HQ reads):
- * `plain`, a global table; `rich`, a table that is not global, with a field
+ * lane under `proof/hq-reads/lookups/`: `plain`, a global table; `rich`, a table that is not global, with a field
  * property, a row attribute and both row shapes; `long`, 1,005 rows.
  */
 const LOOKUPS = path.join(process.cwd(), "proof/hq-reads/lookups");

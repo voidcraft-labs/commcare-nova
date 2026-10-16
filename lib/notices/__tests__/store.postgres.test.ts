@@ -1,5 +1,6 @@
 /** Migration notices: who reads them, who dismisses them, and what follows an
- * app. Rows are written the way the cutover writes them, as raw statements. */
+ * app. Rows are seeded in the stored shape production holds, as raw
+ * statements. */
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";

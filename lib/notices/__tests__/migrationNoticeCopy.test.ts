@@ -865,7 +865,7 @@ describe("the lines about what the next publish checks", () => {
 		});
 
 	it("names each plan feature, setting and capability the next publish asks about, in every surface's order", () => {
-		// The cutover writes `next-publish-asks-more` with each list
+		// A stored `next-publish-asks-more` entry holds each list
 		// comma-joined: plan feature ids, the two settings, capability ids.
 		expect(
 			renderNoticeEntry(

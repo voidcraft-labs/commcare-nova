@@ -1,7 +1,0 @@
-{
-	"status": 200,
-	"headers": {
-		"Content-Type": "application/json; charset=utf-8"
-	},
-	"body": "{\"build_comment\": null, \"built_from_app_id\": null, \"built_on\": null, \"id\": \"c306d8917fc945c187d0b1b58a29128f\", \"is_released\": false, \"modules\": [{\"case_properties\": [\"name\"], \"case_type\": \"patient\", \"forms\": [{\"name\": {\"en\": \"Untitled Form\"}, \"questions\": [{\"comment\": null, \"constraint\": null, \"group\": null, \"hashtagValue\": \"#form/question1\", \"is_group\": false, \"label\": \"Question 1\", \"label_ref\": \"question1-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"input\", \"translations\": {\"en\": \"Question 1\"}, \"type\": \"Text\", \"value\": \"/data/question1\"}], \"unique_id\": \"e8c2bbb73bef4324b9d8691babed0ebf\", \"xmlns\": \"http://openrosa.org/formdesigner/c20bc664fba8ce3e\"}], \"name\": {\"en\": \"Followup\"}, \"unique_id\": \"e8a7b62e3749de4b2637de4efa03ae46ff2e4608\"}], \"name\": \"Inline\", \"resource_uri\": \"\", \"version\": 1, \"versions\": []}"
-}

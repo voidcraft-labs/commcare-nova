@@ -1,7 +1,0 @@
-[
-	{
-		"seq": 2,
-		"batchId": "history:empty-menu-renamed:2",
-		"mutationsText": "[{\"kind\":\"renameModule\",\"newId\":\"Homes\",\"uuid\":\"00000000-0000-4000-8000-0000000b0030\"}]"
-	}
-]

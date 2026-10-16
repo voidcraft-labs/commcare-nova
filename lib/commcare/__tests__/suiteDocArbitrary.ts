@@ -968,7 +968,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// App-level logo (web-apps banner) — minted only when the spec asks for it.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	return orderRulesAsTheCutoverLeavesThem({
+	return orderRulesTheGateAdmits({
 		appId: "suite-fuzz-app",
 		appName: "Suite Fuzz App",
 		connectType: null,
@@ -1007,8 +1007,8 @@ function withColumnSorts(
 }
 
 /**
- * Rewrites each drawn list's order rules as the cutover rewrites a stored
- * list, in the cutover's order, so the arbitrary draws only what the gate
+ * Rewrites each drawn list's order rules as the cutover rewrote each stored
+ * list, in the same order, so the arbitrary draws only what the gate
  * admits (`CASE_TILE_HIDDEN_CALCULATED_SORT`,
  * `CASE_LIST_SORT_PROPERTY_AMBIGUOUS`). The rewrite runs after the draw and
  * removes no draw, so the random stream and every other draw stay.
@@ -1020,7 +1020,7 @@ function withColumnSorts(
  * - `sort-property-ownership` (b): on what remains, a rule that lands on
  *   another column whose key differs from its own moves to that column.
  */
-function orderRulesAsTheCutoverLeavesThem(doc: BlueprintDoc): BlueprintDoc {
+function orderRulesTheGateAdmits(doc: BlueprintDoc): BlueprintDoc {
 	const modules: Record<Uuid, Module> = { ...doc.modules };
 	const current = (): BlueprintDoc => ({ ...doc, modules });
 	for (const uuid of doc.moduleOrder) {

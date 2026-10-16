@@ -8,7 +8,7 @@ import {
 
 const DEPLOYMENT_ID = "01992000-0000-7000-8000-000000000011";
 
-/** One real entry per reason, as the cutover writes it. */
+/** One real entry per reason, in the stored shape. */
 const REAL_ENTRIES = {
 	"unsaved-assistant-work-discarded": {
 		kind: "document",

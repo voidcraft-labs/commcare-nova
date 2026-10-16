@@ -390,8 +390,8 @@ describe("translation unit inventory", () => {
 
 	it("gives a stored document's repeated case-property values injective option-label units", () => {
 		// The gate refuses a repeated value (CASE_PROPERTY_OPTION_VALUE_DUPLICATE),
-		// and a document stored before that holds one until the cutover's
-		// option-values step renames it, moving each entry by this key.
+		// and a document stored before that held one until the cutover's
+		// option-values step renamed it, moving each entry by this key.
 		const doc = buildDoc({
 			appName: "Clinic",
 			caseTypes: [

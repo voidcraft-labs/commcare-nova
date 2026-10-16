@@ -24,8 +24,8 @@ Planned in full when step 5 exits. The design is the research's "The reader",
    deployment ledger as explicitly adopted. An import writes the ids its
    target holds that differ from Nova's derivation into
    `app_deployment_identities`, so this step gives the runtime role the write
-   privilege on that table: in step 2 the cutover is its only writer and the
-   runtime role can only read it.
+   privilege on that table: its rows are the ones step 2's cutover wrote,
+   nothing in the app writes them now, and the runtime role can only read it.
 3. **Referenced and adopted project-space data.** A table or location an app
    only reads is recorded as referenced in its project space and never written
    there; adoption belongs to a Project table (or the app's location) and a

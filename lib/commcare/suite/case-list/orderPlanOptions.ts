@@ -5,8 +5,8 @@
 // domain, which imports nothing from `lib/commcare`, so the two things it
 // cannot compute come from here: a calculated column's resolved type, and the
 // text HQ JSON writes as an expression column's `field`. One helper builds
-// both for every reader (HQ JSON, the local suite, the validator, the cutover
-// and Preview), so no two readers can build the plan differently.
+// both for every reader (HQ JSON, the local suite, the validator and
+// Preview), so no two readers can build the plan differently.
 
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -161,8 +161,7 @@ function canonicalJson(value: unknown): string {
 
 /**
  * The options of a module's order plan. `mediaOn` is whether the export
- * carries a media manifest; the validator, the cutover and Preview pass
- * `true`, the plan of every production export. Readers 1 and 2 pass their
+ * carries a media manifest; the validator and Preview pass `true`, the plan of every production export. Readers 1 and 2 pass their
  * run's lookup naming, so every stored short column's `field` is the plan's
  * join text itself.
  */

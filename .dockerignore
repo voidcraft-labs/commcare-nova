@@ -57,9 +57,6 @@ scripts/lib/*
 !scripts/migrate-case-status-filters.ts
 !scripts/migrate-select-option-values.ts
 !scripts/lib/prodDb.ts
-!scripts/migrate-hq-round-trip-cutover.ts
-!scripts/lib/hqRoundTripCutover/
-scripts/lib/hqRoundTripCutover/__tests__/
 
 # Cloud Build control files are generated between artifact exports.
 rollout.env

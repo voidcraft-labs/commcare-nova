@@ -1,7 +1,7 @@
 /**
  * The lookup-table and place comparisons over CommCare HQ's own answers,
  * retained by the lane under `proof/hq-reads/lookups/` and
- * `proof/hq-reads/places/` (part 02, The retained HQ reads). Each answer
+ * `proof/hq-reads/places/`. Each answer
  * reaches the comparison through the production reader, served by a peer,
  * so the shapes compared are the ones HQ serves.
  */

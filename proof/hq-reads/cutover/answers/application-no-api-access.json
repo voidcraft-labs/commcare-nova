@@ -1,7 +1,0 @@
-{
-	"status": 401,
-	"headers": {
-		"Content-Type": "application/json"
-	},
-	"body": "{\"error\": \"Your current subscription does not have access to this feature\"}"
-}

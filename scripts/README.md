@@ -179,16 +179,3 @@ npx tsx scripts/scan-legacy-preplan-builds.ts --prod
 The Cloud Run Job is dry-run by default. Held rows remain untouched until the
 run finishes or the reaper releases them; empty rows require an explicit
 operator decision instead of automatic recovery.
-
-## HQ round-trip emission cutover
-
-A one-off scan and migrate pair. Production writes run only through the Job `commcare-nova-hq-round-trip-cutover`, by `docs/plans/hq-round-trip/2-cutover-runbook.md`.
-
-```bash
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-cutover.ts
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-cutover.ts --prod
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-cutover.ts --app <appId> --debug-details
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-cutover.ts --prod --recipients
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-cutover.ts --rehearse --without-hq
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-cutover.ts --execute --expect-plan-digest <digest> --without-hq
-```

@@ -4,7 +4,7 @@ HQ's build writes a date column's pattern between straight apostrophes as it
 stands, unescaped (``detail_screen.py::Date``: ``format-date(date(<property>),
 '<pattern>')``), so a pattern holding ``'`` ends the string literal early and
 the template's expression is broken. Nova refuses such a pattern
-(``CASE_LIST_DATE_PATTERN_APOSTROPHE``) and its cutover writes the curved
+(``CASE_LIST_DATE_PATTERN_APOSTROPHE``) and its cutover wrote the curved
 apostrophe ``’`` in its place.
 
 Contract, on ``case-list-inline`` as Nova's publish leaves it in HQ, with

@@ -1,7 +1,7 @@
 """Formplayer over Nova's local archive: it installs and runs it, submits its forms and searches as HQ's build does.
 
 Contract: Nova compiles a local ``.ccz`` for the project space the app is
-published to (part 01, A5), so its profile names where a form is sent
+published to, so its profile names where a form is sent
 (``PostURL``, which ``session/MenuSession.java`` reads and
 ``FormSession.getPostUrl`` hands the submit) and its suite names where a
 search is sent, each under the working app's id. Formplayer installs the

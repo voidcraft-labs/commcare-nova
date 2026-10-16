@@ -161,7 +161,7 @@ def test_a_vellum_save_names_the_form_in_the_language_the_person_edits_in(hq, co
 
 
 def test_a_form_builder_save_clears_a_verdict_cached_before_novas_publish(hq, core_runner, editor_driver):
-    """The fourth state of part 02's 7-day App Preview statement, made in Vellum: ``navigation-base`` as Nova's
+    """The fourth state of the 7-day App Preview statement, made in Vellum: ``navigation-base`` as Nova's
     publish leaves it, one form saved broken through the form builder's save path and checked, so HQ caches its
     failing verdict, then Nova's publish over it, which leaves the verdict and HQ's download of the unbuilt app
     refused (``proof/hq/test_publish.py``, the cached form verdict's case).

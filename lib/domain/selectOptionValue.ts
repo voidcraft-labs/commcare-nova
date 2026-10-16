@@ -210,7 +210,7 @@ function slugOf(text: string): string {
  * names one case property, the property's catalog and every select that
  * writes it, is one space, so a field and its catalog never disagree about a
  * value; a select that writes no property is a space of its own. The
- * select-option repair and the cutover's split both group by this key.
+ * select-option repair groups by this key.
  */
 export function optionValueSpaceKey(
 	owner:

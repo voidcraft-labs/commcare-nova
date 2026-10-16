@@ -224,7 +224,7 @@ class Intent:
 
 
 # The fifteen settings every Nova app states at the value a device reads where a profile names none
-# (lib/commcare/appProfileSettings.ts::appProfileProperties, part 04, finding 40), fixed here by hand.
+# (lib/commcare/appProfileSettings.ts::appProfileProperties, finding 40), fixed here by hand.
 NOVA_PROFILE_CONSTANTS = {
     "cc-fuzzy-search-enabled": "no",
     "cc-gps-auto-capture-accuracy": "10",
