@@ -255,6 +255,27 @@ it.each(extensionScenarios)(
 			}
 		}
 		if (scenario === "registration") {
+			// The local data node takes HQ's order: fields, the subcase blocks,
+			// then the form's own case, then meta (`xform.py::XForm._create_casexml`).
+			const local = xmlTree(zip.readAsText("modules-0/forms-0.xml"));
+			const localModel = at(
+				at(one(local.children.filter(isTag)), "h:head"),
+				"model",
+			);
+			const localData = at(
+				one(
+					localModel.children
+						.filter(isTag)
+						.filter((e) => e.name === "instance" && !e.attribs.src),
+				),
+				"data",
+			);
+			expect(
+				localData.children
+					.filter(isTag)
+					.map((e) => e.name)
+					.filter((name) => /^(subcase_\d+|case|orx:meta)$/.test(name)),
+			).toEqual(["subcase_1", "case", "orx:meta"]);
 			const stack = one(findAll((e) => e.name === "stack", entry.children));
 			expect(
 				findAll(
@@ -340,13 +361,41 @@ it("writes no required on a Hidden Value that names an extension child", () => {
 			(e) => e.name === "bind" && e.attribs.nodeset === "/data/episode_name",
 		);
 	expect(one(nameBinds).attribs.required).toBeUndefined();
+	// A Hidden Value takes no validation condition either; its value is
+	// trimmed by the sibling the extension's block reads, which the form
+	// carries though its only name writer is a source-lowered subcase.
+	expect(one(nameBinds).attribs.constraint).toBeUndefined();
 	expect(
 		findAll(
 			(e) =>
 				e.name === "bind" && e.attribs.nodeset.endsWith("/create/case_name"),
 			model.children,
 		).map((e) => e.attribs.calculate),
-	).toEqual([
-		"replace(/data/episode_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
-	]);
+	).toEqual(["/data/nova_trimmed_episode_name"]);
+	expect(
+		one(
+			model.children
+				.filter(isTag)
+				.filter(
+					(e) =>
+						e.name === "bind" &&
+						e.attribs.nodeset === "/data/nova_trimmed_episode_name",
+				),
+		).attribs,
+	).toEqual({
+		nodeset: "/data/nova_trimmed_episode_name",
+		calculate:
+			"replace(/data/episode_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+		relevant: "count(/data/episode_name) > 0",
+	});
+	const instance = one(
+		model.children
+			.filter(isTag)
+			.filter((e) => e.name === "instance" && e.attribs.src === undefined),
+	);
+	expect(
+		at(instance, "data")
+			.children.filter(isTag)
+			.map((e) => e.name),
+	).toEqual(["episode_name", "nova_trimmed_episode_name", "nova_subcases"]);
 });

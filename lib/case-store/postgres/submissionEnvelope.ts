@@ -2274,6 +2274,12 @@ async function applyOrdinaryAction(
 						patch,
 					});
 				}
+			} else if (ordinary.selection.kind === "single") {
+				// A one-case form's primary block names its case whatever it
+				// writes, and HQ's case processing moves that case's
+				// `modified_on` for it. A several-case form has no primary
+				// block, so a write-free submission leaves its cases alone.
+				await stampModified(trx, host, appId, ordinary.caseIds[0] as string);
 			}
 			const createdChildren: CreatedChildCaseReceipt[] = [];
 			for (const [authoredChildIndex, child] of ordinary.children.entries()) {

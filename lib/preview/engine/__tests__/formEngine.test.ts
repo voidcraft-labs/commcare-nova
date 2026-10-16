@@ -5982,3 +5982,186 @@ describe("the form's data node name", () => {
 		},
 	);
 });
+
+describe("the case name and external id guard", () => {
+	const FORM = testUuid("guarded-register");
+	function register(nameField: Record<string, unknown> = {}) {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "full_name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+									...nameField,
+								}),
+								f({
+									kind: "text",
+									id: "code",
+									caseWrite: { caseType: "patient", property: "external_id" },
+								}),
+								f({ kind: "text", id: "notes" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const input = buildEngineInput(doc, FORM, null);
+		if (input === undefined) throw new Error("The form has no input.");
+		return new FormEngine(input, "patient");
+	}
+
+	it("revalidates an entered answer when a case destination edit moves the guard", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "note", label: "Note", data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "full_name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "code",
+									caseWrite: { caseType: "patient", property: "external_id" },
+								}),
+								f({
+									kind: "text",
+									id: "notes",
+									caseWrite: { caseType: "patient", property: "note" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const input = buildEngineInput(doc, FORM, null);
+		if (input === undefined) throw new Error("The form has no input.");
+		const engine = new FormEngine(input, "patient");
+		engine.setValue("/data/code", "x".repeat(256));
+		engine.setValue("/data/notes", "n".repeat(300));
+		engine.touch("/data/notes");
+		expect(engine.getState("/data/code").valid).toBe(false);
+		expect(engine.getState("/data/notes").valid).toBe(true);
+
+		const uuidOf = (id: string) => {
+			const field = Object.values(doc.fields).find((each) => each.id === id);
+			if (field === undefined) throw new Error(`No field ${id}.`);
+			return field.uuid;
+		};
+		const swapped = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[uuidOf("code")]: {
+					...doc.fields[uuidOf("code")],
+					caseWrite: { caseType: "patient", property: "note" },
+				},
+				[uuidOf("notes")]: {
+					...doc.fields[uuidOf("notes")],
+					caseWrite: { caseType: "patient", property: "external_id" },
+				},
+			},
+		} as typeof doc;
+		const next = buildEngineInput(swapped, FORM, null);
+		if (next === undefined) throw new Error("The form has no input.");
+		engine.refreshCaseWriteDoc(next);
+		expect(engine.getState("/data/code")).toMatchObject({
+			valid: true,
+			errorMessage: undefined,
+		});
+		expect(engine.getState("/data/notes")).toMatchObject({
+			valid: false,
+			errorMessage: "Invalid value",
+		});
+	});
+
+	it("refuses a whitespace-only and an over-long name at the question, with the runtime's text", () => {
+		const engine = register();
+		for (const value of [" \t ", "a".repeat(256)]) {
+			engine.setValue("/data/full_name", value);
+			expect(engine.getState("/data/full_name")).toMatchObject({
+				valid: false,
+				errorMessage: "Invalid value",
+			});
+		}
+		engine.setValue("/data/full_name", "a".repeat(255));
+		expect(engine.getState("/data/full_name").valid).toBe(true);
+	});
+
+	it("shows the author's message for either failure, and checks the author's rule too", () => {
+		const engine = register({
+			validate: "string-length(.) > 1",
+			validate_msg: "Use the person's full name.",
+		});
+		engine.setValue("/data/full_name", "   ");
+		expect(engine.getState("/data/full_name")).toMatchObject({
+			valid: false,
+			errorMessage: "Use the person's full name.",
+		});
+		engine.setValue("/data/full_name", "a".repeat(256));
+		expect(engine.getState("/data/full_name").valid).toBe(false);
+		engine.setValue("/data/full_name", "A");
+		expect(engine.getState("/data/full_name").valid).toBe(false);
+		engine.setValue("/data/full_name", "Alice");
+		expect(engine.getState("/data/full_name").valid).toBe(true);
+	});
+
+	it("allows a blank external id and refuses an over-long one", () => {
+		const engine = register();
+		engine.setValue("/data/code", "   ");
+		expect(engine.getState("/data/code").valid).toBe(true);
+		engine.setValue("/data/code", "x".repeat(256));
+		expect(engine.getState("/data/code").valid).toBe(false);
+	});
+
+	it("leaves a question no case write reads unguarded", () => {
+		const engine = register();
+		engine.setValue("/data/notes", "n".repeat(300));
+		expect(engine.getState("/data/notes").valid).toBe(true);
+	});
+
+	it("stores the accepted padded name trimmed", () => {
+		const engine = register();
+		engine.setValue("/data/full_name", "  Alice  ");
+		expect(engine.getState("/data/full_name").valid).toBe(true);
+		const mutation = engine.computeSubmissionMutation({ entryKey: ENTRY_KEY });
+		expect(mutation).toMatchObject({
+			kind: "registration",
+			primary: { caseName: "Alice" },
+		});
+	});
+});

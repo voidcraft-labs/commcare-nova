@@ -22,6 +22,7 @@ import { findOne } from "domutils";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import { alwaysCondition, ifCondition } from "@/lib/commcare/hqShells";
 import {
 	validatePropertyName,
 	validateXFormPath,
@@ -63,6 +64,7 @@ import {
 	type CaseOperation,
 	type CaseTarget,
 	caseDataTypeForFieldKind,
+	closeConditionPlacement,
 	effectiveCaseTypes,
 	isCaptureField,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
@@ -182,7 +184,6 @@ export interface CaseOperationsEmission {
 	readonly instances: ReadonlySet<RequiredInstance>;
 	/** Lookup-fixture declarations the operation expressions need, id → src. */
 	readonly fixtureInstances: ReadonlyMap<string, string>;
-	readonly requiredNamePaths: readonly string[];
 }
 
 /**
@@ -266,15 +267,31 @@ export function buildCaseOperations(
 	lookupNaming?: LookupWireNaming,
 	selectedCaseIdRef: string = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
-	ordinaryCloseCondition?: FormActionCondition,
 	ordinaryPrimaryUpdate: UpdateCaseAction["update"] = {},
 	ordinarySubcases: readonly OpenSubCaseAction[] = [],
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const operations = orderedCaseOperations(form);
+	// A close form's ordinary close stands in the source when HQ's singular
+	// block cannot carry it: for every selected case of a several-case form,
+	// and for a condition HQ's Case Management tab cannot state.
+	const ordinaryClose =
+		form.type !== "close"
+			? undefined
+			: selectedCasesInstanceId !== undefined
+				? {
+						scope: "selected" as const,
+						condition: formCloseCondition(doc, formUuid),
+					}
+				: closeConditionPlacement(doc, formUuid) === "save-to-case"
+					? {
+							scope: "own" as const,
+							condition: formCloseCondition(doc, formUuid),
+						}
+					: undefined;
 	if (
 		operations.length === 0 &&
-		ordinaryCloseCondition === undefined &&
+		ordinaryClose === undefined &&
 		Object.keys(ordinaryPrimaryUpdate).length === 0 &&
 		!ordinarySubcases.some(
 			(subcase) =>
@@ -926,8 +943,6 @@ export function buildCaseOperations(
 		if (create) priorCreates.set(operation.uuid, location);
 	}
 
-	const requiredNamePaths: string[] = [];
-
 	// An ordinary Case destination on a several-case form is one shared answer
 	// applied to every selected case. HQ's scalar FormActions projection cannot
 	// express that cardinality, so the source XForm carries one derived
@@ -953,18 +968,15 @@ export function buildCaseOperations(
 				const property = validatePropertyName(
 					formActionsProperty === "name" ? "case_name" : formActionsProperty,
 				);
+				// A name or an external id reads the question's trimmed sibling,
+				// which `formActions.ts` names.
 				const source = validateXFormPath(mapping.question_path);
 				const attachment = attachmentSourcePaths.has(source);
-				const fixedScalar =
-					property === "case_name" || property === "external_id";
-				const value = fixedScalar
-					? caseScalarTextValueCalculation(source)
-					: source;
 				const countGuard = attachment
 					? `count(${source}) = 1`
 					: `count(${source}) > 0`;
-				const present = `${countGuard} and string(${value}) != ''`;
-				return { property, source, attachment, fixedScalar, value, present };
+				const present = `${countGuard} and string(${source}) != ''`;
+				return { property, source, attachment, present };
 			},
 		);
 		const scalarWrites = writes.filter((write) => !write.attachment);
@@ -1001,7 +1013,7 @@ export function buildCaseOperations(
 			binds.push(
 				el("bind", {
 					nodeset: updatePath.child(write.property).toXPath(),
-					calculate: write.value,
+					calculate: write.source,
 					relevant: write.present,
 				}),
 			);
@@ -1105,9 +1117,6 @@ export function buildCaseOperations(
 				: source.toXPath();
 		};
 		const namePath = createPath.child("case_name");
-		requiredNamePaths.push(
-			validateXFormPath(subcase.name_update.question_path),
-		);
 		if (multiple || subcase.repeat_context) {
 			binds.push(
 				el("bind", {
@@ -1141,9 +1150,7 @@ export function buildCaseOperations(
 			}),
 			el("bind", {
 				nodeset: namePath.toXPath(),
-				calculate: caseScalarTextValueCalculation(
-					sourceRef(subcase.name_update.question_path, namePath),
-				),
+				calculate: sourceRef(subcase.name_update.question_path, namePath),
 			}),
 			el("bind", {
 				nodeset: createPath.child("owner_id").toXPath(),
@@ -1153,14 +1160,10 @@ export function buildCaseOperations(
 		for (const [property, mapping] of scalarPropertyEntries) {
 			const propertyPath = updatePath.child(property);
 			const source = sourceRef(mapping.question_path, propertyPath);
-			const fixedScalar =
-				property === "external_id" || property === "case_name";
 			binds.push(
 				el("bind", {
 					nodeset: propertyPath.toXPath(),
-					calculate: fixedScalar
-						? caseScalarTextValueCalculation(source)
-						: source,
+					calculate: source,
 					relevant: `count(${source}) > 0`,
 				}),
 			);
@@ -1210,11 +1213,7 @@ export function buildCaseOperations(
 	// The block is close-only, matching HQ's `XFormCaseBlock.add_close_block`:
 	// writing the module's original case type here would undo an admitted
 	// session-targeted retype that ran immediately before the ordinary close.
-	if (
-		selectedCasesInstanceId !== undefined &&
-		ordinaryCloseCondition !== undefined &&
-		ordinaryCloseCondition.type !== "never"
-	) {
+	if (ordinaryClose?.scope === "selected") {
 		const { itemPath, idPath } = selectedScopeAt(FormPath.root());
 		const group = operationsGroupAt(itemPath);
 		const blockName = generatedNodes.closeSelectedCases();
@@ -1222,11 +1221,11 @@ export function buildCaseOperations(
 		group.children.push(
 			saveToCaseBlock(blockName, moduleCaseType, [el("close", {})]),
 		);
-		if (ordinaryCloseCondition.type === "if") {
+		if (ordinaryClose.condition.type === "if") {
 			binds.push(
 				el("bind", {
 					nodeset: casePath.child("close").toXPath(),
-					relevant: formActionConditionExpression(ordinaryCloseCondition),
+					relevant: formActionConditionExpression(ordinaryClose.condition),
 				}),
 			);
 		}
@@ -1235,6 +1234,38 @@ export function buildCaseOperations(
 			el("bind", {
 				nodeset: casePath.attr("case_id").toXPath(),
 				calculate: originalContextPath(casePath.attr("case_id"), idPath),
+			}),
+		);
+	}
+
+	// A single-select form's close whose condition HQ's Case Management tab
+	// cannot state is a close-only block of the loaded case, inside a group
+	// whose relevance is the condition, so an untaken condition sends no
+	// block. HQ's close action is `never` there (`formActions.ts`), and HQ's
+	// build appends its own primary block after the source's, so the close
+	// runs before the form's own update and the case ends closed with it.
+	if (ordinaryClose?.scope === "own") {
+		const group = operationsGroupAt(FormPath.root());
+		const conditionName = generatedNodes.conditionClose();
+		const blockName = generatedNodes.close();
+		const conditionPath = group.path.child(conditionName);
+		const casePath = conditionPath.child(blockName).child("case");
+		appendGroup(group, conditionName, [
+			saveToCaseBlock(blockName, moduleCaseType, [el("close", {})]),
+		]);
+		instances.add("commcaresession");
+		if (ordinaryClose.condition.type === "if")
+			binds.push(
+				el("bind", {
+					nodeset: conditionPath.toXPath(),
+					relevant: formActionConditionExpression(ordinaryClose.condition),
+				}),
+			);
+		binds.push(
+			...caseMetaBinds(casePath),
+			el("bind", {
+				nodeset: casePath.attr("case_id").toXPath(),
+				calculate: selectedCaseIdRef,
 			}),
 		);
 	}
@@ -1372,7 +1403,6 @@ export function buildCaseOperations(
 		bodyChildren,
 		instances,
 		fixtureInstances,
-		requiredNamePaths,
 	};
 }
 
@@ -1442,6 +1472,29 @@ export function attachCaseOperationBody(
 		if (child.placement === "prepend") prependChildren(parent, [child.element]);
 		else appendChildren(parent, [child.element]);
 	}
+}
+
+/**
+ * A close form's own condition, wherever it is written: `always` for an
+ * unconditional close, otherwise the authored question, read by its absolute
+ * path, and answer.
+ */
+export function formCloseCondition(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): FormActionCondition {
+	const condition = doc.forms[formUuid]?.closeCondition;
+	if (!condition?.field || !condition.answer) return alwaysCondition();
+	const location = collectFieldLocations(doc, formUuid).get(condition.field);
+	if (location === undefined)
+		throw new Error(
+			`The close condition of form '${formUuid}' reads field '${condition.field}', which the form does not hold. The validator's CLOSE_CONDITION_FIELD_NOT_FOUND refuses that form, so check the document the emitter was given.`,
+		);
+	return ifCondition(
+		location.path.toXPath(),
+		condition.answer,
+		condition.operator ?? "=",
+	);
 }
 
 function formActionConditionExpression(condition: FormActionCondition): string {

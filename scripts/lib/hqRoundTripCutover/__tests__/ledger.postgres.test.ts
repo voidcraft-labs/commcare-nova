@@ -156,6 +156,7 @@ describe("the ledger writes", () => {
 		expect(await noticeReasons(appId)).toEqual([
 			"hq-app-deleted",
 			"local-archive-changes",
+			"case-name-now-checked",
 			"ccz-needs-project-space",
 		]);
 	}, 60_000);
@@ -176,6 +177,7 @@ describe("the ledger writes", () => {
 		expect(await noticeReasons(appId)).toEqual([
 			"hq-app-not-nova-made",
 			"local-archive-changes",
+			"case-name-now-checked",
 		]);
 	}, 60_000);
 

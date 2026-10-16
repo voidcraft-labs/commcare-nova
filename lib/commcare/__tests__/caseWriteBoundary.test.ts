@@ -190,7 +190,10 @@ it.each([
 			throw new Error("Expected a follow-up submission");
 		if (destination === "patient") {
 			expect(actions.update_case.update).toEqual({
-				name: { question_path: "/data/answer", update_mode: "always" },
+				name: {
+					question_path: "/data/nova_trimmed_answer",
+					update_mode: "always",
+				},
 			});
 			expect(actions.subcases).toEqual([]);
 			expect(mutation.patch).toEqual({ caseName: "Amina", properties: {} });
@@ -199,7 +202,10 @@ it.each([
 			expect(actions.subcases).toHaveLength(1);
 			expect(actions.subcases[0]).toMatchObject({
 				case_type: "child",
-				name_update: { question_path: "/data/answer", update_mode: "always" },
+				name_update: {
+					question_path: "/data/nova_trimmed_answer",
+					update_mode: "always",
+				},
 			});
 			expect(mutation.patch).toEqual({ properties: {} });
 			expect(mutation.children).toHaveLength(1);
@@ -589,13 +595,13 @@ it("materializes independent children in cousin repeats nested inside real query
 	).toEqual([
 		{
 			repeat: "/data/outer/rows/item/left/kids",
-			name: "/data/outer/rows/item/left/kids/name",
-			external: "/data/outer/rows/item/left/kids/external",
+			name: "/data/outer/rows/item/left/kids/nova_trimmed_name",
+			external: "/data/outer/rows/item/left/kids/nova_trimmed_external",
 		},
 		{
 			repeat: "/data/outer/rows/item/right/kids",
-			name: "/data/outer/rows/item/right/kids/name",
-			external: "/data/outer/rows/item/right/kids/external",
+			name: "/data/outer/rows/item/right/kids/nova_trimmed_name",
+			external: "/data/outer/rows/item/right/kids/nova_trimmed_external",
 		},
 	]);
 	const runtime = engine(doc, formUuid);

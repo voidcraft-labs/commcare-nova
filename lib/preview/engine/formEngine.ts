@@ -56,6 +56,7 @@ import {
 	type ContainerField,
 	caseDataTypeForFieldKind,
 	casePropertyDataTypes,
+	caseScalarTextGuardIsChecked,
 	deriveCaseWriteInventory,
 	expressionSource,
 	fieldProseTemplate,
@@ -287,6 +288,12 @@ export interface FormEngineInput {
 	 * carries it. Absent, a count takes its base name, beside no collision.
 	 */
 	repeatCountNames?: Readonly<Record<string, string>>;
+	/**
+	 * The guard each case name and external id question carries, by field
+	 * uuid (`lib/domain/caseScalarTextGuard.ts::caseScalarTextGuards`, which
+	 * the emitter reads too). Absent, no question is guarded.
+	 */
+	caseScalarTextGuards?: Readonly<Record<string, CaseScalarTextGuard>>;
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
 	/** Flat uuid→field map (the `doc.fields` slice). */
@@ -438,6 +445,22 @@ function repeatCountNameOf(
 			: undefined) ?? repeatCountBaseName(repeat.id);
 }
 
+/** A guarded question's case scalar: a case name (`reject`, blank refused)
+ *  or an external id (`allow`). */
+type CaseScalarTextGuard = Parameters<typeof prepareCaseScalarTextValue>[1];
+
+/**
+ * The guard half of a guarded question's constraint, `(<authored>) and
+ * (<guard>)` on the device: the answer trimmed as Core trims a case scalar is
+ * at most 255 units long, and for a case name not blank.
+ */
+function scalarTextGuardHolds(
+	value: string,
+	guard: CaseScalarTextGuard | undefined,
+): boolean {
+	return guard === undefined || prepareCaseScalarTextValue(value, guard).ok;
+}
+
 function caseWriteDocOf(
 	input: FormEngineInput,
 ): Pick<
@@ -529,6 +552,8 @@ export class FormEngine {
 		BlueprintDoc,
 		"fields" | "fieldOrder" | "caseTypes" | "userProperties"
 	>;
+	/** The input's case-scalar guards, by field uuid. */
+	private scalarTextGuards: Readonly<Record<string, CaseScalarTextGuard>>;
 	/** The name the form's XForm gives a count-bound repeat's count node. */
 	private repeatCountName: (repeat: Field) => string;
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
@@ -643,6 +668,7 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.asyncRuntime = runtimeOptions.stagedAsync === true;
 		this.restoredEntry = runtimeOptions.restoredEntry;
@@ -2374,12 +2400,15 @@ export class FormEngine {
 	}
 
 	/** Refresh the narrow document surface used only when Preview emits case
-	 * writes. A Builder case-destination edit changes no value, DAG edge, field
-	 * path, or rendered state, so rebuilding or settling the evaluator would be
-	 * wasted work; submission still has to observe the new destination exactly. */
+	 * writes. A Builder case-destination edit changes no value, DAG edge or
+	 * field path, so rebuilding or settling the evaluator would be wasted work;
+	 * submission still has to observe the new destination exactly. The one
+	 * rendered state it reaches is a question that gains or loses the case
+	 * name or external id check, which is revalidated. */
 	refreshCaseWriteDoc(input: FormEngineInput): void {
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
+		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
 	}
 
 	/** Adopt the count node names of the form's current plan of generated
@@ -2414,6 +2443,7 @@ export class FormEngine {
 			this.sectionPages(),
 			this.activeSectionUuid,
 		)?.uuid;
+		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
 	}
 
 	/**
@@ -2872,6 +2902,7 @@ export class FormEngine {
 			}
 			this.evaluatePathsInto([...allAffected]);
 		}
+		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
 	}
 
 	/** Same as preloadCaseData but tracks which paths actually changed value. */
@@ -2933,6 +2964,7 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 
 		this.instance = new DataInstance(this.formRootAttributes);
@@ -3566,14 +3598,18 @@ export class FormEngine {
 		const validationExpr = this.dag
 			.getExpressions(path)
 			.find((expression) => expression.type === "validation");
-		if (!validationExpr || !state.value) {
+		const field = this.findField(path);
+		const guard = this.scalarTextGuardOf(field);
+		if ((!validationExpr && guard === undefined) || !state.value) {
 			if (!state.valid || state.errorMessage !== undefined) {
 				updates[path] = { ...state, valid: true, errorMessage: undefined };
 			}
 			return;
 		}
-		const valid = toBoolean(await evaluateAsync(validationExpr.expr, path));
-		const field = this.findField(path);
+		const valid =
+			(validationExpr === undefined ||
+				toBoolean(await evaluateAsync(validationExpr.expr, path))) &&
+			scalarTextGuardHolds(state.value, guard);
 		const errorMessage = valid
 			? undefined
 			: ((field
@@ -3630,7 +3666,9 @@ export class FormEngine {
 
 		const expressions = this.dag.getExpressions(path);
 		const validationExpr = expressions.find((e) => e.type === "validation");
-		if (!validationExpr || !state.value) {
+		const field = this.findField(path);
+		const guard = this.scalarTextGuardOf(field);
+		if ((!validationExpr && guard === undefined) || !state.value) {
 			if (!state.valid || state.errorMessage !== undefined) {
 				updates[path] = { ...state, valid: true, errorMessage: undefined };
 			}
@@ -3638,9 +3676,10 @@ export class FormEngine {
 		}
 
 		const ctx = this.createEvalContext(path);
-		const result = evaluate(validationExpr.expr, ctx);
-		const valid = toBoolean(result);
-		const field = this.findField(path);
+		const valid =
+			(validationExpr === undefined ||
+				toBoolean(evaluate(validationExpr.expr, ctx))) &&
+			scalarTextGuardHolds(state.value, guard);
 		const errorMessage = valid
 			? undefined
 			: ((field
@@ -4695,6 +4734,48 @@ export class FormEngine {
 
 	private findField(path: string): Field | undefined {
 		return this.findTreeNode(path)?.field;
+	}
+
+	/**
+	 * The case-scalar guard a question's constraint carries on the device: a
+	 * visible question a basic case write reads as a case name (`reject`) or
+	 * an external id (`allow`). A Hidden Value source takes no constraint, so
+	 * it has none here either.
+	 */
+	private scalarTextGuardOf(
+		field: Field | undefined,
+		guards: Readonly<Record<string, CaseScalarTextGuard>> = this
+			.scalarTextGuards,
+	): CaseScalarTextGuard | undefined {
+		if (field === undefined || !caseScalarTextGuardIsChecked(field.kind))
+			return undefined;
+		return Object.hasOwn(guards, field.uuid) ? guards[field.uuid] : undefined;
+	}
+
+	/**
+	 * Take the input's case-scalar guards, and revalidate every live answer of
+	 * a question whose guard they change, as an answer is revalidated when it
+	 * changes: a touched question's required check included.
+	 */
+	private adoptScalarTextGuards(
+		next: Readonly<Record<string, CaseScalarTextGuard>>,
+	): void {
+		const previous = this.scalarTextGuards;
+		this.scalarTextGuards = next;
+		const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+		if ([...keys].every((uuid) => previous[uuid] === next[uuid])) return;
+		const updates: EngineStoreState = {};
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			const field = this.findField(path);
+			if (
+				this.scalarTextGuardOf(field, previous) ===
+				this.scalarTextGuardOf(field, next)
+			)
+				continue;
+			if (state.touched) this.validateAndCollect(path, state, updates);
+			else this.evaluateValidationAndCollect(path, state, updates);
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
 	}
 
 	/** Locate the tree node a concrete OR generic path addresses —

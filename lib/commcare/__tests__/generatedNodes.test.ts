@@ -178,6 +178,26 @@ describe("planGeneratedNodes", () => {
 		});
 	});
 
+	it("allocates the Save to Case close last, stepping around an operation named like it", () => {
+		const { doc, formUuid } = collisionDoc();
+		const operations = doc.forms[formUuid].caseOperations ?? [];
+		doc.forms[formUuid].caseOperations = [
+			...operations,
+			{
+				uuid: "closer" as Uuid,
+				id: "nova_close",
+				action: "close",
+				caseType: "patient",
+				target: { kind: "session" },
+			},
+		];
+		const plan = planGeneratedNodes(doc, formUuid);
+		expect([plan.conditionClose(), plan.close()]).toEqual([
+			"nova_condition_close",
+			"nova_close_1",
+		]);
+	});
+
 	it("gives a copy of a document the plan the document has", () => {
 		const { doc, formUuid } = collisionDoc();
 		const copy = structuredClone(doc);

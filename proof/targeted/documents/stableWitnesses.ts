@@ -135,6 +135,8 @@ function parentFrame(previous: boolean) {
 						uuid("parent-visit"),
 						previous ? "/data/child_name" : "/data/parent_note",
 						"seen",
+						"local",
+						{ command: "m0-f0", caseId: parentCase },
 					),
 					...(previous && {
 						restore: "restore.xml",

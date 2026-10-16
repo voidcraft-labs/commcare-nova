@@ -87,7 +87,6 @@ class SpellingRule:
 # modules are imported after it is defined.
 from proof.rules import (  # noqa: E402
     add_ons,
-    case_block_position,
     case_list_form_unset,
     case_references_load,
     column_tab_keys,
@@ -117,7 +116,6 @@ from proof.rules import (  # noqa: E402
     subcase_empty_strings,
     tile_cell_fields,
     tile_vertical_align_start,
-    update_never_beside_actions,
     vellum_attributes,
     vellum_hashtags,
 )
@@ -150,7 +148,6 @@ RULES: tuple[SpellingRule, ...] = (
     preload_condition.RULE,
     condition_operator_default.RULE,
     form_link_fallback.RULE,
-    update_never_beside_actions.RULE,
     subcase_empty_strings.RULE,
     sort_display_empty.RULE,
     sort_type_plain.RULE,
@@ -161,8 +158,6 @@ RULES: tuple[SpellingRule, ...] = (
     sort_calculation_pair.RULE,
     # A built profile.
     profile_unread_properties.RULE,
-    # A session trace.
-    case_block_position.RULE,
     # The address of a request a reader sent HQ.
     runtime_url_app_id.RULE,
 )

@@ -39,7 +39,11 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"option-label-filled",
 	"android-form-lists-setting-stored",
 	"validation-now-enforced",
+	"follow-up-now-touches-case",
+	"linked-follow-up-now-writes-case",
+	"close-moves-to-save-to-case",
 	"local-archive-changes",
+	"case-name-now-checked",
 	"unsaved-assistant-work-discarded",
 	"ccz-needs-project-space",
 ] as const;

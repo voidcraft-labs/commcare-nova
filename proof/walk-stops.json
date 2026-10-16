@@ -114,10 +114,10 @@
 		"reason": "HQ's case search view refuses the query the search sends (case_search/filter_dsl.py: You cannot query related cases here; defect 12) and Formplayer answers with that in place of the results, on every state."
 	},
 	{
-		"document": "targeted-close-condition-unparsable",
+		"control": "targeted-close-condition-unparsable",
 		"reader": "formplayer",
 		"cause": "notification:encountered-a-problem-with-display-condition",
-		"reason": "Formplayer cannot install the app: Core does not parse the close condition its form's case block carries (UnresolvedResourceException), which is the document's witness of defect 14, so the walk ends at its first request."
+		"reason": "The control retains the document from before step 2 wrote its close condition as a Save to Case close: Core does not parse the close condition its form's case block carries (UnresolvedResourceException), so Formplayer cannot install the app and the walk ends at its first request."
 	},
 	{
 		"document": "targeted-datetime-ordering",

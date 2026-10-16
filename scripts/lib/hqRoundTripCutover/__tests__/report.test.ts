@@ -556,7 +556,7 @@ function generatedNamesDoc(): BlueprintDoc {
 }
 
 describe("the forms whose generated data paths move", () => {
-	it("are each fixture's forms that hold a case operation, and no form whose only generated nodes are counts and messages", () => {
+	it("are each fixture's forms that hold a case operation or a trimmed name, and no form whose only generated nodes are counts and messages", () => {
 		const moving = (id: string) =>
 			generatedPathForms(
 				migratedFixtureDocument(id),
@@ -570,7 +570,9 @@ describe("the forms whose generated data paths move", () => {
 		// A counted repeat's count node, and three message nodes, keep their paths.
 		expect(moving("container-live-count-entry")).toEqual([]);
 		expect(moving("xml-unicode")).toEqual([]);
-		expect(moving("navigation-base")).toEqual([]);
+		// A create's name question and its external id question, each with a
+		// new trimmed sibling.
+		expect(moving("navigation-base")).toEqual(["Register"]);
 		for (const id of [
 			"case-operation-key",
 			"container-live-count-entry",
@@ -602,7 +604,7 @@ describe("the forms whose generated data paths move", () => {
 	it("are counted per app in the generated-paths line, which names no form and lists each app no publish would emit", () => {
 		const doc = generatedNamesDoc();
 		const keyed = migratedFixtureDocument("case-operation-key");
-		const plain = migratedFixtureDocument("navigation-base");
+		const plain = migratedFixtureDocument("xml-unicode");
 		const build = {
 			plan: {
 				format: "hq-round-trip-emission-1",

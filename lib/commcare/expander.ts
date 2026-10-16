@@ -318,9 +318,6 @@ export function expandDoc(
 					...(Object.keys(multiSelectPrimaryUpdate).length > 0 && {
 						multiSelectPrimaryUpdate,
 					}),
-					...(form.type === "close" && {
-						multiSelectCloseCondition: formActions.close_case.condition,
-					}),
 				}),
 				ordinarySubcases: formActions.subcases,
 				...(effectiveConnect && { connect: effectiveConnect }),

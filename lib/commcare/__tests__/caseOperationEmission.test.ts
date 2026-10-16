@@ -438,7 +438,7 @@ it.each(operationScenarios)(
 					children(child(child(data, "case"), "update")).map(
 						(element) => element.name,
 					),
-				).toEqual(["calculated_at", "defaulted_at", "visible_at", "nickname"]);
+				).toEqual(["calculated_at", "defaulted_at", "nickname", "visible_at"]);
 			}
 		}
 	},

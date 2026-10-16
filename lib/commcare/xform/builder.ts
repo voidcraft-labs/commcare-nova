@@ -67,7 +67,6 @@ import {
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { newCaseIdDatumId } from "@/lib/commcare/session";
 import type {
-	FormActionCondition,
 	HqCaseSaveReference,
 	OpenSubCaseAction,
 	UpdateCaseAction,
@@ -86,6 +85,8 @@ import {
 	attachCaseOperationData,
 	bindLookupFilterFieldPaths,
 	buildCaseOperations,
+	caseScalarTextValueCalculation,
+	caseScalarTextValueGuard,
 	collectFieldLocations,
 	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
@@ -102,6 +103,10 @@ import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
+	type CaseScalarTextGuard,
+	caseCreateNameFields,
+	caseScalarTextGuardIsChecked,
+	caseScalarTextGuards,
 	type Field,
 	type FieldKind,
 	fieldExpressionValue,
@@ -130,7 +135,11 @@ import {
 	datetimeCaseValueCalculate,
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
-import { type GeneratedNodePlan, planGeneratedNodes } from "./generatedNodes";
+import {
+	type GeneratedNodePlan,
+	planGeneratedNodes,
+	trimmedValuePath,
+} from "./generatedNodes";
 
 interface ItextRegistration {
 	readonly registered: boolean;
@@ -581,8 +590,6 @@ export interface BuildXFormOptions {
 	searchAnswers?: FormHashtagContext["searchAnswers"];
 	/** Collection-valued selected-entities instance for a multi-select entry. */
 	selectedCasesInstanceId?: string;
-	/** Ordinary close action lowered through the selected-case iteration. */
-	multiSelectCloseCondition?: FormActionCondition;
 	/** Ordinary primary writes lowered through the selected-case iteration. */
 	multiSelectPrimaryUpdate?: UpdateCaseAction["update"];
 	/** Ordinary child actions; extensions and several-case creates ride source. */
@@ -648,6 +655,17 @@ function inDataTreeOrder(
 		.map((setvalue, index) => ({ setvalue, index, at: at(setvalue) }))
 		.sort((a, b) => a.at - b.at || a.index - b.index)
 		.map(({ setvalue }) => setvalue);
+}
+
+/**
+ * The questions of one form a case name or an external id comes from
+ * (`lib/domain/caseScalarTextGuard.ts`): each takes a trimmed sibling, a
+ * visible one carries the check, and one that names a created case is
+ * required.
+ */
+interface FormCaseScalarText {
+	readonly guards: ReadonlyMap<Uuid, CaseScalarTextGuard>;
+	readonly createNames: ReadonlySet<Uuid>;
 }
 
 /** A form's source and the `case_references_data.save` map derived from it. */
@@ -768,12 +786,7 @@ export function buildXFormSource(
 	// reserved for forms that load an existing case.
 	const authoredPaths = xpathPrintContext(doc);
 	const formPaths = new Map<string, FormPath>();
-	// Hidden Values take no `required`: HQ's form builder marks one
-	// "Required is not allowed." on every save.
-	const hiddenValuePaths = new Set<string>();
 	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
-		if (doc.fields[uuid]?.kind === "hidden")
-			hiddenValuePaths.add(location.path.toXPath());
 		const segments = authoredPaths.fieldPathSegments(uuid);
 		if (segments !== undefined) {
 			// A repeat reference denotes its rows, including a query repeat's
@@ -921,6 +934,10 @@ export function buildXFormSource(
 	// Every name the form's generated nodes carry, from the one allocator the
 	// case-operation emitter and `formActions.ts` read too.
 	const generatedNodes = planGeneratedNodes(doc, formUuid);
+	const caseScalarText: FormCaseScalarText = {
+		guards: caseScalarTextGuards(doc, formUuid),
+		createNames: caseCreateNameFields(doc, formUuid),
+	};
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
 		buildFieldParts(
@@ -944,6 +961,7 @@ export function buildXFormSource(
 			lookupSelects,
 			opts.attachmentTarget,
 			generatedNodes,
+			caseScalarText,
 		);
 	}
 
@@ -985,22 +1003,12 @@ export function buildXFormSource(
 		opts.lookupNaming,
 		opts.selectedCaseIdRef,
 		opts.selectedCasesInstanceId,
-		opts.multiSelectCloseCondition,
 		opts.multiSelectPrimaryUpdate,
 		opts.ordinarySubcases,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
 		binds.push(...caseOperations.binds);
-		for (const namePath of caseOperations.requiredNamePaths) {
-			if (hiddenValuePaths.has(namePath)) continue;
-			const bind = binds.find(
-				(candidate) => candidate.attribs.nodeset === namePath,
-			);
-			if (bind === undefined)
-				binds.push(el("bind", { nodeset: namePath, required: "true()" }));
-			else bind.attribs.required = "true()";
-		}
 		setvalues.push(...caseOperations.setvalues);
 		for (const id of caseOperations.instances) instances.require(id);
 		for (const [id, src] of caseOperations.fixtureInstances) {
@@ -1153,6 +1161,7 @@ function buildFieldParts(
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
 	generatedNodes: GeneratedNodePlan,
+	caseScalarText: FormCaseScalarText,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1246,6 +1255,12 @@ function buildFieldParts(
 	};
 	const nodePathStr = nodePath.toXPath();
 	const vellumPathStr = nodePath.toVellum();
+	// A case name or an external id is checked at the question a worker
+	// answers, on the kinds `caseScalarTextGuardIsChecked` names; Preview's
+	// form engine checks the same ones.
+	const scalarGuard = caseScalarText.guards.get(fieldUuid);
+	const checksScalar =
+		scalarGuard !== undefined && caseScalarTextGuardIsChecked(field.kind);
 	const bindAttribs: Record<string, string> = {
 		"vellum:nodeset": vellumPathStr,
 		nodeset: nodePathStr,
@@ -1271,12 +1286,32 @@ function buildFieldParts(
 			bindAttribs["vellum:requiredCondition"] = requiredShorthand;
 		bindAttribs.required = computed(required);
 	}
+	// CommCare requires an answer to the question that names a case the form
+	// creates. The stamp replaces an authored required condition, as HQ's
+	// build merged it onto this bind (`xform.py::XFormCaseBlock.add_create_block`).
+	// A Hidden Value takes no `required`: HQ's form builder marks one
+	// "Required is not allowed." on every save.
+	if (caseScalarText.createNames.has(fieldUuid) && field.kind !== "hidden") {
+		delete bindAttribs["vellum:requiredCondition"];
+		bindAttribs.required = "true()";
+	}
 
 	// Validation (constraint + constraintMsg) is meaningful only on input
 	// kinds. Structural (group/repeat/label) and computed (hidden) fields have
 	// no user-editable value to check — silently skip the attributes so an
 	// upstream misconfiguration can't leak a garbage bind. The validator flags
 	// `validate` on non-input kinds as its own error.
+	// The check stands beside the author's own validation, so the author's
+	// message shows for either failure; with none the runtime shows its own.
+	const scalarCheck =
+		scalarGuard === undefined
+			? ""
+			: caseScalarTextValueGuard(
+					caseScalarTextValueCalculation("."),
+					scalarGuard,
+				);
+	const withScalarCheck = (constraint: string): string =>
+		checksScalar ? `(${constraint}) and (${scalarCheck})` : constraint;
 	if (canValidate && validate) {
 		const expression = fieldExpressionValue(field, "validate");
 		const plan = expression
@@ -1286,8 +1321,8 @@ function buildFieldParts(
 			: { source: validate, calculations: [] };
 		const validateShorthand = shorthand(plan.source);
 		if (validateShorthand !== undefined)
-			bindAttribs["vellum:constraint"] = validateShorthand;
-		bindAttribs.constraint = expand(plan.source);
+			bindAttribs["vellum:constraint"] = withScalarCheck(validateShorthand);
+		bindAttribs.constraint = withScalarCheck(expand(plan.source));
 		for (const calculation of plan.calculations) {
 			dataElements.push(el(calculation.name, {}));
 			// No `vellum:calculate`: the count filters a form reference, which
@@ -1302,6 +1337,8 @@ function buildFieldParts(
 			attrs.relevant = `count(${nodePath.toXPath()}) > 0`;
 			binds.push(el("bind", attrs));
 		}
+	} else if (checksScalar) {
+		bindAttribs.constraint = scalarCheck;
 	}
 
 	// Standard messages use an itext reference. Protected messages compose
@@ -1409,6 +1446,33 @@ function buildFieldParts(
 		);
 	}
 
+	// A case name or an external id is written trimmed, as Core and HQ store
+	// it, from a sibling every write names. HQ's build binds an action's path
+	// as it stands, so the trim lives in the source both export paths share,
+	// and both store one value. A datetime answer is trimmed from its text
+	// value. Like every generated sibling it leaves with its question, so a
+	// question the worker never reaches leaves the case's value alone.
+	if (scalarGuard !== undefined) {
+		const valuePath =
+			"caseWrite" in field &&
+			field.caseWrite !== undefined &&
+			fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
+				? datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath)
+				: nodePath;
+		dataElements.push(el(generatedNodes.trimmed(fieldUuid), {}));
+		binds.push(
+			el("bind", {
+				nodeset: trimmedValuePath(
+					generatedNodes,
+					fieldUuid,
+					nodePath,
+				).toXPath(),
+				calculate: caseScalarTextValueCalculation(valuePath.toXPath()),
+				relevant: `count(${nodePath.toXPath()}) > 0`,
+			}),
+		);
+	}
+
 	// Options (select kinds).
 	//
 	// itext ids are keyed by the option's stable array INDEX, not its `value` —
@@ -1467,6 +1531,7 @@ function buildFieldParts(
 			lookupSelects,
 			attachmentTarget,
 			generatedNodes,
+			caseScalarText,
 		);
 		return;
 	}
@@ -1787,6 +1852,7 @@ function buildContainer(
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
 	generatedNodes: GeneratedNodePlan,
+	caseScalarText: FormCaseScalarText,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -1833,6 +1899,7 @@ function buildContainer(
 			lookupSelects,
 			attachmentTarget,
 			generatedNodes,
+			caseScalarText,
 		);
 	}
 

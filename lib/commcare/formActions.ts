@@ -24,7 +24,6 @@ import {
 	emptyFormActions,
 	extractHashtags,
 	hqLoadReference,
-	ifCondition,
 	neverCondition,
 } from "@/lib/commcare";
 import { caseTypeDepthMap } from "@/lib/commcare/hashtags/formContext";
@@ -34,9 +33,11 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseSelectionCardinality,
 	caseSelectionCardinality,
+	closeConditionPlacement,
 	deriveCaseWriteInventory,
 	type Field,
 	isCaptureField,
+	isCaseScalarTextProperty,
 	type Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -54,60 +55,26 @@ import {
 	type AttachmentUrlTarget,
 	captureUrlNodePath,
 } from "./xform/captureUrlNode";
+import { formCloseCondition } from "./xform/caseOps";
 import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 import {
 	type GeneratedNodePlan,
 	planGeneratedNodes,
+	trimmedValuePath,
 } from "./xform/generatedNodes";
-
-/** Find one stable field identity inside a specific form tree. */
-function findFieldPath(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	fieldUuid: Uuid,
-	prefix: FormPath = FormPath.root(),
-): FormPath | undefined {
-	for (const childUuid of doc.fieldOrder[parentUuid] ?? []) {
-		const field = doc.fields[childUuid];
-		if (!field) continue;
-		const path = prefix.child(field.id);
-		if (childUuid === fieldUuid) return path;
-		if (doc.fieldOrder[childUuid] !== undefined) {
-			const nested = findFieldPath(
-				doc,
-				childUuid,
-				fieldUuid,
-				descendFormPathIntoField(field, path),
-			);
-			if (nested !== undefined) return nested;
-		}
-	}
-	return undefined;
-}
-
-/** Resolve one stable field identity inside a specific form, or fail closed. */
-function requireFieldPath(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	fieldUuid: Uuid,
-): FormPath {
-	const path = findFieldPath(doc, formUuid, fieldUuid);
-	if (path !== undefined) return path;
-	throw new Error(
-		`Field '${fieldUuid}' is not reachable from form '${formUuid}'.`,
-	);
-}
 
 /**
  * The node one ordinary case update reads, or `null` when this binding has no
  * honest wire spelling against the current target.
  *
  * An ordinary field's answer IS the case value, so the question path is the
- * field's own node. A capture's is not: the answer is a file name, and the
- * property carries an address built from it, which lives on the sibling node
- * `captureUrlNodePath` names. Both sibling names are the form's plan of
- * generated nodes', the one the XForm builder writes them from. Routing the
+ * field's own node. A case name or an external id is the answer trimmed, held
+ * by the question's trimmed sibling. A capture's is not the answer either:
+ * the answer is a file name, and the property carries an address built from
+ * it, which lives on the sibling node `captureUrlNodePath` names. Every
+ * sibling name is the form's plan of generated nodes', the one the XForm
+ * builder writes them from. Routing the
  * update at the capture node instead would make HQ emit an `<attachment>`
  * block rather than an `<update>` child.
  *
@@ -123,6 +90,8 @@ function caseUpdateQuestionPath(
 	field: Field,
 	attachmentTarget: AttachmentUrlTarget | null,
 ): string | null {
+	if (isCaseScalarTextProperty(binding.property))
+		return trimmedQuestionPath(generatedNodes, binding);
 	if (fieldValueType(field, effectiveCaseTypes(doc)) === "datetime")
 		return datetimeCaseValuePath(
 			generatedNodes(),
@@ -135,6 +104,18 @@ function caseUpdateQuestionPath(
 	}
 	if (attachmentTarget === null) return null;
 	return captureUrlNodePath(
+		generatedNodes(),
+		binding.fieldUuid,
+		binding.path,
+	).toXPath();
+}
+
+/** The trimmed sibling a case name or an external id action names. */
+function trimmedQuestionPath(
+	generatedNodes: () => GeneratedNodePlan,
+	binding: DerivedCasePropertyBinding,
+): string {
+	return trimmedValuePath(
 		generatedNodes(),
 		binding.fieldUuid,
 		binding.path,
@@ -308,29 +289,31 @@ export function buildFormActions(
 				`Registration form '${form.id}' reached the expander with ${caseNames?.length ?? 0} case-name writers; exactly one is required.`,
 			);
 		}
-		base.open_case.name_update.question_path = caseNames[0].path.toXPath();
+		base.open_case.name_update.question_path = trimmedQuestionPath(
+			generatedNodes,
+			caseNames[0],
+		);
 
-		const externalIds =
-			caseProperties?.filter((binding) => binding.property === "external_id") ??
-			[];
-		if (externalIds.length > 1) {
-			throw new Error(
-				`Registration form '${form.id}' reached the expander with ${externalIds.length} external-id writers; at most one is allowed.`,
-			);
-		}
-		base.open_case.external_id = externalIds[0]?.path.toXPath() ?? null;
-
+		// An external id is an ordinary update row, as HQ's Case Management
+		// tab writes it; `open_case.external_id` stays null. Two writers of one
+		// property, an external id among them, are the inventory's
+		// `duplicate-property` issue: the validator refuses the form
+		// (`caseWriteFindings.ts`) and the admission assertion above throws.
 		const updateMap = projectPrimaryUpdateMap(
 			doc,
 			generatedNodes,
-			caseProperties?.filter((binding) => binding.property !== "external_id"),
+			caseProperties,
 			attachmentTarget,
 		);
-		if (Object.keys(updateMap).length > 0) {
-			base.update_case.condition = alwaysCondition();
-			base.update_case.update = updateMap;
-		}
+		if (Object.keys(updateMap).length > 0) base.update_case.update = updateMap;
 	}
+
+	// HQ's Case Management save writes `always` on every form that opens or
+	// requires a case (`case_config_ui.js::HQFormActions.from_case_transaction`),
+	// whatever it writes. HQ then builds a block that touches the selected
+	// case on a follow-up that writes nothing, and no primary block at all in
+	// a multi-select menu.
+	base.update_case.condition = alwaysCondition();
 
 	if (CASE_LOADING_FORM_TYPES.has(form.type)) {
 		const updateMap = projectPrimaryUpdateMap(
@@ -343,7 +326,6 @@ export function buildFormActions(
 			effectiveCaseSelection === "single" &&
 			Object.keys(updateMap).length > 0
 		) {
-			base.update_case.condition = alwaysCondition();
 			base.update_case.update = updateMap;
 		}
 
@@ -367,24 +349,18 @@ export function buildFormActions(
 		}
 	}
 
-	// Close-case action (close forms only — form.type IS the signal).
+	// Close-case action (close forms only — form.type IS the signal). A
+	// condition HQ's Case Management tab cannot state is written as a Save to
+	// Case close in the form's source (`xform/caseOps.ts`), so the tab holds
+	// no condition it would rewrite.
 	if (form.type === "close") {
-		if (form.closeCondition?.field && form.closeCondition?.answer) {
-			base.close_case = {
-				doc_type: "FormAction",
-				condition: ifCondition(
-					requireFieldPath(doc, formUuid, form.closeCondition.field).toXPath(),
-					form.closeCondition.answer,
-					form.closeCondition.operator ?? "=",
-				),
-			};
-		} else {
-			// Unconditional close (default for close forms).
-			base.close_case = {
-				doc_type: "FormAction",
-				condition: alwaysCondition(),
-			};
-		}
+		base.close_case = {
+			doc_type: "FormAction",
+			condition:
+				closeConditionPlacement(doc, formUuid) === "save-to-case"
+					? neverCondition()
+					: formCloseCondition(doc, formUuid),
+		};
 	}
 
 	// Child / sub-cases (auto-derived from `caseWrite.caseType` pointing at a
@@ -435,7 +411,7 @@ export function buildFormActions(
 				doc_type: "OpenSubCaseAction",
 				case_type: child.caseType,
 				name_update: {
-					question_path: childCaseName.path.toXPath(),
+					question_path: trimmedQuestionPath(generatedNodes, childCaseName),
 					update_mode: "always",
 				},
 				reference_id: "",

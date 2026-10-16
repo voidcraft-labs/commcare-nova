@@ -60,7 +60,6 @@ CHECK = "proof4"
 # Every corpus document a rule's test reads, by id, and no other: ``rule_documents`` hands a test these alone.
 DOCUMENTS = (
     "arithmetic",
-    "case-capture-multiple",
     "case-capture-repeat",
     "case-extension-registration",
     "case-list-inline",
@@ -69,7 +68,6 @@ DOCUMENTS = (
     "expander-expanddoc-hq-json-projection-sort-elements-1e1c54c0-0",
     "expander-expanddoc-hq-json-projection-sort-elements-5899296f-0",
     "nested-menu-parent",
-    "nested-menu-same-multiple",
     "search-browse",
     "standard-case-reads",
     "targeted-custom-tile",
@@ -284,28 +282,26 @@ def restore(app, database):
     return held
 
 
-def run(app, core_runner, outcome, restored, database, script=None, *, files=None):
-    """Core's sessions on a build (``files`` in place of its own, where given), HQ processing each submission."""
+def run(app, core_runner, outcome, restored, database, script=None):
+    """Core's sessions on a build, HQ processing each submission."""
     with tempfile.TemporaryDirectory(prefix="proof-rules-") as directory:
-        arranged = proof3.arrange_build(files if files is not None else outcome.files, Path(directory) / "build")
+        arranged = proof3.arrange_build(outcome.files, Path(directory) / "build")
         ran = proof3.run_sessions(core_runner, "B", arranged, restored, script)
     if ran.trace is None:
         return Ran(ran.admission, None, None)
     return Ran(ran.admission, ran.trace, app.processed(database, ran.trace))
 
 
-def runs_alike(app, core_runner, first, second, *, database=None, rules=(), second_files=None, first_files=None):
+def runs_alike(app, core_runner, first, second, *, database=None, rules=()):
     """Both builds' sessions (the second replaying the first's script) and their differences after ``rules``:
     ``(first Ran, second Ran, trace and case-processing differences)``."""
     database = database or casedata.case_database(app.document.document)
     restored = restore(app, database)
-    ran_first = run(app, core_runner, first, restored, database, files=first_files)
+    ran_first = run(app, core_runner, first, restored, database)
     assert ran_first.trace is not None, f"Core did not admit the first build: {ran_first.admission}"
     opened = [step for each in ran_first.trace["runs"] for step in each["trace"] if step.get("screen") == "form"]
     assert opened, "the sessions open no form, so they run nothing the spelling could change"
-    ran_second = run(
-        app, core_runner, second, restored, database, proof3.script_of(ran_first.trace), files=second_files
-    )
+    ran_second = run(app, core_runner, second, restored, database, proof3.script_of(ran_first.trace))
     assert ran_second.trace is not None, f"Core did not admit the second build: {ran_second.admission}"
     return ran_first, ran_second, trace_differences(ran_first, ran_second, rules=rules)
 

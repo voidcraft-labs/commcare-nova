@@ -106,6 +106,8 @@ export function multiSelectDestinations() {
 					uuid("form-single-under-batches"),
 					"/data/note",
 					"checked",
+					"local",
+					{ command: "m1-f0", caseId: "targeted-sample" },
 				),
 			],
 		},

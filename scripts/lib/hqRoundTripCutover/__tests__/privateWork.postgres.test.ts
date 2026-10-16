@@ -25,6 +25,17 @@ const h = setupAppStateTestDb("hq_cutover_private_work_", {
 const OWNER = "owner-private-work";
 const PROJECT = "project-private-work";
 const host = { kind: "mcp" } as const;
+/** Every app here is `navigation-base`, whose registration form takes its case name from a question. */
+const REGISTER_NAME_CHECKED = {
+	kind: "document",
+	reason: "case-name-now-checked",
+	entity: {
+		type: "form",
+		uuid: "cb8763b4-7126-5ec8-ac0b-fb361104f6c4",
+		nameAtMigration: "Register",
+	},
+	detail: { question: "name" },
+};
 
 async function seedApp(appId: string): Promise<void> {
 	await seedFixtureApp(
@@ -170,7 +181,8 @@ describe("private work across the cutover", () => {
 		const notices = await sql<{ app_id: string; entries: unknown }>`
 			SELECT app_id, entries FROM app_migration_notices ORDER BY app_id
 		`.execute(h.db());
-		// Every app is told what a downloaded file now needs. No app here is
+		// Every app is told what a downloaded file now needs and that its
+		// registration's case name is now checked. No app here is
 		// published anywhere, so the live ones are also told a CCZ needs a
 		// project space; the deleted one is not.
 		expect(notices.rows).toEqual([
@@ -182,6 +194,7 @@ describe("private work across the cutover", () => {
 						reason: "local-archive-changes",
 						entity: { type: "app", nameAtMigration: expect.any(String) },
 					},
+					REGISTER_NAME_CHECKED,
 					{
 						kind: "document",
 						reason: "ccz-needs-project-space",
@@ -202,6 +215,7 @@ describe("private work across the cutover", () => {
 						reason: "local-archive-changes",
 						entity: { type: "app", nameAtMigration: expect.any(String) },
 					},
+					REGISTER_NAME_CHECKED,
 					{
 						kind: "document",
 						reason: "ccz-needs-project-space",
@@ -217,6 +231,7 @@ describe("private work across the cutover", () => {
 						reason: "local-archive-changes",
 						entity: { type: "app", nameAtMigration: expect.any(String) },
 					},
+					REGISTER_NAME_CHECKED,
 					{
 						kind: "document",
 						reason: "unsaved-assistant-work-discarded",

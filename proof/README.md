@@ -2614,8 +2614,8 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 13, root create id | the save turns a live create id into a load-time value, and a later update fails ("Unable to update or close case", `CaseXmlParser`). Fixed in step 2: a root create keyed by an answer sits in a one-row repeat no worker sees, `nova_keyed_<operation>`, where the form builder keeps its id as a live bind | proof 4, then 3 | fixed; still shown by the control `case-operation-key` |
 | 13, `#form/` defaults and block ids | Vellum marks a default that reads `#form/…` and a read of another block's `case/@case_id` as errors. Fixed in step 2: the defaults read `current()/…`, a registration form's read of its own new case id reads the session, and one block reads another's id through `current()`, which the form builder does not check | proof 4 | fixed; the defaults are still shown by the control `targeted-load-time-values`, and the registration read by the control `expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0` |
 | 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language). Fixed in step 2: Nova writes the same fill | proof 4, then 2 | fixed; still shown by the control `localization-optional` |
-| 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; a case id a form link forwards that no form created becomes a case HQ makes without a create block; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set") | proof 4, then 3 | a follow-up form that writes nothing; `case-list-inline`; the form-link expander documents |
-| 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | `targeted-close-conditions`, `targeted-close-condition-unparsable` |
+| 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set"). Fixed in step 2: every registration, follow-up and close form writes `update_case` `always`, so a follow-up that writes nothing carries its touch block from Nova's own export and the save changes nothing. A case id a form link forwards that no form created is defect 26's | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `search-registration-link`, `case-list-inline` and `expander-form-links-emission-emits-hq-form-links-with-3555b968-0` |
+| 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition. Fixed in step 2: a condition the tab cannot state is a Save to Case close in the form's source, `nova_close` in the group `nova_condition_close`, with `close_case` `never` (`lib/domain/closeCondition.ts::closeConditionPlacement`) | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | fixed; still shown by the controls `targeted-close-conditions`, `targeted-close-condition-unparsable` and, on Formplayer's submit of the local archive, `targeted-close-conditions-after-59`; the two documents hold the fix |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch | proof 4; the bar | `targeted-multi-select-destinations` |
 | 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | `targeted-search-button-label`, a lookup prompt, `targeted-search-default-filter-name`, `targeted-search-hq-compile` |
 | 14, survey menus | the module's case type is `''` where the document holds one | intent (HQ) | `targeted-survey-menu` |
@@ -2626,9 +2626,10 @@ left out the same way, is a row again: Nova's gate admits the read it needs.
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps` |
 | 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
-| 24 | a Case Management save turns the inert subcase's relationship from extension to child | proof 4; proof 3 across the two paths | an extension child case |
+| 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths | proof 4; proof 3 across the two paths | an extension child case; the item's position is fixed and still shown by the control `case-capture-query` |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7) | proof 4, then 3; manifest | query repeats in those places, `targeted-query-repeat-places` |
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
+| 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests | proof 3 and proof 4 (Android's soft assertions) | `expander-form-links-emission-forwards-literal-condition-47c96355-0` |
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group | proof 4 | `targeted-labelled-group-repeat` |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | `targeted-repeat-count-copy` |
 | 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant | intent (Core), on the local export and on A | `targeted-datetime-ordering` |
@@ -2800,9 +2801,9 @@ a module, `proof/rules/<rule>.py`, exporting
 `RULES` in `proof/rules/__init__.py` lists them in the order the comparators
 apply them. The comparators apply those and no others; the observation
 compares raw builds without them, so registering a rule changes judgments
-only. A rule that holds only under a condition (an empty update only beside
-other actions, a tile cell only outside a custom tile) states the condition in
-its docstring and leaves the artifact as it is elsewhere. A rule reads an
+only. A rule that holds only under a condition (a tile cell only outside a
+custom tile) states the condition in its docstring and leaves the artifact as
+it is elsewhere. A rule reads an
 XPath expression's shape (a path of plain steps, a value that reads no node,
 the functions it calls) only through `proof/rules/_xpath.py`, a port of Core's
 XPath lexer that `proof/rules/test_xpath_reading.py` holds to Core's own
@@ -2877,9 +2878,9 @@ The rules whose readers reach past HQ's build and Core:
   request a reader sent HQ, which `proof/checks/served.py` hands it for each
   submission in Formplayer's trace and `proof/checks/android.py` for each
   address the device's answer holds; `proof/rules/__init__.py::ARTIFACT_READERS`
-  names Formplayer and the device as its readers. With `case-block-position`
-  it is one of the two rules that compare the two export paths; every other
-  rule judges HQ's stored app, HQ's builds and HQ's forms against each other.
+  names Formplayer and the device as its readers. It is the one rule that
+  compares the two export paths; every other rule judges HQ's stored app, HQ's
+  builds and HQ's forms against each other.
 
 Formplayer's traces take the rules for an `instance` (each XML document a
 trace holds).
@@ -3421,7 +3422,10 @@ and applies the submission through `XmlFormRecordProcessor` and
 `CaseXmlParser`. Its assertions inspect the stored cases: generated and
 authored ids, conditional create and retype dependencies, snapshot reads,
 final writes and closure, link creation and removal, scalar normalization and
-bounds, nested-menu child selection, parent updates through the child's saved
+bounds (a padded name stored trimmed through its question's `nova_trimmed_`
+node, a hidden name question leaving the case's name as it was, and a
+whitespace-only or 256-character name refused at the question), nested-menu
+child selection, parent updates through the child's saved
 relationship, and repeat-local relation conditions. One block reads another's
 id through `current()`, so each repeat row's blocks name that row's create and
 the keyed root create's block names the row form entry makes in its one-row

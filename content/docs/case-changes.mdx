@@ -73,6 +73,20 @@ Every form that writes these facts or events needs to preserve them. This does
 not guarantee a fresh phase at submission or a timestamp written only by the
 first event.
 
+A follow-up form that changes nothing on its case still marks the case as
+updated each time it is submitted, so the case's last-modified date moves. A
+follow-up form opened by a form link updates the case that link names. If the
+link's case value is empty, Android can't save the form, and if it names no
+case, CommCare HQ creates one.
+
+A close form can close its case only when one answer matches. CommCare HQ's
+Case Management tab can show that condition when it reads a single-choice,
+multiple-choice, hidden or label question outside a repeating section, the
+answer holds no straight apostrophe and neither starts nor ends with a double
+quote, and, for a question with written choices, the answer is one of them.
+Any other condition is saved as a Save to Case close inside the form, which
+needs Save to Case in the project space's plan on CommCare HQ.
+
 ## Where to find them
 
 Open a form, choose the settings gear, and pick **Edit case changes**. The

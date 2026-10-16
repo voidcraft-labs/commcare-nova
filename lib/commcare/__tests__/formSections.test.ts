@@ -47,7 +47,7 @@ describe("section XForm structure (native metadata checked by ContainerRuntimeTe
 				expect(
 					expandDoc(containerWireFixture(scenario)).modules[0].forms[0].actions
 						.open_case.name_update,
-				).toEqual({ question_path: "/data/page/answer" });
+				).toEqual({ question_path: "/data/page/nova_trimmed_answer" });
 		},
 	);
 });

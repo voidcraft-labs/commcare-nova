@@ -159,6 +159,58 @@ const ENTRIES: Record<
 			entity: APP_ENTITY,
 		},
 	},
+	"follow-up-now-touches-case": {
+		withDetail: {
+			kind: "document",
+			reason: "follow-up-now-touches-case",
+			entity: FORM_ENTITY,
+			detail: { menu: "Patients" },
+		},
+		bare: {
+			kind: "document",
+			reason: "follow-up-now-touches-case",
+			entity: FORM_ENTITY,
+		},
+	},
+	"linked-follow-up-now-writes-case": {
+		withDetail: {
+			kind: "document",
+			reason: "linked-follow-up-now-writes-case",
+			entity: FORM_ENTITY,
+			detail: { source: "Intake" },
+		},
+		bare: {
+			kind: "document",
+			reason: "linked-follow-up-now-writes-case",
+			entity: FORM_ENTITY,
+		},
+	},
+	"close-moves-to-save-to-case": {
+		withDetail: {
+			kind: "document",
+			reason: "close-moves-to-save-to-case",
+			entity: FORM_ENTITY,
+			detail: { menu: "Patients" },
+		},
+		bare: {
+			kind: "document",
+			reason: "close-moves-to-save-to-case",
+			entity: FORM_ENTITY,
+		},
+	},
+	"case-name-now-checked": {
+		withDetail: {
+			kind: "document",
+			reason: "case-name-now-checked",
+			entity: FORM_ENTITY,
+			detail: { question: "Full name" },
+		},
+		bare: {
+			kind: "document",
+			reason: "case-name-now-checked",
+			entity: FORM_ENTITY,
+		},
+	},
 	"setting-changes-at-next-publish": {
 		withDetail: {
 			kind: "deployment",
@@ -477,6 +529,48 @@ describe("the form-list, validation and download lines", () => {
 				"A CommCare file downloaded from Nova now needs CommCare 2.57 or later.",
 			);
 		}
+	});
+
+	it("says what each case-write change means for its form", () => {
+		const form = (name: string) => ({ ...FORM_ENTITY, nameAtMigration: name });
+		expect(
+			renderNoticeEntry(
+				document("follow-up-now-touches-case", form("Review")),
+				REMOVED,
+			).text,
+		).toBe(
+			"Review: submitting it now updates its case's last-modified date, even when nothing changes. Case update rules and data forwarding in CommCare HQ see that.",
+		);
+		const linked = renderNoticeEntry(
+			document("linked-follow-up-now-writes-case", form("Review"), {
+				source: "Intake",
+			}),
+			REMOVED,
+		);
+		expect(linked.text).toBe(
+			"Review, when Intake opens it: submitting it now updates the case that link names. If the link's case value is empty, Android can't save the form, and if it names no case, CommCare HQ creates one. The value is yours to change in Intake's link.",
+		);
+		expect(
+			linked.parts.filter((part) => part.kind === "entity").map((p) => p.text),
+		).toEqual(["Review"]);
+		expect(
+			renderNoticeEntry(
+				document("close-moves-to-save-to-case", form("Discharge")),
+				REMOVED,
+			).text,
+		).toBe(
+			"Discharge: its close is now written as a case change in the form. CommCare HQ shows no close on its Case Management tab, and the next publish asks about one more plan feature.",
+		);
+		expect(
+			renderNoticeEntry(
+				document("case-name-now-checked", form("Register"), {
+					question: "Full name",
+				}),
+				REMOVED,
+			).text,
+		).toBe(
+			"Register: workers now see a message when the case name from Full name is blank or longer than 255 characters. CommCare can't save a case with a name like that.",
+		);
 	});
 
 	it("says which list workers gain at the next publish, and on which readers", () => {

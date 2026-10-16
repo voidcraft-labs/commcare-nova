@@ -146,6 +146,14 @@ in lists and record details. Choose an answer or combine answers in an expressio
 Changing the name preserves the form’s other saved answers. Nova uses the same
 naming setting when building through chat or the MCP API.
 
+When the name comes from a question the worker answers, a blank name or one
+longer than 255 characters is refused at that question, with the question's own
+validation message when it has one and CommCare's message otherwise. In the app Nova sends to CommCare HQ, each
+question a record's name or external ID comes from gains a hidden value that
+holds the trimmed answer. You'll see it in CommCare HQ's form builder, in
+submissions, and as a column in form exports. From the next build, the names
+and external IDs CommCare HQ stores are trimmed of surrounding spaces.
+
 ## Share a document with Nova
 
 You can upload a file or choose one from the library when answering Nova's

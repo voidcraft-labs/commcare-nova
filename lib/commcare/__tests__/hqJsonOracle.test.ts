@@ -655,6 +655,30 @@ describe("HQ-JSON oracle — update_mode choice slot", () => {
 	});
 });
 
+// ── external id spelling ────────────────────────────────────────────
+
+describe("HQ-JSON oracle — external id spelling", () => {
+	it("flags an external id written on open_case.external_id", () => {
+		const app = baselineApp();
+		const actions = moduleOf(app).forms[0].actions;
+		actions.open_case.external_id = "/data/nova_trimmed_external";
+		expect(codes(validateHqJson(app))).toEqual([
+			"HQJSON_OPEN_CASE_EXTERNAL_ID",
+		]);
+	});
+
+	it("accepts the same external id as an update_case.update row", () => {
+		const app = baselineApp();
+		const actions = moduleOf(app).forms[0].actions;
+		actions.open_case.external_id = null;
+		actions.update_case.update.external_id = {
+			question_path: "/data/nova_trimmed_external",
+			update_mode: "always",
+		};
+		expect(codes(validateHqJson(app))).toEqual([]);
+	});
+});
+
 // ── subcase relationship choice ─────────────────────────────────────
 
 describe("HQ-JSON oracle — subcase relationship choice slot", () => {

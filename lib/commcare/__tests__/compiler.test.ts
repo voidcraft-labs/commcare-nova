@@ -391,10 +391,15 @@ describe("CCZ compiler integration", () => {
 				(node) => node.name,
 			),
 		).toEqual(["external_id"]);
-		expect(hq.modules[0].forms[1].actions.open_case.external_id).toBe(
-			"/data/external",
-		);
-		expect(hq.modules[0].forms[1].actions.update_case.update).toEqual({});
+		// The external id is an ordinary update row, read from the question's
+		// trimmed sibling, as HQ's Case Management tab writes it.
+		expect(hq.modules[0].forms[1].actions.open_case.external_id).toBeNull();
+		expect(hq.modules[0].forms[1].actions.update_case.update).toEqual({
+			external_id: {
+				question_path: "/data/nova_trimmed_external",
+				update_mode: "always",
+			},
+		});
 		const followup = model(zip.readAsText("modules-0/forms-0.xml"));
 		expect(
 			xmlChildren(followup, "setvalue")
